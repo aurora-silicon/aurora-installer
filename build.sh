@@ -99,7 +99,7 @@ fi
 echo "Copying files..."
 
 cp -r "$SRC"/* "$PACKAGE/"
-rm "$PACKAGE/asahi_firmware"
+rm -rf "$PACKAGE/asahi_firmware"
 cp -r "$AFW" "$PACKAGE/"
 if [ -r "$LOGO" ]; then
     cp "$LOGO" "$PACKAGE/logo.icns"
@@ -123,12 +123,18 @@ mkdir -p "$PACKAGE/Frameworks/Python.framework"
 
 # test if libarchive's bsdtar is capable of extracting the payload
 # libarchive 3.7.2 (Ubuntu 24.04) is broken while 3.8.5 (Ubuntu 26.04) works
-if $(bsdtar -tf "$DL/$PYTHON_PKG" Python_Framework.pkg/Payload > /dev/null); then
+if bsdtar -tf "$DL/$PYTHON_PKG" Python_Framework.pkg/Payload > /dev/null 2>&1; then
     bsdtar -xOf "$DL/$PYTHON_PKG" Python_Framework.pkg/Payload | zcat | \
-        cpio -i -D "$PACKAGE/Frameworks/Python.framework"
+        (cd "$PACKAGE/Frameworks/Python.framework" && cpio -i)
+elif command -v xar > /dev/null 2>&1; then
+    XAR_TMP="$(mktemp -d)"
+    xar -x -f "$DL/$PYTHON_PKG" -C "$XAR_TMP"
+    gzip -dc "$XAR_TMP/Python_Framework.pkg/Payload" | \
+        (cd "$PACKAGE/Frameworks/Python.framework" && cpio -i)
+    rm -rf "$XAR_TMP"
 else
     7z x -so "$DL/$PYTHON_PKG" Python_Framework.pkg/Payload | zcat | \
-        cpio -i -D "$PACKAGE/Frameworks/Python.framework"
+        (cd "$PACKAGE/Frameworks/Python.framework" && cpio -i)
 fi
 
 cd "$PACKAGE/Frameworks/Python.framework/Versions/Current"

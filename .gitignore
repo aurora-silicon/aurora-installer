@@ -1,9 +1,11 @@
 __pycache__
+.DS_Store
 dl
 package
 *.tar.gz
 latest
 *.ipsw
+*.dmg.aea
 *.egg-info
 build
 dist
@@ -12,3 +14,4 @@ dist
 /key\.asc
 /python-3.9.6-macos11\.pkg
 /python-3.9.6-macos11\.pkg\.asc
+/releases/stub.py
