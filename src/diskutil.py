@@ -19,6 +19,7 @@ class Partition:
 
 class DiskUtil:
     FREE_THRESHOLD = 16 * 1024 * 1024
+    INFO_TIMEOUT = 10
     def __init__(self):
         self.verbose = "-v" in sys.argv
 
@@ -38,10 +39,11 @@ class DiskUtil:
         else:
             subprocess.run(["diskutil"] + list(args), check=True)
 
-    def get(self, *args):
+    def get(self, *args, timeout=None):
         logging.debug(f"get: diskutil {args!r}")
         result = subprocess.run(["diskutil"] + list(args),
-                                stdout=subprocess.PIPE, check=True)
+                                stdout=subprocess.PIPE, check=True,
+                                timeout=timeout)
         return plistlib.loads(result.stdout)
 
     def get_list(self):
@@ -74,7 +76,12 @@ class DiskUtil:
         logging.info(f"DiskUtil.get_disk_info()")
         self.disks = {}
         for i in self.disk_list:
-            self.disks[i] = self.get("info", "-plist", i)
+            try:
+                self.disks[i] = self.get("info", "-plist", i,
+                                         timeout=self.INFO_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                logging.warning(f"Timed out querying {i}; skipping unresponsive disk")
+                continue
             logging.debug(f" {i}: {self.disks[i]}")
 
     def get_info(self):
