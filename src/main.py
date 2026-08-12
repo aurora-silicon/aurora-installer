@@ -49,6 +49,7 @@ CHIP_MIN_VER = {
     0x6030: "14.8.3",   # T6030, M3 Pro
     0x6031: "14.8.3",   # T6031, M3 Max (16-core)
     0x6034: "14.8.3",   # T6034, M3 Max (14-core)
+    0x8140: "26.6.1",   # T8140, A18 Pro (MacBook Neo; local expert bring-up)
 }
 
 DEVICES = {
@@ -86,6 +87,7 @@ DEVICES = {
     "j516sap":  Device("14.8.3", True), # MacBook Pro (16-inch, M3 Pro, 2023)
     "j516cap":  Device("14.8.3", True), # MacBook Pro (16-inch, M3 Max, 2023)
     "j516map":  Device("14.8.3", True), # MacBook Pro (16-inch, M3 Max, 2023)
+    "j700ap":   Device("26.6.1", True), # MacBook Neo (A18 Pro, 2026; local bring-up)
 }
 
 # Asahi Linux does not support running in a virtual machine, this option
@@ -95,6 +97,13 @@ if os.environ.get("ALLOW_VM", None):
     DEVICES["vma2macosap"] = Device("12.0", False)
 
 IPSW_VERSIONS = [
+    IPSW("26.6.1",
+         "26.6.1",
+         "mBoot-18000.161.9",
+         "25.7.76.0.0,0",
+         True,
+         ["j700ap"],
+         "https://updates.cdn-apple.com/2026SummerFCS/fullrestores/140-83079/25315EF6-AEAB-4588-9774-A3723774C47F/UniversalMac_26.6.1_25G76_Restore.ipsw"),
     IPSW("12.3.1",
          "12.1",
          "iBoot-7459.101.3",
