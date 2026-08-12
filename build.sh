@@ -98,7 +98,9 @@ fi
 
 echo "Copying files..."
 
-cp -r "$SRC"/* "$PACKAGE/"
+# Preserve source symlinks on macOS. BSD cp -r dereferences the
+# asahi_firmware link, which makes the following plain rm fail.
+cp -RP "$SRC"/* "$PACKAGE/"
 rm "$PACKAGE/asahi_firmware"
 cp -r "$AFW" "$PACKAGE/"
 if [ -r "$LOGO" ]; then
@@ -120,15 +122,24 @@ tar xf "$DL/$LIBFFI_PKG"
 echo "Extracting Python framework..."
 
 mkdir -p "$PACKAGE/Frameworks/Python.framework"
+PYTHON_FRAMEWORK="$PACKAGE/Frameworks/Python.framework"
 
 # test if libarchive's bsdtar is capable of extracting the payload
 # libarchive 3.7.2 (Ubuntu 24.04) is broken while 3.8.5 (Ubuntu 26.04) works
 if $(bsdtar -tf "$DL/$PYTHON_PKG" Python_Framework.pkg/Payload > /dev/null); then
-    bsdtar -xOf "$DL/$PYTHON_PKG" Python_Framework.pkg/Payload | zcat | \
-        cpio -i -D "$PACKAGE/Frameworks/Python.framework"
+    bsdtar -xOf "$DL/$PYTHON_PKG" Python_Framework.pkg/Payload | gzip -dc | \
+        (cd "$PYTHON_FRAMEWORK" && cpio -i)
 else
-    7z x -so "$DL/$PYTHON_PKG" Python_Framework.pkg/Payload | zcat | \
-        cpio -i -D "$PACKAGE/Frameworks/Python.framework"
+    if command -v 7z >/dev/null 2>&1; then
+        SEVENZIP=7z
+    elif command -v 7zz >/dev/null 2>&1; then
+        SEVENZIP=7zz
+    else
+        echo "7z or 7zz is required when bsdtar cannot extract the Python package"
+        exit 1
+    fi
+    "$SEVENZIP" x -so "$DL/$PYTHON_PKG" Python_Framework.pkg/Payload | gzip -dc | \
+        (cd "$PYTHON_FRAMEWORK" && cpio -i)
 fi
 
 cd "$PACKAGE/Frameworks/Python.framework/Versions/Current"
