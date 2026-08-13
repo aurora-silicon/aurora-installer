@@ -19,6 +19,7 @@ M1N1="$PWD/m1n1"
 ARTWORK="$PWD/artwork"
 AFW="$PWD/asahi_firmware"
 SRC="$PWD/src"
+TOOLS="$PWD/tools"
 DL="$PWD/dl"
 PACKAGE="$PWD/package"
 RELEASES="$PWD/releases"
@@ -113,6 +114,20 @@ else
 fi
 mkdir -p "$PACKAGE/boot"
 cp "$M1N1_STAGE1" "$PACKAGE/boot/m1n1.bin"
+
+echo "Building AEA key helper..."
+
+if [ -n "${AEA_KEY_HELPER:-}" ] && [ -r "$AEA_KEY_HELPER" ]; then
+    echo "Using '$AEA_KEY_HELPER' as AEA key helper"
+    cp "$AEA_KEY_HELPER" "$PACKAGE/bin/aea-key"
+elif command -v xcrun >/dev/null 2>&1; then
+    xcrun swiftc -O -framework CryptoKit -framework Foundation \
+        "$TOOLS/aea-key.swift" -o "$PACKAGE/bin/aea-key"
+else
+    echo "AEA_KEY_HELPER is required when building without macOS swiftc"
+    exit 1
+fi
+chmod 0755 "$PACKAGE/bin/aea-key"
 
 echo "Extracting libffi..."
 
