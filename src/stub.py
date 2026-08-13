@@ -191,6 +191,38 @@ class StubInstaller(PackageInstaller):
         # Stop macOS <12.0 bootability stufff from clobbering this file
         self.chflags("schg", tg_admin_users)
 
+    def copy_aea_compress(self, src, path):
+        """Decrypt a modern IPSW AEA payload and install its verified DMG."""
+        helper = os.path.join("bin", "aea-key")
+        if not os.path.isfile(helper) or not os.access(helper, os.X_OK):
+            raise Exception("Installer is missing the AEA key helper")
+
+        with tempfile.TemporaryDirectory(prefix="asahi-aea-") as tmpdir:
+            archive = os.path.join(tmpdir, "BaseSystem.dmg.aea")
+            image = os.path.join(tmpdir, "BaseSystem.dmg")
+            key = os.path.join(tmpdir, "BaseSystem.key")
+
+            self.extract_file(src, archive)
+            try:
+                subprocess.run([helper, archive, key], check=True)
+                subprocess.run(["/usr/bin/aea", "decrypt", "-i", archive, "-o", image,
+                                "-key", key], check=True)
+            finally:
+                if os.path.exists(key):
+                    os.unlink(key)
+
+            subprocess.run(["/usr/bin/hdiutil", "verify", image], check=True,
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            digest = hashlib.sha256()
+            with open(image, "rb") as image_file:
+                while data := image_file.read(CHUNK_SIZE):
+                    digest.update(data)
+            with open(image, "rb") as image_file:
+                self.stream_compress(image_file, os.path.getsize(image), path,
+                                     sha256=digest.digest())
+            subprocess.run(["/usr/bin/hdiutil", "verify", path], check=True,
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
     def repair(self, cur_os):
         self.get_paths()
         self.copy_admin_users(cur_os)
@@ -371,8 +403,12 @@ class StubInstaller(PackageInstaller):
             self.copy_recompress("AssetData/payloadv2/basesystem_patches/arm64eBaseSystem.dmg",
                                  os.path.join(basesystem_path, "arm64eBaseSystem.dmg"))
         else:
-            self.copy_compress(identity["Manifest"]["BaseSystem"]["Info"]["Path"],
-                               os.path.join(basesystem_path, "arm64eBaseSystem.dmg"))
+            source = identity["Manifest"]["BaseSystem"]["Info"]["Path"]
+            destination = os.path.join(basesystem_path, "arm64eBaseSystem.dmg")
+            if source.endswith(".aea"):
+                self.copy_aea_compress(source, destination)
+            else:
+                self.copy_compress(source, destination)
         self.flush_progress()
 
         p_progress("Wrapping up...")
