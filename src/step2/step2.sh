@@ -89,7 +89,7 @@ fi
 
 echo "You will see some messages advising you that you are changing the"
 echo "security level of your system. These changes apply only to your"
-echo "$DISTRO install, and are necessary to install a third-party OS."
+echo "$DISTRO boot environment, and are necessary to boot m1n1 and future UEFI."
 echo
 echo "Apple Silicon platforms maintain a separate security level for each"
 echo "installed OS, and are designed to retain their security with mixed OSes."

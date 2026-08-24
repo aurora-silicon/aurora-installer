@@ -8,18 +8,19 @@ cd "$(dirname "$0")"
 PYTHON_VER=3.13.9
 PYTHON_PKG=python-$PYTHON_VER-macos11.pkg
 PYTHON_URI="https://www.python.org/ftp/python/$PYTHON_VER/$PYTHON_PKG"
+WIMLIB_DEPLOYMENT_TARGET="12.3"
+AEA_DEPLOYMENT_TARGET="14.0"
 
-LIBFFI_VER=3.5.2
-LIBFFI_MANIFEST_URI="https://ghcr.io/v2/homebrew/core/libffi/manifests/$LIBFFI_VER"
-LIBFFI_BASE_URI="https://ghcr.io/v2/homebrew/core/libffi/blobs"
-LIBFFI_TARGET_OS="macOS 26"
-LIBFFI_PKG="libffi-$LIBFFI_VER-macos.tar.gz"
+WIMLIB_VER="1.14.5"
+WIMLIB_PKG="wimlib-$WIMLIB_VER.tar.gz"
+WIMLIB_URI="https://wimlib.net/downloads/$WIMLIB_PKG"
+WIMLIB_SHA256="84221a3abd5b91228f15f8e6065c335a336237b5738197b75bf419eea561a194"
 
 M1N1="$PWD/m1n1"
-ARTWORK="$PWD/artwork"
 AFW="$PWD/asahi_firmware"
 SRC="$PWD/src"
 TOOLS="$PWD/tools"
+DATA="$PWD/data"
 DL="$PWD/dl"
 PACKAGE="$PWD/package"
 RELEASES="$PWD/releases"
@@ -57,44 +58,36 @@ else
     wget -Nc "$PYTHON_URI"
 fi
 
-echo " - libffi"
-
-if [ -e "$LIBFFI_PKG" ]; then
-    echo "Using existing $LIBFFI_PKG"
-else
-    # get a JSON with an anonymous token
-    token=$(curl -s "https://ghcr.io/token?service=ghcr.io&scope=repository%3Ahomebrew/core/go%3Apull" | jq -jr ".token")
-
-    digest=$( \
-        curl -s \
-        -H "Authorization: Bearer ${token}" \
-        -H 'Accept: application/vnd.oci.image.index.v1+json' \
-        $LIBFFI_MANIFEST_URI \
-        | jq -r '[.manifests[] |
-                select(.platform.architecture == "arm64"
-                and .platform."os.version" == "'"$LIBFFI_TARGET_OS"'")
-            ] | first | .annotations."sh.brew.bottle.digest"' \
-    )
-
-    curl -L -o "$LIBFFI_PKG" \
-        -H "Authorization: Bearer ${token}" \
-        -H 'Accept: application/vnd.oci.image.index.v1+json' \
-        "$LIBFFI_BASE_URI/sha256:$digest"
-fi
-
 if [ -r "$M1N1_STAGE1" ]; then
     echo "Using '$M1N1_STAGE1' as m1n1 stage1"
 elif [ ! -r "$M1N1/Makefile" ]; then
     echo "m1n1 missing, did you forget to update the submodules?"
     exit 1
 else
-    echo "Building m1n1..."
+    echo "Building m1n1 stage 1..."
 
     # Do it twice in case of build system shenanigans with versions
-    make -C "$M1N1" RELEASE=1 CHAINLOADING=1 -j4
-    make -C "$M1N1" RELEASE=1 CHAINLOADING=1 -j4
+    make -C "$M1N1" BUILD_DIR=build-stage1 RELEASE=1 CHAINLOADING=1 -j4
+    make -C "$M1N1" BUILD_DIR=build-stage1 RELEASE=1 CHAINLOADING=1 -j4
 
-    M1N1_STAGE1="$M1N1/build/m1n1.bin"
+    M1N1_STAGE1="$M1N1/build-stage1/m1n1.bin"
+fi
+
+if [ -z "${M1N1_STAGE2:-}" ] && [ -r "$M1N1/Makefile" ]; then
+    echo "Building payload-free m1n1 stage 2..."
+
+    make -C "$M1N1" BUILD_DIR=build-stage2 RELEASE=1 -j4
+    make -C "$M1N1" BUILD_DIR=build-stage2 RELEASE=1 -j4
+
+    M1N1_STAGE2="$M1N1/build-stage2/m1n1.bin"
+elif [ -z "${M1N1_STAGE2:-}" ]; then
+    echo "M1N1_STAGE2 is required when building without the m1n1 submodule"
+    exit 1
+elif [ ! -r "$M1N1_STAGE2" ]; then
+    echo "Unable to read m1n1 stage 2 '$M1N1_STAGE2'"
+    exit 1
+else
+    echo "Using '$M1N1_STAGE2' as m1n1 stage 2"
 fi
 
 echo "Copying files..."
@@ -104,16 +97,157 @@ echo "Copying files..."
 cp -RP "$SRC"/* "$PACKAGE/"
 rm "$PACKAGE/asahi_firmware"
 cp -r "$AFW" "$PACKAGE/"
+# Test and development runs can leave host-version bytecode in either source
+# tree. Never make those caches part of the portable installer payload.
+find "$PACKAGE" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+find "$PACKAGE" -type d -name __pycache__ -empty -delete
+cp "$DATA/installer_data.json" "$PACKAGE/installer_data.json"
+cp "$DATA/windows-iso.json" "$PACKAGE/windows-iso.json"
 if [ -r "$LOGO" ]; then
     cp "$LOGO" "$PACKAGE/logo.icns"
-elif [ ! -r "$ARTWORK/logos/icns/AsahiLinux_logomark.icns" ]; then
-    echo "artwork missing, did you forget to update the submodules?"
+elif [ ! -r "$M1N1/data/aurora-logo-src.png" ]; then
+    echo "Aurora artwork missing, did you forget to update the m1n1 submodule?"
     exit 1
 else
-    cp "$ARTWORK/logos/icns/AsahiLinux_logomark.icns" "$PACKAGE/logo.icns"
+    python3 "$TOOLS/make-icns.py" \
+        "$M1N1/data/aurora-logo-src.png" "$PACKAGE/logo.icns"
 fi
 mkdir -p "$PACKAGE/boot"
 cp "$M1N1_STAGE1" "$PACKAGE/boot/m1n1.bin"
+
+echo "Packaging replaceable m1n1 stage 2..."
+
+STAGE2_TREE="$PACKAGE/.aurora-stage2"
+mkdir -p "$STAGE2_TREE/esp/m1n1" "$STAGE2_TREE/esp/aurora" "$PACKAGE/os"
+cp "$M1N1_STAGE2" "$STAGE2_TREE/esp/m1n1/boot.bin"
+cp "$DATA/stage2.json" "$STAGE2_TREE/esp/aurora/stage2.json"
+(
+    cd "$STAGE2_TREE"
+    zip -q -r "$PACKAGE/os/aurora-stage2-proxy.zip" esp
+)
+rm -rf "$STAGE2_TREE"
+
+echo "Packaging optional Windows deployment payload..."
+
+if [ -n "${AURORA_WINDOWS_DRIVERS:-}" ]; then
+    if [ ! -d "${AURORA_WINDOWS_DRIVERS:-}" ]; then
+        echo "AURORA_WINDOWS_DRIVERS must name the root of an Aurora driver pack"
+        exit 1
+    fi
+    if [ ! -r "$AURORA_WINDOWS_DRIVERS/AppleNvme/AppleNvme.inf" ]; then
+        echo "Aurora Windows driver pack is missing AppleNvme/AppleNvme.inf"
+        exit 1
+    fi
+    if [ ! -r "$DL/$WIMLIB_PKG" ]; then
+        (cd "$DL" && wget -Nc "$WIMLIB_URI")
+    fi
+    echo "$WIMLIB_SHA256  $DL/$WIMLIB_PKG" | shasum -a 256 -c -
+
+    echo "Building bundled wimlib-imagex for macOS $WIMLIB_DEPLOYMENT_TARGET+..."
+    WIMLIB_BUILD_ROOT=$(mktemp -d /private/tmp/aurora-wimlib-build.XXXXXX)
+    WIMLIB_PREFIX="$WIMLIB_BUILD_ROOT/install"
+    tar xf "$DL/$WIMLIB_PKG" -C "$WIMLIB_BUILD_ROOT"
+    (
+        cd "$WIMLIB_BUILD_ROOT/wimlib-$WIMLIB_VER"
+        MACOSX_DEPLOYMENT_TARGET="$WIMLIB_DEPLOYMENT_TARGET" ./configure \
+            --prefix="$WIMLIB_PREFIX" \
+            --disable-shared \
+            --enable-static \
+            --without-fuse \
+            --without-ntfs-3g
+        MACOSX_DEPLOYMENT_TARGET="$WIMLIB_DEPLOYMENT_TARGET" make -j4
+        MACOSX_DEPLOYMENT_TARGET="$WIMLIB_DEPLOYMENT_TARGET" make install
+    )
+    mkdir -p "$PACKAGE/bin" "$PACKAGE/licenses/wimlib" "$PACKAGE/sources"
+    cp "$WIMLIB_PREFIX/bin/wimlib-imagex" "$PACKAGE/bin/wimlib-imagex"
+    codesign --force --sign - "$PACKAGE/bin/wimlib-imagex"
+    chmod 0755 "$PACKAGE/bin/wimlib-imagex"
+    rm -rf "$WIMLIB_BUILD_ROOT"
+
+    cp "$DL/$WIMLIB_PKG" "$PACKAGE/sources/$WIMLIB_PKG"
+    tar -xOf "$DL/$WIMLIB_PKG" "wimlib-$WIMLIB_VER/COPYING" \
+        > "$PACKAGE/licenses/wimlib/COPYING"
+    tar -xOf "$DL/$WIMLIB_PKG" "wimlib-$WIMLIB_VER/COPYING.GPLv3" \
+        > "$PACKAGE/licenses/wimlib/COPYING.GPLv3"
+    tar -xOf "$DL/$WIMLIB_PKG" "wimlib-$WIMLIB_VER/COPYING.LGPL" \
+        > "$PACKAGE/licenses/wimlib/COPYING.LGPL"
+    cp "$DATA/wimlib-NOTICE.txt" "$PACKAGE/licenses/wimlib/NOTICE.txt"
+
+    WINDOWS_TREE="$PACKAGE/.aurora-windows"
+    mkdir -p "$WINDOWS_TREE/esp/m1n1" "$WINDOWS_TREE/esp/aurora"
+    mkdir -p "$WINDOWS_TREE/windows/drivers" "$WINDOWS_TREE/windows/deploy"
+
+    # The shipping stage 2 remains the payload-free proxy build. A future
+    # autonomous m1n1/Mu image can be supplied at build time without changing
+    # the partition map or the stage-1 chainload path.
+    WINDOWS_STAGE2="$M1N1_STAGE2"
+    WINDOWS_STAGE2_MANIFEST="$DATA/stage2.json"
+    if [ -n "${AURORA_WINDOWS_STAGE2:-}" ] || [ -n "${AURORA_WINDOWS_STAGE2_MANIFEST:-}" ]; then
+        if [ ! -r "${AURORA_WINDOWS_STAGE2:-}" ] || [ ! -r "${AURORA_WINDOWS_STAGE2_MANIFEST:-}" ]; then
+            echo "AURORA_WINDOWS_STAGE2 and AURORA_WINDOWS_STAGE2_MANIFEST must be supplied together"
+            exit 1
+        fi
+        WINDOWS_STAGE2="$AURORA_WINDOWS_STAGE2"
+        WINDOWS_STAGE2_MANIFEST="$AURORA_WINDOWS_STAGE2_MANIFEST"
+    fi
+    python3 - "$WINDOWS_STAGE2_MANIFEST" <<'PY'
+import json
+import pathlib
+import sys
+
+manifest = json.loads(pathlib.Path(sys.argv[1]).read_text())
+if manifest.get("schema") != 1 or manifest.get("path") != "m1n1/boot.bin":
+    raise SystemExit("Windows stage-2 manifest must describe m1n1/boot.bin schema 1")
+if manifest.get("replaceable") is not True:
+    raise SystemExit("Windows stage-2 manifest must retain the replaceable update contract")
+if not manifest.get("mode") or not manifest.get("boot_method"):
+    raise SystemExit("Windows stage-2 manifest must describe its mode and boot method")
+PY
+    cp "$WINDOWS_STAGE2" "$WINDOWS_TREE/esp/m1n1/boot.bin"
+    cp "$WINDOWS_STAGE2_MANIFEST" "$WINDOWS_TREE/esp/aurora/stage2.json"
+    python3 - "$WINDOWS_STAGE2_MANIFEST" "$PACKAGE/installer_data.json" <<'PY'
+import json
+import pathlib
+import sys
+
+manifest_path, installer_path = map(pathlib.Path, sys.argv[1:])
+manifest = json.loads(manifest_path.read_text())
+data = json.loads(installer_path.read_text())
+windows_options = [entry for entry in data["os_list"] if "windows_deployment" in entry]
+if len(windows_options) != 1:
+    raise SystemExit("installer metadata must have exactly one Windows deployment option")
+deployment = windows_options[0]["windows_deployment"]
+deployment["stage2_mode"] = manifest["mode"]
+deployment["boot_method"] = manifest["boot_method"]
+installer_path.write_text(json.dumps(data, indent=4) + "\n")
+PY
+    cp -R "$AURORA_WINDOWS_DRIVERS"/. "$WINDOWS_TREE/windows/drivers/"
+    cp "$DATA/windows-driver-pack.json" "$WINDOWS_TREE/windows/driver-pack.json"
+    cp "$DATA/windows/startnet.cmd" "$WINDOWS_TREE/windows/deploy/startnet.cmd"
+    cp "$DATA/windows/aurora-deploy.cmd" "$WINDOWS_TREE/windows/deploy/aurora-deploy.cmd"
+    cp "$DATA/windows/SetupComplete.cmd" "$WINDOWS_TREE/windows/deploy/SetupComplete.cmd"
+    (
+        cd "$WINDOWS_TREE"
+        zip -q -r "$PACKAGE/os/aurora-windows-bootstrap.zip" esp windows
+    )
+    rm -rf "$WINDOWS_TREE"
+else
+    if [ -n "${AURORA_WINDOWS_STAGE2:-}" ] || [ -n "${AURORA_WINDOWS_STAGE2_MANIFEST:-}" ]; then
+        echo "AURORA_WINDOWS_DRIVERS is required to enable Windows deployment"
+        exit 1
+    fi
+    echo "Windows option disabled: set AURORA_WINDOWS_DRIVERS to enable it."
+    python3 - "$PACKAGE/installer_data.json" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+data = json.loads(path.read_text())
+data["os_list"] = [entry for entry in data["os_list"] if "windows_deployment" not in entry]
+path.write_text(json.dumps(data, indent=4) + "\n")
+PY
+fi
 
 echo "Building AEA key helper..."
 
@@ -121,18 +255,14 @@ if [ -n "${AEA_KEY_HELPER:-}" ] && [ -r "$AEA_KEY_HELPER" ]; then
     echo "Using '$AEA_KEY_HELPER' as AEA key helper"
     cp "$AEA_KEY_HELPER" "$PACKAGE/bin/aea-key"
 elif command -v xcrun >/dev/null 2>&1; then
-    xcrun swiftc -O -framework CryptoKit -framework Foundation \
+    xcrun swiftc -target "arm64-apple-macosx$AEA_DEPLOYMENT_TARGET" \
+        -O -framework CryptoKit -framework Foundation \
         "$TOOLS/aea-key.swift" -o "$PACKAGE/bin/aea-key"
 else
     echo "AEA_KEY_HELPER is required when building without macOS swiftc"
     exit 1
 fi
 chmod 0755 "$PACKAGE/bin/aea-key"
-
-echo "Extracting libffi..."
-
-cd "$PACKAGE"
-tar xf "$DL/$LIBFFI_PKG"
 
 echo "Extracting Python framework..."
 
@@ -165,11 +295,6 @@ fi
 
 cd "$PACKAGE/Frameworks/Python.framework/Versions/Current"
 
-echo "Moving in libffi..."
-
-mv "$PACKAGE/libffi/$LIBFFI_VER/lib/"libffi*.dylib lib/
-rm -rf "$PACKAGE/libffi"
-
 echo "Slimming down Python..."
 
 rm -rf include share
@@ -183,7 +308,16 @@ rm -f _test* _tkinter*
 
 echo "Copying certificates..."
 
-certs="$(python3 -c 'import certifi; print(certifi.where())')"
+if certs="$(python3 -c 'import certifi; print(certifi.where())' 2>/dev/null)"; then
+    :
+elif [ -r /etc/ssl/cert.pem ]; then
+    certs=/etc/ssl/cert.pem
+elif [ -r /etc/ssl/certs/ca-certificates.crt ]; then
+    certs=/etc/ssl/certs/ca-certificates.crt
+else
+    echo "No CA certificate bundle found (install certifi or provide a system CA bundle)"
+    exit 1
+fi
 cp "$certs" "$PACKAGE/Frameworks/Python.framework/Versions/Current/etc/openssl/cert.pem"
 
 echo "Packaging installer..."

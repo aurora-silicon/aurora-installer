@@ -15,11 +15,12 @@ MIN_FREE_OS = psize("38GB")
 # Minimum free space to leave for non-OS containers
 MIN_FREE = psize("1GB")
 
-# 2.5GB stub + 5GB OS + 0.5GB EFI = 8GB, round up to 10GB
+# Conservative floor before offering space freed by an APFS resize.
 MIN_INSTALL_FREE = psize("10GB")
 
 MIN_MACOS_VERSION = "13.5"
 MIN_MACOS_VERSION_EXPERT = "12.3"
+LATEST_BOOT_FIRMWARE_VERSION = "26.6.1"
 
 @dataclass
 class IPSW:
@@ -76,25 +77,36 @@ DEVICES = {
     "j475cap":  Device("13.4", False),  # Mac Studio (M2 Max, 2023)
     "j475dap":  Device("13.4", False),  # Mac Studio (M2 Ultra, 2023)
     "j180dap":  Device("13.4", False),  # Mac Pro (M2 Ultra, 2023)
-    "j433ap":   Device("14.8.3", True), # iMac (24-inch, M3, 2023)
-    "j434ap":   Device("14.8.3", True), # iMac (24-inch, M3, 2023)
-    "j504ap":   Device("14.8.3", True), # MacBook Pro (14-inch, M3, 2023)
-    "j613ap":   Device("14.8.3", True), # MacBook Air (13-inch, M3, 2024)
-    "j615ap":   Device("14.8.3", True), # MacBook Air (15-inch, M3, 2024)
-    "j514sap":  Device("14.8.3", True), # MacBook Pro (14-inch, M3 Pro, 2023)
-    "j514cap":  Device("14.8.3", True), # MacBook Pro (14-inch, M3 Max, 2023)
-    "j514map":  Device("14.8.3", True), # MacBook Pro (14-inch, M3 Max, 2023)
-    "j516sap":  Device("14.8.3", True), # MacBook Pro (16-inch, M3 Pro, 2023)
-    "j516cap":  Device("14.8.3", True), # MacBook Pro (16-inch, M3 Max, 2023)
-    "j516map":  Device("14.8.3", True), # MacBook Pro (16-inch, M3 Max, 2023)
-    "j813ap":   Device("26.6.1", True), # MacBook Air (13-inch, M5, 2026; experimental)
+    "j433ap":   Device("14.8.3", False), # iMac (24-inch, M3, 2023)
+    "j434ap":   Device("14.8.3", False), # iMac (24-inch, M3, 2023)
+    "j504ap":   Device("14.8.3", False), # MacBook Pro (14-inch, M3, 2023)
+    "j613ap":   Device("14.8.3", False), # MacBook Air (13-inch, M3, 2024)
+    "j615ap":   Device("14.8.3", False), # MacBook Air (15-inch, M3, 2024)
+    "j514sap":  Device("14.8.3", False), # MacBook Pro (14-inch, M3 Pro, 2023)
+    "j514cap":  Device("14.8.3", False), # MacBook Pro (14-inch, M3 Max, 2023)
+    "j514map":  Device("14.8.3", False), # MacBook Pro (14-inch, M3 Max, 2023)
+    "j516sap":  Device("14.8.3", False), # MacBook Pro (16-inch, M3 Pro, 2023)
+    "j516cap":  Device("14.8.3", False), # MacBook Pro (16-inch, M3 Max, 2023)
+    "j516map":  Device("14.8.3", False), # MacBook Pro (16-inch, M3 Max, 2023)
+    "j813ap":   Device("26.6.1", False), # MacBook Air (13-inch, M5, 2026)
 }
 
-# Asahi Linux does not support running in a virtual machine, this option
-# exists only for development of the installer itself.
+# Virtual machines remain a development-only path. Physical Apple Silicon
+# machines are deliberately accepted even when their device code is new.
 if os.environ.get("ALLOW_VM", None):
     CHIP_MIN_VER[0xfe00] = "12.0"
     DEVICES["vma2macosap"] = Device("12.0", False)
+
+
+def resolve_device_support(chip_id, device_class, macos_ver):
+    """Return a safe firmware baseline without using device tables as a gate."""
+    fallback = min(
+        (macos_ver, LATEST_BOOT_FIRMWARE_VERSION),
+        key=split_ver,
+    )
+    chip_min = CHIP_MIN_VER.get(chip_id, fallback)
+    device = DEVICES.get(device_class, Device(fallback, False))
+    return chip_min, device
 
 IPSW_VERSIONS = [
     IPSW("12.3.1",
@@ -122,15 +134,15 @@ IPSW_VERSIONS = [
          "14.6",
          "iBoot-10151.140.19",
          "23.10.220.0.0,0",
-         True,
+         False,
          ["j433ap", "j434ap", "j504ap", "j613ap", "j615ap", "j514sap", "j514cap", "j514map", "j516sap", "j516cap", "j516map"],
          "https://updates.cdn-apple.com/2025FallFCS/patches/089-71124/49AD260A-D47F-4B5E-A793-30446187196E/com_apple_MobileAsset_MacSoftwareUpdate/f6d1ac9149f6a06401ff87fae5b262c420bfc5f7.zip"),
     IPSW("26.6.1",
          "26.6.1",
          "iBoot-13822.120.5",
          "25.7.76.0.0,0",
-         True,
-         ["j813ap"],
+         False,
+         None,
          "https://updates.cdn-apple.com/2026SummerFCS/fullrestores/140-83079/25315EF6-AEAB-4588-9774-A3723774C47F/UniversalMac_26.6.1_25G76_Restore.ipsw"),
 ]
 
@@ -321,7 +333,7 @@ class InstallerMain:
 
         min_size = STUB_SIZE + (self.osins.min_size if self.expert else self.osins.min_recommended_size)
         print()
-        p_message(f"Minimum required space for this OS: {ssize(min_size)}")
+        p_message(f"Minimum required space for this Aurora environment: {ssize(min_size)}")
 
         start, end = self.dutil.get_disk_usable_range(self.cur_disk)
         os_size = self.get_os_size_and_info(end - start, min_size, template)
@@ -341,13 +353,13 @@ class InstallerMain:
 
         min_size = STUB_SIZE + (self.osins.min_size if self.expert else self.osins.min_recommended_size)
         print()
-        p_message(f"Minimum required space for this OS: {ssize(min_size)}")
+        p_message(f"Minimum required space for this Aurora environment: {ssize(min_size)}")
 
         frees = {str(i): p.desc for i,p in enumerate(self.parts)
                  if p in avail_free and align_down(p.size, PART_ALIGN) >= min_size}
 
         if len(frees) < 1:
-            p_error( "There is not enough free space to install this OS.")
+            p_error( "There is not enough free space for this Aurora environment.")
             print()
             p_message("Press enter to go back to the main menu.")
             self.input()
@@ -376,13 +388,13 @@ class InstallerMain:
         os_size = None
         if self.osins.expandable:
             print()
-            p_question("How much space should be allocated to the new OS?")
+            p_question("How much space should be allocated to Aurora and future Windows use?")
             p_message("  You can enter a size such as '1GB', a fraction such as '50%',")
             p_message("  the word 'min' for the smallest allowable size, or")
             p_message("  the word 'max' to use all available space.")
             min_perc = 100 * min_size / free_size
             while True:
-                os_size = self.get_size("New OS size", default="max",
+                os_size = self.get_size("Aurora allocation", default="max",
                                     min=min_size, max=free_size,
                                     total=free_size)
                 if os_size is None:
@@ -397,14 +409,14 @@ class InstallerMain:
                 break
 
             print()
-            p_message(f"The new OS will be allocated {ssize(os_size)} of space,")
+            p_message(f"The Aurora environment will be allocated {ssize(os_size)} of space,")
             p_message(f"leaving {ssize(free_size - os_size)} of free space.")
             os_size -= STUB_SIZE
 
         print()
         self.flush_input()
-        p_question("Enter a name for your OS")
-        label = input_prompt(f"OS name ({self.osins.name}): ") or self.osins.name
+        p_question("Enter a name for this Aurora environment")
+        label = input_prompt(f"Name ({self.osins.name}): ") or self.osins.name
         self.osins.name = label
         logging.info(f"New OS name: {label}")
         print()
@@ -597,7 +609,7 @@ class InstallerMain:
         sys_iboot = split_ver(self.sysinfo.sys_firmware)
         sys_macos = split_ver(self.sysinfo.macos_ver)
         sys_sfr = split_ver(self.sysinfo.sfr_full_ver)
-        chip_min = split_ver(CHIP_MIN_VER.get(self.sysinfo.chip_id, "0"))
+        chip_min = split_ver(self.chip_min_ver)
         device_min = split_ver(self.device.min_ver)
         minver = [ipsw for ipsw in IPSW_VERSIONS
                  if split_ver(ipsw.version) >= max(chip_min, device_min)
@@ -637,8 +649,8 @@ class InstallerMain:
             os_list = [i for i in os_list if not i.get("expert", False)]
         if self.cur_disk != self.sys_disk:
             os_list = [i for i in os_list if i.get("external_boot", False)]
-        p_question("Choose an OS to install:")
-        idx = self.choice("OS", [i["name"] for i in os_list])
+        p_question("Choose an Aurora installation option:")
+        idx = self.choice("Option", [i["name"] for i in os_list])
         os = os_list[idx]
         logging.info(f"Chosen OS: {os['name']}")
         return os
@@ -859,7 +871,7 @@ class InstallerMain:
             p_message("  any pending macOS upgrades and visit this link to learn how to manually")
             p_message("  delete Time Machine snapshots:")
             print()
-            p_plain( f"    {col(BLUE, BRIGHT)}https://alx.sh/tmcleanup{col()}")
+            p_plain( f"    {col(BLUE, BRIGHT)}https://support.apple.com/guide/mac-help/delete-time-machine-snapshots-mh35933/mac{col()}")
             print()
 
             if avail < 2 * PART_ALIGN:
@@ -964,7 +976,7 @@ class InstallerMain:
         self.expert = False
         if os.environ.get("EXPERT", None):
             p_message("By default, this installer will hide certain advanced options that")
-            p_message("are only useful for Asahi Linux developers. You can enable expert mode")
+            p_message("are only useful for Aurora developers. You can enable expert mode")
             p_message("to show them. Do not enable this unless you know what you are doing.")
             p_message("Please do not file bugs if things go wrong in expert mode.")
             self.expert = self.yesno("Enable expert mode?")
@@ -977,15 +989,11 @@ class InstallerMain:
 
         bugs.run_checks(self)
 
-        self.chip_min_ver = CHIP_MIN_VER.get(self.sysinfo.chip_id, None)
-        self.device = DEVICES.get(self.sysinfo.device_class, None)
-        if not self.chip_min_ver or not self.device or (self.device.expert_only and not self.expert):
-            p_error("This device is not supported yet!")
-            p_error("Please check out the Asahi Linux Blog for updates on device support:")
-            print()
-            p_error("   https://asahilinux.org/blog/")
-            print()
-            sys.exit(1)
+        self.chip_min_ver, self.device = resolve_device_support(
+            self.sysinfo.chip_id,
+            self.sysinfo.device_class,
+            self.sysinfo.macos_ver,
+        )
 
         if self.sysinfo.boot_mode == "macOS" and (
             (not self.sysinfo.login_user)
@@ -1144,12 +1152,12 @@ class InstallerMain:
             actions["p"] = "Repair an incomplete installation"
             default = default or "p"
         if parts_free and is_gpt:
-            actions["f"] = "Install an OS into free space"
+            actions["f"] = "Install an Aurora boot environment into free space"
             default = default or "f"
         if parts_empty_apfs and is_gpt and False: # This feature is confusing, disable it for now
-            actions["a"] = "Install an OS into an existing APFS container"
+            actions["a"] = "Install an Aurora boot environment into an existing APFS container"
         if parts_resizable and is_gpt:
-            actions["r"] = "Resize an existing partition to make space for a new OS"
+            actions["r"] = "Resize an existing partition to make space for Aurora"
             default = default or "r"
         if self.cur_disk != self.sys_disk:
             actions["w"] = "Wipe and install into the whole disk"

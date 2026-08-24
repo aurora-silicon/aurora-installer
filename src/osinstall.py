@@ -2,6 +2,7 @@
 import os, shutil, sys, stat, subprocess, urlcache, zipfile, logging
 
 import m1n1
+import windows as aurora_windows
 from util import *
 import unicodedata
 
@@ -17,6 +18,7 @@ class OSInstaller(PackageInstaller):
         self.efi_part = None
         self.idata_targets = []
         self.install_size = self.min_size
+        self.windows_stager = None
 
     @property
     def default_os_name(self):
@@ -60,6 +62,15 @@ class OSInstaller(PackageInstaller):
         self.flush_progress()
         logging.info(f"OS package opened")
 
+        deployment = self.template.get("windows_deployment")
+        if deployment:
+            p_message("This option deploys an exact, pinned Windows 11 ARM64 image.")
+            p_message("The ISO is verified before the installer changes the partition map.")
+            self.windows_stager = aurora_windows.WindowsStager(
+                self.dutil, self.pkg, deployment
+            )
+            self.windows_stager.prepare()
+
     def flush_progress(self):
         if self.ucache:
             self.ucache.flush_progress()
@@ -102,6 +113,16 @@ class OSInstaller(PackageInstaller):
                 if "volume_id" in part:
                     args.extend(["-I", part["volume_id"]])
                 args.append(f"/dev/r{info.name}")
+                logging.info(f"Run: {args!r}")
+                subprocess.run(args, check=True, stdout=subprocess.PIPE)
+            elif fmt == "exfat":
+                # Windows source media needs files larger than FAT32 permits.
+                # The target gets a temporary exFAT filesystem only so WinPE
+                # can find an exact marker before replacing it with NTFS.
+                name_clean = name.translate(str.maketrans("", "", "*?/\\|,;:+=<>[]\""))
+                name_clean = unicodedata.normalize('NFKD', name_clean).encode('ascii', 'ignore').decode('ascii')
+                p_plain("  Formatting as exFAT...")
+                args = ["newfs_exfat", "-v", name_clean[:15], f"/dev/r{info.name}"]
                 logging.info(f"Run: {args!r}")
                 subprocess.run(args, check=True, stdout=subprocess.PIPE)
             elif fmt:
@@ -175,6 +196,9 @@ class OSInstaller(PackageInstaller):
         if "extras" in self.template:
             assert self.efi_part is not None
             self.download_extras()
+
+        if self.windows_stager is not None:
+            self.windows_stager.stage(self.template["partitions"], self.part_info)
 
         p_progress("Preparing to finish installation...")
 

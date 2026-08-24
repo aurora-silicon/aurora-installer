@@ -1,0 +1,112 @@
+{
+    "os_list": [
+        {
+            "name": "Aurora m1n1 proxy boot environment",
+            "default_os_name": "Aurora m1n1 proxy",
+            "boot_object": "m1n1.bin",
+            "next_object": "m1n1/boot.bin",
+            "package": "aurora-stage2-proxy.zip",
+            "supported_fw": [
+                "12.3",
+                "12.3.1",
+                "13.5",
+                "14.8.3",
+                "26.6.1"
+            ],
+            "partitions": [
+                {
+                    "name": "EFI",
+                    "role": "esp",
+                    "type": "EFI",
+                    "size": "500MB",
+                    "format": "fat",
+                    "source": "esp"
+                }
+            ]
+        },
+        {
+            "name": "Aurora m1n1 proxy + reserved Windows space",
+            "default_os_name": "Aurora Windows",
+            "boot_object": "m1n1.bin",
+            "next_object": "m1n1/boot.bin",
+            "package": "aurora-stage2-proxy.zip",
+            "supported_fw": [
+                "12.3",
+                "12.3.1",
+                "13.5",
+                "14.8.3",
+                "26.6.1"
+            ],
+            "partitions": [
+                {
+                    "name": "EFI",
+                    "role": "esp",
+                    "type": "EFI",
+                    "size": "500MB",
+                    "format": "fat",
+                    "source": "esp"
+                },
+                {
+                    "name": "Windows",
+                    "role": "windows-target",
+                    "type": "EBD0A0A2-B9E5-4433-87C0-68B6B72699C7",
+                    "size": "64GB",
+                    "expand": true
+                }
+            ]
+        },
+        {
+            "name": "Aurora staged Windows 11 ARM64 installer",
+            "default_os_name": "Aurora Windows",
+            "boot_object": "m1n1.bin",
+            "next_object": "m1n1/boot.bin",
+            "package": "aurora-windows-bootstrap.zip",
+            "supported_fw": [
+                "12.3",
+                "12.3.1",
+                "13.5",
+                "14.8.3",
+                "26.6.1"
+            ],
+            "windows_deployment": {
+                "iso_manifest": "windows-iso.json",
+                "driver_manifest": "windows-driver-pack.json",
+                "image_name": "Windows 11 Pro",
+                "stage2_mode": "proxy",
+                "boot_method": "Launch target-specific Mu from the m1n1 proxy host",
+                "test_signing": true
+            },
+            "partitions": [
+                {
+                    "name": "EFI",
+                    "role": "esp",
+                    "type": "EFI",
+                    "size": "2GB",
+                    "format": "fat",
+                    "source": "esp"
+                },
+                {
+                    "name": "Windows media",
+                    "role": "windows-media",
+                    "type": "EBD0A0A2-B9E5-4433-87C0-68B6B72699C7",
+                    "size": "10GB",
+                    "format": "exfat"
+                },
+                {
+                    "name": "Microsoft reserved",
+                    "role": "windows-msr",
+                    "type": "E3C9E316-0B5C-4DB8-817D-F92DF00215AE",
+                    "size": "16MB"
+                },
+                {
+                    "name": "Windows",
+                    "role": "windows-target",
+                    "type": "EBD0A0A2-B9E5-4433-87C0-68B6B72699C7",
+                    "size": "64GB",
+                    "format": "exfat",
+                    "expand": true
+                }
+            ]
+        }
+    ]
+}

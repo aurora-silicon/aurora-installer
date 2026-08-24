@@ -7,12 +7,12 @@ on:
   workflow_call:
     outputs:
       installer_ver:
-        description: asahi-installer built version string
+        description: aurora-installer built version string
         value: ${{ jobs.build.outputs.installer_ver }}
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: macos-26
     outputs:
       installer_ver: ${{ steps.compile.outputs.installer_ver }}
 
@@ -21,16 +21,19 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          submodules: recursive
+          submodules: false
+
+      - name: Initialize Aurora m1n1
+        run: git submodule update --init m1n1
 
       - name: Install build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y gcc-aarch64-linux-gnu
-          sudo apt-get install --no-install-recommends -y libarchive-tools 7zip jq
+          brew install libarchive p7zip wget llvm lld
+          echo "$(brew --prefix libarchive)/bin" >> "$GITHUB_PATH"
+          python3 -m pip install certifi
           rustup target install aarch64-unknown-none-softfloat
 
-      - name: Build asahi-installer
+      - name: Build aurora-installer
         id: compile
         run: |
           ./build.sh

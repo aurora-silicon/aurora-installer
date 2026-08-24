@@ -1,0 +1,20 @@
+{
+    "schema": 1,
+    "release": "25H2",
+    "build": "26200.8037",
+    "updated": "2026-03",
+    "architecture": "arm64",
+    "language": "English",
+    "locale": "en-US",
+    "image_name": "Windows 11 Pro",
+    "product_edition_id": "3324",
+    "sku_id": "20086",
+    "product_display_name": "Windows 11 Arm64 25H2__V2",
+    "filename": "Win11_25H2_English_Arm64_v2.iso",
+    "size": 7994415104,
+    "sha256": "638aa2c88e94385b00f4f178d071e3df0b7d9e335577a83bd533b7f2eb65adf0",
+    "official_page": "https://www.microsoft.com/en-us/software-download/windows11arm64",
+    "connector_profile": "606624d44113",
+    "sentinel_instance_id": "560dc9f3-1aa5-4a2f-b63c-9e18f8d0e175",
+    "sentinel_page_id": "si"
+}

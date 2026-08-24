@@ -23,11 +23,11 @@ jobs:
           name: installer-build
           path: releases/.
 
-      - name: Push to Bunny
+      - name: Push to Aurora installer storage
         env:
-          PKG_URL: "https://storage.bunnycdn.com/asahilinux/${{ inputs.upload-type }}"
+          PKG_URL: "${{ secrets.AURORA_INSTALLER_STORAGE_URL }}/${{ inputs.upload-type }}"
           PKG_VER: "installer-${{ needs.build.outputs.installer_ver }}"
-          ACCESS_KEY: ${{ secrets.BUNNY_TOKEN }}
+          ACCESS_KEY: ${{ secrets.AURORA_INSTALLER_STORAGE_TOKEN }}
         run: |
           if [ ! -e "releases/${PKG_VER}" ]; then
               echo "Package not found!"

@@ -1,0 +1,11 @@
+{
+    "schema": 1,
+    "name": "Aurora Windows ARM64 drivers",
+    "root": "windows/drivers",
+    "required_boot_infs": [
+        "AppleNvme/AppleNvme.inf"
+    ],
+    "offline_recurse": true,
+    "force_unsigned": true,
+    "test_signing": true
+}
