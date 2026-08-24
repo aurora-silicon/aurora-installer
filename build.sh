@@ -9,12 +9,18 @@ PYTHON_VER=3.13.9
 PYTHON_PKG=python-$PYTHON_VER-macos11.pkg
 PYTHON_URI="https://www.python.org/ftp/python/$PYTHON_VER/$PYTHON_PKG"
 WIMLIB_DEPLOYMENT_TARGET="12.3"
+HIVEX_DEPLOYMENT_TARGET="12.3"
 AEA_DEPLOYMENT_TARGET="14.0"
 
 WIMLIB_VER="1.14.5"
 WIMLIB_PKG="wimlib-$WIMLIB_VER.tar.gz"
 WIMLIB_URI="https://wimlib.net/downloads/$WIMLIB_PKG"
 WIMLIB_SHA256="84221a3abd5b91228f15f8e6065c335a336237b5738197b75bf419eea561a194"
+
+HIVEX_VER="1.3.24"
+HIVEX_PKG="hivex-$HIVEX_VER.tar.gz"
+HIVEX_URI="https://download.libguestfs.org/hivex/$HIVEX_PKG"
+HIVEX_SHA256="a52fa45cecc9a78adb2d28605d68261e4f1fd4514a778a5473013d2ccc8a193c"
 
 M1N1="$PWD/m1n1"
 AFW="$PWD/asahi_firmware"
@@ -127,70 +133,108 @@ cp "$DATA/stage2.json" "$STAGE2_TREE/esp/aurora/stage2.json"
 )
 rm -rf "$STAGE2_TREE"
 
-echo "Packaging optional Windows deployment payload..."
+echo "Packaging Windows deployment payload..."
 
-if [ -n "${AURORA_WINDOWS_DRIVERS:-}" ]; then
-    if [ ! -d "${AURORA_WINDOWS_DRIVERS:-}" ]; then
-        echo "AURORA_WINDOWS_DRIVERS must name the root of an Aurora driver pack"
+if [ ! -r "$DL/$WIMLIB_PKG" ]; then
+    (cd "$DL" && wget -Nc "$WIMLIB_URI")
+fi
+echo "$WIMLIB_SHA256  $DL/$WIMLIB_PKG" | shasum -a 256 -c -
+
+echo "Building bundled wimlib-imagex for macOS $WIMLIB_DEPLOYMENT_TARGET+..."
+WIMLIB_BUILD_ROOT=$(mktemp -d /private/tmp/aurora-wimlib-build.XXXXXX)
+WIMLIB_PREFIX="$WIMLIB_BUILD_ROOT/install"
+tar xf "$DL/$WIMLIB_PKG" -C "$WIMLIB_BUILD_ROOT"
+(
+    cd "$WIMLIB_BUILD_ROOT/wimlib-$WIMLIB_VER"
+    MACOSX_DEPLOYMENT_TARGET="$WIMLIB_DEPLOYMENT_TARGET" ./configure \
+        --prefix="$WIMLIB_PREFIX" \
+        --disable-shared \
+        --enable-static \
+        --without-fuse \
+        --without-ntfs-3g
+    MACOSX_DEPLOYMENT_TARGET="$WIMLIB_DEPLOYMENT_TARGET" make -j4
+    MACOSX_DEPLOYMENT_TARGET="$WIMLIB_DEPLOYMENT_TARGET" make install
+)
+mkdir -p "$PACKAGE/bin" "$PACKAGE/licenses/wimlib" "$PACKAGE/sources"
+cp "$WIMLIB_PREFIX/bin/wimlib-imagex" "$PACKAGE/bin/wimlib-imagex"
+codesign --force --sign - "$PACKAGE/bin/wimlib-imagex"
+chmod 0755 "$PACKAGE/bin/wimlib-imagex"
+rm -rf "$WIMLIB_BUILD_ROOT"
+
+cp "$DL/$WIMLIB_PKG" "$PACKAGE/sources/$WIMLIB_PKG"
+tar -xOf "$DL/$WIMLIB_PKG" "wimlib-$WIMLIB_VER/COPYING" \
+    > "$PACKAGE/licenses/wimlib/COPYING"
+tar -xOf "$DL/$WIMLIB_PKG" "wimlib-$WIMLIB_VER/COPYING.GPLv3" \
+    > "$PACKAGE/licenses/wimlib/COPYING.GPLv3"
+tar -xOf "$DL/$WIMLIB_PKG" "wimlib-$WIMLIB_VER/COPYING.LGPL" \
+    > "$PACKAGE/licenses/wimlib/COPYING.LGPL"
+cp "$DATA/wimlib-NOTICE.txt" "$PACKAGE/licenses/wimlib/NOTICE.txt"
+
+if [ ! -r "$DL/$HIVEX_PKG" ]; then
+    (cd "$DL" && wget -Nc "$HIVEX_URI")
+fi
+echo "$HIVEX_SHA256  $DL/$HIVEX_PKG" | shasum -a 256 -c -
+
+echo "Building BCD TESTSIGNING helper for macOS $HIVEX_DEPLOYMENT_TARGET+..."
+HIVEX_BUILD_ROOT=$(mktemp -d /private/tmp/aurora-hivex-build.XXXXXX)
+tar xf "$DL/$HIVEX_PKG" -C "$HIVEX_BUILD_ROOT"
+(
+    cd "$HIVEX_BUILD_ROOT/hivex-$HIVEX_VER"
+    # New Apple linkers spell the map-file option differently.
+    perl -pi -e 's/"-Wl,-M -Wl,/"-Wl,-map -Wl,/' configure
+    MACOSX_DEPLOYMENT_TARGET="$HIVEX_DEPLOYMENT_TARGET" ./configure \
+        --disable-ocaml \
+        --disable-perl \
+        --disable-python \
+        --disable-ruby \
+        --disable-nls \
+        --without-readline \
+        --disable-static \
+        --enable-shared \
+        --disable-silent-rules
+    MACOSX_DEPLOYMENT_TARGET="$HIVEX_DEPLOYMENT_TARGET" make -C gnulib/lib -j4
+    MACOSX_DEPLOYMENT_TARGET="$HIVEX_DEPLOYMENT_TARGET" make -C lib -j4
+    cc -target "arm64-apple-macosx$HIVEX_DEPLOYMENT_TARGET" \
+        -Iinclude "$TOOLS/bcd-set-testsigning.c" \
+        -Llib/.libs -lhivex \
+        -Wl,-rpath,@executable_path/../lib \
+        -o "$HIVEX_BUILD_ROOT/bcd-set-testsigning"
+    install_name_tool -change /usr/local/lib/libhivex.0.dylib \
+        @rpath/libhivex.0.dylib "$HIVEX_BUILD_ROOT/bcd-set-testsigning"
+    install_name_tool -id @rpath/libhivex.0.dylib lib/.libs/libhivex.0.dylib
+)
+mkdir -p "$PACKAGE/lib" "$PACKAGE/licenses/hivex"
+cp "$HIVEX_BUILD_ROOT/hivex-$HIVEX_VER/lib/.libs/libhivex.0.dylib" \
+    "$PACKAGE/lib/libhivex.0.dylib"
+cp "$HIVEX_BUILD_ROOT/bcd-set-testsigning" "$PACKAGE/bin/bcd-set-testsigning"
+codesign --force --sign - "$PACKAGE/lib/libhivex.0.dylib"
+codesign --force --sign - "$PACKAGE/bin/bcd-set-testsigning"
+chmod 0755 "$PACKAGE/bin/bcd-set-testsigning"
+rm -rf "$HIVEX_BUILD_ROOT"
+
+cp "$DL/$HIVEX_PKG" "$PACKAGE/sources/$HIVEX_PKG"
+tar -xOf "$DL/$HIVEX_PKG" "hivex-$HIVEX_VER/LICENSE" \
+    > "$PACKAGE/licenses/hivex/LICENSE"
+cp "$DATA/hivex-NOTICE.txt" "$PACKAGE/licenses/hivex/NOTICE.txt"
+
+WINDOWS_TREE="$PACKAGE/.aurora-windows"
+mkdir -p "$WINDOWS_TREE/esp/m1n1" "$WINDOWS_TREE/esp/aurora"
+mkdir -p "$WINDOWS_TREE/windows/deploy"
+
+# The shipping stage 2 remains the payload-free proxy build. A future
+# autonomous m1n1/Mu image can be supplied at build time without changing
+# the partition map or the stage-1 chainload path.
+WINDOWS_STAGE2="$M1N1_STAGE2"
+WINDOWS_STAGE2_MANIFEST="$DATA/stage2.json"
+if [ -n "${AURORA_WINDOWS_STAGE2:-}" ] || [ -n "${AURORA_WINDOWS_STAGE2_MANIFEST:-}" ]; then
+    if [ ! -r "${AURORA_WINDOWS_STAGE2:-}" ] || [ ! -r "${AURORA_WINDOWS_STAGE2_MANIFEST:-}" ]; then
+        echo "AURORA_WINDOWS_STAGE2 and AURORA_WINDOWS_STAGE2_MANIFEST must be supplied together"
         exit 1
     fi
-    if [ ! -r "$AURORA_WINDOWS_DRIVERS/AppleNvme/AppleNvme.inf" ]; then
-        echo "Aurora Windows driver pack is missing AppleNvme/AppleNvme.inf"
-        exit 1
-    fi
-    if [ ! -r "$DL/$WIMLIB_PKG" ]; then
-        (cd "$DL" && wget -Nc "$WIMLIB_URI")
-    fi
-    echo "$WIMLIB_SHA256  $DL/$WIMLIB_PKG" | shasum -a 256 -c -
-
-    echo "Building bundled wimlib-imagex for macOS $WIMLIB_DEPLOYMENT_TARGET+..."
-    WIMLIB_BUILD_ROOT=$(mktemp -d /private/tmp/aurora-wimlib-build.XXXXXX)
-    WIMLIB_PREFIX="$WIMLIB_BUILD_ROOT/install"
-    tar xf "$DL/$WIMLIB_PKG" -C "$WIMLIB_BUILD_ROOT"
-    (
-        cd "$WIMLIB_BUILD_ROOT/wimlib-$WIMLIB_VER"
-        MACOSX_DEPLOYMENT_TARGET="$WIMLIB_DEPLOYMENT_TARGET" ./configure \
-            --prefix="$WIMLIB_PREFIX" \
-            --disable-shared \
-            --enable-static \
-            --without-fuse \
-            --without-ntfs-3g
-        MACOSX_DEPLOYMENT_TARGET="$WIMLIB_DEPLOYMENT_TARGET" make -j4
-        MACOSX_DEPLOYMENT_TARGET="$WIMLIB_DEPLOYMENT_TARGET" make install
-    )
-    mkdir -p "$PACKAGE/bin" "$PACKAGE/licenses/wimlib" "$PACKAGE/sources"
-    cp "$WIMLIB_PREFIX/bin/wimlib-imagex" "$PACKAGE/bin/wimlib-imagex"
-    codesign --force --sign - "$PACKAGE/bin/wimlib-imagex"
-    chmod 0755 "$PACKAGE/bin/wimlib-imagex"
-    rm -rf "$WIMLIB_BUILD_ROOT"
-
-    cp "$DL/$WIMLIB_PKG" "$PACKAGE/sources/$WIMLIB_PKG"
-    tar -xOf "$DL/$WIMLIB_PKG" "wimlib-$WIMLIB_VER/COPYING" \
-        > "$PACKAGE/licenses/wimlib/COPYING"
-    tar -xOf "$DL/$WIMLIB_PKG" "wimlib-$WIMLIB_VER/COPYING.GPLv3" \
-        > "$PACKAGE/licenses/wimlib/COPYING.GPLv3"
-    tar -xOf "$DL/$WIMLIB_PKG" "wimlib-$WIMLIB_VER/COPYING.LGPL" \
-        > "$PACKAGE/licenses/wimlib/COPYING.LGPL"
-    cp "$DATA/wimlib-NOTICE.txt" "$PACKAGE/licenses/wimlib/NOTICE.txt"
-
-    WINDOWS_TREE="$PACKAGE/.aurora-windows"
-    mkdir -p "$WINDOWS_TREE/esp/m1n1" "$WINDOWS_TREE/esp/aurora"
-    mkdir -p "$WINDOWS_TREE/windows/drivers" "$WINDOWS_TREE/windows/deploy"
-
-    # The shipping stage 2 remains the payload-free proxy build. A future
-    # autonomous m1n1/Mu image can be supplied at build time without changing
-    # the partition map or the stage-1 chainload path.
-    WINDOWS_STAGE2="$M1N1_STAGE2"
-    WINDOWS_STAGE2_MANIFEST="$DATA/stage2.json"
-    if [ -n "${AURORA_WINDOWS_STAGE2:-}" ] || [ -n "${AURORA_WINDOWS_STAGE2_MANIFEST:-}" ]; then
-        if [ ! -r "${AURORA_WINDOWS_STAGE2:-}" ] || [ ! -r "${AURORA_WINDOWS_STAGE2_MANIFEST:-}" ]; then
-            echo "AURORA_WINDOWS_STAGE2 and AURORA_WINDOWS_STAGE2_MANIFEST must be supplied together"
-            exit 1
-        fi
-        WINDOWS_STAGE2="$AURORA_WINDOWS_STAGE2"
-        WINDOWS_STAGE2_MANIFEST="$AURORA_WINDOWS_STAGE2_MANIFEST"
-    fi
-    python3 - "$WINDOWS_STAGE2_MANIFEST" <<'PY'
+    WINDOWS_STAGE2="$AURORA_WINDOWS_STAGE2"
+    WINDOWS_STAGE2_MANIFEST="$AURORA_WINDOWS_STAGE2_MANIFEST"
+fi
+python3 - "$WINDOWS_STAGE2_MANIFEST" <<'PY'
 import json
 import pathlib
 import sys
@@ -203,9 +247,9 @@ if manifest.get("replaceable") is not True:
 if not manifest.get("mode") or not manifest.get("boot_method"):
     raise SystemExit("Windows stage-2 manifest must describe its mode and boot method")
 PY
-    cp "$WINDOWS_STAGE2" "$WINDOWS_TREE/esp/m1n1/boot.bin"
-    cp "$WINDOWS_STAGE2_MANIFEST" "$WINDOWS_TREE/esp/aurora/stage2.json"
-    python3 - "$WINDOWS_STAGE2_MANIFEST" "$PACKAGE/installer_data.json" <<'PY'
+cp "$WINDOWS_STAGE2" "$WINDOWS_TREE/esp/m1n1/boot.bin"
+cp "$WINDOWS_STAGE2_MANIFEST" "$WINDOWS_TREE/esp/aurora/stage2.json"
+python3 - "$WINDOWS_STAGE2_MANIFEST" "$PACKAGE/installer_data.json" <<'PY'
 import json
 import pathlib
 import sys
@@ -221,33 +265,15 @@ deployment["stage2_mode"] = manifest["mode"]
 deployment["boot_method"] = manifest["boot_method"]
 installer_path.write_text(json.dumps(data, indent=4) + "\n")
 PY
-    cp -R "$AURORA_WINDOWS_DRIVERS"/. "$WINDOWS_TREE/windows/drivers/"
-    cp "$DATA/windows-driver-pack.json" "$WINDOWS_TREE/windows/driver-pack.json"
-    cp "$DATA/windows/startnet.cmd" "$WINDOWS_TREE/windows/deploy/startnet.cmd"
-    cp "$DATA/windows/aurora-deploy.cmd" "$WINDOWS_TREE/windows/deploy/aurora-deploy.cmd"
-    cp "$DATA/windows/SetupComplete.cmd" "$WINDOWS_TREE/windows/deploy/SetupComplete.cmd"
-    (
-        cd "$WINDOWS_TREE"
-        zip -q -r "$PACKAGE/os/aurora-windows-bootstrap.zip" esp windows
-    )
-    rm -rf "$WINDOWS_TREE"
-else
-    if [ -n "${AURORA_WINDOWS_STAGE2:-}" ] || [ -n "${AURORA_WINDOWS_STAGE2_MANIFEST:-}" ]; then
-        echo "AURORA_WINDOWS_DRIVERS is required to enable Windows deployment"
-        exit 1
-    fi
-    echo "Windows option disabled: set AURORA_WINDOWS_DRIVERS to enable it."
-    python3 - "$PACKAGE/installer_data.json" <<'PY'
-import json
-import pathlib
-import sys
-
-path = pathlib.Path(sys.argv[1])
-data = json.loads(path.read_text())
-data["os_list"] = [entry for entry in data["os_list"] if "windows_deployment" not in entry]
-path.write_text(json.dumps(data, indent=4) + "\n")
-PY
-fi
+cp "$DATA/windows-driver-pack.json" "$WINDOWS_TREE/windows/driver-pack.json"
+cp "$DATA/windows/startnet.cmd" "$WINDOWS_TREE/windows/deploy/startnet.cmd"
+cp "$DATA/windows/aurora-deploy.cmd" "$WINDOWS_TREE/windows/deploy/aurora-deploy.cmd"
+cp "$DATA/windows/SetupComplete.cmd" "$WINDOWS_TREE/windows/deploy/SetupComplete.cmd"
+(
+    cd "$WINDOWS_TREE"
+    zip -q -r "$PACKAGE/os/aurora-windows-bootstrap.zip" esp windows
+)
+rm -rf "$WINDOWS_TREE"
 
 echo "Building AEA key helper..."
 

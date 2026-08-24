@@ -16,12 +16,23 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import urllib.parse
 import urllib.request
 import uuid
 import zipfile
 
-from util import p_error, p_info, p_message, p_plain, p_progress, p_warning, ssize
+from util import (
+    input_prompt,
+    p_error,
+    p_info,
+    p_message,
+    p_plain,
+    p_progress,
+    p_question,
+    p_warning,
+    ssize,
+)
 
 
 MICROSOFT_CONNECTOR = "https://www.microsoft.com/software-download-connector/api/"
@@ -338,6 +349,120 @@ def _copy_tree(source: Path, destination: Path) -> None:
     shutil.copytree(source, destination, dirs_exist_ok=True, copy_function=shutil.copy2)
 
 
+def _driver_inventory(root: Path, max_bytes: int) -> tuple[list[tuple[str, int, str]], str, int]:
+    rows = []
+    total = 0
+    invalid = set('<>:"\\|?*')
+    try:
+        entries = sorted(root.rglob("*"), key=lambda path: path.relative_to(root).as_posix())
+    except OSError as exc:
+        raise WindowsDeploymentError(f"unable to enumerate driver pack: {exc}") from exc
+    for entry in entries:
+        relative = entry.relative_to(root)
+        if entry.is_symlink():
+            raise WindowsDeploymentError(f"driver pack may not contain symlinks: {relative}")
+        if ".git" in relative.parts:
+            raise WindowsDeploymentError("select an assembled driver pack, not a Git checkout")
+        if entry.is_dir():
+            continue
+        if not entry.is_file():
+            raise WindowsDeploymentError(f"unsupported driver-pack entry: {relative}")
+        for part in relative.parts:
+            if (
+                not part
+                or part.endswith((" ", "."))
+                or any(ord(char) < 0x20 or char in invalid for char in part)
+            ):
+                raise WindowsDeploymentError(f"driver-pack path is not Windows-safe: {relative}")
+        size = entry.stat().st_size
+        total += size
+        if total > max_bytes:
+            raise WindowsDeploymentError(
+                f"driver pack exceeds its {ssize(max_bytes)} staging limit"
+            )
+        rows.append((relative.as_posix(), size, sha256_file(entry)))
+    if not rows:
+        raise WindowsDeploymentError("driver pack is empty")
+    encoded = json.dumps(rows, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return rows, hashlib.sha256(encoded).hexdigest(), total
+
+
+def _validate_driver_pack(root: Path, manifest: dict) -> list[str]:
+    requirements = manifest.get("required_infs")
+    if not isinstance(requirements, list) or not requirements:
+        raise WindowsDeploymentError("driver-pack manifest has no required INF contracts")
+    infs = [path for path in root.rglob("*") if path.is_file() and path.suffix.casefold() == ".inf"]
+    for inf in infs:
+        raw = inf.read_bytes()
+        text = None
+        encodings = ("utf-16",) if raw.startswith((b"\xff\xfe", b"\xfe\xff")) else ("utf-8-sig", "cp1252")
+        for encoding in encodings:
+            try:
+                text = raw.decode(encoding)
+                break
+            except UnicodeError:
+                continue
+        if text is None:
+            raise WindowsDeploymentError(f"unable to decode driver INF: {inf.relative_to(root)}")
+        catalogs = re.findall(
+            r"(?im)^\s*CatalogFile(?:\.[^=\s]+)?\s*=\s*([^;\r\n]+)", text
+        )
+        if not catalogs:
+            raise WindowsDeploymentError(
+                f"driver INF has no CatalogFile directive: {inf.relative_to(root)}"
+            )
+        siblings = {path.name.casefold() for path in inf.parent.iterdir() if path.is_file()}
+        for catalog in catalogs:
+            filename = catalog.strip().strip('"')
+            if not filename.casefold().endswith(".cat") or filename.casefold() not in siblings:
+                raise WindowsDeploymentError(
+                    f"driver INF is missing catalog {filename}: {inf.relative_to(root)}"
+                )
+    boot_infs = []
+    for requirement in requirements:
+        filename = requirement.get("filename", "")
+        role = requirement.get("role", "")
+        companions = requirement.get("companion_suffixes", [])
+        matches = [path for path in infs if path.name.casefold() == filename.casefold()]
+        if len(matches) != 1:
+            raise WindowsDeploymentError(
+                f"driver pack must contain exactly one {filename}; found {len(matches)}"
+            )
+        sibling_suffixes = {
+            path.suffix.casefold()
+            for path in matches[0].parent.iterdir()
+            if path.is_file()
+        }
+        for companion in companions:
+            if companion.casefold() not in sibling_suffixes:
+                raise WindowsDeploymentError(
+                    f"{filename} is missing its {companion} payload in the same directory"
+                )
+        if role == "boot":
+            boot_infs.append(matches[0].relative_to(root).as_posix())
+        elif role != "hal-extension":
+            raise WindowsDeploymentError(f"unsupported required INF role: {role}")
+    if not boot_infs:
+        raise WindowsDeploymentError("driver pack has no boot-critical INF")
+    return boot_infs
+
+
+def _driver_pack_source(manifest: dict) -> Path:
+    environment = manifest.get("environment", "AURORA_WINDOWS_DRIVERS")
+    configured = os.environ.get(environment)
+    if not configured:
+        p_question("Provide the Aurora AIC HAL extension and Windows driver pack")
+        p_message("Enter the path to an assembled driver-pack directory.")
+        p_message("It must contain AppleNvme.inf and HalExtAppleInterruptController.inf.")
+        configured = input_prompt("Driver pack directory: ").strip()
+    if not configured:
+        raise WindowsDeploymentError("an Aurora AIC HAL extension and driver pack is required")
+    source = Path(configured).expanduser().resolve()
+    if not source.is_dir():
+        raise WindowsDeploymentError(f"driver pack is not a directory: {source}")
+    return source
+
+
 def _partition_number(device: str) -> tuple[int, int]:
     match = re.fullmatch(r"disk(\d+)s(\d+)", device)
     if not match:
@@ -388,20 +513,20 @@ class WindowsStager:
         self.iso_pin = load_iso_pin(self.deployment.get("iso_manifest", "windows-iso.json"))
         self.iso_path: Path | None = None
         self.wimlib: str | None = None
+        self.bcd_tool: str | None = None
+        self.driver_cache = None
+        self.driver_root: Path | None = None
+        self.driver_boot_infs: list[str] = []
+        self.driver_sha256: str | None = None
+        self.driver_bytes = 0
+        self.driver_files = 0
 
     def prepare(self) -> None:
         """Finish every fallible asset check before the partition map changes."""
         driver_manifest = _zip_json(self.package, "windows/driver-pack.json")
-        if driver_manifest.get("schema") != 1:
+        if driver_manifest.get("schema") != 1 or driver_manifest.get("source") != "user-supplied":
             raise WindowsDeploymentError("unsupported Aurora driver-pack manifest")
         names = set(self.package.namelist())
-        boot_infs = driver_manifest.get("required_boot_infs", [])
-        if not boot_infs:
-            raise WindowsDeploymentError("Aurora driver pack has no boot-critical drivers")
-        for relative in boot_infs:
-            name = "windows/drivers/" + relative
-            if name not in names:
-                raise WindowsDeploymentError(f"Aurora driver pack is missing {relative}")
         for required in (
             "windows/deploy/aurora-deploy.cmd",
             "windows/deploy/SetupComplete.cmd",
@@ -418,6 +543,50 @@ class WindowsStager:
                 "/usr/local/bin/wimlib-imagex",
             ),
         )
+        self.bcd_tool = _resolve_tool(
+            "bcd-set-testsigning",
+            "AURORA_BCD_TOOL",
+            (
+                str(Path(__file__).resolve().parent / "bin" / "bcd-set-testsigning"),
+            ),
+        )
+        source = _driver_pack_source(driver_manifest)
+        max_bytes = driver_manifest.get("max_bytes")
+        if not isinstance(max_bytes, int) or max_bytes <= 0:
+            raise WindowsDeploymentError("driver-pack manifest has an invalid size limit")
+        source_rows, source_digest, source_bytes = _driver_inventory(source, max_bytes)
+        _validate_driver_pack(source, driver_manifest)
+        self.driver_cache = tempfile.TemporaryDirectory(prefix="aurora-windows-drivers.")
+        self.driver_root = Path(self.driver_cache.name) / "Drivers"
+        try:
+            _copy_tree(source, self.driver_root)
+            cached_rows, cached_digest, cached_bytes = _driver_inventory(
+                self.driver_root, max_bytes
+            )
+            self.driver_boot_infs = _validate_driver_pack(
+                self.driver_root, driver_manifest
+            )
+        except Exception:
+            self.driver_cache.cleanup()
+            self.driver_cache = None
+            self.driver_root = None
+            raise
+        if (source_rows, source_digest, source_bytes) != (
+            cached_rows,
+            cached_digest,
+            cached_bytes,
+        ):
+            self.driver_cache.cleanup()
+            self.driver_cache = None
+            self.driver_root = None
+            raise WindowsDeploymentError("driver pack changed while it was being snapshotted")
+        self.driver_sha256 = cached_digest
+        self.driver_bytes = cached_bytes
+        self.driver_files = len(cached_rows)
+        p_info(
+            f"  Driver/HAL pack: {self.driver_files} files, {ssize(self.driver_bytes)} "
+            f"({self.driver_sha256[:16]}...)"
+        )
         self.iso_path = obtain_iso(self.iso_pin)
         p_info(
             f"  Windows ISO pin: {self.iso_pin['release']} build "
@@ -430,30 +599,44 @@ class WindowsStager:
             raise WindowsDeploymentError(f"expected exactly one {role} partition")
         return matches[0]
 
-    def _patch_boot_wim(self, boot_wim: Path, startnet: Path) -> None:
+    def _patch_boot_wim(self, boot_wim: Path, startnet: Path, drivers: Path) -> None:
         boot_wim.chmod(boot_wim.stat().st_mode | stat.S_IWUSR)
-        command = f'add "{startnet}" "/Windows/System32/startnet.cmd"\n'
+        commands = [
+            f'add "{startnet}" "/Windows/System32/startnet.cmd"',
+            f'add "{drivers / "boot-drivers.txt"}" "/Aurora/BootDrivers/boot-drivers.txt"',
+        ]
+        verify_paths = [
+            "/Windows/System32/startnet.cmd",
+            "/Aurora/BootDrivers/boot-drivers.txt",
+        ]
+        for relative in self.driver_boot_infs:
+            source = drivers / Path(relative).parent
+            destination = "/Aurora/BootDrivers/" + Path(relative).parent.as_posix()
+            commands.append(f'add "{source}" "{destination}"')
+            verify_paths.append("/Aurora/BootDrivers/" + relative)
+        command = ("\n".join(commands) + "\n").encode("utf-8")
         for index in (1, 2):
             subprocess.run(
                 [self.wimlib, "update", str(boot_wim), str(index)],
-                input=command.encode("utf-8"),
+                input=command,
                 check=True,
                 stdout=subprocess.PIPE,
             )
-        subprocess.run(
-            [
-                self.wimlib,
-                "dir",
-                str(boot_wim),
-                "2",
-                "--path=/Windows/System32/startnet.cmd",
-            ],
-            check=True,
-            stdout=subprocess.PIPE,
-        )
+            for path in verify_paths:
+                subprocess.run(
+                    [self.wimlib, "dir", str(boot_wim), str(index), f"--path={path}"],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                )
 
     def stage(self, partitions: list[dict], infos: list[object]) -> None:
-        if self.iso_path is None or self.wimlib is None:
+        if (
+            self.iso_path is None
+            or self.wimlib is None
+            or self.bcd_tool is None
+            or self.driver_root is None
+            or self.driver_sha256 is None
+        ):
             raise WindowsDeploymentError("Windows staging was not prepared")
 
         esp = self._role(partitions, infos, "esp")
@@ -508,15 +691,41 @@ class WindowsStager:
             esp_sources.mkdir(exist_ok=True)
             shutil.copy2(source_boot_wim, esp_sources / "boot.wim")
 
+        efi = _child_casefold(esp_mount, "efi")
+        microsoft = _child_casefold(efi, "microsoft")
+        boot = _child_casefold(microsoft, "boot")
+        setup_bcd = _child_casefold(boot, "bcd")
+        subprocess.run(
+            [self.bcd_tool, str(setup_bcd)],
+            check=True,
+            stdout=subprocess.PIPE,
+        )
+
         aurora = media_mount / "Aurora"
         drivers = aurora / "Drivers"
         aurora.mkdir(exist_ok=True)
-        _zip_extract_prefix(self.package, "windows/drivers", drivers)
+        _copy_tree(self.driver_root, drivers)
         _zip_extract_prefix(self.package, "windows/deploy", aurora)
 
-        driver_manifest = _zip_json(self.package, "windows/driver-pack.json")
-        boot_list = "".join(path.replace("/", "\\") + "\r\n" for path in driver_manifest["required_boot_infs"])
+        boot_list = "".join(
+            path.replace("/", "\\") + "\r\n" for path in self.driver_boot_infs
+        )
         (drivers / "boot-drivers.txt").write_text(boot_list, newline="")
+        (aurora / "driver-pack.json").write_text(
+            json.dumps(
+                {
+                    "schema": 1,
+                    "source": "user-supplied",
+                    "files": self.driver_files,
+                    "bytes": self.driver_bytes,
+                    "sha256": self.driver_sha256,
+                    "boot_infs": self.driver_boot_infs,
+                },
+                indent=4,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
 
         deploy = {
             "schema": "1",
@@ -529,6 +738,7 @@ class WindowsStager:
             "windows_build": self.iso_pin["build"],
             "image_name": self.deployment.get("image_name", self.iso_pin["image_name"]),
             "iso_sha256": self.iso_pin["sha256"],
+            "driver_pack_sha256": self.driver_sha256,
         }
         cfg = "".join(f"{key}={value}\r\n" for key, value in deploy.items())
         (aurora / "deploy.cfg").write_text(cfg, newline="")
@@ -540,6 +750,7 @@ class WindowsStager:
                 for key in ("release", "build", "filename", "size", "sha256")
             },
             "test_signing": True,
+            "winpe_test_signing": True,
             "write_boundary": "installer-created partitions only",
         }
         aurora_dir = esp_mount / "aurora"
@@ -548,6 +759,11 @@ class WindowsStager:
             json.dumps(manifest, indent=4) + "\n", encoding="utf-8"
         )
 
-        self._patch_boot_wim(esp_mount / "sources" / "boot.wim", aurora / "startnet.cmd")
+        self._patch_boot_wim(
+            esp_mount / "sources" / "boot.wim", aurora / "startnet.cmd", drivers
+        )
         os.sync()
+        self.driver_cache.cleanup()
+        self.driver_cache = None
+        self.driver_root = None
         p_plain("  Windows Setup media, Aurora drivers, and test-signing deployment policy staged.")

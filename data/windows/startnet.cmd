@@ -2,6 +2,15 @@
 setlocal EnableExtensions EnableDelayedExpansion
 wpeinit
 
+set "BOOT_DRIVERS=X:\Aurora\BootDrivers"
+if not exist "!BOOT_DRIVERS!\boot-drivers.txt" goto shell
+for /f "usebackq eol=# delims=" %%I in ("!BOOT_DRIVERS!\boot-drivers.txt") do (
+    echo AURORA_WINPE_DRVLOAD %%I
+    drvload.exe "!BOOT_DRIVERS!\%%I"
+    if errorlevel 1 goto shell
+)
+pnputil.exe /scan-devices >nul 2>&1
+
 set "AURORA_DEPLOY="
 set "AURORA_COUNT=0"
 for %%D in (C D E F G H I J K L M N O P Q R S T U V W Y Z) do (

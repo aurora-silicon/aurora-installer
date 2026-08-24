@@ -28,7 +28,7 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          brew install libarchive p7zip wget llvm lld
+          brew install libarchive libxml2 p7zip wget llvm lld
           echo "$(brew --prefix libarchive)/bin" >> "$GITHUB_PATH"
           python3 -m pip install certifi
           rustup target install aarch64-unknown-none-softfloat

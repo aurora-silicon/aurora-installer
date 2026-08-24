@@ -54,13 +54,24 @@ case, download the same English ARM64 ISO from the official page and export
 starting the installer. The local ISO is subject to the same exact size and
 SHA-256 checks before any partition changes.
 
-Before partitioning, the installer verifies the ISO, driver pack, deployment
-scripts, and its bundled `wimlib-imagex`. It then copies the ISO to a 10 GB
-exFAT partition, puts a patched WinPE `boot.wim` on the ESP, and writes unique
-deployment markers to the ESP, media, and temporary exFAT target. On the first
-Mu boot, WinPE:
+The public installer contains no Aurora driver or HAL-extension binaries. When
+the staged-Windows option is selected, it asks for an assembled driver-pack
+directory. `AURORA_WINDOWS_DRIVERS=/absolute/path/to/AuroraDrivers` can provide
+the path non-interactively. The directory must contain exactly one
+`AppleNvme.inf` package and one `HalExtAppleInterruptController.inf` package,
+including their payload binaries and catalogs. Every other file is carried
+recursively, so keyboard, trackpad, keyboard-backlight, GPU, audio, and other
+driver packages and their dependencies may be included in the same tree.
 
-- loads the boot-critical Apple NVMe driver;
+Before partitioning, the installer validates Windows-safe paths and every INF
+catalog reference, snapshots and hashes the complete user-supplied tree,
+verifies the ISO and deployment scripts, and resolves its bundled tools. It
+then copies the ISO to a 10 GB exFAT partition, puts a patched WinPE `boot.wim`
+on the ESP, and writes unique deployment markers to the ESP, media, and
+temporary exFAT target. On the first Mu boot, WinPE:
+
+- starts with TESTSIGNING enabled and loads the boot-critical Apple NVMe
+  package embedded in both WinPE indexes;
 - proves the exact GPT disk ID and requires exactly one matching target marker;
 - formats only that marker-selected target as NTFS;
 - applies the pinned Windows 11 Pro image and injects the complete Aurora driver
@@ -71,6 +82,14 @@ Mu boot, WinPE:
 Failure before the verified write boundary leaves the target untouched. Later
 failures stop in a WinPE shell instead of rebooting or selecting another disk.
 Test signing is deliberately enabled; `nointegritychecks` is not.
+
+Catalog creation and code signing remain driver-build responsibilities. Use
+the WDK `Inf2Cat` and signing workflow before supplying a package: Inf2Cat only
+generates an unsigned catalog, and 64-bit Windows still requires every kernel
+image to have a digital signature even in test mode. The installer validates
+that catalogs referenced by every supplied INF are present, preserves the
+complete package tree, and enables TESTSIGNING in both the setup BCD and the
+installed Windows BCD; it never handles signing private keys.
 
 ## Storage safety
 
@@ -95,16 +114,17 @@ git submodule update --init m1n1
 ./build.sh
 ```
 
-The build uses Aurora's m1n1 fork for both stages and bundles the stage-2 ZIP
-and installer metadata inside the installer archive. `M1N1_STAGE1` and
-`M1N1_STAGE2` may point to prebuilt binaries; `LOGO` may point to a custom ICNS
-file. The default icon is generated from Aurora m1n1 artwork.
+The build uses [`Aurora-Silicon/m1n1@main`](https://github.com/Aurora-Silicon/m1n1)
+for both stages and bundles the stage-2 ZIP and installer metadata inside the
+installer archive. `M1N1_STAGE1` and `M1N1_STAGE2` may point to prebuilt
+binaries; `LOGO` may point to a custom ICNS file. The default icon is generated
+from Aurora m1n1 artwork.
 
-The Windows option is included only when `AURORA_WINDOWS_DRIVERS` points to a
-driver-pack root containing `AppleNvme/AppleNvme.inf`; this prevents a release
-from advertising a Windows path without its boot-critical storage driver. The
-default Windows stage 2 is the proxy image. A future autonomous image may be
-supplied with both `AURORA_WINDOWS_STAGE2` and
+Every public build includes the Windows option, WinPE mutation tools, and
+deployment scripts, but no private Aurora drivers. Driver/HAL packages are
+selected by the installer user before any storage changes. The default Windows
+stage 2 is the proxy image. A future autonomous image may be supplied with both
+`AURORA_WINDOWS_STAGE2` and
 `AURORA_WINDOWS_STAGE2_MANIFEST`; the manifest must retain the stable
 `m1n1/boot.bin` replacement contract.
 

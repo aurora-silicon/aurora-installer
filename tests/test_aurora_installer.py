@@ -97,6 +97,16 @@ class AuroraInstallerTests(unittest.TestCase):
         self.assertTrue(contract["replaceable"])
         self.assertIn("Mu", contract["boot_method"])
 
+    def test_m1n1_tracks_the_aurora_main_branch(self):
+        modules = (ROOT / ".gitmodules").read_text()
+        self.assertIn("https://github.com/Aurora-Silicon/m1n1.git", modules)
+        self.assertIn("branch = main", modules)
+
+    def test_public_build_never_embeds_private_driver_pack(self):
+        build = (ROOT / "build.sh").read_text()
+        self.assertNotIn("AURORA_WINDOWS_DRIVERS", build)
+        self.assertIn('cp "$DATA/windows-driver-pack.json"', build)
+
     def test_icns_wrapper_contains_png_payload(self):
         png = make_icns.PNG_SIGNATURE + b"aurora"
         icon = make_icns.build_icns(png)

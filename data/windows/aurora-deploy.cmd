@@ -22,6 +22,7 @@ if "!disk_guid!"=="" goto abort_config
 if "!esp_partition_number!"=="" goto abort_config
 if "!image_name!"=="" goto abort_config
 if "!iso_sha256!"=="" goto abort_config
+if "!driver_pack_sha256!"=="" goto abort_config
 
 set "MEDIA_TOKEN="
 set /p MEDIA_TOKEN=<"%MEDIA%AURORA-WINDOWS-MEDIA.TAG"
@@ -158,6 +159,7 @@ if errorlevel 1 goto abort_bcd
 
 echo build=!windows_build!>"!WINVOL!\AuroraWindowsInstalled.txt"
 echo iso_sha256=!iso_sha256!>>"!WINVOL!\AuroraWindowsInstalled.txt"
+echo driver_pack_sha256=!driver_pack_sha256!>>"!WINVOL!\AuroraWindowsInstalled.txt"
 echo test_signing=on>>"!WINVOL!\AuroraWindowsInstalled.txt"
 call :emit "AURORA_DEPLOY_COMPLETE"
 wpeutil.exe reboot

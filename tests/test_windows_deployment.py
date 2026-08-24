@@ -78,6 +78,20 @@ class MountedDirectory:
         return False
 
 
+def add_driver_package(root, directory, inf_name, payload_suffix):
+    package = root / directory
+    package.mkdir(parents=True, exist_ok=True)
+    catalog = Path(inf_name).with_suffix(".cat").name
+    (package / inf_name).write_text(
+        f"[Version]\r\nSignature=\"$WINDOWS NT$\"\r\nCatalogFile={catalog}\r\n"
+    )
+    (package / catalog).write_bytes(b"test-signed-catalog")
+    (package / Path(inf_name).with_suffix(payload_suffix).name).write_bytes(
+        b"test-signed-binary"
+    )
+    return package
+
+
 class WindowsDeploymentTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -141,6 +155,12 @@ class WindowsDeploymentTests(unittest.TestCase):
         self.assertIn("select volume !WINVOL:~0,1!", script)
         self.assertNotIn("assign letter=W", script)
         self.assertNotIn("nointegritychecks", script.lower())
+
+        startnet = (ROOT / "data/windows/startnet.cmd").read_text()
+        self.assertLess(startnet.index("AURORA_WINPE_DRVLOAD"), startnet.index("AURORA_DEPLOY="))
+        bcd_helper = (ROOT / "tools/bcd-set-testsigning.c").read_text()
+        self.assertIn('"16000049"', bcd_helper)
+        self.assertIn("hivex_commit", bcd_helper)
 
     def test_microsoft_resolver_refuses_release_drift(self):
         sku = {
@@ -239,21 +259,90 @@ class WindowsDeploymentTests(unittest.TestCase):
         self.assertEqual("proxy", self.option["windows_deployment"]["stage2_mode"])
         self.assertIn("Mu", self.option["windows_deployment"]["boot_method"])
 
+    def test_user_driver_pack_is_snapshotted_before_partitioning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            supplied = root / "supplied"
+            add_driver_package(supplied, "AppleNvme", "AppleNvme.inf", ".sys")
+            add_driver_package(
+                supplied,
+                "AicHal",
+                "HalExtAppleInterruptController.inf",
+                ".dll",
+            )
+            add_driver_package(
+                supplied, "Input/AppleMtpHid", "AppleMtpHid.inf", ".sys"
+            )
+            manifest = json.loads((ROOT / "data/windows-driver-pack.json").read_text())
+            package_path = root / "windows.zip"
+            with zipfile.ZipFile(package_path, "w") as output:
+                output.writestr("windows/driver-pack.json", json.dumps(manifest))
+                output.writestr("windows/deploy/startnet.cmd", "wpeinit\r\n")
+                output.writestr("windows/deploy/aurora-deploy.cmd", "deploy\r\n")
+                output.writestr("windows/deploy/SetupComplete.cmd", "bcdedit\r\n")
+
+            with (
+                zipfile.ZipFile(package_path) as package,
+                mock.patch.dict(
+                    "os.environ", {"AURORA_WINDOWS_DRIVERS": str(supplied)}, clear=False
+                ),
+                mock.patch("windows._resolve_tool", side_effect=lambda name, *_: name),
+                mock.patch("windows.obtain_iso", return_value=root / "pinned.iso"),
+            ):
+                stager = windows.WindowsStager(
+                    FakeStageDiskUtil({}), package, self.option["windows_deployment"]
+                )
+                stager.prepare()
+
+            self.assertNotEqual(supplied, stager.driver_root)
+            self.assertEqual(["AppleNvme/AppleNvme.inf"], stager.driver_boot_infs)
+            self.assertTrue((stager.driver_root / "Input/AppleMtpHid/AppleMtpHid.inf").is_file())
+            self.assertTrue(stager.driver_sha256)
+            supplied.joinpath("AppleNvme/AppleNvme.sys").write_bytes(b"changed")
+            self.assertEqual(
+                b"test-signed-binary",
+                stager.driver_root.joinpath("AppleNvme/AppleNvme.sys").read_bytes(),
+            )
+            stager.driver_cache.cleanup()
+
+    def test_every_supplied_inf_requires_its_generated_catalog(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            add_driver_package(root, "AppleNvme", "AppleNvme.inf", ".sys")
+            add_driver_package(
+                root, "AicHal", "HalExtAppleInterruptController.inf", ".dll"
+            )
+            optional = root / "Input/Keyboard"
+            optional.mkdir(parents=True)
+            (optional / "AppleKeyboard.inf").write_text("[Version]\r\n")
+            manifest = json.loads((ROOT / "data/windows-driver-pack.json").read_text())
+            with self.assertRaisesRegex(windows.WindowsDeploymentError, "CatalogFile"):
+                windows._validate_driver_pack(root, manifest)
+
     @mock.patch("windows.subprocess.run")
     def test_boot_wim_verification_uses_wimlib_path_option(self, run):
         with tempfile.TemporaryDirectory() as tmp:
             boot_wim = Path(tmp) / "boot.wim"
             startnet = Path(tmp) / "startnet.cmd"
+            drivers = Path(tmp) / "drivers"
+            (drivers / "AppleNvme").mkdir(parents=True)
             boot_wim.write_bytes(b"wim")
             startnet.write_text("wpeinit\n")
+            (drivers / "boot-drivers.txt").write_text("AppleNvme\\AppleNvme.inf\r\n")
+            (drivers / "AppleNvme/AppleNvme.inf").write_text("inf")
             stager = object.__new__(windows.WindowsStager)
             stager.wimlib = "wimlib-imagex"
-            stager._patch_boot_wim(boot_wim, startnet)
+            stager.driver_boot_infs = ["AppleNvme/AppleNvme.inf"]
+            stager._patch_boot_wim(boot_wim, startnet, drivers)
 
-        self.assertEqual(3, run.call_count)
-        verify = run.call_args_list[-1].args[0]
-        self.assertEqual("dir", verify[1])
-        self.assertIn("--path=/Windows/System32/startnet.cmd", verify)
+        updates = [call for call in run.call_args_list if call.args[0][1] == "update"]
+        verifies = [call for call in run.call_args_list if call.args[0][1] == "dir"]
+        self.assertEqual(2, len(updates))
+        self.assertEqual(6, len(verifies))
+        self.assertIn(b"/Aurora/BootDrivers/AppleNvme", updates[0].kwargs["input"])
+        self.assertTrue(
+            any("--path=/Aurora/BootDrivers/AppleNvme/AppleNvme.inf" in call.args[0] for call in verifies)
+        )
 
     def test_stager_writes_only_its_three_new_filesystems(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -262,14 +351,44 @@ class WindowsDeploymentTests(unittest.TestCase):
             esp = root / "esp"
             media = root / "media"
             target = root / "target"
-            for path in (iso / "boot", iso / "efi", iso / "sources", esp, media, target):
+            for path in (
+                iso / "boot",
+                iso / "efi/Microsoft/Boot",
+                iso / "efi/Boot",
+                iso / "sources",
+                esp,
+                media,
+                target,
+            ):
                 path.mkdir(parents=True, exist_ok=True)
             (iso / "boot" / "bcd").write_bytes(b"setup-bcd")
-            (iso / "efi" / "bootaa64.efi").write_bytes(b"setup-loader")
+            (iso / "efi/Microsoft/Boot/BCD").write_bytes(b"setup-bcd")
+            (iso / "efi/Boot/bootaa64.efi").write_bytes(b"setup-loader")
             (iso / "sources" / "boot.wim").write_bytes(b"boot-wim")
             (iso / "sources" / "install.wim").write_bytes(b"install-wim")
             (esp / "m1n1").mkdir()
             (esp / "m1n1" / "boot.bin").write_bytes(b"proxy-stage2")
+
+            driver_root = root / "drivers"
+            add_driver_package(driver_root, "AppleNvme", "AppleNvme.inf", ".sys")
+            add_driver_package(
+                driver_root,
+                "AicHal",
+                "HalExtAppleInterruptController.inf",
+                ".dll",
+            )
+            add_driver_package(
+                driver_root,
+                "Input/AppleMtpHid",
+                "AppleMtpHid.inf",
+                ".sys",
+            )
+            add_driver_package(
+                driver_root,
+                "Input/AppleKbdBacklight",
+                "AppleKbdBacklight.inf",
+                ".sys",
+            )
 
             package_path = root / "windows.zip"
             with zipfile.ZipFile(package_path, "w") as output:
@@ -278,11 +397,10 @@ class WindowsDeploymentTests(unittest.TestCase):
                     json.dumps(
                         {
                             "schema": 1,
-                            "required_boot_infs": ["AppleNvme/AppleNvme.inf"],
+                            "source": "user-supplied",
                         }
                     ),
                 )
-                output.writestr("windows/drivers/AppleNvme/AppleNvme.inf", "inf")
                 output.writestr("windows/deploy/startnet.cmd", "wpeinit\r\n")
                 output.writestr("windows/deploy/aurora-deploy.cmd", "deploy\r\n")
                 output.writestr("windows/deploy/SetupComplete.cmd", "bcdedit\r\n")
@@ -300,10 +418,19 @@ class WindowsDeploymentTests(unittest.TestCase):
                 )
                 stager.iso_path = root / "pinned.iso"
                 stager.wimlib = "wimlib-imagex"
+                stager.bcd_tool = "bcd-set-testsigning"
+                stager.driver_root = driver_root
+                stager.driver_boot_infs = ["AppleNvme/AppleNvme.inf"]
+                stager.driver_sha256 = "a" * 64
+                stager.driver_bytes = 1234
+                stager.driver_files = 12
+                driver_cache = mock.Mock()
+                stager.driver_cache = driver_cache
                 with (
                     mock.patch("windows.mounted_iso", return_value=MountedDirectory(iso)),
                     mock.patch.object(stager, "_patch_boot_wim") as patch_wim,
                     mock.patch("windows.os.sync"),
+                    mock.patch("windows.subprocess.run") as run,
                 ):
                     stager.stage(self.option["partitions"], infos)
 
@@ -315,12 +442,23 @@ class WindowsDeploymentTests(unittest.TestCase):
             self.assertEqual(["AURORA-WINDOWS-TARGET.TAG"], [p.name for p in target.iterdir()])
             self.assertEqual(b"proxy-stage2", (esp / "m1n1" / "boot.bin").read_bytes())
             self.assertTrue((media / "sources" / "install.wim").is_file())
+            self.assertTrue((media / "Aurora/Drivers/AicHal/HalExtAppleInterruptController.dll").is_file())
+            self.assertTrue((media / "Aurora/Drivers/Input/AppleMtpHid/AppleMtpHid.sys").is_file())
+            self.assertTrue((media / "Aurora/Drivers/Input/AppleKbdBacklight/AppleKbdBacklight.sys").is_file())
             cfg = (media / "Aurora" / "deploy.cfg").read_text()
             self.assertIn("disk_guid=AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE", cfg)
             self.assertIn("image_name=Windows 11 Pro", cfg)
             patch_wim.assert_called_once_with(
-                esp / "sources" / "boot.wim", media / "Aurora" / "startnet.cmd"
+                esp / "sources" / "boot.wim",
+                media / "Aurora" / "startnet.cmd",
+                media / "Aurora" / "Drivers",
             )
+            run.assert_called_once_with(
+                ["bcd-set-testsigning", str(esp / "efi/Microsoft/Boot/BCD")],
+                check=True,
+                stdout=windows.subprocess.PIPE,
+            )
+            driver_cache.cleanup.assert_called_once()
 
 
 if __name__ == "__main__":
