@@ -1,0 +1,8 @@
+{
+    "schema": 1,
+    "path": "m1n1/boot.bin",
+    "mode": "proxy",
+    "replaceable": true,
+    "boot_method": "Launch target-specific Mu from the m1n1 proxy host",
+    "description": "Payload-free Aurora m1n1. Replace this file with a validated autonomous m1n1/Mu stage 2 to enable automatic UEFI boot."
+}

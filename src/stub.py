@@ -191,6 +191,38 @@ class StubInstaller(PackageInstaller):
         # Stop macOS <12.0 bootability stufff from clobbering this file
         self.chflags("schg", tg_admin_users)
 
+    def copy_aea_compress(self, src, path):
+        """Decrypt a modern IPSW AEA payload and install its verified DMG."""
+        helper = os.path.join("bin", "aea-key")
+        if not os.path.isfile(helper) or not os.access(helper, os.X_OK):
+            raise Exception("Installer is missing the AEA key helper")
+
+        with tempfile.TemporaryDirectory(prefix="asahi-aea-") as tmpdir:
+            archive = os.path.join(tmpdir, "BaseSystem.dmg.aea")
+            image = os.path.join(tmpdir, "BaseSystem.dmg")
+            key = os.path.join(tmpdir, "BaseSystem.key")
+
+            self.extract_file(src, archive)
+            try:
+                subprocess.run([helper, archive, key], check=True)
+                subprocess.run(["/usr/bin/aea", "decrypt", "-i", archive, "-o", image,
+                                "-key", key], check=True)
+            finally:
+                if os.path.exists(key):
+                    os.unlink(key)
+
+            subprocess.run(["/usr/bin/hdiutil", "verify", image], check=True,
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            digest = hashlib.sha256()
+            with open(image, "rb") as image_file:
+                while data := image_file.read(CHUNK_SIZE):
+                    digest.update(data)
+            with open(image, "rb") as image_file:
+                self.stream_compress(image_file, os.path.getsize(image), path,
+                                     sha256=digest.digest())
+            subprocess.run(["/usr/bin/hdiutil", "verify", path], check=True,
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
     def repair(self, cur_os):
         self.get_paths()
         self.copy_admin_users(cur_os)
@@ -244,6 +276,17 @@ class StubInstaller(PackageInstaller):
         self.identity = identity
         manifest["BuildIdentities"] = [identity]
         return identity
+
+    def get_restore_bundle_path(self):
+        # Newer macOS bootcaches omit the legacy key, but continue to use the
+        # same <Preboot>/<VGID>/restore layout.
+        path = self.bootcaches["bless2"].get("RestoreBundlePath", "restore")
+        if not isinstance(path, str):
+            raise ValueError("Invalid RestoreBundlePath type")
+        path = os.path.normpath(path)
+        if path in (".", "..") or os.path.isabs(path) or path.startswith("../"):
+            raise ValueError(f"Unsafe RestoreBundlePath: {path!r}")
+        return path
 
     def install_files(self, cur_os):
         logging.info("StubInstaller.install_files()")
@@ -299,9 +342,7 @@ class StubInstaller(PackageInstaller):
 
         os.makedirs(self.pb_vgid, exist_ok=True)
 
-        bless2 = self.bootcaches["bless2"]
-        restore_bundle_path = bless2.get("RestoreBundlePath", "restore")
-
+        restore_bundle_path = self.get_restore_bundle_path()
         restore_bundle = os.path.join(self.pb_vgid, restore_bundle_path)
         os.makedirs(restore_bundle, exist_ok=True)
         restore_manifest = os.path.join(restore_bundle, "BuildManifest.plist")
@@ -362,8 +403,12 @@ class StubInstaller(PackageInstaller):
             self.copy_recompress("AssetData/payloadv2/basesystem_patches/arm64eBaseSystem.dmg",
                                  os.path.join(basesystem_path, "arm64eBaseSystem.dmg"))
         else:
-            self.copy_compress(identity["Manifest"]["BaseSystem"]["Info"]["Path"],
-                               os.path.join(basesystem_path, "arm64eBaseSystem.dmg"))
+            source = identity["Manifest"]["BaseSystem"]["Info"]["Path"]
+            destination = os.path.join(basesystem_path, "arm64eBaseSystem.dmg")
+            if source.endswith(".aea"):
+                self.copy_aea_compress(source, destination)
+            else:
+                self.copy_compress(source, destination)
         self.flush_progress()
 
         p_progress("Wrapping up...")
@@ -409,8 +454,7 @@ class StubInstaller(PackageInstaller):
             shutil.rmtree("fud_firmware")
 
         os.makedirs("fud_firmware", exist_ok=True)
-        bless2 = self.bootcaches["bless2"]
-        restore_bundle = os.path.join(self.pb_vgid, bless2["RestoreBundlePath"])
+        restore_bundle = os.path.join(self.pb_vgid, self.get_restore_bundle_path())
         copied = set()
         kernel_path = None
         for identity in [self.identity]:

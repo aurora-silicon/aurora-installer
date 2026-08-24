@@ -10,8 +10,11 @@ else:
 COMPRESSION_LZFSE = 0x801
 CHUNK_SIZE = 0x10000
 
-DISTRO = os.environ.get("DISTRO", "Asahi Linux")
-DISTRO_DOCS = os.environ.get("DISTRO_DOCS", "https://alx.sh/w")
+DISTRO = os.environ.get("DISTRO", "Aurora Windows")
+DISTRO_DOCS = os.environ.get(
+    "DISTRO_DOCS",
+    "https://github.com/aurora-silicon/aurora-installer",
+)
 
 def ssize(v):
     suffixes = ["B", "KB", "MB", "GB", "TB"]
@@ -238,7 +241,7 @@ class PackageInstaller:
         istream = self.pkg.open(src)
         self.stream_compress(istream, size, path, crc=info.CRC)
 
-    def stream_compress(self, istream, size, path, crc=None, sha1=None):
+    def stream_compress(self, istream, size, path, crc=None, sha1=None, sha256=None):
         with open(path, 'wb'):
             pass
         num_chunks = (size + CHUNK_SIZE - 1) // CHUNK_SIZE
@@ -280,16 +283,18 @@ class PackageInstaller:
                         path], check=True)
         os.chflags(path, stat.UF_COMPRESSED)
 
-        if sha1 is not None:
-            sha = hashlib.sha1()
+        if sha1 is not None or sha256 is not None:
+            sha = hashlib.sha1() if sha1 is not None else hashlib.sha256()
             with open(path, 'rb') as result_file:
                 while 1:
                     data = result_file.read(CHUNK_SIZE)
                     if len(data) == 0:
                         break
                     sha.update(data)
-            if sha.digest() != sha1:
-                raise Exception('Internal error: failed to recompress file: SHA1 mismatch')
+            expected = sha1 if sha1 is not None else sha256
+            if sha.digest() != expected:
+                algorithm = "SHA1" if sha1 is not None else "SHA256"
+                raise Exception(f'Internal error: failed to recompress file: {algorithm} mismatch')
         elif crc is not None:
             calc_crc = 0
             with open(path, 'rb') as result_file:

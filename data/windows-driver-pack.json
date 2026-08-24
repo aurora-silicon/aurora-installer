@@ -1,0 +1,28 @@
+{
+    "schema": 1,
+    "name": "User-supplied Aurora Windows ARM64 drivers",
+    "source": "user-supplied",
+    "environment": "AURORA_WINDOWS_DRIVERS",
+    "max_bytes": 1500000000,
+    "required_infs": [
+        {
+            "filename": "AppleNvme.inf",
+            "role": "boot",
+            "companion_suffixes": [
+                ".sys",
+                ".cat"
+            ]
+        },
+        {
+            "filename": "HalExtAppleInterruptController.inf",
+            "role": "hal-extension",
+            "companion_suffixes": [
+                ".dll",
+                ".cat"
+            ]
+        }
+    ],
+    "offline_recurse": true,
+    "force_unsigned": true,
+    "test_signing": true
+}

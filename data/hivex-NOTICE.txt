@@ -1,0 +1,7 @@
+Aurora bundles the hivex library solely to update the pinned Windows setup BCD
+store before first boot. hivex is Copyright (C) Red Hat Inc. and contributors
+and is distributed under the GNU Lesser General Public License version 2.1.
+
+The unmodified source archive and its complete LICENSE file are included in the
+installer under sources/ and licenses/hivex/. Source releases are published at:
+https://download.libguestfs.org/hivex/
