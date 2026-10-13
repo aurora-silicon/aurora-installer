@@ -5,8 +5,9 @@ MODE="${1:?preview or recovery}"
 OUT="${2:-build}"
 [[ "$MODE" == "preview" || "$MODE" == "recovery" ]] || exit 2
 export OMARCHY_RECOVERY_BUILD="$MODE"
-APP="$OUT/Omarchy Installer.app"
+APP="$OUT/Aurora Installer.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp Resources/AuroraLogo.png "$APP/Contents/Resources/AuroraLogo.png"
 cp Resources/OmarchyVolumeIcon.png "$APP/Contents/Resources/OmarchyVolumeIcon.png"
 mkdir -p "$APP/Contents/Resources/en.lproj"
 cp Resources/en.lproj/InfoPlist.strings "$APP/Contents/Resources/en.lproj/InfoPlist.strings"
@@ -19,10 +20,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleExecutable</key><string>OmarchyRecovery</string>
-<key>CFBundleIdentifier</key><string>org.aurorasilicon.omarchy.recovery.$MODE</string>
+<key>CFBundleIdentifier</key><string>org.aurorasilicon.recovery.$MODE</string>
 <key>OmarchyRecoveryBuildMode</key><string>$MODE</string>
-<key>CFBundleName</key><string>Omarchy Installer</string>
-<key>CFBundleDisplayName</key><string>Omarchy Installer</string>
+<key>CFBundleName</key><string>Aurora Installer</string>
+<key>CFBundleDisplayName</key><string>Aurora Installer</string>
 <key>CFBundleDevelopmentRegion</key><string>en</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1</string>

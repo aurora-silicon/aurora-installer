@@ -43,9 +43,35 @@ private final class InstallerApplicationDelegate: NSObject, NSApplicationDelegat
   func applicationDidFinishLaunching(_ notification: Notification) {
     // The install ends with a shutdown the app itself requests. macOS would
     // otherwise treat it as an app open at shutdown and bring it back at the
-    // next login, so someone rebooting from Omarchy into macOS met the
+    // next login, so someone rebooting from Aurora into macOS met the
     // installer again. Opt out for good.
     NSApp.disableRelaunchOnLogin()
+    #if DEBUG
+      if let argument = CommandLine.arguments.first(where: { $0.hasPrefix("--snapshot=") }) {
+        let path = String(argument.dropFirst("--snapshot=".count))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+          if let view = NSApp.keyWindow?.contentView,
+            let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)
+          {
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            if let data = bitmap.representation(using: .png, properties: [:]) {
+              try? data.write(to: URL(fileURLWithPath: path))
+            }
+          }
+        }
+      }
+    #endif
+    DispatchQueue.main.async {
+      for window in NSApp.windows where window.sheetParent == nil {
+        if Bundle.main.object(forInfoDictionaryKey: "AuroraPreviewOnly") as? Bool == true {
+          window.setContentSize(NSSize(width: 840, height: 600))
+          window.center()
+        }
+        for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+          window.standardWindowButton(button)?.isHidden = true
+        }
+      }
+    }
 
     #if DEBUG
       // A bare SwiftPM executable has no Info.plist, so Launch Services
@@ -69,6 +95,8 @@ struct OmarchyAppleInstallerApp: App {
   /// the URLs already signed into this build; changing it restarts the check so
   /// nothing planned against one channel is installed from the other.
   @State private var liveSession: InstallerSession?
+  @State private var selection = AuroraInstallationSelection()
+  @State private var choosingSystem = true
   @State private var showsRemoval = false
   @State private var removalNeedsReview = false
   @State private var removalBusy = false
@@ -80,6 +108,7 @@ struct OmarchyAppleInstallerApp: App {
   private var isSimulation: Bool {
     #if DEBUG
       return ProcessInfo.processInfo.arguments.contains("--simulate")
+        || Bundle.main.object(forInfoDictionaryKey: "AuroraPreviewOnly") as? Bool == true
     #else
       return false
     #endif
@@ -87,9 +116,22 @@ struct OmarchyAppleInstallerApp: App {
 
   @ViewBuilder
   private var installerContent: some View {
+    if choosingSystem {
+      AuroraWelcomeView(selection: $selection) {
+        choosingSystem = false
+        generation = UUID()
+      }
+    } else {
+      flowContent
+    }
+  }
+
+  @ViewBuilder
+  private var flowContent: some View {
     #if DEBUG
       if isSimulation {
-        SimulationDashboard(controls: simulation, onSessionAvailable: { liveSession = $0 })
+        SimulationDashboard(
+          controls: simulation, selection: selection, onSessionAvailable: { liveSession = $0 })
       } else {
         liveContent
       }
@@ -105,7 +147,8 @@ struct OmarchyAppleInstallerApp: App {
 
   private var liveContent: some View {
     OnePageInstallerView(
-      environment: InstallerEnvironmentFactory.make(), channel: channel,
+      environment: LiveInstallerEnvironment(selection: selection), channel: channel,
+      selection: selection, startAtPlan: true,
       onSessionAvailable: { liveSession = $0 })
   }
 
@@ -146,7 +189,7 @@ struct OmarchyAppleInstallerApp: App {
           simulationScenario: previewRemovalScenario)
       }
       .preferredColorScheme(previewColorScheme)
-      .frame(minWidth: 640, maxWidth: .infinity, minHeight: 560, maxHeight: .infinity)
+      .frame(minWidth: 800, maxWidth: .infinity, minHeight: 580, maxHeight: .infinity)
       .ignoresSafeArea(.container, edges: .top)
       .omarchyTypography()
       .tint(OmarchyTheme.accent)
@@ -154,7 +197,7 @@ struct OmarchyAppleInstallerApp: App {
       // translucent system title bar never tints from the wallpaper behind.
       .containerBackground(OmarchyTheme.window, for: .window)
     }
-    .defaultSize(width: 780, height: 660)
+    .defaultSize(width: 840, height: 600)
     .windowResizability(.contentMinSize)
     .windowStyle(.hiddenTitleBar)
     .commands {
@@ -193,7 +236,14 @@ struct OmarchyAppleInstallerApp: App {
         }
       #endif
       CommandMenu("Installation") {
-        Button("Remove Omarchy…") { showsRemoval = true }
+        Button("Choose System…") {
+          liveSession?.cancelPrefetchOnQuit()
+          liveSession = nil
+          choosingSystem = true
+          generation = UUID()
+        }.disabled(!choosingSystem && liveSession?.canChangeChannel != true)
+        Divider()
+        Button("Remove Aurora…") { showsRemoval = true }
           .disabled(removalNeedsReview || showsRemoval || liveSession?.canChangeChannel != true)
       }
       if InstallerBuildProfile.current.showsReleaseChannels {

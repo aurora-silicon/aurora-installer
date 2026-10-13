@@ -53,7 +53,7 @@
       case .reserveColorPreview:
         "UI-only fixture with a wider slider range: choose 42 GB for exactly 38 GB free in macOS, then drag above and below it. The macOS segment and warning should change together. The real planner normally caps the slider at the reserve."
       case .lowReserve:
-        "macOS already has only 35 GB free, below its 38 GB reserve, so the planner can take no space from it. The installer refuses with the full shortfall: Omarchy's 40 GB minimum plus the 3 GB macOS needs to get back to its reserve."
+        "macOS already has only 35 GB free, below its 38 GB reserve, so the planner can take no space from it. The installer refuses with the full shortfall: Aurora's 40 GB minimum plus the 3 GB macOS needs to get back to its reserve."
       case .allocationClamped:
         "Choose a larger size, then apply it. The simulated limit returns to the original size. Confirm the displayed size resets and acknowledgement clears."
       case .missingHelper:
@@ -196,7 +196,7 @@
             stage: .downloading,
             rows: [
               AssetProgressRow(
-                role: "payload", fileName: "Simulated Omarchy release",
+                role: "payload", fileName: "Simulated Aurora release",
                 bytesCompleted: UInt64(step) * 800_000_000,
                 totalBytes: 4_000_000_000, phase: step == 5 ? .verified : .downloading)
             ]))
@@ -248,7 +248,7 @@
           bindingDigest: "simulation-\(length)", minimumBytes: 80_000_000_000,
           maximumBytes: maximum,
           releaseDescription:
-            "SIMULATION · \(channel.rawValue.uppercased()) · Omarchy test release",
+            "SIMULATION · \(channel.rawValue.uppercased()) · Aurora test release",
           targetDescription:
             "Simulated internal disk · \(scenario == .freeSpace ? "Use free space" : "Resize macOS container")",
           fixedMacOSBytes: scenario == .freeSpace ? 100_000_000_000 : nil))

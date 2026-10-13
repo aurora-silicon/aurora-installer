@@ -115,7 +115,7 @@
       }
     }
     let target = RecoveryAccountTarget(
-      volumeName: "Omarchy", systemUUID: "11111111-1111-4111-8111-111111111111",
+      volumeName: "Aurora", systemUUID: "11111111-1111-4111-8111-111111111111",
       dataUUID: "22222222-2222-4222-8222-222222222222",
       groupUUID: "33333333-3333-4333-8333-333333333333",
       prebootUUID: "44444444-4444-4444-8444-444444444444")
@@ -141,14 +141,14 @@
     func testRelativeAccountLookupHandlesDifferentMountSuffixes() {
       XCTAssertEqual(
         RecoveryAccountInstaller.relativePath(
-          from: URL(fileURLWithPath: "/Volumes/Omarchy 1/private"),
-          to: URL(fileURLWithPath: "/Volumes/Omarchy - Data 2/private/var")),
-        "../../Omarchy - Data 2/private/var")
+          from: URL(fileURLWithPath: "/Volumes/Aurora 1/private"),
+          to: URL(fileURLWithPath: "/Volumes/Aurora - Data 2/private/var")),
+        "../../Aurora - Data 2/private/var")
       XCTAssertEqual(
         RecoveryAccountInstaller.relativePath(
-          from: URL(fileURLWithPath: "/Volumes/Omarchy 1"),
-          to: URL(fileURLWithPath: "/Volumes/Omarchy - Data 2/private/var")),
-        "../Omarchy - Data 2/private/var")
+          from: URL(fileURLWithPath: "/Volumes/Aurora 1"),
+          to: URL(fileURLWithPath: "/Volumes/Aurora - Data 2/private/var")),
+        "../Aurora - Data 2/private/var")
     }
 
     func testCommandUsesStdinAndBoundsOutputAndTime() throws {

@@ -8,7 +8,7 @@
     case inspecting
     case unsupported(FailureDisplay)
     case welcome(HostDisplay)
-    /// Omarchy is already on this Mac. The installer never replaces or adds
+    /// Aurora is already on this Mac. The installer never replaces or adds
     /// to an existing install; this is a terminal page with a Close button.
     case existingInstallRefused(host: HostDisplay)
     case preparingPlan(AssetProgressUpdate)

@@ -2,7 +2,7 @@ import Foundation
 
 /// A three-component installer version, ordered numerically.
 ///
-/// The installer's own version is independent of the Omarchy release it
+/// The installer's own version is independent of the Aurora release it
 /// installs: the app ships on its own line and a signed catalog states which
 /// installer versions it still accepts.
 public struct InstallerVersion: Comparable, Hashable, Sendable,

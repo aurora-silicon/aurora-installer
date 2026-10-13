@@ -18,7 +18,7 @@
     case invalidCatalogEnvelope
   }
 
-  /// The release channels a build can read: the same three Omarchy offers,
+  /// The release channels a build can read: the same three Aurora offers,
   /// in menu order. Every build names all of them, so a channel can be opened
   /// later without shipping a new signed app. The developer channel links a
   /// source checkout after installation and is never an installer channel.
@@ -215,7 +215,7 @@
       )
     }
 
-    func load(from releaseDirectory: URL) throws
+    public func load(from releaseDirectory: URL) throws
       -> InstallerReleaseConfiguration
     {
       try validateDirectory(releaseDirectory)

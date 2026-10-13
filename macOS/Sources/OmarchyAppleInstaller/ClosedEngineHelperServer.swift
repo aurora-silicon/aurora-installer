@@ -311,16 +311,16 @@
               "macOS couldn’t confirm it took the free space. The space may still be unallocated. \(detail) Don’t start again; the removal record was kept for recovery."
           } else if phase == "returning-space-to-macos" || phase == "complete" {
             message =
-              "“\(approved.plan.installation?.name ?? "Omarchy")” was removed, but the installer couldn’t confirm its space went back to macOS. The space may still be unallocated. \(detail) Don’t start removal again; the removal record was kept for recovery."
+              "“\(approved.plan.installation?.name ?? "Aurora")” was removed, but the installer couldn’t confirm its space went back to macOS. The space may still be unallocated. \(detail) Don’t start removal again; the removal record was kept for recovery."
           } else {
             message =
-              "Removal stopped, and some data in “\(approved.plan.installation?.name ?? "Omarchy")” may already be deleted. \(detail) Don’t start removal again; the removal record was kept for recovery."
+              "Removal stopped, and some data in “\(approved.plan.installation?.name ?? "Aurora")” may already be deleted. \(detail) Don’t start removal again; the removal record was kept for recovery."
           }
           return OmarchyRemovalReply(requiresReview: phase != "checking", message: message)
         }
       }.value
       if reply.completed {
-        // Nothing of Omarchy is left, so the helper goes too. It takes no more
+        // Nothing of Aurora is left, so the helper goes too. It takes no more
         // work from here on, before this reply even leaves.
         retirement.set()
         selfUninstaller.uninstallAfterRemoval()

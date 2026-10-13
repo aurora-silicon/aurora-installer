@@ -374,10 +374,10 @@
     static func nothingFound(gap: UInt64) -> String {
       if gap == 0 {
         return
-          "No Omarchy installation, or other installation made with the Asahi installer, was found, and there’s no unallocated space after macOS. Nothing was changed."
+          "No Aurora installation, or other installation made with the Asahi installer, was found, and there’s no unallocated space after macOS. Nothing was changed."
       }
       return
-        "No Omarchy installation, or other installation made with the Asahi installer, was found. \(size(gap)) directly after macOS is unallocated; that’s too little to return, so it was left as it is. Nothing was changed."
+        "No Aurora installation, or other installation made with the Asahi installer, was found. \(size(gap)) directly after macOS is unallocated; that’s too little to return, so it was left as it is. Nothing was changed."
     }
 
     static func otherSystem(_ parts: [RemovalPartition], _ snapshot: RemovalSnapshot) -> String {

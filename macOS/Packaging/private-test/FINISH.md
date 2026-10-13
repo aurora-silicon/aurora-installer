@@ -6,8 +6,8 @@ Build the private app and package on an arm64 Mac with Xcode, using the same pin
 
 ```bash
 OMARCHY_APP_BUILD_NUMBER=24 bash Packaging/private-test/build-adhoc-app.sh /absolute/release-inputs /absolute/new-app-directory
-bash Packaging/private-test/build-tester-pkg.sh '/absolute/new-app-directory/Omarchy Installer.app' /absolute/new-package.pkg
-bash test/macos-private-package.sh '/absolute/new-app-directory/Omarchy Installer.app' /absolute/new-package.pkg
+bash Packaging/private-test/build-tester-pkg.sh '/absolute/new-app-directory/Aurora Installer.app' /absolute/new-package.pkg
+bash test/macos-private-package.sh '/absolute/new-app-directory/Aurora Installer.app' /absolute/new-package.pkg
 ```
 
 These scripts do not install or register anything. `build-adhoc-app.sh` pins the helper's exact cdhash in the app, disables the embedded daemon path with `never`, and seals the app. `build-tester-pkg.sh` requires that profile, installs the helper under `/Library/PrivilegedHelperTools`, derives the exact app pin only after signing, and binds the entire daemon plist hash into postinstall. The generic and earlier review package builders do not provide this private delivery contract.

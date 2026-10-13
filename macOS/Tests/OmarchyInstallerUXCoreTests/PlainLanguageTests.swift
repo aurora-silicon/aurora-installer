@@ -13,7 +13,7 @@
         recommendedOmarchyBytes: 77_000_000_000)
       XCTAssertEqual(
         plan.spaceCautions(for: 40_000_000_000),
-        ["Omarchy will use its minimum size, 40 GB, leaving little room for updates and snapshots."]
+        ["Aurora will use its minimum size, 40 GB, leaving little room for updates and snapshots."]
       )
       XCTAssertEqual(plan.spaceCautions(for: 42_000_000_000).count, 1)
       XCTAssertNil(plan.macOSSpaceCaution(for: 42_000_000_000))
@@ -28,7 +28,7 @@
       XCTAssertEqual(warnings.count, 2)
       XCTAssertEqual(
         warnings[1],
-        "Omarchy will use 43 GB, less than the recommended 77 GB, leaving limited room for updates and snapshots."
+        "Aurora will use 43 GB, less than the recommended 77 GB, leaving limited room for updates and snapshots."
       )
       XCTAssertEqual(plan.spaceCautions(for: 77_000_000_000).count, 1)
       let free = PlanDisplay(
@@ -42,22 +42,22 @@
 
     func testHeaderNamesTheChosenSizeOnceThereIsOne() {
       let host = HostDisplay(
-        chipAndSpace: "Apple M2 Max · 375 GB free · up to 314 GB for Omarchy",
+        chipAndSpace: "Apple M2 Max · 375 GB free · up to 314 GB for Aurora",
         chipAndFreeSpace: "Apple M2 Max · 375 GB free",
         supported: true)
       XCTAssertEqual(
         host.header(chosenOmarchyBytes: nil),
-        "Apple M2 Max · 375 GB free · up to 314 GB for Omarchy")
+        "Apple M2 Max · 375 GB free · up to 314 GB for Aurora")
       XCTAssertEqual(
         host.header(chosenOmarchyBytes: 285_000_000_000),
-        "Apple M2 Max · 375 GB free · \(PlainLanguage.bytes(285_000_000_000)) for Omarchy")
+        "Apple M2 Max · 375 GB free · \(PlainLanguage.bytes(285_000_000_000)) for Aurora")
     }
 
     func testHeaderWithoutSeparateFreeSpaceStillNamesTheChosenSize() {
       let host = HostDisplay(chipAndSpace: "Simulated Mac · 464 GB free", supported: true)
       XCTAssertEqual(
         host.header(chosenOmarchyBytes: 100_000_000_000),
-        "Simulated Mac · 464 GB free · \(PlainLanguage.bytes(100_000_000_000)) for Omarchy")
+        "Simulated Mac · 464 GB free · \(PlainLanguage.bytes(100_000_000_000)) for Aurora")
     }
 
     func testChannelBadgesNameEveryChannel() {
@@ -137,11 +137,11 @@
       XCTAssertEqual(
         PlainLanguage.allocationNotice(
           requestedBytes: 650_000_000_000, actualBytes: 137_438_953_472),
-        "Space for Omarchy changed from 650 GB to 137 GB. Review the updated size before installing."
+        "Space for Aurora changed from 650 GB to 137 GB. Review the updated size before installing."
       )
       XCTAssertEqual(
         PlainLanguage.allocationNotice(requestedBytes: 70_000_000_000, actualBytes: 80_000_000_000),
-        "Space for Omarchy changed from 70 GB to 80 GB. Review the updated size before installing.")
+        "Space for Aurora changed from 70 GB to 80 GB. Review the updated size before installing.")
     }
 
     func testApprovedSpaceChangeOffersReplanOnlyWhenTheDiskIsProvenUnchanged() {
@@ -150,7 +150,7 @@
           EngineFailureNotice(
             reason: .approvedSpaceChanged, exitStatus: 1, diskUnchanged: true,
             summary: "omarchy_execution.ExecutionAdmissionError: approved extent changed")))
-      XCTAssertEqual(unchanged.headline, "The space available for Omarchy changed")
+      XCTAssertEqual(unchanged.headline, "The space available for Aurora changed")
       XCTAssertTrue(unchanged.plainDetail.contains("No disk changes were made."))
       XCTAssertTrue(unchanged.replanAvailable)
       XCTAssertTrue(try XCTUnwrap(unchanged.technicalDetail).contains("approved extent changed"))
@@ -481,15 +481,15 @@
 
     func testEncryptionCopyNamesTheCheckboxAndDefaultOnFailure() {
       XCTAssertEqual(
-        PlainLanguage.encryptLinuxDiskTitle, "Encrypt the Omarchy disk")
+        PlainLanguage.encryptLinuxDiskTitle, "Encrypt the Aurora disk")
       XCTAssertEqual(
         PlainLanguage.encryptLinuxDiskPassword,
-        "The Omarchy password you create at first boot will unlock the encrypted disk after installation."
+        "The Aurora password you create at first boot will unlock the encrypted disk after installation."
       )
       XCTAssertFalse(PlainLanguage.encryptLinuxDiskPassword.lowercased().contains("macos"))
       XCTAssertEqual(
         PlainLanguage.encryptionChoiceNotRecorded,
-        "The encryption choice wasn’t saved, so Omarchy will encrypt its disk at first boot."
+        "The encryption choice wasn’t saved, so Aurora will encrypt its disk at first boot."
       )
       XCTAssertTrue(
         PlainLanguage.nextActionMessage(.enterRecovery, installConf: .notRecorded)

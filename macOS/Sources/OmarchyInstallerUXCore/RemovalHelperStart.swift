@@ -91,13 +91,13 @@
       let result =
         freeSpace
         ? "The free space is now part of macOS."
-        : "Omarchy and its data have been removed. The freed space is now part of macOS."
+        : "Aurora and its data have been removed. The freed space is now part of macOS."
       return result
         + " The removal service finished and removed itself before this window heard back, as can happen if the Mac sleeps."
     }
 
     public static let removalCredentialsFirst =
-      "To look for Omarchy on this Mac, enter your macOS administrator account. It sets up the removal service and approves the removal you’ll review next. macOS will show a notice that \(windowTitle) added a background item."
+      "To look for Aurora on this Mac, enter your macOS administrator account. It sets up the removal service and approves the removal you’ll review next. macOS will show a notice that \(windowTitle) added a background item."
     public static let removalContinue = "Continue"
     public static let removalNotStarted =
       "The removal service didn’t answer, so removal didn’t start. No disk changes were made. Close this window and try again."
@@ -106,7 +106,7 @@
     public static let removalBlockedModel =
       "Removal is not supported on this Mac model. No disk changes were made."
     public static let removalSwitchedOff =
-      "The removal service is switched off in Login Items, and it’s needed to look for Omarchy. Enter your macOS administrator account and choose Turn On & Continue to switch it back on, or switch it on in Login Items yourself and reopen this window."
+      "The removal service is switched off in Login Items, and it’s needed to look for Aurora. Enter your macOS administrator account and choose Turn On & Continue to switch it back on, or switch it on in Login Items yourself and reopen this window."
     public static let removalTurnOnAndContinue = "Turn On & Continue"
     /// Builds that cannot install the helper, when the package has not.
     public static let removalServiceMissing =

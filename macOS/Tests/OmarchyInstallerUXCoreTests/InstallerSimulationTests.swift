@@ -24,7 +24,7 @@
 
     func testMacOSAlreadyBelowItsReserveIsRefusedWithTheDeficit() async {
       // As in the planner: no space can be taken from macOS, so the shortfall
-      // is Omarchy's 40 GB minimum plus the 3 GB below the 38 GB reserve.
+      // is Aurora's 40 GB minimum plus the 3 GB below the 38 GB reserve.
       let session = InstallerSession(
         environment: InstallerSimulationEnvironment(scenario: .lowReserve, delay: .zero))
       await session.inspect()
@@ -32,7 +32,7 @@
       guard case .failed(let failure) = session.phase else {
         return XCTFail("Expected a refusal")
       }
-      XCTAssertEqual(failure.headline, "Free up at least 43 GB to install Omarchy")
+      XCTAssertEqual(failure.headline, "Free up at least 43 GB to install Aurora")
       XCTAssertFalse(session.hasExecutionStarted)
     }
 
@@ -54,7 +54,7 @@
     func testGenericAndQuantifiedPlanningFailuresRemainDistinct() async {
       for (scenario, headline) in [
         (InstallerSimulationScenario.planFailure, "There isn’t enough usable disk space"),
-        (.insufficientSpace, "Free up at least 6 GB to install Omarchy"),
+        (.insufficientSpace, "Free up at least 6 GB to install Aurora"),
       ] {
         let session = InstallerSession(
           environment: InstallerSimulationEnvironment(scenario: scenario, delay: .zero))
@@ -211,7 +211,7 @@
           XCTAssertFalse(environment.hasApprovedPlan)
           XCTAssertEqual(
             session.allocationNotice,
-            "Space for Omarchy changed from 137 GB to 133 GB. Review the updated size before installing."
+            "Space for Aurora changed from 137 GB to 133 GB. Review the updated size before installing."
           )
           session.setAcknowledged(true)
           session.approve()

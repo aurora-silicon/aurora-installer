@@ -3,7 +3,7 @@
   import OSLog
 
   /// Removes the helper from the Mac once a removal has completed, so no
-  /// Omarchy trace is left: its launchd job file, its binary in
+  /// Aurora trace is left: its launchd job file, its binary in
   /// PrivilegedHelperTools and its whole state directory, including retired
   /// install journals. A later install sets the helper up again.
   public protocol HelperSelfUninstalling: Sendable {

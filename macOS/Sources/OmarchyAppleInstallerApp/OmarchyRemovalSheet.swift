@@ -17,7 +17,7 @@ struct OmarchyRemovalSheet: View {
   @State private var busy = false
   @State private var submitted = false
   @State private var completed = false
-  @State private var message = "Checking for an existing Omarchy installation…"
+  @State private var message = "Checking for an existing Aurora installation…"
   @State private var client: AuthenticatedEngineXPCSubmitter?
   /// No helper is installed yet: the account is asked for first, to set it
   /// up, and the same password then approves the removal.
@@ -256,8 +256,9 @@ struct OmarchyRemovalSheet: View {
             .disabled(busy || username.isEmpty || password.isEmpty)
         }
         if let ticket, !submitted {
-          Button(ticket.kind == .freeSpace ? "Return Space" : "Remove Omarchy", role: .destructive)
-          { Task { await remove() } }
+          Button(ticket.kind == .freeSpace ? "Return Space" : "Remove Aurora", role: .destructive) {
+            Task { await remove() }
+          }
           .omarchyDangerButton()
           .disabled(!canRemove)
           .accessibilityIdentifier("remove-omarchy")
@@ -298,7 +299,7 @@ struct OmarchyRemovalSheet: View {
 
   private var heading: String {
     if ticket?.kind == .freeSpace { return completed ? "Space returned" : "Return free space" }
-    return completed ? "Omarchy removed" : "Remove Omarchy"
+    return completed ? "Aurora removed" : "Remove Aurora"
   }
 
   private func planSection(_ title: String, items: [OmarchyRemovalItem]) -> some View {
@@ -339,7 +340,7 @@ struct OmarchyRemovalSheet: View {
     if !keepingAccount { password = "" }
     submitted = false
     completed = false
-    message = "Checking for an existing Omarchy installation…"
+    message = "Checking for an existing Aurora installation…"
     #if DEBUG
       if isSimulation {
         try? await Task.sleep(for: .milliseconds(350))
@@ -441,8 +442,8 @@ struct OmarchyRemovalSheet: View {
     submitted = true
     message =
       ticket.startupDisk == nil
-      ? "Removing Omarchy, then returning its space to macOS…"
-      : "Setting macOS as the startup disk, removing Omarchy, then returning its space to macOS…"
+      ? "Removing Aurora, then returning its space to macOS…"
+      : "Setting macOS as the startup disk, removing Aurora, then returning its space to macOS…"
     defer { busy = false }
     #if DEBUG
       if isSimulation {
@@ -589,7 +590,7 @@ private struct RemovalSheetHeightCapReader: NSViewRepresentable {
   enum RemovalPreviewScenario: String, CaseIterable {
     case success = "Complete removal"
     case asahi = "Older omarchy-mac installation"
-    case startupDisk = "Starts up from Omarchy"
+    case startupDisk = "Starts up from Aurora"
     case startupFailed = "Startup disk not changed"
     case freeSpace = "Free space only"
     case none = "No installation"
@@ -661,7 +662,7 @@ private struct RemovalSheetHeightCapReader: NSViewRepresentable {
             macOS: 678_662_672_384,
             deletions: [
               OmarchyRemovalItem(
-                title: "Startup container “Omarchy”", detail: "disk0s3 · APFS",
+                title: "Startup container “Aurora”", detail: "disk0s3 · APFS",
                 bytes: 2_499_805_184),
               OmarchyRemovalItem(
                 title: "EFI partition “EFI - OMARC”", detail: "disk0s4", bytes: 524_288_000),
@@ -672,10 +673,10 @@ private struct RemovalSheetHeightCapReader: NSViewRepresentable {
             startupDisk: startsUpFromOmarchy
               ? OmarchyRemovalItem(
                 title: "Set macOS “Macintosh HD” as the startup disk",
-                detail: "Your Mac starts up from “Omarchy” now", bytes: 0) : nil),
+                detail: "Your Mac starts up from “Aurora” now", bytes: 0) : nil),
           startsUpFromOmarchy
-            ? "Found “Omarchy”. Removal first sets macOS as the startup disk, then permanently deletes “Omarchy” and everything stored in it and returns its space to macOS."
-            : "Found “Omarchy”. Removal permanently deletes it and everything stored in it, then returns its space to macOS."
+            ? "Found “Aurora”. Removal first sets macOS as the startup disk, then permanently deletes “Aurora” and everything stored in it and returns its space to macOS."
+            : "Found “Aurora”. Removal permanently deletes it and everything stored in it, then returns its space to macOS."
         )
       }
     }
@@ -683,16 +684,16 @@ private struct RemovalSheetHeightCapReader: NSViewRepresentable {
     var message: String {
       switch self {
       case .success:
-        "“Omarchy” and its data have been removed. The freed space is now part of macOS."
+        "“Aurora” and its data have been removed. The freed space is now part of macOS."
       case .asahi:
         "“Arch Linux ARM” and its data have been removed. The freed space is now part of macOS."
       case .freeSpace: "The free space is now part of macOS."
       case .startupDisk:
-        "“Omarchy” and its data have been removed. The freed space is now part of macOS."
+        "“Aurora” and its data have been removed. The freed space is now part of macOS."
       case .startupFailed:
         "macOS didn’t set “Macintosh HD” as the startup disk. It reported: “Failed to authenticate owner”. Nothing was deleted."
       case .none:
-        "No Omarchy installation, or other installation made with the Asahi installer, was found, and there’s no unallocated space after macOS. Nothing was changed."
+        "No Aurora installation, or other installation made with the Asahi installer, was found, and there’s no unallocated space after macOS. Nothing was changed."
       case .ambiguous:
         "Found disk0s4 (EFI partition, “EFI - ARCH”, 524.3 MB); disk0s5 (Linux partition, 29.8 GB) without the startup container every installation made with the Asahi installer has. This looks like a partly removed installation, which needs a manual review. Nothing was changed."
       case .helperUnavailable:
@@ -702,9 +703,9 @@ private struct RemovalSheetHeightCapReader: NSViewRepresentable {
       case .changed:
         "The disk layout changed since you reviewed it. No disk changes were made. Close this window and review removal again."
       case .interrupted:
-        "Removal stopped, and some Omarchy data may already be deleted. Don’t start removal again; the removal record was kept for recovery."
+        "Removal stopped, and some Aurora data may already be deleted. Don’t start removal again; the removal record was kept for recovery."
       case .reclaimFailed:
-        "Omarchy was removed, but the installer couldn’t confirm its space went back to macOS. The space may still be unallocated. Don’t start removal again; the removal record was kept for recovery."
+        "Aurora was removed, but the installer couldn’t confirm its space went back to macOS. The space may still be unallocated. Don’t start removal again; the removal record was kept for recovery."
       case .disconnected:
         "The connection to the removal service was lost. Removal may still be running. Don’t restart removal or turn off this Mac. Check the removal record before continuing."
       }

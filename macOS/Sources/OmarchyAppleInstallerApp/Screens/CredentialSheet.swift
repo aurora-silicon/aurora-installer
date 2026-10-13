@@ -43,7 +43,7 @@ struct CredentialSheet: View {
       .fixedSize(horizontal: false, vertical: true)
 
       HStack {
-        Text(isRetry ? "Approved operation" : "Space for Omarchy")
+        Text(isRetry ? "Approved operation" : "Space for Aurora")
           .foregroundStyle(OmarchyTheme.secondaryText)
         Spacer()
         Text(isRetry ? "Recovery authorization only" : approvedSize ?? "Reviewed size")

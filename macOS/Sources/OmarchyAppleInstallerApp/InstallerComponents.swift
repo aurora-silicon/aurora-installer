@@ -78,9 +78,9 @@ struct DiskBar: View {
   var unallocatedBytes: UInt64 = 0
   var macOSSpaceCaution: String?
   /// When set, the divider between the segments is draggable and reports the
-  /// Omarchy share of the disk (0...1) as it moves.
+  /// Aurora share of the disk (0...1) as it moves.
   var onAdjustOmarchyFraction: ((Double) -> Void)?
-  /// Called once when the drag ends, with the final Omarchy share.
+  /// Called once when the drag ends, with the final Aurora share.
   var onCommitOmarchyFraction: ((Double) -> Void)?
   /// While set, the divider is drawn but drags are ignored (a re-plan is in
   /// flight). Keeping the handle on screen avoids it flashing off and on.
@@ -102,7 +102,7 @@ struct DiskBar: View {
               ? OmarchyTheme.secondaryText : OmarchyTheme.accentText
           )
           segment(
-            name: "Omarchy",
+            name: "Aurora",
             bytes: omarchyBytes,
             width: omarchyWidth,
             background: OmarchyTheme.accent,
@@ -142,7 +142,7 @@ struct DiskBar: View {
     .accessibilityElement(children: .combine)
     .accessibilityLabel("Disk space")
     .accessibilityValue(
-      "macOS \(PlainLanguage.bytes(macOSBytes)), Omarchy \(PlainLanguage.bytes(omarchyBytes)), unallocated \(PlainLanguage.bytes(unallocatedBytes))"
+      "macOS \(PlainLanguage.bytes(macOSBytes)), Aurora \(PlainLanguage.bytes(omarchyBytes)), unallocated \(PlainLanguage.bytes(unallocatedBytes))"
         + (macOSSpaceCaution.map { ". " + $0 } ?? "")
     )
     .accessibilityAdjustableAction { direction in
@@ -263,88 +263,8 @@ struct TechnicalDetailText: View {
   }
 }
 
-/// Try Omarchy's buttons: bold uppercase monospace on a rounded rectangle.
-/// The system's large bordered styles render as capsules, which the approved
-/// look rejects. Labels stay in sentence case in source; only the drawing is
-/// uppercase, so VoiceOver reads them normally.
-struct OmarchyButtonStyle: ButtonStyle {
-  enum Kind { case primary, secondary, danger }
-
-  let kind: Kind
-  @Environment(\.isEnabled) private var isEnabled
-
-  func makeBody(configuration: Configuration) -> some View {
-    OmarchyButtonBody(configuration: configuration, kind: kind, isEnabled: isEnabled)
-  }
-}
-
-private struct OmarchyButtonBody: View {
-  let configuration: ButtonStyleConfiguration
-  let kind: OmarchyButtonStyle.Kind
-  let isEnabled: Bool
-  @State private var isHovered = false
-
-  var body: some View {
-    let colors = self.colors
-    configuration.label
-      .font(OmarchyTheme.button)
-      .textCase(.uppercase)
-      .tracking(OmarchyTheme.buttonTracking)
-      .lineLimit(1)
-      .fixedSize()
-      .foregroundStyle(colors.foreground)
-      .padding(.horizontal, 18)
-      .frame(height: OmarchyTheme.buttonHeight)
-      .background(
-        RoundedRectangle(cornerRadius: OmarchyTheme.buttonRadius)
-          .fill(colors.background)
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: OmarchyTheme.buttonRadius)
-          .strokeBorder(colors.border, lineWidth: 1)
-      )
-      .opacity(isEnabled ? 1 : 0.4)
-      .contentShape(Rectangle())
-      .onHover { isHovered = $0 }
-  }
-
-  private var colors: (foreground: Color, background: Color, border: Color) {
-    let pressed = isEnabled && configuration.isPressed
-    let hovered = isEnabled && isHovered
-    switch kind {
-    case .primary:
-      let fill =
-        pressed
-        ? OmarchyTheme.buttonPressed : hovered ? OmarchyTheme.buttonHover : OmarchyTheme.accent
-      return (OmarchyTheme.accentText, fill, fill)
-    case .secondary:
-      return (
-        hovered ? OmarchyTheme.buttonHoverText : OmarchyTheme.text,
-        pressed ? OmarchyTheme.buttonPressedSurface : OmarchyTheme.card,
-        hovered ? OmarchyTheme.accent : OmarchyTheme.separator
-      )
-    case .danger:
-      // Quiet until the pointer commits to it, then filled red.
-      let filled = pressed || hovered
-      return (
-        filled ? OmarchyTheme.window : OmarchyTheme.danger,
-        filled ? OmarchyTheme.danger.opacity(pressed ? 0.8 : 1) : OmarchyTheme.card,
-        filled ? OmarchyTheme.danger : OmarchyTheme.separator
-      )
-    }
-  }
-}
-
 extension View {
-  func omarchyPrimaryButton() -> some View {
-    buttonStyle(OmarchyButtonStyle(kind: .primary))
-  }
-
-  func omarchySecondaryButton() -> some View {
-    buttonStyle(OmarchyButtonStyle(kind: .secondary))
-  }
-
-  func omarchyDangerButton() -> some View {
-    buttonStyle(OmarchyButtonStyle(kind: .danger))
-  }
+  func omarchyPrimaryButton() -> some View { buttonStyle(.bordered).controlSize(.large) }
+  func omarchySecondaryButton() -> some View { buttonStyle(.bordered).controlSize(.large) }
+  func omarchyDangerButton() -> some View { buttonStyle(.bordered).tint(.red).controlSize(.large) }
 }

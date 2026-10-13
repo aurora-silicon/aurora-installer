@@ -11,7 +11,7 @@
       XCTAssertTrue(profile.showsReleaseChannels)
       XCTAssertEqual(profile.workspaceName, InstallerProductIdentity.appIdentifier)
       // Stable images and the images this repository builds boot Limine.
-      XCTAssertEqual(profile.startupSequence, "m1n1 → U-Boot → Limine → Omarchy")
+      XCTAssertEqual(profile.startupSequence, "m1n1 → U-Boot → Limine → Aurora")
       XCTAssertEqual(
         PlainLanguage.doneVerifiedRows(profile: profile).first?.value, profile.startupSequence)
     }
@@ -49,7 +49,7 @@
       for other in [InstallerBuildProfile.standard, .privatePlain, .privateLimine] {
         XCTAssertNotEqual(profile.workspaceName, other.workspaceName)
       }
-      XCTAssertEqual(profile.startupSequence, "m1n1 → U-Boot → Limine → Omarchy")
+      XCTAssertEqual(profile.startupSequence, "m1n1 → U-Boot → Limine → Aurora")
     }
 
     func testPrivateFlagsOutrankTheDeveloperFlag() {

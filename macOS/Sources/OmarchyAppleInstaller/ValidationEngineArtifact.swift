@@ -8,7 +8,7 @@
   /// Locates the engine bundled inside the app.
   ///
   /// This copy exists only to inspect the Mac before anything is downloaded,
-  /// which is what lets the app refuse a Mac that already runs Omarchy without
+  /// which is what lets the app refuse a Mac that already runs Aurora without
   /// touching the network. The engine that plans and performs an install comes
   /// from the signed catalog instead, so the two versions are deliberately
   /// allowed to differ. The bundled v0.9.2 engine recognizes M3 devices without

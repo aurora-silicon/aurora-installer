@@ -43,8 +43,8 @@
 
     public var startupSequence: String {
       switch self {
-      case .standard, .privateLimine, .developer: "m1n1 → U-Boot → Limine → Omarchy"
-      case .privatePlain: "m1n1 → U-Boot → GRUB → Omarchy"
+      case .standard, .privateLimine, .developer: "m1n1 → U-Boot → Limine → Aurora"
+      case .privatePlain: "m1n1 → U-Boot → GRUB → Aurora"
       }
     }
   }

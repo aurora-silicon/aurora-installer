@@ -12,6 +12,23 @@ import OmarchyInstallerUXCore
 /// model, and no credential is ever stored here.
 final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable {
   private let lock = NSLock()
+  private let selection: AuroraInstallationSelection
+
+  init(selection: AuroraInstallationSelection = AuroraInstallationSelection()) {
+    self.selection = selection
+  }
+
+  private func loadConfiguration() throws -> InstallerReleaseConfiguration {
+    guard let resources = Bundle.main.resourceURL else {
+      throw AuroraProfileError.unavailable(selection.summary)
+    }
+    let directory = resources.appendingPathComponent("Release/Profiles")
+      .appendingPathComponent(selection.profileID)
+    guard FileManager.default.fileExists(atPath: directory.path) else {
+      throw AuroraProfileError.unavailable(selection.summary)
+    }
+    return try InstallerReleaseConfigurationLocator().load(from: directory)
+  }
   private var hostInspection: AppleSiliconHostInspection?
   private var engineInspection: ValidatedEngineTranscript?
   private var engineInspectionTranscript: Data?
@@ -28,7 +45,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   private var plannedPayload: StagedInstallerArtifact?
 
   private func accountClient() throws -> AuthenticatedEngineXPCSubmitter {
-    let configuration = try InstallerReleaseConfigurationLocator().loadFromMainBundle()
+    let configuration = try loadConfiguration()
     return try AuthenticatedEngineXPCSubmitter(
       machServiceName: configuration.helperMachServiceName,
       helperCodeSigningRequirement: configuration.helperCodeSigningRequirement)
@@ -156,7 +173,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   /// The signed catalog's model list for the unsupported-Mac message. Any
   /// failure (offline, unsigned, rolled back) just leaves the list out.
   private func supportedDeviceIdentifiers() async -> [String]? {
-    guard let configuration = try? InstallerReleaseConfigurationLocator().loadFromMainBundle(),
+    guard let configuration = try? loadConfiguration(),
       let workspace = try? installerWorkspace()
     else {
       return nil
@@ -195,7 +212,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     }
     let configuration: InstallerReleaseConfiguration
     do {
-      configuration = try InstallerReleaseConfigurationLocator().loadFromMainBundle()
+      configuration = try loadConfiguration()
     } catch {
       return everyChannelFailed(error)
     }
@@ -263,8 +280,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
 
     progress(AssetProgressUpdate(stage: .fetchingCatalog))
 
-    let configuration = try InstallerReleaseConfigurationLocator()
-      .loadFromMainBundle()
+    let configuration = try loadConfiguration()
     let workspace = try installerWorkspace()
     let channel = ReleaseChannelPreference().resolve(configuration: configuration)
     let catalogStore = AcceptedCatalogIdentityStore(
@@ -292,6 +308,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
         previouslyPrepared: lock.withLock { reusableAssets },
         includePayload: false
       )
+    try selection.requireMatchingProfile(release.assets.installer.installationProfile)
     lock.withLock {
       reusableAssets = release.assets
       selectedLane = channel.rawValue
@@ -621,7 +638,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       "\(host.identity.chip) · \(PlainLanguage.bytes(host.storage.containerFreeBytes)) free"
     var chipAndSpace = chipAndFreeSpace
     if case .fits(let maximumBytes) = space {
-      chipAndSpace += " · up to \(PlainLanguage.bytes(maximumBytes)) for Omarchy"
+      chipAndSpace += " · up to \(PlainLanguage.bytes(maximumBytes)) for Aurora"
     }
 
     return HostDisplay(
@@ -647,7 +664,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   }
 
   /// Runs the allocation recommendation on the bundled engine's inventory, so
-  /// a disk that cannot hold Omarchy is reported before the catalog is fetched
+  /// a disk that cannot hold Aurora is reported before the catalog is fetched
   /// or the release downloaded. The handoff reserve is not known yet, so this
   /// can only be more generous than the check after the download.
   private static func spaceCheck(
@@ -670,7 +687,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     }
   }
 
-  /// Existing Omarchy installs the bundled engine's inventory reports as
+  /// Existing Aurora installs the bundled engine's inventory reports as
   /// replace candidates. Read at the welcome stage, so the installer can
   /// refuse before it fetches the catalog or downloads anything.
   static func existingInstalls(
@@ -779,10 +796,10 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     else {
       throw InstallerAppError.workspaceUnavailable
     }
-    let base = applicationSupport.appendingPathComponent(
-      buildProfile.workspaceName,
-      isDirectory: true
-    )
+    let productBase = applicationSupport.appendingPathComponent(
+      buildProfile.workspaceName, isDirectory: true)
+    try createPrivateDirectoryIfMissing(productBase)
+    let base = productBase.appendingPathComponent(selection.profileID, isDirectory: true)
     let staging = base.appendingPathComponent("staging", isDirectory: true)
     let scratch = base.appendingPathComponent("scratch", isDirectory: true)
     let state = base.appendingPathComponent("state", isDirectory: true)

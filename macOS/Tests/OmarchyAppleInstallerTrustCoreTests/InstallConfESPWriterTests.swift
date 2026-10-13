@@ -27,7 +27,7 @@
             name: "Macintosh HD", offsetBytes: 500_000_000, lengthBytes: 799_500_000_000),
           .init(
             identifier: "disk0s4", storeIdentifier: "disk0", type: "Apple_APFS",
-            name: "Omarchy", offsetBytes: 800_000_000_000, lengthBytes: 3_000_000_000),
+            name: "Aurora", offsetBytes: 800_000_000_000, lengthBytes: 3_000_000_000),
           .init(
             identifier: "disk0s5", storeIdentifier: "disk0", type: "EFI",
             name: "EFI - OMARC", offsetBytes: 803_000_000_000, lengthBytes: 500_000_000),

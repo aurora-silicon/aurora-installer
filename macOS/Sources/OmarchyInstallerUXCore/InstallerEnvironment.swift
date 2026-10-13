@@ -9,18 +9,18 @@
   public struct HostDisplay: Equatable, Sendable {
     /// The header line: chip and free space, e.g. "Apple M1 Pro · 464 GB free".
     public let chipAndSpace: String
-    /// The header's chip and free space alone, without what Omarchy could
+    /// The header's chip and free space alone, without what Aurora could
     /// take, so the page can name the size the owner chose instead.
     public let chipAndFreeSpace: String
     public let supported: Bool
     public let powerButtonGuide: MacPowerButtonGuide
     /// Why this Mac cannot install right now, when `supported` is false.
     public let blockingReason: String?
-    /// Omarchy installs the inspection found on the disk. Known before any
+    /// Aurora installs the inspection found on the disk. Known before any
     /// download, from the bundled validation engine's inventory; the session
     /// refuses to go further when this is not empty.
     public let existingInstalls: [ExistingInstallDisplay]
-    /// Why the bundled engine's inventory cannot hold Omarchy. Known before
+    /// Why the bundled engine's inventory cannot hold Aurora. Known before
     /// any download; the session stops here instead of fetching a release
     /// that could not be installed.
     public let spaceShortfall: InstallerAllocationRecommendationError?
@@ -50,10 +50,10 @@
     }
 
     /// The header line. Before the owner chooses a size it says the most
-    /// Omarchy could take; afterwards it names the size they chose.
+    /// Aurora could take; afterwards it names the size they chose.
     public func header(chosenOmarchyBytes: UInt64?) -> String {
       guard let chosenOmarchyBytes else { return chipAndSpace }
-      return "\(chipAndFreeSpace) · \(PlainLanguage.bytes(chosenOmarchyBytes)) for Omarchy"
+      return "\(chipAndFreeSpace) · \(PlainLanguage.bytes(chosenOmarchyBytes)) for Aurora"
     }
   }
 
@@ -88,7 +88,7 @@
     }
   }
 
-  /// One existing Omarchy install the pinned engine found on this Mac.
+  /// One existing Aurora install the pinned engine found on this Mac.
   public struct ExistingInstallDisplay: Equatable, Sendable, Identifiable {
     public let sourceIdentifier: String
     public let sizeDescription: String
@@ -122,7 +122,7 @@
     public let macOSFreeBeforeAllocationBytes: UInt64?
     public let recommendedOmarchyBytes: UInt64?
     public static let recommendedMacOSFreeBytes: UInt64 = 38_000_000_000
-    /// Whether the user may choose Omarchy's size. A replace plan removes an
+    /// Whether the user may choose Aurora's size. A replace plan removes an
     /// existing install and reuses its exact extent, so there is nothing to
     /// drag; showing a divider there invites a re-plan the engine refuses.
     public let isResizable: Bool
@@ -169,11 +169,11 @@
       if let recommended = recommendedOmarchyBytes, allocation < recommended {
         if allocation <= minimumBytes {
           cautions.append(
-            "Omarchy will use its minimum size, \(PlainLanguage.bytes(allocation)), leaving little room for updates and snapshots."
+            "Aurora will use its minimum size, \(PlainLanguage.bytes(allocation)), leaving little room for updates and snapshots."
           )
         } else {
           cautions.append(
-            "Omarchy will use \(PlainLanguage.bytes(allocation)), less than the recommended \(PlainLanguage.bytes(recommended)), leaving limited room for updates and snapshots."
+            "Aurora will use \(PlainLanguage.bytes(allocation)), less than the recommended \(PlainLanguage.bytes(recommended)), leaving limited room for updates and snapshots."
           )
         }
       }
@@ -542,7 +542,7 @@
       -> RecoveryAccountReply
     func openStartupDisk() -> Bool
     func inspect() async throws -> HostDisplay
-    /// `omarchyBytes` asks the planner for that much space for Omarchy; nil
+    /// `omarchyBytes` asks the planner for that much space for Aurora; nil
     /// keeps the balanced default. The engine still clamps the request to the
     /// candidate's real minimum and maximum.
     func preparePlan(

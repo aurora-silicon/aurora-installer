@@ -110,7 +110,7 @@
     // MARK: Installations
 
     static let convergedInstall = Install(
-      name: "Omarchy", stub: "A0913035-21F1-4CC5-B940-A26FD42BFA5C",
+      name: "Aurora", stub: "A0913035-21F1-4CC5-B940-A26FD42BFA5C",
       esp: "BB18E021-9D1B-499C-8F25-849B7F5FCDCC",
       linux: ["E94DF227-99CE-438F-BE4B-9B7687487BDC", "2CE86A5F-AF65-404E-A04C-B51092F45D8F"],
       group: "14CA2D4A-5B90-4225-B462-48C7733D787C")

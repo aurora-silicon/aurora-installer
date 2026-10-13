@@ -422,7 +422,7 @@
       let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
       let notice = report.notice
       let body = """
-        Omarchy installer engine failure
+        Aurora installer engine failure
         time: \(timestamp(now))
         operation: \(operation)
         reason: \(notice.reason)
@@ -495,7 +495,7 @@
       let stamp = EngineFailureDiagnosticsStore.timestamp(now)
       let url = directory.appendingPathComponent("engine-failure-\(stamp).log")
       let body = """
-        Omarchy installer engine failure
+        Aurora installer engine failure
         time: \(stamp)
         operation: \(operation)
         reason: \(notice.reason)

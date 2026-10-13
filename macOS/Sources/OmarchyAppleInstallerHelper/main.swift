@@ -33,7 +33,7 @@ private func prepareWorkingDirectory() throws -> URL {
 }
 
 private func terminate(_ error: any Error) -> Never {
-  let message = "Omarchy installer helper failed: \(error)\n"
+  let message = "Aurora installer helper failed: \(error)\n"
   try? FileHandle.standardError.write(contentsOf: Data(message.utf8))
   exit(EX_CONFIG)
 }

@@ -11,7 +11,7 @@ public enum InstallerAllocationRecommendationError:
   case noEligibleCandidate
   case snapshotConstrained(APFSSnapshotConstraint)
   /// A free extent or resizable container exists, but the most it can give
-  /// Omarchy is below the install minimum.
+  /// Aurora is below the install minimum.
   case insufficientSpace(requiredBytes: UInt64, availableBytes: UInt64)
 }
 

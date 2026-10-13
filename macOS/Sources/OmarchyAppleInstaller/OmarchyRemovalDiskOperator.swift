@@ -620,7 +620,7 @@
       withRecordType: kODRecordTypeUsers, name: authorization.username, attributes: nil)
     let admin = try node.record(withRecordType: kODRecordTypeGroups, name: "admin", attributes: nil)
     do { try admin.isMemberRecord(user) } catch {
-      throw RemovalFailure(message: "Use a macOS administrator account to remove Omarchy.")
+      throw RemovalFailure(message: "Use a macOS administrator account to remove Aurora.")
     }
   }
 #endif

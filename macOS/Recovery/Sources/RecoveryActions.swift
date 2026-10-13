@@ -18,7 +18,7 @@ enum RecoveryActions {
   }
   static var volume: URL {
     #if OMARCHY_STEP2_PREVIEW
-      return URL(fileURLWithPath: "/Volumes/Omarchy")
+      return URL(fileURLWithPath: "/Volumes/Aurora")
     #else
       // The launch contract puts the app directly in the target System volume.
       // Resolve its actual mount point, not a name that Recovery might suffix.
@@ -29,7 +29,7 @@ enum RecoveryActions {
   static var groupUUID: String { (try? configuration.get().groupUUID) ?? "" }
   static var prebootUUID: String { (try? configuration.get().prebootUUID) ?? "" }
   static var espUUID: String { (try? configuration.get().espUUID) ?? "" }
-  static var volumeName: String { (try? configuration.get().volumeName) ?? "Omarchy" }
+  static var volumeName: String { (try? configuration.get().volumeName) ?? "Aurora" }
   static var supportsMachO: Bool {
     #if OMARCHY_STEP2_PREVIEW
       return true
@@ -219,7 +219,7 @@ enum RecoveryActions {
     return owner
   }
   static func recoveryOnly() throws {
-    try check(inRecovery && geteuid() == 0, "Open Omarchy Installer in its paired Recovery.")
+    try check(inRecovery && geteuid() == 0, "Open Aurora Installer in its paired Recovery.")
     try verifyVolume()
   }
   static func esp() throws -> URL {
@@ -440,7 +440,7 @@ enum RecoveryActions {
           guard let password, let owner else {
             throw RecoveryFailure(
               message:
-                "The startup selection changed. Try again to authorize Omarchy as the startup disk."
+                "The startup selection changed. Try again to authorize Aurora as the startup disk."
             )
           }
           try RecoveryOwnerResolver.verify(owner, current: resolveOwner())
@@ -453,7 +453,7 @@ enum RecoveryActions {
         })
     } catch RecoveryBootRepair.Failure.selectionNotVerified {
       throw RecoveryFailure(
-        message: "Omarchy was not confirmed as the startup disk. The Mac has not been shut down.")
+        message: "Aurora was not confirmed as the startup disk. The Mac has not been shut down.")
     }
     return true
   }

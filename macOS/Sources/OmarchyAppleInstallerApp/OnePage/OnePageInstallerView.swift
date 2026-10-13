@@ -16,12 +16,14 @@ struct OnePageInstallerView: View {
   /// The last host seen, so the header stays on the page through the phases
   /// that no longer carry it.
   @State private var host: HostDisplay?
-  /// The size the owner chose for Omarchy, kept through installation so the
-  /// header names it instead of the most Omarchy could take.
+  /// The size the owner chose for Aurora, kept through installation so the
+  /// header names it instead of the most Aurora could take.
   @State private var chosenOmarchyBytes: UInt64?
   /// Which channel this Mac reads. Owned by the scene so the banner always
   /// names the channel the next preparation will actually fetch; `nil` when
   /// the bundle has no release descriptor to fetch from.
+  let selection: AuroraInstallationSelection
+  let startAtPlan: Bool
   let channel: ReleaseChannel?
   let onChannelAvailability: (Bool) -> Void
   let onSessionAvailable: (InstallerSession) -> Void
@@ -29,14 +31,19 @@ struct OnePageInstallerView: View {
   init(
     environment: any InstallerEnvironment,
     channel: ReleaseChannel?,
+    selection: AuroraInstallationSelection = AuroraInstallationSelection(),
+    startAtPlan: Bool = false,
     onChannelAvailability: @escaping (Bool) -> Void = { _ in },
     onSessionAvailable: @escaping (InstallerSession) -> Void = { _ in }
   ) {
     _session = State(
       initialValue: InstallerSession(
         environment: environment,
-        allowsEncryption: InstallerBuildProfile.current.allowsEncryption
+        allowsEncryption: selection.distribution.supportsDesktop
+          && InstallerBuildProfile.current.allowsEncryption
       ))
+    self.selection = selection
+    self.startAtPlan = startAtPlan
     self.channel = channel
     self.onChannelAvailability = onChannelAvailability
     self.onSessionAvailable = onSessionAvailable
@@ -47,7 +54,7 @@ struct OnePageInstallerView: View {
       if let account = session.recoveryAccount, let target = account.target {
         RecoveryHandoffView(volumeName: target.volumeName, session: session)
       } else if case .awaitingRecovery = session.phase {
-        RecoveryHandoffView(volumeName: "Omarchy", session: session.isSimulation ? nil : session)
+        RecoveryHandoffView(volumeName: "Aurora", session: session.isSimulation ? nil : session)
       } else {
         installerPage
       }
@@ -73,6 +80,9 @@ struct OnePageInstallerView: View {
     }
     .onChange(of: session.phase, initial: true) { _, phase in
       remember(phase)
+      if startAtPlan, case .welcome = phase {
+        Task { await session.continueToPlan() }
+      }
       // One page has no "everything is ready" stop: go straight to the plan.
       if case .planPrepared = phase {
         session.continueToPlanReview()
@@ -138,11 +148,19 @@ struct OnePageInstallerView: View {
 
   @ViewBuilder
   private var header: some View {
+    VStack(spacing: 8) {
+      Text(selection.summary).font(.system(size: 14)).foregroundStyle(.secondary)
+      hostHeader
+    }
+  }
+
+  @ViewBuilder
+  private var hostHeader: some View {
     if let host {
       HStack(spacing: 12) {
         Text(host.header(chosenOmarchyBytes: chosenOmarchyBytes))
           .font(OmarchyTheme.eyebrow)
-          .textCase(.uppercase)
+
           .foregroundStyle(OmarchyTheme.accent)
         if let supported = session.modelSupported {
           StatusBadge(
@@ -157,7 +175,7 @@ struct OnePageInstallerView: View {
     } else {
       Text(PlainLanguage.inspectingHeadline)
         .font(OmarchyTheme.eyebrow)
-        .textCase(.uppercase)
+
         .foregroundStyle(OmarchyTheme.accent)
     }
   }
@@ -216,8 +234,8 @@ struct OnePageInstallerView: View {
           enabled: !session.isBusy && !session.isEditingSize,
           onChange: { session.setEncryptLinuxDisk($0) }
         )
-      } else {
-        Text("Private M3 test: Linux will be installed without disk encryption.")
+      } else if selection.distribution.supportsDesktop {
+        Text("Linux will be installed without disk encryption.")
           .font(OmarchyTheme.body).foregroundStyle(OmarchyTheme.caution)
       }
       if let notice = session.allocationNotice {
@@ -237,8 +255,8 @@ struct OnePageInstallerView: View {
           enabled: false,
           onChange: { _ in }
         )
-      } else {
-        Text("Private M3 test: Linux will be installed without disk encryption.")
+      } else if selection.distribution.supportsDesktop {
+        Text("Linux will be installed without disk encryption.")
           .font(OmarchyTheme.body).foregroundStyle(OmarchyTheme.caution)
       }
       if !helper.isReady {
@@ -434,7 +452,7 @@ struct OnePageInstallerView: View {
         .fixedSize(horizontal: false, vertical: true)
         .padding(.vertical, 2)
       Text(
-        "If you’d like to remove Omarchy and return its space to macOS, select Installation → Remove Omarchy from the menu bar."
+        "If you’d like to remove Aurora and return its space to macOS, select Installation → Remove Aurora from the menu bar."
       )
       .font(OmarchyTheme.body)
       .foregroundStyle(OmarchyTheme.secondaryText)
@@ -745,7 +763,7 @@ private struct DiskSplitPanel: View {
               .font(OmarchyTheme.heading)
               .foregroundStyle(OmarchyTheme.accent)
             Spacer(minLength: 8)
-            Text("Omarchy")
+            Text("Aurora")
               .font(OmarchyTheme.heading)
               .foregroundStyle(OmarchyTheme.accent)
           }
@@ -762,7 +780,7 @@ private struct DiskSplitPanel: View {
           if editable {
             VStack(alignment: .leading, spacing: 6) {
               HStack(spacing: 8) {
-                Text("Space for Omarchy").font(OmarchyTheme.body)
+                Text("Space for Aurora").font(OmarchyTheme.body)
                 TextField(
                   "Size",
                   text: Binding(
@@ -783,7 +801,7 @@ private struct DiskSplitPanel: View {
                   beginSizeEdit()
                   sizeFocused = true
                 }
-                .accessibilityLabel("Omarchy size in gigabytes")
+                .accessibilityLabel("Aurora size in gigabytes")
                 .onSubmit(applySize)
                 .onExitCommand(perform: cancelSize)
                 Text("GB").font(OmarchyTheme.detail)
@@ -821,7 +839,7 @@ private struct DiskSplitPanel: View {
             )
             .omarchyHelpText()
           }
-          Text("Omarchy will use the space selected above.")
+          Text("Aurora will use the space selected above.")
             .omarchyHelpText()
             .padding(.trailing, 28)
         }

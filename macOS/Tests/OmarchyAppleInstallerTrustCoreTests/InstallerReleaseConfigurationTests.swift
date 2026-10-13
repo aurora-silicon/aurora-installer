@@ -39,7 +39,7 @@
         trustRootPublicKey: key
       )
 
-      // Omarchy's channels in menu order. The retired rc-aurora lane is no
+      // Aurora's channels in menu order. The retired rc-aurora lane is no
       // channel, and dev is a developer choice made after installation.
       XCTAssertNil(ReleaseChannel(rawValue: "rc-aurora"))
       XCTAssertNil(ReleaseChannel(rawValue: "dev"))

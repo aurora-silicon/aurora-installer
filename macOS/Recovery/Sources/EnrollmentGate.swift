@@ -10,7 +10,7 @@ enum EnrollmentGateIssue: String, Error, Identifiable, LocalizedError {
     switch self {
     case .notRecovery: return "Open Aurora Installer in Recovery"
     case .rootRequired: return "Open the installer from Recovery"
-    case .wrongPair: return "Open Omarchy’s paired Recovery"
+    case .wrongPair: return "Open Aurora’s paired Recovery"
     case .powerButtonRequired: return "Start Recovery with the power button"
     case .cannotVerify: return "Couldn’t verify the recovery environment"
     }
@@ -19,19 +19,19 @@ enum EnrollmentGateIssue: String, Error, Identifiable, LocalizedError {
     switch self {
     case .notRecovery:
       return
-        "Shut down, then hold the power button until Startup Options appears. Select Omarchy to finish setup."
+        "Shut down, then hold the power button until Startup Options appears. Select Aurora to finish setup."
     case .rootRequired:
       return
         "Launch Aurora Installer from Recovery’s Utilities menu or Terminal. No installation changes have been made."
     case .wrongPair:
       return
-        "This Recovery belongs to a different installation. Aurora will select Omarchy as the startup disk and shut down. Once powered off, hold the power button continuously until Startup Options appears, then select Omarchy."
+        "This Recovery belongs to a different installation. Aurora will select Aurora as the startup disk and shut down. Once powered off, hold the power button continuously until Startup Options appears, then select Aurora."
     case .powerButtonRequired:
       return
-        "This is ordinary Recovery. Aurora will select Omarchy as the startup disk and shut down. Once powered off, hold the power button continuously until Startup Options appears, then select Omarchy. Do not press and release it first."
+        "This is ordinary Recovery. Aurora will select Aurora as the startup disk and shut down. Once powered off, hold the power button continuously until Startup Options appears, then select Aurora. Do not press and release it first."
     case .cannotVerify:
       return
-        "Aurora could not confirm that this is Omarchy’s paired power-button Recovery. No installation changes have been made. Restart into that Recovery and try again."
+        "Aurora could not confirm that this is Aurora’s paired power-button Recovery. No installation changes have been made. Restart into that Recovery and try again."
     }
   }
   var canRepairStartupSelection: Bool {

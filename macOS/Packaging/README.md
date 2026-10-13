@@ -13,7 +13,7 @@ Moving to another identity or host is an edit to `identity.conf` followed by `sc
 
 ## Bundle layout
 
-The generated `Omarchy Installer.app` contains:
+The generated `Aurora Installer.app` contains:
 
 - the SwiftUI application in `Contents/MacOS`;
 - the root helper in `Contents/Library/LaunchServices`, named by its label, with its Info.plist (carrying the build number it reports) and, for builds with a real signing identity, its `SMJobBless` launchd job linked into `__TEXT` sections;
@@ -74,13 +74,13 @@ preconfigured keychain profile:
 
 ```sh
 OMARCHY_NOTARY_PROFILE="omarchy-notary" \
-Packaging/notarize-app.sh "/absolute/path/Omarchy Installer.app"
+Packaging/notarize-app.sh "/absolute/path/Aurora Installer.app"
 ```
 
 The app installs its own helper with `SMJobBless` the first time the person authorizes an install, using the password they typed; ad hoc builds leave the declaration out and still need the installer package. After notarization, package the download:
 
 ```sh
-Packaging/make-download-zip.sh "/absolute/path/Omarchy Installer.app" /absolute/path/Omarchy-Installer.zip
+Packaging/make-download-zip.sh "/absolute/path/Aurora Installer.app" /absolute/path/Aurora-Installer.zip
 ```
 
 It refuses an app without a stapled ticket and checks that the zip holds only the app.

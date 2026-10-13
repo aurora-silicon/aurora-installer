@@ -39,7 +39,7 @@ private enum OmarchyCanaryCandidateTool {
     do {
       try run(Array(CommandLine.arguments.dropFirst()))
     } catch {
-      fputs("Omarchy canary candidate tool failed: \(error)\n", stderr)
+      fputs("Aurora canary candidate tool failed: \(error)\n", stderr)
       exit(1)
     }
   }

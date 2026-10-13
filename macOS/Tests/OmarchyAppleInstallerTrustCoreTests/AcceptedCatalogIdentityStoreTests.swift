@@ -69,7 +69,7 @@
       let names = ReleaseChannel.allCases.map(AcceptedCatalogIdentityStore.fileName(for:))
       XCTAssertEqual(Set(names).count, ReleaseChannel.allCases.count)
       for name in names {
-        XCTAssertTrue(name.hasPrefix("accepted-catalog-omarchy-mac-"), name)
+        XCTAssertTrue(name.hasPrefix("accepted-catalog-installer-"), name)
         XCTAssertFalse(AcceptedCatalogIdentityStore.mxMacFileNames.contains(name), name)
       }
     }

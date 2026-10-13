@@ -4,6 +4,7 @@ import Foundation
 public struct PinnedInstallerRecord: Equatable, Sendable {
   public let deviceIdentifier: String
   public let operation: String
+  public let installationProfile: String?
   public let asahiInstallerTag: String
   public let asahiInstallerRevision: String
   public let asahiInstallerDataRevision: String
@@ -19,6 +20,7 @@ public struct PinnedInstallerRecord: Equatable, Sendable {
   public init(
     deviceIdentifier: String,
     operation: String = "install",
+    installationProfile: String? = nil,
     asahiInstallerTag: String,
     asahiInstallerRevision: String,
     asahiInstallerDataRevision: String,
@@ -33,6 +35,7 @@ public struct PinnedInstallerRecord: Equatable, Sendable {
   ) {
     self.deviceIdentifier = deviceIdentifier
     self.operation = operation
+    self.installationProfile = installationProfile
     self.asahiInstallerTag = asahiInstallerTag
     self.asahiInstallerRevision = asahiInstallerRevision
     self.asahiInstallerDataRevision = asahiInstallerDataRevision
@@ -271,9 +274,15 @@ struct SignedSupportCatalogVerifier: Sendable {
         modelIndex: index
       )
 
+      if let profile = model.installationProfile,
+        !AuroraInstallationSelection.allProfileIDs.contains(profile)
+      {
+        throw SupportCatalogError.invalidField("models[\(index)].installationProfile")
+      }
       records[model.deviceIdentifier] = PinnedInstallerRecord(
         deviceIdentifier: model.deviceIdentifier,
         operation: operation,
+        installationProfile: model.installationProfile,
         asahiInstallerTag: model.asahiInstallerTag,
         asahiInstallerRevision: model.asahiInstallerRevision,
         asahiInstallerDataRevision: model.asahiInstallerDataRevision,
@@ -471,6 +480,7 @@ private struct ModelRecord: Decodable {
   let deviceIdentifier: String
   let status: ModelStatus
   let operation: String?
+  let installationProfile: String?
   let asahiInstallerTag: String
   let asahiInstallerRevision: String
   let asahiInstallerDataRevision: String

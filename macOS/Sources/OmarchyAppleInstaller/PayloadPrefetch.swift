@@ -503,7 +503,7 @@
       let created = IOPMAssertionCreateWithName(
         kIOPMAssertionTypeNoIdleSleep as CFString,
         IOPMAssertionLevel(kIOPMAssertionLevelOn),
-        "Omarchy installer downloading" as CFString,
+        "Aurora installer downloading" as CFString,
         &identifier
       )
       guard created == kIOReturnSuccess else { return }

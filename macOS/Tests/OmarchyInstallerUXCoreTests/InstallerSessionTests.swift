@@ -17,7 +17,7 @@
           ExistingInstallDisplay(sourceIdentifier: "disk0s3", sizeDescription: "89 GB")
         ])
       let target = RecoveryAccountTarget(
-        volumeName: "Omarchy", systemUUID: "11111111-1111-4111-8111-111111111111",
+        volumeName: "Aurora", systemUUID: "11111111-1111-4111-8111-111111111111",
         dataUUID: "22222222-2222-4222-8222-222222222222",
         groupUUID: "33333333-3333-4333-8333-333333333333",
         prebootUUID: "44444444-4444-4444-8444-444444444444")
@@ -46,7 +46,7 @@
           ExistingInstallDisplay(sourceIdentifier: "disk0s3", sizeDescription: "89 GB")
         ])
       let target = RecoveryAccountTarget(
-        volumeName: "Omarchy", systemUUID: "11111111-1111-4111-8111-111111111111",
+        volumeName: "Aurora", systemUUID: "11111111-1111-4111-8111-111111111111",
         dataUUID: "22222222-2222-4222-8222-222222222222",
         groupUUID: "33333333-3333-4333-8333-333333333333",
         prebootUUID: "44444444-4444-4444-8444-444444444444")
@@ -73,7 +73,7 @@
           ExistingInstallDisplay(sourceIdentifier: "disk0s3", sizeDescription: "89 GB")
         ])
       let target = RecoveryAccountTarget(
-        volumeName: "Omarchy",
+        volumeName: "Aurora",
         systemUUID: "11111111-1111-4111-8111-111111111111",
         dataUUID: "22222222-2222-4222-8222-222222222222",
         groupUUID: "33333333-3333-4333-8333-333333333333",
@@ -284,7 +284,7 @@
       XCTAssertFalse(failure.isBlockedModel)
       XCTAssertEqual(failure.device, environment.host)
       XCTAssertEqual(
-        failure.headline, "Free up at least 4 GB to install Omarchy")
+        failure.headline, "Free up at least 4 GB to install Aurora")
       XCTAssertEqual(
         failure.remedy,
         "Remove files you no longer need in macOS and empty the Trash, then choose Check again. The installer will check the available space again before allowing installation."
@@ -1211,7 +1211,7 @@
         guard case .failed(let failure) = session.phase else {
           return XCTFail("Expected a space shortfall during planning.")
         }
-        XCTAssertEqual(failure.headline, "Free up at least \(expectedGB) GB to install Omarchy")
+        XCTAssertEqual(failure.headline, "Free up at least \(expectedGB) GB to install Aurora")
         XCTAssertTrue(session.canInspect)
         XCTAssertFalse(session.canStartInstallation)
         session.approve()
@@ -1495,7 +1495,7 @@
     var accountReply: RecoveryAccountReply? = RecoveryAccountReply(
       ticket: "completed-install",
       target: RecoveryAccountTarget(
-        volumeName: "Omarchy", systemUUID: "11111111-1111-4111-8111-111111111111",
+        volumeName: "Aurora", systemUUID: "11111111-1111-4111-8111-111111111111",
         dataUUID: "22222222-2222-4222-8222-222222222222",
         groupUUID: "33333333-3333-4333-8333-333333333333",
         prebootUUID: "44444444-4444-4444-8444-444444444444"))

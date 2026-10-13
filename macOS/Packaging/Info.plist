@@ -11,7 +11,7 @@
   <key>CFBundleIdentifier</key>
   <string>REPLACED_DURING_PACKAGING</string>
   <key>CFBundleIconFile</key>
-  <string>OmarchyInstaller</string>
+  <string>AuroraInstaller</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>

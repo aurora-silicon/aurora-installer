@@ -15,7 +15,7 @@
     // MARK: Screen A — Check
 
     public static let checkSubheadline =
-      "Omarchy installs next to macOS. You can select either one by holding the power button when the Mac starts."
+      "Aurora installs next to macOS. You can select either one by holding the power button when the Mac starts."
     public static let checkContinue = "Continue"
     public static let checkAgain = "Check again"
     public static let inspectingHeadline = "Checking this Mac…"
@@ -24,7 +24,7 @@
 
     // MARK: Screen A2 — Existing install
 
-    public static let existingInstallHeadline = "Omarchy is already installed"
+    public static let existingInstallHeadline = "Aurora is already installed"
     public static let closeInstaller = "Close"
 
     // MARK: Screen B — Plan
@@ -36,7 +36,7 @@
       // Disk alignment changes bytes without changing the whole GB the user chose.
       guard requested != actual else { return nil }
       return
-        "Space for Omarchy changed from \(requested) GB to \(actual) GB. Review the updated size before installing."
+        "Space for Aurora changed from \(requested) GB to \(actual) GB. Review the updated size before installing."
     }
 
     public static let replanning = "Checking the new size…"
@@ -48,14 +48,14 @@
         : "I have a current backup and approve the disk layout above."
     }
     public static let planInstall = "Install"
-    public static let downloadingPackagesTitle = "Downloading Omarchy"
-    public static let encryptLinuxDiskTitle = "Encrypt the Omarchy disk"
+    public static let downloadingPackagesTitle = "Downloading Aurora"
+    public static let encryptLinuxDiskTitle = "Encrypt the Aurora disk"
     public static let encryptLinuxDiskPassword =
-      "The Omarchy password you create at first boot will unlock the encrypted disk after installation."
+      "The Aurora password you create at first boot will unlock the encrypted disk after installation."
     public static let encryptLinuxDiskNoRecovery =
       "There is no separate recovery key, so keep the password somewhere safe."
     public static let encryptionChoiceNotRecorded =
-      "The encryption choice wasn’t saved, so Omarchy will encrypt its disk at first boot."
+      "The encryption choice wasn’t saved, so Aurora will encrypt its disk at first boot."
     public static let encryptionOptOutRecorded =
       "Disk encryption is off, and that choice was saved."
     public static let encryptionChoiceUnconfirmed =
@@ -90,7 +90,7 @@
     ) -> String {
       switch stage {
       case .fetchingCatalog: "Checking the release signature…"
-      case .downloading: "Downloading Omarchy…"
+      case .downloading: "Downloading Aurora…"
       case .inspectingEngine: "Checking disk compatibility…"
       case .planning: "Planning the disk layout…"
       }
@@ -104,7 +104,7 @@
     public static let authorizeUsernameLabel = "macOS user"
     public static let authorizeChecking = "Checking your macOS account…"
     public static let authorizeStillWorking =
-      "This can take a few minutes. Once your account is confirmed, the installer prepares Omarchy’s files."
+      "This can take a few minutes. Once your account is confirmed, the installer prepares Aurora’s files."
     public static let authorizePasswordLabel = "macOS password"
     public static let authorizeCancel = "Cancel"
     public static let authorizeRetryAction = "Authorize"
@@ -112,14 +112,14 @@
       "The user name or password was incorrect."
     /// Shown on the sheet when authorizing will install the helper.
     public static let authorizeBackgroundItemNotice =
-      "macOS will show a notice that \(windowTitle) added a background item. That’s the installation service; it’s removed along with Omarchy."
+      "macOS will show a notice that \(windowTitle) added a background item. That’s the installation service; it’s removed along with Aurora."
     public static let authorizeHelperCancelled =
       "The installation service wasn’t set up, so nothing was changed. Try again, and approve the macOS password prompt if it appears."
     public static let authorizeHelperSwitchedOff =
       "The installation service is switched off in Login Items. Turn it back on here with your password, or switch it on in Login Items and try again."
     /// Shown on the sheet when the person switched the helper off.
     public static let authorizeHelperSwitchedOffNotice =
-      "You switched the installation service off in Login Items, and \(windowTitle) needs it to change your disk. Authorizing turns it back on with the password you enter here; it’s removed along with Omarchy. You can switch it on in Login Items yourself instead."
+      "You switched the installation service off in Login Items, and \(windowTitle) needs it to change your disk. Authorizing turns it back on with the password you enter here; it’s removed along with Aurora. You can switch it on in Login Items yourself instead."
     public static let authorizeTurnOnAndInstall = "Turn On & Install"
     public static let authorizeTurnOnAndRetry = "Turn On & Authorize"
     public static let openLoginItems = "Open Login Items"
@@ -131,7 +131,7 @@
       "Another copy of the installer is replacing the installation service, so this request didn't start and nothing was changed. Try again in a moment."
     public static let helperRetiringHeadline = "The installation service was just removed"
     public static let helperRetiringDetail =
-      "Omarchy's removal finished and its installation service is removing itself. Nothing was changed. Try again in a moment; the app sets the service up again with your password."
+      "Aurora's removal finished and its installation service is removing itself. Nothing was changed. Try again in a moment; the app sets the service up again with your password."
     public static let authorizeNotAdministrator =
       "This account isn’t a macOS administrator, and setting up the installation service needs one. Use an administrator account."
     public static let authorizeHelperBusy =
@@ -164,20 +164,20 @@
     public static func installPhaseTitle(forPhase phase: String?) -> String {
       switch phase {
       case "preflight": "Checking the disk…"
-      case "existing_removal": "Removing the previous Omarchy installation…"
+      case "existing_removal": "Removing the previous Aurora installation…"
       case "apfs_preparation": "Preparing disk space…"
       case "stub_and_esp": "Writing boot files…"
       case "awaiting_recovery": "Preparing final setup…"
       case "boot_policy": "Authorizing startup…"
       case "media_handoff": "Preparing installation media…"
-      case "omarchy_install": "Installing Omarchy…"
+      case "omarchy_install": "Installing Aurora…"
       default: installVerifyingOwner
       }
     }
 
     public static func installPhaseTitle(forEvent event: String?) -> String? {
       switch event {
-      case "existing_removal_started": "Removing the previous Omarchy installation…"
+      case "existing_removal_started": "Removing the previous Aurora installation…"
       case "apfs_preparation_started": "Preparing disk space…"
       case "stub_and_esp_started": "Writing boot files…"
       case "recovery_handoff_started": "Preparing final setup…"
@@ -187,8 +187,8 @@
 
     public static func checkpointSummary(_ identifier: String) -> String {
       switch identifier {
-      case "existing-install-removed": "Previous Omarchy installation removed"
-      case "apfs-target-prepared": "Disk space reserved for Omarchy"
+      case "existing-install-removed": "Previous Aurora installation removed"
+      case "apfs-target-prepared": "Disk space reserved for Aurora"
       case "stub-and-esp-installed": "Boot files written"
       case "recovery-handoff-prepared": "Ready to finish setup"
       default: "Additional installation activity (\(identifier))"
@@ -197,7 +197,7 @@
 
     public static func eventSummary(_ name: String) -> String {
       switch name {
-      case "existing_removal_started": "Started removing the previous Omarchy installation"
+      case "existing_removal_started": "Started removing the previous Aurora installation"
       case "apfs_preparation_started": "Started preparing disk space"
       case "stub_and_esp_started": "Started writing boot files"
       case "recovery_handoff_started": "Started preparing final setup"
@@ -211,7 +211,7 @@
     public static let recoveryShutDown = "Shut down"
     public static let shutdownConfirmationTitle = "Shut down this Mac now?"
     public static let shutdownConfirmationBody =
-      "Save your work first. When this Mac is off, press and hold the power button until “Loading startup options” appears. Choose Omarchy → Finish Installation, then sign in with your macOS account."
+      "Save your work first. When this Mac is off, press and hold the power button until “Loading startup options” appears. Choose Aurora → Finish Installation, then sign in with your macOS account."
     public static let shutdownConfirmationAction = "Shut down"
     public static let mediaHeadline = "Connect the installation media"
 
@@ -236,7 +236,7 @@
       func authenticate() {
         append(
           "Finish installation",
-          "Choose Omarchy → Finish Installation, then sign in with your macOS account.")
+          "Choose Aurora → Finish Installation, then sign in with your macOS account.")
       }
       for token in requiredHumanSteps {
         switch token {
@@ -259,7 +259,7 @@
 
     // MARK: Screen F — Boot / completion
 
-    public static let doneHeadline = "Omarchy is installed"
+    public static let doneHeadline = "Aurora is installed"
     public static let startOver = "Start over"
     public static let downloadInstaller = "Download the installer"
     public static let rcBadge = "Release candidate"
@@ -346,11 +346,11 @@
         base = "Your approved plan was accepted. Installation is continuing."
       case .enterRecovery:
         base =
-          "Omarchy’s files are in place. Finish setup at startup so this Mac can start Omarchy."
+          "Aurora’s files are in place. Finish setup at startup so this Mac can start Aurora."
       case .attachInstallationMedia:
         base = "Preparation is complete. Connect the verified installation media to continue."
       case .verifyInstalledSystem:
-        base = "Installation is complete. Start Omarchy and check that it works."
+        base = "Installation is complete. Start Aurora and check that it works."
       case .manualRecovery:
         base = "Installation needs manual recovery before it can continue."
       }
@@ -420,7 +420,7 @@
       FailureDisplay(
         headline: "No Mac release on this channel yet",
         plainDetail:
-          "This release channel is verified but doesn’t offer Omarchy for any Mac yet. No installation files were downloaded and the disk has not been changed.",
+          "This release channel is verified but doesn’t offer Aurora for any Mac yet. No installation files were downloaded and the disk has not been changed.",
         technicalDetail: technicalDetail,
         remedy: "Choose another channel from the Release channel menu, or check again later."
       )
@@ -454,7 +454,7 @@
       switch notice.reason {
       case .approvedSpaceChanged:
         return FailureDisplay(
-          headline: "The space available for Omarchy changed",
+          headline: "The space available for Aurora changed",
           plainDetail:
             "The size you approved no longer fits the space this Mac can provide now, so the installer stopped before using it. \(diskState)",
           technicalDetail: technicalDetail,
@@ -699,9 +699,9 @@
           let shortfall = bytesRoundedUp(required - min(required, available))
           return FailureDisplay(
             headline:
-              "Free up at least \(shortfall) to install Omarchy",
+              "Free up at least \(shortfall) to install Aurora",
             plainDetail:
-              "Omarchy needs \(bytes(required)); only \(bytes(available)) can be made available within the current safety limits. Free space shown in macOS is not necessarily space available for installation. The disk has not been changed.",
+              "Aurora needs \(bytes(required)); only \(bytes(available)) can be made available within the current safety limits. Free space shown in macOS is not necessarily space available for installation. The disk has not been changed.",
             technicalDetail: technical,
             remedy:
               "Remove files you no longer need in macOS and empty the Trash, then choose Check again. The installer will check the available space again before allowing installation."

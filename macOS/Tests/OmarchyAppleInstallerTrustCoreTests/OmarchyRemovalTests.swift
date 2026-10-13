@@ -11,7 +11,7 @@
     func testConvergedLayoutFromM2ReturnsAllFourPartitionsToMacOS() throws {
       let plan = try OmarchyRemovalPlan(disks: FakeRemovalDisk())
       XCTAssertEqual(plan.kind, .installation)
-      XCTAssertEqual(plan.installation?.name, "Omarchy")
+      XCTAssertEqual(plan.installation?.name, "Aurora")
       XCTAssertEqual(
         plan.members.map(\.uuid),
         [F.convergedInstall.stub, F.convergedInstall.esp] + F.convergedInstall.linux)
@@ -156,11 +156,11 @@
     func testSmallOrNoGapIsReportedAsNothingToDo() {
       assertRefusal(
         FakeRemovalDisk(F.snapshot(macOSSize: 400_000_000_000, [.free(500_000_000)]), install: nil),
-        "No Omarchy installation, or other installation made with the Asahi installer, was found. 500.0 MB directly after macOS is unallocated; that’s too little to return, so it was left as it is. Nothing was changed."
+        "No Aurora installation, or other installation made with the Asahi installer, was found. 500.0 MB directly after macOS is unallocated; that’s too little to return, so it was left as it is. Nothing was changed."
       )
       assertRefusal(
         FakeRemovalDisk(F.snapshot(macOSSize: 400_000_000_000, []), install: nil),
-        "No Omarchy installation, or other installation made with the Asahi installer, was found, and there’s no unallocated space after macOS. Nothing was changed."
+        "No Aurora installation, or other installation made with the Asahi installer, was found, and there’s no unallocated space after macOS. Nothing was changed."
       )
     }
 
@@ -445,7 +445,7 @@
       // Verbatim (cut after `info={`) from the M2 ESP's asahi/installer.log.
       let log = Data(
         """
-        09-27 12:59 root         INFO     New partition: Partition(name='disk0s3', offset=675187716096, size=2499805184, free=False, type='Apple_APFS', uuid='A0913035-21F1-4CC5-B940-A26FD42BFA5C', desc=None, label='Omarchy', info={'AESHardware': True, 'APFSContainerReference': 'disk2', 'Bootable': True, 'BusProtocol': 'Apple Fabric', 'C
+        09-27 12:59 root         INFO     New partition: Partition(name='disk0s3', offset=675187716096, size=2499805184, free=False, type='Apple_APFS', uuid='A0913035-21F1-4CC5-B940-A26FD42BFA5C', desc=None, label='Aurora', info={'AESHardware': True, 'APFSContainerReference': 'disk2', 'Bootable': True, 'BusProtocol': 'Apple Fabric', 'C
         09-27 12:59 root         INFO     New partition: Partition(name='disk0s4', offset=677687521280, size=524288000, free=False, type='EFI', uuid='BB18E021-9D1B-499C-8F25-849B7F5FCDCC', desc=None, label=None, info={'AESHardware': True, 'Bootable': False, 'BusProtocol': 'Apple Fabric', 'CanBeMadeBootable': False, 'CanBeMadeBootableReq
         09-27 12:59 root         INFO     New partition: Partition(name='disk0s5', offset=678211809280, size=2147483648, free=False, type='Linux Filesystem', uuid='E94DF227-99CE-438F-BE4B-9B7687487BDC', desc=None, label=None, info={'AESHardware': True, 'Bootable': False, 'BusProtocol': 'Apple Fabric', 'CanBeMadeBootable': False, 'CanBeM
         09-27 13:00 root         INFO     New partition: Partition(name='disk0s6', offset=680359292928, size=314827603968, free=False, type='Linux Filesystem', uuid='2CE86A5F-AF65-404E-A04C-B51092F45D8F', desc=None, label=None, info={'AESHardware': True, 'Bootable': False, 'BusProtocol': 'Apple Fabric', 'CanBeMadeBootable': False, 'CanB
@@ -848,7 +848,7 @@
       XCTAssertTrue(result.completed, result.message)
       XCTAssertEqual(
         result.message,
-        "“Omarchy” and its data have been removed. The freed space is now part of macOS.")
+        "“Aurora” and its data have been removed. The freed space is now part of macOS.")
       do {
         _ = try await server.removal(
           ticketID: fresh.id, confirmation: OmarchyRemovalTicket.confirmation,
@@ -874,7 +874,7 @@
       XCTAssertTrue(result.completed, result.message)
       XCTAssertEqual(
         result.message,
-        "“Omarchy” and its data have been removed. The freed space is now part of macOS.")
+        "“Aurora” and its data have been removed. The freed space is now part of macOS.")
       XCTAssertFalse(FileManager.default.fileExists(atPath: journals.path))
       let kept = root.appendingPathComponent(
         "retired-execution-journals/\(ticket.id.uuidString)/abc.jsonl")
@@ -1006,7 +1006,7 @@
       XCTAssertFalse(result.completed)
       XCTAssertTrue(result.requiresReview)
       XCTAssertTrue(result.message.hasPrefix("macOS couldn’t confirm it took the free space."))
-      XCTAssertFalse(result.message.contains("Omarchy"))
+      XCTAssertFalse(result.message.contains("Aurora"))
     }
 
     func testServerRefusalCarriesTheExactFinding() async throws {
@@ -1046,13 +1046,13 @@
       let root = try temporaryDirectory()
       defer { try? FileManager.default.removeItem(at: root) }
       let disk = FakeRemovalDisk()
-      disk.startupState = .other("Omarchy")
+      disk.startupState = .other("Aurora")
       disk.startupAfterSet = [.success(.macOS)]
       let service = server(root: root, disk: disk)
       let inspection = try await service.removal(
         ticketID: nil, confirmation: "", authorization: nil)
       let ticket = try XCTUnwrap(inspection.ticket)
-      XCTAssertEqual(ticket.startupDisk?.detail, "Your Mac starts up from “Omarchy” now")
+      XCTAssertEqual(ticket.startupDisk?.detail, "Your Mac starts up from “Aurora” now")
       let result = try await service.removal(
         ticketID: ticket.id, confirmation: ticket.confirmation, authorization: authorization())
       XCTAssertTrue(result.completed, result.message)
@@ -1064,7 +1064,7 @@
       let root = try temporaryDirectory()
       defer { try? FileManager.default.removeItem(at: root) }
       let disk = FakeRemovalDisk()
-      disk.startupState = .other("Omarchy")
+      disk.startupState = .other("Aurora")
       disk.startupAfterSet = [
         .failure(RemovalStartupRefusal(reason: "Failed to authenticate owner"))
       ]
@@ -1096,7 +1096,7 @@
         ticketID: XCTUnwrap(inspection.ticket).id, confirmation: OmarchyRemovalTicket.confirmation,
         authorization: authorization())
       XCTAssertFalse(result.completed)
-      XCTAssertTrue(result.message.contains("some data in “Omarchy” may already be deleted"))
+      XCTAssertTrue(result.message.contains("some data in “Aurora” may already be deleted"))
       let restarted = server(root: root, disk: disk)
       do {
         _ = try await restarted.removal(ticketID: nil, confirmation: "", authorization: nil)
@@ -1132,7 +1132,7 @@
         ticketID: XCTUnwrap(inspection.ticket).id, confirmation: OmarchyRemovalTicket.confirmation,
         authorization: authorization())
       XCTAssertFalse(result.completed)
-      XCTAssertTrue(result.message.contains("“Omarchy” was removed"))
+      XCTAssertTrue(result.message.contains("“Aurora” was removed"))
       XCTAssertFalse(result.message.contains("No disk changes"))
       let files = try FileManager.default.contentsOfDirectory(
         at: root, includingPropertiesForKeys: nil)

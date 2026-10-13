@@ -1,0 +1,40 @@
+{
+  "Fedora.svg": {
+    "source": "https://fedoraproject.org/assets/images/logos/fedora-logo-official.svg",
+    "attribution": "Fedora Project / Red Hat; official mark used to identify Fedora",
+    "sha256": "2cc05e3061011bf5b7d3b52e4918b9795babdfab3de91e06d1be5d24abfb19ae"
+  },
+  "Plasma.svg": {
+    "source": "https://kde.org/stuff/clipart/logo/plasma-logo-colorful.svg",
+    "attribution": "KDE e.V.; KDE clipart terms, LGPL",
+    "sha256": "f0da03938d0d87ad2135d9267e11d16adbb110ea2f22bb902955e151e511b4b8"
+  },
+  "GNOME.svg": {
+    "source": "https://brand.gnome.org/logos/gnome-logos.zip",
+    "attribution": "GNOME Project; CC BY-SA 4.0",
+    "sha256": "cfcc840d30cdd86f07e441bbaf921943623f38cdbfcf5f9287d1a1b81f2b4505"
+  },
+  "GNOME-Dark.svg": {
+    "source": "https://brand.gnome.org/logos/gnome-logos.zip",
+    "attribution": "GNOME Project; CC BY-SA 4.0",
+    "sha256": "ff92c10bb5d87e4153c7669d644cf341fb545cf2de1b225073898b7c6ffeb67d"
+  },
+  "ArchLinuxARM.png": {
+    "source": "https://archlinuxarm.org/public/images/alarm.png",
+    "attribution": "Arch Linux ARM; Arch Linux mark belongs to the Arch Linux project",
+    "sha256": "ec95ecb1e2e4f9787de959e6c6ec3db15217fc1ebf6613559fb3be31c99c6d5d"
+  },
+  "Fedora-Icon.svg": {
+    "source": "Fedora.svg path1626",
+    "transformation": "Original icon path and fill retained; standalone square viewBox for display."
+  },
+  "UEFI.svg": {
+    "source": "https://commons.wikimedia.org/wiki/File:Logo_of_the_UEFI_Forum.svg",
+    "attribution": "UEFI Forum logo; identifies the UEFI boot environment.",
+    "sha256": "4e6180a9a29404e71a257c0ab0084c2db131fba2672cdc33f80ffde386926bb2"
+  },
+  "desktopMockups": {
+    "source": "Sources/OmarchyAppleInstallerApp/DesktopMockup.swift",
+    "description": "Native vector illustrations of Plasma launcher/panel, GNOME overview/dash and a text shell. Not screenshots."
+  }
+}

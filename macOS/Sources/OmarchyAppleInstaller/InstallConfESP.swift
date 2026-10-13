@@ -114,7 +114,7 @@
     }
   }
 
-  /// Picks the new Omarchy ESP from the engine plan's store and extent.
+  /// Picks the new Aurora ESP from the engine plan's store and extent.
   ///
   /// The engine allocates `[offset, offset+length)` on `storeIdentifier` and
   /// creates the stub APFS, then `EFI - OMARC`, then the Linux boot and root

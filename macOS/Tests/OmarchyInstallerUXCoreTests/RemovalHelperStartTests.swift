@@ -60,7 +60,7 @@
           reclaimBytes: 0), .unknown)
       XCTAssertTrue(
         PlainLanguage.removalCompletedWithoutReply(freeSpace: false).hasPrefix(
-          "Omarchy and its data have been removed."))
+          "Aurora and its data have been removed."))
       XCTAssertTrue(PlainLanguage.removalNotStarted.contains("No disk changes were made."))
     }
 

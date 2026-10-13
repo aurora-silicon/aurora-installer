@@ -48,15 +48,17 @@
 
   struct SimulationDashboard: View {
     @Bindable var controls: SimulationControls
+    var selection = AuroraInstallationSelection()
     var onSessionAvailable: ((InstallerSession) -> Void)? = nil
 
     var body: some View {
       Group {
         if controls.previewsRecoveryHandoff {
-          RecoveryHandoffView(volumeName: "Omarchy")
+          RecoveryHandoffView(volumeName: "Aurora")
         } else {
           OnePageInstallerView(
             environment: controls.environment, channel: controls.channel,
+            selection: selection, startAtPlan: true,
             onChannelAvailability: { controls.canChangeChannel = $0 },
             onSessionAvailable: {
               controls.session = $0

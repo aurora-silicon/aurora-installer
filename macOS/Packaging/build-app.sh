@@ -204,7 +204,7 @@ final_app="$output_directory/$app_name"
 recovery_template="${OMARCHY_RECOVERY_TEMPLATE:-}"
 if [[ -z $recovery_template ]]; then
   "$package_directory/Recovery/build-recovery.sh" "$output_directory/recovery-template"
-  recovery_template="$output_directory/recovery-template/Omarchy Installer.app"
+  recovery_template="$output_directory/recovery-template/Aurora Installer.app"
 fi
 [[ -d $recovery_template && ! -L $recovery_template ]] || fail "native Recovery template is missing"
 [[ $(/usr/bin/plutil -extract OmarchyRecoveryBuildMode raw -o - "$recovery_template/Contents/Info.plist") == recovery ]] \
@@ -282,12 +282,16 @@ install -m 0755 "$app_binary" "$contents/MacOS/$app_executable_name"
 install -m 0755 "$helper_binary" "$helper_path"
 install -m 0444 "$release_descriptor" "$resources/Release/release.json"
 install -m 0444 "$trust_root" "$resources/Release/trust-root.ed25519.pub"
+for asset in "$package_directory"/Resources/*.png; do
+  install -m 0444 "$asset" "$resources/$(basename "$asset")"
+done
+/usr/bin/ditto "$package_directory/Resources/BrandSources" "$resources/BrandSources"
 install -m 0444 "$package_directory/Design/Assets/MacBookPowerButton.png" "$resources/MacBookPowerButton.png"
 install -m 0444 "$package_directory/Design/Assets/MacDesktopPowerButton.png" "$resources/MacDesktopPowerButton.png"
 mkdir -p "$resources/RecoveryTemplate"
-/usr/bin/ditto "$recovery_template" "$resources/RecoveryTemplate/Omarchy Installer.app"
+/usr/bin/ditto "$recovery_template" "$resources/RecoveryTemplate/Aurora Installer.app"
 codesign --force --sign "$signing_identity" "${timestamp_arguments[@]}" \
-  "$resources/RecoveryTemplate/Omarchy Installer.app"
+  "$resources/RecoveryTemplate/Aurora Installer.app"
 if [[ ${OMARCHY_PRIVATE_LIMINE_TEST:-0} == "1" ]]; then
   install -m 0444 "$release_directory/limine-inputs.json" "$resources/Release/limine-inputs.json"
 fi
@@ -332,8 +336,8 @@ for model in json.loads(catalog.read_text())["models"]:
 PYCODE
 fi
 install -m 0444 \
-  "$script_directory/OmarchyInstaller.icns" \
-  "$resources/OmarchyInstaller.icns"
+  "$script_directory/AuroraInstaller.icns" \
+  "$resources/AuroraInstaller.icns"
 install -m 0444 "$script_directory/Info.plist" "$contents/Info.plist"
 install -m 0444 \
   "$script_directory/helper-daemon.plist" \
@@ -356,6 +360,9 @@ if [[ ${OMARCHY_OFFLINE_BUILD:-0} == "1" ]]; then
   python3 "$script_directory/bundle-offline-artifacts.py" \
     "$sealed_catalog" "$release_directory/offline-artifacts" "$resources/Artifacts"
   plutil -insert OmarchyOfflineBundle -bool true "$contents/Info.plist"
+fi
+if [[ -d "$release_directory/Profiles" ]]; then
+  /usr/bin/ditto "$release_directory/Profiles" "$resources/Release/Profiles"
 fi
 plutil -replace CFBundleVersion \
   -string "$build_number" "$contents/Info.plist"

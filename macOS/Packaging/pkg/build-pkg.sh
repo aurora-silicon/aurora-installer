@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build a signed + notarized macOS installer package for the Omarchy Apple
+# Build a signed + notarized macOS installer package for the Aurora Apple
 # Silicon installer. The package installs the notarized app to /Applications and
 # a system LaunchDaemon to /Library/LaunchDaemons, then loads the daemon in its
 # postinstall — so the recipient enters one admin password (the macOS installer

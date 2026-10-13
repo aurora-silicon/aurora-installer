@@ -94,7 +94,8 @@
         scene.contains(
           "@State private var channel = ReleaseChannelPreference().resolveFromMainBundle()\n"))
       XCTAssertTrue(
-        scene.contains("environment: InstallerEnvironmentFactory.make(), channel: channel,"))
+        scene.contains(
+          "environment: LiveInstallerEnvironment(selection: selection), channel: channel,"))
       XCTAssertFalse(scene.contains("channel = ."))
       XCTAssertTrue(
         download.contains("ReleaseChannelPreference().resolve(configuration: configuration)"))

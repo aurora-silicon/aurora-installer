@@ -8,16 +8,17 @@ struct InstallerPageLayout<Header: View, Content: View, Actions: View>: View {
 
   var body: some View {
     GeometryReader { geometry in
-      let topInset = min(96.0, max(72.0, geometry.size.height * 0.14))
-      let wordmarkHeight = 400.0 * CGFloat(OmarchyWordmark.rows) / CGFloat(OmarchyWordmark.columns)
+      let topInset = 64.0
+      let wordmarkHeight = 104.0
 
       VStack(spacing: 0) {
         ScrollView {
           VStack(spacing: 0) {
             OmarchyWordmark()
-              .frame(width: 400, height: wordmarkHeight)
+              .frame(width: 104, height: wordmarkHeight)
               .padding(.top, topInset)
-              .padding(.bottom, 20)
+              .padding(.bottom, 14)
+            Text("Aurora Linux").font(OmarchyTheme.title).padding(.bottom, 12)
             header()
               .frame(minHeight: 24)
               .padding(.bottom, 18)

@@ -3,16 +3,16 @@
   "default_channel": "edge",
   "channels": {
     "stable": {
-      "catalog_url": "https://downloads.aicodelabs.com.au/omarchy-mac/channels/stable/catalog.signed.json"
+      "catalog_url": "https://releases.aurora.invalid/installer/channels/stable/catalog.signed.json"
     },
     "rc": {
-      "catalog_url": "https://downloads.aicodelabs.com.au/omarchy-mac/channels/rc/catalog.signed.json"
+      "catalog_url": "https://releases.aurora.invalid/installer/channels/rc/catalog.signed.json"
     },
     "edge": {
-      "catalog_url": "https://downloads.aicodelabs.com.au/omarchy-mac/channels/edge/catalog.signed.json"
+      "catalog_url": "https://releases.aurora.invalid/installer/channels/edge/catalog.signed.json"
     }
   },
-  "trust_root_fingerprint": "sha256:0e86a878c2445009981a182a4642ec22ae14ab4d8365fad4b038cafc4802dc1b",
-  "helper_mach_service_name": "com.omarchy.mx.installer.helper",
-  "helper_code_signing_requirement": "anchor apple generic and identifier \"com.omarchy.mx.installer.helper\" and certificate leaf[subject.OU] = \"T2C384FJBD\""
+  "trust_root_fingerprint": "sha256:124640d0587aa55701a6d3a52b7243f500f13261004eccafd696ac234e4b99e7",
+  "helper_mach_service_name": "org.aurorasilicon.installer.helper",
+  "helper_code_signing_requirement": "identifier \"org.aurorasilicon.installer.helper\""
 }

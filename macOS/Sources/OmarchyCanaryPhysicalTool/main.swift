@@ -94,7 +94,7 @@ private enum OmarchyCanaryPhysicalTool {
     do {
       try await run(Array(CommandLine.arguments.dropFirst()))
     } catch {
-      fputs("Omarchy physical canary failed: \(error)\n", stderr)
+      fputs("Aurora physical canary failed: \(error)\n", stderr)
       exit(1)
     }
   }

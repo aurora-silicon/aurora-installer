@@ -10,11 +10,11 @@ import RecoveryAccountCore
     }
     let ids = Array(CommandLine.arguments.dropFirst())
     let target = RecoveryAccountTarget(
-      volumeName: "Omarchy Account Fixture", systemUUID: ids[0], dataUUID: ids[1],
+      volumeName: "Aurora Account Fixture", systemUUID: ids[0], dataUUID: ids[1],
       groupUUID: ids[2], prebootUUID: ids[3])
     let info = try AccountNativeCommand.disk(target.dataUUID)
     guard info["Internal"] as? Bool == false,
-      (info["VolumeName"] as? String) == "Omarchy Account Fixture - Data"
+      (info["VolumeName"] as? String) == "Aurora Account Fixture - Data"
     else { throw AccountSetupFailure("Only a disposable external fixture is allowed.") }
     let password = Data("fixture-only".utf8)
     try RecoveryAccountInstaller.refreshMountedGroup(target)

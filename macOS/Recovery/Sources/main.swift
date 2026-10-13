@@ -425,7 +425,7 @@ struct InstallerView: View {
     switch model.stage {
     case .welcome: return model.recoveryInterface ? "Repair startup" : "Finish setup"
     case .installing:
-      return model.recoveryInterface ? "Restoring startup software" : "Setting up Omarchy"
+      return model.recoveryInterface ? "Restoring startup software" : "Setting up Aurora"
     case .account:
       return model.accountAlreadyStarted ? "Resume recovery setup" : "Create a recovery account"
     case .complete:
@@ -437,7 +437,7 @@ struct InstallerView: View {
   var body: some View {
     VStack(spacing: 0) {
       OmarchyWordmark()
-        .frame(width: 400, height: 94)
+        .frame(width: 112, height: 112)
         .padding(.top, 72)
         .padding(.bottom, 28)
       Text(title)
@@ -563,13 +563,13 @@ struct InstallerView: View {
     VStack(spacing: 8) {
       Text(
         model.recoveryInterface
-          ? "Restore the startup software for your Mac." : "Finish setting up Omarchy on your Mac."
+          ? "Restore the startup software for your Mac." : "Finish setting up Aurora on your Mac."
       )
       .font(OmarchyTheme.mono(15)).foregroundColor(OmarchyTheme.secondaryText)
       Text(
         model.recoveryInterface
           ? "Use the saved recovery files to repair your\nstartup software."
-          : "The final step installs the startup software for your\nselected Omarchy volume."
+          : "The final step installs the startup software for your\nselected Aurora volume."
       )
       .font(OmarchyTheme.mono(13)).foregroundColor(OmarchyTheme.secondaryText)
       .multilineTextAlignment(.center).lineSpacing(4)
@@ -603,8 +603,8 @@ struct InstallerView: View {
         if !authorizingRecoveryRepair {
           Text(
             model.authorizationUsesSourceOwner
-              ? "Use your existing macOS owner’s password to set up Omarchy. Your macOS security settings are unaffected."
-              : "Use your Omarchy installation’s credentials to adjust its security settings. The security of your macOS installations is unaffected."
+              ? "Use your existing macOS owner’s password to set up Aurora. Your macOS security settings are unaffected."
+              : "Use your Aurora installation’s credentials to adjust its security settings. The security of your macOS installations is unaffected."
           )
           .font(OmarchyTheme.mono(12)).foregroundColor(OmarchyTheme.secondaryText)
           .fixedSize(horizontal: false, vertical: true)
@@ -807,7 +807,7 @@ struct InstallerView: View {
     VStack(alignment: .leading, spacing: 16) {
       Text("Installation details").font(OmarchyTheme.mono(20, .semibold))
       Text(
-        "Boot security is reduced only for this Omarchy installation. Your macOS security settings are unchanged."
+        "Boot security is reduced only for this Aurora installation. Your macOS security settings are unchanged."
       )
       .font(OmarchyTheme.mono(12))
       .foregroundColor(OmarchyTheme.secondaryText)
@@ -875,7 +875,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   func applicationDidFinishLaunching(_ notification: Notification) {
     LaunchTrace.mark("delegate.didFinishLaunching")
     let window = InstallerWindow()
-    window.title = "Omarchy Installer"
+    window.title = "Aurora Installer"
     window.isOpaque = false
     window.backgroundColor = .clear
     window.hasShadow = true
@@ -922,13 +922,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       menu.addItem(item)
       return result
     }
-    let application = submenu("Omarchy Installer")
+    let application = submenu("Aurora Installer")
     application.addItem(
-      withTitle: "About Omarchy Installer",
+      withTitle: "About Aurora Installer",
       action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
     application.addItem(.separator())
     application.addItem(
-      withTitle: "Hide Omarchy Installer", action: #selector(NSApplication.hide(_:)),
+      withTitle: "Hide Aurora Installer", action: #selector(NSApplication.hide(_:)),
       keyEquivalent: "h")
     let hideOthers = application.addItem(
       withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)),
@@ -939,7 +939,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       keyEquivalent: "")
     application.addItem(.separator())
     application.addItem(
-      withTitle: "Quit Omarchy Installer", action: #selector(NSApplication.terminate(_:)),
+      withTitle: "Quit Aurora Installer", action: #selector(NSApplication.terminate(_:)),
       keyEquivalent: "q")
 
     let edit = submenu("Edit")
@@ -966,7 +966,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     NSApp.windowsMenu = windows
     let help = submenu("Help")
     let previewHelp = help.addItem(
-      withTitle: "About Omarchy Recovery", action: #selector(showPreviewHelp(_:)), keyEquivalent: ""
+      withTitle: "About Aurora Recovery", action: #selector(showPreviewHelp(_:)), keyEquivalent: ""
     )
     previewHelp.target = self
     NSApp.helpMenu = help
@@ -999,10 +999,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   @objc private func showPreviewHelp(_ sender: Any?) {
     let alert = NSAlert()
-    alert.messageText = "Omarchy Installer"
+    alert.messageText = "Aurora Installer"
     alert.informativeText =
       RecoveryActions.inRecovery
-      ? "Install or restore Omarchy startup software. The aura command is available in Recovery Terminal after opening this app."
+      ? "Install or restore Aurora startup software. The aura command is available in Recovery Terminal after opening this app."
       : "This preview demonstrates the Recovery installation flow. Enter any text in the preview password field. No startup software, boot policy, or disk content is changed. Restart previews the Startup Disk handoff. Utilities → Terminal opens the real Terminal app."
     alert.runModal()
   }
