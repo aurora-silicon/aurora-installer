@@ -71,10 +71,16 @@ class PolicyTests(unittest.TestCase):
             policy.package(commands[1:])
 
     def test_unrecognized_unicorn_version_is_refused(self):
-        with patch.object(policy, "read_original", return_value=b"fixture"):
+        with patch.object(policy, "read_original", return_value=b"fixture"), patch.object(sys, "platform", "linux"):
             with patch.dict(sys.modules, {"unicorn": SimpleNamespace(__version__="0.0")}):
                 with self.assertRaisesRegex(ValueError, "Unicorn 2.1.4"):
                     policy.generate("/unused")
+
+    def test_macos_refuses_host_python_package_before_import(self):
+        with patch.object(policy, "read_original", return_value=b"fixture"), patch.object(sys, "platform", "darwin"), \
+                patch.object(importlib.util, "find_spec", return_value=SimpleNamespace(origin="/host/unicorn/__init__.py")):
+            with self.assertRaisesRegex(ValueError, "this engine's bundled Unicorn"):
+                policy.generate("/unused")
 
     def test_each_missing_or_changed_table_is_rejected_before_native_import(self):
         with tempfile.TemporaryDirectory() as temp:
