@@ -1,0 +1,7 @@
+# The Node.js build owner provisioning unpacks offline from
+# /var/lib/omarchy/provisioning/packages. size and sha256 are nodejs.org's own
+# (dist/v<version>/SHASUMS256.txt); bump all four lines together.
+version=26.8.1
+url=https://nodejs.org/dist/v26.8.1/node-v26.8.1-linux-arm64.tar.gz
+size=62035643
+sha256=d5f973ce975e4bd03e6c2038260f7e9201615aa8e1ee293c72f8dcc2a6d9fddb

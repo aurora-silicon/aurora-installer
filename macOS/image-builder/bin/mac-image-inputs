@@ -1,0 +1,317 @@
+#!/bin/bash
+
+# Resolves, once, every moving input an Apple Silicon image is built from: the
+# signed candidate set, the Omarchy package channel's database, the asahi-alarm
+# database, the Arch Linux ARM databases and the Arch Linux ARM root
+# filesystem. The record pins each by sha256 and names the servers they come
+# from, so every build from it installs the same bytes or stops.
+
+set -euo pipefail
+
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+ALARM_REPOSITORIES=(core extra alarm aur)
+ALARM_ROOTFS_URL=https://ca.us.mirror.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz
+ALARM_KEY_URL=https://raw.githubusercontent.com/archlinuxarm/archlinuxarm-keyring/91e6b11698f8df66042d56aaa56fbe9c9263847d/packager/builder.asc
+ALARM_KEY_FINGERPRINT=68B3537F39A313B3E574D06777193F152BDBE6A6
+DEFAULT_OMARCHY_SERVER='https://pkgs.omarchy.org/%s/$arch'
+DEFAULT_ASAHI_ALARM_SERVER=https://github.com/asahi-alarm/asahi-alarm/releases/download/aarch64
+DEFAULT_ALARM_SERVER='https://ca.us.mirror.archlinuxarm.org/$arch/$repo'
+
+usage() {
+  cat <<'USAGE'
+Usage: bin/mac-image-inputs resolve FILE --candidates DIR [--channel edge|rc|stable]
+         [--omarchy-server URL] [--asahi-alarm-server URL] [--alarm-server URL] [--cache DIR]
+       bin/mac-image-inputs check FILE
+       bin/mac-image-inputs rootfs FILE DEST [--cache DIR]
+       bin/mac-image-inputs dbs FILE DEST [--cache DIR]
+       bin/mac-image-inputs candidates MANIFEST DEST
+
+  resolve     verify the signed candidate set in DIR, download every package
+              database and the root filesystem now, and write the record to
+              FILE. --cache keeps the databases and root filesystem for builds.
+              The Omarchy server defaults to pkgs.omarchy.org's CHANNEL
+              (default edge); URLs may use pacman's $arch and $repo.
+  check       FILE is a canonical record; prints it
+  rootfs      put the record's root filesystem at DEST after checking its
+              signature and recorded sha256
+  dbs         put each database the record pins in the directory DEST, as
+              <repository>.db, from --cache or the record's servers
+  candidates  download the release a candidate MANIFEST names into the empty
+              directory DEST with gh (the files are verified by resolve and the
+              build, not here)
+USAGE
+}
+
+fail() {
+  echo "mac-image-inputs: $*" >&2
+  exit 1
+}
+
+usage_error() {
+  echo "mac-image-inputs: $*" >&2
+  usage >&2
+  exit 64
+}
+
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1
+  else
+    shasum -a 256 "$1" | cut -d' ' -f1
+  fi
+}
+
+download() {
+  curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 --retry 3 --output "$2" "$1"
+}
+
+record_body() {
+  local repository
+  printf 'format=2\nresolved_at=%s\n' "$resolved_at"
+  printf 'candidate_set=%s\ncandidate_source_commit=%s\ncandidate_signer=%s\n' \
+    "$candidate_set" "$candidate_source_commit" "$candidate_signer"
+  printf 'candidate_receipt_sha256=%s\ncandidate_manifest_sha256=%s\n' "$candidate_receipt" "$candidate_manifest"
+  printf 'omarchy_channel=%s\nomarchy_server=%s\nomarchy_db_sha256=%s\n' "$omarchy_channel" "$omarchy_server" "$omarchy_db"
+  printf 'asahi_alarm_server=%s\nasahi_alarm_db_sha256=%s\n' "$asahi_alarm_server" "$asahi_alarm_db"
+  printf 'alarm_server=%s\n' "$alarm_server"
+  for repository in "${ALARM_REPOSITORIES[@]}"; do
+    printf 'alarm_%s_db_sha256=%s\n' "$repository" "${alarm_db[$repository]}"
+  done
+  printf 'alarm_rootfs_sha256=%s\n' "$alarm_rootfs"
+}
+
+declare -A alarm_db=()
+
+valid_server() {
+  [[ $1 =~ ^https://[A-Za-z0-9.-]+(/[A-Za-z0-9._~%/\$-]*)?$ && $1 != *..* && $1 != */ ]]
+}
+
+# Parses FILE, which must be byte for byte the canonical rendering of its fields.
+load_record() {
+  local file=$1 line key value hex='^[0-9a-f]{64}$'
+  declare -A seen=()
+  [[ -f $file && ! -L $file ]] || fail "$file is not a regular file"
+  (($(wc -c <"$file") <= 8192)) || fail "$file is not an inputs record"
+  while IFS= read -r line; do
+    [[ $line == *=* ]] || fail "$file is not an inputs record"
+    key=${line%%=*} value=${line#*=}
+    [[ -z ${seen[$key]:-} ]] || fail "$file is not an inputs record"
+    seen[$key]=1
+    case $key in
+      format) [[ $value == 2 ]] || fail "$file is not an inputs record" ;;
+      resolved_at) resolved_at=$value ;;
+      candidate_set) candidate_set=$value ;;
+      candidate_source_commit) candidate_source_commit=$value ;;
+      candidate_signer) candidate_signer=$value ;;
+      candidate_receipt_sha256) candidate_receipt=$value ;;
+      candidate_manifest_sha256) candidate_manifest=$value ;;
+      omarchy_channel) omarchy_channel=$value ;;
+      omarchy_server) omarchy_server=$value ;;
+      omarchy_db_sha256) omarchy_db=$value ;;
+      asahi_alarm_server) asahi_alarm_server=$value ;;
+      asahi_alarm_db_sha256) asahi_alarm_db=$value ;;
+      alarm_server) alarm_server=$value ;;
+      alarm_rootfs_sha256) alarm_rootfs=$value ;;
+      alarm_*_db_sha256)
+        key=${key#alarm_} key=${key%_db_sha256}
+        alarm_db[$key]=$value
+        ;;
+      *) fail "$file is not an inputs record" ;;
+    esac
+  done <"$file"
+  [[ ${resolved_at:-} =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ &&
+    ${candidate_set:-} =~ ^[A-Za-z0-9._-]{1,128}$ &&
+    ${candidate_source_commit:-} =~ ^[0-9a-f]{40}$ &&
+    ${candidate_signer:-} =~ ^[0-9A-F]{40}$ &&
+    ${omarchy_channel:-} =~ ^(edge|rc|stable)$ ]] || fail "$file is not an inputs record"
+  for value in "${omarchy_server:-}" "${asahi_alarm_server:-}" "${alarm_server:-}"; do
+    valid_server "$value" || fail "$file is not an inputs record"
+  done
+  for value in "${candidate_receipt:-}" "${candidate_manifest:-}" "${omarchy_db:-}" "${asahi_alarm_db:-}" \
+    "${alarm_rootfs:-}"; do
+    [[ $value =~ $hex ]] || fail "$file is not an inputs record"
+  done
+  for key in "${ALARM_REPOSITORIES[@]}"; do
+    [[ ${alarm_db[$key]:-} =~ $hex ]] || fail "$file is not an inputs record"
+  done
+  ((${#alarm_db[@]} == ${#ALARM_REPOSITORIES[@]})) || fail "$file is not an inputs record"
+  record_body | cmp -s - "$file" || fail "$file is not a canonical inputs record"
+}
+
+# The URL of REPOSITORY's database on SERVER, with pacman's variables filled in.
+db_url() {
+  local server=${1//\$arch/aarch64}
+  printf '%s/%s.db\n' "${server//\$repo/$2}" "$2"
+}
+
+# Lines of "repository url sha256" for every database the record pins.
+pinned_dbs() {
+  local repository
+  printf 'omarchy %s %s\n' "$(db_url "$omarchy_server" omarchy)" "$omarchy_db"
+  printf 'asahi-alarm %s %s\n' "$(db_url "$asahi_alarm_server" asahi-alarm)" "$asahi_alarm_db"
+  for repository in "${ALARM_REPOSITORIES[@]}"; do
+    printf '%s %s %s\n' "$repository" "$(db_url "$alarm_server" "$repository")" "${alarm_db[$repository]}"
+  done
+}
+
+# Downloads the rootfs and its signature into DIR and checks the signature
+# against the pinned Arch Linux ARM build key.
+fetch_rootfs() {
+  local dir=$1 home fingerprint
+  download "$ALARM_KEY_URL" "$dir/alarm-builder.asc" || fail "could not download the Arch Linux ARM build key"
+  fingerprint=$(gpg --batch --show-keys --with-colons "$dir/alarm-builder.asc" 2>/dev/null |
+    awk -F: '$1 == "fpr" { print $10; exit }')
+  [[ $fingerprint == "$ALARM_KEY_FINGERPRINT" ]] || fail "the Arch Linux ARM build key has the wrong fingerprint"
+  if [[ ! -f $dir/rootfs.tar.gz ]]; then
+    download "$ALARM_ROOTFS_URL" "$dir/rootfs.tar.gz" && download "$ALARM_ROOTFS_URL.sig" "$dir/rootfs.tar.gz.sig" ||
+      fail "could not download the Arch Linux ARM root filesystem"
+  fi
+  home=$dir/gnupg
+  mkdir -p -m 0700 "$home"
+  gpg --batch --homedir "$home" --import "$dir/alarm-builder.asc" >/dev/null 2>&1 ||
+    fail "could not load the Arch Linux ARM build key"
+  gpg --batch --homedir "$home" --status-fd 1 --verify "$dir/rootfs.tar.gz.sig" "$dir/rootfs.tar.gz" 2>/dev/null |
+    awk -v key="$ALARM_KEY_FINGERPRINT" '$2 == "VALIDSIG" && ($3 == key || $NF == key) { valid = 1 } END { exit !valid }' ||
+    fail "the Arch Linux ARM root filesystem is not signed by $ALARM_KEY_FINGERPRINT"
+  gpgconf --homedir "$home" --kill gpg-agent >/dev/null 2>&1 || true
+}
+
+resolve() {
+  local file=$1 described repository sha
+  resolved_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  described=$(python3 "$ROOT/builder/candidate_set.py" describe --input "$candidates") ||
+    fail "the candidate set in $candidates does not verify"
+  candidate_set=$(sed -n 's/^set=//p' <<<"$described")
+  candidate_source_commit=$(sed -n 's/^source_commit=//p' <<<"$described")
+  candidate_signer=$(sed -n 's/^signer=//p' <<<"$described")
+  candidate_receipt=$(sed -n 's/^receipt_sha256=//p' <<<"$described")
+  candidate_manifest=$(sed -n 's/^manifest_sha256=//p' <<<"$described")
+
+  mkdir "$work/db"
+  download "$(db_url "$omarchy_server" omarchy)" "$work/db/omarchy.db" || fail "could not download omarchy.db"
+  omarchy_db=$(sha256_of "$work/db/omarchy.db")
+  download "$(db_url "$asahi_alarm_server" asahi-alarm)" "$work/db/asahi-alarm.db" ||
+    fail "could not download asahi-alarm.db"
+  asahi_alarm_db=$(sha256_of "$work/db/asahi-alarm.db")
+  for repository in "${ALARM_REPOSITORIES[@]}"; do
+    download "$(db_url "$alarm_server" "$repository")" "$work/db/$repository.db" ||
+      fail "could not download $repository.db from $alarm_server"
+    alarm_db[$repository]=$(sha256_of "$work/db/$repository.db")
+  done
+
+  mkdir "$work/rootfs"
+  fetch_rootfs "$work/rootfs"
+  alarm_rootfs=$(sha256_of "$work/rootfs/rootfs.tar.gz")
+  if [[ -n $cache ]]; then
+    mkdir -p "$cache/db"
+    for sha in "$work"/db/*.db; do
+      cp "$sha" "$cache/db/$(sha256_of "$sha").db"
+    done
+    mv "$work/rootfs/rootfs.tar.gz" "$cache/alarm-rootfs-$alarm_rootfs.tar.gz"
+    mv "$work/rootfs/rootfs.tar.gz.sig" "$cache/alarm-rootfs-$alarm_rootfs.tar.gz.sig"
+  fi
+
+  record_body >"$file.new"
+  mv "$file.new" "$file"
+}
+
+mode=${1:-}
+if (($#)); then
+  shift
+fi
+case $mode in
+  resolve|check|rootfs|dbs|candidates) ;;
+  -h|--help) usage; exit 0 ;;
+  *) usage_error "mode must be resolve, check, rootfs, dbs or candidates" ;;
+esac
+
+positionals=()
+cache="" candidates="" channel=edge omarchy_server="" asahi_alarm_server=$DEFAULT_ASAHI_ALARM_SERVER
+alarm_server=$DEFAULT_ALARM_SERVER
+while (($#)); do
+  case $1 in
+    --cache|--candidates|--channel|--omarchy-server|--asahi-alarm-server|--alarm-server)
+      (($# > 1)) && [[ -n $2 ]] || usage_error "$1 requires a value"
+      [[ $mode == resolve || ( $1 == --cache && ( $mode == rootfs || $mode == dbs ) ) ]] ||
+        usage_error "$1 does not apply to $mode"
+      case $1 in
+        --cache) cache=$2 ;;
+        --candidates) candidates=$2 ;;
+        --channel)
+          [[ $2 == edge || $2 == rc || $2 == stable ]] || usage_error "the channel must be edge, rc or stable"
+          channel=$2
+          ;;
+        --omarchy-server) omarchy_server=$2 ;;
+        --asahi-alarm-server) asahi_alarm_server=$2 ;;
+        --alarm-server) alarm_server=$2 ;;
+      esac
+      shift 2
+      ;;
+    -*) usage_error "unknown option: $1" ;;
+    *) positionals+=("$1"); shift ;;
+  esac
+done
+case $mode in
+  resolve|check) ((${#positionals[@]} == 1)) || usage_error "$mode takes one path" ;;
+  rootfs|dbs|candidates) ((${#positionals[@]} == 2)) || usage_error "$mode takes two paths" ;;
+esac
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+
+case $mode in
+  resolve)
+    [[ -n $candidates && -d $candidates ]] || usage_error "--candidates names no directory"
+    omarchy_channel=$channel
+    # shellcheck disable=SC2059
+    [[ -n $omarchy_server ]] || printf -v omarchy_server "$DEFAULT_OMARCHY_SERVER" "$channel"
+    for value in "$omarchy_server" "$asahi_alarm_server" "$alarm_server"; do
+      valid_server "$value" || usage_error "not an https server URL: $value"
+    done
+    resolve "${positionals[0]}"
+    load_record "${positionals[0]}"
+    cat "${positionals[0]}"
+    ;;
+  check)
+    load_record "${positionals[0]}"
+    cat "${positionals[0]}"
+    ;;
+  rootfs)
+    load_record "${positionals[0]}"
+    dest=${positionals[1]}
+    [[ ! -e $dest ]] || fail "$dest already exists"
+    if [[ -n $cache && -f $cache/alarm-rootfs-$alarm_rootfs.tar.gz ]]; then
+      cp "$cache/alarm-rootfs-$alarm_rootfs.tar.gz" "$work/rootfs.tar.gz"
+      cp "$cache/alarm-rootfs-$alarm_rootfs.tar.gz.sig" "$work/rootfs.tar.gz.sig"
+    fi
+    fetch_rootfs "$work"
+    [[ $(sha256_of "$work/rootfs.tar.gz") == "$alarm_rootfs" ]] ||
+      fail "the Arch Linux ARM root filesystem changed since the inputs were resolved; resolve again"
+    mv "$work/rootfs.tar.gz" "$dest"
+    ;;
+  dbs)
+    load_record "${positionals[0]}"
+    dest=${positionals[1]}
+    [[ -d $dest && -z $(ls -A "$dest") ]] || fail "$dest is not an empty directory"
+    while read -r repository url sha; do
+      if [[ -n $cache && -f $cache/db/$sha.db ]]; then
+        cp "$cache/db/$sha.db" "$work/$repository.db"
+      else
+        download "$url" "$work/$repository.db" || fail "could not download $url"
+      fi
+      [[ $(sha256_of "$work/$repository.db") == "$sha" ]] ||
+        fail "$repository.db is not the database the inputs pin (its server moved on); resolve again"
+      mv "$work/$repository.db" "$dest/$repository.db"
+    done < <(pinned_dbs)
+    ;;
+  candidates)
+    manifest=${positionals[0]} dest=${positionals[1]}
+    [[ -f $manifest ]] || fail "no manifest $manifest"
+    [[ -d $dest && -z $(ls -A "$dest") ]] || fail "$dest is not an empty directory"
+    repository=$(jq -r '.location.repository // empty' "$manifest")
+    tag=$(jq -r '.location.release // empty' "$manifest")
+    [[ $repository =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ && $tag =~ ^[A-Za-z0-9._-]+$ ]] ||
+      fail "$manifest names no release"
+    gh release download "$tag" --repo "$repository" --dir "$dest" >/dev/null || fail "could not download $tag"
+    ;;
+esac

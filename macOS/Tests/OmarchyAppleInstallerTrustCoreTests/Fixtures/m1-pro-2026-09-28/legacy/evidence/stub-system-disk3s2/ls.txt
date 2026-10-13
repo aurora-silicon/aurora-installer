@@ -1,0 +1,11 @@
+total 240
+drwxrwxr-x@ 10 root  admin     320 Sep 28 10:10 .
+drwxr-xr-x   5 root  wheel     160 Sep 28 10:15 ..
+d-wx--x--t   3 root  wheel      96 Sep 28 09:12 .Trashes
+-rw-r--r--   1 root  admin  115567 Sep 28 09:12 .VolumeIcon.icns
+drwx------+  5 root  admin     160 Sep 28 09:30 .fseventsd
+drwxr-xr-x   3 root  admin      96 Sep 21 16:55 Finish Installation.app
+-rw-r--r--   1 root  admin     399 Sep 28 09:12 IAPhysicalMedia-disabled.plist
+lrwxr-xr-x   1 root  admin      63 Sep 28 09:12 Restore -> /Volumes/Preboot/0BF26A61-4AFF-49ED-814F-9323EE7602A4/./Restore
+drwxr-xr-x   3 root  admin      96 Sep 28 09:12 System
+drwxr-xr-x   3 root  admin      96 Sep 28 09:12 usr
