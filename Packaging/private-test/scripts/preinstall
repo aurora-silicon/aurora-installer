@@ -1,0 +1,29 @@
+#!/bin/bash
+# Private tests must not replace an existing installer/helper or admit other hardware.
+set -euo pipefail
+[[ ${3:-/} == "/" ]] || { echo 'This private package supports only the startup volume.' >&2; exit 1; }
+target=$(/usr/sbin/sysctl -n hw.targettype | /usr/bin/tr '[:upper:]' '[:lower:]')
+target=${target%ap}
+case "$target" in
+  j433|j434|j504|j613|j615|j514s|j514c|j514m|j516s|j516c|j516m) ;;
+  *) echo "Private M3 package: unsupported hardware $target. No helper may be installed." >&2; exit 1 ;;
+esac
+version=$(/usr/bin/sw_vers -productVersion)
+major=${version%%.*}
+[[ $major =~ ^[0-9]+$ ]] && (( major >= 15 )) || { echo 'macOS 15 or later is required.' >&2; exit 1; }
+for path in "/Applications/@APP_NAME@.app" "/Applications/@LEGACY_APP_NAME@.app" "/Library/LaunchDaemons/@HELPER_IDENTIFIER@.plist" "/Library/PrivilegedHelperTools/@HELPER_IDENTIFIER@" "/var/db/@APP_IDENTIFIER@"; do
+  if [[ -e $path || -L $path ]]; then
+    echo "Private package will not replace existing installer state: $path" >&2
+    echo 'Ask the maintainer to review the existing installation first.' >&2
+    exit 1
+  fi
+done
+if [[ -e /Library/PrivilegedHelperTools || -L /Library/PrivilegedHelperTools ]]; then
+  [[ -d /Library/PrivilegedHelperTools && ! -L /Library/PrivilegedHelperTools && $(/usr/bin/stat -f %u /Library/PrivilegedHelperTools) == "0" ]] || exit 1
+  mode=$(/usr/bin/stat -f %Lp /Library/PrivilegedHelperTools)
+  [[ $mode =~ ^[0-7]+$ ]] && (( (8#$mode & 022) == 0 )) || exit 1
+fi
+if /bin/launchctl print "system/@HELPER_IDENTIFIER@" >/dev/null 2>&1; then
+  echo 'A helper is already registered. Ask the maintainer to review it first.' >&2
+  exit 1
+fi

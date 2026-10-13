@@ -1,0 +1,24 @@
+{
+  "repository": "https://github.com/maralcbr/omarchy-mx-mac.git",
+  "revision": "4db862da7a0957758c504c5a3e041202019dbabf",
+  "source_directory": "apps/omarchy-apple-installer",
+  "standalone_directory": ".",
+  "additional_paths": [
+    "LICENSE",
+    "icon.png",
+    "test/shell.d/base-test.sh",
+    "test/shell.d/apple-installer-branding-test.sh",
+    "test/shell.d/apple-installer-pkg-daemon-plist-test.sh",
+    "test/shell.d/apple-installer-channel-publish-test.sh",
+    "evidence/apple-silicon/2026-08-29-m1-fresh-install-v6/execution-journal.jsonl"
+  ],
+  "extraction_base_commit": "0d6f8661a5ad7b263d6167f0afea7cae033419a0",
+  "extraction_base_tree": "6dded47e218dbbe70c0351cf423ff761b6881fd2",
+  "imported_files": 206,
+  "retained_commits": 114,
+  "filter_tool": {
+    "repository": "https://github.com/newren/git-filter-repo.git",
+    "tag": "v2.47.0",
+    "revision": "6f79afc8c90c592a3052e6cc53c2ca8907515bca"
+  }
+}

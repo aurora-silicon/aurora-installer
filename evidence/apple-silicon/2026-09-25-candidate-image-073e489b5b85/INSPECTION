@@ -1,0 +1,179 @@
+{
+  "candidate_files": 17597,
+  "channel": "edge",
+  "checks": {
+    "aurora-device-trees": {
+      "detail": "23 Macs: t6000-j314s t6000-j316s t6001-j314c t6001-j316c t6001-j375c t6002-j375d t6020-j414s t6020-j416s t6020-j474s t6021-j414c t6021-j416c t6021-j475c t6022-j180d t6022-j475d t8103-j274 t8103-j293 t8103-j313 t8103-j456 t8103-j457 t8112-j413 t8112-j415 t8112-j473 t8112-j493",
+      "result": "passed"
+    },
+    "boot-maintenance": {
+      "detail": "the UKI rebuild, Limine redeploy and activation gate hooks come from their packages; Limine is its package's",
+      "result": "passed"
+    },
+    "candidate-files": {
+      "detail": "all 17597 files and links of the 9 set packages carry the set's bytes and modes",
+      "result": "passed"
+    },
+    "candidate-versions": {
+      "detail": "all 9 candidate packages installed at the set's versions",
+      "result": "passed"
+    },
+    "embedded-initramfs": {
+      "detail": "1395 members, including the encryption and vendor firmware units and their activation links",
+      "result": "passed"
+    },
+    "factory": {
+      "detail": "sealed for the set, without fresh-image or owner state, keeping the image target and Limine setup",
+      "result": "passed"
+    },
+    "first-boot": {
+      "detail": "first boot and owner provisioning armed, Limine gate set, deferred-steps names the Limine leaf, hardware setup build",
+      "result": "passed"
+    },
+    "image-target": {
+      "detail": "/var/lib/omarchy/image/target names apple-silicon, root-owned",
+      "result": "passed"
+    },
+    "installed-boot-payloads": {
+      "detail": "m1n1, U-Boot, the kernel and 110 device trees match the set's archives",
+      "result": "passed"
+    },
+    "installed-system": {
+      "detail": "14 installed-system checks",
+      "result": "passed"
+    },
+    "limine-uki": {
+      "detail": "Limine at BOOTAA64.EFI boots omarchy_linux-aurora.efi (7.1.12-2-10-ARCH) with the set's kernel",
+      "result": "passed"
+    },
+    "m1n1-stage2": {
+      "detail": "m1n1 + 110 device trees (C order) + U-Boot, all from the set",
+      "result": "passed"
+    },
+    "minimum-versions": {
+      "detail": "limine-mkinitcpio-hook 1.39.0-2 >= 1.39.0-2; omarchy-mac-boot 20260921-10.361203357120001 >= 20260921-10",
+      "result": "passed"
+    },
+    "pacman-config": {
+      "detail": "the runtime's aarch64 edge pacman.conf and mirror list",
+      "result": "passed"
+    },
+    "refused-packages": {
+      "detail": "none of omarchy-apple-boot, omarchy-first-boot, linux-asahi, m1n1 installed",
+      "result": "passed"
+    }
+  },
+  "failed_checks": [],
+  "hardware_setup": "build",
+  "initramfs_members": 1395,
+  "installed_system": {
+    "network-wifi-backend-iwd": {
+      "detail": "effective NetworkManager configuration must select iwd without a conflicting device override",
+      "result": "passed"
+    },
+    "omarchy-version": {
+      "detail": "Omarchy version 4.0.0.alpha",
+      "result": "passed"
+    },
+    "packages-no-legacy": {
+      "detail": "no legacy or development package",
+      "result": "passed"
+    },
+    "packages-required-present": {
+      "detail": "all 16 required packages installed",
+      "result": "passed"
+    },
+    "pacman-asahi-alarm-server": {
+      "detail": "Server = https://github.com/asahi-alarm/asahi-alarm/releases/download/aarch64",
+      "result": "passed"
+    },
+    "pacman-conf-present": {
+      "detail": "/etc/pacman.conf exists",
+      "result": "passed"
+    },
+    "pacman-no-build-only-settings": {
+      "detail": "no file:// servers or sandbox exceptions",
+      "result": "passed"
+    },
+    "pacman-no-fork-or-build-repositories": {
+      "detail": "no fork or build repository",
+      "result": "passed"
+    },
+    "pacman-required-repositories": {
+      "detail": "all required repositories configured",
+      "result": "passed"
+    },
+    "unit-enabled-NetworkManager": {
+      "detail": "NetworkManager.service enabled in multi-user.target",
+      "result": "passed"
+    },
+    "unit-enabled-bluetooth": {
+      "detail": "bluetooth.service is enabled",
+      "result": "passed"
+    },
+    "unit-enabled-omarchy-vendor-firmware": {
+      "detail": "omarchy-vendor-firmware.service enabled in multi-user.target",
+      "result": "passed"
+    },
+    "unit-enabled-speakersafetyd": {
+      "detail": "speakersafetyd.service is enabled",
+      "result": "passed"
+    },
+    "unit-vendor-firmware-content": {
+      "detail": "vendor firmware unit extracts the ESP firmware archive",
+      "result": "passed"
+    }
+  },
+  "installed_versions": {
+    "limine-mkinitcpio-hook": "1.39.0-2",
+    "linux-aurora": "7.1.12.aurora2-10",
+    "linux-aurora-headers": "7.1.12.aurora2-10",
+    "m1n1-aurora": "1.6.1.aurora1-3",
+    "omarchy": "4.0.0.alpha.quattro.r1790328152.g073e489b5b85-1.361203357120001",
+    "omarchy-mac": "0.1.0-5.361203357120001",
+    "omarchy-mac-boot": "20260921-10.361203357120001",
+    "omarchy-settings": "4.0.0.alpha.quattro.r1790328152.g073e489b5b85-1.361203357120001",
+    "uboot-asahi": "2026.07.asahi2-4"
+  },
+  "kind": "apple-image-inspection",
+  "m1n1_stage2": {
+    "bytes": 6433253,
+    "device_trees": 110,
+    "options": []
+  },
+  "result": "passed",
+  "schema": 1,
+  "set": "apple-test-073e489b5b85-20260925",
+  "signer": "E11E851AF82E02AEF54C8794599A6024E3D35379",
+  "source_commit": "073e489b5b8562335107e514bbf61009cd54a308",
+  "supported_models": [
+    "t6000-j314s",
+    "t6000-j316s",
+    "t6001-j314c",
+    "t6001-j316c",
+    "t6001-j375c",
+    "t6002-j375d",
+    "t6020-j414s",
+    "t6020-j416s",
+    "t6020-j474s",
+    "t6021-j414c",
+    "t6021-j416c",
+    "t6021-j475c",
+    "t6022-j180d",
+    "t6022-j475d",
+    "t8103-j274",
+    "t8103-j293",
+    "t8103-j313",
+    "t8103-j456",
+    "t8103-j457",
+    "t8112-j413",
+    "t8112-j415",
+    "t8112-j473",
+    "t8112-j493"
+  ],
+  "uki": {
+    "cmdline": "root=UUID=4f4d5801-524f-4f54-8000-000000000001 rw rootflags=subvol=@,x-systemd.device-timeout=0 zswap.enabled=0 rootfstype=btrfs quiet splash loglevel=0 systemd.show_status=false rd.udev.log_level=0 vt.global_cursor_default=0",
+    "initramfs_bytes": 27361147,
+    "release": "7.1.12-2-10-ARCH"
+  }
+}

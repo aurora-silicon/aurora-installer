@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>AESHardware</key>
+	<true/>
+	<key>Bootable</key>
+	<false/>
+	<key>BusProtocol</key>
+	<string>Apple Fabric</string>
+	<key>CanBeMadeBootable</key>
+	<false/>
+	<key>CanBeMadeBootableRequiresDestroy</key>
+	<false/>
+	<key>Content</key>
+	<string>EFI</string>
+	<key>DeviceBlockSize</key>
+	<integer>4096</integer>
+	<key>DeviceIdentifier</key>
+	<string>disk0s4</string>
+	<key>DeviceNode</key>
+	<string>/dev/disk0s4</string>
+	<key>DeviceTreePath</key>
+	<string>IODeviceTree:/arm-io/ans@8F400000/iop-ans-nub/AppleANS3CGv2Controller</string>
+	<key>DiskUUID</key>
+	<string>14EA5495-50E5-40C5-A8A5-A52C66791E85</string>
+	<key>Ejectable</key>
+	<false/>
+	<key>EjectableMediaAutomaticUnderSoftwareControl</key>
+	<false/>
+	<key>EjectableOnly</key>
+	<false/>
+	<key>FilesystemName</key>
+	<string>MS-DOS FAT32</string>
+	<key>FilesystemType</key>
+	<string>msdos</string>
+	<key>FilesystemUserVisibleName</key>
+	<string>MS-DOS (FAT32)</string>
+	<key>FreeSpace</key>
+	<integer>273317888</integer>
+	<key>GlobalPermissionsEnabled</key>
+	<false/>
+	<key>IOKitSize</key>
+	<integer>524288000</integer>
+	<key>IORegistryEntryName</key>
+	<string>Untitled 4</string>
+	<key>Internal</key>
+	<true/>
+	<key>MediaName</key>
+	<string></string>
+	<key>MediaType</key>
+	<string>Generic</string>
+	<key>MountPoint</key>
+	<string>/private/tmp/omarchy-108-mnt.T8SJMc</string>
+	<key>OSInternalMedia</key>
+	<false/>
+	<key>ParentWholeDisk</key>
+	<string>disk0</string>
+	<key>PartitionMapPartition</key>
+	<true/>
+	<key>PartitionMapPartitionOffset</key>
+	<integer>681686790144</integer>
+	<key>RAIDMaster</key>
+	<false/>
+	<key>RAIDSlice</key>
+	<false/>
+	<key>Removable</key>
+	<false/>
+	<key>RemovableMedia</key>
+	<false/>
+	<key>RemovableMediaOrExternalDevice</key>
+	<false/>
+	<key>Size</key>
+	<integer>524288000</integer>
+	<key>SolidState</key>
+	<true/>
+	<key>SupportsGlobalPermissionsDisable</key>
+	<false/>
+	<key>SystemImage</key>
+	<false/>
+	<key>TotalSize</key>
+	<integer>523137024</integer>
+	<key>VolumeAllocationBlockSize</key>
+	<integer>4096</integer>
+	<key>VolumeName</key>
+	<string>EFI - OMARC</string>
+	<key>VolumeSize</key>
+	<integer>523137024</integer>
+	<key>VolumeUUID</key>
+	<string>F1C1B85D-42E1-39FF-BA4F-A86752755F4B</string>
+	<key>WholeDisk</key>
+	<false/>
+	<key>Writable</key>
+	<false/>
+	<key>WritableMedia</key>
+	<true/>
+	<key>WritableVolume</key>
+	<false/>
+</dict>
+</plist>

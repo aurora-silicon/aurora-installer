@@ -1,0 +1,857 @@
+#!/usr/bin/env python3
+"""Hold an Apple Silicon image payload to the installer engine's contract and
+inspect it against the candidate set it was built from.
+
+payload     the zip and its installer_data.json: what the engine checks
+            (omarchy_asahi.py _validate_full_os_package), the declared sizes,
+            the fixed UUIDs, labels and ESP volume id, Limine in the U-Boot
+            slot booting its UKI, and an empty esp/omarchy/ directory.
+image       root.img, boot.img and the ESP tree: filesystems, UUIDs, the five
+            subvolumes including a sealed @factory, the tree checks, then the
+            boot inspection against the imported candidate set (--candidates),
+            mounted read-only. root.img must be plaintext (no LUKS). --report
+            writes the inspection as JSON.
+tree        an image root with boot/ and boot/efi/ filled in (and optionally
+            its @factory): the same tree checks and inspection, unmounted.
+provenance  a build directory whose PROVENANCE names exactly its payload,
+            installer_data, inspection and candidate set.
+descriptor  a build directory whose IMAGE names the lane, platform, builder
+            commit, candidate set, package set digest, each payload member's
+            sha256 and the inputs digest, matching the bytes and records
+            beside it.
+
+image and tree refuse lab access (builder/lab_access.py) in every subvolume,
+@factory and the initramfs, unless --profile lab names an edge lab image; a lab
+image must then carry exactly the lab overlay. IMAGE and PROVENANCE record a
+lab image as profile=lab, which only the edge lane accepts.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+import hashlib
+import importlib.util
+import json
+import os
+from pathlib import Path, PurePosixPath
+import re
+import stat
+import struct
+import subprocess
+import sys
+import tempfile
+import zipfile
+
+ROOT = Path(__file__).resolve().parents[1]
+ROOT_UUID = "4f4d5801-524f-4f54-8000-000000000001"
+BOOT_UUID = "4f4d5801-424f-4f54-8000-000000000001"
+ESP_UUID = "4F4D-5801"
+ESP_VOLUME_ID = "0x4f4d5801"
+ESP_SIZE = 524288000
+BOOT_SIZE = 2147483648
+ROOT_SIZE = 34359738368
+ICON = "omarchy-volume.icns"
+ICON_SHA256 = "cf26ed5d2831db99c00d62ca046040e01a18e08e63363d629340d04ac6ec8c23"
+SUBVOLUMES = ("@", "@factory", "@home", "@log", "@pkg")
+# Snapper's, nested in @, when the runtime's setup made it during the build.
+NESTED_SUBVOLUMES = ("@/.snapshots",)
+KERNEL = "linux-aurora"
+PLATFORM = "apple-silicon"
+REQUIRED_MEMBERS = {
+    "boot.img",
+    "root.img",
+    "esp/m1n1/boot.bin",
+    "esp/EFI/BOOT/BOOTAA64.EFI",
+    "esp/limine.conf",
+    f"esp/EFI/Linux/omarchy_{KERNEL}.efi",
+    ICON,
+}
+# A lab image's payload says so in its name (-lab-), so it never passes for a release payload.
+PAYLOAD_NAME = re.compile(
+    r"^omarchy-\d{4}\.\d{2}\.\d{2}-aarch64-apple-silicon-mac-(edge|rc|stable)(-lab)?-os-package\.zip$"
+)
+LANES = ("edge", "rc", "stable")
+PROFILES = ("release", "lab")
+# The only lane a lab image may be built for.
+LAB_LANE = "edge"
+IMAGE_LINKS = {
+    "etc/systemd/system/multi-user.target.wants/omarchy-vendor-firmware.service":
+        "/etc/systemd/system/omarchy-vendor-firmware.service",
+    "etc/systemd/system/multi-user.target.wants/NetworkManager.service":
+        "/usr/lib/systemd/system/NetworkManager.service",
+    "etc/systemd/system/sysinit.target.wants/systemd-resolved.service":
+        "/usr/lib/systemd/system/systemd-resolved.service",
+    "etc/systemd/system/sysinit.target.wants/systemd-timesyncd.service":
+        "/usr/lib/systemd/system/systemd-timesyncd.service",
+}
+SYSTEM_USERS = {"nobody", "nfsnobody"}
+IMAGE_PACKAGES = (
+    "base", "sudo", "mkinitcpio", "asahi-scripts", "asahi-fwextract", "btrfs-progs",
+    "archlinuxarm-keyring", "asahi-alarm-keyring", "networkmanager", "iwd", "curl", "gnupg", "jq", "gum",
+    "omarchy", "omarchy-settings", "omarchy-mac", "omarchy-mac-boot",
+    "linux-aurora", "linux-aurora-headers", "m1n1-aurora", "uboot-asahi",
+    "limine", "limine-mkinitcpio-hook", "limine-snapper-sync",
+)
+NODE_PIN = ROOT / "builder/node.pin"
+
+
+def _inspection():
+    spec = importlib.util.spec_from_file_location("inspection", ROOT / "builder/inspection.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _module(name: str):
+    spec = importlib.util.spec_from_file_location(name, ROOT / f"builder/{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class CheckError(RuntimeError):
+    pass
+
+
+def require(condition: bool, message: str) -> None:
+    if not condition:
+        raise CheckError(message)
+
+
+def expected_metadata(package: str) -> dict:
+    return {
+        "os_list": [
+            {
+                "boot_object": "m1n1.bin",
+                "default_os_name": "Omarchy",
+                "icon": ICON,
+                "name": "Omarchy MX Mac",
+                "next_object": "m1n1/boot.bin",
+                "omarchy_target": "apple-silicon-full-os",
+                "package": package,
+                "partitions": [
+                    {
+                        "copy_firmware": True,
+                        "copy_installer_data": True,
+                        "format": "fat",
+                        "name": "EFI",
+                        "size": f"{ESP_SIZE}B",
+                        "source": "esp",
+                        "type": "EFI",
+                        "volume_id": ESP_VOLUME_ID,
+                    },
+                    {"image": "boot.img", "name": "Boot", "size": f"{BOOT_SIZE}B", "type": "Linux"},
+                    {"expand": True, "image": "root.img", "name": "Root", "size": f"{ROOT_SIZE}B", "type": "Linux"},
+                ],
+                "supported_fw": ["13.5", "14.8.3"],
+            }
+        ]
+    }
+
+
+# ── payload ────────────────────────────────────────────────────────────────
+def uuid_bytes(value: str) -> bytes:
+    return bytes.fromhex(value.replace("-", ""))
+
+
+def pe_machine_is_aarch64(data: bytes) -> bool:
+    if len(data) < 0x40 or data[:2] != b"MZ":
+        return False
+    offset = struct.unpack_from("<I", data, 0x3C)[0]
+    if offset + 6 > len(data) or data[offset : offset + 4] != b"PE\0\0":
+        return False
+    return struct.unpack_from("<H", data, offset + 4)[0] == 0xAA64
+
+
+def read_member(archive: zipfile.ZipFile, info: zipfile.ZipInfo, keep: int) -> tuple[str, bytes]:
+    """Streams a member once, so its CRC is checked, keeping its first KEEP bytes."""
+    digest = hashlib.sha256()
+    prefix = bytearray()
+    total = 0
+    with archive.open(info) as stream:
+        while chunk := stream.read(1 << 20):
+            total += len(chunk)
+            digest.update(chunk)
+            if len(prefix) < keep:
+                prefix.extend(chunk[: keep - len(prefix)])
+    require(total == info.file_size, f"{info.filename} changed size while reading")
+    return digest.hexdigest(), bytes(prefix)
+
+
+def check_boot_superblock(header: bytes, where: str) -> None:
+    require(len(header) >= 0x488 and header[0x438:0x43A] == b"\x53\xef", f"{where} is not ext4")
+    require(header[0x468:0x478] == uuid_bytes(BOOT_UUID), f"{where} does not carry the Boot UUID {BOOT_UUID}")
+    require(header[0x478:0x488].rstrip(b"\0") == b"OMARCHY_BOOT", f"{where} is not labelled OMARCHY_BOOT")
+
+
+def check_root_superblock(header: bytes, where: str) -> None:
+    require(len(header) >= 0x1022B + 16 and header[0x10040:0x10048] == b"_BHRfS_M", f"{where} is not btrfs")
+    require(header[0x10020:0x10030] == uuid_bytes(ROOT_UUID), f"{where} does not carry the Root UUID {ROOT_UUID}")
+    label = header[0x1012B : 0x1012B + 256].split(b"\0", 1)[0]
+    require(label == b"OMARCHY_ROOT", f"{where} is not labelled OMARCHY_ROOT")
+
+
+def check_plaintext_root(header: bytes, where: str) -> None:
+    require(not header.startswith(b"LUKS\xba\xbe"), f"{where} carries a LUKS header")
+    check_root_superblock(header, where)
+
+
+def check_payload(lane: str, package: Path, installer_data: Path, profile: str = "release") -> dict[str, str]:
+    check_profile(lane, profile)
+    name = package.name
+    match = PAYLOAD_NAME.fullmatch(name)
+    require(match is not None and match.group(1) == lane, f"{name} is not a {lane} mac image payload name")
+    require((match.group(2) == "-lab") == (profile == "lab"),
+            f"{name} {'does not name' if profile == 'lab' else 'names'} a lab image")
+    try:
+        metadata = json.loads(installer_data.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise CheckError(f"{installer_data} is not JSON") from error
+    require(metadata == expected_metadata(name), f"{installer_data} is not the installer_data for {name}")
+
+    try:
+        archive = zipfile.ZipFile(package)
+    except (OSError, zipfile.BadZipFile) as error:
+        raise CheckError(f"{name} is not a zip") from error
+    with archive:
+        members: dict[str, zipfile.ZipInfo] = {}
+        directories: set[str] = set()
+        for info in archive.infolist():
+            path = PurePosixPath(info.filename)
+            kind = (info.external_attr >> 16) & 0o170000
+            require(
+                bool(info.filename) and "\\" not in info.filename and not path.is_absolute() and ".." not in path.parts
+                and kind != 0o120000,
+                f"unsafe member {info.filename}",
+            )
+            if info.is_dir():
+                require(info.filename.startswith("esp/"), f"unexpected directory {info.filename}")
+                directories.add(info.filename.rstrip("/"))
+                continue
+            require(kind in (0, 0o100000), f"{info.filename} is not a regular file")
+            require(info.filename not in members, f"duplicate member {info.filename}")
+            require(
+                info.filename in ("boot.img", "root.img", ICON) or info.filename.startswith("esp/"),
+                f"unexpected member {info.filename}",
+            )
+            members[info.filename] = info
+        missing = sorted(REQUIRED_MEMBERS - set(members))
+        require(not missing, "missing members: " + ", ".join(missing))
+        require("esp/omarchy" in directories, "missing members: esp/omarchy/")
+        require(not any(name.startswith("esp/omarchy/") for name in members), "the image carries install.conf")
+        require(".builder" not in {PurePosixPath(n).name for n in members}, "the ESP keeps the builder marker")
+        for member in REQUIRED_MEMBERS:
+            require(members[member].file_size > 0, f"{member} is empty")
+        for member, capacity in (("boot.img", BOOT_SIZE), ("root.img", ROOT_SIZE)):
+            size = members[member].file_size
+            require(size <= capacity, f"{member} is {size} bytes, over its {capacity}-byte partition")
+            require(size % 4096 == 0, f"{member} is not a multiple of 4 KiB")
+        esp_bytes = sum(info.file_size for member, info in members.items() if member.startswith("esp/"))
+        require(esp_bytes <= ESP_SIZE, f"the ESP tree is {esp_bytes} bytes, over its {ESP_SIZE}-byte partition")
+
+        keep = {
+            "boot.img": 0x488,
+            "root.img": 0x1022B + 256,
+            "esp/EFI/BOOT/BOOTAA64.EFI": 16 << 20,
+            "esp/limine.conf": 64 << 10,
+            # Enough of the UKI's PE header to tell the machine type.
+            f"esp/EFI/Linux/omarchy_{KERNEL}.efi": 4 << 10,
+        }
+        digests = {}
+        captured = {}
+        for member, info in members.items():
+            digests[member], captured[member] = read_member(archive, info, keep.get(member, 0))
+    require(digests[ICON] == ICON_SHA256, f"{ICON} is not the Omarchy volume icon")
+    check_boot_superblock(captured["boot.img"], "boot.img")
+    check_plaintext_root(captured["root.img"], "root.img")
+    efi = captured["esp/EFI/BOOT/BOOTAA64.EFI"]
+    require(pe_machine_is_aarch64(efi), "BOOTAA64.EFI is not an AArch64 PE image")
+    # The Mac boots Limine, which loads the UKI named in esp/limine.conf.
+    require(b"Limine" in efi, "BOOTAA64.EFI is not Limine")
+    menu = captured["esp/limine.conf"].decode("utf-8", "replace")
+    require("interface_branding: Omarchy Bootloader" in menu, "esp/limine.conf is not the Omarchy menu")
+    require(f"path: boot():/EFI/Linux/omarchy_{KERNEL}.efi" in menu, f"esp/limine.conf does not boot the {KERNEL} UKI")
+    require("machine-id=" not in menu, "esp/limine.conf carries the builder's machine identity")
+    uki = captured[f"esp/EFI/Linux/omarchy_{KERNEL}.efi"]
+    require(pe_machine_is_aarch64(uki), f"omarchy_{KERNEL}.efi is not an AArch64 PE image")
+    return digests
+
+
+# ── tree ───────────────────────────────────────────────────────────────────
+def config_lines(path: Path) -> list[str]:
+    return [line.strip() for line in path.read_text().splitlines() if line.strip() and not line.lstrip().startswith("#")]
+
+
+def installed_packages(root: Path) -> set[str]:
+    names = set()
+    local = root / "var/lib/pacman/local"
+    require(local.is_dir(), "the image has no pacman database")
+    for entry in local.iterdir():
+        desc = entry / "desc"
+        if desc.is_file():
+            lines = desc.read_text().splitlines()
+            names.add(lines[lines.index("%NAME%") + 1])
+    return names
+
+
+def check_boot(root: Path) -> None:
+    boot = root / "boot"
+    for name in (f"vmlinuz-{KERNEL}", f"initramfs-{KERNEL}.img"):
+        require((boot / name).is_file() and (boot / name).stat().st_size > 0, f"/boot/{name} is missing or empty")
+    # The Mac boots Limine only: no GRUB configuration, image or retarget.
+    for name in ("boot/grub", "etc/default/update-grub"):
+        require(not (root / name).exists(), f"/{name} exists on an image without GRUB")
+    # The UKI's command line is derived from these defaults.
+    cmdline = re.findall(r'^KERNEL_CMDLINE\[default\]="([^"]*)"$', (root / "etc/default/limine").read_text(), re.M)
+    require(len(cmdline) == 1, "/etc/default/limine does not set one KERNEL_CMDLINE[default]")
+    arguments = cmdline[0].split()
+    for argument in (f"root=UUID={ROOT_UUID}", "rootfstype=btrfs"):
+        require(argument in arguments, f"the Limine command line lacks {argument}")
+    require(any(a.startswith("rootflags=") and "subvol=@" in a.split("=", 1)[1].split(",") for a in arguments),
+            "the Limine command line lacks rootflags=subvol=@")
+    esp = boot / "efi"
+    for name in ("EFI/BOOT/BOOTAA64.EFI", "m1n1/boot.bin", "limine.conf", f"EFI/Linux/omarchy_{KERNEL}.efi"):
+        require((esp / name).is_file() and (esp / name).stat().st_size > 0, f"the ESP has no {name}")
+    require(not (esp / ".builder").exists(), "the ESP keeps the builder marker")
+    omarchy = esp / "omarchy"
+    require(omarchy.is_dir() and not omarchy.is_symlink(), "/boot/efi/omarchy does not exist")
+    leftovers = sorted(p.name for p in omarchy.iterdir())
+    require(not leftovers, f"/boot/efi/omarchy is not empty: {leftovers}")
+    boot_omarchy = boot / "omarchy"
+    require(boot_omarchy.is_dir() and not boot_omarchy.is_symlink(), "/boot/omarchy does not exist")
+    leftovers = sorted(p.name for p in boot_omarchy.iterdir())
+    require(not leftovers, f"/boot/omarchy is not empty: {leftovers}")
+
+
+def check_fstab(root: Path) -> None:
+    expected = [
+        f"UUID={ROOT_UUID} / btrfs noatime,compress=zstd,x-systemd.growfs,subvol=@ 0 0",
+        f"UUID={ROOT_UUID} /home btrfs noatime,compress=zstd,subvol=@home 0 0",
+        f"UUID={ROOT_UUID} /var/log btrfs noatime,compress=zstd,subvol=@log 0 0",
+        f"UUID={ROOT_UUID} /var/cache/pacman/pkg btrfs noatime,compress=zstd,subvol=@pkg 0 0",
+        f"UUID={BOOT_UUID} /boot ext4 defaults,noatime 0 2",
+        f"UUID={ESP_UUID} /boot/efi vfat umask=0077 0 2",
+    ]
+    actual = [" ".join(line.split()) for line in config_lines(root / "etc/fstab")]
+    require(actual == expected, "fstab does not mount the fixed UUIDs and four subvolumes")
+
+
+def human_users(root: Path) -> list[str]:
+    users = []
+    passwd = root / "etc/passwd"
+    if passwd.is_file():
+        for line in passwd.read_text().splitlines():
+            if not line or line.startswith("#"):
+                continue
+            name, _, uid, *_ = line.split(":")
+            if int(uid) >= 1000 and name not in SYSTEM_USERS:
+                users.append(name)
+    return users
+
+
+def load_node_pin() -> tuple[str, int, str]:
+    version = url = size = sha256 = None
+    for raw in NODE_PIN.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        require("=" in line, "the Node.js pin is malformed")
+        key, value = line.split("=", 1)
+        if key == "version" and version is None:
+            version = value
+        elif key == "url" and url is None:
+            url = value
+        elif key == "size" and size is None:
+            size = value
+        elif key == "sha256" and sha256 is None:
+            sha256 = value
+        else:
+            raise CheckError("the Node.js pin is malformed")
+    require(
+        version is not None and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version) is not None
+        and size is not None and re.fullmatch(r"[1-9][0-9]*", size) is not None
+        and sha256 is not None and re.fullmatch(r"[0-9a-f]{64}", sha256) is not None,
+        "the Node.js pin is malformed",
+    )
+    filename = f"node-v{version}-linux-arm64.tar.gz"
+    require(url == f"https://nodejs.org/dist/v{version}/{filename}", "the Node.js pin names another download")
+    return filename, int(size), sha256
+
+
+def check_provisioning(root: Path) -> None:
+    filename, size, sha256 = load_node_pin()
+    tarball = root / "var/lib/omarchy/provisioning/packages" / filename
+    require(tarball.is_file() and not tarball.is_symlink(), "Node.js is not staged")
+    digest = file_sha256(tarball)
+    require(tarball.stat().st_size == size and digest == sha256, "the staged Node.js does not match its pin")
+    require(stat.S_IMODE(tarball.stat().st_mode) == 0o444, "the staged Node.js is not mode 0444")
+
+
+def check_pristine(root: Path) -> None:
+    require(not (root / "var/lib/omarchy/mac-first-boot/install.conf").exists(), "the image carries install.conf")
+    require(not (root / "boot/efi/omarchy/install.conf").exists(), "the image carries install.conf")
+    machine_id = root / "etc/machine-id"
+    require(machine_id.is_file() and machine_id.stat().st_size == 0, "/etc/machine-id is not empty")
+    journal = root / "var/log/journal"
+    require(not journal.exists() or (journal.is_dir() and not any(journal.iterdir())), "the image has a journal")
+    require(not (root / "boot/omarchy/encrypt.state").exists(), "the image carries encrypt.state")
+
+
+def pacman_repositories(config: Path) -> list[str]:
+    names = []
+    for line in config_lines(config):
+        match = re.fullmatch(r"\[([^]]+)\]", line)
+        if match and match.group(1) != "options":
+            names.append(match.group(1))
+    return names
+
+
+def check_sync_databases(root: Path) -> None:
+    """First boot resolves packages offline: the image keeps one sync database per
+    repository its /etc/pacman.conf names, and none for the build's own."""
+    sync = root / "var/lib/pacman/sync"
+    expected = sorted(f"{name}.db" for name in pacman_repositories(root / "etc/pacman.conf"))
+    require(expected, "/etc/pacman.conf names no repository")
+    require(sync.is_dir() and not sync.is_symlink(), "the image keeps no pacman sync databases")
+    present = sorted(entry.name for entry in sync.iterdir())
+    require(present == expected, f"the image's sync databases {present} are not its pacman.conf's {expected}")
+    for name in present:
+        database = sync / name
+        require(database.is_file() and not database.is_symlink() and database.stat().st_size > 0,
+                f"the sync database {name} is not a regular, non-empty file")
+
+
+def check_state(root: Path) -> None:
+    check_provisioning(root)
+    check_pristine(root)
+    first_boot = root / "etc/systemd/system/multi-user.target.wants/omarchy-first-boot.service"
+    require(not first_boot.exists() and not first_boot.is_symlink(),
+            "omarchy-first-boot.service is enabled on a finished image")
+    for link, destination in IMAGE_LINKS.items():
+        path = root / link
+        require(path.is_symlink() and os.readlink(path) == destination, f"{link} is not the preset's enable link")
+        require((root / destination.lstrip("/")).is_file(), f"{destination} is missing")
+    packages = installed_packages(root)
+    missing = sorted(set(IMAGE_PACKAGES) - packages)
+    require(not missing, f"the image lacks {missing}")
+    require(not (root / "var/lib/systemd/random-seed").exists(), "the image keeps a random seed")
+    require(not list((root / "etc/ssh").glob("ssh_host_*")) if (root / "etc/ssh").is_dir() else True,
+            "the image keeps SSH host keys")
+    require((root / "etc/hostname").read_text() == "omarchy\n", "the hostname is not omarchy")
+    resolv = root / "etc/resolv.conf"
+    require(resolv.is_symlink() and os.readlink(resolv) == "../run/systemd/resolve/stub-resolv.conf",
+            "resolv.conf is not the resolved stub")
+    shadow = [line for line in (root / "etc/shadow").read_text().splitlines() if line.startswith("root:")]
+    require(len(shadow) == 1 and shadow[0].split(":")[1][:1] in ("*", "!"), "root can log in without a password")
+    check_sync_databases(root)
+    cache = root / "var/cache/pacman/pkg"
+    require(not cache.is_dir() or not any(cache.iterdir()), "the image keeps a package cache")
+    require(not human_users(root), f"the image has a user: {human_users(root)}")
+
+
+def check_secret_material(root: Path, where: str) -> None:
+    require(not (root / "etc/pacman.d/gnupg").exists(), f"{where} carries a pacman keyring")
+    for directory, subdirectories, files in os.walk(root):
+        relative = os.path.relpath(directory, root)
+        if relative.split(os.sep)[0] in ("proc", "sys", "dev", "run", "tmp"):
+            subdirectories[:] = []
+            continue
+        require("private-key.d" not in subdirectories and "private-keys-v1.d" not in subdirectories,
+                f"{where} holds private-key.d")
+        for name in files:
+            if name in {"secring.gpg", "secring"}:
+                raise CheckError(f"{where} holds secring")
+            if "gnupg" in relative.split(os.sep) and name.endswith(".key"):
+                raise CheckError(f"{where} holds gnupg private keys")
+    machine_id = root / "etc/machine-id"
+    if machine_id.exists():
+        require(machine_id.is_file() and machine_id.stat().st_size == 0, f"{where} has a machine-id")
+    for journal in (root / "var/log/journal", root / "journal"):
+        require(not journal.exists() or (journal.is_dir() and not any(journal.iterdir())), f"{where} has a journal")
+    require(not human_users(root), f"{where} has a user: {human_users(root)}")
+
+
+def check_profile(lane: str, profile: str) -> None:
+    require(profile in PROFILES, f"{profile} is not an image profile")
+    require(profile != "lab" or lane == LAB_LANE, f"a lab image is refused on the {lane} lane")
+
+
+def check_lab_access(root: Path, where: str, profile: str) -> str:
+    """The lab overlay's access_sha256 in a lab tree, "" in a release tree."""
+    lab = _module("lab_access")
+    try:
+        return lab.check(root, where, profile == "lab")
+    except (lab.LabAccessError, OSError) as error:
+        raise CheckError(str(error)) from None
+
+
+def check_initramfs_lab_access(root: Path) -> None:
+    lab = _module("lab_access")
+    limine = _module("apple_limine")
+    try:
+        initrd = limine.pe_sections(root / f"boot/efi/EFI/Linux/omarchy_{KERNEL}.efi").get(".initrd") or b""
+        chunks = limine.initramfs_archives(initrd)
+        members = [member for chunk in chunks for member in limine._bsdtar(chunk, "-t").decode(errors="replace").splitlines()]
+        contents = b"".join(limine._bsdtar(chunk, "-xO") for chunk in chunks)
+    except (limine.ContractError, OSError, ValueError) as error:
+        raise CheckError(f"cannot read the UKI's initramfs: {error}") from None
+    found = lab.initramfs_findings(members, contents)
+    require(not found, "the initramfs carries " + "; ".join(f"{path} ({what})" for path, what, _ in found))
+
+
+def check_tree(root: Path, factory: Path | None = None, profile: str = "release") -> str:
+    require(root.is_dir(), f"{root} is not a directory")
+    check_fstab(root)
+    check_boot(root)
+    check_state(root)
+    check_secret_material(root, "the image")
+    digest = check_lab_access(root, "the image", profile)
+    check_initramfs_lab_access(root)
+    if factory is not None:
+        require(factory.is_dir(), "@factory is missing")
+        check_secret_material(factory, "@factory")
+        check_sync_databases(factory)
+        require(check_lab_access(factory, "@factory", profile) == digest, "@factory's lab access is not the image's")
+    return digest
+
+
+def inspect_tree(lane: str, root: Path, factory: Path | None, candidates: Path, report: Path | None,
+                 lab_digest: str = "", profile: str = "release") -> None:
+    inspection = _inspection()
+    result = inspection.inspect(root, candidates, lane, factory, profile=profile)
+    if lab_digest:
+        result["profile"] = "lab"
+        result["lab_access_sha256"] = lab_digest
+    if report is not None:
+        inspection.write_report(result, report)
+    for identifier in result["failed_checks"]:
+        print(f"mac-image-check: inspection {identifier}: {result['checks'][identifier]['detail']}", file=sys.stderr)
+    require(result["result"] == "passed", "the image does not pass inspection: " + ", ".join(result["failed_checks"]))
+
+
+# ── image ──────────────────────────────────────────────────────────────────
+def run(*command: str) -> str:
+    result = subprocess.run(command, check=False, capture_output=True, text=True)
+    require(result.returncode == 0, f"{' '.join(command)} failed: {result.stderr.strip()}")
+    return result.stdout
+
+
+def check_subvolumes(listed: list[str]) -> None:
+    top = sorted(path for path in listed if "/" not in path)
+    nested = sorted(path for path in listed if "/" in path)
+    require(top == sorted(SUBVOLUMES) and set(nested) <= set(NESTED_SUBVOLUMES),
+            f"root.img holds subvolumes {sorted(listed)}, not {list(SUBVOLUMES)} and optionally {list(NESTED_SUBVOLUMES)}")
+
+
+def check_image(lane: str, root_image: Path, boot_image: Path, esp: Path, candidates: Path, report: Path | None,
+                profile: str = "release") -> None:
+    check_profile(lane, profile)
+    require(os.geteuid() == 0, "image checks mount the images and need root")
+    for image, capacity in ((root_image, ROOT_SIZE), (boot_image, BOOT_SIZE)):
+        size = image.stat().st_size
+        require(0 < size <= capacity and size % 4096 == 0, f"{image.name} is {size} bytes")
+    with open(boot_image, "rb") as stream:
+        check_boot_superblock(stream.read(0x488), boot_image.name)
+    with open(root_image, "rb") as stream:
+        check_plaintext_root(stream.read(0x1022B + 256), root_image.name)
+    mounts: list[str] = []
+    with tempfile.TemporaryDirectory() as scratch:
+        try:
+            top = Path(scratch, "top")
+            top.mkdir()
+            run("mount", "-o", "loop,ro", str(root_image), str(top))
+            mounts.append(str(top))
+            root_loop = run("findmnt", "-n", "-o", "SOURCE", str(top)).strip().split("[")[0]
+            check_subvolumes([line.split(" path ", 1)[1] for line in run("btrfs", "subvolume", "list", str(top)).splitlines()])
+            props = run("btrfs", "property", "get", "-ts", str(top / "@factory"))
+            require("ro=true" in props, "@factory is not a read-only snapshot")
+            tree = Path(scratch, "tree")
+            tree.mkdir()
+            run("mount", "-o", "ro,subvol=@", root_loop, str(tree))
+            mounts.append(str(tree))
+            for subvolume, point in (("@home", "home"), ("@log", "var/log"), ("@pkg", "var/cache/pacman/pkg")):
+                run("mount", "-o", f"ro,subvol={subvolume}", root_loop, str(tree / point))
+                mounts.append(str(tree / point))
+            run("mount", "-o", "loop,ro", str(boot_image), str(tree / "boot"))
+            mounts.append(str(tree / "boot"))
+            run("mount", "--bind", "-o", "ro", str(esp), str(tree / "boot/efi"))
+            mounts.append(str(tree / "boot/efi"))
+            factory = Path(scratch, "factory")
+            factory.mkdir()
+            run("mount", "-o", "ro,subvol=@factory", root_loop, str(factory))
+            mounts.append(str(factory))
+            digest = check_tree(tree, factory, profile)
+            for subvolume, point in (("@", tree), ("@home", tree / "home"), ("@log", tree / "var/log"),
+                                     ("@pkg", tree / "var/cache/pacman/pkg"), ("@factory", factory)):
+                check_secret_material(point, subvolume)
+            # Each subvolume unmounted too, so nothing hides under a mount point.
+            # The lab overlay lives in @ (and @factory); the others carry none.
+            for subvolume in ("@", "@home", "@log", "@pkg"):
+                check_lab_access(top / subvolume, f"{subvolume} (unmounted)", profile if subvolume == "@" else "release")
+            inspect_tree(lane, tree, factory, candidates, report, digest, profile)
+        finally:
+            for mount in reversed(mounts):
+                subprocess.run(["umount", mount], check=False)
+
+
+# ── provenance / IMAGE ─────────────────────────────────────────────────────
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as stream:
+        while chunk := stream.read(1 << 20):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def parse_fields(path: Path) -> dict[str, list[str]]:
+    fields: dict[str, list[str]] = {}
+    for line in path.read_text().splitlines():
+        require("=" in line, f"{path.name} is malformed")
+        key, value = line.split("=", 1)
+        fields.setdefault(key, []).append(value)
+    return fields
+
+
+def payload_in(directory: Path, lane: str) -> Path:
+    # The name's profile is checked against the records by check_payload.
+    zips = [path for path in directory.iterdir() if path.suffix == ".zip" and path.is_file()]
+    matches = [path for path in zips if PAYLOAD_NAME.fullmatch(path.name) is not None]
+    require(len(matches) == 1, f"{directory} does not hold one {lane} payload")
+    require(PAYLOAD_NAME.fullmatch(matches[0].name).group(1) == lane, f"{matches[0].name} is not a {lane} payload")
+    extra = sorted(path.name for path in zips if path != matches[0])
+    require(not extra, f"{directory} holds extra zip files: {extra}")
+    return matches[0]
+
+
+def once(fields: dict[str, list[str]], key: str, where: str) -> str:
+    require(len(fields.get(key, [])) == 1, f"{where} does not name {key} once")
+    return fields[key][0]
+
+
+# When the build recorded its identity (UTC). IMAGE, PROVENANCE, INSPECTION's
+# image target and the manifest in the image all carry it, or, for an image
+# built before builds recorded it, none does.
+BUILT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
+
+
+def build_time(value: str) -> bool:
+    """VALUE is a UTC build time as the builder writes it (builder/inspection.py's build_time)."""
+    if BUILT.fullmatch(value) is None:
+        return False
+    try:
+        datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return False
+    return True
+
+
+def recorded_build_time(fields: dict[str, list[str]], where: str) -> str | None:
+    """WHERE's built, once and well formed, or None for an image built before builds recorded it."""
+    if "built" not in fields:
+        return None
+    built = once(fields, "built", where)
+    require(build_time(built), f"{where} names no UTC build time")
+    return built
+
+
+def check_provenance(lane: str, directory: Path) -> None:
+    provenance = directory / "PROVENANCE"
+    require(provenance.is_file(), f"{directory} has no PROVENANCE")
+    lines = provenance.read_text().splitlines()
+    require(lines[:5] == ["format=2", "kind=mac-image", f"lane={lane}", f"kernel={KERNEL}", f"platform={PLATFORM}"],
+            f"PROVENANCE does not describe a {lane} Apple image build")
+    fields = parse_fields(provenance)
+    for key in ("payload", "installer_data_sha256", "inspection_sha256", "builder_commit", "inputs_sha256",
+                "package_count", "package_set_sha256"):
+        once(fields, key, "PROVENANCE")
+    recorded_build_time(fields, "PROVENANCE")
+    require(once(fields, "hardware_setup", "PROVENANCE") in ("build", "deferred"), "PROVENANCE has no hardware setup")
+    require(not fields.get("local_package"), "PROVENANCE names unpublished local packages")
+    require(len(fields.get("package", [])) == int(fields["package_count"][0]), "PROVENANCE miscounts its packages")
+    packages = [value.split("|") for value in fields.get("package", [])]
+    require(all(len(parts) == 6 and re.fullmatch(r"[0-9a-f]{64}", parts[5]) for parts in packages),
+            "PROVENANCE has a malformed package record")
+    lines_ = sorted(f"{p[1]}|{p[2]}|{p[5]}\n" for p in packages)
+    require(hashlib.sha256("".join(sorted(lines_, key=str.encode)).encode()).hexdigest() == fields["package_set_sha256"][0],
+            "PROVENANCE's package set digest does not match its packages")
+    candidates = {value.split("|")[0]: value.split("|") for value in fields.get("candidate", [])}
+    installed = {p[1]: p for p in packages}
+    require(candidates, "PROVENANCE names no candidate set")
+    for name, (_, version, filename, sha256) in candidates.items():
+        record = installed.get(name)
+        require(record is not None and record[2] == version and record[3] == "omarchy-candidates"
+                and record[4] == filename and record[5] == sha256,
+                f"PROVENANCE does not install the set's {name} from the candidate set")
+    name, size, sha256 = fields["payload"][0].split("|")
+    payload = directory / name
+    require(payload.is_file() and PAYLOAD_NAME.fullmatch(name) is not None, f"{name} is not beside PROVENANCE")
+    require(payload.stat().st_size == int(size) and file_sha256(payload) == sha256, f"{name} is not the payload PROVENANCE names")
+    installer_data = directory / "installer_data.json"
+    require(installer_data.is_file() and file_sha256(installer_data) == fields["installer_data_sha256"][0],
+            "installer_data.json is not the one PROVENANCE names")
+    inspection = directory / "INSPECTION"
+    require(inspection.is_file() and file_sha256(inspection) == fields["inspection_sha256"][0],
+            "INSPECTION is not the one PROVENANCE names")
+    report = json.loads(inspection.read_text())
+    require(report.get("result") == "passed", "INSPECTION did not pass")
+    sources: dict[str, str] = {}
+    for value in fields.get("candidate_source", []):
+        name, _, commit = value.partition("|")
+        require(name in candidates and name not in sources and re.fullmatch(r"[0-9a-f]{40}", commit) is not None,
+                "PROVENANCE has a malformed candidate source")
+        sources[name] = commit
+    require(sources and sources == report.get("runtime_sources"),
+            "PROVENANCE's candidate sources do not match INSPECTION's runtime sources")
+    require(sources.get("omarchy") == fields.get("input.candidate_source_commit", [None])[0],
+            "PROVENANCE's runtime is not from the set's source commit")
+    profile = check_recorded_profile(lane, fields, "PROVENANCE")
+    require(report.get("lab_access_sha256") == fields.get("lab_access_sha256", [None])[0],
+            "INSPECTION's lab access digest does not match PROVENANCE")
+    check_image_target_record(report, fields, profile)
+    check_payload(lane, payload, installer_data, profile)
+
+
+def check_image_target_record(report: dict, fields: dict[str, list[str]], profile: str) -> None:
+    """The provenance the image's target manifest carries, as INSPECTION read it, is this build's."""
+    target = report.get("image_target")
+    require(isinstance(target, dict), "INSPECTION does not record the image target's provenance")
+    for key, field in (("candidate_set", "input.candidate_set"), ("candidate_source_commit", "input.candidate_source_commit"),
+                       ("builder_commit", "builder_commit"), ("builder_tree_clean", "builder_tree_clean")):
+        require(target.get(key) is not None and [target[key]] == fields.get(field),
+                f"the image target's {key} does not match PROVENANCE")
+    if "built" in fields:
+        for key in ("package_set_sha256", "built"):
+            require(target.get(key) is not None and [target[key]] == fields.get(key),
+                    f"the image target's {key} does not match PROVENANCE")
+    else:
+        require("package_set_sha256" not in target and "built" not in target,
+                "the image target records a build identity that PROVENANCE does not")
+    require((target.get("image_profile") == "lab") == (profile == "lab")
+            and target.get("image_profile") in ("lab", "test", "release"),
+            "the image target's profile does not match PROVENANCE")
+
+
+def check_recorded_profile(lane: str, fields: dict[str, list[str]], where: str) -> str:
+    """A lab image says so (profile=lab, lab_access_sha256=); anything else is a release image."""
+    recorded = fields.get("profile")
+    if recorded is None:
+        require("lab_access_sha256" not in fields, f"{where} names lab access on a release image")
+        return "release"
+    require(recorded == ["lab"], f"{where} records the profile {recorded}, not one profile=lab")
+    check_profile(lane, "lab")
+    digests = fields.get("lab_access_sha256", [])
+    require(len(digests) == 1 and re.fullmatch(r"[0-9a-f]{64}", digests[0]) is not None,
+            f"{where} names no lab access digest")
+    return "lab"
+
+
+IMAGE_INPUTS = ("candidate_set", "candidate_source_commit", "candidate_signer", "candidate_receipt_sha256",
+                "candidate_manifest_sha256", "omarchy_channel")
+
+
+def check_descriptor(lane: str, directory: Path) -> None:
+    image = directory / "IMAGE"
+    require(image.is_file(), f"{directory} has no IMAGE")
+    fields = parse_fields(image)
+    require(fields.get("format") == ["2"], "IMAGE is not format=2")
+    require(fields.get("lane") == [lane], f"IMAGE does not describe a {lane} image")
+    require(fields.get("platform") == [PLATFORM], f"IMAGE does not describe an {PLATFORM} image")
+    for key in (*IMAGE_INPUTS, "input_digest", "package_set_sha256", "hardware_setup", "builder_commit",
+                "builder_tree_clean"):
+        once(fields, key, "IMAGE")
+    recorded_build_time(fields, "IMAGE")
+    inputs = directory / "inputs"
+    provenance = directory / "PROVENANCE"
+    require(inputs.is_file() and provenance.is_file(), "the inputs record and PROVENANCE are not beside IMAGE")
+    input_fields = parse_fields(inputs)
+    provenance_fields = parse_fields(provenance)
+    for key in IMAGE_INPUTS:
+        require(input_fields.get(key) == fields[key], f"IMAGE {key} does not match the inputs record")
+        require(provenance_fields.get(f"input.{key}") == fields[key], f"IMAGE {key} does not match PROVENANCE")
+    require(fields["omarchy_channel"] == [lane], "IMAGE's lane is not its channel")
+    digest = file_sha256(inputs)
+    require(fields["input_digest"] == [digest], "IMAGE input_digest does not match the inputs record")
+    require(provenance_fields.get("inputs_sha256") == [digest], "IMAGE input_digest does not match PROVENANCE")
+    for key in ("package_set_sha256", "hardware_setup", "builder_commit", "builder_tree_clean"):
+        require(provenance_fields.get(key) == fields[key], f"IMAGE {key} does not match PROVENANCE")
+    require(provenance_fields.get("built") == fields.get("built"), "IMAGE built does not match PROVENANCE")
+    profile = check_recorded_profile(lane, fields, "IMAGE")
+    for key in ("profile", "lab_access_sha256"):
+        require(provenance_fields.get(key) == fields.get(key), f"IMAGE {key} does not match PROVENANCE")
+    payload = payload_in(directory, lane)
+    installer_data = directory / "installer_data.json"
+    require(installer_data.is_file(), "installer_data.json is not beside IMAGE")
+    digests = check_payload(lane, payload, installer_data, profile)
+    recorded = {}
+    for value in fields.get("image_sha256", []):
+        require("|" in value, "IMAGE has a malformed image_sha256")
+        member, digest = value.split("|", 1)
+        require(member not in recorded, f"IMAGE names {member} twice")
+        require(re.fullmatch(r"[0-9a-f]{64}", digest), f"IMAGE has an invalid digest for {member}")
+        recorded[member] = digest
+    require(recorded == digests, "IMAGE does not name each payload member's sha256")
+
+
+USAGE = """Usage: mac-image-check payload <edge|rc|stable> PAYLOAD.zip INSTALLER_DATA.json [--profile lab]
+       mac-image-check image <edge|rc|stable> ROOT.img BOOT.img ESP_DIR --candidates DIR [--report FILE] [--profile lab]
+       mac-image-check tree <edge|rc|stable> ROOT_TREE [FACTORY_TREE] --candidates DIR [--report FILE] [--profile lab]
+       mac-image-check provenance <edge|rc|stable> BUILD_DIR
+       mac-image-check descriptor <edge|rc|stable> BUILD_DIR"""
+
+
+def main(argv: list[str]) -> int:
+    rest: list[str] = []
+    options: dict[str, Path] = {}
+    profile = "release"
+    arguments = iter(argv[1:])
+    for arg in arguments:
+        if arg in ("--candidates", "--report", "--profile"):
+            value = next(arguments, None)
+            if value is None or (arg == "--profile" and value not in PROFILES):
+                print(USAGE, file=sys.stderr)
+                return 64
+            if arg == "--profile":
+                profile = value
+            else:
+                options[arg[2:]] = Path(value)
+        else:
+            rest.append(arg)
+    arity = {"payload": 2, "image": 3, "tree": None, "provenance": 1, "descriptor": 1}
+    if len(rest) < 3 or rest[0] not in arity or rest[1] not in LANES:
+        print(USAGE, file=sys.stderr)
+        return 64
+    mode, lane, *paths = rest
+    if mode == "tree":
+        if len(paths) not in (1, 2):
+            print(USAGE, file=sys.stderr)
+            return 64
+    elif len(paths) != arity[mode]:
+        print(USAGE, file=sys.stderr)
+        return 64
+    if (mode in ("image", "tree") and "candidates" not in options) or (mode not in ("image", "tree", "payload") and profile != "release"):
+        print(USAGE, file=sys.stderr)
+        return 64
+    try:
+        if mode == "payload":
+            check_payload(lane, Path(paths[0]), Path(paths[1]), profile)
+        elif mode == "image":
+            check_image(lane, Path(paths[0]), Path(paths[1]), Path(paths[2]), options["candidates"], options.get("report"),
+                        profile)
+        elif mode == "tree":
+            factory = Path(paths[1]) if len(paths) == 2 else None
+            check_profile(lane, profile)
+            digest = check_tree(Path(paths[0]), factory, profile)
+            inspect_tree(lane, Path(paths[0]), factory, options["candidates"], options.get("report"), digest, profile)
+        elif mode == "provenance":
+            check_provenance(lane, Path(paths[0]))
+        else:
+            check_descriptor(lane, Path(paths[0]))
+    except CheckError as error:
+        print(f"mac-image-check: {error}", file=sys.stderr)
+        return 1
+    print(f"ok - the {lane} {'lab ' if profile == 'lab' else ''}mac image {mode} meets the contract")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

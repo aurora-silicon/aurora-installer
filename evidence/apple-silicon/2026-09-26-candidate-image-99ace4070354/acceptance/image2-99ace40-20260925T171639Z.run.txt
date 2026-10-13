@@ -1,0 +1,41 @@
+scenarios=first-boot conversion second-boot password-change update snapshot-restore factory-reset
+image_dir=/var/tmp/omarchy-images/apple-test-99ace4070354-20260926/image
+image_signature=unsigned
+payload=omarchy-2026.09.25-aarch64-apple-silicon-mac-edge-os-package.zip|3568410221|3b975200296c139f316e44a6b3c78b40aeb0e6920ae8a8bade2f3b84eff12221
+candidate_set=apple-test-99ace4070354-20260926
+candidate_source_commit=99ace4070354a99da3e92e0fe996114bfd47c36d
+builder_commit=d1eef33c67ecf92eb02ead8d7bd9b6dc3a2c5ab8
+package_set_sha256=f697d5f5a9dfa1495acfceba7eac7ddc500ca5e626230ca70f4360b6fd0e481e
+input_digest=0c42e2f697758af7a5ff9dbbaaf03b6689510cca396eb7a2c731c5e6515bc4d2
+ok - apple-test-99ace4070354-20260926: IMAGE (unsigned), PROVENANCE and a passed INSPECTION agree; omarchy-2026.09.25-aarch64-apple-silicon-mac-edge-os-package.zip matches (3568410221 bytes)
+ok - payload unpacked: ESP tree with Limine, boot.img (4f4d5801-424f-4f54-8000-000000000001), root.img (4f4d5801-524f-4f54-8000-000000000001)
+ok - every member IMAGE names matches its digest (10 members)
+ok - generic kernel 7.2.3-1-aarch64-ARCH + initramfs from the image's hooks (image kernel 7.1.12-2-10-ARCH)
+uefi_firmware=edk2-aarch64-202608-1-any.pkg.tar.zst|07651fafa99d4569ce59a1c1653eb83a4bb02112abeb1656e1354c0fd5b6aa69
+ok - UEFI firmware edk2-aarch64-202608-1-any.pkg.tar.zst matches its pinned digest
+ok - guest device tree: apple,j314s apple,t6000 apple,arm-platform over QEMU virt
+run_id=image2-99ace40-20260925T171639Z
+lane=edge
+generic_kernel=7.2.3-1-aarch64-ARCH
+alarm_mirror=https://downloads.aicodelabs.com.au/mirror/alarm/20260906/$repo/os/$arch
+host=omarchy-m1-pro 7.1.12-2-7-ARCH
+harness_commit=64b7c48eaff92cded06b0b1fa4cc5ee32a9c64cd
+ok - first-boot: install.conf consumed, root left plain, keyring made, the deferred Limine step rebuilt the menu and UKI for this Mac, owner setup finished and the console login is up
+ok - first-boot: the Plymouth theme is omarchy, in the configuration and in the UKI's initramfs
+ok - first-boot: /.snapshots is a btrfs subvolume
+skip - first-boot: default audio sink: N/A in a VM (no Apple audio device, so no card profile to fall back from); hardware validation checks it
+ok - first-boot: encrypt.state records phase=declined
+ok - conversion: root converted to LUKS2 in the initrd (conversion finished in 56s (224 MiB/s)), Limine rebuilt, first boot finished on /dev/mapper/root
+ok - conversion: the owner's password (slot 1) and the recovery key (slot 2) open the disk, and no other key slot is left for the temporary key
+ok - conversion: encrypt.state finished, temporary key files gone, crypttab set, Limine unlocks e59480c6-a40b-44f4-b5e3-116c48a45ad0 with no key file
+ok - second-boot: Limine's command line asks for the disk password, refuses a wrong one, unlocks with the owner's and reaches the login prompt
+not ok - password-change: omarchy-drive-password finds no encrypted drive until root has run blkid this boot (its unprivileged blkid only reads /run/blkid/blkid.tab)
+ok - password-change: the new password opens the disk, the old one no longer does, the recovery slot stays
+ok - password-change: the next boot unlocks with the new password, and it logs in owner and root
+ok - update: omarchy update -y upgraded the packages (0 upgrade steps), verified the boot files and finished
+runtime_before_update=omarchy 4.0.0.alpha.quattro.r1790350165.g99ace4070354-1.361571887310001,omarchy-mac 0.1.0-5.361571887310001,omarchy-mac-boot 20260925-3,omarchy-settings 4.0.0.alpha.quattro.r1790350165.g99ace4070354-1.361571887310001
+runtime_after_update=omarchy-mac 0.1.0-5.361571887310001,omarchy-mac-boot 20260925-3,omarchy-settings 4.0.0.alpha.quattro.r1790350165.g99ace4070354-1.361571887310001
+not ok - update: omarchy is not the set's 4.0.0.alpha.quattro.r1790350165.g99ace4070354-1.361571887310001 after the update: missing
+ok - update: the updated disk unlocks with the owner's password and reaches the login prompt
+skip - snapshot-restore: the image has no /etc/boot/hooks/pre.d/04-omarchy-mac-snapshot-check (snapshot boot and restore, ticket 36)
+skip - factory-reset: the image has no /usr/lib/omarchy/mac-boot/reset-prepare (factory reset through lifecycle dispatch, ticket 34)

@@ -1,0 +1,53 @@
+#!/bin/bash
+# Write the two property lists linked into the helper binary. SMJobBless reads
+# them from the helper's __TEXT sections: the Info.plist names the helper, its
+# build (which the helper reports so the app can tell an outdated copy) and the
+# app allowed to install it; the launchd plist is the job SMJobBless registers.
+#
+# Usage: helper-plists <output directory> <build number> <marketing version> [client requirement]
+#
+# Without a client requirement (ad hoc builds) only the Info.plist is written,
+# without SMAuthorizedClients: such a build cannot install its helper itself
+# and relies on the installer package, as before.
+set -euo pipefail
+
+output=${1:-}
+build_number=${2:-}
+marketing_version=${3:-}
+client_requirement=${4:-}
+[[ -d $output && -n $build_number && -n $marketing_version ]] || {
+  echo "usage: helper-plists <output directory> <build number> <marketing version> [client requirement]" >&2
+  exit 64
+}
+
+# shellcheck source=identity.conf
+source "$(cd "$(dirname "$0")" && pwd)/identity.conf"
+helper_identifier="$INSTALLER_HELPER_IDENTIFIER"
+
+info="$output/helper-info.plist"
+launchd="$output/helper-launchd.plist"
+rm -f "$info" "$launchd"
+
+/usr/bin/plutil -create xml1 "$info"
+/usr/bin/plutil -insert CFBundleIdentifier -string "$helper_identifier" "$info"
+/usr/bin/plutil -insert CFBundleInfoDictionaryVersion -string "6.0" "$info"
+/usr/bin/plutil -insert CFBundleName -string "$helper_identifier" "$info"
+/usr/bin/plutil -insert CFBundleVersion -string "$build_number" "$info"
+/usr/bin/plutil -insert CFBundleShortVersionString -string "$marketing_version" "$info"
+
+if [[ -n $client_requirement ]]; then
+  /usr/bin/plutil -insert SMAuthorizedClients -array "$info"
+  /usr/bin/plutil -insert SMAuthorizedClients.0 -string "$client_requirement" "$info"
+
+  /usr/bin/plutil -create xml1 "$launchd"
+  /usr/bin/plutil -insert Label -string "$helper_identifier" "$launchd"
+  /usr/bin/plutil -insert MachServices -json "{\"$helper_identifier\":true}" "$launchd"
+  /usr/bin/plutil -insert UserName -string root "$launchd"
+  /usr/bin/plutil -insert EnvironmentVariables -json "{}" "$launchd"
+  /usr/bin/plutil -insert EnvironmentVariables.OMARCHY_CLIENT_CODE_SIGNING_REQUIREMENT \
+    -string "$client_requirement" "$launchd"
+  /usr/bin/plutil -lint "$launchd" >/dev/null
+fi
+/usr/bin/plutil -lint "$info" >/dev/null
+echo "$info"
+[[ ! -f $launchd ]] || echo "$launchd"

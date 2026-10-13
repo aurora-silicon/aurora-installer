@@ -1,0 +1,27 @@
+#!/bin/bash
+# PackageKit runs this after explicit administrator approval. No app auto-open.
+set -euo pipefail
+(( EUID == 0 )) || exit 1
+app="/Applications/@APP_NAME@.app"
+helper='/Library/PrivilegedHelperTools/@HELPER_IDENTIFIER@'
+plist='/Library/LaunchDaemons/@HELPER_IDENTIFIER@.plist'
+label='@HELPER_IDENTIFIER@'
+app_requirement='identifier "@APP_IDENTIFIER@" and cdhash H"@APP_HASH@"'
+helper_requirement='identifier "@HELPER_IDENTIFIER@" and cdhash H"@HELPER_HASH@"'
+for path in /Library /Library/PrivilegedHelperTools /Library/LaunchDaemons "$helper" "$plist" "$app"; do
+  [[ -e $path && ! -L $path && $(/usr/bin/stat -f %u "$path") == "0" ]] || exit 1
+  mode=$(/usr/bin/stat -f %Lp "$path")
+  [[ $mode =~ ^[0-7]+$ ]] && (( (8#$mode & 022) == 0 )) || exit 1
+done
+plist_digest=$(/usr/bin/shasum -a 256 "$plist")
+[[ ${plist_digest%% *} == "@PLIST_SHA256@" ]] || exit 1
+/usr/bin/codesign --verify --strict -R="$helper_requirement" "$helper"
+/usr/bin/codesign --verify --deep --strict -R="$app_requirement" "$app"
+[[ $(/usr/bin/plutil -extract Program raw -o - "$plist") == "$helper" ]] || exit 1
+[[ $(/usr/bin/plutil -extract EnvironmentVariables.OMARCHY_CLIENT_CODE_SIGNING_REQUIREMENT raw -o - "$plist") == "$app_requirement" ]] || exit 1
+[[ $(/usr/bin/plutil -extract Label raw -o - "$plist") == "$label" ]] || exit 1
+[[ $(/usr/bin/plutil -extract UserName raw -o - "$plist") == "root" ]] || exit 1
+# Preinstall has already rejected an existing service. Never unload or replace it.
+/bin/launchctl bootstrap system "$plist"
+/bin/launchctl print "system/$label" >/dev/null
+echo 'Private helper registered. Open the installer app from Applications when ready.'
