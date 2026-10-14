@@ -53,3 +53,12 @@ Early. The driver side is proven on J813 hardware — the Windows `AppleNvme`
 driver reads and writes the internal SSD, verified with a GPT read off LBA 1 and
 a full write/verify/restore round trip — but this installer does not yet carve
 partitions or stage an image.
+
+## Native Linux installer
+
+The `macOS/` subtree adds the independent Aurora Linux GUI: Aurora Fedora Remix,
+Aurora ALARM and a UEFI-only choice, with KDE Plasma, GNOME and shell profiles.
+The current build is an explicitly non-destructive UI preview. Its release
+profile contract, build command, image producer plan and remaining engine
+integration are documented in [macOS/README.md](macOS/README.md). The existing
+Windows command-line installer above is preserved.

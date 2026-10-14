@@ -1,0 +1,36 @@
+#!/bin/bash
+# Add a must-close entry to a productbuild distribution, so Installer asks for
+# the installer app to be closed before it installs. The app keeps one bundle
+# identifier across the rename, so this also reaches a copy still installed
+# under its old name; postinstall can then replace it and the new app can take
+# the single-instance lease.
+#
+# Usage: add-must-close <distribution.xml> <package identifier> <app bundle identifier>
+set -euo pipefail
+
+distribution=${1:-}
+package_identifier=${2:-}
+app_identifier=${3:-}
+[[ -f $distribution && ! -L $distribution && -n $package_identifier && -n $app_identifier ]] || {
+  echo "usage: add-must-close <distribution.xml> <package identifier> <app bundle identifier>" >&2
+  exit 64
+}
+
+python3 - "$distribution" "$package_identifier" "$app_identifier" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+path, package_identifier, app_identifier = sys.argv[1:4]
+tree = ET.parse(path)
+root = tree.getroot()
+if root.tag != "installer-gui-script":
+    sys.exit("add-must-close: not a productbuild distribution: %s" % path)
+if not any(ref.get("id") == package_identifier for ref in root.iter("pkg-ref")):
+    sys.exit("add-must-close: the distribution has no pkg-ref for %s" % package_identifier)
+if root.find(".//must-close") is not None:
+    sys.exit("add-must-close: the distribution already lists apps that must close")
+ref = ET.SubElement(root, "pkg-ref", {"id": package_identifier})
+must_close = ET.SubElement(ref, "must-close")
+ET.SubElement(must_close, "app", {"id": app_identifier})
+tree.write(path, encoding="utf-8", xml_declaration=True)
+PY

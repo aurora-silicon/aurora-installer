@@ -1,4 +1,12 @@
-# Asahi Linux installer
+# Aurora Installer
+
+The native Aurora Linux installer is in [`macOS/`](macOS/README.md). Its current preview offers Aurora Fedora Remix, Aurora ALARM and UEFI, with KDE Plasma, GNOME and shell choices. The desktop cards use native mockups and official project marks. Fedora/ALARM image production and the corresponding live-install integration are still in development.
+
+The command-line installer at the repository root is the existing Windows-on-Apple-Silicon work described in [`README.aurora.md`](README.aurora.md). Its code is preserved. The upstream Asahi description below records the original installer and reusable boot/firmware groundwork.
+
+![Aurora native installer preview](macOS/Design/AuroraInstallerPreview.png)
+
+## Upstream Asahi Linux installer
 The Asahi Linux installer provides a way to install [Asahi Linux](https://asahilinux.org)
 on Apple Silicon Macs. These systems have a bespoke [boot process](https://asahilinux.org/docs/platform/introduction/)
 that requires special considerations to support [alternative operating systems](https://asahilinux.org/docs/platform/open-os-interop/).
