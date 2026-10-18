@@ -31,7 +31,7 @@ build_jobs="${OMARCHY_BUILD_JOBS:-10}"
   || fail "OMARCHY_BUILD_JOBS must be a positive integer"
 export CARGO_BUILD_JOBS="$build_jobs"
 
-marketing_version="${OMARCHY_APP_VERSION:-2.1.0}"
+marketing_version="${OMARCHY_APP_VERSION:-2.1.1}"
 # SMJobBless never replaces a helper with a lower build, so a developer build
 # defaults to its UTC build minute (YYMMDDHHMM): each one installs over the
 # helper an earlier one left, without anyone tracking numbers by hand.
@@ -70,7 +70,9 @@ PY
 )
 
 if [[ $signing_identity == "-" ]]; then
-  client_requirement="identifier \"$app_identifier\""
+  # Ad-hoc apps cannot register their helper. The developer package pins the
+  # final app cdhash in its external root-owned daemon plist instead.
+  client_requirement="never"
   helper_requirement="identifier \"$helper_identifier\""
   timestamp_arguments=(--timestamp=none)
 else
@@ -404,6 +406,40 @@ codesign --force --sign "$signing_identity" \
   --options runtime \
   --identifier "$helper_identifier" \
   "$helper_path"
+if [[ $signing_identity == "-" ]]; then
+  source "$script_directory/code-identity.sh"
+  helper_requirement=$(installer_code_requirement "$helper_path" "$helper_identifier") \
+    || fail "cannot determine the exact signed helper identity"
+  # The helper is final now. Pin both root and per-profile connections before
+  # signing the enclosing app; never re-sign the nested helper afterwards.
+  python3 - "$resources/Release" "$helper_identifier" "$helper_requirement" <<'PYCODE'
+import json
+from pathlib import Path
+import sys
+
+release = Path(sys.argv[1])
+identifier, requirement = sys.argv[2:]
+descriptors = [release / "release.json"]
+profiles = release / "Profiles"
+if profiles.exists() or profiles.is_symlink():
+    if profiles.is_symlink() or not profiles.is_dir():
+        raise SystemExit("unsafe helper profile directory")
+    for directory in sorted(profiles.iterdir()):
+        if directory.is_symlink() or not directory.is_dir():
+            raise SystemExit("unsafe helper profile entry")
+        descriptors.append(directory / "release.json")
+for path in descriptors:
+    if path.is_symlink() or path.parent.is_symlink() or not path.is_file():
+        raise SystemExit("unsafe helper release descriptor")
+    value = json.loads(path.read_text())
+    if value["helper_mach_service_name"] != identifier:
+        raise SystemExit("profile helper identity differs from this build")
+    value["helper_code_signing_requirement"] = requirement
+    path.chmod(0o644)
+    path.write_text(json.dumps(value, indent=2) + "\n")
+    path.chmod(0o444)
+PYCODE
+fi
 codesign --force --sign "$signing_identity" \
   "${timestamp_arguments[@]}" \
   --options runtime \
@@ -417,6 +453,10 @@ embedded_version="$(launchctl plist __TEXT,__info_plist "$helper_path" 2>/dev/nu
   | awk -F'"' '/"CFBundleVersion"/ {print $4}')"
 [[ $embedded_version == "$build_number" ]] \
   || fail "the helper does not carry its build number (got '${embedded_version:-none}')"
+if [[ $signing_identity == "-" ]]; then
+  client_requirement=$(installer_code_requirement "$assembled_app" "$app_identifier") \
+    || fail "cannot determine the exact signed app identity"
+fi
 codesign --verify --strict \
   -R="$client_requirement" \
   "$assembled_app"

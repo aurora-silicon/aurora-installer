@@ -58,9 +58,8 @@ partitions or stage an image.
 
 The `macOS/` subtree adds the independent Aurora Linux GUI: Fedora Aurora Remix,
 Aurora ALARM and Aurora NixOS, with KDE Plasma, GNOME and shell profiles.
-The current build is an explicitly non-destructive UI preview. Its release
-profile contract, build command, image producer plan and remaining engine
-integration are documented in [macOS/README.md](macOS/README.md). The existing
+Its signed profile contract, developer packaging, distribution producers and
+qualification limits are documented in [macOS/README.md](macOS/README.md). The existing
 Windows command-line installer above is preserved.
 
 The [Fedora producer](fedora/README.md) prepares pinned KIWI descriptions with

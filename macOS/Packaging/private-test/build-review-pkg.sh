@@ -7,6 +7,7 @@ OUT=$2
 [[ $OUT == /* && ! -e $OUT ]] || { echo 'Use a new absolute output path.' >&2; exit 64; }
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 source "$ROOT/Packaging/identity.conf"
+source "$ROOT/Packaging/private-test/code-identity.sh"
 [[ $(/usr/bin/plutil -extract OmarchyPrivatePlainTest raw -o - "$APP/Contents/Info.plist") == "true" ]] || exit 1
 app_version=$(/usr/bin/plutil -extract CFBundleShortVersionString raw -o - "$APP/Contents/Info.plist")
 app_build=$(/usr/bin/plutil -extract CFBundleVersion raw -o - "$APP/Contents/Info.plist")
@@ -15,7 +16,12 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/root/Applications" "$work/root/Library/LaunchDaemons" "$work/scripts"
 /usr/bin/ditto "$APP" "$work/root/Applications/$INSTALLER_APP_NAME.app"
-/bin/bash "$ROOT/Packaging/pkg/derive-daemon-plist" "$APP" "$work/root/Library/LaunchDaemons/$INSTALLER_HELPER_IDENTIFIER.plist" /Applications
+staged_app="$work/root/Applications/$INSTALLER_APP_NAME.app"
+/bin/bash "$ROOT/Packaging/pkg/derive-daemon-plist" "$staged_app" "$work/root/Library/LaunchDaemons/$INSTALLER_HELPER_IDENTIFIER.plist" /Applications
+app_requirement=$(private_code_requirement "$staged_app" "$INSTALLER_APP_IDENTIFIER")
+/usr/bin/plutil -replace EnvironmentVariables.OMARCHY_CLIENT_CODE_SIGNING_REQUIREMENT \
+  -string "$app_requirement" "$work/root/Library/LaunchDaemons/$INSTALLER_HELPER_IDENTIFIER.plist"
+/usr/bin/codesign --verify --strict -R="$app_requirement" "$staged_app"
 /bin/bash "$ROOT/Packaging/private-test/render-identity.sh" "$ROOT/Packaging/private-test/scripts/preinstall" "$work/scripts/preinstall"
 cp "$ROOT/Packaging/pkg/scripts/postinstall" "$work/scripts/postinstall"
 chmod 755 "$work/scripts/"*

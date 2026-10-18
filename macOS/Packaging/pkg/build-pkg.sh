@@ -74,6 +74,10 @@ prog="$(/usr/bin/plutil -extract Program raw -o - "$daemon_plist" 2>/dev/null ||
 # shipped exactly that failure once, so refuse anything but a real requirement.
 requirement="$(/usr/bin/plutil -extract EnvironmentVariables.OMARCHY_CLIENT_CODE_SIGNING_REQUIREMENT raw -o - "$daemon_plist" 2>/dev/null || true)"
 case "$requirement" in
+  "never")
+    echo "build-pkg.sh: ad-hoc bundles require build-developer-pkg.sh to pin the final app identity" >&2
+    exit 65
+    ;;
   "" | *REPLACED_DURING_PACKAGING*)
     echo "build-pkg.sh: daemon plist has no client code-signing requirement (got '${requirement:-<missing>}'); use the app's embedded plist, not the repo template" >&2
     exit 65

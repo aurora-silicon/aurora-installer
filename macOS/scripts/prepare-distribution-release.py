@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -14,6 +15,16 @@ PROFILES = tuple(f"{distribution}-{desktop}" for distribution in ("fedora", "arc
 
 
 def prepare(source, output, sealed=False):
+    identity = {}
+    for line in (ROOT / "Packaging/identity.conf").read_text().splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        match = re.fullmatch(r'(INSTALLER_[A-Z0-9_]+)="([^"\\$`]+)"', line)
+        if not match or match[1] in identity:
+            raise ValueError("invalid or duplicate installer identity assignment")
+        identity[match[1]] = match[2]
+    public_base = identity["INSTALLER_PUBLIC_BASE"].rstrip("/")
+    stream = identity["INSTALLER_STREAM_PATH"].strip("/")
     trusted = (ROOT / "Release/trust-root.ed25519.pub").read_bytes()
     if len(trusted) != 32 or output.exists():
         raise ValueError("expected a 32-byte app trust root and a new output directory")
@@ -45,7 +56,7 @@ def prepare(source, output, sealed=False):
             expected = "sha256:" + hashlib.sha256(trusted).hexdigest()
             if descriptor["schema_version"] != 3 or descriptor["trust_root_fingerprint"] != expected:
                 raise ValueError(f"descriptor root mismatch: {profile}")
-            base = "https://aurorasilicon.org/aurora-distributions/installer/Profiles/" + profile
+            base = public_base + "/" + stream + "/Profiles/" + profile
             for channel in ("stable", "rc", "edge"):
                 if descriptor["channels"][channel]["catalog_url"] != base + "/channels/" + channel + "/catalog.signed.json":
                     raise ValueError(f"descriptor channel mismatch: {profile}")

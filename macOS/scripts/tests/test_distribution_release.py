@@ -17,6 +17,9 @@ class DistributionReleaseTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
+        (self.root / "Packaging").mkdir()
+        (self.root / "Packaging/identity.conf").write_text(
+            'INSTALLER_PUBLIC_BASE="https://delivery.invalid"\nINSTALLER_STREAM_PATH="native"\n')
         self.profiles = self.root / "profiles"
         self.key = self.root / "private.pem"
         subprocess.run(["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(self.key)], check=True)
@@ -32,7 +35,7 @@ class DistributionReleaseTests(unittest.TestCase):
             directory = self.profiles / profile
             directory.mkdir(parents=True)
             descriptor = {"schema_version": 3, "trust_root_fingerprint": fingerprint,
-                          "channels": {channel: {"catalog_url": "https://aurorasilicon.org/aurora-distributions/installer/Profiles/"
+                          "channels": {channel: {"catalog_url": "https://delivery.invalid/native/Profiles/"
                                                  + profile + "/channels/" + channel + "/catalog.signed.json"}
                                        for channel in ("stable", "rc", "edge")}}
             (directory / "release.json").write_text(json.dumps(descriptor))
@@ -68,6 +71,16 @@ class DistributionReleaseTests(unittest.TestCase):
         catalog["models"][0]["installationProfile"] = "fedora-kde"
         (directory / "catalog.json").write_text(json.dumps(catalog))
         self.sign(directory)
+        output = self.root / "output"
+        with patch.object(module, "ROOT", self.root), self.assertRaises(ValueError):
+            module.prepare(self.profiles, output)
+        self.assertFalse(output.exists())
+
+    def test_descriptor_must_use_the_configured_host(self):
+        directory = self.profiles / "fedora-kde"
+        descriptor = json.loads((directory / "release.json").read_text())
+        descriptor["channels"]["edge"]["catalog_url"] = "https://foreign.invalid/catalog.signed.json"
+        (directory / "release.json").write_text(json.dumps(descriptor))
         output = self.root / "output"
         with patch.object(module, "ROOT", self.root), self.assertRaises(ValueError):
             module.prepare(self.profiles, output)

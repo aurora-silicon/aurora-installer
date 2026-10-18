@@ -96,4 +96,8 @@ changes the application bundle.
 The script refuses unsafe or mismatched release inputs and will not overwrite an
 existing application bundle.
 
-For a local hardware test, first assemble an explicitly marked `OMARCHY_DEVELOPER_BUILD=1` app with its sealed developer catalog, then run `Packaging/build-developer-pkg.sh APP OUTPUT.pkg`. This verifies the app and embedded client requirement and creates an unsigned local package that installs the app and its helper through PackageKit. It requires the developer marker and does not use the production signing identities. This package is for local testing, not public distribution.
+For opted-in development testing, assemble an explicitly marked `OMARCHY_DEVELOPER_BUILD=1` app with sealed catalogs, then run `Packaging/build-developer-pkg.sh APP OUTPUT.pkg`. The package is unsigned and the app is ad hoc signed. General Developer ID distribution uses the signed/notarized path above.
+
+Ad-hoc bundles keep the embedded daemon's client requirement set to `never` and omit the self-registration declaration. The assembler signs the helper first, pins its code hash in the root and every profile release descriptor, then signs the app. The developer packager derives the final app's code hash and writes the exact client requirement into its external system LaunchDaemon. It does not modify the signed app. The private review packager applies the same exact-app binding; the production packager rejects an inherited deny-all requirement.
+
+On macOS, `bash test/macos-developer-peer-binding.sh` exercises real signatures and expanded packages using disposable fixtures. Passing an exact app and developer package as its two arguments checks the final artifacts, including all nine helper descriptor pins. It accepts the intended app/helper and rejects unrelated programs with the same identifiers. It never installs a package or registers a helper.

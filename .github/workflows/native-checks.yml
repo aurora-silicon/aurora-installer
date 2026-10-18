@@ -46,10 +46,7 @@ jobs:
       - name: Run portable engine and integration tests
         run: |
           set -euo pipefail
-          export PYTHONPATH="$PWD/Engine/overlay/src"
-          for directory in Engine/tests Engine/overlay/tests scripts/tests; do
-            python3 -m unittest discover -s "$directory" -p 'test_*.py'
-          done
+          bash ./test/all
       - name: Save portable evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -104,6 +101,8 @@ jobs:
         run: xcodebuildmcp swift-package test --package-path "$PWD" --configuration release 2>&1 | tee "$RUNNER_TEMP/installer-ci/swift-release.log"
       - name: Build the native preview
         run: bash Packaging/build-aurora-preview.sh "$RUNNER_TEMP/aurora-preview"
+      - name: Check exact developer app and helper requirements
+        run: bash test/macos-developer-peer-binding.sh 2>&1 | tee "$RUNNER_TEMP/installer-ci/developer-peer-binding.log"
       - name: Save native preview
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:

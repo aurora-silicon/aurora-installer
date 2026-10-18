@@ -6,6 +6,7 @@ fail() { echo "build-developer-pkg: $*" >&2; exit 1; }
 [[ $# == 2 ]] || fail "usage: build-developer-pkg.sh APP OUTPUT.pkg"
 directory="$(cd "$(dirname "$0")" && pwd -P)"
 source "$directory/identity.conf"
+source "$directory/code-identity.sh"
 app="$(cd "$1" && pwd -P)"
 output="$2"
 [[ $output == /* ]] || output="$PWD/$output"
@@ -20,12 +21,19 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/omarchy-developer-pkg.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/root/Applications" "$work/root/Library/LaunchDaemons"
 /usr/bin/ditto "$app" "$work/root/Applications/$INSTALLER_APP_NAME.app"
+staged_app="$work/root/Applications/$INSTALLER_APP_NAME.app"
 plist="$work/root/Library/LaunchDaemons/$INSTALLER_HELPER_IDENTIFIER.plist"
-"$directory/pkg/derive-daemon-plist" "$app" "$plist" /Applications >/dev/null
+"$directory/pkg/derive-daemon-plist" "$staged_app" "$plist" /Applications >/dev/null
 requirement="$(/usr/bin/plutil -extract EnvironmentVariables.OMARCHY_CLIENT_CODE_SIGNING_REQUIREMENT raw -o - "$plist")"
-[[ -n $requirement && $requirement != *REPLACED_DURING_PACKAGING* ]] \
-  || fail "app has no completed client requirement"
-/usr/bin/codesign --verify --strict -R="$requirement" "$app"
+[[ $requirement == "never" ]] \
+  || fail "developer app must deny clients until its package installs an exact requirement"
+# This plist is outside the signed app. Embedding the app's own cdhash in its
+# resources would change that hash and create a signing dependency cycle.
+requirement=$(installer_code_requirement "$staged_app" "$INSTALLER_APP_IDENTIFIER") \
+  || fail "cannot determine the exact signed app identity"
+/usr/bin/plutil -replace EnvironmentVariables.OMARCHY_CLIENT_CODE_SIGNING_REQUIREMENT \
+  -string "$requirement" "$plist"
+/usr/bin/codesign --verify --strict -R="$requirement" "$staged_app"
 chmod 0644 "$plist"
 /usr/bin/ditto "$directory/pkg/scripts" "$work/scripts"
 install -m 0644 "$directory/identity.conf" "$work/scripts/identity.conf"
