@@ -281,3 +281,90 @@ def collect(root="/", chosen=None):
         device_tree_chosen() if chosen is None else chosen
     )
     return files
+
+
+def validate_policy(data, country):
+    """Validate an original-derived J7RP v1 input using the kernel contract.
+
+    This verifies packaging only. It does not generate regulatory limits or
+    establish permission to redistribute the input.
+    """
+    alpha2 = country.encode("ascii")
+    if (len(alpha2) != 2 or not country.isalpha() or country != country.upper()
+            or not 16 <= len(data) <= 16384 or data[:4] != b"J7RP"
+            or struct.unpack_from("<H", data, 4)[0] != 1
+            or data[6:8] != alpha2 or not 2 <= data[8] <= 3
+            or data[9:12] != b"\x0d\x00\x00"
+            or struct.unpack_from("<I", data, 12)[0] != len(data)):
+        raise Mt7932Error("invalid J7RP policy header or country")
+    at = 16
+    for _ in range(data[8]):
+        if (len(data) - at < 328 or struct.unpack_from("<I", data, at)[0]
+                or not 1 <= struct.unpack_from("<I", data, at + 4)[0] <= 320):
+            raise Mt7932Error("invalid J7RP policy mode")
+        at += 328
+    tables = []
+    for index in range(13):
+        if len(data) - at < 44:
+            raise Mt7932Error("truncated J7RP policy table")
+        size = struct.unpack_from("<H", data, at + 2)[0]
+        if not 44 <= size <= min(1020, len(data) - at):
+            raise Mt7932Error("invalid J7RP policy table length")
+        table = data[at:at + size]
+        if 1 <= index <= 9:
+            count = 5 if index in (2, 9) else 8
+            if index == 2 and country == "XZ":
+                count = 6
+            if (table[:2] != b"\x03\x0a" or table[4] != count
+                    or table[5] != (1 if index <= 2 else 2)
+                    or table[6] != int(index in (2, 9)) or table[7]
+                    or table[8:12] != alpha2 + b"\x00\x00"
+                    or size != 44 + count * 122):
+                raise Mt7932Error("invalid J7RP country power table")
+            if country == "XZ":
+                if index <= 2 and any(table[44 + j * 122] != (index - 1) * 8 + j + 1 for j in range(count)):
+                    raise Mt7932Error("invalid J7RP world channel sequence")
+                if index > 1 and table[12:44] != tables[1][12:44]:
+                    raise Mt7932Error("inconsistent J7RP world table identity")
+        else:
+            k = index - 9 if index else 0
+            if (size != (532, 144, 58, 265)[k] or table[:2] != b"\x00\x02"
+                    or table[7] != (5, 1, 4, 2)[k]
+                    or (index == 10 and table[8:12] != alpha2 + b"\x00\x00")):
+                raise Mt7932Error("invalid J7RP original policy record")
+        tables.append(table)
+        at += size
+    if at != len(data):
+        raise Mt7932Error("trailing J7RP policy data")
+    return data
+
+
+def collect_policy_inputs(package, contract):
+    """Read explicitly supplied original policies from an authenticated payload.
+
+    These are per-install inputs. Generic distro images must not silently
+    substitute a different country's policy or embed unlicensed originals.
+    """
+    if not isinstance(contract, dict) or contract.get("kind") != "original-j7rp-v1" or set(contract) != {"kind", "files"}:
+        raise Mt7932Error("Neo radio policy inputs are missing")
+    files = contract["files"]
+    if not isinstance(files, dict) or "world-XZ.bin" not in files or not 1 <= len(files) <= 251:
+        raise Mt7932Error("Neo radio requires the original world-XZ policy")
+    result = {}
+    for name, member in sorted(files.items()):
+        country = "XZ" if name == "world-XZ.bin" else name.removesuffix(".bin")
+        if (name != "world-XZ.bin" and (len(country) != 2 or not country.isascii()
+                or not country.isalpha() or country != country.upper() or name != country + ".bin")):
+            raise Mt7932Error("invalid Neo radio country policy name")
+        expected = "installer-inputs/mt7932-policy/" + name
+        if member != expected:
+            raise Mt7932Error("Neo radio policy member is outside its input directory")
+        try:
+            info = package.getinfo(member)
+            if not 16 <= info.file_size <= 16384:
+                raise Mt7932Error("invalid Neo radio policy input size")
+            data = package.read(member)
+        except (KeyError, OSError) as error:
+            raise Mt7932Error("Neo radio policy input is unavailable: " + name) from error
+        result["mediatek/mt7932/policy/" + name] = validate_policy(data, country)
+    return result

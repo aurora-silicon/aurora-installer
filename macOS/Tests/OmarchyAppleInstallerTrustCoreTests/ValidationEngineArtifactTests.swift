@@ -8,19 +8,19 @@
     func testM3CapableInspectionIdentityIsPinnedExactly() {
       XCTAssertEqual(
         ValidationEngineArtifactLocator.version,
-        "v0.9.2-aurora.1"
+        "v0.9.2-aurora.2"
       )
       XCTAssertEqual(
         ValidationEngineArtifactLocator.fileName,
-        "installer-v0.9.2-aurora.1.tar.gz"
+        "installer-v0.9.2-aurora.2.tar.gz"
       )
       XCTAssertEqual(
         ValidationEngineArtifactLocator.expectedDigest,
-        "sha256:98a7bf05ba758655f443051a237a1476100e3b33f17f956c5fd7e4dcd4b58ef1"
+        "sha256:feec92e46b5b14ab7ae0a05c689c0af59cd8e5bc75f04225119ea969fa7ea6e2"
       )
       XCTAssertEqual(
         ValidationEngineArtifactLocator.expectedSizeBytes,
-        18_038_009
+        18_039_345
       )
     }
 

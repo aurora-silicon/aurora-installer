@@ -85,6 +85,19 @@ class CatalogGeneratorTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn(fragment, result.stderr)
 
+    def test_profile_is_bound_on_every_main_and_developer_model(self):
+        document = self.with_neo()
+        document["installation_profile"] = "fedora-kde"
+        result = self.generate(document, developer=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        catalog = json.loads((self.directory / "catalog.json").read_text())
+        self.assertTrue(catalog["models"])
+        self.assertTrue(all(model["installationProfile"] == "fedora-kde" for model in catalog["models"]))
+
+    def test_unknown_installation_profile_is_rejected(self):
+        self.inputs["installation_profile"] = "fedora-unknown"
+        self.assertRejected(self.inputs, "not an Aurora installer profile")
+
     def test_recommendation_engine_rejects_old_installer_minimum(self):
         self.inputs["installer"]["minimum_version"] = "2.0.10"
         self.assertRejected(self.inputs, "requires installer.minimum_version >= 2.1.0")

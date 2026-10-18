@@ -21,7 +21,7 @@ BOOTSTRAP_MEMBERS = {
     'asahi_firmware/bluetooth.py': 'aa12e6cd684ed5b55d732db1f040d84570537bacc991d03ee6f854cbb232c369',
 }
 BASE_COMMIT = 'f0469cea0899f3efed8efead604174c7a53c4451'
-VERSION = 'v0.9.2-aurora.1'
+VERSION = 'v0.9.2-aurora.2'
 
 _SPEC = importlib.util.spec_from_file_location(
     'verify_source_lock', Path(__file__).resolve().parent / 'verify-source-lock.py')

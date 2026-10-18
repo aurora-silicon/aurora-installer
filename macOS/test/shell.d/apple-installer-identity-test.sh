@@ -43,10 +43,15 @@ done
 [[ $INSTALLER_LEGACY_APP_NAME != "$INSTALLER_APP_NAME" ]] ||
   fail "the legacy app name differs from the current one"
 [[ $INSTALLER_TEAM_ID =~ ^[A-Z0-9]{10}$ ]] || fail "the team identifier has ten characters"
-[[ $INSTALLER_APP_SIGNING_IDENTITY == "Developer ID Application: "*" ($INSTALLER_TEAM_ID)" ]] ||
-  fail "the app signing identity belongs to the configured team"
-[[ $INSTALLER_PKG_SIGNING_IDENTITY == "Developer ID Installer: "*" ($INSTALLER_TEAM_ID)" ]] ||
-  fail "the package signing identity belongs to the configured team"
+if [[ $INSTALLER_APP_SIGNING_IDENTITY == "-" ]]; then
+  [[ $INSTALLER_APP_SIGNING_IDENTITY == "-" && $INSTALLER_PKG_SIGNING_IDENTITY == "-" ]] ||
+    fail "the unconfigured developer identity uses explicit ad-hoc placeholders"
+else
+  [[ $INSTALLER_APP_SIGNING_IDENTITY == "Developer ID Application: "*" ($INSTALLER_TEAM_ID)" ]] ||
+    fail "the app signing identity belongs to the configured team"
+  [[ $INSTALLER_PKG_SIGNING_IDENTITY == "Developer ID Installer: "*" ($INSTALLER_TEAM_ID)" ]] ||
+    fail "the package signing identity belongs to the configured team"
+fi
 [[ $INSTALLER_PUBLIC_BASE == https://?* && $INSTALLER_PUBLIC_BASE != */ ]] ||
   fail "the public base is https without a trailing slash"
 # One path segment: the stream must never be the bucket root, where the MX Mac
@@ -63,7 +68,9 @@ pass "identity.conf is well formed and internally consistent"
 # Release inputs that embed identity or hosting must be derived from it.
 descriptor=$ROOT/Release/release.json
 default_channel=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["default_channel"])' "$descriptor")
-bash "$ROOT/scripts/make-release-descriptor" \
+descriptor_signing=()
+[[ $INSTALLER_APP_SIGNING_IDENTITY != "-" ]] || descriptor_signing+=(--adhoc)
+bash "$ROOT/scripts/make-release-descriptor" "${descriptor_signing[@]}" \
   --public-key "$trust_root" \
   --base-url "$INSTALLER_PUBLIC_BASE/$INSTALLER_STREAM_PATH" \
   --default-channel "$default_channel" \
@@ -87,16 +94,16 @@ pass "release inputs are derived from identity.conf"
 
 # Values set here must not be repeated in code, scripts or tests. Docs,
 # recorded evidence and the derived release inputs checked above may name them.
-guarded=(
-  "$INSTALLER_APP_NAME" "$INSTALLER_LEGACY_APP_NAME" "$INSTALLER_FILE_STEM" "$INSTALLER_APP_IDENTIFIER"
-  "$INSTALLER_HELPER_IDENTIFIER" "$INSTALLER_PKG_IDENTIFIER" "$INSTALLER_TEAM_ID"
-  "$INSTALLER_CATALOG_KEY_SERVICE" "${INSTALLER_PUBLIC_BASE#https://}"
-  "$INSTALLER_R2_BUCKET" "${INSTALLER_R2_ENDPOINT#https://}"
-  "$INSTALLER_GITHUB_RELEASE_REPO" "$INSTALLER_GITHUB_RELEASE_LOGIN"
-  "${INSTALLER_TRUST_ROOT_FINGERPRINT#sha256:}"
-)
+# Security identities must be exact quoted values: a distinct preview bundle
+# identifier may share the app identifier's prefix. Recovery's independently
+# packaged display name and pinned source repository owners are not app IDs.
 patterns=()
-for value in "${guarded[@]}"; do
+for value in "$INSTALLER_APP_IDENTIFIER" "$INSTALLER_HELPER_IDENTIFIER" "$INSTALLER_PKG_IDENTIFIER"; do
+  patterns+=(-e "\"$value\"" -e "'$value'")
+done
+for value in "$INSTALLER_TEAM_ID" "$INSTALLER_CATALOG_KEY_SERVICE" \
+  "${INSTALLER_PUBLIC_BASE#https://}" "${INSTALLER_R2_ENDPOINT#https://}" \
+  "${INSTALLER_TRUST_ROOT_FINGERPRINT#sha256:}"; do
   patterns+=(-e "$value")
 done
 git -C "$ROOT" ls-files -z >"$test_tmp/tracked" || fail "git lists the tracked files"

@@ -363,6 +363,22 @@ class AsahiStage1AdapterTests(unittest.TestCase):
             for name, data in entries.items():
                 archive.writestr(name, data)
 
+    def test_required_neo_radio_policy_is_checked_before_any_disk_mutation(self):
+        self._common_payload()
+        metadata = self._target_metadata()
+        metadata["aurora_stage1"] = {
+            "kind": "common-raw-v1", "qualified_machines": {"j700ap": ["14.8.3"]},
+        }
+        metadata["required_neo_peripherals"] = ["radio"]
+        self._write_metadata([metadata])
+        installer = FakeInstaller(FakeDiskUtil([[self.free]]))
+        installer.sysinfo.device_class = "j700ap"
+        adapter = self._adapter(installer)
+        with self.assertRaisesRegex(AsahiAdapterError, "radio preflight failed"):
+            adapter.preflight(self.plan)
+        self.assertFalse(adapter.preflight_complete)
+        self.assertEqual(installer.dutil.add_calls, [])
+
     def test_generic_image_preflights_neo_without_legacy_board_payloads(self):
         self._common_payload()
         metadata = self._target_metadata()
@@ -834,7 +850,9 @@ class AsahiStage1AdapterTests(unittest.TestCase):
         for layout, prefix, filesystem in (
             ("fedora-btrfs-v1", "fedora", "btrfs"),
             ("alarm-ext4-v1", "arch", "ext4"),
+            ("alarm-btrfs-v1", "arch", "btrfs"),
             ("nixos-ext4-v1", "nixos", "ext4"),
+            ("nixos-btrfs-v1", "nixos", "btrfs"),
         ):
             for desktop in ("kde", "gnome", "minimal"):
                 with self.subTest(layout=layout, desktop=desktop):
@@ -2237,7 +2255,8 @@ class NeoRadioFirmwareTests(unittest.TestCase):
     def run_hook(self, device_class, collect, required=True):
         package = SimpleNamespace(added=[])
         package.add_file = lambda name, data: package.added.append((name, data))
-        installer = SimpleNamespace(sysinfo=SimpleNamespace(device_class=device_class))
+        installer = SimpleNamespace(sysinfo=SimpleNamespace(device_class=device_class),
+                                    neo_regulatory_policies={"mediatek/mt7932/policy/world-XZ.bin": b"admitted-world-policy"})
         firmware = SimpleNamespace(core=SimpleNamespace(FWFile=lambda name, data: ("FWFile", name, data)))
         with patch("omarchy_asahi.asahi_firmware", firmware):
             _collect_neo_radios(installer, package, collect=collect, required=required)
@@ -2246,7 +2265,7 @@ class NeoRadioFirmwareTests(unittest.TestCase):
     def test_a_neo_adds_every_collected_file(self):
         added = self.run_hook("j700ap", lambda: self.files)
         self.assertEqual(added, [
-            (name, ("FWFile", name, data)) for name, data in sorted(self.files.items())
+            (name, ("FWFile", name, data)) for name, data in sorted({**self.files, "mediatek/mt7932/policy/world-XZ.bin": b"admitted-world-policy"}.items())
         ])
 
     def test_other_macs_collect_nothing(self):

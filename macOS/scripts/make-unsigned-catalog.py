@@ -238,9 +238,17 @@ def load_inputs(path: Path, developer: bool = False) -> dict:
     missing = REQUIRED_INPUT_KEYS - keys
     if missing:
         raise SystemExit(f"inputs file is missing keys: {', '.join(sorted(missing))}")
-    unknown = keys - REQUIRED_INPUT_KEYS - ({"developer_models"} if developer else set())
+    unknown = keys - REQUIRED_INPUT_KEYS - {"installation_profile"} - ({"developer_models"} if developer else set())
     if unknown:
         raise SystemExit(f"inputs file has unknown keys: {', '.join(sorted(unknown))}")
+
+    profile = document.get("installation_profile")
+    if profile is not None and profile not in {
+        distribution + "-" + desktop
+        for distribution in ("fedora", "arch", "nixos")
+        for desktop in ("kde", "gnome", "minimal")
+    }:
+        raise SystemExit("inputs installation_profile is not an Aurora installer profile")
 
     for key in (
         "payload_name",
@@ -410,6 +418,8 @@ def model_group(inputs: dict, group: dict, assets: Path, base_url: str) -> tuple
         "metadataArtifact": artifact(metadata, base_url),
         "payloadArtifact": payload_artifact,
     }
+    if "installation_profile" in inputs:
+        shared["installationProfile"] = inputs["installation_profile"]
     models = [
         {"deviceIdentifier": device_identifier, **shared}
         for device_identifier in group["device_identifiers"]
