@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "reference_repository": "https://github.com/erykwieliczko/macos-firmware-extract",
+  "reference_commit": "71b413af680edec1808a709cb7addfbde5c21cfc",
+  "swift": "Apple Swift version 6.3.2 (swiftlang-6.3.2.1.108 clang-2100.1.1.101)\nTarget: arm64-apple-macosx26.0",
+  "sdk": "26.5",
+  "target": "arm64-apple-macosx14.0",
+  "reproducibility": "two-identical-clean-builds-same-host-pinned-toolchain",
+  "sources": [
+    {
+      "path": "Package.swift",
+      "sha256": "ba1323a131a50a5f9ed8277945925e0c7e7d06fb061aa0b995f2bd5a442a25ab"
+    },
+    {
+      "path": "build.sh",
+      "sha256": "de28517738c69512dc066699ea24ea040b0e020f26204a847f6077b8a767f823"
+    },
+    {
+      "path": "Sources/RestoreImageCLI/CLI.swift",
+      "sha256": "7cc39d3c2f0578354a8a94fe51b35d8be364551879486893e5c2ebc5cd00fbb7"
+    },
+    {
+      "path": "Sources/RestoreImageCore/Archive.swift",
+      "sha256": "f37788474aeec3654633a9cbb336d9c3558fd1325a4dc3ae0883257f7073449c"
+    },
+    {
+      "path": "Sources/RestoreImageCore/Compression.swift",
+      "sha256": "b9473b3cfd034258cbbdb799117e9c3b6c8daa642e060f06703c85847660f069"
+    },
+    {
+      "path": "Sources/RestoreImageCore/Ranges.swift",
+      "sha256": "c225fdc990ce61b40689f2e5f7661f68136b7dc7f11ae8023c09a60d83d4ed94"
+    },
+    {
+      "path": "Sources/RestoreImageCore/Recipe.swift",
+      "sha256": "a011d4402d2bea61f2906259ae14dfdc5558ffadc1ab91ecd4316c4e0240327d"
+    },
+    {
+      "path": "Sources/RestoreImageCore/Support.swift",
+      "sha256": "f4e0718c544c9db27388bc495bb000806d61a13d9f976fd94be619eb72241134"
+    },
+    {
+      "path": "Sources/RestoreImageCore/Transport.swift",
+      "sha256": "fbc967ae059206b375fec4bb5ae72dec5ea8d069e67d08c2c8bc0c6682369d92"
+    },
+    {
+      "path": "Sources/RestoreImageCore/WorkDirectory.swift",
+      "sha256": "45008e07ab13a7c03959aae7ed6ff49d4fc5068a63760f78c1de9dc8a810c6b8"
+    }
+  ],
+  "binary_sha256": "f443d4c4477b9d80800390d2398655c64406022754d4ab34cea577a8ffa0b64c",
+  "binary_size": 470648
+}

@@ -3,6 +3,17 @@ name: release-dev
 on:
   push:
     branches: [ main ]
+    # Native macOS installer changes use native-checks and their own releases.
+    paths:
+      - src/**
+      - asahi_firmware/**
+      - scripts/**
+      - build.sh
+      - setup.py
+      - requirements*
+      - installer_data.json
+      - m1n1
+      - artwork
   workflow_dispatch:
 
 jobs:

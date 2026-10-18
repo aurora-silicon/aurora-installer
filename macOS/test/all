@@ -1,0 +1,45 @@
+#!/bin/bash
+
+set -euo pipefail
+
+if (( BASH_VERSINFO[0] < 5 )); then
+  echo "test/all requires Bash 5 or newer" >&2
+  exit 1
+fi
+
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$root"
+tests_temp=$(mktemp -d "${TMPDIR:-/tmp}/omarchy-installer-tests.XXXXXX")
+trap 'rm -rf -- "$tests_temp"' EXIT
+export TMPDIR="$tests_temp"
+export PYTHONPYCACHEPREFIX="$tests_temp/pycache"
+export PYTHONPATH="$root/Engine/overlay/src"
+
+python3 - <<'PY'
+from pathlib import Path
+import py_compile
+import subprocess
+
+for directory in ("Engine", "scripts", "Packaging", "Development", "test"):
+    for path in sorted(Path(directory).rglob("*")):
+        if not path.is_file() or "__pycache__" in path.parts:
+            continue
+        if path.suffix == ".py":
+            py_compile.compile(str(path), doraise=True)
+        with path.open("rb") as source:
+            first_line = source.readline(128).rstrip()
+        if first_line in (b"#!/bin/bash", b"#!/usr/bin/env bash"):
+            subprocess.run(["bash", "-n", str(path)], check=True)
+print("Python compilation and shell syntax passed")
+PY
+
+python3 -m unittest discover -s Engine/tests -p 'test_*.py'
+python3 -m unittest discover -s Engine/overlay/tests -p 'test_*.py'
+python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+bash scripts/tests/preclean-m1-test.sh
+for test_file in test/shell.d/apple-installer-*-test.sh; do
+  bash "$test_file"
+done
+bash test/shell.d/update-m1n1-selector-test.sh
+
+echo "Portable installer checks passed; macOS validation is separate."

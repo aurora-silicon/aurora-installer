@@ -1,0 +1,32 @@
+scenarios=update snapshot-restore factory-reset
+image_dir=/var/tmp/omarchy-images/apple-test-99ace4070354-20260926/image
+image_signature=unsigned
+payload=omarchy-2026.09.25-aarch64-apple-silicon-mac-edge-os-package.zip|3568410221|3b975200296c139f316e44a6b3c78b40aeb0e6920ae8a8bade2f3b84eff12221
+candidate_set=apple-test-99ace4070354-20260926
+candidate_source_commit=99ace4070354a99da3e92e0fe996114bfd47c36d
+builder_commit=d1eef33c67ecf92eb02ead8d7bd9b6dc3a2c5ab8
+package_set_sha256=f697d5f5a9dfa1495acfceba7eac7ddc500ca5e626230ca70f4360b6fd0e481e
+input_digest=0c42e2f697758af7a5ff9dbbaaf03b6689510cca396eb7a2c731c5e6515bc4d2
+ok - apple-test-99ace4070354-20260926: IMAGE (unsigned), PROVENANCE and a passed INSPECTION agree; omarchy-2026.09.25-aarch64-apple-silicon-mac-edge-os-package.zip matches (3568410221 bytes)
+ok - payload unpacked: ESP tree with Limine, boot.img (4f4d5801-424f-4f54-8000-000000000001), root.img (4f4d5801-524f-4f54-8000-000000000001)
+ok - every member IMAGE names matches its digest (10 members)
+ok - generic kernel 7.2.3-1-aarch64-ARCH + initramfs from the image's hooks (image kernel 7.1.12-2-10-ARCH)
+uefi_firmware=edk2-aarch64-202608-1-any.pkg.tar.zst|07651fafa99d4569ce59a1c1653eb83a4bb02112abeb1656e1354c0fd5b6aa69
+ok - UEFI firmware edk2-aarch64-202608-1-any.pkg.tar.zst matches its pinned digest
+ok - guest device tree: apple,j314s apple,t6000 apple,arm-platform over QEMU virt
+run_id=image2-99ace40-update-20260925T174237Z
+lane=edge
+generic_kernel=7.2.3-1-aarch64-ARCH
+alarm_mirror=https://downloads.aicodelabs.com.au/mirror/alarm/20260906/$repo/os/$arch
+host=omarchy-m1-pro 7.1.12-2-7-ARCH
+harness_commit=8836e7ada0d86d5dd1743028a8d11b67e1c63fb4
+ok - conversion: root converted to LUKS2 in the initrd (conversion finished in 57s (220 MiB/s)), Limine rebuilt, first boot finished on /dev/mapper/root
+ok - conversion: the owner's password (slot 1) and the recovery key (slot 2) open the disk, and no other key slot is left for the temporary key
+ok - conversion: encrypt.state finished, temporary key files gone, crypttab set, Limine unlocks 50f92f08-24d5-4717-9240-c6d36cfa2725 with no key file
+ok - update: omarchy update -y finished with the boot files verified (0 packages upgraded)
+runtime_before_update=omarchy 4.0.0.alpha.quattro.r1790350165.g99ace4070354-1.361571887310001,omarchy-mac 0.1.0-5.361571887310001,omarchy-mac-boot 20260925-3,omarchy-settings 4.0.0.alpha.quattro.r1790350165.g99ace4070354-1.361571887310001
+runtime_after_update=omarchy 4.0.0.alpha.quattro.r1790350165.g99ace4070354-1.361571887310001,omarchy-mac 0.1.0-5.361571887310001,omarchy-mac-boot 20260925-3,omarchy-settings 4.0.0.alpha.quattro.r1790350165.g99ace4070354-1.361571887310001
+ok - update: the test image kept the set's omarchy omarchy-mac omarchy-settings through the upgrade
+ok - update: the updated disk unlocks with the owner's password and reaches the login prompt
+skip - snapshot-restore: the image has no /etc/boot/hooks/pre.d/04-omarchy-mac-snapshot-check (snapshot boot and restore, ticket 36)
+skip - factory-reset: the image has no /usr/lib/omarchy/mac-boot/reset-prepare (factory reset through lifecycle dispatch, ticket 34)

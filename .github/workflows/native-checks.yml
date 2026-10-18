@@ -1,0 +1,164 @@
+name: Native installer checks
+
+on:
+  pull_request:
+    branches: [main, feat/fedora-native-20261018]
+  push:
+    branches: [main, feat/fedora-native-20261018]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Superseded PR runs can stop; each push/manual run keeps its own evidence.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+    working-directory: macOS
+
+jobs:
+  portable:
+    name: Portable checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Record source and tools
+        run: |
+          mkdir -p "$RUNNER_TEMP/installer-ci"
+          {
+            git rev-parse HEAD
+            uname -a
+            bash --version
+            python3 --version
+            git --version
+            id
+          } | tee "$RUNNER_TEMP/installer-ci/toolchain.txt"
+      - name: Run portable engine and integration tests
+        run: |
+          set -euo pipefail
+          bash ./test/all
+      - name: Save portable evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: portable-evidence
+          path: ${{ runner.temp }}/installer-ci/
+          retention-days: 14
+
+  macos:
+    name: macOS checks
+    runs-on: macos-26
+    timeout-minutes: 20
+    env:
+      XCODEBUILDMCP_SENTRY_DISABLED: 'true'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Record source and tools
+        run: |
+          mkdir -p "$RUNNER_TEMP/installer-ci"
+          [[ $(uname -m) == "arm64" ]]
+          {
+            git rev-parse HEAD
+            sw_vers
+            uname -m
+            /usr/sbin/sysctl hw.model hw.targettype machdep.cpu.brand_string
+            xcodebuild -version
+            xcrun swift --version
+            xcrun swift-format --version
+          } | tee "$RUNNER_TEMP/installer-ci/toolchain.txt"
+      - name: Install pinned XcodeBuildMCP
+        run: |
+          # Match the standalone tool used for the recorded M4 validation.
+          archive=xcodebuildmcp-2.7.0-darwin-arm64.tar.gz
+          tool_dir="$RUNNER_TEMP/xcodebuildmcp"
+          mkdir -p "$tool_dir"
+          cd "$tool_dir"
+          curl --fail --location --silent --show-error --retry 3 \
+            "https://github.com/getsentry/XcodeBuildMCP/releases/download/v2.7.0/$archive" \
+            --output "$archive"
+          echo "bd724a2c0e6ffe027b3f46257e66d626149a64cd045f4867124bd683b3cf081a  $archive" | shasum -a 256 -c -
+          tar -xzf "$archive"
+          tool_bin="$tool_dir/xcodebuildmcp-2.7.0-darwin-arm64/bin"
+          echo "$tool_bin" >> "$GITHUB_PATH"
+          "$tool_bin/xcodebuildmcp" --version | tee -a "$RUNNER_TEMP/installer-ci/toolchain.txt"
+      - name: Check Swift formatting
+        run: xcrun swift-format lint --strict --recursive Package.swift Sources Plugins Tests 2>&1 | tee "$RUNNER_TEMP/installer-ci/swift-format.log"
+      - name: Run debug Swift tests
+        run: xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug 2>&1 | tee "$RUNNER_TEMP/installer-ci/swift-debug.log"
+      - name: Run release Swift tests
+        run: xcodebuildmcp swift-package test --package-path "$PWD" --configuration release 2>&1 | tee "$RUNNER_TEMP/installer-ci/swift-release.log"
+      - name: Build the native preview
+        run: bash Packaging/build-aurora-preview.sh "$RUNNER_TEMP/aurora-preview"
+      - name: Check exact developer app and helper requirements
+        run: bash test/macos-developer-peer-binding.sh 2>&1 | tee "$RUNNER_TEMP/installer-ci/developer-peer-binding.log"
+      - name: Save native preview
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: aurora-native-preview
+          path: ${{ runner.temp }}/aurora-preview/
+          retention-days: 14
+      - name: Save macOS evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-evidence
+          path: |
+            ${{ runner.temp }}/installer-ci/
+            ~/Library/Developer/XcodeBuildMCP/workspaces/*/logs/**
+          retention-days: 14
+
+  image-builder:
+    name: Image builder source checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Install source-test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarchive-tools jq gnupg zstd xz-utils
+      - name: Run the image producer's source checks
+        run: |
+          mkdir -p "$RUNNER_TEMP/image-builder-ci"
+          TMPDIR="$RUNNER_TEMP" bash image-builder/test/all 2>&1 | tee "$RUNNER_TEMP/image-builder-ci/source-tests.log"
+      - name: Save source-check evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-builder-source-evidence
+          path: ${{ runner.temp }}/image-builder-ci/
+          retention-days: 14
+
+  engine:
+    name: Reproduce the native installer engine
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - name: Reproduce the locked engine twice
+        run: python3 Engine/prepare-engine.py --output Engine/artifacts
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: aurora-engine
+          path: macOS/Engine/artifacts/*.tar.gz
+          retention-days: 30

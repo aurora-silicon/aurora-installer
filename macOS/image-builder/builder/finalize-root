@@ -1,0 +1,206 @@
+#!/bin/bash
+
+# The image-only edits of an Apple Silicon Omarchy root: what an installer's
+# configurator would otherwise write (identity, locale, keyboard, time, name
+# resolution, GRUB defaults, the boot splash, the login screen), for the image
+# builder to apply to the root it builds. Installed Macs never run it. Ported
+# from omarchy-pkgs' mac-image-finalize.
+
+set -euo pipefail
+umask 022
+
+fail() {
+  echo "finalize-root: $*" >&2
+  exit 1
+}
+
+usage() {
+  echo "Usage: finalize-root --root DIR" >&2
+  exit 64
+}
+
+root=""
+while (($#)); do
+  case $1 in
+    --root)
+      (($# > 1)) || usage
+      root=$2
+      shift
+      ;;
+    *) usage ;;
+  esac
+  shift
+done
+[[ -n $root ]] || usage
+[[ -d $root ]] || fail "$root is not a directory"
+root=$(cd -- "$root" && pwd -P)
+[[ $root != / ]] || root=""
+# The hygiene below would wipe a running machine's identity.
+[[ -n $root || ! -d /run/systemd/system ]] || fail "refusing to finalize the running system; pass --root"
+
+path() { printf '%s/%s\n' "$root" "$1"; }
+
+write_file() {
+  local mode=$1 target
+  target=$(path "$2")
+  mkdir -p -- "${target%/*}"
+  printf '%s' "$3" >"$target.finalize"
+  chmod "$mode" "$target.finalize"
+  mv -f -- "$target.finalize" "$target"
+}
+
+symlink() {
+  local target
+  target=$(path "$1")
+  [[ -L $target && $(readlink -- "$target") == "$2" ]] && return
+  [[ -L $target || ! -d $target ]] || fail "$target is a directory"
+  mkdir -p -- "${target%/*}"
+  rm -f -- "$target"
+  ln -s -- "$2" "$target"
+}
+
+# omarchy-iso's _set_shell_assignment: replace the first NAME= or #NAME= line,
+# else trim trailing whitespace and append.
+set_assignment() {
+  local file=$1 final_newline=1
+  [[ ! -s $file || -z $(tail -c 1 -- "$file") ]] || final_newline=0
+  ASSIGNMENT_NAME=$2 ASSIGNMENT_LINE="$2=\"$3\"" awk -v final_newline="$final_newline" '
+    { lines[++count] = $0 }
+    END {
+      pattern = "^#?" ENVIRON["ASSIGNMENT_NAME"] "="
+      for (i = 1; i <= count; i++) {
+        if (lines[i] ~ pattern) { lines[i] = ENVIRON["ASSIGNMENT_LINE"]; found = 1; break }
+      }
+      for (i = 1; i <= count; i++) text = text lines[i] ((i < count || final_newline) ? "\n" : "")
+      if (!found) {
+        sub(/[ \t\n\r\f\v]+$/, "", text)
+        text = text "\n" ENVIRON["ASSIGNMENT_LINE"] "\n"
+      }
+      printf "%s", text
+    }
+  ' "$file" >"$file.finalize"
+  cat "$file.finalize" >"$file"
+  rm -f -- "$file.finalize"
+}
+
+configure_grub_defaults() {
+  local grub
+  grub=$(path etc/default/grub)
+  mkdir -p -- "${grub%/*}"
+  [[ -e $grub ]] || : >"$grub"
+  set_assignment "$grub" GRUB_DISTRIBUTOR Omarchy
+  # Hidden for one second: Esc or Shift still reaches the menu for recovery,
+  # and the kernel line carries the same silence the x86 Limine entry does.
+  set_assignment "$grub" GRUB_TIMEOUT 1
+  set_assignment "$grub" GRUB_TIMEOUT_STYLE hidden
+  set_assignment "$grub" GRUB_VIDEO_BACKEND efi_gop
+  set_assignment "$grub" GRUB_CMDLINE_LINUX "zswap.enabled=0 rootfstype=btrfs"
+  # The Mac's device tree registers a serial console, and Plymouth drops to its
+  # text view while one is active: mx-mac's qualified boot line ignores it.
+  set_assignment "$grub" GRUB_CMDLINE_LINUX_DEFAULT "quiet splash loglevel=0 systemd.show_status=false rd.udev.log_level=0 vt.global_cursor_default=0 plymouth.ignore-serial-consoles"
+}
+
+# omarchy-settings leaves /etc/plymouth/plymouthd.conf to Arch Linux ARM on
+# Apple Silicon, whose default theme is bgrt: the encrypted Mac's unlock screen
+# would be a generic prompt. Every initramfs the image builds after this shows
+# the Omarchy theme.
+configure_splash() {
+  [[ -f $(path usr/share/plymouth/themes/omarchy/omarchy.plymouth) ]] ||
+    fail "the omarchy Plymouth theme is not installed in $root/"
+  if [[ -n $root ]]; then
+    chroot "$root" plymouth-set-default-theme omarchy
+  else
+    plymouth-set-default-theme omarchy
+  fi
+}
+
+configure_login() {
+  write_file 0644 etc/sddm.conf.d/99-omarchy-login.conf \
+    $'[Theme]\nCurrent=omarchy\n\n[Users]\nRememberLastUser=true\nRememberLastSession=true\n'
+  # No owner exists yet; provisioning writes autologin once one does.
+  rm -f -- "$(path etc/sddm.conf.d/autologin.conf)" "$(path etc/systemd/system/getty@tty1.service.d/autologin.conf)"
+}
+
+configure_identity() {
+  write_file 0644 etc/hostname $'omarchy\n'
+}
+
+configure_locale() {
+  local locale_gen locale_conf
+  locale_gen=$(path etc/locale.gen)
+  locale_conf=$(path etc/locale.conf)
+  [[ -f $locale_gen && ! -L $locale_gen ]] || fail "$locale_gen is unavailable"
+  awk '
+    !done {
+      value = $0
+      ending = ""
+      if (value ~ /\r$/) { sub(/\r$/, "", value); ending = "\r" }
+      if (value ~ /^#?en_US(\.UTF-8)?[ \t]+UTF-8[ \t]*$/) {
+        $0 = "en_US.UTF-8 UTF-8" ending
+        done = 1
+      }
+    }
+    { print }
+    END { if (!done) exit 3 }
+  ' "$locale_gen" >"$locale_gen.finalize" || {
+    rm -f -- "$locale_gen.finalize"
+    fail "$locale_gen has no en_US.UTF-8 entry"
+  }
+  cat "$locale_gen.finalize" >"$locale_gen"
+  rm -f -- "$locale_gen.finalize"
+  if [[ -n $root ]]; then
+    chroot "$root" locale-gen
+  else
+    locale-gen
+  fi
+  [[ ! -e $locale_conf && ! -L $locale_conf ]] || [[ -f $locale_conf && ! -L $locale_conf ]] ||
+    fail "$locale_conf is not a regular file"
+  write_file 0644 etc/locale.conf $'LANG=en_US.UTF-8\n'
+}
+
+# systemd-firstboot --keymap=us output; the FONT= line survives the rewrite, as in omarchy-iso.
+configure_keyboard() {
+  local vconsole font=""
+  vconsole=$(path etc/vconsole.conf)
+  [[ ! -f $vconsole ]] || font=$(grep -m 1 '^FONT=' "$vconsole" || true)
+  write_file 0644 etc/vconsole.conf "# Written by systemd-localed(8) or systemd-firstboot(1), read by systemd-localed
+# and systemd-vconsole-setup(8). Use localectl(1) to update this file.
+KEYMAP=us
+XKBLAYOUT=us
+XKBMODEL=pc105+inet
+XKBOPTIONS=terminate:ctrl_alt_bksp
+${font:+$font
+}"
+}
+
+configure_time() {
+  [[ -e $(path usr/share/zoneinfo/UTC) ]] || fail "the UTC timezone is not installed in $root/"
+  symlink etc/localtime /usr/share/zoneinfo/UTC
+}
+
+# omarchy-mac ships NetworkManager's iwd backend; only name resolution is the image's.
+configure_network() {
+  symlink etc/resolv.conf ../run/systemd/resolve/stub-resolv.conf
+}
+
+scrub_machine_identity() {
+  local machine_id
+  machine_id=$(path etc/machine-id)
+  if [[ -e $machine_id ]]; then
+    : >"$machine_id"
+  else
+    install -m 0444 /dev/null "$machine_id"
+  fi
+  rm -f -- "$(path var/lib/systemd/random-seed)" "$(path etc/ssh)"/ssh_host_*
+}
+
+configure_grub_defaults
+configure_splash
+configure_login
+configure_identity
+configure_locale
+configure_keyboard
+configure_time
+configure_network
+scrub_machine_identity
+echo "Finalized the image root ${root:-/}"

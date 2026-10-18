@@ -1,0 +1,91 @@
+#!/bin/bash
+# Runs as root during package install. Loads the pre-installed privileged helper
+# as a system LaunchDaemon so the app can reach it immediately — no Login Items,
+# no reboot, no per-user approval.
+set -u
+# build-pkg.sh ships Packaging/identity.conf beside this script.
+source "$(dirname "$0")/identity.conf" || exit 1
+PLIST="/Library/LaunchDaemons/$INSTALLER_HELPER_IDENTIFIER.plist"
+LABEL="$INSTALLER_HELPER_IDENTIFIER"
+PLIST_BUDDY=/usr/libexec/PlistBuddy
+PGREP=/usr/bin/pgrep
+
+# Remove a copy installed under the app's old name, so an upgrade leaves one
+# installer. Only a real bundle carrying this app's identifier that nothing is
+# running from is removed; every refusal or failure is logged and the package
+# still succeeds.
+remove_legacy_app() {
+  local legacy=$1 identifier status=0
+  [[ -d $legacy && ! -L $legacy ]] || return 0
+  identifier=$("$PLIST_BUDDY" -c 'Print :CFBundleIdentifier' "$legacy/Contents/Info.plist" 2>/dev/null) || identifier=""
+  if [[ $identifier != "$INSTALLER_APP_IDENTIFIER" ]]; then
+    echo "postinstall: leaving $legacy: bundle identifier is '${identifier:-unknown}'" >&2
+    return 0
+  fi
+  # pgrep exits 1 only when nothing matches; any other failure keeps the app.
+  "$PGREP" -f "$legacy/Contents/" >/dev/null 2>&1 || status=$?
+  if (( status == 0 )); then
+    echo "postinstall: leaving $legacy: it is running" >&2
+  elif (( status != 1 )); then
+    echo "postinstall: leaving $legacy: could not tell whether it is running (pgrep exit $status)" >&2
+  elif ! /bin/rm -rf "$legacy"; then
+    echo "postinstall: could not remove $legacy" >&2
+    /usr/bin/logger -t omarchy-installer-pkg "could not remove $legacy" || true
+  fi
+  return 0
+}
+
+if [[ -f "$PLIST" ]]; then
+  /usr/sbin/chown root:wheel "$PLIST"
+  /bin/chmod 0644 "$PLIST"
+  # Replace any stale registration, then load fresh. A daemon that fails to
+  # load leaves the app unable to reach its privileged helper, so surface the
+  # failure through the installer instead of hiding it: PackageKit records
+  # this script's output in /var/log/install.log and fails the package.
+  /bin/launchctl bootout system/"$LABEL" 2>/dev/null || true
+  bootstrap_succeeded=false
+  for bootstrap_attempt in {1..10}; do
+    if bootstrap_error="$(/bin/launchctl bootstrap system "$PLIST" 2>&1)"; then
+      bootstrap_succeeded=true
+      break
+    fi
+    # Transient EIO has occurred while replacing the registration. Retry
+    # this same verified plist for at most 1.8 seconds, then report failure.
+    if (( bootstrap_attempt < 10 )); then /bin/sleep 0.2; fi
+  done
+  if [[ "$bootstrap_succeeded" != true ]]; then
+    echo "postinstall: failed to load $LABEL from $PLIST: $bootstrap_error" >&2
+    /usr/bin/logger -t omarchy-installer-pkg "failed to load $LABEL: $bootstrap_error" || true
+    exit 1
+  fi
+  if ! /bin/launchctl print system/"$LABEL" >/dev/null 2>&1; then
+    echo "postinstall: $LABEL did not register with launchd" >&2
+    exit 1
+  fi
+else
+  echo "postinstall: daemon plist is missing: $PLIST" >&2
+  exit 1
+fi
+
+APP="/Applications/$INSTALLER_APP_NAME.app"
+remove_legacy_app "/Applications/$INSTALLER_LEGACY_APP_NAME.app"
+
+# Pre-run Gatekeeper's one-time inspection of the new app now, while the
+# installer's own progress UI is still on screen. Without this, the first
+# open sits invisibly for a minute or more while macOS scans the app.
+if [[ -d "$APP" && -x /usr/bin/gktool ]]; then
+  /usr/bin/gktool scan "$APP" 2>/dev/null || true
+fi
+
+# Open the installer app for whoever is at the screen, so finishing the
+# package flows straight into the app. Root context: resolve the console
+# user; skip silently for headless installs, and never fail the package.
+console_user="$(/usr/bin/stat -f %Su /dev/console 2>/dev/null || true)"
+if [[ -d "$APP" && -n "$console_user" && "$console_user" != "root" ]]; then
+  console_uid="$(/usr/bin/id -u "$console_user" 2>/dev/null || true)"
+  if [[ -n "$console_uid" ]]; then
+    /bin/launchctl asuser "$console_uid" \
+      /usr/bin/sudo -u "$console_user" /usr/bin/open "$APP" 2>/dev/null || true
+  fi
+fi
+exit 0
