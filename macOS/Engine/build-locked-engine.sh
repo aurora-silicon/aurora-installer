@@ -106,8 +106,28 @@ done < <(
   jq -r '.downstream_overlay.files[] | [.path, .destination] | @tsv' "$lock"
 )
 
-metadata=$(jq -r '.downstream_overlay.metadata.path' "$lock")
-cp "$engine_root/$metadata" "$stage/installer_data.json"
+# Engine metadata belongs to the authenticated runtime base. The repository's
+# installer_data.json describes a Linux payload and is not this metadata.
+python3 - "$engine_root" "$input_cache" "$stage/installer_data.json" <<'PYMETADATA'
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import sys
+import tarfile
+root, cache, output = map(Path, sys.argv[1:])
+spec = importlib.util.spec_from_file_location('prepare_engine', root / 'prepare-engine.py')
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+lock = json.loads((root / 'source-lock.json').read_text())
+base = module.cached_base(cache, lock['incremental_build'])
+module.REBUILD.require_base(base.read_bytes(), lock)
+with tarfile.open(base, 'r:gz') as archive:
+    data = archive.extractfile('./installer_data.json').read()
+if hashlib.sha256(data).hexdigest() != lock['validation_artifact']['metadata_sha256']:
+    raise SystemExit('Authenticated engine metadata differs from source lock')
+output.write_bytes(data)
+PYMETADATA
 version=$(jq -r '.downstream_overlay.version' "$lock")
 printf '%s\n' "$version" >"$stage/version.tag"
 

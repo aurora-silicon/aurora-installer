@@ -1,16 +1,16 @@
 import Foundation
 
 public enum AuroraDistribution: String, CaseIterable, Codable, Identifiable, Sendable {
-  case fedora, arch, uefi
+  case fedora, arch, nixos
   public var id: String { rawValue }
   public var title: String {
     switch self {
     case .fedora: "Fedora Aurora Remix"
     case .arch: "Aurora ALARM"
-    case .uefi: "UEFI"
+    case .nixos: "Aurora NixOS"
     }
   }
-  public var supportsDesktop: Bool { self != .uefi }
+  public var supportsDesktop: Bool { true }
 }
 
 public enum AuroraDesktop: String, CaseIterable, Codable, Identifiable, Sendable {
@@ -26,7 +26,7 @@ public enum AuroraDesktop: String, CaseIterable, Codable, Identifiable, Sendable
 }
 
 /// The profile is bound to a distinct signed catalog, payload and staging area.
-/// A UEFI-only install never carries a desktop choice into an execution plan.
+/// Each distribution offers the same explicit desktop choices.
 public struct AuroraInstallationSelection: Equatable, Codable, Sendable {
   public var distribution: AuroraDistribution
   public var desktop: AuroraDesktop
@@ -40,18 +40,17 @@ public struct AuroraInstallationSelection: Equatable, Codable, Sendable {
     distribution.supportsDesktop ? desktop : nil
   }
   public var profileID: String {
-    effectiveDesktop.map { distribution.rawValue + "-" + $0.rawValue } ?? "uefi"
+    distribution.rawValue + "-" + desktop.rawValue
   }
   public var summary: String {
-    effectiveDesktop.map { distribution.title + " · " + $0.title } ?? "UEFI boot environment"
+    distribution.title + " · " + desktop.title
   }
   public static var allProfileIDs: Set<String> {
     Set(
       AuroraDistribution.allCases.flatMap { distribution in
-        distribution.supportsDesktop
-          ? AuroraDesktop.allCases.map {
-            AuroraInstallationSelection(distribution: distribution, desktop: $0).profileID
-          } : ["uefi"]
+        AuroraDesktop.allCases.map {
+          AuroraInstallationSelection(distribution: distribution, desktop: $0).profileID
+        }
       })
   }
 

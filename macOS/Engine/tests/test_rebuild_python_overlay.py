@@ -260,6 +260,7 @@ class BaseIdentityTest(unittest.TestCase):
     def lock(self, base_sha256=None, base_commit=None):
         return {"incremental_build": {
             "base_sha256": base_sha256 or REBUILD.BASE_SHA256,
+            "base_source_commit": REBUILD.BASE_SOURCE_COMMIT,
             "upstream_delta": {"base_commit": base_commit or REBUILD.BASE_COMMIT, "files": []},
         }}
 
@@ -275,7 +276,7 @@ class BaseIdentityTest(unittest.TestCase):
         REBUILD.require_base(self.data, self.lock())
 
     def test_other_base_archive_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "exact deployed omarchy.14 engine"):
+        with self.assertRaisesRegex(ValueError, "exact published omarchy.28 engine"):
             REBUILD.require_base(b"another engine", self.lock())
 
     def test_delta_from_another_upstream_commit_is_rejected(self):
@@ -285,6 +286,23 @@ class BaseIdentityTest(unittest.TestCase):
     def test_lock_naming_another_base_archive_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "different base"):
             REBUILD.require_base(self.data, self.lock(base_sha256="0" * 64))
+
+
+class CanonicalArchiveHeaderTests(unittest.TestCase):
+    def test_pax_timestamp_has_one_header_without_mutating_the_input(self):
+        member = tarfile.TarInfo("./directory/")
+        member.type = tarfile.DIRTYPE
+        member.mode = 0o755
+        member.mtime = 1786436181.125
+        member.pax_headers = {"mtime": "1786436181.125", "atime": "1786436181.5"}
+        canonical = REBUILD.canonical_member(member)
+        self.assertEqual(canonical.mtime, 1786436181)
+        self.assertEqual(canonical.pax_headers, {"atime": "1786436181.5"})
+        self.assertEqual(member.mtime, 1786436181.125)
+        self.assertIn("mtime", member.pax_headers)
+        data = canonical.tobuf(format=tarfile.PAX_FORMAT)
+        self.assertEqual(hashlib.sha256(data).hexdigest(),
+                         "53ba00026f5c20a4a0f58bce194f9287225a029fc5d0a76c8668643d1feff007")
 
 
 if __name__ == "__main__":

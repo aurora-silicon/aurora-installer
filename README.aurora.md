@@ -57,12 +57,11 @@ partitions or stage an image.
 ## Native Linux installer
 
 The `macOS/` subtree adds the independent Aurora Linux GUI: Fedora Aurora Remix,
-Aurora ALARM and a UEFI-only choice, with KDE Plasma, GNOME and shell profiles.
+Aurora ALARM and Aurora NixOS, with KDE Plasma, GNOME and shell profiles.
 The current build is an explicitly non-destructive UI preview. Its release
 profile contract, build command, image producer plan and remaining engine
 integration are documented in [macOS/README.md](macOS/README.md). The existing
 Windows command-line installer above is preserved.
 
 The [Fedora producer](fedora/README.md) prepares pinned KIWI descriptions with
-Aurora package selections for KDE, GNOME and minimal. RPM production and the
-live Fedora installation adapter remain separate work.
+Aurora package selections for KDE, GNOME and minimal. Distribution-specific packages, image production and physical installation tests are tracked in the distro repositories.

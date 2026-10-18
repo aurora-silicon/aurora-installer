@@ -8,6 +8,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest import mock
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -33,11 +34,12 @@ class RecoveryTests(unittest.TestCase):
         self.resources = self.app / "Contents/Resources"
         (self.resources / "en.lproj").mkdir(parents=True)
         (self.resources / "en.lproj/InfoPlist.strings").write_text(
-            '"CFBundleDisplayName" = "Omarchy Installer";\n')
+            '"CFBundleDisplayName" = "Aurora Installer";\n')
         self.info = self.app / "Contents/Info.plist"
         self.info.write_bytes(plistlib.dumps({
             "OmarchyRecoveryBuildMode": "recovery", "CFBundleExecutable": "OmarchyRecovery",
-            "CFBundleDisplayName": "Omarchy Installer",
+            "OmarchyRecoveryDataLayout": "external-install-data-v1",
+            "CFBundleDisplayName": "Aurora Installer",
         }))
         self.binary = self.app / "Contents/MacOS/OmarchyRecovery"
         self.binary.parent.mkdir()
@@ -106,15 +108,31 @@ class RecoveryTests(unittest.TestCase):
         with self.package() as package, self.assertRaisesRegex(recovery.RecoveryError, "checksum"):
             recovery.validate_payload(package)
 
+    def test_old_or_unknown_data_layout_is_rejected_before_staging(self):
+        for layout in [None, "embedded-resources"]:
+            info = plistlib.loads(self.info.read_bytes())
+            info["OmarchyRecoveryDataLayout"] = layout
+            if layout is None:
+                del info["OmarchyRecoveryDataLayout"]
+            self.info.write_bytes(plistlib.dumps(info))
+            self.repin()
+            with self.package() as package, self.assertRaisesRegex(recovery.RecoveryError, "data layout"):
+                recovery.validate_payload(package)
+            with self.assertRaisesRegex(recovery.RecoveryError, "data layout"):
+                self.stage()
+            self.assertFalse((self.system / recovery.APP_NAME).exists())
+
     def test_stage_config_and_actual_payloads_not_fixed_fixture(self):
         result = self.stage()
         app = self.system / recovery.APP_NAME
-        config = json.loads((app / "Contents/Resources/install-config.json").read_text())
+        data_root = self.system / recovery.INSTALL_DATA_DIRECTORY
+        config = json.loads((data_root / "install-config.json").read_text())
         self.assertEqual(config, result["configuration"])
         self.assertEqual(config["systemUUID"], SYSTEM)
+        self.assertFalse(config["allowCustomBootArguments"])
         self.assertEqual(config["espUUID"], ESP)
         self.assertEqual(config["volumeName"], self.system.name)
-        payloads = app / "Contents/Resources/AuraPayloads"
+        payloads = data_root / "AuraPayloads"
         self.assertEqual((payloads / "raw/aura-raw.bin").read_bytes(), self.boot.read_bytes())
         self.assertEqual((payloads / "raw/boot.bin").read_bytes(), b"actual-installed-stage2")
         manifest = json.loads((payloads / "manifest.json").read_text())
@@ -127,15 +145,75 @@ class RecoveryTests(unittest.TestCase):
         marker = plistlib.loads(self.marker.read_bytes())
         self.assertEqual(marker["AppName"], recovery.APP_NAME)
         self.assertEqual(marker["ProductBuildVersion"], "00A191")
-        self.assertIn("../../../Omarchy Installer.app/Contents/MacOS/OmarchyRecovery", self.step2.read_text())
+        self.assertIn("../../../Aurora Installer.app/Contents/MacOS/OmarchyRecovery", self.step2.read_text())
         self.assertTrue(self.boot.is_file())
-        self.assertEqual(len(self.commands), 3)
-        self.assertEqual(self.commands[1][1:4], ["--force", "--sign", "-"])
+        self.assertEqual(recovery.app_inventory(app), recovery.app_inventory(self.app))
+        self.assertFalse((app / "Contents/Resources/install-config.json").exists())
+        self.assertFalse((app / "Contents/Resources/AuraPayloads").exists())
+        self.assertTrue(all("--verify" in command for command in self.commands))
 
-    def test_second_install_never_overwrites_existing_recovery_app(self):
-        self.stage()
-        with self.assertRaisesRegex(recovery.RecoveryError, "already exists"):
+    def test_neo_configuration_explicitly_allows_custom_boot_arguments(self):
+        self.installer.sysinfo = SimpleNamespace(device_class="j700ap")
+        result = self.stage()
+        self.assertTrue(result["configuration"]["allowCustomBootArguments"])
+
+    def test_second_install_reuses_only_matching_native_app(self):
+        first = self.stage()
+        binary = self.system / recovery.APP_NAME / "Contents/MacOS/OmarchyRecovery"
+        before = binary.read_bytes()
+        self.assertEqual(self.stage(), first)
+        self.assertEqual(binary.read_bytes(), before)
+        binary.write_bytes(b"foreign replacement")
+        with self.assertRaisesRegex(recovery.RecoveryError, "differs from its template"):
             self.stage()
+
+    @unittest.skipUnless(sys.platform == "darwin", "requires native macOS codesign")
+    def test_native_signed_template_is_unchanged_and_rejects_signed_replacement(self):
+        source = self.root / "recovery.c"
+        source.write_text("int main(void) { return 0; }\n")
+        subprocess.run(["/usr/bin/xcrun", "clang", str(source), "-o", str(self.binary)], check=True)
+        entitlements = self.root / "entitlements.plist"
+        entitlements.write_bytes(plistlib.dumps({
+            "com.apple.security.cs.allow-jit": True,
+            "fixture.signature-padding": "x" * (128 << 10),
+        }))
+        subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", "--options", "runtime",
+                        "--entitlements", str(entitlements), str(self.app)], check=True)
+        self.repin()
+        signed_template = recovery.app_inventory(self.app)
+        expected = recovery.stage(self.installer, ESP, str(self.esp))
+        target = self.system / recovery.APP_NAME
+        executable = target / "Contents/MacOS/OmarchyRecovery"
+        self.assertEqual(self.binary.read_bytes(), executable.read_bytes())
+        self.assertEqual(recovery.app_inventory(target), signed_template)
+        self.assertEqual(recovery.stage(self.installer, ESP, str(self.esp)), expected)
+
+        source.write_text("int main(void) { return 1; }\n")
+        subprocess.run(["/usr/bin/xcrun", "clang", str(source), "-o", str(executable)], check=True)
+        subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", str(target)], check=True)
+        with self.assertRaisesRegex(recovery.RecoveryError, "differs from its template"):
+            recovery.stage(self.installer, ESP, str(self.esp))
+
+    def test_interrupted_marker_publication_restores_launcher_and_resumes(self):
+        before_marker = self.marker.read_bytes()
+        before_launcher = self.step2.read_bytes()
+        original = recovery._atomic_bytes
+        failed = False
+        def fail_once(path, data, mode=0o600):
+            nonlocal failed
+            if Path(path) == self.marker and not failed:
+                failed = True
+                raise OSError("simulated marker failure")
+            return original(path, data, mode)
+        with mock.patch.object(recovery, "_atomic_bytes", fail_once):
+            with self.assertRaisesRegex(OSError, "simulated marker failure"):
+                self.stage()
+        self.assertEqual(self.marker.read_bytes(), before_marker)
+        self.assertEqual(self.step2.read_bytes(), before_launcher)
+        self.assertTrue((self.system / ".omarchy-recovery-publication.json").is_file())
+        self.stage()
+        self.assertFalse((self.system / ".omarchy-recovery-publication.json").exists())
+        self.assertEqual(plistlib.loads(self.marker.read_bytes())["AppName"], recovery.APP_NAME)
 
     def test_wrong_target_esp_stops_before_any_mutation(self):
         before = self.marker.read_bytes()
@@ -144,6 +222,41 @@ class RecoveryTests(unittest.TestCase):
             self.stage()
         self.assertEqual(self.marker.read_bytes(), before)
         self.assertFalse((self.system / recovery.APP_NAME).exists())
+
+    def test_interrupted_app_publication_reuses_external_data_and_preserves_state(self):
+        state = self.system / "Aurora/Recovery/State"
+        state.mkdir(parents=True)
+        (state / "keep.json").write_bytes(b"existing account journal")
+        original = recovery.os.replace
+
+        def fail_app(source, destination):
+            if Path(destination) == self.system / recovery.APP_NAME:
+                raise OSError("interrupted app publication")
+            return original(source, destination)
+
+        with mock.patch.object(recovery.os, "replace", fail_app):
+            with self.assertRaisesRegex(OSError, "interrupted app publication"):
+                self.stage()
+        self.assertTrue((self.system / recovery.INSTALL_DATA_DIRECTORY).is_dir())
+        self.assertFalse((self.system / recovery.APP_NAME).exists())
+        self.assertEqual(self.step2.read_text(), "old launcher")
+        self.stage()
+        self.assertEqual((state / "keep.json").read_bytes(), b"existing account journal")
+        self.assertEqual(recovery.app_inventory(self.system / recovery.APP_NAME),
+                         recovery.app_inventory(self.app))
+
+    def test_external_data_symlink_or_changed_payload_is_rejected(self):
+        outside = self.root / "outside"
+        outside.mkdir()
+        (self.system / "Aurora").symlink_to(outside)
+        with self.assertRaisesRegex(recovery.RecoveryError, "unsafe"):
+            self.stage()
+        (self.system / "Aurora").unlink()
+        self.stage()
+        payload = self.system / recovery.INSTALL_DATA_DIRECTORY / "AuraPayloads/raw/boot.bin"
+        payload.write_bytes(b"changed stage2")
+        with self.assertRaisesRegex(recovery.RecoveryError, "changed"):
+            self.stage()
 
     def test_preview_or_tampered_source_rejected(self):
         self.binary.write_bytes(b"tampered")
@@ -162,11 +275,11 @@ class RecoveryTests(unittest.TestCase):
             self.stage()
         self.assertFalse((self.system / recovery.APP_NAME).exists())
 
-    def test_final_sign_failure_keeps_original_launcher_and_marker(self):
+    def test_copied_signature_verification_failure_keeps_launcher_and_marker(self):
         marker = self.marker.read_bytes()
 
         def fail(command, **kwargs):
-            if "--force" in command:
+            if "--verify" in command and command[-1] != str(self.app):
                 raise subprocess.CalledProcessError(1, command)
 
         with self.assertRaises(subprocess.CalledProcessError):
@@ -206,7 +319,7 @@ class RecoveryTests(unittest.TestCase):
         path.write_bytes(b"this-unit-usb-controller-firmware")
         (self.esp / "vendorfw/unrelated.bin").write_bytes(b"do not include")
         self.stage()
-        root = self.system / recovery.APP_NAME / "Contents/Resources/AuraPayloads"
+        root = self.system / recovery.INSTALL_DATA_DIRECTORY / "AuraPayloads"
         manifest = json.loads((root / "manifest.json").read_text())
         self.assertIn(name, manifest["vendorFirmware"])
         self.assertEqual((root / name).read_bytes(), path.read_bytes())

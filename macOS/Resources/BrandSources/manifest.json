@@ -36,5 +36,10 @@
   "desktopMockups": {
     "source": "Sources/OmarchyAppleInstallerApp/DesktopMockup.swift",
     "description": "Native vector illustrations of Plasma launcher/panel, GNOME overview/dash and a text shell. Not screenshots."
+  },
+  "NixOS.png": {
+    "source": "https://raw.githubusercontent.com/NixOS/nixos-artwork/9d2cdedd73d64a068214482902adea3d02783ba8/logo/nixos.svg.png",
+    "attribution": "NixOS contributors; official NixOS mark used to identify the distribution",
+    "sha256": "f7e39fa9f3f92e6b9b7537300644bf027397e30648dad2872eee67862e37c5c7"
   }
 }

@@ -17,6 +17,7 @@ struct InstallConfiguration: Decodable {
   let bootMode: String
   let stage2Path: String
   let bootstrap: BootstrapAuthorization?
+  let allowCustomBootArguments: Bool?
 
   static func decode(_ data: Data) throws -> InstallConfiguration {
     let keys: Set<String> = [
@@ -24,7 +25,8 @@ struct InstallConfiguration: Decodable {
       "bootMode", "stage2Path", "bootstrap",
     ]
     guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-      Set(object.keys) == keys
+      Set(object.keys).subtracting(["allowCustomBootArguments"]) == keys
+        && (object["allowCustomBootArguments"] == nil || object["allowCustomBootArguments"] is Bool)
     else { throw InstallConfigurationError.invalid }
     let config = try JSONDecoder().decode(Self.self, from: data)
     guard config.schema == 2, config.bootMode == "raw", config.stage2Path == "m1n1/boot.bin",

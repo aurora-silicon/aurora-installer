@@ -4,9 +4,9 @@ Native SwiftUI front end for Aurora Linux on Apple Silicon. It shares the Apple 
 
 ## Current status
 
-The native preview offers **Fedora Aurora Remix**, **Aurora ALARM** and **UEFI**, with **KDE Plasma**, **GNOME** and **Minimal (shell)** for the Linux choices. UEFI has no desktop selection. The desktop cards use native vector mockups of Plasma, GNOME and a shell; they do not promise an exact wallpaper or desktop version in a future Aurora image.
+The native preview offers **Fedora Aurora Remix**, **Aurora ALARM** and **Aurora NixOS**, with **KDE Plasma**, **GNOME** and **Minimal (shell)** for the Linux choices. The desktop cards use native vector mockups of Plasma, GNOME and a shell; they do not promise an exact wallpaper or desktop version in a future Aurora image.
 
-This is a UI and integration preview, not a newly qualified Fedora/ALARM release. No Aurora Fedora or ALARM OS payload is published by this change. A live install requires a matching signed profile catalog; an existing Omarchy image is deliberately not accepted as one of these distributions. The current inherited full-OS engine also needs the layout and renamed Recovery-app contract changes described below before these profiles can perform live installation.
+This is a UI and integration preview, not a newly qualified Fedora/ALARM release. No Aurora Fedora, ALARM or NixOS OS payload is published by this change. A live install requires a matching signed profile catalog; an existing Omarchy image is deliberately not accepted as one of these distributions. The engine now validates explicit Fedora Btrfs, ALARM ext4 and NixOS ext4 layouts and the Aurora Recovery app contract; a live install still needs matching built payloads and signed profile catalogs.
 
 ## Build the preview
 
@@ -29,7 +29,9 @@ The preview is explicitly marked `AuroraPreviewOnly` and runs the in-memory simu
 | `arch-kde` | Aurora ALARM | KDE Plasma | ESP, Boot, Root |
 | `arch-gnome` | Aurora ALARM | GNOME | ESP, Boot, Root |
 | `arch-minimal` | Aurora ALARM | Shell | ESP, Boot, Root |
-| `uefi` | UEFI boot environment | None | ESP only |
+| `nixos-kde` | Aurora NixOS | KDE Plasma | ESP, Boot, Root |
+| `nixos-gnome` | Aurora NixOS | GNOME | ESP, Boot, Root |
+| `nixos-minimal` | Aurora NixOS | Shell | ESP, Boot, Root |
 
 Every profile gets a distinct signed catalog under `Release/Profiles/<profile>/`. The existing release descriptor, public-key and catalog files live inside that directory. Each enabled catalog model must carry `installationProfile` equal to the selected profile. The GUI checks that signed field before accepting its assets. Download state, accepted catalog sequence and scratch files are separated by profile, so changing distribution cannot reuse another profile's plan or payload.
 
@@ -54,7 +56,9 @@ The [maintained ALARM image builder](https://github.com/asahi-alarm/asahi-alarm-
 
 The [Asahi installer metadata](https://github.com/AsahiLinux/asahi-installer-data) supplies the useful transport contract: OS templates describe partitions and map packaged files to them. This permits one GUI to select several distributions. Aurora should publish its own metadata and payloads and retain one common Aura + U-Boot hardware boot chain, selecting the matching machine DTB. The Fedora configuration retains Fedora's GRUB/BLS and dracut integration. Firmware and per-device calibration must still be extracted from the target Mac; another Mac's calibration must not enter a release image.
 
-Before publishing these profiles, the inherited engine needs explicit layout kinds. Its current full-OS validator requires an Omarchy icon and exactly ESP + Boot + Root; it also assumes Omarchy's Btrfs tree and first-boot behavior. Fedora and ALARM should have profile-specific filesystem and package checks. UEFI needs the separate APFS-stub + ESP path, with no fake Linux root or desktop. Existing-install discovery and removal must use the same typed layout contract. The Recovery-app staging contract must also use the new Aurora app name while retaining its inventory, hash and paired-Recovery checks. No validator should be relaxed globally to accommodate a new distribution.
+The engine admits explicit `fedora-btrfs-v1`, `alarm-ext4-v1` and `nixos-ext4-v1` layouts, bound to the matching distro/desktop profile and Aurora volume icon. It verifies the boot and root image filesystem signatures before disk mutation. The imported Omarchy layout remains separate for existing artifacts; no general validator is relaxed to accept a different distribution. Aurora's native Recovery app uses the immutable external install-data layout and retains inventory, hash and paired-Recovery checks.
+
+Distribution packaging and CI live in [fedora-aurora](https://github.com/aurora-silicon/fedora-aurora), [alarm-aurora](https://github.com/aurora-silicon/alarm-aurora) and [nixos-aurora](https://github.com/aurora-silicon/nixos-aurora). All use the same recorded Aurora hardware source revisions. A completed package or source build does not qualify a live installation.
 
 Online releases can download only the selected profile. Offline downloads can bundle one or more complete profiles using the existing verified-artifact mechanism. An all-desktop offline bundle will be larger than a single-profile package; the GUI should clearly show which profiles are included.
 

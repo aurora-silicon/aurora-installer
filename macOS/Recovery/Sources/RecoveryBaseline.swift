@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import Foundation
 
 struct RecoveryBaselineFailure: Error, LocalizedError {
@@ -28,7 +29,15 @@ enum RecoveryBaseline {
         !$0.isEmpty && $0 != "." && $0 != ".."
       })
     else { throw RecoveryBaselineFailure(message: "Invalid recovery file path.") }
-    let base = root.resolvingSymlinksInPath().standardizedFileURL
+    let base = root.standardizedFileURL
+    var info = stat()
+    if lstat(base.path, &info) == 0 {
+      guard info.st_mode & S_IFMT == S_IFDIR else {
+        throw RecoveryBaselineFailure(message: "The recovery payload root is unsuitable.")
+      }
+    } else if errno != ENOENT {
+      throw RecoveryBaselineFailure(message: "The recovery payload root cannot be inspected.")
+    }
     let destination = base.appendingPathComponent(name)
     // Foundation may leave a path unresolved when the final file does not
     // exist. Inspect every parent as well, including dangling symlinks.
@@ -46,16 +55,27 @@ enum RecoveryBaseline {
   }
 
   static func read(_ url: URL, maximum: Int, allowEmpty: Bool = false) throws -> Data {
-    let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-    guard attributes[.type] as? FileAttributeType == .typeRegular,
-      let size = attributes[.size] as? NSNumber,
-      size.int64Value <= Int64(maximum), size.int64Value >= (allowEmpty ? 0 : 1)
-    else {
-      throw RecoveryBaselineFailure(
-        message: "Invalid recovery file size or type: \(url.lastPathComponent)")
+    let fd = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+    guard fd >= 0 else {
+      throw RecoveryBaselineFailure(message: "Cannot open recovery file: \(url.lastPathComponent)")
     }
-    let data = try Data(contentsOf: url)
-    guard data.count == size.intValue else {
+    let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+    var info = stat()
+    guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
+      info.st_size <= maximum, info.st_size >= (allowEmpty ? 0 : 1)
+    else {
+      throw RecoveryBaselineFailure(message: "Invalid recovery file size or type.")
+    }
+    var data = Data()
+    while let block = try handle.read(upToCount: min(1 << 20, maximum - data.count + 1)),
+      !block.isEmpty
+    {
+      data.append(block)
+      guard data.count <= maximum else {
+        throw RecoveryBaselineFailure(message: "A recovery file exceeds its size limit.")
+      }
+    }
+    guard data.count == info.st_size else {
       throw RecoveryBaselineFailure(message: "A recovery file changed while reading it.")
     }
     return data

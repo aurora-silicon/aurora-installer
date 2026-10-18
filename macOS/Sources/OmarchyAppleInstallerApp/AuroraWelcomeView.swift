@@ -52,13 +52,6 @@ struct AuroraWelcomeView: View {
               }
             }
           }
-        } else {
-          VStack(spacing: 14) {
-            BrandImage("UEFI").frame(width: 70, height: 80)
-              .padding(12).background(.white, in: RoundedRectangle(cornerRadius: 12))
-            Text("Install the boot environment, then bring your own OS.")
-              .font(.system(size: 13)).foregroundStyle(.secondary)
-          }.frame(maxWidth: .infinity).frame(height: 207)
         }
       }.padding(.horizontal, 38).padding(.top, 26)
       Spacer(minLength: 18)
@@ -80,9 +73,8 @@ struct AuroraWelcomeView: View {
     case .arch:
       BrandImage("ArchLinuxARM").frame(width: 82, height: 21)
         .padding(4).background(.white, in: RoundedRectangle(cornerRadius: 4))
-    case .uefi:
-      BrandImage("UEFI").frame(width: 27, height: 32)
-        .padding(3).background(.white, in: RoundedRectangle(cornerRadius: 4))
+    case .nixos:
+      BrandImage("NixOS").frame(width: 34, height: 34)
     }
   }
 

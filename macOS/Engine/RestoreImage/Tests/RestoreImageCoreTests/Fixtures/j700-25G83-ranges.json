@@ -1,0 +1,1537 @@
+{
+  "schema": 1,
+  "source": {
+    "url": "https://updates.cdn-apple.com/2026SummerFCS/fullrestores/140-75212/A2A24B94-1FC1-45A3-93F7-C51B02AF1F4D/UniversalMac_26.6.2_25G83_Restore.ipsw",
+    "size_bytes": 19772231540,
+    "sha256": "885503b7f4b06609e9a512f2befd40f59730640a3f1233e3892d60affdd51c95"
+  },
+  "system_image": {
+    "member": "094-96884-092.dmg.aea",
+    "size_bytes": 10334765056,
+    "sha256": "c7c4412996590bb9f75256fb988bb0cf9e8b8ba645346e89443590197741e9c8",
+    "decoded": {
+      "size_bytes": 13142851584,
+      "sha256": "ae2ad529b9f51152e14f636ccabf93d5c8fc06ed3fba8d84e57736758f87e66f"
+    }
+  },
+  "member_offset": 1358425788,
+  "zip_header": {
+    "offset": 1358425717,
+    "size": 71,
+    "sha256": "a4daf7a1262a5a9d0240bf8fdf4b9b389f278c93017b703921c04844ac04311f"
+  },
+  "prefix": {
+    "offset": 0,
+    "size": 2724,
+    "sha256": "a947a7ab231798e738bee6202884f0d0afdc082f2ccef181fe55bb65ee6a67ae"
+  },
+  "headers": [
+    {
+      "offset": 74117120,
+      "size": 18464,
+      "sha256": "85cc0eceb392c594fc62e191791bd06e8fb1ca6083a5663e9ff90b99f8f8e50c",
+      "cluster": 1,
+      "expected_mac": "d1451259b0631b47747b2f49796a3f2d967e13947c758a1dc569a67bf0b53d99"
+    },
+    {
+      "offset": 99296022,
+      "size": 18464,
+      "sha256": "307bfd098441ae57cf01c796eba159b306129c2413eaa3d9db83dbdb9b5e6ec1",
+      "cluster": 2,
+      "expected_mac": "c5a38f69f6cc6502db591ffde1f67718078e8d03aad69ae9e30ac8d79aeb4c43"
+    },
+    {
+      "offset": 800559984,
+      "size": 18464,
+      "sha256": "552d37245ec944632ef836a1dc8dd79b7c1354861667ac0d5d7763925676c4bb",
+      "cluster": 6,
+      "expected_mac": "9ad27e265d9f83e42545740f453ef318ef154679e5d7a8ace87ea0c60c5dd476"
+    },
+    {
+      "offset": 3091705542,
+      "size": 18464,
+      "sha256": "978b4b3dbabc78b69c5c37aba2671644be50ba5701b5b9f0d207bdfefd0d3710",
+      "cluster": 17,
+      "expected_mac": "5ff4a4ecaa4b61319f9862b9af0d1c38e505e969f4228bb21b597214a5d1e667"
+    },
+    {
+      "offset": 4760905344,
+      "size": 18464,
+      "sha256": "2164edd721e2e56acba4c35722d08ea8d60e758ab162e5552f6221f239a6d170",
+      "cluster": 24,
+      "expected_mac": "b6c4f186a4e40734f79f6101c1eb9968c1f69d3cfa99bb379e401a645227d913"
+    },
+    {
+      "offset": 5389296502,
+      "size": 18464,
+      "sha256": "93d9968b8799df474f765e2c50be1ed2576b472b585ab93d071d169ca6c856ee",
+      "cluster": 27,
+      "expected_mac": "ed7eadc384e7dfe5bac1c347635b7a29f2636490127dad237a507065f897620a"
+    },
+    {
+      "offset": 7174831925,
+      "size": 18464,
+      "sha256": "1f0e2c33d1e4606af0e264d3f684cce10a5592f9fecaefa437b0da79abff7c8d",
+      "cluster": 35,
+      "expected_mac": "f5398a2f63082e17d73d3b1e74eba91b3955f314a734fbff2d58aafba1ae0805"
+    },
+    {
+      "offset": 7399393443,
+      "size": 18464,
+      "sha256": "e72def01f6b253da60f7155304006fb86fcb566f7472d18065f4d4631e6a6757",
+      "cluster": 36,
+      "expected_mac": "67daa2d3410c006f83214c5fd873601f0b7b7e03028a0b182c185ac9d509adcd"
+    },
+    {
+      "offset": 9903293310,
+      "size": 18464,
+      "sha256": "064c6cbd2468b3ca62d5bfd20b124745aa820349719d9fa87fc71804c15a9250",
+      "cluster": 47,
+      "expected_mac": "5cb2c09ab57872248b004e9d2ad6aec00998f03081b2d822d352435fb1ecb4f0"
+    }
+  ],
+  "segments": {
+    "413": {
+      "offset": 81394494,
+      "size": 164332,
+      "sha256": "7f90f4b6fd3f507680dcd33572d8b302b314f5ee7f1317ab91671abcb0ab4ae5"
+    },
+    "419": {
+      "offset": 82362312,
+      "size": 189013,
+      "sha256": "4a4ee282e8ab9e3bb54b853c9ecfe5661a7e92f6fa46c7899dcc3d9fc1cdad05"
+    },
+    "424": {
+      "offset": 83326658,
+      "size": 224771,
+      "sha256": "fe589f180d09c4f9af7e59e4d2acb5e54e24e2ee0f94fd678a908c980d15dd5f"
+    },
+    "504": {
+      "offset": 97813936,
+      "size": 181151,
+      "sha256": "b9c01cf1f9e55f7af78f5e1ce0068f657acd4df141498a9d69c54736cc7b6dbc"
+    },
+    "538": {
+      "offset": 103557532,
+      "size": 144933,
+      "sha256": "b0f6339adec6ec6367b60ce454e52edc95ac5d61e4460781da7aade08c273a04"
+    },
+    "1728": {
+      "offset": 943631358,
+      "size": 499099,
+      "sha256": "05eb44cfbbf3ceedcac0618beec5ee991309e280b9313250ff838fb2601c03c5"
+    },
+    "1729": {
+      "offset": 944130457,
+      "size": 564442,
+      "sha256": "6c38f8e9a4bd9016a9c763a4541dc9a9336d5def049b3222adf0e116e8dac8be"
+    },
+    "1730": {
+      "offset": 944694899,
+      "size": 217204,
+      "sha256": "ab5b970148f511cedc81d2c61033daac4b0f6ea85f4c63d4b67fa308cbe5f62a"
+    },
+    "4491": {
+      "offset": 3223346805,
+      "size": 591507,
+      "sha256": "7e85d2828fdfa124697b62831b3f1cdbaee9978a30cff83e1d4d3c098ab7eda8"
+    },
+    "4492": {
+      "offset": 3223938312,
+      "size": 117047,
+      "sha256": "7f7ae4d51adc2b46c032976fe6c52433a47b88d8fbe783d3ea32b5f8f9fc8a44"
+    },
+    "4493": {
+      "offset": 3224055359,
+      "size": 130781,
+      "sha256": "e75faf74be0a0106374a127bb58c9477618ce2ff40a7732921d05fa969bd5406"
+    },
+    "4494": {
+      "offset": 3224186140,
+      "size": 792826,
+      "sha256": "dfb6942795bf045f250fabaf7e958981debceaa3e4ae459a025bf04adda36796"
+    },
+    "4495": {
+      "offset": 3224978966,
+      "size": 963393,
+      "sha256": "fdc572c5fcb98f62283764f0a8c63aabfde14453e63d0f6313d60a91b125f781"
+    },
+    "6332": {
+      "offset": 4933612568,
+      "size": 747886,
+      "sha256": "bd61ebcf95605acee4befa5a9b2d38ccedc503ea9a2add7aacb7efc6c07af151"
+    },
+    "6333": {
+      "offset": 4934360454,
+      "size": 941391,
+      "sha256": "546c2c08cd3a7506ad6b10f36d026fa6004223f4c95054b56c1da928f1d0cb5a"
+    },
+    "7057": {
+      "offset": 5462818943,
+      "size": 892280,
+      "sha256": "745280b22f17de0aa4fbe2f768371dad64bb6ad9476d706d30f79ba31208e9a4"
+    },
+    "7091": {
+      "offset": 5492853317,
+      "size": 790044,
+      "sha256": "123ff5f27f8a7c2e7fd1ec3f9f2a155c72c1fded22dbf7153e0c3401082a97d8"
+    },
+    "9078": {
+      "offset": 7272977981,
+      "size": 894686,
+      "sha256": "16a4e85682e7be2ddc83102aa53d46269cc2fd561cafe2cdbc6def61b63ef19e"
+    },
+    "9079": {
+      "offset": 7273872667,
+      "size": 1004949,
+      "sha256": "2bc61232b3d731ba41d13bf0fd10eac8f526f5e1dd4382fae7d753692c020949"
+    },
+    "9149": {
+      "offset": 7339250351,
+      "size": 1000100,
+      "sha256": "923d15db09a5c81d21ea12e89addc60bf8953000eab2d6da2f0247c7e27499d9"
+    },
+    "9150": {
+      "offset": 7340250451,
+      "size": 894190,
+      "sha256": "bb9bd45a6bf4f87a53f2c494b5edefb4df29f534335c5d0fb18e1786d57d2e13"
+    },
+    "9265": {
+      "offset": 7444060124,
+      "size": 1030166,
+      "sha256": "6fa4b70937a34da3599582fbad31eb50a3f070c6498b9029a9a9291c2a7c34f7"
+    },
+    "9266": {
+      "offset": 7445090290,
+      "size": 991119,
+      "sha256": "9f65ee5d6b18989381cddf66fe57f3278454e550a223b7f5a8868a8582cb8b68"
+    },
+    "12134": {
+      "offset": 9996554398,
+      "size": 870219,
+      "sha256": "347a0a301baefe4832423e64d7b77678170508c6e739732286febdba679a3aa6"
+    },
+    "12135": {
+      "offset": 9997424617,
+      "size": 990440,
+      "sha256": "95b090d8cc7a045dda3c2b155d79956334f66541229603dc4d4d7d5a5d0aa1dd"
+    }
+  },
+  "files": [
+    {
+      "source": "System/Library/DriverExtensions/com.apple.AppleSunriseWLAN.dext/IZUBA/IZUBA_W7932_2.bin",
+      "name": "sunrise/IZUBA_W7932_2.bin",
+      "transform": "identity",
+      "compressed": true,
+      "raw_sha256": "aa9ca3443279aa2878ca8275e69829d429fa8856ca74b84da1f65f7c2da989d4",
+      "sha256": "aa9ca3443279aa2878ca8275e69829d429fa8856ca74b84da1f65f7c2da989d4",
+      "size": 1190788,
+      "storage": [
+        {
+          "size": 16,
+          "sha256": "0b4aa2309c201b820909f668b6f92a9c7ac0f31ad1fc978dc7161c1baec5a852",
+          "spans": [
+            {
+              "offset": 445516600,
+              "size": 16
+            }
+          ]
+        },
+        {
+          "size": 706279,
+          "sha256": "374383368d06d7d1b3f93d024e7b61af4687c19762e5e97093ca5b08e1f21046",
+          "spans": [
+            {
+              "offset": 4712529920,
+              "size": 706279
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "source": "System/Library/DriverExtensions/com.apple.AppleSunriseWLAN.dext/IZUBA/IZUBA_WIFI_MT7932_patch_mcu_1_2_hdr.bin",
+      "name": "sunrise/IZUBA_WIFI_MT7932_patch_mcu_1_2_hdr.bin",
+      "transform": "identity",
+      "compressed": true,
+      "raw_sha256": "60e37f53dbc6d757c2a23fb125e53b0b04c0104be5315910885955d0f6b57379",
+      "sha256": "60e37f53dbc6d757c2a23fb125e53b0b04c0104be5315910885955d0f6b57379",
+      "size": 33568,
+      "storage": [
+        {
+          "size": 16,
+          "sha256": "386f603b741801bc7e4b2bf50f9605ab1e8647c85732af5cb7c367e632372726",
+          "spans": [
+            {
+              "offset": 445515708,
+              "size": 16
+            }
+          ]
+        },
+        {
+          "size": 21823,
+          "sha256": "4331974517c352bb5dae33efb50e153448350b15e70394081ae9385c0d13318a",
+          "spans": [
+            {
+              "offset": 4713635840,
+              "size": 21823
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "source": "System/Library/DriverExtensions/com.apple.AppleSunriseWLAN.dext/IZUBA/IZUBA_PPR_MT7932.bin",
+      "name": "sunrise/IZUBA_PPR_MT7932.bin",
+      "transform": "identity",
+      "compressed": true,
+      "raw_sha256": "5b3193034aed2b73be88dc8074699992a04c0e450d051d52af44489093b9b1e8",
+      "sha256": "5b3193034aed2b73be88dc8074699992a04c0e450d051d52af44489093b9b1e8",
+      "size": 412,
+      "storage": [
+        {
+          "size": 16,
+          "sha256": "7b50c777d06a54592cf542b7fed6e854c8bc89e3784af6d8440300b18a638064",
+          "spans": [
+            {
+              "offset": 434089968,
+              "size": 16
+            }
+          ]
+        },
+        {
+          "size": 231,
+          "sha256": "b5e7f59d9147fe958b28c461624541389e89304d57b4d05ccbbe592a137fd153",
+          "spans": [
+            {
+              "offset": 4709732352,
+              "size": 231
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "source": "System/Library/DriverExtensions/com.apple.AppleSunriseWLAN.dext/IZUBA/IZUBA_wifi.cfg",
+      "name": "sunrise/IZUBA_wifi.cfg",
+      "transform": "identity",
+      "compressed": true,
+      "raw_sha256": "9f1adcb329c47a25421cad3ede473e1fdf41edb36f295f17f021d2689430899d",
+      "sha256": "9f1adcb329c47a25421cad3ede473e1fdf41edb36f295f17f021d2689430899d",
+      "size": 1696,
+      "storage": [
+        {
+          "size": 16,
+          "sha256": "348797ceb7e6b1982288791f17984bc571e78edcab58aebc9b61cd03b8eee62e",
+          "spans": [
+            {
+              "offset": 439463632,
+              "size": 16
+            }
+          ]
+        },
+        {
+          "size": 1150,
+          "sha256": "4fd1ff9f39f332bbcf751aaaa2339f3a2d185ce48ebee12f9d70b611f3169259",
+          "spans": [
+            {
+              "offset": 4713746432,
+              "size": 1150
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "source": "System/Library/DriverExtensions/com.apple.AppleSunriseWLAN.dext/IZUBA/IZUBA_db.dat",
+      "name": "sunrise/IZUBA_db.dat",
+      "transform": "identity",
+      "compressed": true,
+      "raw_sha256": "a61e0b70cbc9a381fc41ff9afa8f036cbd032cadad66209134d4a5adfa18c8b2",
+      "sha256": "a61e0b70cbc9a381fc41ff9afa8f036cbd032cadad66209134d4a5adfa18c8b2",
+      "size": 133959,
+      "storage": [
+        {
+          "size": 16,
+          "sha256": "774dbc727550249f4a5d80daa049240e47150069d7fd9036ae6625895527710d",
+          "spans": [
+            {
+              "offset": 439463844,
+              "size": 16
+            }
+          ]
+        },
+        {
+          "size": 6924,
+          "sha256": "653e403baec5dce23ff79129d6f055981162a3f1065bb965349a4dc5c27da3c2",
+          "spans": [
+            {
+              "offset": 4713738240,
+              "size": 6924
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "source": "System/Library/DriverExtensions/com.apple.AppleSunriseWLAN.dext/IZUBA/IZUBA_TxPwrLimit_MT79x1.dat",
+      "name": "sunrise/IZUBA_TxPwrLimit_MT79x1.dat",
+      "transform": "identity",
+      "compressed": true,
+      "raw_sha256": "03ee51df5231d131c1976f1d2ea7f81a1396988e63a132a318a9893e8ef5ec38",
+      "sha256": "03ee51df5231d131c1976f1d2ea7f81a1396988e63a132a318a9893e8ef5ec38",
+      "size": 20104839,
+      "storage": [
+        {
+          "size": 16,
+          "sha256": "eca8bddb3d86e250d53b74945a937cb106d6aa66d4bd0de91e372d01ff11e2d7",
+          "spans": [
+            {
+              "offset": 445517372,
+              "size": 16
+            }
+          ]
+        },
+        {
+          "size": 1609773,
+          "sha256": "671b2fa04892331bf821fb5d5aedb610f5ed98ab6d28477a3ed6f4c3dfbd10de",
+          "spans": [
+            {
+              "offset": 4710907904,
+              "size": 1609773
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "source": "System/Library/DriverExtensions/com.apple.AppleSunriseWLAN.dext/IZUBA/IZUBA_TxPwrLimit_SAR.dat",
+      "name": "sunrise/IZUBA_TxPwrLimit_SAR.dat",
+      "transform": "identity",
+      "compressed": true,
+      "raw_sha256": "d8dc9dfff2ad2d1ddf301d892e60c93f476603992f71de9e742194a395ca850d",
+      "sha256": "d8dc9dfff2ad2d1ddf301d892e60c93f476603992f71de9e742194a395ca850d",
+      "size": 153930,
+      "storage": [
+        {
+          "size": 16,
+          "sha256": "1c04fdcafdd795cf5f8a962119901adfe48cf511e9bd90861c5a9c8f0ad2da0f",
+          "spans": [
+            {
+              "offset": 445517120,
+              "size": 16
+            }
+          ]
+        },
+        {
+          "size": 3550,
+          "sha256": "890660984140cf6a228d4945ac8eb768c8055c8adb4f0c31032dc0464371d847",
+          "spans": [
+            {
+              "offset": 4712521728,
+              "size": 3550
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "source": "System/Library/DriverExtensions/com.apple.AppleSunriseWLAN.dext/IZUBA/IZUBA_TxPwrLimit_2gCommonPath.dat",
+      "name": "sunrise/IZUBA_TxPwrLimit_2gCommonPath.dat",
+      "transform": "identity",
+      "compressed": true,
+      "raw_sha256": "43185e334cb074b9c89b71aa6440d5d22cc45e9d8dc1fdc66c8a4933f2376b6c",
+      "sha256": "43185e334cb074b9c89b71aa6440d5d22cc45e9d8dc1fdc66c8a4933f2376b6c",
+      "size": 48957,
+      "storage": [
+        {
+          "size": 16,
+          "sha256": "888e1d176dafb05311e55f023fd7b6b505d12d4eea8e3e93f4af54cc71c4d912",
+          "spans": [
+            {
+              "offset": 445517100,
+              "size": 16
+            }
+          ]
+        },
+        {
+          "size": 1546,
+          "sha256": "35c807addbf95b7dbb118e860a7f6b4a84c0600f4499deaffe660219933a3c5b",
+          "spans": [
+            {
+              "offset": 4710899712,
+              "size": 1546
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "source": "System/Library/DriverExtensions/com.apple.AppleSunriseWLAN.dext/IZUBA/IZUBA_TxPwrLimit_SDB.dat",
+      "name": "sunrise/IZUBA_TxPwrLimit_SDB.dat",
+      "transform": "identity",
+      "compressed": true,
+      "raw_sha256": "042906f4b23f05d82f211549b22f195a57d3437b137009fda0a0e40935abbfd0",
+      "sha256": "042906f4b23f05d82f211549b22f195a57d3437b137009fda0a0e40935abbfd0",
+      "size": 1119,
+      "storage": [
+        {
+          "size": 16,
+          "sha256": "1491c29a1269c51be9ee1921faae4047b71439af78a68f76ac5b6c414d89d912",
+          "spans": [
+            {
+              "offset": 445516872,
+              "size": 16
+            }
+          ]
+        },
+        {
+          "size": 290,
+          "sha256": "7e4f4a36a9f62e9dd671eca0b4bae124129e1e4955377ec0d0116e8d8e5ab3e3",
+          "spans": [
+            {
+              "offset": 4712525824,
+              "size": 290
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "source": "usr/share/firmware/bluetooth/MT7932B0_OS_TypeB_0.1.44.0_241001003711.bin",
+      "name": "bluetooth/MT7932B0_OS_TypeB_0.1.44.0_241001003711.bin",
+      "transform": "identity",
+      "compressed": true,
+      "raw_sha256": "01cce2cbcdaf712d0f44472260e4cf1cf129f3abf4be60c035b26a8cf2f7f76e",
+      "sha256": "01cce2cbcdaf712d0f44472260e4cf1cf129f3abf4be60c035b26a8cf2f7f76e",
+      "size": 603360,
+      "storage": [
+        {
+          "size": 16,
+          "sha256": "f82f3b5d6047f68d156bc8e21cb0e2464403058fb71a6ef8bd733fda0f4311d8",
+          "spans": [
+            {
+              "offset": 564848586,
+              "size": 16
+            }
+          ]
+        },
+        {
+          "size": 453960,
+          "sha256": "5b8a5f94786556cb886bcd8e5f26d362844e9308b3866d49a7fcfc7ad9b04353",
+          "spans": [
+            {
+              "offset": 1812307968,
+              "size": 4096
+            },
+            {
+              "offset": 1812316160,
+              "size": 4096
+            },
+            {
+              "offset": 1812324352,
+              "size": 4096
+            },
+            {
+              "offset": 1812332544,
+              "size": 4096
+            },
+            {
+              "offset": 1812340736,
+              "size": 4096
+            },
+            {
+              "offset": 1812348928,
+              "size": 4096
+            },
+            {
+              "offset": 1812357120,
+              "size": 4096
+            },
+            {
+              "offset": 1812365312,
+              "size": 4096
+            },
+            {
+              "offset": 1812373504,
+              "size": 4096
+            },
+            {
+              "offset": 1812381696,
+              "size": 4096
+            },
+            {
+              "offset": 1812389888,
+              "size": 4096
+            },
+            {
+              "offset": 1812398080,
+              "size": 4096
+            },
+            {
+              "offset": 1812406272,
+              "size": 4096
+            },
+            {
+              "offset": 1812414464,
+              "size": 4096
+            },
+            {
+              "offset": 1812422656,
+              "size": 4096
+            },
+            {
+              "offset": 1812430848,
+              "size": 4096
+            },
+            {
+              "offset": 1812439040,
+              "size": 4096
+            },
+            {
+              "offset": 1812447232,
+              "size": 4096
+            },
+            {
+              "offset": 1812455424,
+              "size": 4096
+            },
+            {
+              "offset": 1812463616,
+              "size": 4096
+            },
+            {
+              "offset": 1812471808,
+              "size": 4096
+            },
+            {
+              "offset": 1812480000,
+              "size": 4096
+            },
+            {
+              "offset": 1812488192,
+              "size": 4096
+            },
+            {
+              "offset": 1812496384,
+              "size": 4096
+            },
+            {
+              "offset": 1812504576,
+              "size": 4096
+            },
+            {
+              "offset": 1812512768,
+              "size": 4096
+            },
+            {
+              "offset": 1812520960,
+              "size": 4096
+            },
+            {
+              "offset": 1812529152,
+              "size": 4096
+            },
+            {
+              "offset": 1812537344,
+              "size": 4096
+            },
+            {
+              "offset": 1812545536,
+              "size": 4096
+            },
+            {
+              "offset": 1812553728,
+              "size": 4096
+            },
+            {
+              "offset": 1812561920,
+              "size": 4096
+            },
+            {
+              "offset": 1812570112,
+              "size": 4096
+            },
+            {
+              "offset": 1812578304,
+              "size": 4096
+            },
+            {
+              "offset": 1812586496,
+              "size": 4096
+            },
+            {
+              "offset": 1812594688,
+              "size": 4096
+            },
+            {
+              "offset": 1812602880,
+              "size": 4096
+            },
+            {
+              "offset": 1812611072,
+              "size": 4096
+            },
+            {
+              "offset": 1812619264,
+              "size": 4096
+            },
+            {
+              "offset": 1812627456,
+              "size": 4096
+            },
+            {
+              "offset": 1812635648,
+              "size": 4096
+            },
+            {
+              "offset": 1812643840,
+              "size": 4096
+            },
+            {
+              "offset": 1812652032,
+              "size": 4096
+            },
+            {
+              "offset": 1812660224,
+              "size": 4096
+            },
+            {
+              "offset": 1812668416,
+              "size": 4096
+            },
+            {
+              "offset": 1812676608,
+              "size": 4096
+            },
+            {
+              "offset": 1812684800,
+              "size": 4096
+            },
+            {
+              "offset": 1812692992,
+              "size": 4096
+            },
+            {
+              "offset": 1812701184,
+              "size": 4096
+            },
+            {
+              "offset": 1812709376,
+              "size": 4096
+            },
+            {
+              "offset": 1812717568,
+              "size": 4096
+            },
+            {
+              "offset": 1812725760,
+              "size": 4096
+            },
+            {
+              "offset": 1812733952,
+              "size": 4096
+            },
+            {
+              "offset": 1812742144,
+              "size": 4096
+            },
+            {
+              "offset": 1812750336,
+              "size": 4096
+            },
+            {
+              "offset": 1812758528,
+              "size": 4096
+            },
+            {
+              "offset": 1812766720,
+              "size": 4096
+            },
+            {
+              "offset": 1812774912,
+              "size": 4096
+            },
+            {
+              "offset": 1812783104,
+              "size": 4096
+            },
+            {
+              "offset": 1812791296,
+              "size": 4096
+            },
+            {
+              "offset": 1812799488,
+              "size": 4096
+            },
+            {
+              "offset": 1812807680,
+              "size": 4096
+            },
+            {
+              "offset": 1812815872,
+              "size": 4096
+            },
+            {
+              "offset": 1812824064,
+              "size": 4096
+            },
+            {
+              "offset": 1812832256,
+              "size": 4096
+            },
+            {
+              "offset": 1812840448,
+              "size": 4096
+            },
+            {
+              "offset": 1812848640,
+              "size": 4096
+            },
+            {
+              "offset": 1812856832,
+              "size": 4096
+            },
+            {
+              "offset": 1812865024,
+              "size": 4096
+            },
+            {
+              "offset": 1812873216,
+              "size": 4096
+            },
+            {
+              "offset": 1812881408,
+              "size": 4096
+            },
+            {
+              "offset": 1812889600,
+              "size": 4096
+            },
+            {
+              "offset": 1812897792,
+              "size": 4096
+            },
+            {
+              "offset": 1812905984,
+              "size": 4096
+            },
+            {
+              "offset": 1812914176,
+              "size": 4096
+            },
+            {
+              "offset": 1812922368,
+              "size": 4096
+            },
+            {
+              "offset": 1812930560,
+              "size": 4096
+            },
+            {
+              "offset": 1812938752,
+              "size": 4096
+            },
+            {
+              "offset": 1812946944,
+              "size": 4096
+            },
+            {
+              "offset": 1812955136,
+              "size": 4096
+            },
+            {
+              "offset": 1812963328,
+              "size": 4096
+            },
+            {
+              "offset": 1812971520,
+              "size": 4096
+            },
+            {
+              "offset": 1812979712,
+              "size": 4096
+            },
+            {
+              "offset": 1812987904,
+              "size": 4096
+            },
+            {
+              "offset": 1812996096,
+              "size": 4096
+            },
+            {
+              "offset": 1813004288,
+              "size": 4096
+            },
+            {
+              "offset": 1813012480,
+              "size": 4096
+            },
+            {
+              "offset": 1813020672,
+              "size": 4096
+            },
+            {
+              "offset": 1813028864,
+              "size": 4096
+            },
+            {
+              "offset": 1813037056,
+              "size": 4096
+            },
+            {
+              "offset": 1813045248,
+              "size": 4096
+            },
+            {
+              "offset": 1813053440,
+              "size": 4096
+            },
+            {
+              "offset": 1813061632,
+              "size": 4096
+            },
+            {
+              "offset": 1813069824,
+              "size": 4096
+            },
+            {
+              "offset": 1813078016,
+              "size": 4096
+            },
+            {
+              "offset": 1813086208,
+              "size": 4096
+            },
+            {
+              "offset": 1813094400,
+              "size": 4096
+            },
+            {
+              "offset": 1813102592,
+              "size": 4096
+            },
+            {
+              "offset": 1813110784,
+              "size": 4096
+            },
+            {
+              "offset": 1813118976,
+              "size": 4096
+            },
+            {
+              "offset": 1813127168,
+              "size": 4096
+            },
+            {
+              "offset": 1813135360,
+              "size": 4096
+            },
+            {
+              "offset": 1813143552,
+              "size": 4096
+            },
+            {
+              "offset": 1813151744,
+              "size": 4096
+            },
+            {
+              "offset": 1813159936,
+              "size": 4096
+            },
+            {
+              "offset": 1813168128,
+              "size": 4096
+            },
+            {
+              "offset": 1813176320,
+              "size": 4096
+            },
+            {
+              "offset": 1813184512,
+              "size": 4096
+            },
+            {
+              "offset": 1813192704,
+              "size": 4096
+            },
+            {
+              "offset": 1813200896,
+              "size": 4096
+            },
+            {
+              "offset": 1813209088,
+              "size": 3400
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "source": "usr/share/firmware/bluetooth/MT7932B1_OS_TypeB_0.1.133.0_260128190103.bin",
+      "name": "bluetooth/MT7932B1_OS_TypeB_0.1.133.0_260128190103.bin",
+      "transform": "identity",
+      "compressed": true,
+      "raw_sha256": "52d866cdd475875f7290ebea5529fda8dd72c2aec078266860993afe199f98e9",
+      "sha256": "52d866cdd475875f7290ebea5529fda8dd72c2aec078266860993afe199f98e9",
+      "size": 611680,
+      "storage": [
+        {
+          "size": 16,
+          "sha256": "1ee1b3564630295b8e0f1cd4a887066f20747cdc91ec5ffe332b4b586ac20470",
+          "spans": [
+            {
+              "offset": 564857176,
+              "size": 16
+            }
+          ]
+        },
+        {
+          "size": 444262,
+          "sha256": "28e01f354269232a1823cafe08ba2e3e391a5095691847483e333437390972fb",
+          "spans": [
+            {
+              "offset": 1813217280,
+              "size": 4096
+            },
+            {
+              "offset": 1813225472,
+              "size": 4096
+            },
+            {
+              "offset": 1813233664,
+              "size": 4096
+            },
+            {
+              "offset": 1813241856,
+              "size": 4096
+            },
+            {
+              "offset": 1813250048,
+              "size": 4096
+            },
+            {
+              "offset": 1813258240,
+              "size": 4096
+            },
+            {
+              "offset": 1813266432,
+              "size": 4096
+            },
+            {
+              "offset": 1813274624,
+              "size": 4096
+            },
+            {
+              "offset": 1813282816,
+              "size": 4096
+            },
+            {
+              "offset": 1813291008,
+              "size": 4096
+            },
+            {
+              "offset": 1813299200,
+              "size": 4096
+            },
+            {
+              "offset": 1813307392,
+              "size": 4096
+            },
+            {
+              "offset": 1813315584,
+              "size": 4096
+            },
+            {
+              "offset": 1813323776,
+              "size": 4096
+            },
+            {
+              "offset": 1813331968,
+              "size": 4096
+            },
+            {
+              "offset": 1813340160,
+              "size": 4096
+            },
+            {
+              "offset": 1813348352,
+              "size": 4096
+            },
+            {
+              "offset": 1813356544,
+              "size": 4096
+            },
+            {
+              "offset": 1813364736,
+              "size": 4096
+            },
+            {
+              "offset": 1813372928,
+              "size": 4096
+            },
+            {
+              "offset": 1813381120,
+              "size": 4096
+            },
+            {
+              "offset": 1813389312,
+              "size": 4096
+            },
+            {
+              "offset": 1813397504,
+              "size": 4096
+            },
+            {
+              "offset": 1813405696,
+              "size": 4096
+            },
+            {
+              "offset": 1813413888,
+              "size": 4096
+            },
+            {
+              "offset": 1813422080,
+              "size": 4096
+            },
+            {
+              "offset": 1813430272,
+              "size": 4096
+            },
+            {
+              "offset": 1813438464,
+              "size": 4096
+            },
+            {
+              "offset": 1813446656,
+              "size": 4096
+            },
+            {
+              "offset": 1813454848,
+              "size": 4096
+            },
+            {
+              "offset": 1813463040,
+              "size": 4096
+            },
+            {
+              "offset": 1813471232,
+              "size": 4096
+            },
+            {
+              "offset": 1813479424,
+              "size": 4096
+            },
+            {
+              "offset": 1813487616,
+              "size": 4096
+            },
+            {
+              "offset": 1813495808,
+              "size": 4096
+            },
+            {
+              "offset": 1813504000,
+              "size": 4096
+            },
+            {
+              "offset": 1813512192,
+              "size": 4096
+            },
+            {
+              "offset": 1813520384,
+              "size": 4096
+            },
+            {
+              "offset": 1813528576,
+              "size": 4096
+            },
+            {
+              "offset": 1813536768,
+              "size": 4096
+            },
+            {
+              "offset": 1813544960,
+              "size": 4096
+            },
+            {
+              "offset": 1813553152,
+              "size": 4096
+            },
+            {
+              "offset": 1813561344,
+              "size": 4096
+            },
+            {
+              "offset": 1813569536,
+              "size": 4096
+            },
+            {
+              "offset": 1813577728,
+              "size": 4096
+            },
+            {
+              "offset": 1813585920,
+              "size": 4096
+            },
+            {
+              "offset": 1813594112,
+              "size": 4096
+            },
+            {
+              "offset": 1813602304,
+              "size": 4096
+            },
+            {
+              "offset": 1813610496,
+              "size": 4096
+            },
+            {
+              "offset": 1813618688,
+              "size": 4096
+            },
+            {
+              "offset": 1813626880,
+              "size": 4096
+            },
+            {
+              "offset": 1813635072,
+              "size": 4096
+            },
+            {
+              "offset": 1813643264,
+              "size": 4096
+            },
+            {
+              "offset": 1813651456,
+              "size": 4096
+            },
+            {
+              "offset": 1813659648,
+              "size": 4096
+            },
+            {
+              "offset": 1813667840,
+              "size": 4096
+            },
+            {
+              "offset": 1813676032,
+              "size": 4096
+            },
+            {
+              "offset": 1813684224,
+              "size": 4096
+            },
+            {
+              "offset": 1813692416,
+              "size": 4096
+            },
+            {
+              "offset": 1813700608,
+              "size": 4096
+            },
+            {
+              "offset": 1813708800,
+              "size": 4096
+            },
+            {
+              "offset": 1813716992,
+              "size": 4096
+            },
+            {
+              "offset": 1813725184,
+              "size": 4096
+            },
+            {
+              "offset": 1813733376,
+              "size": 4096
+            },
+            {
+              "offset": 1813741568,
+              "size": 4096
+            },
+            {
+              "offset": 1813749760,
+              "size": 4096
+            },
+            {
+              "offset": 1813757952,
+              "size": 4096
+            },
+            {
+              "offset": 1813766144,
+              "size": 4096
+            },
+            {
+              "offset": 1813774336,
+              "size": 4096
+            },
+            {
+              "offset": 1813782528,
+              "size": 4096
+            },
+            {
+              "offset": 1813790720,
+              "size": 4096
+            },
+            {
+              "offset": 1813798912,
+              "size": 4096
+            },
+            {
+              "offset": 1813807104,
+              "size": 4096
+            },
+            {
+              "offset": 1813815296,
+              "size": 4096
+            },
+            {
+              "offset": 1813823488,
+              "size": 4096
+            },
+            {
+              "offset": 1813831680,
+              "size": 4096
+            },
+            {
+              "offset": 1813839872,
+              "size": 4096
+            },
+            {
+              "offset": 1813848064,
+              "size": 4096
+            },
+            {
+              "offset": 1813856256,
+              "size": 4096
+            },
+            {
+              "offset": 1813864448,
+              "size": 4096
+            },
+            {
+              "offset": 1813872640,
+              "size": 4096
+            },
+            {
+              "offset": 1813880832,
+              "size": 4096
+            },
+            {
+              "offset": 1813889024,
+              "size": 4096
+            },
+            {
+              "offset": 1813897216,
+              "size": 4096
+            },
+            {
+              "offset": 1813905408,
+              "size": 4096
+            },
+            {
+              "offset": 1813913600,
+              "size": 4096
+            },
+            {
+              "offset": 1813921792,
+              "size": 4096
+            },
+            {
+              "offset": 1813929984,
+              "size": 4096
+            },
+            {
+              "offset": 1813938176,
+              "size": 4096
+            },
+            {
+              "offset": 1813946368,
+              "size": 4096
+            },
+            {
+              "offset": 1813954560,
+              "size": 4096
+            },
+            {
+              "offset": 1813962752,
+              "size": 4096
+            },
+            {
+              "offset": 1813970944,
+              "size": 4096
+            },
+            {
+              "offset": 1813979136,
+              "size": 4096
+            },
+            {
+              "offset": 1813987328,
+              "size": 4096
+            },
+            {
+              "offset": 1813995520,
+              "size": 4096
+            },
+            {
+              "offset": 1814003712,
+              "size": 4096
+            },
+            {
+              "offset": 1814011904,
+              "size": 4096
+            },
+            {
+              "offset": 1814020096,
+              "size": 4096
+            },
+            {
+              "offset": 1814028288,
+              "size": 4096
+            },
+            {
+              "offset": 1814036480,
+              "size": 4096
+            },
+            {
+              "offset": 1814044672,
+              "size": 4096
+            },
+            {
+              "offset": 1814052864,
+              "size": 4096
+            },
+            {
+              "offset": 1814061056,
+              "size": 4096
+            },
+            {
+              "offset": 1814069248,
+              "size": 4096
+            },
+            {
+              "offset": 1814077440,
+              "size": 4096
+            },
+            {
+              "offset": 1814085632,
+              "size": 4096
+            },
+            {
+              "offset": 1814093824,
+              "size": 4096
+            },
+            {
+              "offset": 1814102016,
+              "size": 1894
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "source": "usr/share/firmware/bluetooth/MT7932_PTB_IzubaA_0.1.0.0_20251021141303.ptx",
+      "name": "bluetooth/MT7932_PTB_IzubaA_0.1.0.0_20251021141303.ptx",
+      "transform": "identity",
+      "compressed": true,
+      "raw_sha256": "2d50c3e4f703f9705c39d050808f33232a5fe3b616e0f3b1444c8b30851656e7",
+      "sha256": "2d50c3e4f703f9705c39d050808f33232a5fe3b616e0f3b1444c8b30851656e7",
+      "size": 198,
+      "storage": [
+        {
+          "size": 16,
+          "sha256": "b5e7716a95fadd2245abd62c47a7b1f3e866857fa4ebe453e4200f8091ef3623",
+          "spans": [
+            {
+              "offset": 564887296,
+              "size": 16
+            }
+          ]
+        },
+        {
+          "size": 158,
+          "sha256": "6b3f538590d5ec243090b8efc42a1f41e3896b41524d1dc1e40dd720a93063f4",
+          "spans": [
+            {
+              "offset": 1814110208,
+              "size": 158
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "source": "usr/libexec/appleh16camerad",
+      "name": "camera/appleh16camerad",
+      "transform": "identity",
+      "compressed": true,
+      "raw_sha256": "1b55f1f48e0ad79cb1c01a712be7e7522782b9a690fb013e0ee5f962452c6cef",
+      "sha256": "1b55f1f48e0ad79cb1c01a712be7e7522782b9a690fb013e0ee5f962452c6cef",
+      "size": 9130288,
+      "storage": [
+        {
+          "size": 16,
+          "sha256": "cc76d2c2bdf9aaedaffe66c732dcd57cdaa87191f6f2e151b681681a6100b638",
+          "spans": [
+            {
+              "offset": 528779636,
+              "size": 16
+            }
+          ]
+        },
+        {
+          "size": 5493219,
+          "sha256": "9164f4315226442edc6723ca140c650e123ce4e333839506cb8819520533c9b5",
+          "spans": [
+            {
+              "offset": 9715838976,
+              "size": 843776
+            },
+            {
+              "offset": 6640263168,
+              "size": 835584
+            },
+            {
+              "offset": 9594060800,
+              "size": 823296
+            },
+            {
+              "offset": 9594797594,
+              "size": 70
+            },
+            {
+              "offset": 12724359238,
+              "size": 823226
+            },
+            {
+              "offset": 9716422847,
+              "size": 5656
+            },
+            {
+              "offset": 9519461912,
+              "size": 797160
+            },
+            {
+              "offset": 6640737168,
+              "size": 1564
+            },
+            {
+              "offset": 6640809260,
+              "size": 1741
+            },
+            {
+              "offset": 7399992553,
+              "size": 795415
+            },
+            {
+              "offset": 7435878400,
+              "size": 565731
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

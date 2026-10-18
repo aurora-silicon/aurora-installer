@@ -10,15 +10,17 @@ final class InstallationSelectionTests: XCTestCase {
       AuroraInstallationSelection.allProfileIDs,
       [
         "fedora-kde", "fedora-gnome", "fedora-minimal",
-        "arch-kde", "arch-gnome", "arch-minimal", "uefi",
+        "arch-kde", "arch-gnome", "arch-minimal",
+        "nixos-kde", "nixos-gnome", "nixos-minimal",
       ])
   }
 
-  func testUEFIDoesNotCarryADesktop() {
+  func testNixOSKeepsItsDesktopInTheSignedProfile() {
     for desktop in AuroraDesktop.allCases {
-      let selection = AuroraInstallationSelection(distribution: .uefi, desktop: desktop)
-      XCTAssertNil(selection.effectiveDesktop)
-      XCTAssertEqual(selection.profileID, "uefi")
+      let selection = AuroraInstallationSelection(distribution: .nixos, desktop: desktop)
+      XCTAssertEqual(selection.effectiveDesktop, desktop)
+      XCTAssertEqual(selection.profileID, "nixos-" + desktop.rawValue)
+      XCTAssertThrowsError(try selection.requireMatchingProfile("fedora-" + desktop.rawValue))
     }
   }
 

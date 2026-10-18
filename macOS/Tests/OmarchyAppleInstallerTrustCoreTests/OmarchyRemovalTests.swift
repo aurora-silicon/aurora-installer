@@ -50,11 +50,14 @@
       for bootObject in cases {
         let disk = FakeRemovalDisk(F.neoMacos26(), install: F.convergedInstall)
         disk.files!.stubBootObject = bootObject
-        XCTAssertThrowsError(try OmarchyRemovalPlan(disks: disk)) {
+        do {
+          _ = try OmarchyRemovalPlan(disks: disk)
+          XCTFail("An invalid Aurora boot object must be rejected")
+        } catch {
           XCTAssertTrue(
-            ($0 as? RemovalFailure)?.message.contains(
+            (error as? RemovalFailure)?.message.contains(
               "the m1n1 boot object in its startup container doesn’t point to this EFI partition")
-              ?? false, "\($0)")
+              ?? false, "\(error)")
         }
       }
     }

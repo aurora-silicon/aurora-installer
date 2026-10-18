@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -203,6 +204,21 @@ def verify_upstream(engine_root: Path, lock: dict, checkout: Path) -> None:
     )
 
 
+def require_restore_image(engine_root: Path) -> None:
+    identity = json.loads((engine_root / 'source-lock.json').read_text()).get('restore_image_source', {})
+    if (set(identity) != {'repository', 'commit', 'path', 'build_record'}
+            or identity['repository'] != 'https://github.com/aurora-silicon/omarchy-mac'
+            or not COMMIT.fullmatch(identity['commit'])
+            or identity['path'] != 'Engine/RestoreImage'
+            or identity['build_record'] != 'RestoreImage/build-record.json'):
+        raise ValueError('invalid Swift restore-image source identity')
+    spec = importlib.util.spec_from_file_location(
+        'restore_image_provenance', engine_root / 'verify-restore-image.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.verify(engine_root)
+
+
 def verify(engine_root: Path, checkout: Path) -> None:
     lock = json.loads(
         (engine_root / "source-lock.json").read_text(encoding="utf-8")
@@ -212,6 +228,7 @@ def verify(engine_root: Path, checkout: Path) -> None:
     if lock.get("source_acquisition") != "verified-git-object-graph":
         raise ValueError("source lock must require verified Git objects")
     require_validation_artifact(lock.get("validation_artifact", {}))
+    require_restore_image(engine_root)
     verify_upstream(engine_root, lock, checkout)
 
     overlay = lock["downstream_overlay"]

@@ -67,6 +67,16 @@ import Foundation
     try fm.createSymbolicLink(at: baseline.appendingPathComponent("link"), withDestinationURL: root)
     refused { _ = try RecoveryBaseline.path("link/escape", beneath: baseline) }
 
+    let rootLink = root.appendingPathComponent("root-link")
+    try fm.createSymbolicLink(at: rootLink, withDestinationURL: baseline)
+    refused { _ = try RecoveryBaseline.firmware(manifest: manifest, root: rootLink) }
+    let oversize = baseline.appendingPathComponent("oversize")
+    try write(Data(repeating: 1, count: 65), oversize)
+    refused { _ = try RecoveryBaseline.read(oversize, maximum: 64) }
+    let fileLink = baseline.appendingPathComponent("file-link")
+    try fm.createSymbolicLink(at: fileLink, withDestinationURL: oversize)
+    refused { _ = try RecoveryBaseline.read(fileLink, maximum: 128) }
+
     for includeOptional in [false, true] {
       let destination = root.appendingPathComponent("success-\(includeOptional)")
       var replacements = files

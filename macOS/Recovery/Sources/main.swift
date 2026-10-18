@@ -35,12 +35,14 @@ final class InstallerModel: ObservableObject {
   @Published var accountConfirmation = ""
   @Published var accountAlreadyStarted = false
   @Published var creatingAccount = false
+  @Published var restartingWithoutAccount = false
   @Published var accountNeedsAuthorization = false
   private var checkingAccount = false
   private var awaitingStartupDiskReturn = false
 
   var canCreateAccount: Bool {
-    !creatingAccount && RecoveryAccountInstaller.validName(accountUsername)
+    !creatingAccount && !restartingWithoutAccount
+      && RecoveryAccountInstaller.validName(accountUsername)
       && !accountPassword.isEmpty && accountPassword == accountConfirmation
       && (try? RecoveryAccountInstaller.validatePassword(Data(accountPassword.utf8))) != nil
   }
@@ -59,7 +61,7 @@ final class InstallerModel: ObservableObject {
 
   func resumeAccountSetup() {
     guard RecoveryActions.inRecovery, RecoveryActions.recovering,
-      !creatingAccount, !checkingAccount
+      !creatingAccount, !restartingWithoutAccount, !checkingAccount
     else { return }
     checkingAccount = true
     DispatchQueue.global(qos: .userInitiated).async {
@@ -114,6 +116,34 @@ final class InstallerModel: ObservableObject {
         InstallerLog.shared.append("Recovery account setup failed: " + error.localizedDescription)
         DispatchQueue.main.async {
           self.creatingAccount = false
+          self.failure = error.localizedDescription
+        }
+      }
+    }
+  }
+
+  func skipRecoveryAccountAndRestart() {
+    guard stage == .account, !creatingAccount, !restartingWithoutAccount, !checkingAccount else {
+      return
+    }
+    accountPassword = ""
+    accountConfirmation = ""
+    if RecoveryActions.isPreview {
+      let alert = NSAlert()
+      alert.messageText = "Restart simulated"
+      alert.informativeText =
+        "Recovery account setup is deferred. This preview does not restart your Mac."
+      alert.runModal()
+      return
+    }
+    restartingWithoutAccount = true
+    DispatchQueue.global(qos: .userInitiated).async {
+      do {
+        try RecoveryActions.skipRecoveryAccountAndRestart()
+      } catch {
+        InstallerLog.shared.append("Restart failed: " + error.localizedDescription)
+        DispatchQueue.main.async {
+          self.restartingWithoutAccount = false
           self.failure = error.localizedDescription
         }
       }
@@ -425,7 +455,7 @@ struct InstallerView: View {
     switch model.stage {
     case .welcome: return model.recoveryInterface ? "Repair startup" : "Finish setup"
     case .installing:
-      return model.recoveryInterface ? "Restoring startup software" : "Setting up Aurora"
+      return model.recoveryInterface ? "Restoring startup software" : "Setting up Omarchy"
     case .account:
       return model.accountAlreadyStarted ? "Resume recovery setup" : "Create a recovery account"
     case .complete:
@@ -437,7 +467,7 @@ struct InstallerView: View {
   var body: some View {
     VStack(spacing: 0) {
       OmarchyWordmark()
-        .frame(width: 112, height: 112)
+        .frame(width: 400, height: 94)
         .padding(.top, 72)
         .padding(.bottom, 28)
       Text(title)
@@ -563,13 +593,13 @@ struct InstallerView: View {
     VStack(spacing: 8) {
       Text(
         model.recoveryInterface
-          ? "Restore the startup software for your Mac." : "Finish setting up Aurora on your Mac."
+          ? "Restore the startup software for your Mac." : "Finish setting up Omarchy on your Mac."
       )
       .font(OmarchyTheme.mono(15)).foregroundColor(OmarchyTheme.secondaryText)
       Text(
         model.recoveryInterface
           ? "Use the saved recovery files to repair your\nstartup software."
-          : "The final step installs the startup software for your\nselected Aurora volume."
+          : "The final step installs the startup software for your\nselected Omarchy volume."
       )
       .font(OmarchyTheme.mono(13)).foregroundColor(OmarchyTheme.secondaryText)
       .multilineTextAlignment(.center).lineSpacing(4)
@@ -603,12 +633,17 @@ struct InstallerView: View {
         if !authorizingRecoveryRepair {
           Text(
             model.authorizationUsesSourceOwner
-              ? "Use your existing macOS owner’s password to set up Aurora. Your macOS security settings are unaffected."
-              : "Use your Aurora installation’s credentials to adjust its security settings. The security of your macOS installations is unaffected."
+              ? "Use your existing macOS owner’s password to set up Omarchy. Your macOS security settings are unaffected."
+              : "Use your Omarchy installation’s credentials to adjust its security settings. The security of your macOS installations is unaffected."
           )
           .font(OmarchyTheme.mono(12)).foregroundColor(OmarchyTheme.secondaryText)
           .fixedSize(horizontal: false, vertical: true)
           .padding(.top, 8)
+          if RecoveryActions.allowsCustomBootArguments {
+            Text("Omarchy will also allow custom Aura boot arguments, including USB proxy mode.")
+              .font(OmarchyTheme.mono(12)).foregroundColor(OmarchyTheme.secondaryText)
+              .fixedSize(horizontal: false, vertical: true)
+          }
         }
       }
       SecureField("Password", text: $model.password)
@@ -748,7 +783,7 @@ struct InstallerView: View {
     }
     .frame(width: 380)
     .textFieldStyle(.roundedBorder)
-    .disabled(model.creatingAccount)
+    .disabled(model.creatingAccount || model.restartingWithoutAccount)
     .onAppear { accountField = model.accountAlreadyStarted ? .password : .username }
     .onDisappear {
       model.accountPassword = ""
@@ -784,18 +819,27 @@ struct InstallerView: View {
     case .installing:
       EmptyView()
     case .account:
-      HStack(spacing: 12) {
-        ProgressView().controlSize(.small)
-          .frame(width: 16, height: 16)
-          .opacity(model.creatingAccount ? 1 : 0)
-          .accessibilityLabel("Preparing account")
-          .accessibilityHidden(!model.creatingAccount)
-        Button(model.accountAlreadyStarted ? "Continue" : "Create Account") {
-          model.createRecoveryAccount()
+      VStack(spacing: 8) {
+        HStack(spacing: 12) {
+          ProgressView().controlSize(.small)
+            .frame(width: 16, height: 16)
+            .opacity(model.creatingAccount ? 1 : 0)
+            .accessibilityLabel("Preparing account")
+            .accessibilityHidden(!model.creatingAccount)
+          Button(model.accountAlreadyStarted ? "Continue" : "Create Account") {
+            model.createRecoveryAccount()
+          }
+          .buttonStyle(RecoveryPrimaryButtonStyle()).controlSize(.large)
+          .disabled(!model.canCreateAccount)
+          Color.clear.frame(width: 16, height: 16).accessibilityHidden(true)
         }
-        .buttonStyle(RecoveryPrimaryButtonStyle()).controlSize(.large)
-        .disabled(!model.canCreateAccount)
-        Color.clear.frame(width: 16, height: 16).accessibilityHidden(true)
+        Button(model.restartingWithoutAccount ? "Restarting…" : "Skip, Restart Now") {
+          model.skipRecoveryAccountAndRestart()
+        }
+        .buttonStyle(.plain)
+        .font(OmarchyTheme.mono(12))
+        .foregroundColor(OmarchyTheme.secondaryText)
+        .disabled(model.creatingAccount || model.restartingWithoutAccount)
       }
     case .complete:
       Button("Restart") { model.openStartupDisk() }
@@ -807,7 +851,7 @@ struct InstallerView: View {
     VStack(alignment: .leading, spacing: 16) {
       Text("Installation details").font(OmarchyTheme.mono(20, .semibold))
       Text(
-        "Boot security is reduced only for this Aurora installation. Your macOS security settings are unchanged."
+        "Boot security is reduced only for this Omarchy installation. Your macOS security settings are unchanged."
       )
       .font(OmarchyTheme.mono(12))
       .foregroundColor(OmarchyTheme.secondaryText)
@@ -875,7 +919,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   func applicationDidFinishLaunching(_ notification: Notification) {
     LaunchTrace.mark("delegate.didFinishLaunching")
     let window = InstallerWindow()
-    window.title = "Aurora Installer"
+    window.title = "Omarchy Installer"
     window.isOpaque = false
     window.backgroundColor = .clear
     window.hasShadow = true
@@ -922,13 +966,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       menu.addItem(item)
       return result
     }
-    let application = submenu("Aurora Installer")
+    let application = submenu("Omarchy Installer")
     application.addItem(
-      withTitle: "About Aurora Installer",
+      withTitle: "About Omarchy Installer",
       action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
     application.addItem(.separator())
     application.addItem(
-      withTitle: "Hide Aurora Installer", action: #selector(NSApplication.hide(_:)),
+      withTitle: "Hide Omarchy Installer", action: #selector(NSApplication.hide(_:)),
       keyEquivalent: "h")
     let hideOthers = application.addItem(
       withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)),
@@ -939,7 +983,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       keyEquivalent: "")
     application.addItem(.separator())
     application.addItem(
-      withTitle: "Quit Aurora Installer", action: #selector(NSApplication.terminate(_:)),
+      withTitle: "Quit Omarchy Installer", action: #selector(NSApplication.terminate(_:)),
       keyEquivalent: "q")
 
     let edit = submenu("Edit")
@@ -966,7 +1010,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     NSApp.windowsMenu = windows
     let help = submenu("Help")
     let previewHelp = help.addItem(
-      withTitle: "About Aurora Recovery", action: #selector(showPreviewHelp(_:)), keyEquivalent: ""
+      withTitle: "About Omarchy Recovery", action: #selector(showPreviewHelp(_:)), keyEquivalent: ""
     )
     previewHelp.target = self
     NSApp.helpMenu = help
@@ -999,10 +1043,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   @objc private func showPreviewHelp(_ sender: Any?) {
     let alert = NSAlert()
-    alert.messageText = "Aurora Installer"
+    alert.messageText = "Omarchy Installer"
     alert.informativeText =
       RecoveryActions.inRecovery
-      ? "Install or restore Aurora startup software. The aura command is available in Recovery Terminal after opening this app."
+      ? "Install or restore Omarchy startup software. The aura command is available in Recovery Terminal after opening this app."
       : "This preview demonstrates the Recovery installation flow. Enter any text in the preview password field. No startup software, boot policy, or disk content is changed. Restart previews the Startup Disk handoff. Utilities → Terminal opens the real Terminal app."
     alert.runModal()
   }
