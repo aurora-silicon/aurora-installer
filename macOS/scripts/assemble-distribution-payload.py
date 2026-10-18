@@ -5,6 +5,7 @@ A private Neo variant may additionally carry recorded original policy inputs.
 It is a separate, explicitly local payload and must not be published publicly.
 """
 import argparse
+import datetime
 import hashlib
 import json
 from pathlib import Path
@@ -31,7 +32,10 @@ def regular(path):
     return path
 
 
-def assemble(bundle, recovery, output, policy_directory=None, reuse_payload=False):
+def assemble(bundle, recovery, output, policy_directory=None, reuse_payload=False, release_id=None):
+    release_id = release_id or datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,79}", release_id):
+        raise ValueError("invalid delivery release identifier")
     image = json.loads(regular(bundle / 'image.json').read_text())
     profile = image['installation_profile']
     if not re.fullmatch(r'(fedora|arch|nixos)-(kde|gnome|minimal)', profile):
@@ -51,7 +55,7 @@ def assemble(bundle, recovery, output, policy_directory=None, reuse_payload=Fals
         raise ValueError('output exists; use a new release directory')
     output.mkdir(parents=True, exist_ok=reuse_payload)
     suffix = '-neo-local' if policy_directory else ''
-    payload = output / (profile + suffix + '-20261018.zip')
+    payload = output / (profile + suffix + '-' + release_id + '.zip')
     files = {'boot.img': bundle / 'boot.img', 'root.img': bundle / 'root.img',
              'aurora-volume.icns': ROOT / 'Packaging/AuroraInstaller.icns'}
     for path in sorted((bundle / 'esp').rglob('*')):
@@ -132,7 +136,7 @@ def assemble(bundle, recovery, output, policy_directory=None, reuse_payload=Fals
     metadata.write_text(json.dumps({'os_list': [template]}, indent=2) + '\n')
     records = {p.name: {'bytes': p.stat().st_size, 'sha256': digest(p)} for p in (payload, metadata)}
     (output / 'delivery.json').write_text(json.dumps({'schema': 1, 'installation_profile': profile,
-        'private_neo_inputs': bool(policies), 'physical_qualification': 'pending', 'artifacts': records}, indent=2) + '\n')
+        'release_id': release_id, 'private_neo_inputs': bool(policies), 'physical_qualification': 'pending', 'artifacts': records}, indent=2) + '\n')
     print(json.dumps(records, indent=2))
 
 
@@ -143,5 +147,6 @@ if __name__ == '__main__':
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--private-neo-policy-directory', type=Path)
     parser.add_argument('--reuse-payload', action='store_true')
+    parser.add_argument('--release-id')
     args = parser.parse_args()
-    assemble(args.filesystems, args.recovery_app, args.output, args.private_neo_policy_directory, args.reuse_payload)
+    assemble(args.filesystems, args.recovery_app, args.output, args.private_neo_policy_directory, args.reuse_payload, args.release_id)

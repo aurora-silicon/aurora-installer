@@ -37,7 +37,7 @@ class DistributionPayloadTests(unittest.TestCase):
 
     def test_generic_payload_binds_profile_volume_id_and_native_recovery(self):
         output = self.root / 'output'
-        payload.assemble(self.bundle, self.app, output)
+        payload.assemble(self.bundle, self.app, output, release_id="fixture")
         metadata = json.loads((output / 'installer-data-fedora-kde.json').read_text())['os_list'][0]
         self.assertEqual(metadata['installation_profile'], 'fedora-kde')
         self.assertEqual(metadata['partitions'][0]['volume_id'], '0xA1B2C3D4')
@@ -52,14 +52,14 @@ class DistributionPayloadTests(unittest.TestCase):
         self.assertFalse((self.root / 'output').exists())
 
     def test_resume_verifies_every_existing_member_against_inputs(self):
-        output = self.root / 'output'; payload.assemble(self.bundle, self.app, output)
-        path = output / 'fedora-kde-20261018.zip'
+        output = self.root / 'output'; payload.assemble(self.bundle, self.app, output, release_id="fixture")
+        path = output / 'fedora-kde-fixture.zip'
         with zipfile.ZipFile(path) as archive:
             files = {name: archive.read(name) for name in archive.namelist()}
         files['root.img'] = b'x' * len(files['root.img'])
         with zipfile.ZipFile(path, 'w') as archive:
             for name, data in files.items(): archive.writestr(name, data)
         with self.assertRaisesRegex(ValueError, 'content differs: root.img'):
-            payload.assemble(self.bundle, self.app, output, reuse_payload=True)
+            payload.assemble(self.bundle, self.app, output, reuse_payload=True, release_id="fixture")
 
 if __name__ == '__main__': unittest.main()
