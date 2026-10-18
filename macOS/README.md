@@ -4,7 +4,7 @@ Native SwiftUI front end for Aurora Linux on Apple Silicon. It shares the Apple 
 
 ## Current status
 
-The native preview offers **Aurora Fedora Remix**, **Aurora ALARM** and **UEFI**, with **KDE Plasma**, **GNOME** and **Minimal (shell)** for the Linux choices. UEFI has no desktop selection. The desktop cards use native vector mockups of Plasma, GNOME and a shell; they do not promise an exact wallpaper or desktop version in a future Aurora image.
+The native preview offers **Fedora Aurora Remix**, **Aurora ALARM** and **UEFI**, with **KDE Plasma**, **GNOME** and **Minimal (shell)** for the Linux choices. UEFI has no desktop selection. The desktop cards use native vector mockups of Plasma, GNOME and a shell; they do not promise an exact wallpaper or desktop version in a future Aurora image.
 
 This is a UI and integration preview, not a newly qualified Fedora/ALARM release. No Aurora Fedora or ALARM OS payload is published by this change. A live install requires a matching signed profile catalog; an existing Omarchy image is deliberately not accepted as one of these distributions. The current inherited full-OS engine also needs the layout and renamed Recovery-app contract changes described below before these profiles can perform live installation.
 
@@ -23,9 +23,9 @@ The preview is explicitly marked `AuroraPreviewOnly` and runs the in-memory simu
 
 | Profile | Distribution | Desktop | Intended payload layout |
 | --- | --- | --- | --- |
-| `fedora-kde` | Aurora Fedora Remix | KDE Plasma | ESP, Boot, Root |
-| `fedora-gnome` | Aurora Fedora Remix | GNOME | ESP, Boot, Root |
-| `fedora-minimal` | Aurora Fedora Remix | Shell | ESP, Boot, Root |
+| `fedora-kde` | Fedora Aurora Remix | KDE Plasma | ESP, Boot, Root |
+| `fedora-gnome` | Fedora Aurora Remix | GNOME | ESP, Boot, Root |
+| `fedora-minimal` | Fedora Aurora Remix | Shell | ESP, Boot, Root |
 | `arch-kde` | Aurora ALARM | KDE Plasma | ESP, Boot, Root |
 | `arch-gnome` | Aurora ALARM | GNOME | ESP, Boot, Root |
 | `arch-minimal` | Aurora ALARM | Shell | ESP, Boot, Root |
@@ -36,6 +36,8 @@ Every profile gets a distinct signed catalog under `Release/Profiles/<profile>/`
 The main application preserves the shared native authorization and Recovery handoff. Actual release work must retain those checks while replacing distribution-specific filesystem assumptions; changing the product label is not a distribution port.
 
 ## Producing the images
+
+The [Fedora Aurora Remix producer](../fedora/README.md) now prepares pinned Fedora 44 KIWI descriptions for KDE, GNOME and minimal. It selects Aurora RPMs and records the Fedora filesystem contract. Its source/key checks and KIWI description loading are tested; the Aurora RPM set, image build and live Fedora engine adapter are not complete yet.
 
 Fedora's established path is [KIWI image descriptions](https://docs.pagure.org/fedora-asahi/kiwi-descriptions/), with KDE, GNOME and minimal profiles. Its producer creates a raw disk image and converts the partitions into the Asahi installer's ZIP payload. Aurora should maintain its own descriptions/release package, repositories and signing keys, with Aurora RPMs for the kernel, Mesa, boot tools and required hardware services. Our existing Arch `.pkg.tar.zst` packages are not Fedora RPMs; Fedora needs its own package builds.
 
@@ -50,7 +52,7 @@ Use `Workstation-GNOME` and `Minimal` for the other Fedora profiles after adapti
 
 The [maintained ALARM image builder](https://github.com/asahi-alarm/asahi-alarm-builder/blob/main/build.sh) is a useful starting point. Aurora ALARM should start with the [Arch Linux ARM AArch64 root filesystem](https://archlinuxarm.org/platforms/armv8/generic), then install Aurora's signed pacman repository and the selected desktop during image construction. Three preassembled images keep the user's installation mostly offline; installing the desktop at first boot would add a large network-dependent step. The existing Arch package build and qualified Aurora boot stack can be reused, with first-boot account setup designed for these distributions rather than Omarchy's desktop setup.
 
-The [Asahi installer metadata](https://github.com/AsahiLinux/asahi-installer-data) supplies the useful transport contract: OS templates describe partitions and map packaged files to them. This permits one GUI to select several distributions. Aurora should publish its own metadata and payloads and retain one common Aura/m1n1 + U-Boot + Limine build, selecting the matching machine DTB. Firmware and per-device calibration must still be extracted from the target Mac; another Mac's calibration must not enter a release image.
+The [Asahi installer metadata](https://github.com/AsahiLinux/asahi-installer-data) supplies the useful transport contract: OS templates describe partitions and map packaged files to them. This permits one GUI to select several distributions. Aurora should publish its own metadata and payloads and retain one common Aura + U-Boot hardware boot chain, selecting the matching machine DTB. The Fedora configuration retains Fedora's GRUB/BLS and dracut integration. Firmware and per-device calibration must still be extracted from the target Mac; another Mac's calibration must not enter a release image.
 
 Before publishing these profiles, the inherited engine needs explicit layout kinds. Its current full-OS validator requires an Omarchy icon and exactly ESP + Boot + Root; it also assumes Omarchy's Btrfs tree and first-boot behavior. Fedora and ALARM should have profile-specific filesystem and package checks. UEFI needs the separate APFS-stub + ESP path, with no fake Linux root or desktop. Existing-install discovery and removal must use the same typed layout contract. The Recovery-app staging contract must also use the new Aurora app name while retaining its inventory, hash and paired-Recovery checks. No validator should be relaxed globally to accommodate a new distribution.
 

@@ -5,7 +5,7 @@ public enum AuroraDistribution: String, CaseIterable, Codable, Identifiable, Sen
   public var id: String { rawValue }
   public var title: String {
     switch self {
-    case .fedora: "Aurora Fedora Remix"
+    case .fedora: "Fedora Aurora Remix"
     case .arch: "Aurora ALARM"
     case .uefi: "UEFI"
     }
