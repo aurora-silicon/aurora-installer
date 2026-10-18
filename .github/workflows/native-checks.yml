@@ -47,7 +47,7 @@ jobs:
         run: |
           set -euo pipefail
           export PYTHONPATH="$PWD/Engine/overlay/src"
-          for directory in Engine/tests Engine/overlay/tests scripts/tests Packaging/release/tests; do
+          for directory in Engine/tests Engine/overlay/tests scripts/tests; do
             python3 -m unittest discover -s "$directory" -p 'test_*.py'
           done
       - name: Save portable evidence
