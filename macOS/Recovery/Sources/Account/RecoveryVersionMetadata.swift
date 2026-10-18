@@ -70,7 +70,7 @@ public enum RecoveryVersionMetadata {
       let bytes = try read(marker, 65536)
       guard
         let launch = try PropertyListSerialization.propertyList(from: bytes, format: nil)
-          as? [String: Any], launch["AppName"] as? String == "Omarchy Installer.app"
+          as? [String: Any], launch["AppName"] as? String == "Aurora Installer.app"
       else { throw AccountSetupFailure("The Recovery launcher belongs to another application.") }
       if !fm.fileExists(atPath: disabled.path) {
         relocated[marker.standardizedFileURL.path] = disabled

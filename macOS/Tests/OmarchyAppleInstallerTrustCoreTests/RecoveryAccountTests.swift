@@ -114,6 +114,48 @@
         XCTAssertThrowsError(try RecoveryVersionMetadata.validate(data))
       }
     }
+    func testCompletedAuroraAccountHandoffDisarmsOnlyItsOwnLauncher() throws {
+      let fm = FileManager.default
+      let system = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      defer { try? fm.removeItem(at: system) }
+      let core = system.appendingPathComponent("System/Library/CoreServices")
+      let state = system.appendingPathComponent("Aurora/Recovery/State")
+      try fm.createDirectory(at: core, withIntermediateDirectories: true)
+      try fm.createDirectory(at: state, withIntermediateDirectories: true)
+      let version = try PropertyListSerialization.data(
+        fromPropertyList: [
+          "ProductName": "macOS", "ProductVersion": "26.6.2", "ProductBuildVersion": "25G83",
+        ], format: .xml, options: 0)
+      try version.write(to: core.appendingPathComponent("SystemVersion-disabled.plist"))
+      let receipt = state.appendingPathComponent("installation.json")
+      try JSONSerialization.data(
+        withJSONObject: ["status": "installed", "recoveryAccountDeferred": true]
+      ).write(to: receipt)
+      let marker = system.appendingPathComponent(".IAPhysicalMedia")
+      let read: (URL, Int) throws -> Data = { url, _ in try Data(contentsOf: url) }
+      let other = try PropertyListSerialization.data(
+        fromPropertyList: ["AppName": "Another Installer.app"], format: .xml, options: 0)
+      try other.write(to: marker)
+      XCTAssertThrowsError(
+        try RecoveryVersionMetadata.finishAccountSetup(system: system, read: read))
+      XCTAssertTrue(fm.fileExists(atPath: marker.path))
+      XCTAssertFalse(fm.fileExists(atPath: core.appendingPathComponent("SystemVersion.plist").path))
+      let launch = try PropertyListSerialization.data(
+        fromPropertyList: ["AppName": "Aurora Installer.app"], format: .xml, options: 0)
+      try launch.write(to: marker)
+      let relocated = try RecoveryVersionMetadata.finishAccountSetup(system: system, read: read)
+      XCTAssertEqual(relocated.count, 2)
+      XCTAssertFalse(fm.fileExists(atPath: marker.path))
+      XCTAssertEqual(
+        try Data(contentsOf: system.appendingPathComponent("IAPhysicalMedia-disabled.plist")),
+        launch)
+      XCTAssertEqual(
+        try Data(contentsOf: core.appendingPathComponent("SystemVersion.plist")), version)
+      let finished = try XCTUnwrap(
+        JSONSerialization.jsonObject(with: Data(contentsOf: receipt)) as? [String: Any])
+      XCTAssertEqual(finished["recoveryAccountDeferred"] as? Bool, false)
+    }
+
     let target = RecoveryAccountTarget(
       volumeName: "Aurora", systemUUID: "11111111-1111-4111-8111-111111111111",
       dataUUID: "22222222-2222-4222-8222-222222222222",
