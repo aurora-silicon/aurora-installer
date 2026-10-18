@@ -38,27 +38,35 @@
         [F.convergedInstall.stub, F.convergedInstall.esp] + F.convergedInstall.linux)
     }
 
-    func testAnAuroraStage1MustNameThisESPInOneValidBlock() {
-      let esp = F.convergedInstall.esp.lowercased()
-      let versionTwo = Self.auroraStage1(esp: esp, version: 2)
-      let cases: [Data] = [
-        Self.auroraStage1(esp: F.id(77).lowercased()),
-        Self.auroraStage1(esp: esp, corruptCRC: true),
-        versionTwo,
-        Self.auroraStage1(esp: esp) + Self.auroraStage1(esp: esp),
-      ]
-      for bootObject in cases {
-        let disk = FakeRemovalDisk(F.neoMacos26(), install: F.convergedInstall)
-        disk.files!.stubBootObject = bootObject
-        do {
-          _ = try OmarchyRemovalPlan(disks: disk)
-          XCTFail("An invalid Aurora boot object must be rejected")
-        } catch {
-          XCTAssertTrue(
-            (error as? RemovalFailure)?.message.contains(
-              "the m1n1 boot object in its startup container doesn’t point to this EFI partition")
-              ?? false, "\(error)")
-        }
+    func testAuroraStage1RejectsAnotherESP() {
+      assertRejectsAuroraBootObject(Self.auroraStage1(esp: F.id(77).lowercased()))
+    }
+
+    func testAuroraStage1RejectsCorruptCRC() {
+      assertRejectsAuroraBootObject(
+        Self.auroraStage1(esp: F.convergedInstall.esp.lowercased(), corruptCRC: true))
+    }
+
+    func testAuroraStage1RejectsUnknownConfigVersion() {
+      assertRejectsAuroraBootObject(
+        Self.auroraStage1(esp: F.convergedInstall.esp.lowercased(), version: 2))
+    }
+
+    func testAuroraStage1RejectsDuplicateConfigBlocks() {
+      let block = Self.auroraStage1(esp: F.convergedInstall.esp.lowercased())
+      assertRejectsAuroraBootObject(block + block)
+    }
+
+    private func assertRejectsAuroraBootObject(
+      _ bootObject: Data, file: StaticString = #filePath, line: UInt = #line
+    ) {
+      let disk = FakeRemovalDisk(F.neoMacos26(), install: F.convergedInstall)
+      disk.files!.stubBootObject = bootObject
+      XCTAssertThrowsError(try OmarchyRemovalPlan(disks: disk), file: file, line: line) { error in
+        XCTAssertTrue(
+          (error as? RemovalFailure)?.message.contains(
+            "the m1n1 boot object in its startup container doesn’t point to this EFI partition")
+            ?? false, "\(error)", file: file, line: line)
       }
     }
 
