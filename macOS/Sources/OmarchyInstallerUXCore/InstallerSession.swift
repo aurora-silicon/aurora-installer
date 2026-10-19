@@ -603,7 +603,9 @@
         // installs or replaces the helper, before anything is submitted.
         try await environment.ensureHelper(
           authorization, reenablingSwitchedOff: context.helperSwitchedOff)
-        if prefetchState != .verified {
+        // Recovery retry revalidates the original helper-owned package. A
+        // reopened app has no download to wait for and must not start one.
+        if context.kind != .retryRecoveryAuthorization, prefetchState != .verified {
           try await environment.waitUntilPayloadVerified()
           prefetchState = .verified
         }

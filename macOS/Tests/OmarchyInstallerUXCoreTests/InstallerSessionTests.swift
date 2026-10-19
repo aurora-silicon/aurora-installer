@@ -38,6 +38,7 @@
       let environment = MockInstallerEnvironment()
       environment.pendingInstallation = true
       environment.pendingRecoveryRetry = true
+      environment.payloadPrefetchRequired = true
       environment.engineSupported = false
       let session = InstallerSession(environment: environment)
       await session.inspect()
@@ -48,6 +49,24 @@
       XCTAssertEqual(environment.prepareCount, 0)
       session.presentRecoveryRetryCredentials()
       XCTAssertEqual(session.credentialSheet.context?.kind, .retryRecoveryAuthorization)
+      await session.submit(try authorization())
+      XCTAssertEqual(environment.lastOperation, .retryRecoveryAuthorization)
+      XCTAssertEqual(environment.prefetchWaitCount, 0)
+      XCTAssertEqual(environment.prefetchStartCount, 0)
+      XCTAssertEqual(environment.prepareCount, 0)
+    }
+
+    func testBlockedHostCannotRetryARestoredInstallation() async throws {
+      let environment = MockInstallerEnvironment()
+      environment.pendingInstallation = true
+      environment.pendingRecoveryRetry = true
+      environment.installationBlocked = true
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      XCTAssertFalse(session.canRetryRecoveryAuthorization)
+      session.presentRecoveryRetryCredentials()
+      await session.submit(try authorization())
+      XCTAssertEqual(environment.executeCount, 0)
     }
 
     func testUnknownPendingJobOutcomeKeepsFreshExecutionBlocked() async throws {
@@ -1756,7 +1775,9 @@
       progress(.verified)
     }
 
+    private(set) var prefetchWaitCount = 0
     func waitUntilPayloadVerified() async throws {
+      prefetchWaitCount += 1
       await prefetchGate?.wait()
     }
 

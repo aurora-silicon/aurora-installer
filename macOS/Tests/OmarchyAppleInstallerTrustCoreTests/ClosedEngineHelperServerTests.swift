@@ -612,8 +612,8 @@
         do {
           let result = try await restarted.retryRegisteredJob(identifier: ticket.identifier,
             authorization: try machineOwnerAuthorization())
-          restarted.jobs.finish(ticket.identifier, result: .success(result))
-        } catch { restarted.jobs.finish(ticket.identifier, result: .failure(error)) }
+          restarted.finishRegisteredJob(ticket.identifier, result: .success(result))
+        } catch { restarted.finishRegisteredJob(ticket.identifier, result: .failure(error)) }
         let snapshot = try restarted.jobs.status(InstallerJobStatusRequest(ticket: ticket, journalOffset: 0), initiatingUID: 501)
         let operations = await executor.operations
         if tampered {

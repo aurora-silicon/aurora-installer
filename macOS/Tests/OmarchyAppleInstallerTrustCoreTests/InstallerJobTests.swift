@@ -190,6 +190,47 @@
       XCTAssertEqual(status.phase, .interrupted)
     }
 
+    func testCleanupRequiresDurableTerminalPersistence() throws {
+      for rejectPersistence in [false, true] {
+        let root = try workspace()
+        let work = HelperWorkState()
+        let jobs = InstallerJobRegistry(workingDirectory: root, work: work)
+        let request = try request()
+        XCTAssertTrue(try jobs.begin(request, initiatingUID: 501))
+        let packageURL = root.appendingPathComponent("imported-handoff-" + UUID().uuidString.lowercased())
+        try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: false)
+        let package = ImportedEngineHandoffPackage(
+          packageURL: packageURL, manifestURL: packageURL, requestURL: packageURL, identityURL: packageURL,
+          engineURL: packageURL, metadataURL: packageURL, payloadURL: packageURL,
+          bindingDigest: request.ticket.bindingDigest, planDigest: String(repeating: "a", count: 64),
+          deviceIdentifier: "apple,j314s", storeIdentifier: "disk0")
+        try jobs.admitted(request.ticket.identifier, package: package)
+        let state = root.appendingPathComponent("installation-jobs")
+        if rejectPersistence { XCTAssertEqual(chmod(state.path, 0o755), 0) }
+        let cleanup = jobs.finish(request.ticket.identifier, result: .success((Data("done".utf8), .recorded)))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: packageURL.path))
+        if rejectPersistence {
+          XCTAssertNil(cleanup)
+          XCTAssertFalse(work.beginReplacement(token: "replacement"))
+        } else {
+          XCTAssertEqual(cleanup?.path, packageURL.path)
+          XCTAssertTrue(work.beginReplacement(token: "replacement"))
+        }
+        XCTAssertEqual(chmod(state.path, 0o700), 0)
+        let restored = InstallerJobRegistry(workingDirectory: root, work: HelperWorkState())
+        let snapshot = try restored.status(
+          InstallerJobStatusRequest(ticket: request.ticket, journalOffset: 0), initiatingUID: 501)
+        XCTAssertEqual(snapshot.phase, rejectPersistence ? .interrupted : .succeeded)
+      }
+    }
+
+    func testPendingHintRejectsAFIFOWithoutWaitingForAWriter() throws {
+      let root = try workspace()
+      let fifo = root.appendingPathComponent("pending-installation.json")
+      XCTAssertEqual(mkfifo(fifo.path, 0o600), 0)
+      XCTAssertThrowsError(try PendingInstallerJobStore(directory: root).load())
+    }
+
     func testPendingHintRejectsSymlinksHardlinksAndPubliclyReadableState() throws {
       let root = try workspace()
       let store = PendingInstallerJobStore(directory: root)

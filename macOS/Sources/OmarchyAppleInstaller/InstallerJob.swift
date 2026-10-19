@@ -379,11 +379,15 @@
       }
     }
 
-    func finish(_ identifier: UUID, result: Result<(Data, InstallConfHandoff), any Error>) {
+    /// Cleanup is authorized only by a confirmed durable terminal record.
+    @discardableResult
+    func finish(_ identifier: UUID, result: Result<(Data, InstallConfHandoff), any Error>) -> URL? {
+      var cleanup: URL?
       var holdForInspection = false
       defer { if !holdForInspection { work.endJob() } }
       lock.withLock {
         guard var record = records[identifier] else { return }
+        let retainedPackageName = record.retainedPackageName
         switch result {
         case .success(let (transcript, conf)):
           if Int64(transcript.count) <= PinnedAsahiEngineExecutor.maximumTranscriptBytes {
@@ -406,7 +410,11 @@
         }
         do {
           try persist(record)
+          if record.retainedPackageName == nil, let retainedPackageName {
+            cleanup = workingDirectory.appendingPathComponent(retainedPackageName, isDirectory: true)
+          }
         } catch {
+          record.retainedPackageName = retainedPackageName
           // The old durable record remains unfinished. Never infer success or
           // replay mutation when its final durable write could not be confirmed.
           record.phase = .interrupted
@@ -416,6 +424,7 @@
         records[identifier] = record
         holdForInspection = record.phase == .interrupted
       }
+      return cleanup
     }
 
     func status(_ request: InstallerJobStatusRequest, initiatingUID: UInt32) throws
@@ -559,7 +568,7 @@
         let url = EngineJournalLocator.journalURL(
           workingDirectory: workingDirectory, bindingDigest: record.bindingDigest)
       else { return (Data(), offset) }
-      let fd = Darwin.open(url.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+      let fd = Darwin.open(url.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)
       guard fd >= 0 else { return (Data(), offset) }
       defer { Darwin.close(fd) }
       var status = stat()
@@ -611,7 +620,7 @@
 
     func read(_ name: String, maximumBytes: Int) throws -> Data? {
       try validateName(name)
-      let file = openat(fd, name, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+      let file = openat(fd, name, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)
       guard file >= 0 else {
         if errno == ENOENT { return nil }
         throw InstallerJobError.unsafeState

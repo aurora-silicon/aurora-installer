@@ -403,8 +403,8 @@
       let package = try InstallerPerformance.measure("helper_import") {
         try importer.prepare(from: packageDirectory, in: workingDirectory)
       }
-      var retainForRecovery = false
-      defer { if !retainForRecovery { try? FileManager.default.removeItem(at: package.packageURL) } }
+      var registeredPackage = false
+      defer { if !registeredPackage { try? FileManager.default.removeItem(at: package.packageURL) } }
 
       guard
         !Self.explicitlyUnsupportedDevices.contains(
@@ -418,17 +418,11 @@
 
       if let jobIdentifier {
         try jobs.admitted(jobIdentifier, package: package)
+        registeredPackage = true
       }
 
-      do {
-        return try await executeImportedPackage(
-          package, authorization: authorization, operation: operation, progress: progress, installConf: installConf)
-      } catch {
-        if jobIdentifier != nil, error as? PinnedAsahiEngineExecutionError == .recoveryAuthorizationFailed {
-          retainForRecovery = true
-        }
-        throw error
-      }
+      return try await executeImportedPackage(
+        package, authorization: authorization, operation: operation, progress: progress, installConf: installConf)
     }
 
     func retryRegisteredJob(identifier: UUID, authorization: MachineOwnerAuthorization) async throws -> (Data, InstallConfHandoff) {
@@ -444,11 +438,17 @@
       let conf = try InstallConf.parse(context.installConf)
       try jobs.admitted(identifier, package: package)
       // A failure keeps this canonical snapshot as retry input or evidence.
-      let result = try await executeImportedPackage(
+      return try await executeImportedPackage(
         package, authorization: authorization, operation: .retryRecoveryAuthorization,
         progress: nil, installConf: conf)
-      try? FileManager.default.removeItem(at: package.packageURL)
-      return result
+    }
+
+    nonisolated func finishRegisteredJob(
+      _ identifier: UUID, result: Result<(Data, InstallConfHandoff), any Error>
+    ) {
+      if let cleanup = jobs.finish(identifier, result: result) {
+        try? FileManager.default.removeItem(at: cleanup)
+      }
     }
 
     private func executeImportedPackage(
@@ -805,9 +805,9 @@
               let result = try await server.executeRegisteredJob(
                 packageDirectory: packageDirectory, authorization: authorization,
                 operation: operation, identifier: request.ticket.identifier, installConf: conf)
-              jobs.finish(request.ticket.identifier, result: .success(result))
+              server.finishRegisteredJob(request.ticket.identifier, result: .success(result))
             } catch {
-              jobs.finish(request.ticket.identifier, result: .failure(error))
+              server.finishRegisteredJob(request.ticket.identifier, result: .failure(error))
             }
           }
         }
@@ -857,9 +857,9 @@
               catch { throw ClosedEngineHelperError.invalidMachineOwnerCredentials }
               let result = try await server.retryRegisteredJob(
                 identifier: request.ticket.identifier, authorization: authorization)
-              jobs.finish(request.ticket.identifier, result: .success(result))
+              server.finishRegisteredJob(request.ticket.identifier, result: .success(result))
             } catch {
-              jobs.finish(request.ticket.identifier, result: .failure(error))
+              server.finishRegisteredJob(request.ticket.identifier, result: .failure(error))
             }
           }
         }

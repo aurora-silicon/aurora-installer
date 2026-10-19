@@ -558,9 +558,11 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   }
 
   private func requireMatchingJobDevice(_ snapshot: InstallerJobSnapshot) throws -> InstallerJobPlanIdentity {
+    let host = try AppleSiliconHostInspector().inspect()
     guard let identity = snapshot.plan,
-      identity.deviceIdentifier == (try AppleSiliconHostInspector().inspect()).identity.deviceIdentifier
+      identity.deviceIdentifier == host.identity.deviceIdentifier
     else { throw InstallerJobError.identityMismatch }
+    lock.withLock { hostInspection = host }
     return identity
   }
 
