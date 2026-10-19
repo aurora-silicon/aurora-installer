@@ -40,9 +40,9 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug \
-            --filter 'InstallerJobTests|ClosedEngineHelperServerTests|InstallerSessionTests' 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
+            --filter 'InstallerJobTests|ClosedEngineHelperServerTests|InstallerSessionTests|EngineHandoffPackageImporterTests' 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration release \
-            --filter 'InstallerJobTests|ClosedEngineHelperServerTests|InstallerSessionTests' 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
+            --filter 'InstallerJobTests|ClosedEngineHelperServerTests|InstallerSessionTests|EngineHandoffPackageImporterTests' 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:

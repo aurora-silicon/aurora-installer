@@ -453,12 +453,13 @@
 
     init(directory: URL) throws {
       if mkdir(directory.path, 0o700) != 0 && errno != EEXIST { throw InstallerJobError.unsafeState }
-      fd = Darwin.open(directory.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
-      guard fd >= 0 else { throw InstallerJobError.unsafeState }
+      let opened = Darwin.open(directory.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+      guard opened >= 0 else { throw InstallerJobError.unsafeState }
       var status = stat()
-      guard fstat(fd, &status) == 0, status.st_mode & S_IFMT == S_IFDIR,
+      guard fstat(opened, &status) == 0, status.st_mode & S_IFMT == S_IFDIR,
         status.st_mode & 0o077 == 0, status.st_uid == geteuid()
-      else { Darwin.close(fd); throw InstallerJobError.unsafeState }
+      else { Darwin.close(opened); throw InstallerJobError.unsafeState }
+      fd = opened
     }
 
     deinit { Darwin.close(fd) }

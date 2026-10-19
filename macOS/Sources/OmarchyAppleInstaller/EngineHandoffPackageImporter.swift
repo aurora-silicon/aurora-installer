@@ -170,6 +170,88 @@
       )
     }
 
+    /// Revalidates the original helper-owned snapshot in place. Recovery retry
+    /// cannot supply another package, and never duplicates its payload.
+    func reopenRetained(named name: String, in directory: URL) throws -> ImportedEngineHandoffPackage {
+      let prefix = "imported-handoff-"
+      guard name.hasPrefix(prefix),
+        let identifier = UUID(uuidString: String(name.dropFirst(prefix.count))),
+        name == prefix + identifier.uuidString.lowercased()
+      else { throw EngineHandoffImportError.invalidManifest }
+      try validateDestinationDirectory(directory)
+      var parentStatus = stat()
+      guard lstat(directory.path, &parentStatus) == 0, parentStatus.st_uid == geteuid() else {
+        throw EngineHandoffImportError.unsafeDestinationDirectory
+      }
+      let package = directory.appendingPathComponent(name, isDirectory: true)
+      let descriptor = Darwin.open(package.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+      guard descriptor >= 0 else { throw EngineHandoffImportError.unsafeSourceDirectory }
+      defer { Darwin.close(descriptor) }
+      var status = stat()
+      guard fstat(descriptor, &status) == 0, status.st_mode & S_IFMT == S_IFDIR,
+        status.st_mode & 0o077 == 0, status.st_uid == geteuid()
+      else { throw EngineHandoffImportError.unsafeSourceDirectory }
+
+      let manifest = try decodeManifest(readRetainedFile("manifest.json", from: descriptor, control: true))
+      let request = try decodeRequest(readRetainedFile("request.json", from: descriptor, control: true))
+      let identity = try decodeIdentity(readRetainedFile("identity.json", from: descriptor, control: true))
+      try validateBindings(manifest: manifest, request: request, identity: identity)
+      let artifacts = [manifest.engine, manifest.metadata, manifest.payload] + (manifest.repairManifest.map { [$0] } ?? [])
+      let expectedNames = Set(["manifest.json", "request.json", "identity.json"] + artifacts.map(\.fileName))
+      guard Set(try FileManager.default.contentsOfDirectory(atPath: package.path)) == expectedNames else {
+        throw EngineHandoffImportError.invalidManifest
+      }
+      for artifact in artifacts {
+        _ = try readRetainedFile(
+          artifact.fileName, from: descriptor, control: false,
+          expectedBytes: artifact.sizeBytes, expectedDigest: artifact.digest)
+      }
+      return ImportedEngineHandoffPackage(
+        packageURL: package, manifestURL: package.appendingPathComponent("manifest.json"),
+        requestURL: package.appendingPathComponent("request.json"),
+        identityURL: package.appendingPathComponent("identity.json"),
+        engineURL: package.appendingPathComponent(manifest.engine.fileName),
+        metadataURL: package.appendingPathComponent(manifest.metadata.fileName),
+        payloadURL: package.appendingPathComponent(manifest.payload.fileName),
+        repairManifestURL: manifest.repairManifest.map { package.appendingPathComponent($0.fileName) },
+        bindingDigest: identity.bindingDigest, planDigest: request.planDigest,
+        deviceIdentifier: request.deviceIdentifier, storeIdentifier: request.storeIdentifier)
+    }
+
+    private func readRetainedFile(
+      _ name: String, from directory: Int32, control: Bool,
+      expectedBytes: UInt64? = nil, expectedDigest: String? = nil
+    ) throws -> Data {
+      let descriptor = openat(directory, name, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+      guard descriptor >= 0 else { throw EngineHandoffImportError.unsafeFile(name) }
+      defer { Darwin.close(descriptor) }
+      var status = stat()
+      guard fstat(descriptor, &status) == 0, status.st_mode & S_IFMT == S_IFREG,
+        status.st_mode & 0o077 == 0, status.st_uid == geteuid(), status.st_nlink == 1,
+        status.st_size > 0, !control || status.st_size <= Self.maximumControlFileBytes
+      else { throw EngineHandoffImportError.unsafeFile(name) }
+      if let expectedBytes, UInt64(status.st_size) != expectedBytes {
+        throw EngineHandoffImportError.sizeMismatch(name)
+      }
+      let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
+      var bytes = Data()
+      var hasher = SHA256()
+      var count: UInt64 = 0
+      while let chunk = try handle.read(upToCount: control ? Self.maximumControlFileBytes + 1 : 4 * 1_048_576),
+        !chunk.isEmpty
+      {
+        count += UInt64(chunk.count)
+        guard count <= UInt64(status.st_size) else { throw EngineHandoffImportError.sizeMismatch(name) }
+        hasher.update(data: chunk)
+        if control { bytes.append(chunk) }
+      }
+      guard count == UInt64(status.st_size) else { throw EngineHandoffImportError.sizeMismatch(name) }
+      if let expectedDigest, SHA256Digest.prefixedHex(hasher.finalize()) != expectedDigest {
+        throw EngineHandoffImportError.digestMismatch(name)
+      }
+      return bytes
+    }
+
     private func validateSourceDirectory(_ descriptor: Int32) throws {
       var status = stat()
       guard fstat(descriptor, &status) == 0,
