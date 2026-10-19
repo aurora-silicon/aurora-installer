@@ -257,7 +257,8 @@
       try NativeRecoveryTemplate.publish(
         prepared, to: destination, owner: geteuid(), verify: { _ in },
         flushDirectory: { flushed.append($0) })
-      XCTAssertEqual(flushed.map(\.path), [root.path, destination.deletingLastPathComponent().path])
+      XCTAssertEqual(
+        flushed.map(\.path), [root.path, destination.deletingLastPathComponent().path])
       XCTAssertTrue(
         FileManager.default.fileExists(
           atPath:
