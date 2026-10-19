@@ -40,9 +40,9 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug \
-            --filter 'RestoreImageHelperTests|ValidationEngineArtifactTests|AuroraFirmwareTests|NativeFirmwarePreparationTests|NativeRecoveryTemplateTests|InstallerJobTests|ClosedEngineHelperServerTests|InstallerSessionTests|EngineHandoffPackageImporterTests|ClosedEngineHandoffProcessTests|PinnedAsahiEngineExecutorTests|RecoveryAccountTests' 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
+            --filter 'RestoreImageHelperTests|ValidationEngineArtifactTests|AuroraFirmwareTests|NativeFirmwarePreparationTests|NativeRecoveryTemplateTests|InstallerJobTests|ClosedEngineHelperServerTests|ClosedEngineHelperServerProgressTests|InstallerSessionTests|EngineHandoffPackageImporterTests|ClosedEngineHandoffProcessTests|PinnedAsahiEngineExecutorTests|RecoveryAccountTests' 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration release \
-            --filter 'RestoreImageHelperTests|ValidationEngineArtifactTests|AuroraFirmwareTests|NativeFirmwarePreparationTests|NativeRecoveryTemplateTests|InstallerJobTests|ClosedEngineHelperServerTests|InstallerSessionTests|EngineHandoffPackageImporterTests|ClosedEngineHandoffProcessTests|PinnedAsahiEngineExecutorTests|RecoveryAccountTests' 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
+            --filter 'RestoreImageHelperTests|ValidationEngineArtifactTests|AuroraFirmwareTests|NativeFirmwarePreparationTests|NativeRecoveryTemplateTests|InstallerJobTests|ClosedEngineHelperServerTests|ClosedEngineHelperServerProgressTests|InstallerSessionTests|EngineHandoffPackageImporterTests|ClosedEngineHandoffProcessTests|PinnedAsahiEngineExecutorTests|RecoveryAccountTests' 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
       - name: Check firmware recipe from an isolated executable
         run: |
           set -euo pipefail
