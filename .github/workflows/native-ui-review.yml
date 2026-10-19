@@ -53,7 +53,7 @@ jobs:
         run: |
           set -euo pipefail
           app="$RUNNER_TEMP/preview/Aurora Installer.app"
-          for screen in chooser; do
+          for screen in chooser loading preparing allocation; do
             for appearance in light dark; do
               output="$RUNNER_TEMP/evidence/$screen-$appearance.png"
               arguments=(--simulate "--preview-screen=$screen" "--snapshot=$output" --quit-after-snapshot)

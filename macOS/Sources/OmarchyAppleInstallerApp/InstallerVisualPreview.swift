@@ -42,7 +42,6 @@
         }
       }
       .foregroundStyle(OmarchyTheme.text).background(OmarchyTheme.window)
-      .preferredColorScheme(CommandLine.arguments.contains("--preview-dark") ? .dark : .light)
     }
 
     @ViewBuilder private var stage: some View {
@@ -54,6 +53,8 @@
           .toggleStyle(.checkbox).font(OmarchyTheme.body)
       case "loading":
         PreparationStatusPanel(detail: PlainLanguage.inspectingSubheadline)
+      case "preparing":
+        DownloadPanel(update: AssetProgressUpdate(stage: .planning))
       case "download":
         DownloadPanel(
           update: AssetProgressUpdate(

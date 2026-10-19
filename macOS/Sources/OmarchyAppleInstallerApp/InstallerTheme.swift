@@ -9,8 +9,8 @@ enum OmarchyTheme {
   static let secondaryText = Color.secondary
   static let separator = Color(nsColor: .separatorColor)
   static let track = Color.primary.opacity(0.08)
-  static let accent = Color(nsColor: .controlAccentColor)
-  static let accentText = Color.white
+  static let accent = Color.primary
+  static let accentText = Color(nsColor: .windowBackgroundColor)
   static let success = Color.green
   static let danger = Color.red
   static let caution = Color.orange

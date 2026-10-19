@@ -123,9 +123,9 @@ struct OmarchyAppleInstallerApp: App {
   @ViewBuilder
   private var installerContent: some View {
     #if DEBUG
-      if let argument = CommandLine.arguments.first(where: { $0.hasPrefix("--preview-screen=") }) {
+      if !simulation.heldScreen.isEmpty {
         if isSimulation {
-          InstallerVisualPreview(screen: String(argument.dropFirst("--preview-screen=".count)))
+          InstallerVisualPreview(screen: simulation.heldScreen)
         } else {
           ContentUnavailableView("Visual previews require --simulate", systemImage: "lock.shield")
         }
@@ -240,6 +240,13 @@ struct OmarchyAppleInstallerApp: App {
       #if DEBUG
         if isSimulation {
           CommandMenu("Simulation") {
+            Picker("Hold Screen", selection: $simulation.heldScreen) {
+              Text("Live simulation").tag("")
+              Text("Getting everything ready").tag("loading")
+              Text("Preparing your installation").tag("preparing")
+              Text("Disk allocation").tag("allocation")
+            }
+            Divider()
             Picker("Scenario", selection: $simulation.scenario) {
               ForEach(InstallerSimulationScenario.allCases) { item in
                 Text(item.title).tag(item)
