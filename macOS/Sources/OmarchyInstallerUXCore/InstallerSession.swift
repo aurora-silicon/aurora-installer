@@ -253,6 +253,9 @@
           )
         }
       } catch {
+        if error as? EngineXPCSubmissionError == .machineOwnerCredentialsRejected {
+          hasExecutionStarted = false
+        }
         if hasExecutionStarted {
           phase = .failed(PlainLanguage.failure(for: error))
         } else {

@@ -587,6 +587,9 @@
         }
       } catch let error as EngineXPCSubmissionError where error == .connectionFailed {
         // Observe only. Never resend credentials or replay a possibly admitted job.
+      } catch let error as InstallerJobError where error == .notAdmitted {
+        try? context.store.clear()
+        throw EngineXPCSubmissionError.notSubmitted
       }
       do {
         let snapshot = try await observeJob(hint)
@@ -616,27 +619,9 @@
 
     /// Read-only polling needs no credential and survives replacing the GUI.
     public func observeJob(_ hint: PendingInstallerJob) async throws -> InstallerJobSnapshot {
-      var offset: UInt64 = 0
-      var lostConnections = 0
-      while true {
-        do {
-          let snapshot = try await jobStatus(hint, journalOffset: offset)
-          lostConnections = 0
-          offset = snapshot.journalOffset
-          if !snapshot.journal.isEmpty { journalProgress?(snapshot.journal) }
-          switch snapshot.phase {
-          case .preparing, .running:
-            try await Task.sleep(for: snapshot.journal.isEmpty ? .seconds(1) : .milliseconds(100))
-          case .succeeded, .failed, .interrupted:
-            if let transcript = snapshot.transcript { journalProgress?(transcript) }
-            return snapshot
-          }
-        } catch let error as EngineXPCSubmissionError where error == .connectionFailed {
-          lostConnections += 1
-          guard lostConnections <= 8 else { throw InstallerJobError.unavailable }
-          try await Task.sleep(for: .seconds(1))
-        }
-      }
+      try await InstallerJobObservation.wait(
+        fetch: { offset in try await self.jobStatus(hint, journalOffset: offset) },
+        journal: journalProgress)
     }
 
     public func writeInstallConf(

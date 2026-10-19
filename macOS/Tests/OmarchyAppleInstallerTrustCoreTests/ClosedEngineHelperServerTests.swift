@@ -528,6 +528,33 @@
         InstallerJobStatusRequest(ticket: ticket, journalOffset: 0), initiatingUID: 502))
     }
 
+    func testBusyStartExplicitlyReportsNotAdmittedAndRunsNoExecutor() async throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let source = try openDirectory(fixture.source)
+      defer { try? source.close() }
+      let executor = RecordingHandoffExecutor(result: fixture.transcript)
+      let server = ClosedEngineHelperServer(
+        workingDirectory: fixture.destination, executor: executor,
+        credentialValidator: AcceptingMachineOwnerCredentialValidator())
+      try server.work.beginJob()
+      defer { server.work.endJob() }
+      let endpoint = ClosedEngineXPCServiceEndpoint(server: server, initiatingUID: 501)
+      let ticket = try InstallerJobTicket(
+        bindingDigest: digest(Data("binding".utf8)), selection: AuroraInstallationSelection())
+      let request = try JSONEncoder().encode(InstallerJobStartRequest(
+        ticket: ticket, operation: "install", installConf: try InstallConf(encrypt: true, lane: "stable").serializedData))
+      let reply: NSError? = await withCheckedContinuation { continuation in
+        endpoint.startJob(request: request, packageDirectory: source, machineOwner: "owner",
+          password: Data("not retained".utf8)) { _, error in continuation.resume(returning: error) }
+      }
+      XCTAssertEqual(InstallerJobXPCCodec.decodedError(try XCTUnwrap(reply)) as? InstallerJobError, .notAdmitted)
+      let executed = await executor.executionCount
+      XCTAssertEqual(executed, 0)
+      XCTAssertThrowsError(try server.jobs.status(
+        InstallerJobStatusRequest(ticket: ticket, journalOffset: 0), initiatingUID: 501))
+    }
+
     private func makeFixture(
       deviceIdentifier: String = "apple,j314s",
       transcriptPlanMismatch: Bool = false,

@@ -741,6 +741,7 @@
       request: Data, packageDirectory: FileHandle, machineOwner: String, password: Data,
       reply: @escaping @Sendable (Data?, NSError?) -> Void
     ) {
+      var registered = false
       do {
         guard let initiatingUID, request.count <= 65_536, !server.isRetiring else {
           throw InstallerJobError.invalidRequest
@@ -750,13 +751,17 @@
           throw InstallerJobError.invalidRequest
         }
         let conf = try InstallConf.parse(request.installConf)
-        let authorization = try MachineOwnerAuthorization(username: machineOwner, password: password)
         let server = server
         let jobs = server.jobs
-        if try jobs.begin(request, initiatingUID: initiatingUID) {
+        let isNew = try jobs.begin(request, initiatingUID: initiatingUID)
+        registered = true
+        if isNew {
           // Unstructured helper-owned work deliberately outlives this connection.
           Task.detached {
             do {
+              let authorization: MachineOwnerAuthorization
+              do { authorization = try MachineOwnerAuthorization(username: machineOwner, password: password) }
+              catch { throw ClosedEngineHelperError.invalidMachineOwnerCredentials }
               let result = try await server.executeRegisteredJob(
                 packageDirectory: packageDirectory, authorization: authorization,
                 operation: operation, identifier: request.ticket.identifier, installConf: conf)
@@ -770,7 +775,7 @@
           InstallerJobStatusRequest(ticket: request.ticket, journalOffset: 0), initiatingUID: initiatingUID)
         reply(try JSONEncoder().encode(snapshot), nil)
       } catch {
-        reply(nil, InstallerJobXPCCodec.serviceError(error))
+        reply(nil, InstallerJobXPCCodec.serviceError(registered ? error : InstallerJobError.notAdmitted))
       }
     }
 

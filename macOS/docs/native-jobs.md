@@ -8,6 +8,10 @@ The helper’s detached worker owns the replacement gate until execution, transc
 
 Records are atomically replaced, fsynced, private to their owner, bounded to 12 MiB each and limited to 32 jobs. Unsafe ownership, permissions, symlinks, hard links and malformed state fail closed. Helper restart marks unfinished records interrupted and never repeats a disk operation. Completed records retain the exact transcript and handoff outcome for authenticated replay.
 
+Interrupted or unreadable root state holds the existing work/replacement gate: a child of the previous helper may still be alive. The installer requires inspection before allowing another privileged operation. It retains up to eight definitively non-mutating failures, so rejected passwords cannot exhaust the history. Rejected starts return an explicit not-admitted disposition; a missing lookup after a lost reply receives bounded observation retries and remains unknown if it cannot be resolved.
+
 On reopening, the app restores the selected profile from its lookup hint and observes the job before fresh-install inspection. Terminal data passes the transcript validator and admitted plan/device identity checks. The existing live Recovery-target check still runs before the shutdown handoff. The app clears its hint only after validated completion or a confirmed credential rejection; an unknown outcome remains blocked.
 
 This change reconnects helper jobs. The full installation engine still uses its existing backend; native firmware extraction is the next integration step.
+
+Before release, restored Recovery-authorization failures still need a narrow credentialed retry using the original root-owned handoff and verified checkpoints. The current feature branch does not synthesize a fresh approval or replay those failures.

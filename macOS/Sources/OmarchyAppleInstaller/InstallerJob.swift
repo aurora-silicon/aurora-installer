@@ -10,6 +10,7 @@
     case unsafeState
     case interrupted
     case historyFull
+    case notAdmitted
 
     public var errorDescription: String? {
       switch self {
@@ -19,6 +20,8 @@
         "The saved installation could not be reached. Reopen this version of Aurora Installer to reconnect."
       case .historyFull:
         "The installer’s saved records need maintenance before another installation can start."
+      case .notAdmitted:
+        "The helper did not start this installation. Try again when it is ready."
       case .invalidRequest, .identityMismatch, .unsafeState:
         "The saved installation could not be verified. No new installation was started."
       }
@@ -87,7 +90,7 @@
   enum InstallerJobXPCCodec {
     private static let domain = InstallerProductIdentity.appIdentifier + ".installation-job"
     private static let errors: [InstallerJobError] = [
-      .invalidRequest, .identityMismatch, .unavailable, .unsafeState, .interrupted, .historyFull,
+      .invalidRequest, .identityMismatch, .unavailable, .unsafeState, .interrupted, .historyFull, .notAdmitted,
     ]
 
     static func serviceError(_ error: any Error) -> NSError {
@@ -235,6 +238,7 @@
     let selection: AuroraInstallationSelection
     let operation: String
     let installConfDocument: Data
+    let createdAt: Date
     var phase: InstallerJobPhase
     var plan: InstallerJobPlanIdentity?
     var transcript: Data?
@@ -253,6 +257,7 @@
     private let work: HelperWorkState
     private var records = [UUID: InstallerJobRecord]()
     private var loaded = false
+    private var loadError: (any Error)?
     private static let maximumRecordBytes = 12 * 1_048_576
     private static let maximumRecords = 32
 
@@ -260,6 +265,12 @@
       self.workingDirectory = workingDirectory
       directory = workingDirectory.appendingPathComponent("installation-jobs", isDirectory: true)
       self.work = work
+      do { try load() }
+      catch {
+        loadError = error
+        // Unknown persistent state cannot make an old executor safe to replace.
+        try? work.beginJob()
+      }
     }
 
     /// Returns false for an exact duplicate; no password is needed to observe it.
@@ -278,13 +289,17 @@
           }
           return false
         }
+        guard !records.values.contains(where: { $0.phase == .interrupted }) else {
+          throw InstallerJobError.interrupted
+        }
+        try retireNonMutatingFailures()
         guard records.count < Self.maximumRecords else { throw InstallerJobError.historyFull }
         try work.beginJob()
         let record = InstallerJobRecord(
           format: 1, identifier: request.ticket.identifier, initiatingUID: initiatingUID,
           tokenDigest: request.ticket.tokenDigest, bindingDigest: request.ticket.bindingDigest,
           selection: request.ticket.selection, operation: request.operation,
-          installConfDocument: request.installConf, phase: .preparing)
+          installConfDocument: request.installConf, createdAt: Date(), phase: .preparing)
         do {
           try persist(record)
           records[record.identifier] = record
@@ -356,6 +371,7 @@
     }
 
     private func load() throws {
+      if let loadError { throw loadError }
       guard !loaded else { return }
       let files = try PrivateInstallerJobFiles(directory: directory)
       let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
@@ -378,6 +394,23 @@
         restored[record.identifier] = record
       }
       records = restored; loaded = true
+      if records.values.contains(where: { $0.phase == .interrupted }) {
+        // A child of the previous helper may still be alive. Keep every existing
+        // privileged operation and helper replacement blocked pending inspection.
+        try work.beginJob()
+      }
+    }
+
+    private func retireNonMutatingFailures() throws {
+      let failures = records.values.filter {
+        $0.phase == .failed && $0.failure?.diskUnchanged == true
+      }.sorted { $0.createdAt < $1.createdAt }
+      guard failures.count >= 8 else { return }
+      let files = try PrivateInstallerJobFiles(directory: directory)
+      for old in failures.prefix(failures.count - 7) {
+        try files.remove(old.identifier.uuidString.lowercased() + ".json")
+        records.removeValue(forKey: old.identifier)
+      }
     }
 
     private func persist(_ record: InstallerJobRecord) throws {
@@ -468,5 +501,38 @@
         throw InstallerJobError.unsafeState
       }
     }
+  }
+  enum InstallerJobObservation {
+    static func wait(
+      fetch: @escaping @Sendable (UInt64) async throws -> InstallerJobSnapshot,
+      journal: (@Sendable (Data) -> Void)? = nil,
+      sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    ) async throws -> InstallerJobSnapshot {
+      var offset: UInt64 = 0
+      var lostConnections = 0
+      while true {
+        do {
+          let snapshot = try await fetch(offset)
+          lostConnections = 0
+          offset = snapshot.journalOffset
+          if !snapshot.journal.isEmpty { journal?(snapshot.journal) }
+          switch snapshot.phase {
+          case .preparing, .running:
+            try await sleep( snapshot.journal.isEmpty ? .seconds(1) : .milliseconds(100))
+          case .succeeded, .failed, .interrupted:
+            if let transcript = snapshot.transcript { journal?(transcript) }
+            return snapshot
+          }
+        } catch let error as EngineXPCSubmissionError where error == .connectionFailed {
+          lostConnections += 1
+          guard lostConnections <= 8 else { throw InstallerJobError.unavailable }
+          try await sleep( .seconds(1))
+        } catch let error as InstallerJobError where error == .unavailable {
+          lostConnections += 1
+          guard lostConnections <= 8 else { throw error }
+          try await sleep( .seconds(1))
+        }
+      }
+        }
   }
 #endif

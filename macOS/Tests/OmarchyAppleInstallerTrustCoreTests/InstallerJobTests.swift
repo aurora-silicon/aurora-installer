@@ -64,7 +64,8 @@
       let first = InstallerJobRegistry(workingDirectory: root, work: HelperWorkState())
       let request = try request()
       XCTAssertTrue(try first.begin(request, initiatingUID: 501))
-      let restarted = InstallerJobRegistry(workingDirectory: root, work: HelperWorkState())
+      let replacementGate = HelperWorkState()
+      let restarted = InstallerJobRegistry(workingDirectory: root, work: replacementGate)
       let snapshot = try restarted.status(
         InstallerJobStatusRequest(ticket: request.ticket, journalOffset: 0), initiatingUID: 501)
       XCTAssertEqual(snapshot.phase, .interrupted)
@@ -73,6 +74,53 @@
         XCTAssertEqual($0 as? InstallerJobError, .interrupted)
       }
       XCTAssertFalse(try restarted.begin(request, initiatingUID: 501))
+      XCTAssertFalse(replacementGate.beginReplacement(token: "replacement"))
+      XCTAssertThrowsError(try restarted.begin(try self.request(), initiatingUID: 501)) {
+        XCTAssertEqual($0 as? InstallerJobError, .interrupted)
+      }
+    }
+
+    func testRejectedCredentialsCannotExhaustTheJobHistory() throws {
+      let root = try workspace()
+      let jobs = InstallerJobRegistry(workingDirectory: root, work: HelperWorkState())
+      for _ in 0..<40 {
+        let request = try request()
+        XCTAssertTrue(try jobs.begin(request, initiatingUID: 501))
+        jobs.finish(request.ticket.identifier, result: .failure(ClosedEngineHelperError.invalidMachineOwnerCredentials))
+      }
+      let saved = try FileManager.default.contentsOfDirectory(
+        atPath: root.appendingPathComponent("installation-jobs").path)
+      XCTAssertLessThanOrEqual(saved.count, 8)
+      XCTAssertTrue(try jobs.begin(try request(), initiatingUID: 501))
+    }
+
+    func testObservationWaitsForAdmissionAfterALostReplyWithoutSubmittingAgain() async throws {
+      let request = try request()
+      let terminal = InstallerJobSnapshot(
+        identifier: request.ticket.identifier, bindingDigest: request.ticket.bindingDigest,
+        selection: request.ticket.selection, phase: .succeeded, plan: nil,
+        transcript: Data("result\n".utf8), installConf: .recorded, failure: nil,
+        journal: Data(), journalOffset: 0)
+      let source = JobObservationFixture(responses: [
+        .failure(InstallerJobError.unavailable), .failure(EngineXPCSubmissionError.connectionFailed),
+        .success(terminal),
+      ])
+      let result = try await InstallerJobObservation.wait(
+        fetch: { _ in try await source.next() }, sleep: { _ in })
+      XCTAssertEqual(result.phase, .succeeded)
+      let calls = await source.calls
+      XCTAssertEqual(calls, 3)
+    }
+
+    func testUnresolvedAdmissionIsBoundedAndNeverReportedAsNotAdmitted() async throws {
+      let source = JobObservationFixture(responses: Array(
+        repeating: .failure(InstallerJobError.unavailable), count: 9))
+      do {
+        _ = try await InstallerJobObservation.wait(fetch: { _ in try await source.next() }, sleep: { _ in })
+        XCTFail("Expected an unresolved lookup")
+      } catch { XCTAssertEqual(error as? InstallerJobError, .unavailable) }
+      let calls = await source.calls
+      XCTAssertEqual(calls, 9)
     }
 
     func testTerminalResultSurvivesHelperRestartWithTheSameHandoffOutcome() throws {
@@ -109,6 +157,16 @@
       try FileManager.default.moveItem(at: file, to: linkURL)
       try FileManager.default.createSymbolicLink(at: file, withDestinationURL: linkURL)
       XCTAssertThrowsError(try store.load())
+    }
+  }
+
+  private actor JobObservationFixture {
+    private var responses: [Result<InstallerJobSnapshot, any Error>]
+    private(set) var calls = 0
+    init(responses: [Result<InstallerJobSnapshot, any Error>]) { self.responses = responses }
+    func next() throws -> InstallerJobSnapshot {
+      calls += 1
+      return try responses.removeFirst().get()
     }
   }
 #endif

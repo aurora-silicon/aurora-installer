@@ -23,6 +23,17 @@
       guard case .done = session.phase else { return XCTFail("Expected restored completion") }
     }
 
+    func testRestoredCredentialRejectionReleasesOnlyTheNoWorkLatch() async throws {
+      let environment = MockInstallerEnvironment()
+      environment.pendingInstallation = true
+      environment.resumeError = EngineXPCSubmissionError.machineOwnerCredentialsRejected
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      XCTAssertFalse(session.hasExecutionStarted)
+      XCTAssertTrue(session.canInspect)
+      XCTAssertEqual(environment.executeCount, 0)
+    }
+
     func testUnknownPendingJobOutcomeKeepsFreshExecutionBlocked() async throws {
       let environment = MockInstallerEnvironment()
       environment.pendingInstallation = true

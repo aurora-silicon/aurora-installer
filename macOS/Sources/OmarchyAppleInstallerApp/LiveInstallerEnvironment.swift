@@ -534,7 +534,13 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       helperCodeSigningRequirement: configuration.helperCodeSigningRequirement,
       journalProgress: journal)
     let snapshot = try await client.observeJob(hint)
-    let (bytes, handoff) = try snapshot.requireResult()
+    let bytes: Data
+    let handoff: InstallConfHandoff
+    do { (bytes, handoff) = try snapshot.requireResult() }
+    catch let error as EngineXPCSubmissionError where error == .machineOwnerCredentialsRejected {
+      try store.clear()
+      throw error
+    }
     guard let identity = snapshot.plan,
       identity.deviceIdentifier == (try AppleSiliconHostInspector().inspect()).identity.deviceIdentifier
     else { throw InstallerJobError.identityMismatch }
