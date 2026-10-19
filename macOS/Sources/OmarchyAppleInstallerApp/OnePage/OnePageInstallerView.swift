@@ -778,7 +778,8 @@ struct DiskSplitPanel: View {
                       sizeInput.isEditing ? sizeInput.text : sizeInput.display(plan.omarchyBytes)
                     },
                     set: { value in
-                      guard sizeInput.isEditing || value != sizeInput.display(plan.omarchyBytes) else { return }
+                      guard sizeInput.isEditing || value != sizeInput.display(plan.omarchyBytes)
+                      else { return }
                       beginSizeEdit()
                       sizeInput.text = value
                     }
