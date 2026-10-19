@@ -1,0 +1,78 @@
+name: Apple signing readiness
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/native-firmware-wiring]
+    paths: [.github/workflows/apple-signing-check.yml, macOS/Packaging/with-apple-signing.sh]
+permissions:
+  contents: read
+jobs:
+  signing:
+    if: github.repository == 'aurora-silicon/aurora-installer'
+    runs-on: macos-26
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    env:
+      XCODEBUILDMCP_SENTRY_DISABLED: 'true'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Install pinned native build driver
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tools" "$RUNNER_TEMP/evidence"
+          cd "$RUNNER_TEMP/tools"
+          curl --fail --location --silent --show-error --retry 3 \
+            https://github.com/getsentry/XcodeBuildMCP/releases/download/v2.7.0/xcodebuildmcp-2.7.0-darwin-arm64.tar.gz -o tool.tar.gz
+          echo 'bd724a2c0e6ffe027b3f46257e66d626149a64cd045f4867124bd683b3cf081a  tool.tar.gz' | shasum -a 256 -c -
+          tar -xzf tool.tar.gz
+          echo "$PWD/xcodebuildmcp-2.7.0-darwin-arm64/bin" >> "$GITHUB_PATH"
+      - name: Build the native signing check
+        run: |
+          set -euo pipefail
+          [[ $(uname -m) == arm64 ]]
+          mkdir -p "$RUNNER_TEMP/probe/Sources/AuroraSigningProbe"
+          cat > "$RUNNER_TEMP/probe/Package.swift" <<'SWIFT'
+          // swift-tools-version: 6.2
+          import PackageDescription
+          let package = Package(name: "AuroraSigningProbe", platforms: [.macOS(.v15)], targets: [.executableTarget(name: "AuroraSigningProbe")])
+          SWIFT
+          echo 'print("Aurora native signing check")' > "$RUNNER_TEMP/probe/Sources/AuroraSigningProbe/main.swift"
+          xcodebuildmcp swift-package build --package-path "$RUNNER_TEMP/probe" --configuration release
+          { git rev-parse HEAD; sw_vers; xcrun swift --version; xcodebuild -version; } > "$RUNNER_TEMP/evidence/toolchain.txt"
+      - name: Import, sign, verify and retire the temporary identity
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/check-signing.sh" <<'CHECK'
+          #!/bin/bash
+          set -euo pipefail
+          binary_dir=$(xcrun swift build --package-path "$RUNNER_TEMP/probe" --configuration release --show-bin-path)
+          probe="$binary_dir/AuroraSigningProbe"
+          [[ $(lipo -archs "$probe") == arm64 ]]
+          codesign --force --sign "$OMARCHY_APP_SIGNING_IDENTITY" --keychain "$AURORA_SIGNING_KEYCHAIN" \
+            --options runtime --timestamp "$probe"
+          codesign --verify --strict "$probe"
+          details=$(codesign --display --verbose=4 "$probe" 2>&1)
+          [[ $details == *"TeamIdentifier=$OMARCHY_TEAM_ID"* ]]
+          [[ $details == *'Authority=Developer ID Application:'* ]]
+          [[ $details == *'Timestamp='* ]]
+          printf '%s\n' "$details" | grep -E '^CodeDirectory .*flags=[^ ]*\(runtime\)' > /dev/null
+          "$probe" > "$RUNNER_TEMP/evidence/probe-output.txt"
+          printf '%s\n' '{"native_arm64":true,"developer_id_application":true,"signature_verified":true,"hardened_runtime":true,"secure_timestamp":true,"notarization_configured":false}' > "$RUNNER_TEMP/evidence/signing-check.json"
+          CHECK
+          bash macOS/Packaging/with-apple-signing.sh bash "$RUNNER_TEMP/check-signing.sh"
+          [[ -z $(find "$RUNNER_TEMP" -maxdepth 1 -type d -name 'aurora-signing.*' -print) ]]
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: signing-check-evidence
+          path: ${{ runner.temp }}/evidence/
+          retention-days: 14
