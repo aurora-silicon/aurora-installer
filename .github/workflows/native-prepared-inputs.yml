@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: a300dfe657495f6077bd70213957b81324ae1d7d
+          ref: 66f5635b14329ccb8d05a07d9e67780f74a51749
           path: source
           persist-credentials: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
@@ -48,14 +48,24 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: a300dfe657495f6077bd70213957b81324ae1d7d
+          ref: 66f5635b14329ccb8d05a07d9e67780f74a51749
           path: source
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: aurora-silicon/aurora-distributions
+          ref: 32a045351d9055ccdccefc124d1a211735598e27
+          path: delivery
+          sparse-checkout: site/installer/Profiles
           persist-credentials: false
       - name: Record immutable source and toolchain
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/evidence" "$RUNNER_TEMP/tools"
+          if [[ ! -x /opt/homebrew/opt/openssl@3/bin/openssl ]]; then brew install openssl@3; fi
+          echo /opt/homebrew/opt/openssl@3/bin >> "$GITHUB_PATH"
           { git rev-parse HEAD; sw_vers; uname -m; xcodebuild -version; xcrun swift --version; xcrun swift-format --version; } > "$RUNNER_TEMP/evidence/toolchain.txt"
+          /opt/homebrew/opt/openssl@3/bin/openssl version >> "$RUNNER_TEMP/evidence/toolchain.txt"
           [[ $(uname -m) == arm64 ]]
           cd "$RUNNER_TEMP/tools"
           curl --fail --location --silent --show-error --retry 3 \
@@ -90,10 +100,10 @@ jobs:
           set -euo pipefail
           source Packaging/identity.conf
           release="$RUNNER_TEMP/release"
-          mkdir -p "$release"
-          cp Release/trust-root.ed25519.pub "$release/"
-          bash scripts/make-release-descriptor --public-key "$release/trust-root.ed25519.pub" \
-            --base-url "$INSTALLER_PUBLIC_BASE/$INSTALLER_STREAM_PATH" --adhoc --output "$release/release.json"
+          python3 scripts/prepare-distribution-release.py \
+            --profiles "$GITHUB_WORKSPACE/delivery/site/installer/Profiles" --output "$release"
+          git -C "$GITHUB_WORKSPACE/delivery" rev-parse HEAD > "$RUNNER_TEMP/evidence/delivery-source.txt"
+          cp "$release/profile-manifest.json" "$RUNNER_TEMP/evidence/"
           export OMARCHY_RECOVERY_TEMPLATE="$RUNNER_TEMP/recovery-template/$INSTALLER_APP_NAME.app"
           OMARCHY_APP_VERSION=0.0.0-ci OMARCHY_APP_BUILD_NUMBER=1 OMARCHY_APP_SIGNING_IDENTITY=- \
             bash Packaging/build-app.sh "$release" "$RUNNER_TEMP/assembled" 2>&1 | tee "$RUNNER_TEMP/evidence/app-assembly.log"
@@ -104,6 +114,21 @@ jobs:
           requirement=$(installer_code_requirement "$helper" "$INSTALLER_HELPER_IDENTIFIER")
           actual=$(/usr/bin/plutil -extract helper_code_signing_requirement raw -o - "$app/Contents/Resources/Release/release.json")
           [[ $actual == "$requirement" ]]
+          python3 - "$app/Contents/Resources/Release" "$requirement" <<'PYPROFILES'
+          import json,sys
+          from pathlib import Path
+          root=Path(sys.argv[1]); requirement=sys.argv[2]
+          expected={f"{distribution}-{desktop}" for distribution in ("fedora","arch","nixos") for desktop in ("kde","gnome","minimal")}
+          assert {p.name for p in (root/"Profiles").iterdir()} == expected
+          assert not list(root.rglob("catalog.json")), "on-demand app must fetch its signed catalogs"
+          for profile in expected:
+              descriptor=json.loads((root/"Profiles"/profile/"release.json").read_text())
+              assert descriptor["helper_code_signing_requirement"] == requirement
+              assert (root/"Profiles"/profile/"trust-root.ed25519.pub").read_bytes() == (root/"trust-root.ed25519.pub").read_bytes()
+              for channel,value in descriptor["channels"].items():
+                  assert value["catalog_url"].endswith(f"/Profiles/{profile}/channels/{channel}/catalog.signed.json")
+          print("All nine on-demand profiles carry the expected catalog routes and exact packaged helper identity")
+          PYPROFILES
           template="$app/Contents/Resources/RecoveryTemplate/$INSTALLER_APP_NAME.app"
           daemon="$app/Contents/Library/LaunchDaemons/$INSTALLER_HELPER_IDENTIFIER.plist"
           pin=$(/usr/bin/plutil -extract EnvironmentVariables.OMARCHY_RECOVERY_TEMPLATE_REQUIREMENT raw -o - "$daemon")
