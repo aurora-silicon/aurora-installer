@@ -1,5 +1,8 @@
 name: Native installer job iteration
 on:
+  push:
+    branches: [feat/native-firmware-wiring]
+    paths: [macOS/Sources/**, macOS/Tests/**, macOS/Package.swift, .github/workflows/native-jobs.yml]
   workflow_dispatch:
 permissions:
   contents: read
