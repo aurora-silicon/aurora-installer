@@ -12,7 +12,8 @@
       configuration: InstallerReleaseConfiguration,
       handoffDirectory: URL,
       machineOwnerAuthorization: MachineOwnerAuthorization,
-      journalProgress: (@Sendable (Data) -> Void)? = nil
+      journalProgress: (@Sendable (Data) -> Void)? = nil,
+      jobContext: InstallerJobExecutionContext? = nil
     ) async throws -> InstallerExecutionProgress {
       try await execute(
         prepared,
@@ -21,7 +22,8 @@
         handoffDirectory: handoffDirectory,
         machineOwnerAuthorization: machineOwnerAuthorization,
         operation: .install,
-        journalProgress: journalProgress
+        journalProgress: journalProgress,
+        jobContext: jobContext
       )
     }
 
@@ -31,7 +33,8 @@
       configuration: InstallerReleaseConfiguration,
       handoffDirectory: URL,
       machineOwnerAuthorization: MachineOwnerAuthorization,
-      journalProgress: (@Sendable (Data) -> Void)? = nil
+      journalProgress: (@Sendable (Data) -> Void)? = nil,
+      jobContext: InstallerJobExecutionContext? = nil
     ) async throws -> InstallerExecutionProgress {
       try await execute(
         prepared,
@@ -40,7 +43,8 @@
         handoffDirectory: handoffDirectory,
         machineOwnerAuthorization: machineOwnerAuthorization,
         operation: .retryRecoveryAuthorization,
-        journalProgress: journalProgress
+        journalProgress: journalProgress,
+        jobContext: jobContext
       )
     }
 
@@ -51,13 +55,15 @@
       handoffDirectory: URL,
       machineOwnerAuthorization: MachineOwnerAuthorization,
       operation: EngineHandoffOperation,
-      journalProgress: (@Sendable (Data) -> Void)?
+      journalProgress: (@Sendable (Data) -> Void)?,
+      jobContext: InstallerJobExecutionContext?
     ) async throws -> InstallerExecutionProgress {
       let submitter = try AuthenticatedEngineXPCSubmitter(
         machServiceName: configuration.helperMachServiceName,
         helperCodeSigningRequirement:
           configuration.helperCodeSigningRequirement,
-        journalProgress: journalProgress
+        journalProgress: journalProgress,
+        jobContext: jobContext
       )
       // Nothing leaves the app until the helper has answered.
       try await submitter.ping()

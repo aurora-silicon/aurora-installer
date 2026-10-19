@@ -199,6 +199,21 @@
       defer { isBusy = false }
 
       do {
+        if try environment.hasPendingInstallation() {
+          hasExecutionStarted = true
+          isExecuting = true
+          defer { isExecuting = false }
+          installStartedAt = Date()
+          phase = .installing(journal.display(startedAt: installStartedAt))
+          let received = SessionJournalBuffer()
+          let completion = try await environment.resumeInstallation { [weak self] chunk in
+            received.append(chunk)
+            Task { @MainActor in self?.drainJournal(received) }
+          }
+          drainJournal(received)
+          await route(completion)
+          return
+        }
         let host = try await environment.inspect()
         recoveryAccount = nil
         // Completed journal identities are authoritative even when the legacy
@@ -238,9 +253,11 @@
           )
         }
       } catch {
-        phase = .unsupported(
-          PlainLanguage.failure(for: error)
-        )
+        if hasExecutionStarted {
+          phase = .failed(PlainLanguage.failure(for: error))
+        } else {
+          phase = .unsupported(PlainLanguage.failure(for: error))
+        }
       }
     }
 

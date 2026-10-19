@@ -172,6 +172,27 @@
     public let nextAction: InstallerNextAction
     public let requiredHumanSteps: [String]
 
+    /// Observation-only restoration from the authenticated helper's admitted
+    /// identity. This creates no review, approval or execution authorization.
+    public init(observing identity: InstallerJobPlanIdentity, transcript: ValidatedEngineTranscript) throws {
+      guard transcript.support == .supported,
+        transcript.deviceIdentifier == identity.deviceIdentifier,
+        let plan = transcript.plan, plan.deviceIdentifier == identity.deviceIdentifier,
+        plan.planDigest == identity.planDigest, transcript.completion != nil
+      else { throw InstallerPlanReviewError.executionTranscriptMismatch }
+      planDigest = plan.planDigest
+      checkpoints = transcript.checkpoints
+      completion = transcript.completion
+      requiredHumanSteps = plan.requiredHumanSteps
+      switch transcript.completion {
+      case .awaitingRecovery: nextAction = .enterRecovery
+      case .awaitingMedia: nextAction = .attachInstallationMedia
+      case .installed: nextAction = .verifyInstalledSystem
+      case .manualRecoveryRequired: nextAction = .manualRecovery
+      case nil: nextAction = .continueInstallation
+      }
+    }
+
     public init(
       review: InstallerPlanReview,
       transcript: ValidatedEngineTranscript

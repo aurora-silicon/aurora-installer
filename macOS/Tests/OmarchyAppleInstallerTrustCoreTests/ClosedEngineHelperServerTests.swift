@@ -484,6 +484,50 @@
       XCTAssertEqual(disks.mountCalls, 1)
     }
 
+    func testRegisteredJobCompletesInstallConfAfterTheFirstClientGoesAway() async throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let source = try openDirectory(fixture.source)
+      defer { try? source.close() }
+      let disks = RecordingESPDisks(partitions: [
+        .init(identifier: "disk0s5", storeIdentifier: "disk0", type: "EFI",
+          name: "EFI - OMARC", offsetBytes: 447_750_000_000, lengthBytes: 500_000_000)
+      ])
+      let executor = RecordingHandoffExecutor(result: fixture.transcript)
+      let server = ClosedEngineHelperServer(
+        workingDirectory: fixture.destination, executor: executor,
+        credentialValidator: AcceptingMachineOwnerCredentialValidator(),
+        removalDisks: UnusedRemovalDisks(), removalAdminValidator: { _ in }, espDisks: disks)
+      let endpoint = ClosedEngineXPCServiceEndpoint(server: server, initiatingUID: 501)
+      let binding = digest(Data("binding".utf8))
+      let ticket = try InstallerJobTicket(bindingDigest: binding, selection: AuroraInstallationSelection())
+      let request = try JSONEncoder().encode(InstallerJobStartRequest(
+        ticket: ticket, operation: "install", installConf: try InstallConf(encrypt: true, lane: "stable").serializedData))
+      // No reply continuation or progress client survives the initial submission.
+      let authorization = try machineOwnerAuthorization()
+      endpoint.startJob(
+        request: request, packageDirectory: source, machineOwner: authorization.username,
+        password: authorization.password, reply: { _, _ in })
+      var snapshot: InstallerJobSnapshot?
+      for _ in 0..<500 {
+        snapshot = try server.jobs.status(
+          InstallerJobStatusRequest(ticket: ticket, journalOffset: 0), initiatingUID: 501)
+        if snapshot?.phase == .succeeded || snapshot?.phase == .failed { break }
+        try await Task.sleep(for: .milliseconds(10))
+      }
+      let finished = try XCTUnwrap(snapshot)
+      let (transcript, handoff) = try finished.requireResult()
+      XCTAssertEqual(transcript, fixture.transcript)
+      XCTAssertEqual(handoff, .recorded)
+      XCTAssertEqual(disks.mountCalls, 1)
+      let executed = await executor.executionCount
+      XCTAssertEqual(executed, 1)
+      let duplicate = try JSONDecoder().decode(InstallerJobStartRequest.self, from: request)
+      XCTAssertFalse(try server.jobs.begin(duplicate, initiatingUID: 501))
+      XCTAssertThrowsError(try server.jobs.status(
+        InstallerJobStatusRequest(ticket: ticket, journalOffset: 0), initiatingUID: 502))
+    }
+
     private func makeFixture(
       deviceIdentifier: String = "apple,j314s",
       transcriptPlanMismatch: Bool = false,

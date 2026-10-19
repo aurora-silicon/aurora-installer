@@ -102,6 +102,7 @@ struct OmarchyAppleInstallerApp: App {
   @State private var liveSession: InstallerSession?
   @State private var selection = AuroraInstallationSelection()
   @State private var choosingSystem = true
+  @State private var checkedPendingInstallation = false
   @State private var showsRemoval = false
   @State private var removalNeedsReview = false
   @State private var removalBusy = false
@@ -192,6 +193,19 @@ struct OmarchyAppleInstallerApp: App {
         }
       }
       .id(generation)
+      .task {
+        guard !isSimulation, !checkedPendingInstallation else { return }
+        checkedPendingInstallation = true
+        do {
+          if let hint = try LiveInstallerEnvironment.pendingJobStore().load() {
+            selection = hint.ticket.selection
+            choosingSystem = false
+          }
+        } catch {
+          // The live environment reports unsafe state before fresh admission.
+          choosingSystem = false
+        }
+      }
       .onReceive(
         NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)
       ) { _ in

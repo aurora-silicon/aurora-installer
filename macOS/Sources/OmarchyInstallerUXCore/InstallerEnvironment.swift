@@ -542,6 +542,10 @@
       -> RecoveryAccountReply
     func openStartupDisk() -> Bool
     func inspect() async throws -> HostDisplay
+    /// A private lookup hint blocks fresh admission until the helper's job is
+    /// observed. Neither method creates an execution approval or needs a password.
+    func hasPendingInstallation() throws -> Bool
+    func resumeInstallation(journal: @escaping @Sendable (Data) -> Void) async throws -> CompletionDisplay
     /// `omarchyBytes` asks the planner for that much space for Aurora; nil
     /// keeps the balanced default. The engine still clamps the request to the
     /// candidate's real minimum and maximum.
@@ -600,6 +604,10 @@
   }
 
   extension InstallerEnvironment {
+    public func hasPendingInstallation() throws -> Bool { false }
+    public func resumeInstallation(journal: @escaping @Sendable (Data) -> Void) async throws -> CompletionDisplay {
+      throw InstallerJobError.unavailable
+    }
     public func inspectRecoveryAccount() async throws -> RecoveryAccountReply? { nil }
     public func prepareRecoveryHandoff(ticket: String) async throws -> RecoveryAccountReply {
       throw AccountSetupFailure("Recovery handoff is unavailable in this environment.")

@@ -505,37 +505,44 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     prefetch.begin(payload: payload)
   }
 
-  private func recordInstallConf(
-    configuration: InstallerReleaseConfiguration,
-    plan: ValidatedEnginePlan,
-    authorization: MachineOwnerAuthorization,
-    encrypt: Bool
-  ) async -> InstallConfHandoff {
-    let lane = lock.withLock { selectedLane }
-    guard let conf = try? InstallConf(encrypt: encrypt, lane: lane) else {
-      return .notRecorded
+  // MARK: Execution
+
+  static func pendingJobStore() throws -> PendingInstallerJobStore {
+    guard let support = FileManager.default.urls(
+      for: .applicationSupportDirectory, in: .userDomainMask).first
+    else { throw InstallerAppError.workspaceUnavailable }
+    let base = support.appendingPathComponent(InstallerBuildProfile.current.workspaceName, isDirectory: true)
+    if !FileManager.default.fileExists(atPath: base.path) {
+      try FileManager.default.createDirectory(
+        at: base, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
     }
-    do {
-      let submitter = try AuthenticatedEngineXPCSubmitter(
-        machServiceName: configuration.helperMachServiceName,
-        helperCodeSigningRequirement: configuration.helperCodeSigningRequirement
-      )
-      let helper = AuthorizedInstallConfESPHelper(
-        submitter: submitter,
-        authorization: authorization
-      )
-      return await InstallConfESPWriter(helper: helper).record(
-        conf,
-        storeIdentifier: plan.storeIdentifier,
-        offsetBytes: plan.offsetBytes,
-        lengthBytes: plan.lengthBytes
-      )
-    } catch {
-      return .notRecorded
-    }
+    return PendingInstallerJobStore(directory: base)
   }
 
-  // MARK: Execution
+  func hasPendingInstallation() throws -> Bool {
+    try Self.pendingJobStore().load() != nil
+  }
+
+  func resumeInstallation(journal: @escaping @Sendable (Data) -> Void) async throws -> CompletionDisplay {
+    let store = try Self.pendingJobStore()
+    guard let hint = try store.load(), hint.ticket.selection == selection else {
+      throw InstallerJobError.identityMismatch
+    }
+    let configuration = try loadConfiguration()
+    let client = try AuthenticatedEngineXPCSubmitter(
+      machServiceName: configuration.helperMachServiceName,
+      helperCodeSigningRequirement: configuration.helperCodeSigningRequirement,
+      journalProgress: journal)
+    let snapshot = try await client.observeJob(hint)
+    let (bytes, handoff) = try snapshot.requireResult()
+    guard let identity = snapshot.plan,
+      identity.deviceIdentifier == (try AppleSiliconHostInspector().inspect()).identity.deviceIdentifier
+    else { throw InstallerJobError.identityMismatch }
+    let transcript = try AppleInstallerTrustCore().validateEngineTranscript(bytes)
+    let progress = try InstallerExecutionProgress(observing: identity, transcript: transcript)
+    try store.clear()
+    return Self.completionDisplay(progress, installConf: handoff)
+  }
 
   func execute(
     operation: InstallOperationKind,
@@ -570,6 +577,12 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     }
 
     let workspace = try installerWorkspace()
+    let lane = lock.withLock { selectedLane }
+    let pendingStore = try Self.pendingJobStore()
+    let jobContext = InstallerJobExecutionContext(
+      bindingDigest: prepared.review.identity.bindingDigest, selection: selection,
+      store: pendingStore,
+      installConf: try InstallConf(encrypt: encryptLinuxDisk, lane: lane))
     let coordinator = InstallerExecutionCoordinator()
     let progress: InstallerExecutionProgress
     do {
@@ -581,7 +594,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
           configuration: configuration,
           handoffDirectory: workspace.handoff,
           machineOwnerAuthorization: authorization,
-          journalProgress: journal
+          journalProgress: journal,
+          jobContext: jobContext
         )
       case .retryRecoveryAuthorization:
         progress = try await coordinator.retryRecoveryAuthorization(
@@ -590,30 +604,26 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
           configuration: configuration,
           handoffDirectory: workspace.handoff,
           machineOwnerAuthorization: authorization,
-          journalProgress: journal
+          journalProgress: journal,
+          jobContext: jobContext
         )
       }
     } catch let EngineXPCSubmissionError.engineFailed(notice) {
       EngineFailureUserLog.write(notice, operation: String(describing: operation))
       throw EngineXPCSubmissionError.engineFailed(notice)
     }
-    var installConf: InstallConfHandoff = .recorded
+    let installConf = jobContext.installConfHandoff ?? .notRecorded
     let handoffOperation: EngineHandoffOperation =
       operation == .retryRecoveryAuthorization ? .retryRecoveryAuthorization : .install
     if InstallConfRecordPolicy.shouldRecord(
       operation: handoffOperation, nextAction: progress.nextAction)
     {
-      installConf = await recordInstallConf(
-        configuration: configuration,
-        plan: prepared.review.plan,
-        authorization: authorization,
-        encrypt: encryptLinuxDisk
-      )
       if operation == .install {
         InstallationTimingHistory.recordCompleted(
           seconds: ProcessInfo.processInfo.systemUptime - executionStarted)
       }
     }
+    try pendingStore.clear()
     return Self.completionDisplay(progress, installConf: installConf)
   }
 

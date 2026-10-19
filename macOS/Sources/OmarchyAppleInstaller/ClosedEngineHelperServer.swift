@@ -130,6 +130,7 @@
     private let selfUninstaller: any HelperSelfUninstalling
     /// Jobs and replacement share this state; see `HelperWorkState`.
     nonisolated let work: HelperWorkState
+    nonisolated let jobs: InstallerJobRegistry
     /// Set once a removal completes: the helper is uninstalling itself. Kept
     /// outside the actor so ping and the version check can read it at once,
     /// even while the actor is busy verifying a payload for a long job.
@@ -151,7 +152,9 @@
       self.workingDirectory = workingDirectory
       self.executor = executor
       self.credentialValidator = credentialValidator
-      work = HelperWorkState()
+      let workState = HelperWorkState()
+      work = workState
+      jobs = InstallerJobRegistry(workingDirectory: workingDirectory, work: workState)
       importer = EngineHandoffPackageImporter()
       removalDisks = MacRemovalDiskOperator()
       removalAdminValidator = requireRemovalAdministrator
@@ -172,6 +175,7 @@
       self.executor = executor
       self.credentialValidator = credentialValidator
       self.work = work
+      jobs = InstallerJobRegistry(workingDirectory: workingDirectory, work: work)
       importer = EngineHandoffPackageImporter()
       self.removalDisks = removalDisks
       self.removalAdminValidator = removalAdminValidator
@@ -359,6 +363,31 @@
       guard !isRetiring else { throw ClosedEngineHelperError.retiring }
       try work.beginJob()
       defer { work.endJob() }
+      return try await executeSubmittedPackage(
+        packageDirectory: packageDirectory, authorization: authorization, operation: operation,
+        progress: progress, jobIdentifier: nil, installConf: nil).0
+    }
+
+    func executeRegisteredJob(
+      packageDirectory: FileHandle,
+      authorization: MachineOwnerAuthorization,
+      operation: EngineHandoffOperation,
+      identifier: UUID,
+      installConf: InstallConf
+    ) async throws -> (Data, InstallConfHandoff) {
+      try await executeSubmittedPackage(
+        packageDirectory: packageDirectory, authorization: authorization, operation: operation,
+        progress: nil, jobIdentifier: identifier, installConf: installConf)
+    }
+
+    private func executeSubmittedPackage(
+      packageDirectory: FileHandle,
+      authorization: MachineOwnerAuthorization,
+      operation: EngineHandoffOperation,
+      progress: (any EngineJournalProgressSink)?,
+      jobIdentifier: UUID?,
+      installConf: InstallConf?
+    ) async throws -> (Data, InstallConfHandoff) {
       try requireNoInterruptedRemoval()
 
       do {
@@ -382,6 +411,10 @@
         throw ClosedEngineHelperError.unsupportedDevice(
           package.deviceIdentifier
         )
+      }
+
+      if let jobIdentifier {
+        try jobs.admitted(jobIdentifier, package: package)
       }
 
       var tailer: EngineJournalTailer?
@@ -451,7 +484,21 @@
         }
         completedInstallPlan = completed
       }
-      return result
+      var handoff: InstallConfHandoff = .recorded
+      if let installConf, transcript.completion == .awaitingRecovery,
+        let completed = completedInstallPlan
+      {
+        do {
+          try await recordInstallConf(
+            document: installConf.serializedData, storeIdentifier: completed.storeIdentifier,
+            offsetBytes: completed.offsetBytes, lengthBytes: completed.lengthBytes)
+        } catch let error as InstallConfESPError where error.followedConfirmedWrite {
+          handoff = .unconfirmed(encrypt: installConf.encrypt)
+        } catch {
+          handoff = .notRecorded
+        }
+      }
+      return (result, handoff)
     }
 
     public func writeInstallConf(
@@ -469,6 +516,14 @@
       } catch {
         throw ClosedEngineHelperError.invalidMachineOwnerCredentials
       }
+      try await recordInstallConf(
+        document: document, storeIdentifier: storeIdentifier, offsetBytes: offsetBytes,
+        lengthBytes: lengthBytes)
+    }
+
+    private func recordInstallConf(
+      document: Data, storeIdentifier: String, offsetBytes: UInt64, lengthBytes: UInt64
+    ) async throws {
       guard let completed = completedInstallPlan else {
         throw ClosedEngineHelperError.installConfPlanIncomplete
       }
@@ -531,6 +586,7 @@
     private let version: String
     private let retirement: PackageInstalledAppRetirement
     private let mayRetirePackageApps: Bool
+    private let initiatingUID: UInt32?
 
     /// - Parameter version: the helper's build version, or empty when it
     ///   carries none.
@@ -541,12 +597,14 @@
     public init(
       server: ClosedEngineHelperServer, version: String = "",
       retirement: PackageInstalledAppRetirement = PackageInstalledAppRetirement(),
-      mayRetirePackageApps: Bool = ClosedEngineXPCServiceEndpoint.runsFromPrivilegedHelperTools()
+      mayRetirePackageApps: Bool = ClosedEngineXPCServiceEndpoint.runsFromPrivilegedHelperTools(),
+      initiatingUID: UInt32? = nil
     ) {
       self.server = server
       self.version = version
       self.retirement = retirement
       self.mayRetirePackageApps = mayRetirePackageApps
+      self.initiatingUID = initiatingUID
     }
 
     public static func runsFromPrivilegedHelperTools() -> Bool {
@@ -679,6 +737,54 @@
       }
     }
 
+    public func startJob(
+      request: Data, packageDirectory: FileHandle, machineOwner: String, password: Data,
+      reply: @escaping @Sendable (Data?, NSError?) -> Void
+    ) {
+      do {
+        guard let initiatingUID, request.count <= 65_536, !server.isRetiring else {
+          throw InstallerJobError.invalidRequest
+        }
+        let request = try JSONDecoder().decode(InstallerJobStartRequest.self, from: request)
+        guard let operation = EngineHandoffOperation(rawValue: request.operation) else {
+          throw InstallerJobError.invalidRequest
+        }
+        let conf = try InstallConf.parse(request.installConf)
+        let authorization = try MachineOwnerAuthorization(username: machineOwner, password: password)
+        let server = server
+        let jobs = server.jobs
+        if try jobs.begin(request, initiatingUID: initiatingUID) {
+          // Unstructured helper-owned work deliberately outlives this connection.
+          Task.detached {
+            do {
+              let result = try await server.executeRegisteredJob(
+                packageDirectory: packageDirectory, authorization: authorization,
+                operation: operation, identifier: request.ticket.identifier, installConf: conf)
+              jobs.finish(request.ticket.identifier, result: .success(result))
+            } catch {
+              jobs.finish(request.ticket.identifier, result: .failure(error))
+            }
+          }
+        }
+        let snapshot = try jobs.status(
+          InstallerJobStatusRequest(ticket: request.ticket, journalOffset: 0), initiatingUID: initiatingUID)
+        reply(try JSONEncoder().encode(snapshot), nil)
+      } catch {
+        reply(nil, InstallerJobXPCCodec.serviceError(error))
+      }
+    }
+
+    public func jobStatus(request: Data, reply: @escaping @Sendable (Data?, NSError?) -> Void) {
+      do {
+        guard let initiatingUID, request.count <= 65_536 else { throw InstallerJobError.invalidRequest }
+        let request = try JSONDecoder().decode(InstallerJobStatusRequest.self, from: request)
+        let snapshot = try server.jobs.status(request, initiatingUID: initiatingUID)
+        reply(try JSONEncoder().encode(snapshot), nil)
+      } catch {
+        reply(nil, InstallerJobXPCCodec.serviceError(error))
+      }
+    }
+
     public func writeInstallConf(
       document: Data,
       storeIdentifier: String,
@@ -741,7 +847,8 @@
     NSObject, NSXPCListenerDelegate
   {
     private let clientCodeSigningRequirement: String
-    private let endpoint: ClosedEngineXPCServiceEndpoint
+    private let server: ClosedEngineHelperServer
+    private let helperVersion: String
 
     /// - Parameter helperVersion: the build version the helper reports; by
     ///   default the `CFBundleVersion` of its embedded Info.plist, or empty.
@@ -758,7 +865,8 @@
         throw ClosedEngineHelperError.invalidClientRequirement
       }
       self.clientCodeSigningRequirement = clientCodeSigningRequirement
-      endpoint = ClosedEngineXPCServiceEndpoint(server: server, version: helperVersion)
+      self.server = server
+      self.helperVersion = helperVersion
     }
 
     public func listener(
@@ -772,7 +880,8 @@
       connection.exportedInterface = NSXPCInterface(
         with: ClosedEngineXPCService.self
       )
-      connection.exportedObject = endpoint
+      connection.exportedObject = ClosedEngineXPCServiceEndpoint(
+        server: server, version: helperVersion, initiatingUID: connection.effectiveUserIdentifier)
       connection.activate()
       return true
     }

@@ -8,6 +8,33 @@
 
   @MainActor
   final class InstallerSessionTests: XCTestCase {
+    func testPendingJobResumesBeforeFreshInspectionAndNeverExecutesAgain() async throws {
+      let environment = MockInstallerEnvironment()
+      environment.pendingInstallation = true
+      environment.inspectError = InstallerJobError.unsafeState
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      XCTAssertEqual(environment.resumeCount, 1)
+      XCTAssertEqual(environment.executeCount, 0)
+      XCTAssertEqual(environment.prepareCount, 0)
+      XCTAssertEqual(environment.prefetchStartCount, 0)
+      XCTAssertTrue(session.hasExecutionStarted)
+      XCTAssertFalse(session.canChangeChannel)
+      guard case .done = session.phase else { return XCTFail("Expected restored completion") }
+    }
+
+    func testUnknownPendingJobOutcomeKeepsFreshExecutionBlocked() async throws {
+      let environment = MockInstallerEnvironment()
+      environment.pendingInstallation = true
+      environment.resumeError = InstallerJobError.interrupted
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      XCTAssertTrue(session.hasExecutionStarted)
+      XCTAssertFalse(session.canInspect)
+      XCTAssertFalse(session.canStartInstallation)
+      XCTAssertEqual(environment.executeCount, 0)
+      guard case .failed = session.phase else { return XCTFail("Expected interrupted job failure") }
+    }
     func testCompletedInstallResumesWhenFreshInventoryHasNoSpaceOrRecognizedStub() async throws {
       let environment = MockInstallerEnvironment()
       environment.hasCompletedInstallation = true
@@ -1588,6 +1615,18 @@
       availabilityChecks += 1
       if check < availabilityGates.count { await availabilityGates[check]?.wait() }
       return check < availabilityAnswers.count ? availabilityAnswers[check] : [:]
+    }
+
+    var pendingInstallation = false
+    var resumeError: (any Error)?
+    private(set) var resumeCount = 0
+
+    func hasPendingInstallation() throws -> Bool { pendingInstallation }
+    func resumeInstallation(journal: @escaping @Sendable (Data) -> Void) async throws -> CompletionDisplay {
+      resumeCount += 1
+      if let resumeError { throw resumeError }
+      return CompletionDisplay(
+        nextAction: .verifyInstalledSystem, headline: "Done", subheadline: "Restored", verified: [], handoff: nil)
     }
 
     func inspect() async throws -> HostDisplay {
