@@ -52,14 +52,14 @@ public struct FirmwareExtractionPlan: Sendable {
   }
 
   public static func bundled(for deviceIdentifier: String) throws -> Self {
-    guard deviceIdentifier == "apple,j700",
-      let path = Bundle.module.url(
-        forResource: "j700-25G83-ranges", withExtension: "json", subdirectory: "Resources")
-    else { throw RestoreFailure("No native firmware recipe is qualified for this Mac.") }
-    let digest = "595d5acf3c4bca51c5749fc45691a7873f9216e2527436be9101757aae472834"
+    guard deviceIdentifier == "apple,j700" else {
+      throw RestoreFailure("No native firmware recipe is qualified for this Mac.")
+    }
+    let bytes = EmbeddedFirmwareRecipe.bytes
+    try require(bytes.sha256 == EmbeddedFirmwareRecipe.sha256, "Firmware recipe SHA-256 mismatch.")
     return Self(
-      deviceIdentifier: deviceIdentifier, recipeSHA256: digest,
-      recipe: try readRecipe(path, digest: digest))
+      deviceIdentifier: deviceIdentifier, recipeSHA256: EmbeddedFirmwareRecipe.sha256,
+      recipe: try strictRecipe(bytes))
   }
 }
 

@@ -36,7 +36,11 @@ let package = Package(
     ),
   ],
   targets: [
-    .target(name: "AuroraFirmware", exclude: ["PROVENANCE.md"], resources: [.copy("Resources")]),
+    .executableTarget(name: "AuroraFirmwareRecipeGenerator"),
+    .plugin(name: "AuroraFirmwareRecipePlugin", capability: .buildTool(),
+      dependencies: ["AuroraFirmwareRecipeGenerator"]),
+    .target(name: "AuroraFirmware", exclude: ["PROVENANCE.md", "Resources"],
+      plugins: ["AuroraFirmwareRecipePlugin"]),
     .executableTarget(
       name: "AuroraFirmwareCheck", dependencies: ["AuroraFirmware"],
       path: "Development/NativeFirmwareCheck"),
@@ -73,7 +77,7 @@ let package = Package(
     ),
     .target(
       name: "OmarchyAppleInstallerTrustCore",
-      dependencies: ["OmarchyInstallerSystem", "RecoveryAccountCore"],
+      dependencies: ["OmarchyInstallerSystem", "RecoveryAccountCore", "AuroraFirmware"],
       path: "Sources/OmarchyAppleInstaller",
       plugins: ["OmarchyInstallerIdentityPlugin"]
     ),

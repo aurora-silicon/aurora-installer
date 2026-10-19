@@ -22,6 +22,16 @@ private actor MeasuredIPSWReader: FirmwareRangeReading {
 @main struct AuroraFirmwareCheck {
   static func main() async {
     do {
+      if CommandLine.arguments == [CommandLine.arguments[0], "plan"] {
+        let plan = try FirmwareExtractionPlan.bundled(for: "apple,j700")
+        let report: [String: Any] = [
+          "deviceIdentifier": plan.deviceIdentifier, "recipeSHA256": plan.recipeSHA256,
+          "outputCount": plan.outputs.count, "rangeBytes": plan.authenticatedRangeBytes,
+        ]
+        FileHandle.standardOutput.write(try JSONSerialization.data(
+          withJSONObject: report, options: [.sortedKeys]) + Data([10]))
+        return
+      }
       guard [3, 4].contains(CommandLine.arguments.count),
         ["extract", "verify", "zip"].contains(CommandLine.arguments[1])
       else {
