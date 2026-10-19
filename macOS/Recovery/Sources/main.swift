@@ -395,11 +395,6 @@ enum DestinationVolume {
     if let image = NSImage(contentsOf: url.appendingPathComponent(".VolumeIcon.icns")) {
       return image
     }
-    if let bundled = Bundle.main.url(forResource: "OmarchyVolumeIcon", withExtension: "png"),
-      let image = NSImage(contentsOf: bundled)
-    {
-      return image
-    }
     return NSImage(systemSymbolName: "internaldrive", accessibilityDescription: "Startup volume")
       ?? NSImage(size: NSSize(width: 96, height: 96))
   }()
@@ -420,8 +415,8 @@ struct NestedVirtualizationInfo: View {
       isPresented = true
     } label: {
       Image(systemName: "info.circle")
-        .font(OmarchyTheme.mono(13))
-        .foregroundColor(OmarchyTheme.secondaryText)
+        .font(RecoveryAppearance.font(13))
+        .foregroundColor(RecoveryAppearance.secondaryText)
         .frame(width: 24, height: 24)
         .contentShape(Rectangle())
     }
@@ -431,7 +426,7 @@ struct NestedVirtualizationInfo: View {
     }
     .popover(isPresented: $isPresented, arrowEdge: .bottom) {
       Text(explanation)
-        .font(OmarchyTheme.mono(12))
+        .font(RecoveryAppearance.font(12))
         .fixedSize(horizontal: false, vertical: true)
         .padding(14)
         .frame(width: 280)
@@ -466,13 +461,20 @@ struct InstallerView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      OmarchyWordmark()
-        .frame(width: 400, height: 94)
-        .padding(.top, 72)
-        .padding(.bottom, 28)
+      Image(nsImage: DestinationVolume.icon)
+        .resizable()
+        .scaledToFit()
+        .frame(width: 64, height: 64)
+        .padding(.top, 40)
+        .padding(.bottom, 12)
+        .accessibilityHidden(true)
+      Text("Aurora Installer")
+        .font(.system(size: 13, weight: .semibold))
+        .foregroundStyle(.secondary)
+        .padding(.bottom, 8)
       Text(title)
-        .font(OmarchyTheme.title)
-        .foregroundColor(OmarchyTheme.text)
+        .font(RecoveryAppearance.title)
+        .foregroundColor(RecoveryAppearance.text)
         .frame(width: model.stage == .account ? 380 : nil, alignment: .leading)
         .padding(.bottom, 24)
         .accessibilityAddTraits(.isHeader)
@@ -494,13 +496,13 @@ struct InstallerView: View {
           HStack(spacing: 5) {
             Text("Made with")
             Image(systemName: "heart.fill")
-              .font(OmarchyTheme.mono(10))
-              .foregroundColor(OmarchyTheme.danger)
+              .font(RecoveryAppearance.font(10))
+              .foregroundColor(RecoveryAppearance.danger)
             Text("by")
             Text("Aurora Silicon")
           }
-          .font(OmarchyTheme.detail)
-          .foregroundColor(OmarchyTheme.secondaryText)
+          .font(RecoveryAppearance.detail)
+          .foregroundColor(RecoveryAppearance.secondaryText)
           .accessibilityElement(children: .ignore)
           .accessibilityLabel("Made with love by Aurora Silicon")
         } else {
@@ -519,20 +521,20 @@ struct InstallerView: View {
               activeSheet = .advanced
             } label: {
               Image(systemName: "slider.horizontal.3")
-                .font(OmarchyTheme.mono(17))
+                .font(RecoveryAppearance.font(17))
                 .frame(width: 32, height: 32)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .foregroundColor(OmarchyTheme.secondaryText)
+            .foregroundColor(RecoveryAppearance.secondaryText)
             .help("Advanced Options")
             .accessibilityLabel("Advanced Options")
           }
           if model.stage != .welcome || !log.text.isEmpty {
             Button("Show details") { activeSheet = .details }
               .buttonStyle(.plain)
-              .font(OmarchyTheme.mono(12))
-              .foregroundColor(OmarchyTheme.secondaryText)
+              .font(RecoveryAppearance.font(12))
+              .foregroundColor(RecoveryAppearance.secondaryText)
           }
         }
       }
@@ -541,10 +543,9 @@ struct InstallerView: View {
       .padding(.bottom, 10)
     }
     .frame(width: 780, height: 660)
-    .background(OmarchyTheme.window)
-    .foregroundColor(OmarchyTheme.text)
-    .tint(OmarchyTheme.accent)
-    .preferredColorScheme(.dark)
+    .background(RecoveryAppearance.window)
+    .foregroundColor(RecoveryAppearance.text)
+    .tint(RecoveryAppearance.accent)
     .ignoresSafeArea()
     .alert(
       model.environmentIssue?.title ?? "Setup could not finish",
@@ -578,7 +579,7 @@ struct InstallerView: View {
         }
       }
     } message: {
-      Text(model.environmentIssue?.message ?? model.failure ?? "")
+      Text(model.environmentIssue?.message(for: DestinationVolume.name) ?? model.failure ?? "")
     }
     .sheet(item: $activeSheet) { sheet in
       switch sheet {
@@ -595,13 +596,13 @@ struct InstallerView: View {
         model.recoveryInterface
           ? "Restore the startup software for your Mac." : "Finish setting up Aurora on your Mac."
       )
-      .font(OmarchyTheme.mono(15)).foregroundColor(OmarchyTheme.secondaryText)
+      .font(RecoveryAppearance.font(15)).foregroundColor(RecoveryAppearance.secondaryText)
       Text(
         model.recoveryInterface
           ? "Use the saved recovery files to repair your\nstartup software."
           : "The final step installs the startup software for your\nselected Aurora volume."
       )
-      .font(OmarchyTheme.mono(13)).foregroundColor(OmarchyTheme.secondaryText)
+      .font(RecoveryAppearance.font(13)).foregroundColor(RecoveryAppearance.secondaryText)
       .multilineTextAlignment(.center).lineSpacing(4)
       .padding(.top, 4)
       VStack(spacing: 13) {
@@ -612,7 +613,7 @@ struct InstallerView: View {
           .frame(width: 96, height: 96)
           .accessibilityHidden(true)
         Text(DestinationVolume.name)
-          .font(OmarchyTheme.mono(14, .medium))
+          .font(RecoveryAppearance.font(14, .medium))
           .lineLimit(1)
       }
       .padding(.top, 32)
@@ -625,23 +626,23 @@ struct InstallerView: View {
     VStack(alignment: .leading, spacing: 20) {
       VStack(alignment: .leading, spacing: 5) {
         Text(authorizingRecoveryRepair ? "Authorize startup disk" : "Authorize installation")
-          .font(OmarchyTheme.mono(17, .semibold))
+          .font(RecoveryAppearance.font(17, .semibold))
         Text(
           "Enter password for \(RecoveryActions.inRecovery ? (model.authorizationOwner?.username ?? "the volume owner") : NSUserName())"
         )
-        .font(OmarchyTheme.mono(12)).foregroundColor(OmarchyTheme.secondaryText)
+        .font(RecoveryAppearance.font(12)).foregroundColor(RecoveryAppearance.secondaryText)
         if !authorizingRecoveryRepair {
           Text(
             model.authorizationUsesSourceOwner
               ? "Use your existing macOS owner’s password to set up Aurora. Your macOS security settings are unaffected."
               : "Use your Aurora installation’s credentials to adjust its security settings. The security of your macOS installations is unaffected."
           )
-          .font(OmarchyTheme.mono(12)).foregroundColor(OmarchyTheme.secondaryText)
+          .font(RecoveryAppearance.font(12)).foregroundColor(RecoveryAppearance.secondaryText)
           .fixedSize(horizontal: false, vertical: true)
           .padding(.top, 8)
           if RecoveryActions.allowsCustomBootArguments {
             Text("Aurora will also allow custom Aura boot arguments, including USB proxy mode.")
-              .font(OmarchyTheme.mono(12)).foregroundColor(OmarchyTheme.secondaryText)
+              .font(RecoveryAppearance.font(12)).foregroundColor(RecoveryAppearance.secondaryText)
               .fixedSize(horizontal: false, vertical: true)
           }
         }
@@ -687,7 +688,7 @@ struct InstallerView: View {
   private var advancedOptions: some View {
     VStack(alignment: .leading, spacing: 26) {
       Text("Advanced Options")
-        .font(OmarchyTheme.mono(19, .semibold))
+        .font(RecoveryAppearance.font(19, .semibold))
       Toggle("Enable Mach-O Boot Mode", isOn: $model.machoBootMode)
         .toggleStyle(.checkbox)
         .disabled(!RecoveryActions.supportsMachO)
@@ -712,12 +713,12 @@ struct InstallerView: View {
   private var installing: some View {
     VStack(spacing: 14) {
       Text("\(model.recoveryInterface ? "Restoring" : "Setting up") \(DestinationVolume.name)")
-        .font(OmarchyTheme.mono(14)).foregroundColor(OmarchyTheme.secondaryText)
+        .font(RecoveryAppearance.font(14)).foregroundColor(RecoveryAppearance.secondaryText)
       ProgressView(value: model.progress)
         .progressViewStyle(.linear)
         .frame(width: 380).padding(.top, 12)
       Text(model.currentOperation + "…")
-        .font(OmarchyTheme.mono(12)).foregroundColor(OmarchyTheme.secondaryText)
+        .font(RecoveryAppearance.font(12)).foregroundColor(RecoveryAppearance.secondaryText)
         .accessibilityLabel("Simulating: \(model.currentOperation)")
     }
   }
@@ -729,8 +730,8 @@ struct InstallerView: View {
           ? "\(DestinationVolume.name) is ready for authorization."
           : "\(DestinationVolume.name) is ready to start."
       )
-      .font(OmarchyTheme.mono(15))
-      .foregroundColor(OmarchyTheme.secondaryText)
+      .font(RecoveryAppearance.font(15))
+      .foregroundColor(RecoveryAppearance.secondaryText)
       Image(nsImage: DestinationVolume.icon)
         .resizable()
         .interpolation(.high)
@@ -743,9 +744,9 @@ struct InstallerView: View {
         Text(
           "Enter the credentials for your macOS account and the recovery account you just created."
         )
-        .foregroundColor(OmarchyTheme.secondaryText)
+        .foregroundColor(RecoveryAppearance.secondaryText)
       }
-      .font(OmarchyTheme.mono(12))
+      .font(RecoveryAppearance.font(12))
       .multilineTextAlignment(.center)
     }
   }
@@ -757,24 +758,24 @@ struct InstallerView: View {
           ? "Verify your recovery account’s password to resume authorization.\n\nYour Linux login is separate."
           : "Create a separate recovery account for your Linux volume. Next, authorize it as a volume owner to manage Linux boot settings independently of your macOS account.\n\nYour Linux login is separate."
       )
-      .font(OmarchyTheme.mono(12)).foregroundColor(OmarchyTheme.secondaryText)
+      .font(RecoveryAppearance.font(12)).foregroundColor(RecoveryAppearance.secondaryText)
       VStack(alignment: .leading, spacing: 5) {
-        Text("Username").font(OmarchyTheme.mono(12))
-        TextField("omarchy-owner", text: $model.accountUsername)
+        Text("Username").font(RecoveryAppearance.font(12))
+        TextField("recovery-owner", text: $model.accountUsername)
           .textContentType(.username).autocorrectionDisabled()
           .disabled(model.accountAlreadyStarted)
           .focused($accountField, equals: .username)
           .onSubmit { accountField = .password }
       }
       VStack(alignment: .leading, spacing: 5) {
-        Text("Password").font(OmarchyTheme.mono(12))
+        Text("Password").font(RecoveryAppearance.font(12))
         SecureField("Password", text: $model.accountPassword)
           .privacySensitive()
           .focused($accountField, equals: .password)
           .onSubmit { accountField = .confirmation }
       }
       VStack(alignment: .leading, spacing: 5) {
-        Text("Retype password").font(OmarchyTheme.mono(12))
+        Text("Retype password").font(RecoveryAppearance.font(12))
         SecureField("Retype password", text: $model.accountConfirmation)
           .privacySensitive()
           .focused($accountField, equals: .confirmation)
@@ -814,7 +815,7 @@ struct InstallerView: View {
           }
         }
       }
-      .buttonStyle(RecoveryPrimaryButtonStyle()).controlSize(.large)
+      .buttonStyle(.borderedProminent).controlSize(.large)
       .disabled(model.checkingEnvironment)
     case .installing:
       EmptyView()
@@ -829,7 +830,7 @@ struct InstallerView: View {
           Button(model.accountAlreadyStarted ? "Continue" : "Create Account") {
             model.createRecoveryAccount()
           }
-          .buttonStyle(RecoveryPrimaryButtonStyle()).controlSize(.large)
+          .buttonStyle(.borderedProminent).controlSize(.large)
           .disabled(!model.canCreateAccount)
           Color.clear.frame(width: 16, height: 16).accessibilityHidden(true)
         }
@@ -837,30 +838,30 @@ struct InstallerView: View {
           model.skipRecoveryAccountAndRestart()
         }
         .buttonStyle(.plain)
-        .font(OmarchyTheme.mono(12))
-        .foregroundColor(OmarchyTheme.secondaryText)
+        .font(RecoveryAppearance.font(12))
+        .foregroundColor(RecoveryAppearance.secondaryText)
         .disabled(model.creatingAccount || model.restartingWithoutAccount)
       }
     case .complete:
       Button("Restart") { model.openStartupDisk() }
-        .buttonStyle(RecoveryPrimaryButtonStyle()).controlSize(.large)
+        .buttonStyle(.borderedProminent).controlSize(.large)
     }
   }
 
   private var details: some View {
     VStack(alignment: .leading, spacing: 16) {
-      Text("Installation details").font(OmarchyTheme.mono(20, .semibold))
+      Text("Installation details").font(RecoveryAppearance.font(20, .semibold))
       Text(
         "Boot security is reduced only for this Aurora installation. Your macOS security settings are unchanged."
       )
-      .font(OmarchyTheme.mono(12))
-      .foregroundColor(OmarchyTheme.secondaryText)
+      .font(RecoveryAppearance.font(12))
+      .foregroundColor(RecoveryAppearance.secondaryText)
       .fixedSize(horizontal: false, vertical: true)
       LogTextView(text: log.text.isEmpty ? model.operations.joined(separator: "\n") : log.text)
         .frame(height: 200)
       if log.truncated {
         Text("Showing recent output. Copy Log includes this attempt’s full log.")
-          .font(OmarchyTheme.mono(11)).foregroundColor(OmarchyTheme.secondaryText)
+          .font(RecoveryAppearance.font(11)).foregroundColor(RecoveryAppearance.secondaryText)
       }
       HStack {
         Button(copyingLog ? "Copying…" : "Copy Log") { copyFullLog() }
@@ -920,8 +921,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     LaunchTrace.mark("delegate.didFinishLaunching")
     let window = InstallerWindow()
     window.title = "Aurora Installer"
-    window.isOpaque = false
-    window.backgroundColor = .clear
+    window.isOpaque = true
+    window.backgroundColor = .windowBackgroundColor
     window.hasShadow = true
     window.isMovableByWindowBackground = true
     NSApp.applicationIconImage = DestinationVolume.icon
@@ -940,6 +941,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     NSApp.activate(ignoringOtherApps: true)
     installMenus()
     LaunchTrace.mark("menus.installed")
+    if renderPreviewIfRequested(window) { return }
     if model.recoveryInterface && RecoveryActions.inRecovery {
       // Restoring an already enrolled stage 2 does not change boot policy.
       model.refreshBootFlags()
@@ -1015,6 +1017,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     previewHelp.target = self
     NSApp.helpMenu = help
     NSApp.mainMenu = menu
+  }
+
+  /// This rendering path exists only in the non-mutating preview build.
+  private func renderPreviewIfRequested(_ window: NSWindow) -> Bool {
+    guard RecoveryActions.isPreview,
+      let argument = CommandLine.arguments.first(where: { $0.hasPrefix("--snapshot=") })
+    else { return false }
+    NSApp.appearance = NSAppearance(named: CommandLine.arguments.contains("--preview-dark") ? .darkAqua : .aqua)
+    let screen = CommandLine.arguments.first(where: { $0.hasPrefix("--preview-stage=") })
+      .map { String($0.dropFirst("--preview-stage=".count)) } ?? "welcome"
+    switch screen {
+    case "installing":
+      model.stage = .installing
+      model.progress = 0.58
+      model.currentOperation = "Preparing startup software"
+      model.operations = ["Checking the selected volume", "Preparing startup software"]
+    case "account": model.stage = .account
+    case "complete": model.stage = .complete
+    case "error": model.environmentIssue = .wrongPair
+    default: model.stage = .welcome
+    }
+    let output = URL(fileURLWithPath: String(argument.dropFirst("--snapshot=".count)))
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+      window.contentView?.layoutSubtreeIfNeeded()
+      if let view = window.contentView,
+        let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)
+      {
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        do {
+          guard let bytes = bitmap.representation(using: .png, properties: [:]) else {
+            throw CocoaError(.fileWriteUnknown)
+          }
+          try bytes.write(to: output)
+        } catch {
+          FileHandle.standardError.write(Data("Recovery preview capture failed: \(error)\n".utf8))
+        }
+      }
+      NSApp.terminate(nil)
+    }
+    return true
   }
 
   @objc private func openTerminal(_ sender: Any?) {

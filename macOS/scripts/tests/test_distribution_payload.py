@@ -45,6 +45,36 @@ class DistributionPayloadTests(unittest.TestCase):
         with zipfile.ZipFile(output / metadata['package']) as archive:
             payload.omarchy_recovery.validate_payload(archive)
 
+    def test_all_nine_profiles_use_the_selected_distribution_symbol(self):
+        observed = {}
+        provenance = json.loads((payload.ROOT / 'Packaging/DistributionIcons/provenance.json').read_text())['icons']
+        for distribution, layout in [('fedora', 'fedora'), ('arch', 'alarm'), ('nixos', 'nixos')]:
+            for desktop in ('kde', 'gnome', 'minimal'):
+                profile = distribution + '-' + desktop
+                self.image.update(installation_profile=profile, layout_kind=layout + '-btrfs-v1')
+                (self.bundle / 'image.json').write_text(json.dumps(self.image))
+                output = self.root / profile
+                payload.assemble(self.bundle, self.app, output, release_id="fixture")
+                metadata = json.loads((output / ('installer-data-' + profile + '.json')).read_text())['os_list'][0]
+                with zipfile.ZipFile(output / metadata['package']) as archive:
+                    icon = archive.read(metadata['icon'])
+                self.assertEqual(icon[:4], b'icns')
+                self.assertEqual(int.from_bytes(icon[4:8], 'big'), len(icon))
+                self.assertEqual(hashlib.sha256(icon).hexdigest(), provenance[distribution]['sha256'])
+                self.assertEqual(icon, payload.DISTRIBUTION_ICONS[distribution].read_bytes())
+                if distribution in observed:
+                    self.assertEqual(icon, observed[distribution])
+                observed[distribution] = icon
+        self.assertEqual(len(set(observed.values())), 3)
+
+    def test_resume_rejects_an_icon_from_another_distribution(self):
+        from unittest.mock import patch
+        output = self.root / 'output'
+        payload.assemble(self.bundle, self.app, output, release_id="fixture")
+        with patch.dict(payload.DISTRIBUTION_ICONS, fedora=payload.DISTRIBUTION_ICONS['nixos']):
+            with self.assertRaisesRegex(ValueError, 'content differs: aurora-volume.icns'):
+                payload.assemble(self.bundle, self.app, output, reuse_payload=True, release_id="fixture")
+
     def test_source_corruption_is_rejected_before_archive_creation(self):
         (self.bundle / 'root.img').write_bytes(b'corrupt')
         with self.assertRaisesRegex(ValueError, 'image identity mismatch'):

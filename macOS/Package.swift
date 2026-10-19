@@ -37,9 +37,11 @@ let package = Package(
   ],
   targets: [
     .executableTarget(name: "AuroraFirmwareRecipeGenerator"),
-    .plugin(name: "AuroraFirmwareRecipePlugin", capability: .buildTool(),
+    .plugin(
+      name: "AuroraFirmwareRecipePlugin", capability: .buildTool(),
       dependencies: ["AuroraFirmwareRecipeGenerator"]),
-    .target(name: "AuroraFirmware", exclude: ["PROVENANCE.md", "Resources"],
+    .target(
+      name: "AuroraFirmware", exclude: ["PROVENANCE.md", "Resources"],
       plugins: ["AuroraFirmwareRecipePlugin"]),
     .executableTarget(
       name: "AuroraFirmwareCheck", dependencies: ["AuroraFirmware"],

@@ -20,6 +20,11 @@ sys.path.insert(0, str(ROOT / 'Engine/overlay/src'))
 import omarchy_mt7932
 import omarchy_recovery
 
+DISTRIBUTION_ICONS = {
+    distribution: ROOT / 'Packaging/DistributionIcons' / (distribution + '.icns')
+    for distribution in ('fedora', 'arch', 'nixos')
+}
+
 
 def digest(path):
     with path.open('rb') as stream:
@@ -40,6 +45,7 @@ def assemble(bundle, recovery, output, policy_directory=None, reuse_payload=Fals
     profile = image['installation_profile']
     if not re.fullmatch(r'(fedora|arch|nixos)-(kde|gnome|minimal)', profile):
         raise ValueError('unknown installation profile')
+    distribution_icon = regular(DISTRIBUTION_ICONS[profile.split('-')[0]])
     expected_layout = {'fedora': 'fedora', 'arch': 'alarm', 'nixos': 'nixos'}[profile.split('-')[0]] + '-btrfs-v1'
     if image['layout_kind'] != expected_layout or image['root_subvolume'] != 'root':
         raise ValueError('incompatible filesystem layout')
@@ -57,7 +63,7 @@ def assemble(bundle, recovery, output, policy_directory=None, reuse_payload=Fals
     suffix = '-neo-local' if policy_directory else ''
     payload = output / (profile + suffix + '-' + release_id + '.zip')
     files = {'boot.img': bundle / 'boot.img', 'root.img': bundle / 'root.img',
-             'aurora-volume.icns': ROOT / 'Packaging/AuroraInstaller.icns'}
+             'aurora-volume.icns': distribution_icon}
     for path in sorted((bundle / 'esp').rglob('*')):
         if path.is_symlink():
             raise ValueError('ESP contains a symbolic link')
