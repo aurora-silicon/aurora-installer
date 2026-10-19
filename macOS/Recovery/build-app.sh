@@ -7,6 +7,7 @@ OUT="${2:-build}"
 export OMARCHY_RECOVERY_BUILD="$MODE"
 APP="$OUT/Aurora Installer.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp Resources/AuroraLogo.png "$APP/Contents/Resources/AuroraLogo.png"
 if [[ $MODE == "preview" ]]; then
   cp ../Packaging/DistributionIcons/{fedora,arch,nixos}.icns "$APP/Contents/Resources/"
 fi

@@ -477,13 +477,13 @@ struct InstallerView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      Image(systemName: "externaldrive.badge.checkmark")
-        .font(.system(size: 48))
-        .symbolRenderingMode(.hierarchical)
-        .foregroundStyle(.tint)
-        .frame(width: 64, height: 64)
-        .padding(.top, 40)
-        .padding(.bottom, 12)
+      Image("AuroraLogo", bundle: .main)
+        .resizable()
+        .interpolation(.high)
+        .scaledToFit()
+        .frame(width: 80, height: 80)
+        .padding(.top, 32)
+        .padding(.bottom, 8)
         .accessibilityHidden(true)
       Text("Aurora Installer")
         .font(.system(size: 13, weight: .semibold))
@@ -542,6 +542,7 @@ struct InstallerView: View {
     .background(RecoveryAppearance.window)
     .foregroundColor(RecoveryAppearance.text)
     .tint(RecoveryAppearance.accent)
+    .preferredColorScheme(.dark)
     .ignoresSafeArea()
     .alert(
       model.environmentIssue?.title ?? "Setup could not finish",
@@ -915,6 +916,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     LaunchTrace.mark("delegate.didFinishLaunching")
+    NSApp.appearance = NSAppearance(named: .darkAqua)
     let window = InstallerWindow()
     window.title = "Aurora Installer"
     window.isOpaque = true
@@ -1020,8 +1022,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     guard RecoveryActions.isPreview,
       let argument = CommandLine.arguments.first(where: { $0.hasPrefix("--snapshot=") })
     else { return false }
-    NSApp.appearance = NSAppearance(
-      named: CommandLine.arguments.contains("--preview-dark") ? .darkAqua : .aqua)
+    precondition(NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
     let screen =
       CommandLine.arguments.first(where: { $0.hasPrefix("--preview-stage=") })
       .map { String($0.dropFirst("--preview-stage=".count)) } ?? "welcome"

@@ -43,12 +43,12 @@ jobs:
           set -euo pipefail
           bash Recovery/build-preview.sh "$RUNNER_TEMP/recovery-preview" 2>&1 | tee "$RUNNER_TEMP/evidence/preview-build.log"
           bash Recovery/build-recovery.sh "$RUNNER_TEMP/recovery-template" 2>&1 | tee "$RUNNER_TEMP/evidence/recovery-build.log"
-      - name: Render native Recovery preview in both appearances
+      - name: Verify forced native dark Recovery appearance
         run: |
           set -euo pipefail
           app="$RUNNER_TEMP/recovery-preview/Aurora Installer.app"
           for screen in welcome installing account complete error; do
-            for appearance in light dark; do
+            for appearance in dark; do
               output="$RUNNER_TEMP/evidence/$screen-$appearance.png"
               arguments=(--preview --preview-distro=fedora "--preview-stage=$screen" "--snapshot=$output")
               [[ $appearance != dark ]] || arguments+=(--preview-dark)
