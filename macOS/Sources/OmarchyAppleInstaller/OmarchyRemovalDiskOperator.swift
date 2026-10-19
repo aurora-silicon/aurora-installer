@@ -219,8 +219,10 @@
       let path = directory.resolvingSymlinksInPath().path
       func release() {
         if let data = try? cleanupRun(["info", "-plist", identifier]),
-          let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-          info["MountPoint"] as? String == path {
+          let info = try? PropertyListSerialization.propertyList(from: data, format: nil)
+            as? [String: Any],
+          info["MountPoint"] as? String == path
+        {
           _ = try? cleanupRun(["unmount", identifier])
         }
       }

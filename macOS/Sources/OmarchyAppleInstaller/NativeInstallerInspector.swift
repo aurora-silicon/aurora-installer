@@ -33,7 +33,8 @@
       collect = { try NativeDiskCollector().collect(host: $0) }
     }
 
-    init(policy: @escaping @Sendable () throws -> NativeInspectionPolicy,
+    init(
+      policy: @escaping @Sendable () throws -> NativeInspectionPolicy,
       hardware: @escaping @Sendable () throws -> NativeInspectionHardware,
       collect: @escaping @Sendable (AppleSiliconHostInspection) throws -> NativeCollectedDisk
     ) {
@@ -52,20 +53,25 @@
         let hardware = try self.hardware()
         let device = host.identity.deviceIdentifier
         guard !AppleSiliconHostInspector.isExplicitlyUnsupported(device),
-          policy.supports(device, hardware: hardware) else {
-          return try NativeInstallerInspection(transcript: NativeDiskInventory.unsupported(device: device))
+          policy.supports(device, hardware: hardware)
+        else {
+          return try NativeInstallerInspection(
+            transcript: NativeDiskInventory.unsupported(device: device))
         }
-        let metadata = try metadata.map(NativeInstallationMetadata.authenticated) ?? policy.baselineMetadata
+        let metadata =
+          try metadata.map(NativeInstallationMetadata.authenticated) ?? policy.baselineMetadata
         let stub = try policy.stubBytes(device, hardware: hardware, metadata: metadata)
         let disk = try self.collect(host)
         try Task.checkCancellation()
-        let result = try NativeInstallerInspection(transcript: NativeDiskInventory.transcript(
-          device: device, snapshot: disk.snapshot, containers: disk.containers,
-          metadata: metadata, stubBytes: stub))
+        let result = try NativeInstallerInspection(
+          transcript: NativeDiskInventory.transcript(
+            device: device, snapshot: disk.snapshot, containers: disk.containers,
+            metadata: metadata, stubBytes: stub))
         try Task.checkCancellation()
         return result
       }
-      let result = try await withTaskCancellationHandler(operation: { try await worker.value },
+      let result = try await withTaskCancellationHandler(
+        operation: { try await worker.value },
         onCancel: { worker.cancel() })
       try Task.checkCancellation()
       return result
@@ -89,14 +95,17 @@
       let before = try disks.snapshot(maximumPartitions: 4096)
       guard let rootStore = before.partitions.first(where: { $0.uuid == before.macOSStoreUUID }),
         rootStore.identifier == host.storage.physicalStoreIdentifier,
-        host.storage.isInternal else { throw NativeInspectionError.invalidLayout }
+        host.storage.isInternal
+      else { throw NativeInspectionError.invalidLayout }
       let root = try plist(["info", "-plist", "/"])
       guard root["APFSContainerReference"] as? String == host.storage.containerIdentifier,
         let stores = root["APFSPhysicalStores"] as? [[String: Any]], stores.count == 1,
-        stores[0]["APFSPhysicalStore"] as? String == rootStore.identifier else {
+        stores[0]["APFSPhysicalStore"] as? String == rootStore.identifier
+      else {
         throw NativeInspectionError.invalidLayout
       }
-      let rootGroup = (root["APFSVolumeGroupID"] as? String).flatMap(UUID.init(uuidString:))?.uuidString
+      let rootGroup = (root["APFSVolumeGroupID"] as? String).flatMap(UUID.init(uuidString:))?
+        .uuidString
       let listing = try plist(["apfs", "list", "-plist"])
       guard let rawContainers = listing["Containers"] as? [[String: Any]] else {
         throw NativeInspectionError.invalidLayout
@@ -109,18 +118,23 @@
         }
         guard part.type == "Apple_APFS" else { continue }
         let matching = rawContainers.filter {
-          ($0["APFSContainerUUID"] as? String).flatMap(UUID.init(uuidString:))?.uuidString == container.uuid
+          ($0["APFSContainerUUID"] as? String).flatMap(UUID.init(uuidString:))?.uuidString
+            == container.uuid
         }
         guard matching.count == 1, let raw = matching.first,
-          let reference = raw["ContainerReference"] as? String, NativeInspectionCommands.identifier(reference)
+          let reference = raw["ContainerReference"] as? String,
+          NativeInspectionCommands.identifier(reference)
         else { throw NativeInspectionError.invalidLayout }
         let capacity = try unsigned(raw, "CapacityCeiling")
         let free = try unsigned(raw, "CapacityFree")
-        guard capacity == part.size, free <= capacity else { throw NativeInspectionError.invalidLayout }
+        guard capacity == part.size, free <= capacity else {
+          throw NativeInspectionError.invalidLayout
+        }
         let systemVolumes = container.volumes.filter { $0.roles == ["System"] }
         if !systemVolumes.isEmpty {
           guard container.volumes.filter({ $0.roles == ["Preboot"] }).count == 1,
-            container.volumes.filter({ $0.roles == ["Recovery"] }).count == 1 else {
+            container.volumes.filter({ $0.roles == ["Recovery"] }).count == 1
+          else {
             throw NativeInspectionError.systemVolumeUnreadable
           }
         }
@@ -134,17 +148,24 @@
             let stub = !(try tree.exists("Library"))
             var version: String?
             for name in ["SystemVersion.plist", "SystemVersion-disabled.plist"] {
-              guard let data = try tree.read(["System", "Library", "CoreServices", name], limit: 65_536) else {
+              guard
+                let data = try tree.read(
+                  ["System", "Library", "CoreServices", name], limit: 65_536)
+              else {
                 continue
               }
-              guard let value = try PropertyListSerialization.propertyList(from: data, format: nil)
-                as? [String: Any], let product = value["ProductVersion"] as? String, !product.isEmpty else {
+              guard
+                let value = try PropertyListSerialization.propertyList(from: data, format: nil)
+                  as? [String: Any], let product = value["ProductVersion"] as? String,
+                !product.isEmpty
+              else {
                 throw NativeInspectionError.systemVolumeUnreadable
               }
               version = product
               break
             }
-            return NativeSystemVolumeFacts(group: group, label: system.name, stub: stub, version: version)
+            return NativeSystemVolumeFacts(
+              group: group, label: system.name, stub: stub, version: version)
           }
           // The booted System volume is normally a mounted snapshot, whose
           // BSD identity differs from the underlying System volume's identity.
@@ -154,21 +175,28 @@
             else { throw NativeInspectionError.invalidLayout }
             systems.append(try read(disks.openTree("/", identifier)))
           } else {
-            systems.append(try disks.withVolume(system.identifier, uuid: system.uuid,
-              belongs: { info in
-                guard info["APFSContainerReference"] as? String == reference,
-                  let stores = info["APFSPhysicalStores"] as? [[String: Any]], stores.count == 1 else { return false }
-                return stores[0]["APFSPhysicalStore"] as? String == part.identifier
-              }, read: read))
+            systems.append(
+              try disks.withVolume(
+                system.identifier, uuid: system.uuid,
+                belongs: { info in
+                  guard info["APFSContainerReference"] as? String == reference,
+                    let stores = info["APFSPhysicalStores"] as? [[String: Any]], stores.count == 1
+                  else { return false }
+                  return stores[0]["APFSPhysicalStore"] as? String == part.identifier
+                }, read: read))
           }
         }
         var minimum: UInt64 = 0
-        if NativeDiskInventory.resizeEligible(diskSize: before.diskSize, free: free, systems: systems) {
+        if NativeDiskInventory.resizeEligible(
+          diskSize: before.diskSize, free: free, systems: systems)
+        {
           let limits = try plist(["apfs", "resizeContainer", part.identifier, "limits", "-plist"])
           minimum = try unsigned(limits, "MinimumSizePreferred")
         }
-        facts.append(NativeContainerFacts(storeUUID: part.uuid, capacity: capacity, free: free,
-          preferredMinimum: minimum, systems: systems))
+        facts.append(
+          NativeContainerFacts(
+            storeUUID: part.uuid, capacity: capacity, free: free,
+            preferredMinimum: minimum, systems: systems))
       }
       // Read-only collection can overlap a user changing disks elsewhere.
       // Never combine geometry or BSD identifiers from two different layouts.
@@ -176,7 +204,8 @@
       guard before == after,
         before.partitions.map(\.identifier) == after.partitions.map(\.identifier),
         before.containers.flatMap({ $0.volumes.map(\.identifier) })
-          == after.containers.flatMap({ $0.volumes.map(\.identifier) }) else {
+          == after.containers.flatMap({ $0.volumes.map(\.identifier) })
+      else {
         throw NativeInspectionError.invalidLayout
       }
       try Task.checkCancellation()
@@ -184,15 +213,20 @@
     }
 
     private func plist(_ arguments: [String]) throws -> [String: Any] {
-      guard let value = try PropertyListSerialization.propertyList(from: disks.commands(arguments), format: nil)
-        as? [String: Any] else { throw NativeInspectionError.invalidLayout }
+      guard
+        let value = try PropertyListSerialization.propertyList(
+          from: disks.commands(arguments), format: nil)
+          as? [String: Any]
+      else { throw NativeInspectionError.invalidLayout }
       return value
     }
 
     private func unsigned(_ value: [String: Any], _ key: String) throws -> UInt64 {
       guard let number = value[key] as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
-        ["Q", "q", "I", "i", "L", "l", "S", "s", "C", "c"].contains(String(cString: number.objCType)),
-        !number.stringValue.hasPrefix("-") else { throw NativeInspectionError.invalidLayout }
+        ["Q", "q", "I", "i", "L", "l", "S", "s", "C", "c"].contains(
+          String(cString: number.objCType)),
+        !number.stringValue.hasPrefix("-")
+      else { throw NativeInspectionError.invalidLayout }
       return number.uint64Value
     }
   }

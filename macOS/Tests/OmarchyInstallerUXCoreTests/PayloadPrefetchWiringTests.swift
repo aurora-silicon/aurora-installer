@@ -13,7 +13,8 @@
       let preparation = try XCTUnwrap(source.range(of: "func preparePlan("))
       let body = source[preparation.upperBound...]
       let begin = try XCTUnwrap(body.range(of: "beginPayloadPrefetch(release.assets.payload)"))
-      let inspection = try XCTUnwrap(body.range(of: #"inspector\.inspect\(\s*host:"#, options: .regularExpression))
+      let inspection = try XCTUnwrap(
+        body.range(of: #"inspector\.inspect\(\s*host:"#, options: .regularExpression))
       let store = try XCTUnwrap(
         body.range(of: "try catalogStore.store(release.assets.catalogIdentity)"))
       let sample = try XCTUnwrap(

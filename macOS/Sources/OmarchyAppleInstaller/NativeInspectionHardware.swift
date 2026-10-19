@@ -23,12 +23,15 @@
       func version(_ path: String, _ key: String) -> String? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)), data.count <= 65_536,
           let plist = try? PropertyListSerialization.propertyList(from: data, format: nil)
-            as? [String: Any] else { return nil }
+            as? [String: Any]
+        else { return nil }
         return plist[key] as? String
       }
-      return Self(chipID: chipID, bootVersion: boot,
+      return Self(
+        chipID: chipID, bootVersion: boot,
         macOSVersion: version("/System/Library/CoreServices/SystemVersion.plist", "ProductVersion"),
-        recoveryVersion: version("/System/Volumes/iSCPreboot/SFR/current/RestoreVersion.plist", "RestoreLongVersion"))
+        recoveryVersion: version(
+          "/System/Volumes/iSCPreboot/SFR/current/RestoreVersion.plist", "RestoreLongVersion"))
     }
   }
 #endif

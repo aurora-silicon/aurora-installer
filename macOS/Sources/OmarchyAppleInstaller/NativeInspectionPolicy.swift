@@ -14,9 +14,11 @@
 
     var errorDescription: String? {
       switch self {
-      case .metadataChanged: "The installation resources changed. Please prepare the installation again."
+      case .metadataChanged:
+        "The installation resources changed. Please prepare the installation again."
       case .invalidMetadata: "The installation’s space requirements could not be verified."
-      case .invalidPolicy, .invalidFirmwareVersion: "This Mac’s installation requirements could not be verified."
+      case .invalidPolicy, .invalidFirmwareVersion:
+        "This Mac’s installation requirements could not be verified."
       case .invalidLayout: "The internal disk layout changed or could not be verified."
       case .systemVolumeUnreadable: "An existing system volume could not be checked safely."
       case .queryTimedOut: "macOS took too long to check the disk. Please try again."
@@ -53,13 +55,16 @@
         let container = try decoder.container(keyedBy: Template.CodingKeys.self)
         if (try? container.decode(String.self, forKey: .target)) == "apple-silicon-full-os" {
           value = try Template(from: decoder)
-        } else { value = nil }
+        } else {
+          value = nil
+        }
       }
     }
 
     init(from decoder: any Decoder) throws {
       let container = try decoder.container(keyedBy: CodingKeys.self)
-      templates = try container.decode([SelectedTemplate].self, forKey: .templates).compactMap(\.value)
+      templates = try container.decode([SelectedTemplate].self, forKey: .templates).compactMap(
+        \.value)
     }
 
     init(data: Data) throws {
@@ -70,7 +75,8 @@
 
     static func authenticated(_ staged: StagedInstallerArtifact) throws -> Self {
       guard staged.fileURL.isFileURL, staged.artifact.role == "metadata",
-        staged.artifact.expectedSizeBytes <= 65_536 else { throw NativeInspectionError.invalidMetadata }
+        staged.artifact.expectedSizeBytes <= 65_536
+      else { throw NativeInspectionError.invalidMetadata }
       let fd = open(staged.fileURL.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
       guard fd >= 0 else { throw NativeInspectionError.metadataChanged }
       let file = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
@@ -97,12 +103,16 @@
       let target = try target()
       var root: UInt64 = 0
       for partition in target.partitions {
-        root = try NativeInspectionMath.add(root, NativeInspectionMath.alignUp(Self.bytes(partition.size)))
+        root = try NativeInspectionMath.add(
+          root, NativeInspectionMath.alignUp(Self.bytes(partition.size)))
       }
-      let recommended = target.partitions.contains { $0.expand == true }
+      let recommended =
+        target.partitions.contains { $0.expand == true }
         ? try NativeInspectionMath.add(root, root) : root
-      return (try NativeInspectionMath.add(stubBytes, root),
-        try NativeInspectionMath.add(stubBytes, recommended))
+      return (
+        try NativeInspectionMath.add(stubBytes, root),
+        try NativeInspectionMath.add(stubBytes, recommended)
+      )
     }
 
     private static func bytes(_ string: String) throws -> UInt64 {
@@ -148,7 +158,10 @@
   }
 
   struct NativeInspectionPolicy: Decodable, Sendable {
-    struct Device: Decodable, Sendable { let minimum: String; let expert: Bool }
+    struct Device: Decodable, Sendable {
+      let minimum: String
+      let expert: Bool
+    }
     struct Firmware: Decodable, Sendable {
       let version: String
       let minimumMacOS: String
@@ -175,16 +188,19 @@
       return !device.expert
     }
 
-    func stubBytes(_ identifier: String, hardware: NativeInspectionHardware,
+    func stubBytes(
+      _ identifier: String, hardware: NativeInspectionHardware,
       metadata: NativeInstallationMetadata
     ) throws -> UInt64 {
       let small: UInt64 = 2_499_805_184
       let large: UInt64 = 5_999_951_872
       guard let chip = chipMinimum[String(hardware.chipID)],
-        let device = devices[String(identifier.dropFirst(6))] else { throw NativeInspectionError.invalidPolicy }
+        let device = devices[String(identifier.dropFirst(6))]
+      else { throw NativeInspectionError.invalidPolicy }
       if try Version.atLeast(chip, "26.0") { return large }
       guard let boot = hardware.bootVersion, let macOS = hardware.macOSVersion,
-        let recovery = hardware.recoveryVersion else { return small }
+        let recovery = hardware.recoveryVersion
+      else { return small }
       let target = try metadata.target()
       do {
         let minimum = try Version.atLeast(chip, device.minimum) ? chip : device.minimum
@@ -197,7 +213,9 @@
             try Version.atLeast(boot, entry.minimumBoot),
             try Version.atLeast(macOS, entry.minimumMacOS),
             try Version.atLeast(recovery, entry.minimumRecovery)
-          { selected = entry }
+          {
+            selected = entry
+          }
         }
         if let selected, try Version.atLeast(selected.version, "26.0") { return large }
       } catch NativeInspectionError.invalidFirmwareVersion {
@@ -209,7 +227,10 @@
     }
 
     private struct Version {
-      private enum Part: Equatable { case number(Int), text(String) }
+      private enum Part: Equatable {
+        case number(Int)
+        case text(String)
+      }
       private let parts: [Part]
       init(_ value: String) throws {
         guard !value.isEmpty, value.utf8.count <= 128 else {

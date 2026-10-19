@@ -49,7 +49,9 @@
     }
 
     static func identifier(_ value: String) -> Bool {
-      guard let range = value.range(of: #"^disk[0-9]+(?:s[0-9]+){0,2}$"#, options: .regularExpression) else {
+      guard
+        let range = value.range(of: #"^disk[0-9]+(?:s[0-9]+){0,2}$"#, options: .regularExpression)
+      else {
         return false
       }
       return range.lowerBound == value.startIndex && range.upperBound == value.endIndex
@@ -58,14 +60,22 @@
     static func permitted(_ a: [String]) -> Bool {
       if a == ["list", "-plist", "internal", "physical"]
         || a == ["apfs", "list", "-plist"] || a == ["apfs", "listVolumeGroups", "-plist"]
-      { return true }
+      {
+        return true
+      }
       if a.count == 3, a[0] == "info", a[1] == "-plist", a[2] == "/" || identifier(a[2]) {
         return true
       }
       if a.count == 5, a[0] == "apfs", a[1] == "resizeContainer",
-        identifier(a[2]), a[3] == "limits", a[4] == "-plist" { return true }
+        identifier(a[2]), a[3] == "limits", a[4] == "-plist"
+      {
+        return true
+      }
       if a.count == 6, Array(a.prefix(4)) == ["mount", "readOnly", "nobrowse", "-mountPoint"],
-        a[4].hasPrefix("/"), !a[4].utf8.contains(0), identifier(a[5]) { return true }
+        a[4].hasPrefix("/"), !a[4].utf8.contains(0), identifier(a[5])
+      {
+        return true
+      }
       return a.count == 2 && a[0] == "unmount" && identifier(a[1])
     }
   }

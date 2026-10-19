@@ -16,7 +16,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   private let inspector: any NativeInstallerInspecting
   private let inspectHost: @Sendable () throws -> AppleSiliconHostInspection
 
-  init(selection: AuroraInstallationSelection = AuroraInstallationSelection(),
+  init(
+    selection: AuroraInstallationSelection = AuroraInstallationSelection(),
     inspector: any NativeInstallerInspecting = NativeInstallerInspector(),
     inspectHost: @escaping @Sendable () throws -> AppleSiliconHostInspection = {
       try AppleSiliconHostInspector().inspect()
@@ -339,7 +340,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       try self.inspectHost()
     }.value
     guard freshHost.identity == host.identity else { throw InstallerAppError.hostChanged }
-    let signedInspection = try await inspector.inspect(host: freshHost, metadata: release.assets.metadata)
+    let signedInspection = try await inspector.inspect(
+      host: freshHost, metadata: release.assets.metadata)
     guard
       signedInspection.validated.deviceIdentifier
         == host.identity.deviceIdentifier,
