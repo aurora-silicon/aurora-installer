@@ -41,7 +41,7 @@ struct AuroraWelcomeView: View {
                 selection.desktop = desktop
               } content: {
                 VStack(alignment: .leading, spacing: 10) {
-                  DesktopMockup(desktop: desktop).clipShape(RoundedRectangle(cornerRadius: 9))
+                  DesktopPreview(desktop: desktop).clipShape(RoundedRectangle(cornerRadius: 9))
                   HStack(spacing: 8) {
                     desktopMark(desktop).frame(width: 20, height: 20)
                     Text(desktop.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
@@ -71,8 +71,7 @@ struct AuroraWelcomeView: View {
     switch distribution {
     case .fedora: BrandImage("Fedora").frame(width: 32, height: 32)
     case .arch:
-      BrandImage("ArchLinuxARM").frame(width: 82, height: 21)
-        .padding(4).background(.white, in: RoundedRectangle(cornerRadius: 4))
+      BrandImage("ArchLinuxARM").frame(width: 32, height: 32)
     case .nixos:
       BrandImage("NixOS").frame(width: 34, height: 34)
     }

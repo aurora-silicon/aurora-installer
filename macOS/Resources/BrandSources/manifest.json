@@ -20,9 +20,10 @@
     "sha256": "ff92c10bb5d87e4153c7669d644cf341fb545cf2de1b225073898b7c6ffeb67d"
   },
   "ArchLinuxARM.png": {
-    "source": "https://archlinuxarm.org/public/images/alarm.png",
-    "attribution": "Arch Linux ARM; Arch Linux mark belongs to the Arch Linux project",
-    "sha256": "ec95ecb1e2e4f9787de959e6c6ec3db15217fc1ebf6613559fb3be31c99c6d5d"
+    "source": "BrandSources/ArchLinuxARM-Icon.svg",
+    "transformation": "rsvg-convert -w 128 -h 128; transparent background",
+    "attribution": "Arch Linux project",
+    "sha256": "672933754379a0848e630e14d5ef6b1b666a185513380314d7ccf8f309418c48"
   },
   "Fedora-Icon.svg": {
     "source": "Fedora.svg path1626",
@@ -34,12 +35,43 @@
     "sha256": "4e6180a9a29404e71a257c0ab0084c2db131fba2672cdc33f80ffde386926bb2"
   },
   "desktopMockups": {
-    "source": "Sources/OmarchyAppleInstallerApp/DesktopMockup.swift",
-    "description": "Native vector illustrations of Plasma launcher/panel, GNOME overview/dash and a text shell. Not screenshots."
+    "source": "Sources/OmarchyAppleInstallerApp/DesktopPreview.swift",
+    "description": "Minimal keeps its native shell illustration. KDE and GNOME use actual upstream desktop screenshots."
   },
   "NixOS.png": {
-    "source": "https://raw.githubusercontent.com/NixOS/nixos-artwork/9d2cdedd73d64a068214482902adea3d02783ba8/logo/nixos.svg.png",
-    "attribution": "NixOS contributors; official NixOS mark used to identify the distribution",
-    "sha256": "f7e39fa9f3f92e6b9b7537300644bf027397e30648dad2872eee67862e37c5c7"
+    "source": "BrandSources/NixOS-Icon.svg",
+    "transformation": "rsvg-convert -w 128; transparent background",
+    "attribution": "NixOS contributors",
+    "sha256": "ab1db7991b6ffdd172668b4b20a0a6382005ea349c3937b166363a82fbc25103"
+  },
+  "ArchLinux.svg": {
+    "source": "https://archlinux.org/static/logos/archlinux-logo-dark-scalable.svg",
+    "attribution": "Arch Linux project; official Arch Linux mark used to identify Arch Linux ARM",
+    "sha256": "a7f37c9c87f0e0e37454b47ec1221b61416aa9e319cc46a1f0b5b70c4a1dcb6e"
+  },
+  "ArchLinuxARM-Icon.svg": {
+    "source": "ArchLinux.svg path2518",
+    "transformation": "Unchanged blue symbol path, standalone tight viewBox; wordmark omitted.",
+    "sha256": "8e568bb552a07327957948a445ff16129906c22e0949289b14320be336149066"
+  },
+  "NixOS-Icon.svg": {
+    "source": "https://raw.githubusercontent.com/NixOS/nixos-artwork/9d2cdedd73d64a068214482902adea3d02783ba8/logo/nix-snowflake-colours.svg",
+    "attribution": "NixOS contributors; official snowflake used to identify NixOS",
+    "sha256": "e37b5a1c11e81496e9d46af04908951ada6babaa416d670aaae4934cce912eb2"
+  },
+  "KDE-Desktop.png": {
+    "source": "https://kde.org/content/plasma-desktop/plasma-launcher.png",
+    "source_sha256": "79046ba02eda26c78b88f71a44c9c35eef03ce74ca38556c5a44f93608cd8dca",
+    "attribution": "KDE Community; Plasma desktop screenshot from kde.org",
+    "transformation": "Downscaled to 640x360, full screenshot retained; magick SOURCE -resize 640x -strip OUTPUT",
+    "sha256": "741eafc2c491e9b8270fcadb9b15b71233df4f1069eb4ce9dde1e29af0c6e56d"
+  },
+  "GNOME-Desktop.png": {
+    "source": "https://gitlab.gnome.org/Teams/Websites/www.gnome.org/-/raw/099e9130e16c633fc767dab14e5b85b9b0880167/src/tex/49/overview.png",
+    "source_sha256": "2f8798b128cb79b090dca738492cc6a8d19004a6b3f8e867e714a028347647f7",
+    "attribution": "The GNOME Project; CC BY-SA 4.0",
+    "license": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "transformation": "Downscaled to 640x400, full screenshot retained; magick SOURCE -resize 640x -strip OUTPUT",
+    "sha256": "94a4fb9fc0c67fb13eb21ba7b10eeb3b218d88852a20b0374eaf4b576d8fe01c"
   }
 }
