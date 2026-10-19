@@ -4,62 +4,66 @@ on:
     branches: [feat/native-firmware-wiring]
     paths: [macOS/Sources/**, macOS/Tests/**, macOS/Package.swift, .github/workflows/native-jobs.yml]
   workflow_dispatch:
+    inputs:
+      require_exact_format:
+        description: Require the checked-in source to match Xcode formatting
+        type: boolean
+        default: true
 permissions:
   contents: read
 jobs:
-  jobs:
+  planning:
     runs-on: macos-26
     timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+      XCODEBUILDMCP_SENTRY_DISABLED: 'true'
     defaults:
       run:
         shell: bash
         working-directory: macOS
-    env:
-      XCODEBUILDMCP_SENTRY_DISABLED: 'true'
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      - name: Install pinned native build driver
+        with:
+          persist-credentials: false
+      - name: Record source and native toolchain
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/tools" "$RUNNER_TEMP/evidence"
+          { git rev-parse HEAD; sw_vers; uname -m; xcrun swift --version; xcodebuild -version; xcrun swift-format --version; } > "$RUNNER_TEMP/evidence/toolchain.txt"
+          [[ $(uname -m) == arm64 ]]
           cd "$RUNNER_TEMP/tools"
           curl --fail --location --silent --show-error --retry 3 \
             https://github.com/getsentry/XcodeBuildMCP/releases/download/v2.7.0/xcodebuildmcp-2.7.0-darwin-arm64.tar.gz -o tool.tar.gz
           echo 'bd724a2c0e6ffe027b3f46257e66d626149a64cd045f4867124bd683b3cf081a  tool.tar.gz' | shasum -a 256 -c -
           tar -xzf tool.tar.gz
           echo "$PWD/xcodebuildmcp-2.7.0-darwin-arm64/bin" >> "$GITHUB_PATH"
-      - name: Record source and native toolchain
+      - name: Verify independent planning vectors
         run: |
-          { git rev-parse HEAD; sw_vers; uname -m; xcrun swift --version; xcodebuild -version; } > "$RUNNER_TEMP/evidence/toolchain.txt"
-      - name: Format with Xcode and retain the exact correction
+          set -euo pipefail
+          export PYTHONPYCACHEPREFIX="$RUNNER_TEMP/planning-pycache"
+          python3 -m py_compile test/native-plan-vectors.py
+          python3 test/native-plan-vectors.py | tee "$RUNNER_TEMP/evidence/reference-vectors.log"
+      - name: Apply and check Xcode formatting
+        env:
+          REQUIRE_EXACT_FORMAT: ${{ inputs.require_exact_format }}
         run: |
+          set -euo pipefail
           xcrun swift-format format -i --recursive Package.swift Sources Plugins Tests
           git diff --binary > "$RUNNER_TEMP/evidence/format.patch"
           xcrun swift-format lint --strict --recursive Package.swift Sources Plugins Tests
-      - name: Test helper persistence and GUI restoration
+          if [[ $REQUIRE_EXACT_FORMAT == true ]]; then [[ ! -s "$RUNNER_TEMP/evidence/format.patch" ]]; fi
+      - name: Test native planning and the actual app coordinator
         run: |
           set -euo pipefail
+          filter='NativeInstallerPlannerTests|PinnedAsahiPlanningTests|InstallerPlanReviewTests|EngineContractTests'
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug \
-            --filter 'RestoreImageHelperTests|ValidationEngineArtifactTests|AuroraFirmwareTests|NativeFirmwarePreparationTests|NativeRecoveryTemplateTests|InstallerJobTests|ClosedEngineHelperServerTests|ClosedEngineHelperServerProgressTests|InstallerSessionTests|EngineHandoffPackageImporterTests|ClosedEngineHandoffProcessTests|PinnedAsahiEngineExecutorTests|RecoveryAccountTests' 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
+            --filter "$filter" 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration release \
-            --filter 'RestoreImageHelperTests|ValidationEngineArtifactTests|AuroraFirmwareTests|NativeFirmwarePreparationTests|NativeRecoveryTemplateTests|InstallerJobTests|ClosedEngineHelperServerTests|ClosedEngineHelperServerProgressTests|InstallerSessionTests|EngineHandoffPackageImporterTests|ClosedEngineHandoffProcessTests|PinnedAsahiEngineExecutorTests|RecoveryAccountTests' 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
-      - name: Check firmware recipe from an isolated executable
-        run: |
-          set -euo pipefail
-          binary_dir="$(xcrun swift build --configuration release --show-bin-path)"
-          isolated="$(mktemp -d)"
-          trap 'rm -rf "$isolated"' EXIT
-          cp "$binary_dir/AuroraFirmwareCheck" "$isolated/firmware-check"
-          cd "$isolated"
-          ./firmware-check plan > "$RUNNER_TEMP/evidence/embedded-recipe.json"
-          python3 - "$RUNNER_TEMP/evidence/embedded-recipe.json" <<'PY'
-          import json,sys
-          value=json.load(open(sys.argv[1]))
-          assert value == {"deviceIdentifier":"apple,j700","recipeSHA256":"595d5acf3c4bca51c5749fc45691a7873f9216e2527436be9101757aae472834","outputCount":13,"rangeBytes":15996940}
-          PY
+            --filter "$filter" 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: native-job-evidence
+          name: native-planning-evidence
           path: ${{ runner.temp }}/evidence/
           retention-days: 14

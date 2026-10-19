@@ -379,8 +379,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
           candidate: candidate,
           requestedLengthBytes: requestedLengthBytes,
           validationTime: validationTime,
-          previouslyAcceptedCatalog: previouslyAcceptedCatalog,
-          scratchDirectory: workspace.scratch
+          previouslyAcceptedCatalog: previouslyAcceptedCatalog
         )
       )
 

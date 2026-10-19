@@ -12,7 +12,7 @@ Interrupted or unreadable root state holds the existing work/replacement gate: a
 
 On reopening, the app restores the selected profile from its lookup hint and observes the job before fresh-install inspection. Terminal data passes the transcript validator and admitted plan/device identity checks. The existing live Recovery-target check still runs before the shutdown handoff. The app clears its hint only after validated completion or a confirmed credential rejection; an unknown outcome remains blocked.
 
-This change reconnects helper jobs. The full installation engine still uses its existing backend; native firmware extraction is the next integration step.
+This change reconnects helper jobs. Firmware preparation and plan construction now have native implementations; disk inspection and installation still use the existing engine adapter. See [native prepared inputs](native-prepared-inputs.md) for the current boundary.
 
 Recovery-authorization retry is a separate credentialed action on the original job. It accepts only the ticket and a fresh attempt UUID, retains the original installation options, and revalidates the canonical root-owned package in place. The request cannot choose another operation, package or target. The helper checks the exact eight-record checkpoint and both evidence digests again before invoking only `retryRecoveryAuthorization`; the pinned backend additionally rereads the installed checkpoint.
 

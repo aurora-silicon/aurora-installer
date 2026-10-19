@@ -6,6 +6,51 @@
   @testable import OmarchyAppleInstallerTrustCore
 
   final class InstallerPlanReviewTests: XCTestCase {
+    func testTheDefaultAppCoordinatorPlansWithoutAnExecutableEngine() async throws {
+      let absent = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      let fixture = try makeFixture(engineFileURL: absent)
+      XCTAssertFalse(FileManager.default.fileExists(atPath: absent.path))
+      let base = fixture.request
+      let inspection = freshInspection(from: fixture.transcript)
+      let decoded = try AppleInstallerTrustCore().validateEngineTranscript(inspection)
+      let candidate = try XCTUnwrap(decoded.inventory?.candidates.first)
+      let prepared = try await InstallerPlanPreparationCoordinator().prepareExecution(
+        InstallerPlanPreparationRequest(host: base.host, release: base.release,
+          configuration: base.configuration, inspectionTranscript: inspection,
+          candidate: candidate, requestedLengthBytes: candidate.lengthBytes,
+          validationTime: base.validationTime))
+      let expected = try AppleInstallerTrustCore().validateEngineTranscript(fixture.transcript)
+      XCTAssertEqual(prepared.review.plan, expected.plan)
+      let approval = try prepared.review.approve(confirming: confirmation(for: prepared.review))
+      XCTAssertEqual(approval.identity, prepared.review.identity)
+      XCTAssertFalse(FileManager.default.fileExists(atPath: absent.path))
+    }
+
+    private func freshInspection(from transcript: Data) -> Data {
+      Data((String(decoding: transcript, as: UTF8.self)
+        .split(separator: "\n").prefix(2).joined(separator: "\n") + "\n").utf8)
+    }
+
+    func testPreparationRejectsACompletedTranscriptBeforePlanning() async throws {
+      let fixture = try makeFixture()
+      let base = fixture.request
+      let decoded = try AppleInstallerTrustCore().validateEngineTranscript(fixture.transcript)
+      let candidate = try XCTUnwrap(decoded.inventory?.candidates.first)
+      let planner = RecordingPlanExecutor(transcript: fixture.transcript)
+      do {
+        _ = try await InstallerPlanPreparationCoordinator(planner: planner).prepareExecution(
+          InstallerPlanPreparationRequest(host: base.host, release: base.release,
+            configuration: base.configuration, inspectionTranscript: fixture.transcript,
+            candidate: candidate, requestedLengthBytes: candidate.lengthBytes,
+            validationTime: base.validationTime))
+        XCTFail("Expected rejection of a completed transcript")
+      } catch {
+        XCTAssertEqual(error as? InstallerPlanPreparationError, .freshInspectionRequired)
+      }
+      let captured = await planner.capturedRequest()
+      XCTAssertNil(captured)
+    }
+
     func testExactOwnerConfirmationProducesCandidateBoundApproval() throws {
       let fixture = try makeFixture()
       let review = try InstallerPlanReviewCoordinator().prepare(
@@ -101,8 +146,9 @@
       async throws
     {
       let fixture = try makeFixture()
+      let fresh = freshInspection(from: fixture.transcript)
       let inspection = try AppleInstallerTrustCore()
-        .validateEngineTranscript(fixture.transcript)
+        .validateEngineTranscript(fresh)
       let candidate = try XCTUnwrap(inspection.inventory?.candidates.first)
       let planner = RecordingPlanExecutor(transcript: fixture.transcript)
       let base = fixture.request
@@ -114,11 +160,10 @@
           host: base.host,
           release: base.release,
           configuration: base.configuration,
-          inspectionTranscript: fixture.transcript,
+          inspectionTranscript: fresh,
           candidate: candidate,
           requestedLengthBytes: candidate.lengthBytes,
-          validationTime: base.validationTime,
-          scratchDirectory: URL(fileURLWithPath: "/private/tmp")
+          validationTime: base.validationTime
         )
       )
       let review = prepared.review
@@ -179,7 +224,8 @@
 
     private func makeFixture(
       hostDeviceIdentifier: String = "apple,j314s",
-      alterEngineArtifact: Bool = false
+      alterEngineArtifact: Bool = false,
+      engineFileURL: URL = URL(fileURLWithPath: "/private/tmp/engine.tar.gz")
     ) throws -> PlanReviewFixture {
       let privateKey = Curve25519.Signing.PrivateKey()
       let publicKey = privateKey.publicKey.rawRepresentation
@@ -218,7 +264,7 @@
         installer: installer,
         engine: StagedInstallerArtifact(
           artifact: alteredEngine,
-          fileURL: URL(fileURLWithPath: "/private/tmp/engine.tar.gz"),
+          fileURL: engineFileURL,
           reusedExistingFile: false
         ),
         metadata: StagedInstallerArtifact(
@@ -381,11 +427,9 @@
     }
 
     func plan(
-      _ archive: PinnedAsahiEngineArchive,
+      inspection: ValidatedEngineTranscript,
       request: PinnedAsahiPlanRequest,
-      identity: PinnedAsahiPlanIdentity,
-      repairManifestURL: URL?,
-      in scratchDirectory: URL
+      identity: PinnedAsahiPlanIdentity
     ) async throws -> Data {
       self.request = request
       self.identity = identity

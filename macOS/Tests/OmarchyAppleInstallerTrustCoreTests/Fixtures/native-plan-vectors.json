@@ -1,0 +1,210 @@
+{
+  "schema": 1,
+  "provenance": "Synthetic vectors generated with omarchy_contract._plan_payload",
+  "vectors": [
+    {
+      "name": "free",
+      "inspection": "{\"payload\":{\"device_identifier\":\"apple,j314s\",\"support\":\"supported\"},\"schema_version\":1,\"sequence\":1,\"type\":\"inspection\"}\n{\"payload\":{\"candidates\":[{\"kind\":\"free\",\"length_bytes\":134217728,\"minimum_container_bytes\":0,\"minimum_install_bytes\":67108864,\"offset_bytes\":134217728,\"source_identifier\":\"disk0s3\"}],\"layout_digest\":\"sha256:abb1408c55cdc47431071e610d1f36251d3a37b636c9277ac4889a61d08214dd\",\"system_store_identifier\":\"disk0\"},\"schema_version\":1,\"sequence\":2,\"type\":\"inventory\"}\n",
+      "requested": 100663296,
+      "identity": {
+        "engine_version": "v0.9.2-aurora.4",
+        "engine_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "metadata_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "payload_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "expected_plan": {
+        "plan_digest": "0827611cc1d110f37f06b106f1a6abbe3f967026765bb1e4deaa28d5401019a4",
+        "device_identifier": "apple,j314s",
+        "store_identifier": "disk0",
+        "layout_digest": "sha256:abb1408c55cdc47431071e610d1f36251d3a37b636c9277ac4889a61d08214dd",
+        "candidate_kind": "free",
+        "source_identifier": "disk0s3",
+        "offset_bytes": 134217728,
+        "length_bytes": 100663296,
+        "engine_version": "v0.9.2-aurora.4",
+        "engine_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "metadata_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "payload_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "required_human_steps": [
+          "enterOneTrueRecovery",
+          "authenticateMachineOwner"
+        ]
+      }
+    },
+    {
+      "name": "resize",
+      "inspection": "{\"payload\":{\"device_identifier\":\"apple,j314s\",\"support\":\"supported\"},\"schema_version\":1,\"sequence\":1,\"type\":\"inspection\"}\n{\"payload\":{\"candidates\":[{\"kind\":\"resize\",\"length_bytes\":536870912,\"minimum_container_bytes\":268435456,\"minimum_install_bytes\":67108864,\"offset_bytes\":134217728,\"source_identifier\":\"disk0s3\"}],\"layout_digest\":\"sha256:92a9e42acce5c825dc80f6f0993f5bbcd15b7f4dce4d35e3290c7701702bf924\",\"system_store_identifier\":\"disk0\"},\"schema_version\":1,\"sequence\":2,\"type\":\"inventory\"}\n",
+      "requested": 100663296,
+      "identity": {
+        "engine_version": "v0.9.2-aurora.4",
+        "engine_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "metadata_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "payload_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "expected_plan": {
+        "plan_digest": "33cb3dc8ec88cbe0c9f40e06b7b3fb32124f8e46783c9f5c329b53b6cf8138c0",
+        "device_identifier": "apple,j314s",
+        "store_identifier": "disk0",
+        "layout_digest": "sha256:92a9e42acce5c825dc80f6f0993f5bbcd15b7f4dce4d35e3290c7701702bf924",
+        "candidate_kind": "resize",
+        "source_identifier": "disk0s3",
+        "offset_bytes": 570425344,
+        "length_bytes": 100663296,
+        "engine_version": "v0.9.2-aurora.4",
+        "engine_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "metadata_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "payload_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "required_human_steps": [
+          "enterOneTrueRecovery",
+          "authenticateMachineOwner"
+        ]
+      }
+    },
+    {
+      "name": "repair",
+      "inspection": "{\"payload\":{\"device_identifier\":\"apple,j314s\",\"support\":\"supported\"},\"schema_version\":1,\"sequence\":1,\"type\":\"inspection\"}\n{\"payload\":{\"candidates\":[{\"identity_digest\":\"sha256:9999999999999999999999999999999999999999999999999999999999999999\",\"kind\":\"repair\",\"length_bytes\":134217728,\"minimum_container_bytes\":0,\"minimum_install_bytes\":134217728,\"offset_bytes\":134217728,\"source_identifier\":\"disk0s3\"}],\"layout_digest\":\"sha256:42bf47a4e7d9f397edd58e25f98bc2ef6ade3181d308d414cb3c84f230c64dd2\",\"system_store_identifier\":\"disk0\"},\"schema_version\":1,\"sequence\":2,\"type\":\"inventory\"}\n",
+      "requested": 134217728,
+      "identity": {
+        "engine_version": "v0.9.2-aurora.4",
+        "engine_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "metadata_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "payload_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "repair_manifest_digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      "expected_plan": {
+        "plan_digest": "96198c0685ea1c79e9ba19e22585687842cafeeaef191f642532cd51c86c28d4",
+        "device_identifier": "apple,j314s",
+        "store_identifier": "disk0",
+        "layout_digest": "sha256:42bf47a4e7d9f397edd58e25f98bc2ef6ade3181d308d414cb3c84f230c64dd2",
+        "candidate_kind": "repair",
+        "source_identifier": "disk0s3",
+        "offset_bytes": 134217728,
+        "length_bytes": 134217728,
+        "engine_version": "v0.9.2-aurora.4",
+        "engine_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "metadata_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "payload_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "required_human_steps": [
+          "authenticateMachineOwner"
+        ],
+        "repair_manifest_digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+      }
+    },
+    {
+      "name": "replace",
+      "inspection": "{\"payload\":{\"device_identifier\":\"apple,j314s\",\"support\":\"supported\"},\"schema_version\":1,\"sequence\":1,\"type\":\"inspection\"}\n{\"payload\":{\"candidates\":[{\"identity_digest\":\"sha256:9999999999999999999999999999999999999999999999999999999999999999\",\"kind\":\"replace\",\"length_bytes\":134217728,\"minimum_container_bytes\":0,\"minimum_install_bytes\":67108864,\"offset_bytes\":134217728,\"source_identifier\":\"disk0s3\"}],\"layout_digest\":\"sha256:1724a69f834d3c2b1527f050309b7e9004b75ab51780b0d6b458057dcdd34ce7\",\"system_store_identifier\":\"disk0\"},\"schema_version\":1,\"sequence\":2,\"type\":\"inventory\"}\n",
+      "requested": 134217728,
+      "identity": {
+        "engine_version": "v0.9.2-aurora.4",
+        "engine_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "metadata_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "payload_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "expected_plan": {
+        "plan_digest": "5b7fa37b858153e69ba87d38fddf1ad579c8082f9ce532408f9eaa6ed5b92914",
+        "device_identifier": "apple,j314s",
+        "store_identifier": "disk0",
+        "layout_digest": "sha256:1724a69f834d3c2b1527f050309b7e9004b75ab51780b0d6b458057dcdd34ce7",
+        "candidate_kind": "replace",
+        "source_identifier": "disk0s3",
+        "offset_bytes": 134217728,
+        "length_bytes": 134217728,
+        "engine_version": "v0.9.2-aurora.4",
+        "engine_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "metadata_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "payload_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "required_human_steps": [
+          "enterOneTrueRecovery",
+          "authenticateMachineOwner"
+        ]
+      }
+    },
+    {
+      "name": "unicode",
+      "inspection": "{\"payload\":{\"device_identifier\":\"apple,j314s\",\"support\":\"supported\"},\"schema_version\":1,\"sequence\":1,\"type\":\"inspection\"}\n{\"payload\":{\"candidates\":[{\"kind\":\"free\",\"length_bytes\":134217728,\"minimum_container_bytes\":0,\"minimum_install_bytes\":67108864,\"offset_bytes\":134217728,\"source_identifier\":\"disk0s3\"}],\"layout_digest\":\"sha256:abb1408c55cdc47431071e610d1f36251d3a37b636c9277ac4889a61d08214dd\",\"system_store_identifier\":\"disk0\"},\"schema_version\":1,\"sequence\":2,\"type\":\"inventory\"}\n",
+      "requested": 100663296,
+      "identity": {
+        "engine_version": "v0.9.2-aurora.4-β",
+        "engine_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "metadata_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "payload_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "expected_plan": {
+        "plan_digest": "032cceec7944fdb43dac703416151f94f86a05143e20612387b7dfd553b239bb",
+        "device_identifier": "apple,j314s",
+        "store_identifier": "disk0",
+        "layout_digest": "sha256:abb1408c55cdc47431071e610d1f36251d3a37b636c9277ac4889a61d08214dd",
+        "candidate_kind": "free",
+        "source_identifier": "disk0s3",
+        "offset_bytes": 134217728,
+        "length_bytes": 100663296,
+        "engine_version": "v0.9.2-aurora.4-β",
+        "engine_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "metadata_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "payload_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "required_human_steps": [
+          "enterOneTrueRecovery",
+          "authenticateMachineOwner"
+        ]
+      }
+    },
+    {
+      "name": "maximum-end",
+      "inspection": "{\"payload\":{\"device_identifier\":\"apple,j314s\",\"support\":\"supported\"},\"schema_version\":1,\"sequence\":1,\"type\":\"inspection\"}\n{\"payload\":{\"candidates\":[{\"kind\":\"free\",\"length_bytes\":134217728,\"minimum_container_bytes\":0,\"minimum_install_bytes\":67108864,\"offset_bytes\":18446744073575333887,\"source_identifier\":\"disk0s3\"}],\"layout_digest\":\"sha256:ac884abc6038a9f36b5be83e1c12a5b0d8e8870583503328dfd03ce151eb69b4\",\"system_store_identifier\":\"disk0\"},\"schema_version\":1,\"sequence\":2,\"type\":\"inventory\"}\n",
+      "requested": 100663296,
+      "identity": {
+        "engine_version": "v0.9.2-aurora.4",
+        "engine_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "metadata_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "payload_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "expected_plan": {
+        "plan_digest": "5507b4bb7ad290967a2aa2f95f6bc522435d71816841a47675f9c58b5981fd5c",
+        "device_identifier": "apple,j314s",
+        "store_identifier": "disk0",
+        "layout_digest": "sha256:ac884abc6038a9f36b5be83e1c12a5b0d8e8870583503328dfd03ce151eb69b4",
+        "candidate_kind": "free",
+        "source_identifier": "disk0s3",
+        "offset_bytes": 18446744073575333887,
+        "length_bytes": 100663296,
+        "engine_version": "v0.9.2-aurora.4",
+        "engine_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "metadata_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "payload_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "required_human_steps": [
+          "enterOneTrueRecovery",
+          "authenticateMachineOwner"
+        ]
+      }
+    },
+    {
+      "name": "recommendations",
+      "inspection": "{\"payload\":{\"device_identifier\":\"apple,j314s\",\"support\":\"supported\"},\"schema_version\":1,\"sequence\":1,\"type\":\"inspection\"}\n{\"payload\":{\"candidates\":[{\"kind\":\"free\",\"length_bytes\":134217728,\"minimum_container_bytes\":0,\"minimum_install_bytes\":67108864,\"offset_bytes\":134217728,\"recommended_container_bytes\":0,\"recommended_install_bytes\":100663296,\"source_identifier\":\"disk0s3\"}],\"layout_digest\":\"sha256:abb1408c55cdc47431071e610d1f36251d3a37b636c9277ac4889a61d08214dd\",\"system_store_identifier\":\"disk0\"},\"schema_version\":1,\"sequence\":2,\"type\":\"inventory\"}\n",
+      "requested": 100663296,
+      "identity": {
+        "engine_version": "v0.9.2-aurora.4",
+        "engine_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "metadata_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "payload_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "expected_plan": {
+        "plan_digest": "0827611cc1d110f37f06b106f1a6abbe3f967026765bb1e4deaa28d5401019a4",
+        "device_identifier": "apple,j314s",
+        "store_identifier": "disk0",
+        "layout_digest": "sha256:abb1408c55cdc47431071e610d1f36251d3a37b636c9277ac4889a61d08214dd",
+        "candidate_kind": "free",
+        "source_identifier": "disk0s3",
+        "offset_bytes": 134217728,
+        "length_bytes": 100663296,
+        "engine_version": "v0.9.2-aurora.4",
+        "engine_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "metadata_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "payload_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "required_human_steps": [
+          "enterOneTrueRecovery",
+          "authenticateMachineOwner"
+        ]
+      }
+    }
+  ]
+}

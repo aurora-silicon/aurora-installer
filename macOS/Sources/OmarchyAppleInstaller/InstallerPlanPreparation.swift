@@ -6,20 +6,17 @@
   {
     case unsupportedDevice(String)
     case inventoryUnavailable
+    case freshInspectionRequired
     case engineVersionUnavailable
   }
 
   public protocol InstallerPlanExecuting: Sendable {
     func plan(
-      _ archive: PinnedAsahiEngineArchive,
+      inspection: ValidatedEngineTranscript,
       request: PinnedAsahiPlanRequest,
-      identity: PinnedAsahiPlanIdentity,
-      repairManifestURL: URL?,
-      in scratchDirectory: URL
+      identity: PinnedAsahiPlanIdentity
     ) async throws -> Data
   }
-
-  extension PinnedAsahiEngineExecutor: InstallerPlanExecuting {}
 
   public struct InstallerPlanPreparationRequest: Sendable {
     public let host: AppleSiliconHostInspection
@@ -30,7 +27,6 @@
     public let requestedLengthBytes: UInt64
     public let validationTime: Date
     public let previouslyAcceptedCatalog: AcceptedCatalogIdentity?
-    public let scratchDirectory: URL
 
     public init(
       host: AppleSiliconHostInspection,
@@ -40,8 +36,7 @@
       candidate: ValidatedEngineCandidate,
       requestedLengthBytes: UInt64,
       validationTime: Date,
-      previouslyAcceptedCatalog: AcceptedCatalogIdentity? = nil,
-      scratchDirectory: URL
+      previouslyAcceptedCatalog: AcceptedCatalogIdentity? = nil
     ) {
       self.host = host
       self.release = release
@@ -51,7 +46,6 @@
       self.requestedLengthBytes = requestedLengthBytes
       self.validationTime = validationTime
       self.previouslyAcceptedCatalog = previouslyAcceptedCatalog
-      self.scratchDirectory = scratchDirectory
     }
   }
 
@@ -75,7 +69,7 @@
 
     public init() {
       trustCore = AppleInstallerTrustCore()
-      planner = PinnedAsahiEngineExecutor()
+      planner = NativeInstallerPlanner()
       reviewCoordinator = InstallerPlanReviewCoordinator()
     }
 
@@ -108,6 +102,9 @@
       guard let inventory = inspection.inventory else {
         throw InstallerPlanPreparationError.inventoryUnavailable
       }
+      guard inspection.plan == nil, inspection.checkpoints.isEmpty,
+        inspection.completion == nil
+      else { throw InstallerPlanPreparationError.freshInspectionRequired }
       guard let engineVersion = request.release.assets.installer.engineVersion
       else {
         throw InstallerPlanPreparationError.engineVersionUnavailable
@@ -122,19 +119,8 @@
         engineVersion: engineVersion,
         installer: request.release.assets.installer
       )
-      let engine = request.release.assets.engine
-      let archive = try PinnedAsahiEngineArchive(
-        fileURL: engine.fileURL,
-        expectedDigest: engine.artifact.expectedDigest,
-        expectedSizeBytes: engine.artifact.expectedSizeBytes
-      )
       let planningTranscript = try await planner.plan(
-        archive,
-        request: planRequest,
-        identity: planIdentity,
-        repairManifestURL: request.release.assets.repairManifest?.fileURL,
-        in: request.scratchDirectory
-      )
+        inspection: inspection, request: planRequest, identity: planIdentity)
       let review = try reviewCoordinator.prepare(
         InstallerPlanReviewRequest(
           host: request.host,
