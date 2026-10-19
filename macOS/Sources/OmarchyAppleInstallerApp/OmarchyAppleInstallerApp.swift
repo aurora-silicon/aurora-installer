@@ -228,7 +228,7 @@ struct OmarchyAppleInstallerApp: App {
       .frame(minWidth: 800, maxWidth: .infinity, minHeight: 580, maxHeight: .infinity)
       .ignoresSafeArea(.container, edges: .top)
       .omarchyTypography()
-      .tint(OmarchyTheme.accent)
+      .tint(.gray)
       // The window itself takes the theme colour, title bar included, so the
       // translucent system title bar never tints from the wallpaper behind.
       .containerBackground(OmarchyTheme.window, for: .window)

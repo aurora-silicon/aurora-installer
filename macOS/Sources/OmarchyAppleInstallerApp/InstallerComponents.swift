@@ -184,7 +184,7 @@ struct ProgressTrack: View {
 
   var body: some View {
     ProgressView(value: fraction.map { min(1, max(0, $0)) })
-      .progressViewStyle(.linear).controlSize(.small).tint(OmarchyTheme.accent)
+      .progressViewStyle(.linear).controlSize(.small).tint(.gray)
       .frame(height: height)
   }
 }
