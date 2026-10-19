@@ -19,7 +19,9 @@
     var body: some View {
       Group {
         if screen == "chooser" {
-          AuroraWelcomeView(selection: .constant(AuroraInstallationSelection()), device: .simulation, onContinue: {})
+          AuroraWelcomeView(
+            selection: .constant(AuroraInstallationSelection()), device: .simulation, onContinue: {}
+          )
         } else {
           InstallerPageLayout(showsFooter: screen != "loading") {
             InstallerMasthead(distribution: .fedora, device: .simulation)

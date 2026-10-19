@@ -48,9 +48,12 @@ struct OnePageInstallerView: View {
   var body: some View {
     Group {
       if let account = session.recoveryAccount, let target = account.target {
-        RecoveryHandoffView(volumeName: target.volumeName, session: session, selection: selection, device: device)
+        RecoveryHandoffView(
+          volumeName: target.volumeName, session: session, selection: selection, device: device)
       } else if case .awaitingRecovery = session.phase {
-        RecoveryHandoffView(volumeName: "Aurora", session: session.isSimulation ? nil : session, selection: selection, device: device)
+        RecoveryHandoffView(
+          volumeName: "Aurora", session: session.isSimulation ? nil : session, selection: selection,
+          device: device)
       } else {
         installerPage
       }
@@ -621,7 +624,9 @@ struct DownloadPanel: View {
         ProgressTrack(fraction: fraction)
         HStack {
           if let package, update.stage == .downloading, package.totalBytes > 0 {
-            Text("\(PlainLanguage.bytes(package.bytesCompleted)) of \(PlainLanguage.bytes(package.totalBytes))")
+            Text(
+              "\(PlainLanguage.bytes(package.bytesCompleted)) of \(PlainLanguage.bytes(package.totalBytes))"
+            )
           }
           Spacer()
           if let fraction { Text("\(Int(fraction * 100))%").monospacedDigit() }
