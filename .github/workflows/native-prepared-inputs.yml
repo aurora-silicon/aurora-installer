@@ -1,4 +1,4 @@
-name: Check native installation admission
+name: Qualify native admission component
 on:
   push:
     branches: [ci/native-recovery-review]
@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: 0c0cca82caa850964055e897344d2e53637f126a
+          ref: 95da96f3c315ec4720c0872ca60c463ba6962136
           path: source
           persist-credentials: false
       - name: Record immutable source and toolchain
@@ -44,11 +44,18 @@ jobs:
           xcrun swift-format format -i --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
           git diff --binary > "$RUNNER_TEMP/evidence/format.patch"
           xcrun swift-format lint --strict --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
-      - name: Check focused admission tests
+      - name: Check the corrected recorded-resume fixture
         run: |
           set -euo pipefail
-          xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug --filter 'NativeInstallAdmissionTests|NativeKnownInstallationsTests|NativeInstallerInspectorTests|LiveNativeInspectionTests|EngineHandoffPackageImporterTests|PinnedAsahiEngineExecutorTests' 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
-          xcodebuildmcp swift-package test --package-path "$PWD" --configuration release --filter 'NativeInstallAdmissionTests|NativeKnownInstallationsTests|NativeInstallerInspectorTests|LiveNativeInspectionTests|EngineHandoffPackageImporterTests|PinnedAsahiEngineExecutorTests' 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
+          xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug \
+            --filter 'PinnedAsahiEngineExecutorTests/testRecordedInstallResumesOnlyWithPrivateMatchingCheckpointEvidence' 2>&1 | tee "$RUNNER_TEMP/evidence/resume-fixture.log"
+      - name: Qualify the native admission component
+        run: |
+          set -euo pipefail
+          xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug \
+            --filter 'NativeInstallAdmissionTests|NativeKnownInstallationsTests|NativeInstallerInspectorTests|NativeDiskCollectorReplayTests|LiveNativeInspectionTests|EngineHandoffPackageImporterTests|PinnedAsahiEngineExecutorTests|InstallerJobTests|ClosedEngineHelperServerTests|InstallerSessionTests|EngineContractTests' 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
+          xcodebuildmcp swift-package test --package-path "$PWD" --configuration release \
+            --filter 'NativeInstallAdmissionTests|NativeKnownInstallationsTests|NativeInstallerInspectorTests|NativeDiskCollectorReplayTests|LiveNativeInspectionTests|EngineHandoffPackageImporterTests|PinnedAsahiEngineExecutorTests|InstallerJobTests|ClosedEngineHelperServerTests|InstallerSessionTests|EngineContractTests' 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
       - name: Retain the native driver logs
         if: always()
         run: |
@@ -61,6 +68,6 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: native-admission-focused-evidence
+          name: native-admission-component-evidence
           path: ${{ runner.temp }}/evidence/
           retention-days: 14
