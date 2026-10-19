@@ -35,6 +35,8 @@ public struct FirmwareExtractionPlan: Sendable {
 
   public var sourceURL: URL { URL(string: recipe.source.url)! }
   public var sourceSizeBytes: Int { recipe.source.sizeBytes }
+  public var systemImageMemberName: String { recipe.systemImage.member }
+  public var systemImageDataOffset: Int { recipe.memberOffset }
   public var authenticatedRangeBytes: Int {
     recipe.zipHeader.size + recipe.prefix.size
       + recipe.headers.reduce(0) { $0 + $1.size }

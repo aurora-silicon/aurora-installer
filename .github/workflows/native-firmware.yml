@@ -100,6 +100,7 @@ jobs:
           cmp "$RUNNER_TEMP/evidence/extraction.json" "$RUNNER_TEMP/evidence/reuse.json"
           cmp "$RUNNER_TEMP/evidence/extraction.json" "$RUNNER_TEMP/evidence/resume-complete.json"
           test -z "$(find "$checkpoint" -mindepth 1 -print -quit)"
+          "$binary" zip unused > "$RUNNER_TEMP/evidence/zip64-live.json"
       - name: Require clean source formatting
         if: always()
         run: test '${{ steps.format.outcome }}' = success
