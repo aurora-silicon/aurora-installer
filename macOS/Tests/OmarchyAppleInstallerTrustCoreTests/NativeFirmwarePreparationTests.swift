@@ -46,7 +46,8 @@
       XCTAssertEqual(calls.count, 2)
       XCTAssertEqual(Array(calls[0].prefix(3)), Array(calls[1].prefix(3)))
       XCTAssertEqual(calls.map { $0[3] }, ["false", "true"])
-      XCTAssertEqual(calls[0][0], try FirmwareExtractionPlan.bundled(for: "apple,j700").recipeSHA256)
+      XCTAssertEqual(
+        calls[0][0], try FirmwareExtractionPlan.bundled(for: "apple,j700").recipeSHA256)
     }
 
     func testOtherBoardsDoNotStartTheNeoDownload() async throws {

@@ -37,8 +37,10 @@
     func testRestoredPreparationFailureAllowsFreshInspectionWithoutReplayingTheJob() async throws {
       let environment = MockInstallerEnvironment()
       environment.pendingInstallation = true
-      environment.pendingInitialFailure = .engineFailed(EngineFailureNotice(
-        reason: .firmwarePreparation, exitStatus: 1, diskUnchanged: true, summary: "Preparation failed"))
+      environment.pendingInitialFailure = .engineFailed(
+        EngineFailureNotice(
+          reason: .firmwarePreparation, exitStatus: 1, diskUnchanged: true,
+          summary: "Preparation failed"))
       let session = InstallerSession(environment: environment)
       await session.inspect()
       XCTAssertFalse(session.hasExecutionStarted)

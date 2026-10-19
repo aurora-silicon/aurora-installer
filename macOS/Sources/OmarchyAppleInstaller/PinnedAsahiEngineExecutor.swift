@@ -58,7 +58,8 @@
     private let expectedFileOwnerID: @Sendable () -> uid_t
     private let extractionOptions: [String]
     private let firmwarePreparer: any NativeFirmwarePreparing
-    private let prepareRecoveryTemplate: @Sendable (ImportedEngineHandoffPackage) throws -> PreparedNativeRecoveryTemplate
+    private let prepareRecoveryTemplate:
+      @Sendable (ImportedEngineHandoffPackage) throws -> PreparedNativeRecoveryTemplate
 
     public init() {
       effectiveUserID = { geteuid() }
@@ -73,7 +74,9 @@
       expectedFileOwnerID: @escaping @Sendable () -> uid_t = { geteuid() },
       extractionOptions: [String] = [],
       firmwarePreparer: any NativeFirmwarePreparing = NativeFirmwarePreparer(),
-      prepareRecoveryTemplate: @escaping @Sendable (ImportedEngineHandoffPackage) throws -> PreparedNativeRecoveryTemplate = { try NativeRecoveryTemplate.prepare(package: $0) }
+      prepareRecoveryTemplate:
+        @escaping @Sendable (ImportedEngineHandoffPackage) throws -> PreparedNativeRecoveryTemplate =
+        { try NativeRecoveryTemplate.prepare(package: $0) }
     ) {
       self.effectiveUserID = effectiveUserID
       self.expectedFileOwnerID = expectedFileOwnerID
@@ -92,10 +95,10 @@
       }
       let journal = try preparePersistentJournal(for: package)
       let recovery: PreparedNativeRecoveryTemplate
-      do { recovery = try prepareRecoveryTemplate(package) }
-      catch {
-        throw preparationFailure(error, reason: .recoveryPreparation, operation: operation,
-                                 journal: journal, password: authorization.password)
+      do { recovery = try prepareRecoveryTemplate(package) } catch {
+        throw preparationFailure(
+          error, reason: .recoveryPreparation, operation: operation,
+          journal: journal, password: authorization.password)
       }
       defer { recovery.remove() }
       var environment = installEnvironment(
@@ -121,18 +124,21 @@
                 secrets: [authorization.password])))
         }
       }
-      do { return try run(
-        archive: package.engineURL,
-        executionParent: package.packageURL.deletingLastPathComponent(),
-        journal: journal,
-        additionalEnvironment: environment,
-        standardInput: authorization.password + Data([10]),
-        secrets: [authorization.password],
-        retryIdentity: RecoveryRetryIdentity(package: package)
-      ) } catch PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported {
-        throw preparationFailure(PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported,
-                                 reason: .recoveryPreparation, operation: operation,
-                                 journal: journal, password: authorization.password)
+      do {
+        return try run(
+          archive: package.engineURL,
+          executionParent: package.packageURL.deletingLastPathComponent(),
+          journal: journal,
+          additionalEnvironment: environment,
+          standardInput: authorization.password + Data([10]),
+          secrets: [authorization.password],
+          retryIdentity: RecoveryRetryIdentity(package: package)
+        )
+      } catch PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported {
+        throw preparationFailure(
+          PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported,
+          reason: .recoveryPreparation, operation: operation,
+          journal: journal, password: authorization.password)
       }
     }
 
@@ -140,12 +146,14 @@
       _ error: any Error, reason: EngineFailureReason, operation: EngineHandoffOperation,
       journal: URL, password: Data
     ) -> PinnedAsahiEngineExecutionError {
-      .engineFailed(EngineFailureReport(
-        notice: EngineFailureNotice(reason: reason, exitStatus: 1,
-          diskUnchanged: operation == .install && journalProvesNoMutation(journal),
-          summary: "Native Recovery resources could not be verified."),
-        redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
-          Data(String(describing: error).utf8), truncated: false, secrets: [password])))
+      .engineFailed(
+        EngineFailureReport(
+          notice: EngineFailureNotice(
+            reason: reason, exitStatus: 1,
+            diskUnchanged: operation == .install && journalProvesNoMutation(journal),
+            summary: "Native Recovery resources could not be verified."),
+          redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
+            Data(String(describing: error).utf8), truncated: false, secrets: [password])))
     }
 
     public func inspect(

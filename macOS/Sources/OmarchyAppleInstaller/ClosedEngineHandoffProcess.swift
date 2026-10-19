@@ -148,7 +148,9 @@
           fileName: NativeRecoveryTemplate.archiveFileName,
           digest: "sha256:" + SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined(),
           sizeBytes: UInt64(bytes.count))
-      } else { recoveryArtifact = nil }
+      } else {
+        recoveryArtifact = nil
+      }
       try copyVerified(assets.engine, role: "engine", to: engineURL)
       try copyVerified(assets.metadata, role: "metadata", to: metadataURL)
       try copyVerified(assets.payload, role: "payload", to: payloadURL)
@@ -172,7 +174,8 @@
         to: identityURL
       )
       try writePrivateJSON(
-        EngineHandoffManifest(invocation: invocation, assets: assets, recoveryTemplate: recoveryArtifact),
+        EngineHandoffManifest(
+          invocation: invocation, assets: assets, recoveryTemplate: recoveryArtifact),
         to: manifestURL
       )
 

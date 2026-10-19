@@ -133,11 +133,14 @@
             from: source, in: fixture.destination)
           XCTAssertEqual(try Data(contentsOf: XCTUnwrap(imported.recoveryTemplateURL)), bytes)
           XCTAssertEqual(try modeOfRecovery(imported.recoveryTemplateURL!), 0o400)
-          let reopened = try EngineHandoffPackageImporter().reopenRetained(named: imported.packageURL.lastPathComponent, in: fixture.destination)
+          let reopened = try EngineHandoffPackageImporter().reopenRetained(
+            named: imported.packageURL.lastPathComponent, in: fixture.destination)
           XCTAssertEqual(reopened.recoveryTemplateURL, imported.recoveryTemplateURL)
           XCTAssertEqual(chmod(imported.recoveryTemplateURL!.path, 0o600), 0)
           try Data("tampered".utf8).write(to: imported.recoveryTemplateURL!)
-          XCTAssertThrowsError(try EngineHandoffPackageImporter().reopenRetained(named: imported.packageURL.lastPathComponent, in: fixture.destination))
+          XCTAssertThrowsError(
+            try EngineHandoffPackageImporter().reopenRetained(
+              named: imported.packageURL.lastPathComponent, in: fixture.destination))
         } else {
           XCTAssertThrowsError(
             try EngineHandoffPackageImporter().prepare(from: source, in: fixture.destination))

@@ -501,7 +501,9 @@
 
     private struct FailedFirmware: NativeFirmwarePreparing {
       func prepare(deviceIdentifier: String, in workingDirectory: URL) async throws -> URL? {
-        throw CocoaError(.fileReadUnknown, userInfo: [NSLocalizedDescriptionKey: "owner-password extraction failed"])
+        throw CocoaError(
+          .fileReadUnknown,
+          userInfo: [NSLocalizedDescriptionKey: "owner-password extraction failed"])
       }
     }
 
@@ -509,11 +511,14 @@
       let fixture = try makeFixture()
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let executor = fixtureExecutor(effectiveUserID: { 0 }, firmwarePreparer: FailedFirmware())
-      await assertThrowsErrorAsync(try await executor.execute(
-        fixture.package, authorization: try machineOwnerAuthorization()
-      )) {
+      await assertThrowsErrorAsync(
+        try await executor.execute(
+          fixture.package, authorization: try machineOwnerAuthorization()
+        )
+      ) {
         guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
-          XCTFail("Expected a typed firmware failure"); return
+          XCTFail("Expected a typed firmware failure")
+          return
         }
         XCTAssertEqual(report.notice.reason, .firmwarePreparation)
         XCTAssertTrue(report.notice.diskUnchanged)
@@ -526,7 +531,8 @@
       let fixture = try makeFixture(expectedInstallMode: "retry-recovery-authorization")
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let executor = fixtureExecutor(effectiveUserID: { 0 }, firmwarePreparer: FailedFirmware())
-      let result = try await executor.execute(fixture.package,
+      let result = try await executor.execute(
+        fixture.package,
         authorization: try machineOwnerAuthorization(), operation: .retryRecoveryAuthorization)
       XCTAssertEqual(result, fixture.transcript)
     }
@@ -536,11 +542,14 @@
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let executor = fixtureExecutor(effectiveUserID: { 0 }, rejectRecovery: true)
-        await assertThrowsErrorAsync(try await executor.execute(
-          fixture.package, authorization: try machineOwnerAuthorization(), operation: operation
-        )) {
+        await assertThrowsErrorAsync(
+          try await executor.execute(
+            fixture.package, authorization: try machineOwnerAuthorization(), operation: operation
+          )
+        ) {
           guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
-            XCTFail("Expected typed preparation failure"); return
+            XCTFail("Expected typed preparation failure")
+            return
           }
           XCTAssertEqual(report.notice.reason, .recoveryPreparation)
           XCTAssertEqual(report.notice.diskUnchanged, operation == .install)
@@ -561,13 +570,17 @@
         extractionOptions: extractionOptions, firmwarePreparer: firmwarePreparer,
         prepareRecoveryTemplate: { package in
           if rejectRecovery { throw NativeRecoveryTemplateError.unavailable }
-          let directory = package.packageURL.deletingLastPathComponent().appendingPathComponent("fixture-recovery-\(UUID().uuidString)")
-          try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+          let directory = package.packageURL.deletingLastPathComponent().appendingPathComponent(
+            "fixture-recovery-\(UUID().uuidString)")
+          try FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: false,
+            attributes: [.posixPermissions: 0o700])
           let app = directory.appendingPathComponent("Recovery.app")
           let manifest = directory.appendingPathComponent("manifest.json")
           try Data("app".utf8).write(to: app)
           try Data("{}".utf8).write(to: manifest)
-          return PreparedNativeRecoveryTemplate(directory: directory, app: app, manifest: manifest, requirement: "fixture")
+          return PreparedNativeRecoveryTemplate(
+            directory: directory, app: app, manifest: manifest, requirement: "fixture")
         })
     }
 
@@ -604,7 +617,10 @@
         attributes: [.posixPermissions: 0o700]
       )
 
-      try Data(#"{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1"}"#.utf8).write(to: bundleSource.appendingPathComponent("engine-capabilities.json"))
+      try Data(
+        #"{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1"}"#
+          .utf8
+      ).write(to: bundleSource.appendingPathComponent("engine-capabilities.json"))
       let main = bundleSource.appendingPathComponent("main.py")
       try writePrivate(Data("# synthetic engine\n".utf8), to: main)
       var checkpointCommands = [String]()

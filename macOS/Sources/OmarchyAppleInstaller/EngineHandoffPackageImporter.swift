@@ -160,9 +160,12 @@
         )
       }
 
-      let recoveryTemplateURL = manifest.recoveryTemplate.map { package.appendingPathComponent($0.fileName) }
+      let recoveryTemplateURL = manifest.recoveryTemplate.map {
+        package.appendingPathComponent($0.fileName)
+      }
       if let artifact = manifest.recoveryTemplate, let recoveryTemplateURL {
-        try copyArtifact(artifact, role: "recovery-template", from: sourceDescriptor, to: recoveryTemplateURL)
+        try copyArtifact(
+          artifact, role: "recovery-template", from: sourceDescriptor, to: recoveryTemplateURL)
       }
       keepPackage = true
       return ImportedEngineHandoffPackage(
@@ -238,7 +241,9 @@
         repairManifestURL: manifest.repairManifest.map {
           package.appendingPathComponent($0.fileName)
         },
-        recoveryTemplateURL: manifest.recoveryTemplate.map { package.appendingPathComponent($0.fileName) },
+        recoveryTemplateURL: manifest.recoveryTemplate.map {
+          package.appendingPathComponent($0.fileName)
+        },
         bindingDigest: identity.bindingDigest, planDigest: request.planDigest,
         deviceIdentifier: request.deviceIdentifier, storeIdentifier: request.storeIdentifier)
     }
@@ -463,7 +468,7 @@
             manifest.metadata.fileName,
             manifest.payload.fileName,
           ] + (manifest.repairManifest.map { [$0.fileName] } ?? [])
-            + (manifest.recoveryTemplate.map { [$0.fileName] } ?? [])
+          + (manifest.recoveryTemplate.map { [$0.fileName] } ?? [])
         guard manifest.format == 1,
           manifest.requestFile == "request.json",
           manifest.identityFile == "identity.json",
@@ -475,7 +480,9 @@
             + (manifest.repairManifest.map { [$0] } ?? [])
             + (manifest.recoveryTemplate.map { [$0] } ?? []))
             .allSatisfy(validArtifact),
-          manifest.recoveryTemplate == nil || (manifest.recoveryTemplate?.fileName == NativeRecoveryTemplate.archiveFileName && manifest.recoveryTemplate!.sizeBytes <= NativeRecoveryTemplate.maximumArchiveBytes)
+          manifest.recoveryTemplate == nil
+            || (manifest.recoveryTemplate?.fileName == NativeRecoveryTemplate.archiveFileName
+              && manifest.recoveryTemplate!.sizeBytes <= NativeRecoveryTemplate.maximumArchiveBytes)
         else {
           throw EngineHandoffImportError.invalidManifest
         }

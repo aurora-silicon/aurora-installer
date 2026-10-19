@@ -206,9 +206,13 @@
         source: app, in: root, owner: geteuid(), requirement: "identity", verify: { _ in })
       defer { prepared.remove() }
       let destination = root.appendingPathComponent("Helpers/RecoveryTemplate")
-      try NativeRecoveryTemplate.publish(prepared, to: destination, owner: geteuid(), verify: { _ in })
-      XCTAssertTrue(FileManager.default.fileExists(atPath:
-        destination.appendingPathComponent(InstallerProductIdentity.recoveryAppBundleName).path))
+      try NativeRecoveryTemplate.publish(
+        prepared, to: destination, owner: geteuid(), verify: { _ in })
+      XCTAssertTrue(
+        FileManager.default.fileExists(
+          atPath:
+            destination.appendingPathComponent(InstallerProductIdentity.recoveryAppBundleName).path)
+      )
     }
 
     func testPublicationRetainsOldTreeUntilTheNewEntryIsDurable() throws {
