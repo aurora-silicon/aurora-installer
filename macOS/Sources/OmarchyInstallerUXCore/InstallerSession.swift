@@ -201,13 +201,16 @@
       do {
         let host = try await environment.inspect()
         recoveryAccount = nil
-        if !host.existingInstalls.isEmpty {
+        // Completed journal identities are authoritative even when the legacy
+        // inventory does not recognize the distribution's stub volume name.
+        // Resume before checking whether another fresh installation could fit.
+        if host.supported, !environment.installationBlocked {
+          recoveryAccount = try await environment.inspectRecoveryAccount()
+        }
+        if recoveryAccount?.target != nil || !host.existingInstalls.isEmpty {
           // Refuse before anything is fetched: no catalog, no download.
           lastHost = host
           phase = .existingInstallRefused(host: host)
-          if host.supported, !environment.installationBlocked {
-            recoveryAccount = try await environment.inspectRecoveryAccount()
-          }
         } else if host.supported, !environment.installationBlocked,
           let shortfall = host.spaceShortfall
         {

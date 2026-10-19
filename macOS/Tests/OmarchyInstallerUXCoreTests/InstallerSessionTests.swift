@@ -8,6 +8,26 @@
 
   @MainActor
   final class InstallerSessionTests: XCTestCase {
+    func testCompletedInstallResumesWhenFreshInventoryHasNoSpaceOrRecognizedStub() async throws {
+      let environment = MockInstallerEnvironment()
+      environment.hasCompletedInstallation = true
+      environment.host = HostDisplay(
+        chipAndSpace: "Apple A18 Pro · 13 GB free", supported: true,
+        spaceShortfall: .insufficientSpace(requiredBytes: 68_000_000_000, availableBytes: 0))
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      XCTAssertEqual(session.recoveryAccount?.target, environment.accountReply?.target)
+      XCTAssertNotNil(session.recoveryAccount?.ticket)
+      guard case .existingInstallRefused = session.phase else {
+        return XCTFail("A completed handoff must resume before fresh-install allocation checks")
+      }
+      XCTAssertFalse(session.canStartInstallation)
+      XCTAssertEqual(environment.executeCount, 0)
+      XCTAssertEqual(environment.prepareCount, 0)
+      XCTAssertEqual(environment.prefetchStartCount, 0)
+      XCTAssertEqual(environment.requestShutdownCount, 0)
+    }
+
     func testRecoveryHandoffCanShutDownBeforeCreatingAccount() async throws {
       let environment = MockInstallerEnvironment()
       environment.shutdownAccepted = true
@@ -1500,6 +1520,7 @@
         groupUUID: "33333333-3333-4333-8333-333333333333",
         prebootUUID: "44444444-4444-4444-8444-444444444444"))
     var accountCalls = [String]()
+    var hasCompletedInstallation = false
     var handoffFails = false
     var handoffOverride: RecoveryAccountReply?
     func prepareRecoveryHandoff(ticket: String) async throws -> RecoveryAccountReply {
@@ -1509,6 +1530,11 @@
     }
     func inspectRecoveryAccount() async throws -> RecoveryAccountReply? {
       accountCalls.append("inspect")
+      // A fresh mock has no completed target until execution, just like the
+      // helper's on-disk discovery. Existing-install fixtures remain resumable.
+      guard hasCompletedInstallation || executeCount > 0 || !host.existingInstalls.isEmpty else {
+        return nil
+      }
       return accountReply
     }
     func prepareRecoveryAccount(ticket: String, username: String, password: Data) async throws
