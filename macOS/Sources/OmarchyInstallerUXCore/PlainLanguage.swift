@@ -556,7 +556,8 @@
       let technical = String(describing: error)
 
       if let initial = error as? InstallerPreSubmissionFailure, !retryRecoveryAvailable {
-        return FailureDisplay(headline: "Installation could not start",
+        return FailureDisplay(
+          headline: "Installation could not start",
           plainDetail: "The installation request was not sent. No disk changes were made.",
           technicalDetail: String(describing: initial.underlying),
           remedy: "Reopen the latest installer and review the installation again.")

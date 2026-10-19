@@ -230,7 +230,8 @@
       _ source: URL,
       to destination: URL
     ) throws -> EngineHandoffArtifact {
-      let sourceDescriptor = Darwin.open(source.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)
+      let sourceDescriptor = Darwin.open(
+        source.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)
       guard sourceDescriptor >= 0 else {
         throw ClosedEngineHandoffError.restoreImageUnavailable
       }

@@ -16,12 +16,15 @@ Moving to another identity or host is an edit to `identity.conf` followed by `sc
 The generated `Aurora Installer.app` contains:
 
 - the SwiftUI application in `Contents/MacOS`;
+- the separately signed auxiliary decoder in `Contents/Helpers`, under its own fixed identifier;
 - the root helper in `Contents/Library/LaunchServices`, named by its label, with its Info.plist (carrying the build number it reports) and, for builds with a real signing identity, its `SMJobBless` launchd job linked into `__TEXT` sections;
 - the helper's declaration for `SMJobBless` (`SMPrivilegedExecutables`) in the app's Info.plist, for builds with a real signing identity;
 - the launch-daemon property list the fallback installer package derives its system daemon from, in `Contents/Library/LaunchDaemons`, pointing at the same helper;
 - the immutable release descriptor and Ed25519 trust root in
   `Contents/Resources/Release`; and
 - the pinned Asahi validation engine in `Contents/Resources/Engine/artifacts`.
+
+The engine producer checks every native file against the authenticated runtime inventory. The auxiliary decoder is excluded from that archive so application signing can cover it directly. Packaging verifies its unsigned build record, signs the nested executable before the enclosing app, and pins its requirement in the helper's launchd configuration. See [native prepared inputs](../docs/native-prepared-inputs.md) for admission and retained-job retry behavior.
 
 The helper and application use reciprocal code-signing requirements. The helper
 also authenticates each XPC client before accepting a request. A release

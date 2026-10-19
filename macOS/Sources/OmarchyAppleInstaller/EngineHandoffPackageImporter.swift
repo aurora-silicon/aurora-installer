@@ -466,7 +466,9 @@
           keys: manifestKeys,
           error: .invalidManifest
         )
-        for key in ["engine", "metadata", "payload", "restore_image", "repair_manifest", "recovery_template"]
+        for key in [
+          "engine", "metadata", "payload", "restore_image", "repair_manifest", "recovery_template",
+        ]
         where object[key] != nil {
           guard let artifact = object[key] as? [String: Any],
             Set(artifact.keys) == ["file_name", "digest", "size_bytes"]

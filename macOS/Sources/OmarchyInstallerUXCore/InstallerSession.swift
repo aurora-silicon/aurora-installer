@@ -662,7 +662,8 @@
           recoveryRetryAvailable = false
         }
         retrySheet = .hidden
-        phase = .failed(PlainLanguage.failure(for: error, retryRecoveryAvailable: recoveryRetryAvailable))
+        phase = .failed(
+          PlainLanguage.failure(for: error, retryRecoveryAvailable: recoveryRetryAvailable))
         return
       }
 

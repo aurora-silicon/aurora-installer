@@ -32,12 +32,18 @@
         let package = try importer.prepare(from: source, in: fixture.destination)
         let decoder = try XCTUnwrap(package.restoreImageURL)
         XCTAssertEqual(try mode(decoder), 0o500)
-        let reopened = try importer.reopenRetained(named: package.packageURL.lastPathComponent, in: fixture.destination)
+        let reopened = try importer.reopenRetained(
+          named: package.packageURL.lastPathComponent, in: fixture.destination)
         XCTAssertEqual(reopened.restoreImageURL, decoder)
         XCTAssertEqual(chmod(decoder.path, 0o700), 0)
-        if change == "bytes" { try Data("changed".utf8).write(to: decoder) }
-        else { XCTAssertEqual(chmod(decoder.path, 0o400), 0) }
-        XCTAssertThrowsError(try importer.reopenRetained(named: package.packageURL.lastPathComponent, in: fixture.destination))
+        if change == "bytes" {
+          try Data("changed".utf8).write(to: decoder)
+        } else {
+          XCTAssertEqual(chmod(decoder.path, 0o400), 0)
+        }
+        XCTAssertThrowsError(
+          try importer.reopenRetained(
+            named: package.packageURL.lastPathComponent, in: fixture.destination))
       }
     }
 
@@ -46,18 +52,29 @@
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let manifestURL = fixture.source.appendingPathComponent("manifest.json")
-        var document = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any])
+        var document = try XCTUnwrap(
+          JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any])
         var decoder = try XCTUnwrap(document["restore_image"] as? [String: Any])
         if change == "missing" { document.removeValue(forKey: "restore_image") }
-        if change == "renamed" { decoder["file_name"] = "another-decoder"; document["restore_image"] = decoder }
-        if change == "oversized" { decoder["size_bytes"] = RestoreImageHelper.maximumBytes + 1; document["restore_image"] = decoder }
-        try JSONSerialization.data(withJSONObject: document).write(to: manifestURL, options: .atomic)
+        if change == "renamed" {
+          decoder["file_name"] = "another-decoder"
+          document["restore_image"] = decoder
+        }
+        if change == "oversized" {
+          decoder["size_bytes"] = RestoreImageHelper.maximumBytes + 1
+          document["restore_image"] = decoder
+        }
+        try JSONSerialization.data(withJSONObject: document).write(
+          to: manifestURL, options: .atomic)
         if change == "changed" {
-          try Data("changed".utf8).write(to: fixture.source.appendingPathComponent(RestoreImageHelper.fileName), options: .atomic)
+          try Data("changed".utf8).write(
+            to: fixture.source.appendingPathComponent(RestoreImageHelper.fileName), options: .atomic
+          )
         }
         let source = try openDirectory(fixture.source)
         defer { try? source.close() }
-        XCTAssertThrowsError(try EngineHandoffPackageImporter().prepare(from: source, in: fixture.destination))
+        XCTAssertThrowsError(
+          try EngineHandoffPackageImporter().prepare(from: source, in: fixture.destination))
         XCTAssertTrue(try importedEntries(in: fixture.destination).isEmpty)
       }
     }

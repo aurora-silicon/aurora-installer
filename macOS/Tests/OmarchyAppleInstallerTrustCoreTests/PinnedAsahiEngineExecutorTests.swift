@@ -6,15 +6,24 @@
   @testable import OmarchyAppleInstallerTrustCore
 
   final class PinnedAsahiEngineExecutorTests: XCTestCase {
-    func testDecoderAdmissionFailureStopsBeforeExtractionAndAttestsOnlyInitialNoMutation() async throws {
+    func testDecoderAdmissionFailureStopsBeforeExtractionAndAttestsOnlyInitialNoMutation()
+      async throws
+    {
       for operation in [EngineHandoffOperation.install, .retryRecoveryAuthorization] {
         for rejection in ["missing", "requirement", "signature"] {
           let fixture = try makeFixture(includeDecoder: rejection != "missing")
           defer { try? FileManager.default.removeItem(at: fixture.root) }
-          let requirement = rejection == "requirement" ? nil : RestoreImageHelper.adHocRequirement(codeHash: String(repeating: "a", count: 40))
-          let executor = fixtureExecutor(effectiveUserID: { 0 }, restoreImageRequirement: requirement, rejectDecoder: rejection == "signature")
-          await assertThrowsErrorAsync(try await executor.execute(fixture.package,
-            authorization: try machineOwnerAuthorization(), operation: operation)) {
+          let requirement =
+            rejection == "requirement"
+            ? nil : RestoreImageHelper.adHocRequirement(codeHash: String(repeating: "a", count: 40))
+          let executor = fixtureExecutor(
+            effectiveUserID: { 0 }, restoreImageRequirement: requirement,
+            rejectDecoder: rejection == "signature")
+          await assertThrowsErrorAsync(
+            try await executor.execute(
+              fixture.package,
+              authorization: try machineOwnerAuthorization(), operation: operation)
+          ) {
             guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
               return XCTFail("Expected typed decoder admission failure")
             }
@@ -30,8 +39,11 @@
       let fixture = try makeFixture(supportsSignedDecoder: false)
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let executor = fixtureExecutor(effectiveUserID: { 0 })
-      await assertThrowsErrorAsync(try await executor.execute(fixture.package,
-        authorization: try machineOwnerAuthorization())) {
+      await assertThrowsErrorAsync(
+        try await executor.execute(
+          fixture.package,
+          authorization: try machineOwnerAuthorization())
+      ) {
         guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
           return XCTFail("Expected incompatible runtime refusal")
         }
@@ -599,7 +611,8 @@
       extractionOptions: [String] = [],
       firmwarePreparer: any NativeFirmwarePreparing = NativeFirmwarePreparer(),
       rejectRecovery: Bool = false,
-      restoreImageRequirement: String? = RestoreImageHelper.adHocRequirement(codeHash: String(repeating: "a", count: 40)),
+      restoreImageRequirement: String? = RestoreImageHelper.adHocRequirement(
+        codeHash: String(repeating: "a", count: 40)),
       rejectDecoder: Bool = false
     ) -> PinnedAsahiEngineExecutor {
       PinnedAsahiEngineExecutor(
@@ -661,7 +674,8 @@
         attributes: [.posixPermissions: 0o700]
       )
 
-      let capability = supportsSignedDecoder ? ",\"signedHelperInput\":\"helper-executable-v1\"" : ""
+      let capability =
+        supportsSignedDecoder ? ",\"signedHelperInput\":\"helper-executable-v1\"" : ""
       try Data(
         #"{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1"\#(capability)}"#
           .utf8

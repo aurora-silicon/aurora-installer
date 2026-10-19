@@ -10,7 +10,9 @@
   final class InstallerSessionTests: XCTestCase {
     func testMissingBundledHelperStopsBeforeSubmissionAndDropsTheOldApproval() async throws {
       let environment = MockInstallerEnvironment()
-      environment.executeResults = [.failure(InstallerPreSubmissionFailure(ClosedEngineHandoffError.restoreImageUnavailable))]
+      environment.executeResults = [
+        .failure(InstallerPreSubmissionFailure(ClosedEngineHandoffError.restoreImageUnavailable))
+      ]
       let session = InstallerSession(environment: environment)
       await session.inspect()
       await session.continueToPlan()
@@ -23,7 +25,9 @@
       XCTAssertFalse(environment.hasApprovedPlan)
       XCTAssertFalse(session.canRetryRecoveryAuthorization)
       XCTAssertTrue(session.canInspect)
-      guard case .failed(let failure) = session.phase else { return XCTFail("Expected pre-submission failure") }
+      guard case .failed(let failure) = session.phase else {
+        return XCTFail("Expected pre-submission failure")
+      }
       XCTAssertTrue(failure.plainDetail.contains("No disk changes"))
     }
 

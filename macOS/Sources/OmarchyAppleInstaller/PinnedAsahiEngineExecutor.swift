@@ -67,7 +67,8 @@
       @Sendable (ImportedEngineHandoffPackage) throws -> PreparedNativeRecoveryTemplate
 
     public init(
-      restoreImageRequirement: String? = RestoreImageHelper.requirement(environment: ProcessInfo.processInfo.environment)
+      restoreImageRequirement: String? = RestoreImageHelper.requirement(
+        environment: ProcessInfo.processInfo.environment)
     ) {
       self.restoreImageRequirement = restoreImageRequirement
       verifyRestoreImage = { try RestoreImageHelper.verify($0, requirement: $1) }
@@ -83,7 +84,9 @@
       expectedFileOwnerID: @escaping @Sendable () -> uid_t = { geteuid() },
       extractionOptions: [String] = [],
       restoreImageRequirement: String? = nil,
-      verifyRestoreImage: @escaping @Sendable (URL, String) throws -> Void = { try RestoreImageHelper.verify($0, requirement: $1) },
+      verifyRestoreImage: @escaping @Sendable (URL, String) throws -> Void = {
+        try RestoreImageHelper.verify($0, requirement: $1)
+      },
       firmwarePreparer: any NativeFirmwarePreparing = NativeFirmwarePreparer(),
       prepareRecoveryTemplate:
         @escaping @Sendable (ImportedEngineHandoffPackage) throws -> PreparedNativeRecoveryTemplate =
@@ -113,7 +116,8 @@
         }
         try verifyRestoreImage(restoreImage, restoreImageRequirement)
       } catch {
-        throw preparationFailure(error, reason: .recoveryPreparation, operation: operation,
+        throw preparationFailure(
+          error, reason: .recoveryPreparation, operation: operation,
           journal: journal, password: authorization.password)
       }
       let recovery: PreparedNativeRecoveryTemplate
@@ -159,7 +163,8 @@
           retryIdentity: RecoveryRetryIdentity(package: package)
         )
       } catch PinnedAsahiEngineExecutionError.restoreImageUnsupported {
-        throw preparationFailure(PinnedAsahiEngineExecutionError.restoreImageUnsupported,
+        throw preparationFailure(
+          PinnedAsahiEngineExecutionError.restoreImageUnsupported,
           reason: .recoveryPreparation, operation: operation, journal: journal,
           password: authorization.password)
       } catch PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported {
