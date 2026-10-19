@@ -35,7 +35,8 @@ public struct IPSWHTTPRangeReader: FirmwareRangeReading {
       let encoding = response.value(forHTTPHeaderField: "Content-Encoding") ?? ""
       try require(
         response.statusCode == 206
-          && response.value(forHTTPHeaderField: "Content-Range") == "bytes \(offset)-\(end)/\(sizeBytes)"
+          && response.value(forHTTPHeaderField: "Content-Range")
+            == "bytes \(offset)-\(end)/\(sizeBytes)"
           && response.value(forHTTPHeaderField: "Content-Length") == String(count)
           && (encoding.isEmpty || encoding == "identity"),
         "Restore-image server did not return the exact requested range.")
@@ -69,10 +70,12 @@ public struct IPSWArchive: Sendable {
     let tailSize = min(source.sizeBytes, 65535 + 22)
     let tailOffset = source.sizeBytes - tailSize
     let tail = try await exact(source, offset: tailOffset, count: tailSize)
-    guard let end = stride(from: tail.count - 22, through: 0, by: -1).first(where: {
-      (try? tail.little($0, 4)) == 0x06054b50
-        && (try? tail.little($0 + 20, 2)) == tail.count - $0 - 22
-    }) else { throw RestoreFailure("IPSW end-of-directory record is missing.") }
+    guard
+      let end = stride(from: tail.count - 22, through: 0, by: -1).first(where: {
+        (try? tail.little($0, 4)) == 0x0605_4b50
+          && (try? tail.little($0 + 20, 2)) == tail.count - $0 - 22
+      })
+    else { throw RestoreFailure("IPSW end-of-directory record is missing.") }
     try require(
       try tail.little(end + 4, 2) == 0 && tail.little(end + 6, 2) == 0,
       "Split restore archives are unsupported.")
@@ -81,17 +84,17 @@ public struct IPSWArchive: Sendable {
     var size = try tail.little(end + 12, 4)
     var offset = try tail.little(end + 16, 4)
     var directoryEnd = tailOffset + end
-    if entries == 0xffff || size == 0xffffffff || offset == 0xffffffff {
+    if entries == 0xffff || size == 0xffff_ffff || offset == 0xffff_ffff {
       let locator = try await exact(source, offset: directoryEnd - 20, count: 20)
       try require(
-        try locator.little(0, 4) == 0x07064b50 && locator.little(4, 4) == 0
+        try locator.little(0, 4) == 0x0706_4b50 && locator.little(4, 4) == 0
           && locator.little(16, 4) == 1,
         "Invalid ZIP64 locator.")
       let position = try locator.little(8, 8)
       try require(position <= directoryEnd - 20 - 56, "Invalid ZIP64 record position.")
       let record = try await exact(source, offset: position, count: 56)
       try require(
-        try record.little(0, 4) == 0x06064b50 && record.little(4, 8) == 44
+        try record.little(0, 4) == 0x0606_4b50 && record.little(4, 8) == 44
           && record.little(16, 4) == 0 && record.little(20, 4) == 0
           && position + 56 == directoryEnd - 20,
         "Unsupported ZIP64 end-of-directory record.")
@@ -101,8 +104,8 @@ public struct IPSWArchive: Sendable {
       try require(
         try record.little(24, 8) == count64
           && (entries == 0xffff || entries == count64)
-          && (size == 0xffffffff || size == size64)
-          && (offset == 0xffffffff || offset == offset64),
+          && (size == 0xffff_ffff || size == size64)
+          && (offset == 0xffff_ffff || offset == offset64),
         "ZIP64 and legacy directory records disagree.")
       entries = count64
       size = size64
@@ -121,7 +124,7 @@ public struct IPSWArchive: Sendable {
     for _ in 0..<entries {
       try Task.checkCancellation()
       let fixed = try central.part(cursor, 46)
-      try require(try fixed.little(0, 4) == 0x02014b50, "Invalid ZIP central header.")
+      try require(try fixed.little(0, 4) == 0x0201_4b50, "Invalid ZIP central header.")
       let flags = try fixed.little(8, 2)
       let nameSize = try fixed.little(28, 2)
       let extraSize = try fixed.little(30, 2)
@@ -146,11 +149,12 @@ public struct IPSWArchive: Sendable {
           && sizes.compressed <= offset - sizes.offset - 30 && !localOffsets.contains(sizes.offset),
         "IPSW member extends into its directory.")
       localOffsets.insert(sizes.offset)
-      members.append(IPSWArchiveMember(
-        name: name, compressedSize: sizes.compressed, sizeBytes: sizes.size,
-        compressionMethod: try fixed.little(10, 2), localHeaderOffset: sizes.offset,
-        crc32: UInt32(try fixed.little(16, 4)), flags: flags,
-        mode: (try fixed.little(38, 4)) >> 16, isDirectory: directory))
+      members.append(
+        IPSWArchiveMember(
+          name: name, compressedSize: sizes.compressed, sizeBytes: sizes.size,
+          compressionMethod: try fixed.little(10, 2), localHeaderOffset: sizes.offset,
+          crc32: UInt32(try fixed.little(16, 4)), flags: flags,
+          mode: (try fixed.little(38, 4)) >> 16, isDirectory: directory))
       cursor += 46 + nameSize + extraSize + commentSize
     }
     try require(cursor == central.count, "Unexpected data in the IPSW central directory.")
@@ -167,15 +171,17 @@ public struct IPSWArchive: Sendable {
       "Unsupported IPSW member type, encryption or compression.")
     let header = try await Self.exact(source, offset: member.localHeaderOffset, count: 30)
     try require(
-      try header.little(0, 4) == 0x04034b50 && header.little(6, 2) == member.flags
+      try header.little(0, 4) == 0x0403_4b50 && header.little(6, 2) == member.flags
         && header.little(8, 2) == member.compressionMethod,
       "IPSW local and central header identities disagree.")
     let nameSize = try header.little(26, 2)
     let extraSize = try header.little(28, 2)
     let start = member.localHeaderOffset + 30
-    try require(start <= directoryOffset - nameSize - extraSize, "Invalid IPSW local header extent.")
+    try require(
+      start <= directoryOffset - nameSize - extraSize, "Invalid IPSW local header extent.")
     let variable = try await Self.exact(source, offset: start, count: nameSize + extraSize)
-    try require(try variable.part(0, nameSize) == Data(member.name.utf8), "IPSW local filename changed.")
+    try require(
+      try variable.part(0, nameSize) == Data(member.name.utf8), "IPSW local filename changed.")
     let localCRC = try header.little(14, 4)
     let local = try Self.extended(
       extra: variable.part(nameSize, extraSize), size: header.little(22, 4),
@@ -192,9 +198,11 @@ public struct IPSWArchive: Sendable {
         "IPSW data-descriptor header disagrees with directory.")
     }
     let dataOffset = start + nameSize + extraSize
-    let nextHeader = members.lazy.map(\.localHeaderOffset).filter { $0 > member.localHeaderOffset }.min()
+    let nextHeader =
+      members.lazy.map(\.localHeaderOffset).filter { $0 > member.localHeaderOffset }.min()
       ?? directoryOffset
-    try require(dataOffset <= nextHeader - member.compressedSize, "IPSW member data overlaps another record.")
+    try require(
+      dataOffset <= nextHeader - member.compressedSize, "IPSW member data overlaps another record.")
     return dataOffset
   }
 
@@ -211,7 +219,8 @@ public struct IPSWArchive: Sendable {
     var compressed = Data()
     while compressed.count < member.compressedSize {
       let count = min(1024 * 1024, member.compressedSize - compressed.count)
-      compressed.append(try await Self.exact(source, offset: offset + compressed.count, count: count))
+      compressed.append(
+        try await Self.exact(source, offset: offset + compressed.count, count: count))
     }
     let bytes: Data
     if member.compressionMethod == 0 {
@@ -224,19 +233,25 @@ public struct IPSWArchive: Sendable {
       zlib.crc32(0, $0.bindMemory(to: Bytef.self).baseAddress, uInt(bytes.count))
     }
     try require(UInt32(checksum) == member.crc32, "IPSW member CRC mismatch.")
-    if let expectedSHA256 { try require(bytes.sha256 == expectedSHA256, "IPSW member digest mismatch.") }
+    if let expectedSHA256 {
+      try require(bytes.sha256 == expectedSHA256, "IPSW member digest mismatch.")
+    }
     return bytes
   }
 
-  private static func exact(_ source: any FirmwareRangeReading, offset: Int, count: Int) async throws -> Data {
-    try require(offset >= 0 && count > 0 && count <= 8 * 1024 * 1024 && offset <= source.sizeBytes - count,
+  private static func exact(_ source: any FirmwareRangeReading, offset: Int, count: Int)
+    async throws -> Data
+  {
+    try require(
+      offset >= 0 && count > 0 && count <= 8 * 1024 * 1024 && offset <= source.sizeBytes - count,
       "Invalid IPSW range bounds.")
     let bytes = try await source.read(offset: offset, count: count)
     try require(bytes.count == count, "IPSW range was truncated.")
     return bytes
   }
 
-  private static func extended(extra: Data, size: Int, compressed: Int, offset: Int, disk: Int) throws
+  private static func extended(extra: Data, size: Int, compressed: Int, offset: Int, disk: Int)
+    throws
     -> (size: Int, compressed: Int, offset: Int, disk: Int)
   {
     var position = 0
@@ -258,29 +273,34 @@ public struct IPSWArchive: Sendable {
       defer { cursor += width }
       return try zip64.little(cursor, width)
     }
-    return (try value(size, sentinel: 0xffffffff, width: 8),
-            try value(compressed, sentinel: 0xffffffff, width: 8),
-            try value(offset, sentinel: 0xffffffff, width: 8),
-            try value(disk, sentinel: 0xffff, width: 4))
+    return (
+      try value(size, sentinel: 0xffff_ffff, width: 8),
+      try value(compressed, sentinel: 0xffff_ffff, width: 8),
+      try value(offset, sentinel: 0xffff_ffff, width: 8),
+      try value(disk, sentinel: 0xffff, width: 4)
+    )
   }
 
   private static func inflateRaw(_ bytes: Data, expected: Int) throws -> Data {
     var stream = z_stream()
-    try require(inflateInit2_(&stream, -MAX_WBITS, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK,
+    try require(
+      inflateInit2_(&stream, -MAX_WBITS, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK,
       "Cannot initialize IPSW deflate decoder.")
     defer { inflateEnd(&stream) }
     var output = Data(count: expected + 1)
     let capacity = output.count
     let status = output.withUnsafeMutableBytes { target in
       bytes.withUnsafeBytes { input in
-        stream.next_in = UnsafeMutablePointer(mutating: input.bindMemory(to: Bytef.self).baseAddress)
+        stream.next_in = UnsafeMutablePointer(
+          mutating: input.bindMemory(to: Bytef.self).baseAddress)
         stream.avail_in = uInt(bytes.count)
         stream.next_out = target.bindMemory(to: Bytef.self).baseAddress
         stream.avail_out = uInt(capacity)
         return inflate(&stream, Z_FINISH)
       }
     }
-    try require(status == Z_STREAM_END && stream.total_in == bytes.count && stream.total_out == expected,
+    try require(
+      status == Z_STREAM_END && stream.total_in == bytes.count && stream.total_out == expected,
       "IPSW deflate stream is truncated, oversized or has trailing data.")
     return Data(output.prefix(expected))
   }

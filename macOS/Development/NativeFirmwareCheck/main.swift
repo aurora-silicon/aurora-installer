@@ -1,17 +1,34 @@
 import AuroraFirmware
+import CryptoKit
 import Darwin
 import Foundation
+
+private actor MeasuredIPSWReader: FirmwareRangeReading {
+  nonisolated let sizeBytes: Int
+  private let source: IPSWHTTPRangeReader
+  private var completedBytes = 0
+  init(_ source: IPSWHTTPRangeReader) { self.source = source; sizeBytes = source.sizeBytes }
+  func read(offset: Int, count: Int) async throws -> Data {
+    let bytes = try await source.read(offset: offset, count: count)
+    completedBytes += bytes.count
+    return bytes
+  }
+  func transferred() -> Int { completedBytes }
+}
 
 @main struct AuroraFirmwareCheck {
   static func main() async {
     do {
       guard [3, 4].contains(CommandLine.arguments.count),
         ["extract", "verify", "zip"].contains(CommandLine.arguments[1])
-      else { throw RestoreFailure("usage: AuroraFirmwareCheck extract|verify|zip OUTPUT [CHECKPOINT]") }
+      else {
+        throw RestoreFailure("usage: AuroraFirmwareCheck extract|verify|zip OUTPUT [CHECKPOINT]")
+      }
       let output = URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)
       let plan = try FirmwareExtractionPlan.bundled(for: "apple,j700")
       if CommandLine.arguments[1] == "zip" {
-        let source = try IPSWHTTPRangeReader(url: plan.sourceURL, sizeBytes: plan.sourceSizeBytes)
+        let source = try MeasuredIPSWReader(
+          IPSWHTTPRangeReader(url: plan.sourceURL, sizeBytes: plan.sourceSizeBytes))
         let archive = try await withDeadline(seconds: 180) { try await IPSWArchive.open(source) }
         guard let image = archive.members.first(where: { $0.name == plan.systemImageMemberName }),
           let manifest = archive.members.first(where: { $0.name == "BuildManifest.plist" }),
@@ -21,14 +38,18 @@ import Foundation
         guard offset == plan.systemImageDataOffset else {
           throw RestoreFailure("ZIP64 image offset differs from authenticated recipe.")
         }
-        let bytes = try await archive.read(manifest, maximumBytes: 8 * 1024 * 1024)
+        let bytes = try await archive.read(manifest, maximumBytes: 32 * 1024 * 1024)
         _ = try PropertyListSerialization.propertyList(from: bytes, options: [], format: nil)
         let report: [String: Any] = [
           "sourceSizeBytes": plan.sourceSizeBytes, "memberCount": archive.members.count,
           "systemImageMember": image.name, "systemImageDataOffset": offset,
           "manifestSizeBytes": bytes.count,
+          "manifestSHA256": SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined(),
+          "returnedRangeBytes": await source.transferred(),
         ]
-        FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) + Data([10]))
+        FileHandle.standardOutput.write(
+          try JSONSerialization.data(
+            withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) + Data([10]))
         return
       }
       let extractor = FirmwareExtractor()

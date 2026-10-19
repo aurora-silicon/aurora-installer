@@ -8,8 +8,14 @@ private actor ZIPSource: FirmwareRangeReading {
   let spans: [(Int, Data)]
   var requests: [(Int, Int)] = []
 
-  init(data: Data) { sizeBytes = data.count; spans = [(0, data)] }
-  init(size: Int, spans: [(Int, Data)]) { sizeBytes = size; self.spans = spans }
+  init(data: Data) {
+    sizeBytes = data.count
+    spans = [(0, data)]
+  }
+  init(size: Int, spans: [(Int, Data)]) {
+    sizeBytes = size
+    self.spans = spans
+  }
 
   func read(offset: Int, count: Int) throws -> Data {
     try require(offset >= 0 && count > 0 && offset <= sizeBytes - count, "Fixture range bounds.")
@@ -19,7 +25,8 @@ private actor ZIPSource: FirmwareRangeReading {
       let low = max(offset, start)
       let high = min(offset + count, start + data.count)
       if low < high {
-        result.replaceSubrange((low - offset)..<(high - offset), with: data[(low - start)..<(high - start)])
+        result.replaceSubrange(
+          (low - offset)..<(high - offset), with: data[(low - start)..<(high - start)])
       }
     }
     return result
@@ -29,9 +36,15 @@ private actor ZIPSource: FirmwareRangeReading {
 
 final class IPSWArchiveTests: XCTestCase, @unchecked Sendable {
   struct Fixture: Decodable {
-    struct Archive: Decodable { let name: String; let data: String }
+    struct Archive: Decodable {
+      let name: String
+      let data: String
+    }
     struct Sparse: Decodable {
-      struct Span: Decodable { let offset: Int; let data: String }
+      struct Span: Decodable {
+        let offset: Int
+        let data: String
+      }
       let size: Int
       let spans: [Span]
     }
@@ -40,7 +53,9 @@ final class IPSWArchiveTests: XCTestCase, @unchecked Sendable {
   }
 
   private func fixture() throws -> Fixture {
-    let url = try XCTUnwrap(Bundle.module.url(forResource: "zip-interop", withExtension: "json", subdirectory: "Fixtures"))
+    let url = try XCTUnwrap(
+      Bundle.module.url(forResource: "zip-interop", withExtension: "json", subdirectory: "Fixtures")
+    )
     return try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
   }
   private func bytes(_ name: String = "stored") throws -> Data {
@@ -54,13 +69,16 @@ final class IPSWArchiveTests: XCTestCase, @unchecked Sendable {
     try data.little(data.count - 22 + 16, 4)
   }
   private func rejected(_ data: Data) async {
-    do { _ = try await IPSWArchive.open(ZIPSource(data: data)); XCTFail("Invalid ZIP was accepted") }
-    catch is RestoreFailure {} catch { XCTFail("Unexpected error: \(error)") }
+    do {
+      _ = try await IPSWArchive.open(ZIPSource(data: data))
+      XCTFail("Invalid ZIP was accepted")
+    } catch is RestoreFailure {} catch { XCTFail("Unexpected error: \(error)") }
   }
   private func unreadable(_ data: Data, maximum: Int = 1024, digest: String? = nil) async throws {
     let archive = try await IPSWArchive.open(ZIPSource(data: data))
     do {
-      _ = try await archive.read(try XCTUnwrap(archive.members.first), maximumBytes: maximum, expectedSHA256: digest)
+      _ = try await archive.read(
+        try XCTUnwrap(archive.members.first), maximumBytes: maximum, expectedSHA256: digest)
       XCTFail("Unsafe member was extracted")
     } catch is RestoreFailure {}
   }
@@ -144,9 +162,16 @@ final class IPSWArchiveTests: XCTestCase, @unchecked Sendable {
   }
 
   func testSourceAdmissionRefusesForeignHostsAndUnboundedSizes() throws {
-    for url in ["http://updates.cdn-apple.com/image.ipsw", "https://example.org/image.ipsw", "https://updates.cdn-apple.com/image?token=x"] {
-      XCTAssertThrowsError(try IPSWHTTPRangeReader(url: XCTUnwrap(URL(string: url)), sizeBytes: 4096))
+    for url in [
+      "http://updates.cdn-apple.com/image.ipsw", "https://example.org/image.ipsw",
+      "https://updates.cdn-apple.com/image?token=x",
+    ] {
+      XCTAssertThrowsError(
+        try IPSWHTTPRangeReader(url: XCTUnwrap(URL(string: url)), sizeBytes: 4096))
     }
-    XCTAssertThrowsError(try IPSWHTTPRangeReader(url: XCTUnwrap(URL(string: "https://updates.cdn-apple.com/image.ipsw")), sizeBytes: Int.max))
+    XCTAssertThrowsError(
+      try IPSWHTTPRangeReader(
+        url: XCTUnwrap(URL(string: "https://updates.cdn-apple.com/image.ipsw")), sizeBytes: Int.max)
+    )
   }
 }
