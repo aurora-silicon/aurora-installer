@@ -373,6 +373,12 @@
     private func load() throws {
       if let loadError { throw loadError }
       guard !loaded else { return }
+      var status = stat()
+      if lstat(directory.path, &status) != 0 {
+        guard errno == ENOENT else { throw InstallerJobError.unsafeState }
+        loaded = true
+        return
+      }
       let files = try PrivateInstallerJobFiles(directory: directory)
       let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
         .filter { !$0.hasPrefix(".pending-") }
