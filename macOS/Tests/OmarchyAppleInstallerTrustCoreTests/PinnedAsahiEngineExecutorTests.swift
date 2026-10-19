@@ -19,16 +19,21 @@
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let marker = fixture.root.appendingPathComponent("firmware-marker")
-        let executor = fixtureExecutor(effectiveUserID: { 0 },
-          firmwarePreparer: FirmwareMarker(url: marker), collectInstallAdmission: {
+        let executor = fixtureExecutor(
+          effectiveUserID: { 0 },
+          firmwarePreparer: FirmwareMarker(url: marker),
+          collectInstallAdmission: {
             guard try Data(contentsOf: marker) == Data("prepared".utf8) else {
               throw CocoaError(.fileReadUnknown)
             }
             if failure == "unreadable" { throw CocoaError(.fileReadNoPermission) }
             return NativeAdmissionTestData.facts(existing: true)
           })
-        await assertThrowsErrorAsync(try await executor.execute(fixture.package,
-          authorization: try machineOwnerAuthorization())) {
+        await assertThrowsErrorAsync(
+          try await executor.execute(
+            fixture.package,
+            authorization: try machineOwnerAuthorization())
+        ) {
           guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
             return XCTFail("Expected native admission failure, got \($0)")
           }
@@ -46,14 +51,18 @@
       let fixture = try makeFixture()
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let directory = fixture.root.appendingPathComponent("execution-journals")
-      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+      try FileManager.default.createDirectory(
+        at: directory, withIntermediateDirectories: false,
         attributes: [.posixPermissions: 0o700])
       let journal = directory.appendingPathComponent(String(repeating: "b", count: 64) + ".jsonl")
       try Data("{\"type\":\"plan\"}\n".utf8).write(to: journal)
       try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: journal.path)
       let executor = fixtureExecutor(effectiveUserID: { 0 })
-      await assertThrowsErrorAsync(try await executor.execute(fixture.package,
-        authorization: try machineOwnerAuthorization())) {
+      await assertThrowsErrorAsync(
+        try await executor.execute(
+          fixture.package,
+          authorization: try machineOwnerAuthorization())
+      ) {
         guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
           return XCTFail("Expected journal rejection")
         }
@@ -68,44 +77,66 @@
       for intent in [ImportedInstallationIntent.repair, .replace] {
         let fixture = try makeFixture(installationIntent: intent)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let executor = fixtureExecutor(effectiveUserID: { 0 }, collectInstallAdmission: {
-          NativeAdmissionTestData.facts(existing: true)
-        })
-        let result = try await executor.execute(fixture.package, authorization: try machineOwnerAuthorization())
+        let executor = fixtureExecutor(
+          effectiveUserID: { 0 },
+          collectInstallAdmission: {
+            NativeAdmissionTestData.facts(existing: true)
+          })
+        let result = try await executor.execute(
+          fixture.package, authorization: try machineOwnerAuthorization())
         XCTAssertEqual(result, fixture.transcript)
       }
     }
 
     func testRecordedInstallResumesOnlyWithPrivateMatchingCheckpointEvidence() async throws {
-      for evidenceState in ["valid", "changed", "missing", "symlink", "public"] {
-        let fixture = try makeFixture(planDigest: NativeAdmissionTestData.plan.planDigest)
+      for evidenceState in [
+        "valid", "changed", "missing", "symlink", "public", "different-plan", "different-read-only-plan",
+      ] {
+        let foreignPlan = evidenceState.hasPrefix("different")
+        let readOnly = evidenceState == "different-read-only-plan"
+        let fixture = try makeFixture(
+          planDigest: foreignPlan ? String(repeating: "d", count: 64)
+            : NativeAdmissionTestData.plan.planDigest)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let directory = fixture.root.appendingPathComponent("execution-journals")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+        try FileManager.default.createDirectory(
+          at: directory, withIntermediateDirectories: false,
           attributes: [.posixPermissions: 0o700])
         let journal = directory.appendingPathComponent(String(repeating: "b", count: 64) + ".jsonl")
-        let retained = try NativeAdmissionTestData.journal(stages: 2, pendingRecovery: true)
+        let retained = try NativeAdmissionTestData.journal(
+          stages: readOnly ? 0 : 2, pendingRecovery: !readOnly)
         try retained.write(to: journal)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: journal.path)
+        try FileManager.default.setAttributes(
+          [.posixPermissions: 0o600], ofItemAtPath: journal.path)
         for identifier in ["apfs-target-prepared", "stub-and-esp-installed"] {
           let evidence = URL(fileURLWithPath: journal.path + "." + identifier + ".evidence")
           if evidenceState == "missing" { continue }
           if evidenceState == "symlink" {
             try FileManager.default.createSymbolicLink(at: evidence, withDestinationURL: journal)
           } else {
-            try (evidenceState == "changed" ? Data("changed".utf8) : NativeAdmissionTestData.evidence).write(to: evidence)
-            try FileManager.default.setAttributes([.posixPermissions: evidenceState == "public" ? 0o644 : 0o600], ofItemAtPath: evidence.path)
+            try
+              (evidenceState == "changed" ? Data("changed".utf8) : NativeAdmissionTestData.evidence)
+              .write(to: evidence)
+            try FileManager.default.setAttributes(
+              [.posixPermissions: evidenceState == "public" ? 0o644 : 0o600],
+              ofItemAtPath: evidence.path)
           }
         }
-        let executor = fixtureExecutor(effectiveUserID: { 0 }, collectInstallAdmission: {
-          throw CocoaError(.fileReadUnknown)
-        })
+        let executor = fixtureExecutor(
+          effectiveUserID: { 0 },
+          collectInstallAdmission: {
+            throw CocoaError(.fileReadUnknown)
+          })
         if evidenceState == "valid" {
-          let result = try await executor.execute(fixture.package, authorization: try machineOwnerAuthorization())
+          let result = try await executor.execute(
+            fixture.package, authorization: try machineOwnerAuthorization())
           XCTAssertEqual(result, fixture.transcript)
         } else {
-          await assertThrowsErrorAsync(try await executor.execute(fixture.package,
-            authorization: try machineOwnerAuthorization())) {
+          await assertThrowsErrorAsync(
+            try await executor.execute(
+              fixture.package,
+              authorization: try machineOwnerAuthorization())
+          ) {
             guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
               return XCTFail("Expected checkpoint rejection")
             }
@@ -851,7 +882,7 @@
             [ "$OMARCHY_MACHINE_OWNER" = "mina" ] || exit 67
             IFS= read -r owner_password || exit 66
             [ "$owner_password" = "owner-password" ] || exit 65
-            [ "$OMARCHY_ENGINE_PLAN_DIGEST" = "\(String(repeating: "a", count: 64))" ] || exit 71
+            [ "$OMARCHY_ENGINE_PLAN_DIGEST" = "\(planDigest)" ] || exit 71
             [ "$OMARCHY_ENGINE_BINDING_DIGEST" = "sha256:\(String(repeating: "b", count: 64))" ] || exit 72
             [ -r "$OMARCHY_ENGINE_REQUEST" ] || exit 73
             [ -r "$OMARCHY_ENGINE_IDENTITY" ] || exit 74

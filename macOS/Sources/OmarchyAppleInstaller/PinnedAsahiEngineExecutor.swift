@@ -151,7 +151,8 @@
             EngineFailureReport(
               notice: EngineFailureNotice(
                 reason: .firmwarePreparation, exitStatus: 1,
-                diskUnchanged: journalProvesNoMutation(journal, identity: RecoveryRetryIdentity(package: package)),
+                diskUnchanged: journalProvesNoMutation(
+                  journal, identity: RecoveryRetryIdentity(package: package)),
                 summary: "Native firmware preparation did not complete."),
               redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
                 Data(String(describing: error).utf8), truncated: false,
@@ -180,7 +181,9 @@
                   notice: EngineFailureNotice(
                     reason: error as? NativeInstallAdmissionError == .invalidJournal
                       ? .planIntegrity : .diskLayoutChanged,
-                    exitStatus: 1, diskUnchanged: self.journalProvesNoMutation(journal, identity: RecoveryRetryIdentity(package: package)),
+                    exitStatus: 1,
+                    diskUnchanged: self.journalProvesNoMutation(
+                      journal, identity: RecoveryRetryIdentity(package: package)),
                     summary: "The current disk could not be admitted for a fresh installation."),
                   redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
                     Data(String(describing: error).utf8), truncated: false,
@@ -209,7 +212,8 @@
         EngineFailureReport(
           notice: EngineFailureNotice(
             reason: reason, exitStatus: 1,
-            diskUnchanged: operation == .install && journalProvesNoMutation(journal, identity: RecoveryRetryIdentity(package: package)),
+            diskUnchanged: operation == .install
+              && journalProvesNoMutation(journal, identity: RecoveryRetryIdentity(package: package)),
             summary: "Native Recovery resources could not be verified."),
           redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
             Data(String(describing: error).utf8), truncated: false, secrets: [password])))
@@ -450,7 +454,8 @@
     /// claim.
     private func journalProvesNoMutation(_ journal: URL, identity: RecoveryRetryIdentity?) -> Bool {
       guard let bytes = try? readAdmissionJournal(journal),
-        NativeInstallAdmission.provesNoMutation(bytes) else { return false }
+        NativeInstallAdmission.provesNoMutation(bytes)
+      else { return false }
       if bytes.isEmpty { return true }
       guard let identity,
         let validated = try? AppleInstallerTrustCore().validateEngineTranscript(bytes),

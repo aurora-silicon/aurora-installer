@@ -25,7 +25,8 @@
       for (index, row) in rows.enumerated() {
         guard let stub = row.partition, stub.type == "Apple_APFS",
           let container = disk.containers.first(where: { $0.storeUUID == stub.uuid }),
-          index + 3 < rows.count else { continue }
+          index + 3 < rows.count
+        else { continue }
         guard container.capacity == stub.size, container.free <= container.capacity else {
           throw NativeInspectionError.invalidLayout
         }
@@ -34,10 +35,13 @@
         let members = rows[index...index + 3].compactMap(\.partition)
         guard members.count == 4, members[1].type == "EFI",
           members[2].type == "Linux Filesystem", members[3].type == "Linux Filesystem",
-          systems.contains(where: { members[1].name == espLabel(for: $0.label) }) else { continue }
+          systems.contains(where: { members[1].name == espLabel(for: $0.label) })
+        else { continue }
         let end = try NativeInspectionMath.add(members[3].offset, members[3].size)
-        result.append(NativeKnownInstallation(sourceIdentifier: stub.identifier,
-          offsetBytes: stub.offset, lengthBytes: end - stub.offset))
+        result.append(
+          NativeKnownInstallation(
+            sourceIdentifier: stub.identifier,
+            offsetBytes: stub.offset, lengthBytes: end - stub.offset))
       }
       return result
     }

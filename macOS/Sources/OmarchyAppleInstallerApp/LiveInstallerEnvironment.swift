@@ -359,7 +359,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
 
     // Existing installs are never replaced or joined: report them and let
     // the session refuse.
-    let existing = Self.existingInstalls(in: signedInspection.validated,
+    let existing = Self.existingInstalls(
+      in: signedInspection.validated,
       knownInstallations: signedInspection.knownInstallations)
     if !existing.isEmpty {
       return .existingInstallChoice(existing)
@@ -779,8 +780,10 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       }
     var sources = Set(result.map(\.sourceIdentifier))
     for known in knownInstallations where sources.insert(known.sourceIdentifier).inserted {
-      result.append(ExistingInstallDisplay(sourceIdentifier: known.sourceIdentifier,
-        sizeDescription: PlainLanguage.bytes(known.lengthBytes)))
+      result.append(
+        ExistingInstallDisplay(
+          sourceIdentifier: known.sourceIdentifier,
+          sizeDescription: PlainLanguage.bytes(known.lengthBytes)))
     }
     return result
   }

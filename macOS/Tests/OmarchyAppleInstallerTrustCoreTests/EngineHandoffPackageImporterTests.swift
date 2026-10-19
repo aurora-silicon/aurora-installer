@@ -31,7 +31,8 @@
         let importer = EngineHandoffPackageImporter()
         let imported = try importer.prepare(from: source, in: fixture.destination)
         XCTAssertEqual(imported.installationIntent, intent)
-        let reopened = try importer.reopenRetained(named: imported.packageURL.lastPathComponent,
+        let reopened = try importer.reopenRetained(
+          named: imported.packageURL.lastPathComponent,
           in: fixture.destination)
         XCTAssertEqual(reopened.installationIntent, intent)
       }

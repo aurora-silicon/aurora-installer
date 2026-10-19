@@ -202,7 +202,8 @@
         planDigest: request.planDigest,
         deviceIdentifier: request.deviceIdentifier,
         storeIdentifier: request.storeIdentifier,
-        installationIntent: request.operation == "repair-installed-system" ? .repair
+        installationIntent: request.operation == "repair-installed-system"
+          ? .repair
           : request.candidateKind == "replace" ? .replace : .fresh
       )
     }
@@ -270,7 +271,8 @@
         },
         bindingDigest: identity.bindingDigest, planDigest: request.planDigest,
         deviceIdentifier: request.deviceIdentifier, storeIdentifier: request.storeIdentifier,
-        installationIntent: request.operation == "repair-installed-system" ? .repair
+        installationIntent: request.operation == "repair-installed-system"
+          ? .repair
           : request.candidateKind == "replace" ? .replace : .fresh)
     }
 

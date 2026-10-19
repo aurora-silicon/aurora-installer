@@ -8,11 +8,13 @@
 
     static func live() throws -> Self {
       let host = try AppleSiliconHostInspector().inspect()
-      guard !AppleSiliconHostInspector.isExplicitlyUnsupported(host.identity.deviceIdentifier) else {
+      guard !AppleSiliconHostInspector.isExplicitlyUnsupported(host.identity.deviceIdentifier)
+      else {
         throw NativeInstallAdmissionError.deviceChanged
       }
       let disk = try NativeDiskCollector().collect(host: host)
-      return Self(deviceIdentifier: host.identity.deviceIdentifier,
+      return Self(
+        deviceIdentifier: host.identity.deviceIdentifier,
         storeIdentifier: disk.snapshot.disk,
         knownInstallations: try NativeKnownInstallations.recognize(disk))
     }
@@ -30,7 +32,9 @@
     static func check(
       package: ImportedEngineHandoffPackage, journal: Data,
       collect: () throws -> NativeInstallAdmissionFacts,
-      readEvidence: (String) throws -> Data = { _ in throw NativeInstallAdmissionError.invalidJournal }
+      readEvidence: (String) throws -> Data = { _ in
+        throw NativeInstallAdmissionError.invalidJournal
+      }
     ) throws {
       guard package.installationIntent == .fresh else { return }
       if !journal.isEmpty {
