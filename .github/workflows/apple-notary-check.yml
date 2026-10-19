@@ -1,0 +1,63 @@
+name: Apple notarization authentication
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/native-firmware-wiring]
+    paths: [.github/workflows/apple-notary-check.yml]
+permissions:
+  contents: read
+jobs:
+  authentication:
+    if: github.repository == 'aurora-silicon/aurora-installer'
+    runs-on: macos-26
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Verify API authentication without submitting software
+        shell: bash
+        env:
+          APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          : "${APPLE_NOTARY_KEY_BASE64:?}"
+          [[ $APPLE_NOTARY_KEY_ID =~ ^[A-Z0-9]{10}$ ]]
+          [[ $APPLE_NOTARY_ISSUER_ID =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]
+          umask 077
+          scratch=$(mktemp -d "$RUNNER_TEMP/aurora-notary.XXXXXX")
+          cleanup() {
+            result=$?
+            trap - EXIT HUP INT TERM
+            if ! rm -rf -- "$scratch" || [[ -e $scratch ]]; then
+              echo 'Could not retire temporary notarization credentials.' >&2
+              exit 1
+            fi
+            exit "$result"
+          }
+          trap cleanup EXIT
+          trap 'exit 129' HUP
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+          printf '%s' "$APPLE_NOTARY_KEY_BASE64" | base64 --decode > "$scratch/key.p8"
+          unset APPLE_NOTARY_KEY_BASE64
+          xcrun notarytool history --key "$scratch/key.p8" --key-id "$APPLE_NOTARY_KEY_ID" \
+            --issuer "$APPLE_NOTARY_ISSUER_ID" --output-format json > "$scratch/history.json"
+          # Submission names and identifiers stay private and are never uploaded.
+          plutil -extract history json -o - "$scratch/history.json" > /dev/null
+      - name: Confirm cleanup and record the bounded result
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -z $(find "$RUNNER_TEMP" -maxdepth 1 -type d -name 'aurora-notary.*' -print) ]]
+          mkdir -p "$RUNNER_TEMP/notary-evidence"
+          { git rev-parse HEAD; sw_vers; xcrun notarytool --version; } > "$RUNNER_TEMP/notary-evidence/toolchain.txt"
+          printf '%s\n' '{"api_authentication_verified":true,"credential_cleanup_verified":true,"software_submitted":false}' \
+            > "$RUNNER_TEMP/notary-evidence/authentication.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: notary-authentication-evidence
+          path: ${{ runner.temp }}/notary-evidence/
+          retention-days: 14
