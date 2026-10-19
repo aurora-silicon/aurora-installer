@@ -90,12 +90,14 @@
 
     func testRecordedInstallResumesOnlyWithPrivateMatchingCheckpointEvidence() async throws {
       for evidenceState in [
-        "valid", "changed", "missing", "symlink", "public", "different-plan", "different-read-only-plan",
+        "valid", "changed", "missing", "symlink", "public", "different-plan",
+        "different-read-only-plan",
       ] {
         let foreignPlan = evidenceState.hasPrefix("different")
         let readOnly = evidenceState == "different-read-only-plan"
         let fixture = try makeFixture(
-          planDigest: foreignPlan ? String(repeating: "d", count: 64)
+          planDigest: foreignPlan
+            ? String(repeating: "d", count: 64)
             : NativeAdmissionTestData.plan.planDigest)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let directory = fixture.root.appendingPathComponent("execution-journals")
