@@ -1,10 +1,13 @@
 import AppKit
+import OmarchyAppleInstallerTrustCore
 import OmarchyInstallerUXCore
 import SwiftUI
 
 struct RecoveryHandoffView: View {
   let volumeName: String
   var session: InstallerSession? = nil
+  var selection = AuroraInstallationSelection()
+  var device: MacHeaderDisplay = .unknown
   @State private var busy = false
   @State private var failure: String?
   @State private var showingShutdownPreview = false
@@ -15,7 +18,7 @@ struct RecoveryHandoffView: View {
 
   var body: some View {
     InstallerPageLayout {
-      Color.clear.frame(height: 24).accessibilityHidden(true)
+      InstallerMasthead(distribution: selection.distribution, device: device)
     } content: {
       VStack(alignment: .leading, spacing: 20) {
         Text("Start in Recovery").font(OmarchyTheme.title)
@@ -48,7 +51,7 @@ struct RecoveryHandoffView: View {
       }.font(OmarchyTheme.body)
     } actions: {
       HStack(spacing: 12) {
-        ProgressView().controlSize(.small)
+        NativeSpinner().controlSize(.small)
           .frame(width: 16, height: 16).opacity(busy ? 1 : 0)
           .accessibilityHidden(!busy).accessibilityLabel("Preparing shutdown")
         Button(shutdownConfirmed ? "YES, I HAVE READ, SHUT DOWN" : "Shut Down", action: shutDown)

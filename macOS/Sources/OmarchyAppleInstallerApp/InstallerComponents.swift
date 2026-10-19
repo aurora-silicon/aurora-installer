@@ -1,7 +1,40 @@
+import AppKit
 import OmarchyInstallerUXCore
 import SwiftUI
 
 // MARK: - Building blocks
+
+struct NativeSpinner: NSViewRepresentable {
+  @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.controlSize) private var controlSize
+
+  func makeNSView(context: Context) -> NSProgressIndicator {
+    let view = NSProgressIndicator()
+    view.style = .spinning
+    view.isIndeterminate = true
+    view.usesThreadedAnimation = true
+    return view
+  }
+
+  func updateNSView(_ view: NSProgressIndicator, context: Context) {
+    view.controlSize = isSmall ? .small : .regular
+    view.appearance = NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)
+    view.startAnimation(nil)
+  }
+
+  func sizeThatFits(
+    _ proposal: ProposedViewSize, nsView: NSProgressIndicator, context: Context
+  ) -> CGSize? {
+    let side = isSmall ? 16.0 : 32.0
+    return CGSize(width: side, height: side)
+  }
+
+  static func dismantleNSView(_ view: NSProgressIndicator, coordinator: ()) {
+    view.stopAnimation(nil)
+  }
+
+  private var isSmall: Bool { controlSize == .small || controlSize == .mini }
+}
 
 struct Panel<Content: View>: View {
   @ViewBuilder var content: Content
@@ -180,34 +213,12 @@ struct DiskBar: View {
 
 struct ProgressTrack: View {
   let fraction: Double?
-  var height: CGFloat = 6
-
-  @State private var sweep = false
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  var height: CGFloat = 4
 
   var body: some View {
-    GeometryReader { geometry in
-      ZStack(alignment: .leading) {
-        Capsule().fill(OmarchyTheme.track)
-        if let fraction {
-          Capsule()
-            .fill(OmarchyTheme.accent)
-            .frame(width: geometry.size.width * min(1, max(0, fraction)))
-            .animation(.linear(duration: 0.18), value: fraction)
-        } else {
-          Capsule()
-            .fill(OmarchyTheme.accent.opacity(0.75))
-            .frame(width: geometry.size.width * 0.32)
-            .offset(x: sweep ? geometry.size.width * 0.68 : 0)
-            .animation(
-              .easeInOut(duration: 1.1).repeatForever(autoreverses: true),
-              value: sweep
-            )
-            .onAppear { sweep = !reduceMotion }
-        }
-      }
-    }
-    .frame(height: height)
+    ProgressView(value: fraction.map { min(1, max(0, $0)) })
+      .progressViewStyle(.linear).controlSize(.small).tint(.gray)
+      .frame(height: height)
   }
 }
 
@@ -263,25 +274,21 @@ struct TechnicalDetailText: View {
 }
 
 extension View {
-  func omarchyPrimaryButton() -> some View { buttonStyle(.borderedProminent).controlSize(.large) }
+  func omarchyPrimaryButton() -> some View {
+    buttonStyle(.plain).font(.system(size: 15, weight: .medium)).controlSize(.large)
+      .padding(.horizontal, 18).padding(.vertical, 9).contentShape(Rectangle())
+  }
   func omarchySecondaryButton() -> some View { buttonStyle(.bordered).controlSize(.large) }
   func omarchyDangerButton() -> some View { buttonStyle(.bordered).tint(.red).controlSize(.large) }
 }
 
 struct PreparationStatusPanel: View {
-  let detail: String
-
   var body: some View {
-    Panel {
-      HStack(alignment: .center, spacing: 20) {
-        ProgressView().controlSize(.regular).frame(width: 38, height: 38)
-        VStack(alignment: .leading, spacing: 8) {
-          Text("Getting everything ready").font(.system(size: 22, weight: .semibold))
-          Text(detail).font(OmarchyTheme.body).foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-      }
-      .padding(.vertical, 24)
+    VStack(spacing: 18) {
+      Text("Getting everything ready").font(.system(size: 20, weight: .medium))
+      NativeSpinner().controlSize(.regular)
     }
+    .frame(maxWidth: .infinity)
+    .accessibilityElement(children: .combine)
   }
 }

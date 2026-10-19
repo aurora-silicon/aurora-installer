@@ -1,9 +1,10 @@
 name: Native installer visual review
 on:
   push:
-    branches: [feat/swift-native-installer]
+    branches: [feat/swift-native-installer, feat/native-ui-buttons]
     paths:
       - macOS/Sources/OmarchyAppleInstallerApp/**
+      - macOS/Packaging/build-aurora-preview.sh
       - .github/workflows/native-ui-review.yml
   workflow_dispatch:
 permissions:
@@ -52,7 +53,7 @@ jobs:
         run: |
           set -euo pipefail
           app="$RUNNER_TEMP/preview/Aurora Installer.app"
-          for screen in chooser allocation loading download install; do
+          for screen in chooser loading preparing download allocation install; do
             for appearance in light dark; do
               output="$RUNNER_TEMP/evidence/$screen-$appearance.png"
               arguments=(--simulate "--preview-screen=$screen" "--snapshot=$output" --quit-after-snapshot)
@@ -69,4 +70,12 @@ jobs:
         with:
           name: native-ui-review-evidence
           path: ${{ runner.temp }}/evidence/
+          retention-days: 14
+      - name: Preserve the interactive preview executable modes
+        run: |
+          tar -czf "$RUNNER_TEMP/aurora-ui-preview.tar.gz" -C "$RUNNER_TEMP/preview" 'Aurora Installer.app'
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: aurora-ui-preview
+          path: ${{ runner.temp }}/aurora-ui-preview.tar.gz
           retention-days: 14

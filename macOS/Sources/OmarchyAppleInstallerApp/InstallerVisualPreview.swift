@@ -19,14 +19,12 @@
     var body: some View {
       Group {
         if screen == "chooser" {
-          AuroraWelcomeView(selection: .constant(AuroraInstallationSelection()), onContinue: {})
+          AuroraWelcomeView(
+            selection: .constant(AuroraInstallationSelection()), device: .simulation, onContinue: {}
+          )
         } else {
-          InstallerPageLayout {
-            VStack(alignment: .leading, spacing: 6) {
-              Text("Fedora Aurora Remix · KDE Plasma").font(.system(size: 15, weight: .medium))
-              Text("Apple A18 Pro · Internal storage").font(OmarchyTheme.detail).foregroundStyle(
-                .secondary)
-            }
+          InstallerPageLayout(showsFooter: screen != "loading") {
+            InstallerMasthead(distribution: .fedora, device: .simulation)
           } content: {
             VStack(alignment: .leading, spacing: 16) {
               stage
@@ -42,7 +40,6 @@
         }
       }
       .foregroundStyle(OmarchyTheme.text).background(OmarchyTheme.window)
-      .preferredColorScheme(CommandLine.arguments.contains("--preview-dark") ? .dark : .light)
     }
 
     @ViewBuilder private var stage: some View {
@@ -53,7 +50,9 @@
         Toggle(PlainLanguage.planAcknowledgement(resizesMacOS: false), isOn: .constant(false))
           .toggleStyle(.checkbox).font(OmarchyTheme.body)
       case "loading":
-        PreparationStatusPanel(detail: PlainLanguage.inspectingSubheadline)
+        PreparationStatusPanel()
+      case "preparing":
+        DownloadPanel(update: AssetProgressUpdate(stage: .planning))
       case "download":
         DownloadPanel(
           update: AssetProgressUpdate(

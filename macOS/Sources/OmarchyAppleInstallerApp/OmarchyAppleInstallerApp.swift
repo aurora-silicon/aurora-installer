@@ -123,9 +123,9 @@ struct OmarchyAppleInstallerApp: App {
   @ViewBuilder
   private var installerContent: some View {
     #if DEBUG
-      if let argument = CommandLine.arguments.first(where: { $0.hasPrefix("--preview-screen=") }) {
+      if !simulation.heldScreen.isEmpty {
         if isSimulation {
-          InstallerVisualPreview(screen: String(argument.dropFirst("--preview-screen=".count)))
+          InstallerVisualPreview(screen: simulation.heldScreen)
         } else {
           ContentUnavailableView("Visual previews require --simulate", systemImage: "lock.shield")
         }
@@ -140,7 +140,7 @@ struct OmarchyAppleInstallerApp: App {
   @ViewBuilder
   private var selectedInstallerContent: some View {
     if choosingSystem {
-      AuroraWelcomeView(selection: $selection) {
+      AuroraWelcomeView(selection: $selection, device: .inspect(isSimulation: isSimulation)) {
         choosingSystem = false
         generation = UUID()
       }
@@ -228,7 +228,7 @@ struct OmarchyAppleInstallerApp: App {
       .frame(minWidth: 800, maxWidth: .infinity, minHeight: 580, maxHeight: .infinity)
       .ignoresSafeArea(.container, edges: .top)
       .omarchyTypography()
-      .tint(OmarchyTheme.accent)
+      .tint(.gray)
       // The window itself takes the theme colour, title bar included, so the
       // translucent system title bar never tints from the wallpaper behind.
       .containerBackground(OmarchyTheme.window, for: .window)
@@ -240,6 +240,13 @@ struct OmarchyAppleInstallerApp: App {
       #if DEBUG
         if isSimulation {
           CommandMenu("Simulation") {
+            Picker("Hold Screen", selection: $simulation.heldScreen) {
+              Text("Live simulation").tag("")
+              Text("Getting everything ready").tag("loading")
+              Text("Preparing your installation").tag("preparing")
+              Text("Disk allocation").tag("allocation")
+            }
+            Divider()
             Picker("Scenario", selection: $simulation.scenario) {
               ForEach(InstallerSimulationScenario.allCases) { item in
                 Text(item.title).tag(item)

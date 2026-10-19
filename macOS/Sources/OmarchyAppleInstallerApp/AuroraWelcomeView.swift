@@ -4,19 +4,15 @@ import SwiftUI
 
 struct AuroraWelcomeView: View {
   @Binding var selection: AuroraInstallationSelection
+  var device: MacHeaderDisplay = .unknown
   var onContinue: () -> Void
   private let columns = Array(repeating: GridItem(.flexible(minimum: 0), spacing: 18), count: 3)
 
   var body: some View {
     VStack(spacing: 0) {
-      HStack(spacing: 16) {
-        AuroraMark().frame(width: 48, height: 48)
-        VStack(alignment: .leading, spacing: 4) {
-          Text("Aurora Linux").font(.system(size: 26, weight: .semibold))
-          Text("Choose your distribution and desktop.").font(.system(size: 13)).foregroundStyle(
-            .secondary)
-        }
-      }.padding(.top, 28)
+      InstallerMasthead(device: device).padding(.horizontal, 38).padding(.top, 20)
+      Text("Choose your distribution and desktop.")
+        .font(.system(size: 20, weight: .medium)).padding(.top, 28)
       VStack(alignment: .leading, spacing: 10) {
         sectionTitle("Distribution")
         LazyVGrid(columns: columns, spacing: 18) {
@@ -56,7 +52,7 @@ struct AuroraWelcomeView: View {
       }.padding(.horizontal, 38).padding(.top, 26)
       Spacer(minLength: 18)
       Button("Continue", action: onContinue)
-        .buttonStyle(.bordered).controlSize(.large).padding(.bottom, 28)
+        .omarchyPrimaryButton().padding(.bottom, 28)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(Color(nsColor: .windowBackgroundColor))
@@ -68,13 +64,7 @@ struct AuroraWelcomeView: View {
 
   @ViewBuilder
   private func distributionMark(_ distribution: AuroraDistribution) -> some View {
-    switch distribution {
-    case .fedora: BrandImage("Fedora").frame(width: 32, height: 32)
-    case .arch:
-      BrandImage("ArchLinuxARM").frame(width: 32, height: 32)
-    case .nixos:
-      BrandImage("NixOS").frame(width: 34, height: 34)
-    }
+    DistributionMark(distribution: distribution).frame(width: 32, height: 32)
   }
 
   @ViewBuilder

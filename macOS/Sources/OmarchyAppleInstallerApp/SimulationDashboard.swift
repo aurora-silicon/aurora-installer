@@ -15,6 +15,13 @@
     var canChangeChannel = false
     var session: InstallerSession?
     var previewsRecoveryHandoff = false
+    var heldScreen = launchHeldScreen
+
+    static var launchHeldScreen: String {
+      let prefix = "--preview-screen="
+      return CommandLine.arguments.first(where: { $0.hasPrefix(prefix) })
+        .map { String($0.dropFirst(prefix.count)) } ?? ""
+    }
     var removalScenario = RemovalPreviewScenario.success
 
     static var launchScenario: InstallerSimulationScenario {
