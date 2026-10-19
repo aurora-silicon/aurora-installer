@@ -217,8 +217,10 @@
           case .requiresRecoveryAuthorization:
             restoredRecoveryRetry = true
             recoveryRetryAvailable = true
-            phase = .failed(PlainLanguage.failure(
-              for: EngineXPCSubmissionError.recoveryAuthorizationFailed, retryRecoveryAvailable: true))
+            phase = .failed(
+              PlainLanguage.failure(
+                for: EngineXPCSubmissionError.recoveryAuthorizationFailed,
+                retryRecoveryAvailable: true))
           }
           return
         }
@@ -716,8 +718,10 @@
       }
       if restoredRecoveryRetry, error as? EngineXPCSubmissionError == .notSubmitted {
         recoveryRetryAvailable = true
-        phase = .failed(PlainLanguage.failure(
-          for: EngineXPCSubmissionError.recoveryAuthorizationFailed, retryRecoveryAvailable: true))
+        phase = .failed(
+          PlainLanguage.failure(
+            for: EngineXPCSubmissionError.recoveryAuthorizationFailed, retryRecoveryAvailable: true)
+        )
         return
       }
       beginInstallingIfNeeded()

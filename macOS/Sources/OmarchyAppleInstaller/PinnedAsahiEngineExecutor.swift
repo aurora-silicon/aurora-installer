@@ -340,11 +340,15 @@
       return true
     }
 
-    func canRetryRecoveryAuthorization(_ identity: InstallerJobPlanIdentity, in directory: URL) -> Bool {
-      guard let journal = EngineJournalLocator.journalURL(
-        workingDirectory: directory, bindingDigest: identity.bindingDigest)
+    func canRetryRecoveryAuthorization(_ identity: InstallerJobPlanIdentity, in directory: URL)
+      -> Bool
+    {
+      guard
+        let journal = EngineJournalLocator.journalURL(
+          workingDirectory: directory, bindingDigest: identity.bindingDigest)
       else { return false }
-      return isRecoveryAuthorizationRetryEligible(journal: journal, identity: RecoveryRetryIdentity(identity: identity))
+      return isRecoveryAuthorizationRetryEligible(
+        journal: journal, identity: RecoveryRetryIdentity(identity: identity))
     }
 
     private func isRecoveryAuthorizationRetryEligible(

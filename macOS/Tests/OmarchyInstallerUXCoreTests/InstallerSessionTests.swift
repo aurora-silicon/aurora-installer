@@ -34,7 +34,9 @@
       XCTAssertEqual(environment.executeCount, 0)
     }
 
-    func testRestoredRecoveryRetryUsesASeparateCapabilityWithoutCreatingAFreshApproval() async throws {
+    func testRestoredRecoveryRetryUsesASeparateCapabilityWithoutCreatingAFreshApproval()
+      async throws
+    {
       let environment = MockInstallerEnvironment()
       environment.pendingInstallation = true
       environment.pendingRecoveryRetry = true
@@ -1675,9 +1677,11 @@
       resumeCount += 1
       if let resumeError { throw resumeError }
       if pendingRecoveryRetry { return .requiresRecoveryAuthorization }
-      return .completed(CompletionDisplay(
-        nextAction: .verifyInstalledSystem, headline: "Done", subheadline: "Restored", verified: [],
-        handoff: nil))
+      return .completed(
+        CompletionDisplay(
+          nextAction: .verifyInstalledSystem, headline: "Done", subheadline: "Restored",
+          verified: [],
+          handoff: nil))
     }
 
     func inspect() async throws -> HostDisplay {

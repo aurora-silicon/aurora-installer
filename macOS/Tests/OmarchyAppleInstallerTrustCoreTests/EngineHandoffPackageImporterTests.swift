@@ -73,8 +73,10 @@
         let file = imported.packageURL.appendingPathComponent(name)
         try FileManager.default.removeItem(at: file)
         XCTAssertEqual(mkfifo(file.path, 0o600), 0)
-        XCTAssertThrowsError(try importer.reopenRetained(
-          named: imported.packageURL.lastPathComponent, in: fixture.destination)) {
+        XCTAssertThrowsError(
+          try importer.reopenRetained(
+            named: imported.packageURL.lastPathComponent, in: fixture.destination)
+        ) {
           XCTAssertEqual($0 as? EngineHandoffImportError, .unsafeFile(name))
         }
       }

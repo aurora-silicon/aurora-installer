@@ -557,7 +557,9 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     return .completed(completion)
   }
 
-  private func requireMatchingJobDevice(_ snapshot: InstallerJobSnapshot) throws -> InstallerJobPlanIdentity {
+  private func requireMatchingJobDevice(_ snapshot: InstallerJobSnapshot) throws
+    -> InstallerJobPlanIdentity
+  {
     let host = try AppleSiliconHostInspector().inspect()
     guard let identity = snapshot.plan,
       identity.deviceIdentifier == host.identity.deviceIdentifier
@@ -585,8 +587,10 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     let configuration = try loadConfiguration()
     let client = try AuthenticatedEngineXPCSubmitter(
       machServiceName: configuration.helperMachServiceName,
-      helperCodeSigningRequirement: configuration.helperCodeSigningRequirement, journalProgress: journal)
-    let snapshot = try await client.retryRecoveryJob(hint, store: store, authorization: authorization)
+      helperCodeSigningRequirement: configuration.helperCodeSigningRequirement,
+      journalProgress: journal)
+    let snapshot = try await client.retryRecoveryJob(
+      hint, store: store, authorization: authorization)
     let (bytes, handoff) = try snapshot.requireResult()
     let completion = try completionFromJob(snapshot, bytes: bytes, handoff: handoff)
     try store.clear()

@@ -658,10 +658,12 @@
         ticket: hint.ticket, helperMachServiceName: hint.helperMachServiceName,
         helperCodeSigningRequirement: hint.helperCodeSigningRequirement, recoveryAttempt: attempt)
       try store.save(pending)
-      let request = try JSONEncoder().encode(InstallerJobRecoveryRequest(ticket: hint.ticket, attempt: attempt))
+      let request = try JSONEncoder().encode(
+        InstallerJobRecoveryRequest(ticket: hint.ticket, attempt: attempt))
       do {
         _ = try await jobCall { proxy, reply in
-          proxy.retryRecoveryJob(request: request, machineOwner: authorization.username,
+          proxy.retryRecoveryJob(
+            request: request, machineOwner: authorization.username,
             password: authorization.password, reply: reply)
         }
       } catch let error as EngineXPCSubmissionError where error == .connectionFailed {

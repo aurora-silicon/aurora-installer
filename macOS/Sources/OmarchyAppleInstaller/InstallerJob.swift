@@ -317,9 +317,10 @@
       self.workingDirectory = workingDirectory
       directory = workingDirectory.appendingPathComponent("installation-jobs", isDirectory: true)
       self.work = work
-      self.retryEligibility = retryEligibility ?? { identity in
-        PinnedAsahiEngineExecutor().canRetryRecoveryAuthorization(identity, in: workingDirectory)
-      }
+      self.retryEligibility =
+        retryEligibility ?? { identity in
+          PinnedAsahiEngineExecutor().canRetryRecoveryAuthorization(identity, in: workingDirectory)
+        }
       do { try load() } catch {
         loadError = error
         // Unknown persistent state cannot make an old executor safe to replace.
@@ -403,15 +404,15 @@
           record.failure = InstallerJobFailure(error: error)
           if record.recoveryAttempt != nil && record.failure?.code == "helper" {
             record.phase = .interrupted
-          } else if record.failure?.code != "recovery" && record.recoveryAttempt == nil
-          {
+          } else if record.failure?.code != "recovery" && record.recoveryAttempt == nil {
             record.retainedPackageName = nil
           }
         }
         do {
           try persist(record)
           if record.retainedPackageName == nil, let retainedPackageName {
-            cleanup = workingDirectory.appendingPathComponent(retainedPackageName, isDirectory: true)
+            cleanup = workingDirectory.appendingPathComponent(
+              retainedPackageName, isDirectory: true)
           }
         } catch {
           record.retainedPackageName = retainedPackageName
@@ -448,18 +449,26 @@
         recoveryRetryAvailable: retryAvailable(record))
     }
 
-    func beginRecoveryRetry(_ request: InstallerJobRecoveryRequest, initiatingUID: UInt32) throws -> Bool {
+    func beginRecoveryRetry(_ request: InstallerJobRecoveryRequest, initiatingUID: UInt32) throws
+      -> Bool
+    {
       try request.ticket.validate()
       return try lock.withLock {
         try load()
-        guard var record = records[request.ticket.identifier] else { throw InstallerJobError.unavailable }
+        guard var record = records[request.ticket.identifier] else {
+          throw InstallerJobError.unavailable
+        }
         try authorize(record, ticket: request.ticket, uid: initiatingUID)
         if record.recoveryAttempts?.contains(request.attempt) == true {
-          guard record.recoveryAttempt == request.attempt else { throw InstallerJobError.identityMismatch }
+          guard record.recoveryAttempt == request.attempt else {
+            throw InstallerJobError.identityMismatch
+          }
           return false
         }
         guard retryAvailable(record) else { throw InstallerJobError.invalidRequest }
-        guard (record.recoveryAttempts?.count ?? 0) < 256 else { throw InstallerJobError.historyFull }
+        guard (record.recoveryAttempts?.count ?? 0) < 256 else {
+          throw InstallerJobError.historyFull
+        }
         try work.beginJob()
         record.recoveryAttempt = request.attempt
         record.recoveryAttempts = (record.recoveryAttempts ?? []) + [request.attempt]

@@ -148,31 +148,44 @@
       XCTAssertEqual(handoff, .unconfirmed(encrypt: true))
     }
 
-    func testRecoveryAttemptHistoryPreventsReplayAndKeepsTheOriginalOptionsAfterBadCredentials() throws {
+    func testRecoveryAttemptHistoryPreventsReplayAndKeepsTheOriginalOptionsAfterBadCredentials()
+      throws
+    {
       let root = try workspace()
-      let jobs = InstallerJobRegistry(workingDirectory: root, work: HelperWorkState(), retryEligibility: { _ in true })
+      let jobs = InstallerJobRegistry(
+        workingDirectory: root, work: HelperWorkState(), retryEligibility: { _ in true })
       let request = try request()
       XCTAssertTrue(try jobs.begin(request, initiatingUID: 501))
-      let packageURL = root.appendingPathComponent("imported-handoff-" + UUID().uuidString.lowercased())
+      let packageURL = root.appendingPathComponent(
+        "imported-handoff-" + UUID().uuidString.lowercased())
       let package = ImportedEngineHandoffPackage(
-        packageURL: packageURL, manifestURL: packageURL, requestURL: packageURL, identityURL: packageURL,
+        packageURL: packageURL, manifestURL: packageURL, requestURL: packageURL,
+        identityURL: packageURL,
         engineURL: packageURL, metadataURL: packageURL, payloadURL: packageURL,
         bindingDigest: request.ticket.bindingDigest, planDigest: String(repeating: "a", count: 64),
         deviceIdentifier: "apple,j314s", storeIdentifier: "disk0")
       try jobs.admitted(request.ticket.identifier, package: package)
-      jobs.finish(request.ticket.identifier, result: .failure(PinnedAsahiEngineExecutionError.recoveryAuthorizationFailed))
+      jobs.finish(
+        request.ticket.identifier,
+        result: .failure(PinnedAsahiEngineExecutionError.recoveryAuthorizationFailed))
       let first = InstallerJobRecoveryRequest(ticket: request.ticket, attempt: UUID())
       XCTAssertThrowsError(try jobs.beginRecoveryRetry(first, initiatingUID: 502))
       XCTAssertTrue(try jobs.beginRecoveryRetry(first, initiatingUID: 501))
       XCTAssertFalse(try jobs.beginRecoveryRetry(first, initiatingUID: 501))
-      jobs.finish(request.ticket.identifier, result: .failure(ClosedEngineHelperError.invalidMachineOwnerCredentials))
-      let status = try jobs.status(InstallerJobStatusRequest(ticket: request.ticket, journalOffset: 0), initiatingUID: 501)
+      jobs.finish(
+        request.ticket.identifier,
+        result: .failure(ClosedEngineHelperError.invalidMachineOwnerCredentials))
+      let status = try jobs.status(
+        InstallerJobStatusRequest(ticket: request.ticket, journalOffset: 0), initiatingUID: 501)
       XCTAssertTrue(status.recoveryRetryAvailable)
       XCTAssertEqual(status.recoveryAttempt, first.attempt)
       let second = InstallerJobRecoveryRequest(ticket: request.ticket, attempt: UUID())
       XCTAssertTrue(try jobs.beginRecoveryRetry(second, initiatingUID: 501))
-      XCTAssertEqual(try jobs.recoveryContext(request.ticket.identifier).installConf, request.installConf)
-      jobs.finish(request.ticket.identifier, result: .failure(PinnedAsahiEngineExecutionError.recoveryAuthorizationFailed))
+      XCTAssertEqual(
+        try jobs.recoveryContext(request.ticket.identifier).installConf, request.installConf)
+      jobs.finish(
+        request.ticket.identifier,
+        result: .failure(PinnedAsahiEngineExecutionError.recoveryAuthorizationFailed))
       XCTAssertThrowsError(try jobs.beginRecoveryRetry(first, initiatingUID: 501))
       XCTAssertFalse(try jobs.beginRecoveryRetry(second, initiatingUID: 501))
     }
@@ -183,10 +196,16 @@
       let jobs = InstallerJobRegistry(workingDirectory: root, work: work)
       let request = try request()
       XCTAssertTrue(try jobs.begin(request, initiatingUID: 501))
-      jobs.finish(request.ticket.identifier, result: .success((
-        Data(repeating: 0, count: Int(PinnedAsahiEngineExecutor.maximumTranscriptBytes) + 1), .recorded)))
+      jobs.finish(
+        request.ticket.identifier,
+        result: .success(
+          (
+            Data(repeating: 0, count: Int(PinnedAsahiEngineExecutor.maximumTranscriptBytes) + 1),
+            .recorded
+          )))
       XCTAssertFalse(work.beginReplacement(token: "replacement"))
-      let status = try jobs.status(InstallerJobStatusRequest(ticket: request.ticket, journalOffset: 0), initiatingUID: 501)
+      let status = try jobs.status(
+        InstallerJobStatusRequest(ticket: request.ticket, journalOffset: 0), initiatingUID: 501)
       XCTAssertEqual(status.phase, .interrupted)
     }
 
@@ -197,17 +216,21 @@
         let jobs = InstallerJobRegistry(workingDirectory: root, work: work)
         let request = try request()
         XCTAssertTrue(try jobs.begin(request, initiatingUID: 501))
-        let packageURL = root.appendingPathComponent("imported-handoff-" + UUID().uuidString.lowercased())
+        let packageURL = root.appendingPathComponent(
+          "imported-handoff-" + UUID().uuidString.lowercased())
         try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: false)
         let package = ImportedEngineHandoffPackage(
-          packageURL: packageURL, manifestURL: packageURL, requestURL: packageURL, identityURL: packageURL,
+          packageURL: packageURL, manifestURL: packageURL, requestURL: packageURL,
+          identityURL: packageURL,
           engineURL: packageURL, metadataURL: packageURL, payloadURL: packageURL,
-          bindingDigest: request.ticket.bindingDigest, planDigest: String(repeating: "a", count: 64),
+          bindingDigest: request.ticket.bindingDigest,
+          planDigest: String(repeating: "a", count: 64),
           deviceIdentifier: "apple,j314s", storeIdentifier: "disk0")
         try jobs.admitted(request.ticket.identifier, package: package)
         let state = root.appendingPathComponent("installation-jobs")
         if rejectPersistence { XCTAssertEqual(chmod(state.path, 0o755), 0) }
-        let cleanup = jobs.finish(request.ticket.identifier, result: .success((Data("done".utf8), .recorded)))
+        let cleanup = jobs.finish(
+          request.ticket.identifier, result: .success((Data("done".utf8), .recorded)))
         XCTAssertTrue(FileManager.default.fileExists(atPath: packageURL.path))
         if rejectPersistence {
           XCTAssertNil(cleanup)

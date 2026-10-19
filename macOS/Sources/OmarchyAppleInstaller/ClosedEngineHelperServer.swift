@@ -176,7 +176,8 @@
       self.executor = executor
       self.credentialValidator = credentialValidator
       self.work = work
-      jobs = InstallerJobRegistry(workingDirectory: workingDirectory, work: work, retryEligibility: retryEligibility)
+      jobs = InstallerJobRegistry(
+        workingDirectory: workingDirectory, work: work, retryEligibility: retryEligibility)
       importer = EngineHandoffPackageImporter()
       self.removalDisks = removalDisks
       self.removalAdminValidator = removalAdminValidator
@@ -404,7 +405,9 @@
         try importer.prepare(from: packageDirectory, in: workingDirectory)
       }
       var registeredPackage = false
-      defer { if !registeredPackage { try? FileManager.default.removeItem(at: package.packageURL) } }
+      defer {
+        if !registeredPackage { try? FileManager.default.removeItem(at: package.packageURL) }
+      }
 
       guard
         !Self.explicitlyUnsupportedDevices.contains(
@@ -422,13 +425,17 @@
       }
 
       return try await executeImportedPackage(
-        package, authorization: authorization, operation: operation, progress: progress, installConf: installConf)
+        package, authorization: authorization, operation: operation, progress: progress,
+        installConf: installConf)
     }
 
-    func retryRegisteredJob(identifier: UUID, authorization: MachineOwnerAuthorization) async throws -> (Data, InstallConfHandoff) {
+    func retryRegisteredJob(identifier: UUID, authorization: MachineOwnerAuthorization) async throws
+      -> (Data, InstallConfHandoff)
+    {
       try requireNoInterruptedRemoval()
-      do { try credentialValidator.validate(authorization) }
-      catch { throw ClosedEngineHelperError.invalidMachineOwnerCredentials }
+      do { try credentialValidator.validate(authorization) } catch {
+        throw ClosedEngineHelperError.invalidMachineOwnerCredentials
+      }
       let context = try jobs.recoveryContext(identifier)
       let package = try importer.reopenRetained(named: context.packageName, in: workingDirectory)
       guard InstallerJobPlanIdentity(package: package) == context.identity,
@@ -453,7 +460,8 @@
 
     private func executeImportedPackage(
       _ package: ImportedEngineHandoffPackage, authorization: MachineOwnerAuthorization,
-      operation: EngineHandoffOperation, progress: (any EngineJournalProgressSink)?, installConf: InstallConf?
+      operation: EngineHandoffOperation, progress: (any EngineJournalProgressSink)?,
+      installConf: InstallConf?
     ) async throws -> (Data, InstallConfHandoff) {
       var tailer: EngineJournalTailer?
       if let progress,
@@ -853,8 +861,10 @@
           Task.detached {
             do {
               let authorization: MachineOwnerAuthorization
-              do { authorization = try MachineOwnerAuthorization(username: machineOwner, password: password) }
-              catch { throw ClosedEngineHelperError.invalidMachineOwnerCredentials }
+              do {
+                authorization = try MachineOwnerAuthorization(
+                  username: machineOwner, password: password)
+              } catch { throw ClosedEngineHelperError.invalidMachineOwnerCredentials }
               let result = try await server.retryRegisteredJob(
                 identifier: request.ticket.identifier, authorization: authorization)
               server.finishRegisteredJob(request.ticket.identifier, result: .success(result))
@@ -864,10 +874,13 @@
           }
         }
         let snapshot = try jobs.status(
-          InstallerJobStatusRequest(ticket: request.ticket, journalOffset: 0), initiatingUID: initiatingUID)
+          InstallerJobStatusRequest(ticket: request.ticket, journalOffset: 0),
+          initiatingUID: initiatingUID)
         reply(try JSONEncoder().encode(snapshot), nil)
       } catch {
-        reply(nil, InstallerJobXPCCodec.serviceError(registered ? error : InstallerJobError.notAdmitted))
+        reply(
+          nil, InstallerJobXPCCodec.serviceError(registered ? error : InstallerJobError.notAdmitted)
+        )
       }
     }
 
