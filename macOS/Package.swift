@@ -8,6 +8,8 @@ let package = Package(
     .macOS(.v15)
   ],
   products: [
+    .library(name: "AuroraFirmware", targets: ["AuroraFirmware"]),
+    .executable(name: "AuroraFirmwareCheck", targets: ["AuroraFirmwareCheck"]),
     .library(
       name: "OmarchyAppleInstallerTrustCore",
       targets: ["OmarchyAppleInstallerTrustCore"]
@@ -34,6 +36,13 @@ let package = Package(
     ),
   ],
   targets: [
+    .target(name: "AuroraFirmware", exclude: ["PROVENANCE.md"], resources: [.copy("Resources")]),
+    .executableTarget(
+      name: "AuroraFirmwareCheck", dependencies: ["AuroraFirmware"],
+      path: "Development/NativeFirmwareCheck"),
+    .testTarget(
+      name: "AuroraFirmwareTests", dependencies: ["AuroraFirmware"],
+      resources: [.copy("Fixtures")]),
     .target(name: "RecoveryAuthorization", path: "Recovery/Native", publicHeadersPath: "."),
     .target(
       name: "RecoveryAccountCore", dependencies: ["RecoveryAuthorization"],
