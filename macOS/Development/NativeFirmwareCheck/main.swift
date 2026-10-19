@@ -7,7 +7,10 @@ private actor MeasuredIPSWReader: FirmwareRangeReading {
   nonisolated let sizeBytes: Int
   private let source: IPSWHTTPRangeReader
   private var completedBytes = 0
-  init(_ source: IPSWHTTPRangeReader) { self.source = source; sizeBytes = source.sizeBytes }
+  init(_ source: IPSWHTTPRangeReader) {
+    self.source = source
+    sizeBytes = source.sizeBytes
+  }
   func read(offset: Int, count: Int) async throws -> Data {
     let bytes = try await source.read(offset: offset, count: count)
     completedBytes += bytes.count
