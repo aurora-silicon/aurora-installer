@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: 604c383edc62a89ed705ed1e3f72c1e6fa1f6bcf
+          ref: 64a267adf17e50e94fd84132be5ca8997d33ee76
           path: source
           persist-credentials: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
@@ -48,7 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: 604c383edc62a89ed705ed1e3f72c1e6fa1f6bcf
+          ref: 64a267adf17e50e94fd84132be5ca8997d33ee76
           path: source
           persist-credentials: false
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -80,6 +80,11 @@ jobs:
           git diff --binary > "$RUNNER_TEMP/evidence/format.patch"
           xcrun swift-format lint --strict --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
           [[ ! -s "$RUNNER_TEMP/evidence/format.patch" ]]
+      - name: Check the updated progress-stream handoff fixture
+        run: |
+          set -euo pipefail
+          xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug --filter ClosedEngineHelperServerProgressTests 2>&1 | tee "$RUNNER_TEMP/evidence/progress-debug.log"
+          xcodebuildmcp swift-package test --package-path "$PWD" --configuration release --filter ClosedEngineHelperServerProgressTests 2>&1 | tee "$RUNNER_TEMP/evidence/progress-release.log"
       - name: Qualify all Swift tests
         run: |
           set -euo pipefail
