@@ -56,7 +56,7 @@ struct AuroraWelcomeView: View {
       }.padding(.horizontal, 38).padding(.top, 26)
       Spacer(minLength: 18)
       Button("Continue", action: onContinue)
-        .buttonStyle(.bordered).controlSize(.large).padding(.bottom, 28)
+        .buttonStyle(.plain).foregroundStyle(.primary).controlSize(.large).padding(.bottom, 28)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(Color(nsColor: .windowBackgroundColor))
