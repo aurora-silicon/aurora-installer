@@ -114,7 +114,8 @@
       }
       try refresh(
         data: data, in: parent,
-        destination: URL(fileURLWithPath: InstallerProductIdentity.installedRecoveryTemplateDirectory),
+        destination: URL(
+          fileURLWithPath: InstallerProductIdentity.installedRecoveryTemplateDirectory),
         owner: 0, requirement: requirement)
     }
 

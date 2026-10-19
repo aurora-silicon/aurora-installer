@@ -401,7 +401,8 @@
     public func recoveryAccount(
       action: String, ticket: String = "", username: String = "", password: Data = Data()
     ) async throws -> RecoveryAccountReply {
-      let template = action == "handoff" || action == "prepare"
+      let template =
+        action == "handoff" || action == "prepare"
         ? try NativeRecoveryTemplate.archiveData(from: NativeRecoveryTemplate.bundledURL()) : Data()
       let connection = makeConnection()
       let handle = SendableXPCConnection(connection)

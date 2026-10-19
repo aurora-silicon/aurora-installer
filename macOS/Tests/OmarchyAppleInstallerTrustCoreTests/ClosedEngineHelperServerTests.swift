@@ -8,7 +8,9 @@
   @testable import OmarchyAppleInstallerTrustCore
 
   final class ClosedEngineHelperServerTests: XCTestCase {
-    func testAccountRequestsCannotRefreshWithoutAValidBoundTargetOrUseAnUnexpectedTemplate() async throws {
+    func testAccountRequestsCannotRefreshWithoutAValidBoundTargetOrUseAnUnexpectedTemplate()
+      async throws
+    {
       let fixture = try makeFixture()
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let executor = RecordingHandoffExecutor(result: fixture.transcript)

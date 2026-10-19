@@ -213,7 +213,8 @@
       try NativeRecoveryTemplate.refresh(
         data: original, in: root, destination: destination, owner: geteuid(),
         requirement: originalPin)
-      let retained = destination.appendingPathComponent(InstallerProductIdentity.recoveryAppBundleName)
+      let retained = destination.appendingPathComponent(
+        InstallerProductIdentity.recoveryAppBundleName)
       try NativeRecoveryTemplate.verify(retained, requirement: originalPin)
 
       let resource = app.appendingPathComponent("Contents/Resources/updated.txt")
@@ -239,9 +240,10 @@
           data: original, in: root, destination: destination, owner: geteuid(),
           requirement: currentPin))
       try NativeRecoveryTemplate.verify(retained, requirement: currentPin)
-      XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: root.path).contains {
-        $0.hasPrefix("native-recovery-")
-      })
+      XCTAssertFalse(
+        try FileManager.default.contentsOfDirectory(atPath: root.path).contains {
+          $0.hasPrefix("native-recovery-")
+        })
     }
 
     func testFirstPublicationCreatesItsMissingValidatedParent() throws {
@@ -255,7 +257,7 @@
       try NativeRecoveryTemplate.publish(
         prepared, to: destination, owner: geteuid(), verify: { _ in },
         flushDirectory: { flushed.append($0) })
-      XCTAssertEqual(flushed, [root, destination.deletingLastPathComponent()])
+      XCTAssertEqual(flushed.map(\.path), [root.path, destination.deletingLastPathComponent().path])
       XCTAssertTrue(
         FileManager.default.fileExists(
           atPath:

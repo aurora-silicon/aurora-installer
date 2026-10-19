@@ -13,10 +13,12 @@
         defer { try? fm.removeItem(at: system) }
         let core = system.appendingPathComponent("System/Library/CoreServices")
         let state = system.appendingPathComponent("Aurora/Recovery/State")
-        let backup = system.appendingPathComponent("Aurora/Recovery/AppBackups/\(UUID().uuidString).app")
+        let backup = system.appendingPathComponent(
+          "Aurora/Recovery/AppBackups/\(UUID().uuidString).app")
         let app = system.appendingPathComponent(InstallerProductIdentity.recoveryAppBundleName)
         for directory in [core, state, backup.deletingLastPathComponent(), app] {
-          try fm.createDirectory(at: directory, withIntermediateDirectories: true,
+          try fm.createDirectory(
+            at: directory, withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700])
         }
         let version = core.appendingPathComponent("SystemVersion.plist")
@@ -34,8 +36,10 @@
           "backup": backup.lastPathComponent, "snapshot": snapshot.lastPathComponent,
           "originalFiles": files.map(\.path),
         ]
-        try RecoveryFileTransaction.write(try JSONSerialization.data(withJSONObject: record), to: pending)
-        try RecoveryFileTransaction.write(try JSONEncoder().encode(target), to: backup.appendingPathExtension("json"))
+        try RecoveryFileTransaction.write(
+          try JSONSerialization.data(withJSONObject: record), to: pending)
+        try RecoveryFileTransaction.write(
+          try JSONEncoder().encode(target), to: backup.appendingPathExtension("json"))
         if boundary != "before-rename" { try fm.moveItem(at: app, to: backup) }
         if boundary == "new-renamed" || boundary == "committed" {
           try fm.createDirectory(at: app, withIntermediateDirectories: false)
@@ -54,15 +58,18 @@
         let other = RecoveryAccountTarget(
           volumeName: target.volumeName, systemUUID: UUID().uuidString, dataUUID: target.dataUUID,
           groupUUID: target.groupUUID, prebootUUID: target.prebootUUID)
-        XCTAssertThrowsError(try RecoveryAccountHandoff.resumeAppUpdate(system: system, target: other, read: read))
+        XCTAssertThrowsError(
+          try RecoveryAccountHandoff.resumeAppUpdate(system: system, target: other, read: read))
         XCTAssertTrue(fm.fileExists(atPath: pending.path))
         try RecoveryAccountHandoff.resumeAppUpdate(system: system, target: target, read: read)
         try RecoveryAccountHandoff.resumeAppUpdate(system: system, target: target, read: read)
         XCTAssertFalse(fm.fileExists(atPath: pending.path))
         let committed = boundary == "committed"
-        XCTAssertEqual(try Data(contentsOf: app.appendingPathComponent("version")),
+        XCTAssertEqual(
+          try Data(contentsOf: app.appendingPathComponent("version")),
           Data((committed ? "new app" : "old app").utf8))
-        XCTAssertEqual(try Data(contentsOf: marker),
+        XCTAssertEqual(
+          try Data(contentsOf: marker),
           Data((committed ? "new launcher" : "original launcher").utf8))
         XCTAssertEqual(fm.fileExists(atPath: version.path), !committed)
         XCTAssertEqual(fm.fileExists(atPath: hidden.path), committed)

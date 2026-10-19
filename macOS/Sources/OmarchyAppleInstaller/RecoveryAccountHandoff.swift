@@ -162,7 +162,8 @@
       try fm.createDirectory(
         at: backup.deletingLastPathComponent(), withIntermediateDirectories: true,
         attributes: [.posixPermissions: 0o700])
-      try RecoveryFileTransaction.flushDirectory(backup.deletingLastPathComponent().deletingLastPathComponent())
+      try RecoveryFileTransaction.flushDirectory(
+        backup.deletingLastPathComponent().deletingLastPathComponent())
       let state = system.appendingPathComponent("Aurora/Recovery/State")
       try fm.createDirectory(
         at: state, withIntermediateDirectories: true,
