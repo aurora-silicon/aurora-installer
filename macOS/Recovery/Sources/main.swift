@@ -1035,13 +1035,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       model.operations = ["Checking the selected volume", "Preparing startup software"]
     case "account": model.stage = .account
     case "complete": model.stage = .complete
-    case "error": model.environmentIssue = .wrongPair
+    case "error": model.stage = .welcome
     default: model.stage = .welcome
     }
     let output = URL(fileURLWithPath: String(argument.dropFirst("--snapshot=".count)))
-    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-      window.contentView?.layoutSubtreeIfNeeded()
-      if let view = window.contentView,
+    // AppKit alert loops may suspend main-queue callbacks. A run-loop timer
+    // also observes the native alert surface without interacting with it.
+    let capture = Timer(timeInterval: 1, repeats: false) { _ in
+      let surface = screen == "error" ? (window.attachedSheet ?? NSApp.modalWindow ?? window) : window
+      surface.contentView?.layoutSubtreeIfNeeded()
+      if let view = surface.contentView,
         let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)
       {
         view.cacheDisplay(in: view.bounds, to: bitmap)
@@ -1054,7 +1057,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
           FileHandle.standardError.write(Data("Recovery preview capture failed: \(error)\n".utf8))
         }
       }
+      if let sheet = window.attachedSheet { window.endSheet(sheet) }
+      if let modal = NSApp.modalWindow {
+        NSApp.abortModal()
+        modal.orderOut(nil)
+      }
       NSApp.terminate(nil)
+    }
+    RunLoop.main.add(capture, forMode: .common)
+    RunLoop.main.add(capture, forMode: .modalPanel)
+    if screen == "error" {
+      DispatchQueue.main.async { self.model.environmentIssue = .wrongPair }
     }
     return true
   }
