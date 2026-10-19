@@ -64,6 +64,16 @@
     public let helperMachServiceName: String
     public let helperCodeSigningRequirement: String
     public let recoveryAttempt: UUID?
+
+    public init(
+      ticket: InstallerJobTicket, helperMachServiceName: String,
+      helperCodeSigningRequirement: String, recoveryAttempt: UUID? = nil
+    ) {
+      self.ticket = ticket
+      self.helperMachServiceName = helperMachServiceName
+      self.helperCodeSigningRequirement = helperCodeSigningRequirement
+      self.recoveryAttempt = recoveryAttempt
+    }
   }
 
   public final class InstallerJobExecutionContext: @unchecked Sendable {
