@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           repository: aurora-silicon/omarchy-mac
-          ref: faac97ee46fc44ff323bff8aabbd8db45ea402a9
+          ref: ca7d9adfc55edf5f0583dcf26104b0e6515f592c
           path: source
           persist-credentials: false
       - name: Record immutable source and tools
