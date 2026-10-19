@@ -145,4 +145,29 @@ final class RangeCacheTests: XCTestCase, @unchecked Sendable {
       XCTFail("Invalid base accepted")
     } catch is RestoreFailure {}
   }
+
+  func testInterruptedPublicationIsRetiredWithoutFollowingSymlinks() async throws {
+    let root = try temporary()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let directory = root.appendingPathComponent("checkpoint")
+    let output = root.appendingPathComponent("firmware")
+    let records = [record(a)]
+    let outside = root.appendingPathComponent("outside")
+    try a.write(to: outside)
+    var cache: FirmwareRangeCache? = try FirmwareRangeCache(directory: directory, records: records)
+    let workspace = try await cache!.publicationWorkspace(beside: output)
+    let nested = workspace.appendingPathComponent("apple/nested")
+    try FileManager.default.createDirectory(
+      at: nested, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    try b.write(to: nested.appendingPathComponent("incomplete"))
+    try FileManager.default.createSymbolicLink(
+      at: workspace.appendingPathComponent("outside-link"), withDestinationURL: outside)
+    cache = nil
+    let resumed = try FirmwareRangeCache(directory: directory, records: records)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: workspace.path))
+    XCTAssertEqual(try Data(contentsOf: outside), a)
+    let fresh = try await resumed.publicationWorkspace(beside: output)
+    XCTAssertEqual(fresh, workspace)
+    XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: fresh.path), [])
+  }
 }

@@ -106,10 +106,12 @@ func decodeRanges(_ recipe: RangeRecipe, fetched: [RangeRecord: Data], archiveKe
   return decoded
 }
 
-func assembleRangeFiles(_ recipe: RangeRecipe, decoded: [Int: Data], output: URL) throws {
+func assembleRangeFiles(
+  _ recipe: RangeRecipe, decoded: [Int: Data], output: URL, workspace: URL? = nil
+) throws {
   try require(!exists(output), "Firmware output already exists.")
   let fm = FileManager.default
-  let work = try privateDirectory(beside: output, prefix: ".firmware-ranges-")
+  let work = try workspace ?? privateDirectory(beside: output, prefix: ".firmware-ranges-")
   defer { try? fm.removeItem(at: work) }
   for file in recipe.files {
     try Task.checkCancellation()
@@ -160,10 +162,28 @@ func assembleRangeFiles(_ recipe: RangeRecipe, decoded: [Int: Data], output: URL
     try writePrivate(result, to: target)
   }
   try Task.checkCancellation()
+  var directories: Set<URL> = [work]
+  for file in recipe.files {
+    var directory = work.appendingPathComponent(file.name).deletingLastPathComponent()
+    while directory.path != work.path {
+      directories.insert(directory)
+      directory.deleteLastPathComponent()
+    }
+  }
+  for directory in directories.sorted(by: { $0.path.count > $1.path.count }) {
+    let fd = open(directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+    try require(fd >= 0, "Cannot open firmware output directory.")
+    defer { close(fd) }
+    try require(fsync(fd) == 0, "Cannot sync firmware output directory.")
+  }
   // RENAME_EXCL makes the final publication atomic and refuses even an empty racing directory.
   try require(
     renamex_np(work.path, output.path, UInt32(RENAME_EXCL)) == 0,
     "Cannot publish firmware without replacing an existing output.")
+  let parent = open(output.deletingLastPathComponent().path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+  try require(parent >= 0, "Cannot open firmware publication directory.")
+  defer { close(parent) }
+  try require(fsync(parent) == 0, "Cannot sync firmware publication directory.")
 }
 
 func extractFirmwareRecipe(
@@ -245,7 +265,8 @@ func extractFirmwareRecipe(
     recipe.zipHeader.size + recipe.prefix.size
     + recipe.headers.reduce(0) { $0 + $1.size } + recipe.segments.values.reduce(0) { $0 + $1.size }
   progress(FirmwareExtractionProgress(stage: .writing, completedBytes: total, totalBytes: total))
-  try assembleRangeFiles(recipe, decoded: decoded, output: output)
+  let workspace = try await cache?.publicationWorkspace(beside: output)
+  try assembleRangeFiles(recipe, decoded: decoded, output: output, workspace: workspace)
   progress(FirmwareExtractionProgress(stage: .complete, completedBytes: total, totalBytes: total))
 }
 

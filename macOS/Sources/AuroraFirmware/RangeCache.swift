@@ -8,6 +8,7 @@ import Foundation
 actor FirmwareRangeCache {
   private let descriptor: Int32
   private let admittedRecords: Set<RangeRecord>
+  private let directory: URL
 
   init(directory: URL, records: [RangeRecord]) throws {
     try require(directory.isFileURL, "Firmware checkpoint must be local.")
@@ -29,10 +30,22 @@ actor FirmwareRangeCache {
     try Self.reconcile(fd, names: Set(records.map(\.sha256)))
     descriptor = fd
     admittedRecords = Set(records)
+    self.directory = directory
     admitted = true
   }
 
   deinit { close(descriptor) }
+
+  func publicationWorkspace(beside output: URL) throws -> URL {
+    var destination = stat()
+    var checkpoint = stat()
+    try require(
+      stat(output.deletingLastPathComponent().path, &destination) == 0
+        && fstat(descriptor, &checkpoint) == 0 && destination.st_dev == checkpoint.st_dev,
+      "Firmware checkpoint and output must share a filesystem.")
+    try require(mkdirat(descriptor, ".output", 0o700) == 0, "Cannot prepare firmware publication.")
+    return directory.appendingPathComponent(".output", isDirectory: true)
+  }
 
   func fetch(
     _ source: SourceRecord, record: RangeRecord, base: Int,
@@ -129,11 +142,50 @@ actor FirmwareRangeCache {
         }
       }
       if name == "." || name == ".." || names.contains(name) { continue }
+      if name == ".output" {
+        try removeStagingTree(fd, name: name)
+        continue
+      }
       let partial =
         name.hasPrefix(".") && name.hasSuffix(".partial") && name.count == 45
         && UUID(uuidString: String(name.dropFirst().dropLast(8))) != nil
       try require(partial, "Firmware checkpoint contains data from another job.")
       try require(unlinkat(fd, name, 0) == 0, "Cannot retire an interrupted range write.")
     }
+  }
+
+  /// Descriptor-relative cleanup never follows a path out of the leased job.
+  private static func removeStagingTree(_ parent: Int32, name: String) throws {
+    var info = stat()
+    try require(
+      fstatat(parent, name, &info, AT_SYMLINK_NOFOLLOW) == 0 && info.st_uid == geteuid(),
+      "Interrupted firmware staging has an unexpected owner.")
+    if info.st_mode & S_IFMT != S_IFDIR {
+      try require(unlinkat(parent, name, 0) == 0, "Cannot retire interrupted firmware staging.")
+      return
+    }
+    try require(info.st_mode & 0o077 == 0, "Interrupted firmware staging is not private.")
+    let fd = openat(parent, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+    try require(fd >= 0, "Cannot inspect interrupted firmware staging.")
+    defer { close(fd) }
+    let copy = dup(fd)
+    try require(copy >= 0, "Cannot enumerate interrupted firmware staging.")
+    guard let directory = fdopendir(copy) else {
+      close(copy)
+      throw RestoreFailure("Cannot inspect interrupted firmware staging.")
+    }
+    defer { closedir(directory) }
+    while true {
+      errno = 0
+      guard let entry = readdir(directory) else {
+        try require(errno == 0, "Cannot enumerate interrupted firmware staging.")
+        break
+      }
+      let child = withUnsafePointer(to: entry.pointee.d_name) {
+        $0.withMemoryRebound(to: CChar.self, capacity: Int(MAXNAMLEN) + 1) { String(cString: $0) }
+      }
+      if child != "." && child != ".." { try removeStagingTree(fd, name: child) }
+    }
+    try require(unlinkat(parent, name, AT_REMOVEDIR) == 0, "Cannot retire staging directory.")
   }
 }
