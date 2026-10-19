@@ -1,7 +1,7 @@
 name: Native Swift firmware extractor
 on:
   push:
-    branches: [feat/swift-native-installer, feat/native-firmware-resume]
+    branches: [feat/swift-native-installer, feat/native-firmware-resume, feat/native-ipsw-zip]
     paths:
       - macOS/Sources/AuroraFirmware/**
       - macOS/Tests/AuroraFirmwareTests/**
