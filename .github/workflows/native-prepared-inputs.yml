@@ -1,4 +1,4 @@
-name: Qualify on-demand installer packaging
+name: Qualify native installer candidate
 on:
   push:
     branches: [ci/native-recovery-review]
@@ -7,7 +7,35 @@ on:
 permissions:
   contents: read
 jobs:
-  application:
+  portable:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+        working-directory: source/macOS
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: 74e76b19b57a09bec90d921a65107bafa7934dde
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - name: Qualify portable contracts
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          { git rev-parse HEAD; python3 --version; bash --version; } > "$RUNNER_TEMP/evidence/toolchain.txt"
+          bash test/all 2>&1 | tee "$RUNNER_TEMP/evidence/portable.log"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: ondemand-candidate-portable-evidence
+          path: ${{ runner.temp }}/evidence/
+          retention-days: 14
+  native:
     runs-on: macos-26
     timeout-minutes: 35
     env:
@@ -23,20 +51,14 @@ jobs:
           ref: 74e76b19b57a09bec90d921a65107bafa7934dde
           path: source
           persist-credentials: false
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        with:
-          repository: aurora-silicon/aurora-distributions
-          ref: 32a045351d9055ccdccefc124d1a211735598e27
-          path: delivery
-          sparse-checkout: site/installer/Profiles
-          persist-credentials: false
-      - name: Record immutable source and install the native driver
+      - name: Record immutable source and toolchain
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/evidence" "$RUNNER_TEMP/tools"
           if [[ ! -x /opt/homebrew/opt/openssl@3/bin/openssl ]]; then brew install openssl@3; fi
           echo /opt/homebrew/opt/openssl@3/bin >> "$GITHUB_PATH"
           { git rev-parse HEAD; sw_vers; uname -m; xcodebuild -version; xcrun swift --version; xcrun swift-format --version; } > "$RUNNER_TEMP/evidence/toolchain.txt"
+          /opt/homebrew/opt/openssl@3/bin/openssl version >> "$RUNNER_TEMP/evidence/toolchain.txt"
           [[ $(uname -m) == arm64 ]]
           cd "$RUNNER_TEMP/tools"
           curl --fail --location --silent --show-error --retry 3 \
@@ -51,102 +73,23 @@ jobs:
           git diff --binary > "$RUNNER_TEMP/evidence/format.patch"
           xcrun swift-format lint --strict --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
           [[ ! -s "$RUNNER_TEMP/evidence/format.patch" ]]
-      - name: Build the native release products through XcodeBuildMCP
+      - name: Qualify all Swift tests
         run: |
           set -euo pipefail
-          xcodebuildmcp swift-package build --package-path "$PWD" --configuration release 2>&1 | tee "$RUNNER_TEMP/evidence/native-build.log"
-      - name: Build the Recovery template and package the on-demand app
-        run: |
-          set -euo pipefail
-          [[ ! -e Engine/artifacts ]]
-          source Packaging/identity.conf
-          bash Recovery/build-recovery.sh "$RUNNER_TEMP/recovery-template" 2>&1 | tee "$RUNNER_TEMP/evidence/recovery-build.log"
-          python3 scripts/prepare-distribution-release.py \
-            --profiles "$GITHUB_WORKSPACE/delivery/site/installer/Profiles" --output "$RUNNER_TEMP/release-adhoc"
-          export OMARCHY_RECOVERY_TEMPLATE="$RUNNER_TEMP/recovery-template/$INSTALLER_APP_NAME.app"
-          OMARCHY_APP_VERSION=0.0.0-ci OMARCHY_APP_BUILD_NUMBER=1 OMARCHY_APP_SIGNING_IDENTITY=- \
-            bash Packaging/build-app.sh "$RUNNER_TEMP/release-adhoc" "$RUNNER_TEMP/assembled-adhoc" 2>&1 | tee "$RUNNER_TEMP/evidence/adhoc-assembly.log"
-          app="$RUNNER_TEMP/assembled-adhoc/$INSTALLER_APP_NAME.app"
-          codesign --verify --deep --strict "$app"
-          python3 Packaging/verify-bundled-engines.py "$app" | tee "$RUNNER_TEMP/evidence/adhoc-runtime-inventory.log"
-          python3 - "$app" <<'PY'
-          from pathlib import Path
-          import json,sys
-          app=Path(sys.argv[1]); resources=app/'Contents/Resources'
-          assert not (resources/'Engine').exists()
-          assert not (resources/'Artifacts').exists()
-          assert not list(app.rglob('*.py'))
-          assert not list((resources/'Release').rglob('catalog.json'))
-          expected={f'{d}-{s}' for d in ('fedora','arch','nixos') for s in ('kde','gnome','minimal')}
-          assert {p.name for p in (resources/'Release/Profiles').iterdir()} == expected
-          print('On-demand bundle contains all nine profiles, no validation runtime and no OS payload')
-          PY
-          source Packaging/code-identity.sh
-          helper="$app/Contents/Library/LaunchServices/$INSTALLER_HELPER_IDENTIFIER"
-          expected=$(installer_code_requirement "$helper" "$INSTALLER_HELPER_IDENTIFIER")
-          for descriptor in "$app/Contents/Resources/Release/release.json" "$app/Contents/Resources/Release/Profiles/"*/release.json; do
-            [[ $(plutil -extract helper_code_signing_requirement raw -o - "$descriptor") == "$expected" ]]
-          done
-          du -sk "$app" > "$RUNNER_TEMP/evidence/adhoc-size-kib.txt"
-          tar -czf "$RUNNER_TEMP/ondemand-adhoc-app.tar.gz" -C "$RUNNER_TEMP/assembled-adhoc" "$INSTALLER_APP_NAME.app"
-      - name: Package and verify the real Developer ID application
-        env:
-          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-        run: |
-          set -euo pipefail
-          cat > "$RUNNER_TEMP/named-application.sh" <<'NAMED'
-          #!/bin/bash
-          set -euo pipefail
-          source Packaging/identity.conf
-          python3 scripts/prepare-distribution-release.py \
-            --profiles "$GITHUB_WORKSPACE/delivery/site/installer/Profiles" --output "$RUNNER_TEMP/release-named" \
-            --signing-team "$OMARCHY_TEAM_ID"
-          export OMARCHY_RECOVERY_TEMPLATE="$RUNNER_TEMP/recovery-template/$INSTALLER_APP_NAME.app"
-          OMARCHY_APP_VERSION=0.0.0-ci OMARCHY_APP_BUILD_NUMBER=1 \
-            bash Packaging/build-app.sh "$RUNNER_TEMP/release-named" "$RUNNER_TEMP/assembled-named" 2>&1 | tee "$RUNNER_TEMP/evidence/named-assembly.log"
-          app="$RUNNER_TEMP/assembled-named/$INSTALLER_APP_NAME.app"
-          bash Packaging/notarize-app.sh --verify-only "$app" 2>&1 | tee "$RUNNER_TEMP/evidence/release-signature-preflight.log"
-          expected="anchor apple generic and identifier \"$INSTALLER_HELPER_IDENTIFIER\" and certificate leaf[subject.OU] = \"$OMARCHY_TEAM_ID\""
-          for descriptor in "$app/Contents/Resources/Release/release.json" "$app/Contents/Resources/Release/Profiles/"*/release.json; do
-            [[ $(plutil -extract helper_code_signing_requirement raw -o - "$descriptor") == "$expected" ]]
-          done
-          [[ ! -e "$app/Contents/Resources/Engine" && ! -e "$app/Contents/Resources/Artifacts" ]]
-          actual=$(plutil -extract SMPrivilegedExecutables json -o - "$app/Contents/Info.plist" \
-            | python3 -c 'import json,sys; print(json.load(sys.stdin)[sys.argv[1]])' "$INSTALLER_HELPER_IDENTIFIER")
-          [[ $actual == "$expected" ]]
-          du -sk "$app" > "$RUNNER_TEMP/evidence/named-size-kib.txt"
-          python3 - "$RUNNER_TEMP/evidence/named-package.json" <<'PY'
-          import json,sys
-          from pathlib import Path
-          Path(sys.argv[1]).write_text(json.dumps({'developer_id_application':True,'all_nested_code_hardened':True,'secure_timestamps':True,'nine_profile_helper_requirements':True,'bundled_validation_runtime':False,'notarized':False,'submitted':False},indent=2)+'\n')
-          PY
-          tar -czf "$RUNNER_TEMP/ondemand-developer-id-app.tar.gz" -C "$RUNNER_TEMP/assembled-named" "$INSTALLER_APP_NAME.app"
-          NAMED
-          bash Packaging/with-apple-signing.sh bash "$RUNNER_TEMP/named-application.sh"
-          [[ -z $(find "$RUNNER_TEMP" -maxdepth 1 -type d -name 'aurora-signing.*' -print) ]]
-      - name: Check exact developer peer requirements
-        run: |
-          set -euo pipefail
-          bash test/macos-developer-peer-binding.sh 2>&1 | tee "$RUNNER_TEMP/evidence/peer-binding.log"
-      - name: Retain native driver logs
+          xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
+          xcodebuildmcp swift-package test --package-path "$PWD" --configuration release 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
+      - name: Retain the native driver logs
         if: always()
         run: |
           set -euo pipefail
           root="$HOME/Library/Developer/XcodeBuildMCP/workspaces"
           if [[ -d $root ]]; then
-            find "$root" -type f -path '*/logs/swift_package_*.log' -exec cp {} "$RUNNER_TEMP/evidence/" \;
+            find "$root" -type f -path '*/logs/swift_package_test_*.log' \
+              -exec cp {} "$RUNNER_TEMP/evidence/" \;
           fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: ondemand-packaging-evidence
+          name: ondemand-candidate-native-evidence
           path: ${{ runner.temp }}/evidence/
-          retention-days: 14
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: ondemand-qualified-applications
-          path: ${{ runner.temp }}/ondemand-*-app.tar.gz
           retention-days: 14
