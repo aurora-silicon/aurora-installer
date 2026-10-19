@@ -1,4 +1,5 @@
 #import <Foundation/Foundation.h>
+#import <AppKit/AppKit.h>
 int main(int argc, const char **argv) {
  @autoreleasepool {
   if(argc != 2) return 2;
@@ -7,6 +8,12 @@ int main(int argc, const char **argv) {
   printf("executable=%s\n",bundle.executablePath.UTF8String ?: "(nil)");
   printf("ordinary display name=%s\n",[bundle.infoDictionary[@"CFBundleDisplayName"] UTF8String] ?: "(nil)");
   printf("localized dictionary=%s\n",bundle.localizedInfoDictionary.description.UTF8String ?: "(nil)");
+  NSString *iconName = bundle.infoDictionary[@"CFBundleIconFile"];
+  if (![iconName isEqualToString:@"AuroraInstaller.icns"]) return 1;
+  NSString *iconPath = [bundle pathForResource:iconName ofType:nil];
+  NSImage *icon = iconPath ? [[NSImage alloc] initWithContentsOfFile:iconPath] : nil;
+  if (!icon.valid || icon.size.width <= 0 || icon.size.height <= 0) return 1;
+  printf("PASS bundle icon lookup and native image decoding\n");
   @try {
    NSMutableDictionary *item=[NSMutableDictionary new];
    // Exact sequence at Recovery Springboard 0x100004ce0..0x100004d04.

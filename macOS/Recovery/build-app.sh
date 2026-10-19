@@ -8,6 +8,7 @@ export OMARCHY_RECOVERY_BUILD="$MODE"
 APP="$OUT/Aurora Installer.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Resources/AuroraLogo.png "$APP/Contents/Resources/AuroraLogo.png"
+cp ../Packaging/AuroraInstaller.icns "$APP/Contents/Resources/AuroraInstaller.icns"
 if [[ $MODE == "preview" ]]; then
   cp ../Packaging/DistributionIcons/{fedora,arch,nixos}.icns "$APP/Contents/Resources/"
 fi
@@ -33,6 +34,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <key>OmarchyRecoveryDataLayout</key><string>external-install-data-v1</string>
 <key>CFBundleName</key><string>Aurora Installer</string>
 <key>CFBundleDisplayName</key><string>Aurora Installer</string>
+<key>CFBundleIconFile</key><string>AuroraInstaller.icns</string>
 <key>CFBundleDevelopmentRegion</key><string>en</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1</string>
@@ -42,7 +44,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 codesign --force --sign - "$APP"
 codesign --verify --deep --strict "$APP"
-xcrun clang -fobjc-arc -Wall -Wextra -Werror -framework Foundation Tests/BundleLookupCheck.m -o "$OUT/bundle-lookup-check"
+xcrun clang -fobjc-arc -Wall -Wextra -Werror -framework Foundation -framework AppKit Tests/BundleLookupCheck.m -o "$OUT/bundle-lookup-check"
 "$OUT/bundle-lookup-check" "$(cd "$APP" && pwd)"
 if [[ "$MODE" == "recovery" ]]; then
   PYTHONPATH=../Engine/overlay/src python3 - "$APP" "$OUT/omarchy-recovery-app.json" <<'PY'

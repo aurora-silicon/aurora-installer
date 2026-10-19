@@ -2,7 +2,7 @@ name: Recovery appearance and distribution icons
 on:
   push:
     branches: [feat/native-firmware-wiring]
-    paths: [macOS/Recovery/**, macOS/Packaging/DistributionIcons/**, macOS/scripts/assemble-distribution-payload.py, macOS/scripts/tests/test_distribution_payload.py, .github/workflows/recovery-ui.yml]
+    paths: [macOS/Recovery/**, macOS/Packaging/AuroraInstaller.icns, macOS/Packaging/DistributionIcons/**, macOS/scripts/assemble-distribution-payload.py, macOS/scripts/tests/test_distribution_payload.py, .github/workflows/recovery-ui.yml]
   workflow_dispatch:
 permissions:
   contents: read
