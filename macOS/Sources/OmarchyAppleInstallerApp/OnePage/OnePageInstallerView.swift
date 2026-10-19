@@ -132,7 +132,7 @@ struct OnePageInstallerView: View {
     InstallerPageLayout {
       header
     } content: {
-      VStack(alignment: .leading, spacing: 18) { stage }
+      VStack(alignment: .leading, spacing: 16) { stage }
     } actions: {
       HStack(spacing: 16) { actions }
     }
@@ -755,8 +755,8 @@ struct DiskSplitPanel: View {
             Spacer()
             capacity("Aurora", bytes: displayedOmarchyBytes, highlighted: true)
           }
-          .padding(.top, 16)
-          .padding(.bottom, 8)
+          .padding(.top, 10)
+          .padding(.bottom, 4)
           DiskBar(
             macOSBytes: plan.macOSBytes(for: displayedOmarchyBytes),
             omarchyBytes: displayedOmarchyBytes,
@@ -841,7 +841,6 @@ struct DiskSplitPanel: View {
             .omarchyHelpText()
           }
         }
-        .padding(.vertical, 4)
       }
       .overlay(alignment: .bottomTrailing) {
         if isBusy {
