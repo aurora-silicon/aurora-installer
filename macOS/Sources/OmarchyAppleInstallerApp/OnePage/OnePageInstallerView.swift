@@ -771,7 +771,7 @@ struct DiskSplitPanel: View {
       }
       .overlay(alignment: .bottomTrailing) {
         if isBusy {
-          ProgressView()
+          NativeSpinner()
             .controlSize(.small)
             .frame(width: 16, height: 16)
             .padding(.trailing, 14)
@@ -907,7 +907,7 @@ struct InstallPanel: View {
       Image(systemName: "checkmark.circle.fill").font(.system(size: 20))
         .foregroundStyle(OmarchyTheme.success)
     } else if index == progress.stageIndex {
-      ProgressView().controlSize(.small)
+      NativeSpinner().controlSize(.small)
     } else {
       Image(systemName: "circle").font(.system(size: 20)).foregroundStyle(.tertiary)
     }

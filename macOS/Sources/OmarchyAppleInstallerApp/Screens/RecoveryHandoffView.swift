@@ -51,7 +51,7 @@ struct RecoveryHandoffView: View {
       }.font(OmarchyTheme.body)
     } actions: {
       HStack(spacing: 12) {
-        ProgressView().controlSize(.small)
+        NativeSpinner().controlSize(.small)
           .frame(width: 16, height: 16).opacity(busy ? 1 : 0)
           .accessibilityHidden(!busy).accessibilityLabel("Preparing shutdown")
         Button(shutdownConfirmed ? "YES, I HAVE READ, SHUT DOWN" : "Shut Down", action: shutDown)

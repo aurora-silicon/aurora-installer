@@ -113,7 +113,7 @@ struct CredentialSheet: View {
           .focusEffectDisabled()
         }
         Spacer(minLength: 0)
-        ProgressView().controlSize(.small)
+        NativeSpinner().controlSize(.small)
           .frame(width: 16, height: 16)
           .opacity(context.isVerifying ? 1 : 0)
           .accessibilityLabel(PlainLanguage.authorizeChecking)

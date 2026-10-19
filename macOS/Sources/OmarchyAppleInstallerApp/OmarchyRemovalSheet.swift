@@ -226,7 +226,7 @@ struct OmarchyRemovalSheet: View {
       }
       if busy {
         HStack(spacing: 10) {
-          ProgressView().controlSize(.small)
+          NativeSpinner().controlSize(.small)
           Text(progressText)
             .font(OmarchyTheme.detail)
         }

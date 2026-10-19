@@ -1,7 +1,40 @@
+import AppKit
 import OmarchyInstallerUXCore
 import SwiftUI
 
 // MARK: - Building blocks
+
+struct NativeSpinner: NSViewRepresentable {
+  @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.controlSize) private var controlSize
+
+  func makeNSView(context: Context) -> NSProgressIndicator {
+    let view = NSProgressIndicator()
+    view.style = .spinning
+    view.isIndeterminate = true
+    view.usesThreadedAnimation = true
+    return view
+  }
+
+  func updateNSView(_ view: NSProgressIndicator, context: Context) {
+    view.controlSize = isSmall ? .small : .regular
+    view.appearance = NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)
+    view.startAnimation(nil)
+  }
+
+  func sizeThatFits(
+    _ proposal: ProposedViewSize, nsView: NSProgressIndicator, context: Context
+  ) -> CGSize? {
+    let side = isSmall ? 16.0 : 32.0
+    return CGSize(width: side, height: side)
+  }
+
+  static func dismantleNSView(_ view: NSProgressIndicator, coordinator: ()) {
+    view.stopAnimation(nil)
+  }
+
+  private var isSmall: Bool { controlSize == .small || controlSize == .mini }
+}
 
 struct Panel<Content: View>: View {
   @ViewBuilder var content: Content
@@ -253,7 +286,7 @@ struct PreparationStatusPanel: View {
   var body: some View {
     VStack(spacing: 18) {
       Text("Getting everything ready").font(.system(size: 20, weight: .medium))
-      ProgressView().controlSize(.regular)
+      NativeSpinner().controlSize(.regular)
     }
     .frame(maxWidth: .infinity)
     .accessibilityElement(children: .combine)
