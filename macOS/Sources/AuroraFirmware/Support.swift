@@ -114,4 +114,3 @@ public func verifyStage1(_ input: URL, digest: String, size: String) throws {
   let data = try readRegular(input, maximum: 16 * 1024 * 1024)
   try require(data.count == size && data.sha256 == digest, "Raw Stage 1 is missing or changed.")
 }
-

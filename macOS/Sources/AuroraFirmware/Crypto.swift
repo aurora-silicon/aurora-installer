@@ -88,4 +88,3 @@ func ctr(_ material: Data, data: Data) throws -> Data {
   try require(update == kCCSuccess && used == data.count, "Cannot decode AEA ciphertext.")
   return Data(output.prefix(used))
 }
-

@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import AuroraFirmware
 
 final class FirmwareExtractorTests: XCTestCase, @unchecked Sendable {
@@ -16,16 +17,24 @@ final class FirmwareExtractorTests: XCTestCase, @unchecked Sendable {
   }
 
   func testResumeVerifiesPublishedBytesAndRejectsChangesOrSymlinks() throws {
-    let fixture = try JSONDecoder().decode(RestoreImageTests.AEAFixture.self, from: Data(contentsOf: XCTUnwrap(
-      Bundle.module.url(forResource: "go-aea", withExtension: "json", subdirectory: "Fixtures"))))
+    let fixture = try JSONDecoder().decode(
+      RestoreImageTests.AEAFixture.self,
+      from: Data(
+        contentsOf: XCTUnwrap(
+          Bundle.module.url(forResource: "go-aea", withExtension: "json", subdirectory: "Fixtures"))
+      ))
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
     defer { try? FileManager.default.removeItem(at: root) }
     let output = root.appendingPathComponent("firmware")
     let recipe = fixture.recipe
-    let decoded = try decodeRanges(recipe, fetched: Dictionary(uniqueKeysWithValues: fixture.records.map { ($0.record, $0.data) }), archiveKey: fixture.key)
+    let decoded = try decodeRanges(
+      recipe,
+      fetched: Dictionary(uniqueKeysWithValues: fixture.records.map { ($0.record, $0.data) }),
+      archiveKey: fixture.key)
     try assembleRangeFiles(recipe, decoded: decoded, output: output)
-    let plan = FirmwareExtractionPlan(deviceIdentifier: "fixture", recipeSHA256: String(repeating: "a", count: 64), recipe: recipe)
+    let plan = FirmwareExtractionPlan(
+      deviceIdentifier: "fixture", recipeSHA256: String(repeating: "a", count: 64), recipe: recipe)
     let extractor = FirmwareExtractor()
     XCTAssertEqual(try extractor.verify(plan, at: output).files.count, 1)
     let file = output.appendingPathComponent("test.bin")

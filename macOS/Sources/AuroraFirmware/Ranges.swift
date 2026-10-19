@@ -190,7 +190,8 @@ func extractFirmwareRecipe(
       + recipe.segments.keys.sorted().compactMap { recipe.segments[$0] }
     let total = recipe.zipHeader.size + records.reduce(0) { $0 + $1.size }
     var completed = header.count
-    progress(FirmwareExtractionProgress(stage: .downloading, completedBytes: completed, totalBytes: total))
+    progress(
+      FirmwareExtractionProgress(stage: .downloading, completedBytes: completed, totalBytes: total))
     let fetched = try await withThrowingTaskGroup(of: (RangeRecord, Data).self) { group in
       var next = 0
       func submit(_ record: RangeRecord) {
@@ -206,7 +207,9 @@ func extractFirmwareRecipe(
       while let (record, data) = try await group.next() {
         fetched[record] = data
         completed += data.count
-        progress(FirmwareExtractionProgress(stage: .downloading, completedBytes: completed, totalBytes: total))
+        progress(
+          FirmwareExtractionProgress(
+            stage: .downloading, completedBytes: completed, totalBytes: total))
         if next < records.count {
           submit(records[next])
           next += 1
@@ -214,7 +217,8 @@ func extractFirmwareRecipe(
       }
       return fetched
     }
-    progress(FirmwareExtractionProgress(stage: .authenticating, completedBytes: total, totalBytes: total))
+    progress(
+      FirmwareExtractionProgress(stage: .authenticating, completedBytes: total, totalBytes: total))
     decoded = try await decodeRanges(recipe, fetched: fetched)
   } catch {
     try Task.checkCancellation()
@@ -223,7 +227,8 @@ func extractFirmwareRecipe(
     }
     throw RestoreFailure(error.localizedDescription, fallback: true)
   }
-  let total = recipe.zipHeader.size + recipe.prefix.size
+  let total =
+    recipe.zipHeader.size + recipe.prefix.size
     + recipe.headers.reduce(0) { $0 + $1.size } + recipe.segments.values.reduce(0) { $0 + $1.size }
   progress(FirmwareExtractionProgress(stage: .writing, completedBytes: total, totalBytes: total))
   try assembleRangeFiles(recipe, decoded: decoded, output: output)
@@ -232,5 +237,6 @@ func extractFirmwareRecipe(
 
 // Retained for decoder regression tests; native callers use the admitted plan API.
 func extractFirmwareRanges(_ path: URL, digest: String, output: URL) async throws {
-  try await extractFirmwareRecipe(readRecipe(path, digest: digest), output: output, progress: { _ in })
+  try await extractFirmwareRecipe(
+    readRecipe(path, digest: digest), output: output, progress: { _ in })
 }

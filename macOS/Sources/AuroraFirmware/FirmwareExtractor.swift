@@ -71,14 +71,16 @@ public struct FirmwareExtractor: Sendable {
     _ plan: FirmwareExtractionPlan, to output: URL,
     progress: @escaping @Sendable (FirmwareExtractionProgress) -> Void = { _ in }
   ) async throws -> FirmwareExtractionReceipt {
-    try require(output.isFileURL && !exists(output), "Firmware output must be a new local directory.")
+    try require(
+      output.isFileURL && !exists(output), "Firmware output must be a new local directory.")
     let parent = output.deletingLastPathComponent()
     let attributes = try FileManager.default.attributesOfFileSystem(forPath: parent.path)
     guard let free = attributes[.systemFreeSize] as? NSNumber,
       free.uint64Value >= plan.requiredDiskBytes
     else { throw RestoreFailure("There is not enough free space to extract the firmware.") }
-    progress(FirmwareExtractionProgress(
-      stage: .downloading, completedBytes: 0, totalBytes: plan.authenticatedRangeBytes))
+    progress(
+      FirmwareExtractionProgress(
+        stage: .downloading, completedBytes: 0, totalBytes: plan.authenticatedRangeBytes))
     try await extractFirmwareRecipe(plan.recipe, output: output, progress: progress)
     return FirmwareExtractionReceipt(
       deviceIdentifier: plan.deviceIdentifier, sourceURL: plan.sourceURL,
@@ -99,11 +101,13 @@ public struct FirmwareExtractor: Sendable {
       var path = output
       for component in file.name.split(separator: "/") {
         path.appendPathComponent(String(component))
-        try require(lstat(path.path, &info) == 0 && info.st_mode & S_IFMT != S_IFLNK,
+        try require(
+          lstat(path.path, &info) == 0 && info.st_mode & S_IFMT != S_IFLNK,
           "The saved firmware path changed.")
       }
       let bytes = try readRegular(path, maximum: file.sizeBytes)
-      try require(bytes.count == file.sizeBytes && bytes.sha256 == file.sha256,
+      try require(
+        bytes.count == file.sizeBytes && bytes.sha256 == file.sha256,
         "The saved firmware does not match the admitted recipe.")
     }
     return FirmwareExtractionReceipt(
