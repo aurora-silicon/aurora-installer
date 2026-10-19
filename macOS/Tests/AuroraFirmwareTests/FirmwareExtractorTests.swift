@@ -16,7 +16,7 @@ final class FirmwareExtractorTests: XCTestCase, @unchecked Sendable {
     }
   }
 
-  func testResumeVerifiesPublishedBytesAndRejectsChangesOrSymlinks() throws {
+  func testResumeVerifiesPublishedBytesAndRejectsChangesOrSymlinks() async throws {
     let fixture = try JSONDecoder().decode(
       RestoreImageTests.AEAFixture.self,
       from: Data(
@@ -37,10 +37,19 @@ final class FirmwareExtractorTests: XCTestCase, @unchecked Sendable {
       deviceIdentifier: "fixture", recipeSHA256: String(repeating: "a", count: 64), recipe: recipe)
     let extractor = FirmwareExtractor()
     XCTAssertEqual(try extractor.verify(plan, at: output).files.count, 1)
+    let checkpoint = root.appendingPathComponent("checkpoint")
+    let resumed = try await extractor.extractOrResume(plan, to: output, cacheDirectory: checkpoint)
+    XCTAssertEqual(resumed.files.count, 1)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: checkpoint.path))
     let file = output.appendingPathComponent("test.bin")
     let original = try Data(contentsOf: file)
     try Data("changed".utf8).write(to: file)
     XCTAssertThrowsError(try extractor.verify(plan, at: output))
+    do {
+      _ = try await extractor.extractOrResume(plan, to: output, cacheDirectory: checkpoint)
+      XCTFail("Changed publication was accepted on resume")
+    } catch is RestoreFailure {}
+    XCTAssertEqual(try Data(contentsOf: file), Data("changed".utf8))
     try FileManager.default.removeItem(at: file)
     let alternate = root.appendingPathComponent("alternate")
     try original.write(to: alternate)

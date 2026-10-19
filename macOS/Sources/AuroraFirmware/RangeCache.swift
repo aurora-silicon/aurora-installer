@@ -129,7 +129,8 @@ actor FirmwareRangeCache {
         }
       }
       if name == "." || name == ".." || names.contains(name) { continue }
-      let partial = name.hasPrefix(".") && name.hasSuffix(".partial") && name.count == 45
+      let partial =
+        name.hasPrefix(".") && name.hasSuffix(".partial") && name.count == 45
         && UUID(uuidString: String(name.dropFirst().dropLast(8))) != nil
       try require(partial, "Firmware checkpoint contains data from another job.")
       try require(unlinkat(fd, name, 0) == 0, "Cannot retire an interrupted range write.")

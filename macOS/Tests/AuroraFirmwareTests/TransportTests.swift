@@ -13,6 +13,8 @@ private final class RangeServer: @unchecked Sendable {
   let workers = DispatchGroup()
   var requests: [String] = []
   var stopping = false
+  var headersSent = false
+  let releaseBody = DispatchSemaphore(value: 0)
 
   init(_ variant: String) throws {
     self.variant = variant
@@ -82,7 +84,10 @@ private final class RangeServer: @unchecked Sendable {
           }
         }
         sendAll(Data(headers.utf8))
-        if variant == "slow" { Thread.sleep(forTimeInterval: 2) }
+        if variant == "slow" {
+          lock.withLock { headersSent = true }
+          _ = releaseBody.wait(timeout: .now() + 10)
+        }
         sendAll(Data(body.utf8))
         close(client)
       }
@@ -109,6 +114,7 @@ private final class RangeServer: @unchecked Sendable {
     close(fd)
   }
   func received() -> [String] { lock.withLock { requests } }
+  func responseStarted() -> Bool { lock.withLock { headersSent } }
 }
 
 final class TransportTests: XCTestCase, @unchecked Sendable {
@@ -151,14 +157,21 @@ final class TransportTests: XCTestCase, @unchecked Sendable {
   }
   func testCancellationDuringStreaming() async throws {
     let server = try RangeServer("slow")
-    defer { server.stop() }
+    defer {
+      server.releaseBody.signal()
+      server.stop()
+    }
     let task = Task {
       try await fetchRange(
         SourceRecord(
           sizeBytes: 20, sha256: Data().sha256, url: "http://127.0.0.1:\(server.port)/image"),
         record: RangeRecord(offset: 2, size: 4, sha256: Data("test".utf8).sha256), base: 5)
     }
-    try await Task.sleep(for: .milliseconds(100))
+    for _ in 0..<1000 {
+      if server.responseStarted() { break }
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    XCTAssertTrue(server.responseStarted(), "Fixture did not start streaming")
     task.cancel()
     do {
       _ = try await task.value

@@ -62,10 +62,43 @@ jobs:
           binary="$(xcrun swift build --configuration release --show-bin-path)/AuroraFirmwareCheck"
           output="$RUNNER_TEMP/firmware-output"
           checkpoint="$RUNNER_TEMP/firmware-checkpoint"
-          trap 'rm -rf "$output" "$checkpoint"' EXIT
+          extraction=''
+          cleanup() {
+            if [[ -n $extraction ]]; then
+              kill -KILL "$extraction" 2>/dev/null || true
+              wait "$extraction" 2>/dev/null || true
+            fi
+            rm -rf "$output" "$checkpoint"
+          }
+          trap cleanup EXIT
+          "$binary" extract "$output" "$checkpoint" > "$RUNNER_TEMP/evidence/interrupted.json" 2> "$RUNNER_TEMP/evidence/interrupted-progress.log" &
+          extraction=$!
+          interrupted=false
+          # Stop a real download after at least one durable range. Never race
+          # publication: the final tree must still be absent for this fixture.
+          for attempt in {1..300}; do
+            [[ ! -d $output ]] || { echo 'Extraction finished before interruption fixture' >&2; exit 1; }
+            if [[ -d $checkpoint ]] && find "$checkpoint" -type f ! -name '.*' -print -quit | grep -q .; then
+              kill -STOP "$extraction"
+              interrupted=true
+              break
+            fi
+            kill -0 "$extraction"
+            sleep 0.1
+          done
+          [[ $interrupted == true ]]
+          [[ ! -d $output ]]
+          find "$checkpoint" -type f ! -name '.*' -exec shasum -a 256 {} \; > "$RUNNER_TEMP/evidence/interrupted-ranges.txt"
+          test -s "$RUNNER_TEMP/evidence/interrupted-ranges.txt"
+          kill -KILL "$extraction"
+          wait "$extraction" || [[ $? == 137 ]]
+          extraction=''
+          [[ ! -d $output ]]
           "$binary" extract "$output" "$checkpoint" > "$RUNNER_TEMP/evidence/extraction.json" 2> "$RUNNER_TEMP/evidence/progress.log"
+          "$binary" extract "$output" "$checkpoint" > "$RUNNER_TEMP/evidence/resume-complete.json"
           "$binary" verify "$output" > "$RUNNER_TEMP/evidence/reuse.json"
           cmp "$RUNNER_TEMP/evidence/extraction.json" "$RUNNER_TEMP/evidence/reuse.json"
+          cmp "$RUNNER_TEMP/evidence/extraction.json" "$RUNNER_TEMP/evidence/resume-complete.json"
           test -z "$(find "$checkpoint" -mindepth 1 -print -quit)"
       - name: Require clean source formatting
         if: always()

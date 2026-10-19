@@ -203,9 +203,14 @@ func extractFirmwareRecipe(
       func submit(_ record: RangeRecord) {
         group.addTask {
           if let cache {
-            return (record, try await cache.fetch(recipe.source, record: record, base: recipe.memberOffset))
+            return (
+              record,
+              try await cache.fetch(recipe.source, record: record, base: recipe.memberOffset)
+            )
           }
-          return (record, try await fetchRange(recipe.source, record: record, base: recipe.memberOffset))
+          return (
+            record, try await fetchRange(recipe.source, record: record, base: recipe.memberOffset)
+          )
         }
       }
       while next < min(6, records.count) {

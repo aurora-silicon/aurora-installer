@@ -13,12 +13,15 @@ final class RangeCacheTests: XCTestCase, @unchecked Sendable {
   }
 
   private func source() -> SourceRecord {
-    SourceRecord(sizeBytes: 4096, sha256: String(repeating: "a", count: 64), url: "https://updates.cdn-apple.com/fixture")
+    SourceRecord(
+      sizeBytes: 4096, sha256: String(repeating: "a", count: 64),
+      url: "https://updates.cdn-apple.com/fixture")
   }
 
   private func temporary() throws -> URL {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+    try FileManager.default.createDirectory(
+      at: root, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
     return root
   }
 
@@ -32,7 +35,9 @@ final class RangeCacheTests: XCTestCase, @unchecked Sendable {
     let cached = try await cache!.fetch(source(), record: records[0], base: 0) { _, _, _ in first }
     XCTAssertEqual(cached, a)
     do {
-      _ = try await cache!.fetch(source(), record: records[1], base: 0) { _, _, _ in throw CancellationError() }
+      _ = try await cache!.fetch(source(), record: records[1], base: 0) { _, _, _ in
+        throw CancellationError()
+      }
       XCTFail("Interrupted fetch succeeded")
     } catch is CancellationError {}
     cache = nil
@@ -43,7 +48,9 @@ final class RangeCacheTests: XCTestCase, @unchecked Sendable {
     }
     XCTAssertEqual(reused, a)
     let second = b
-    let downloaded = try await resumed.fetch(source(), record: records[1], base: 0) { _, _, _ in second }
+    let downloaded = try await resumed.fetch(source(), record: records[1], base: 0) { _, _, _ in
+      second
+    }
     XCTAssertEqual(downloaded, b)
     try await resumed.retire(records)
     XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path), [])
@@ -63,7 +70,9 @@ final class RangeCacheTests: XCTestCase, @unchecked Sendable {
     XCTAssertEqual(fixed, a)
     try FileManager.default.removeItem(at: file)
     do {
-      _ = try await cache.fetch(source(), record: descriptor, base: 0) { _, _, _ in Data("wrong".utf8) }
+      _ = try await cache.fetch(source(), record: descriptor, base: 0) { _, _, _ in
+        Data("wrong".utf8)
+      }
       XCTFail("Invalid download was accepted")
     } catch is RestoreFailure {}
     XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
@@ -124,11 +133,15 @@ final class RangeCacheTests: XCTestCase, @unchecked Sendable {
     let cache = try FirmwareRangeCache(directory: root, records: [record(a)])
     XCTAssertFalse(FileManager.default.fileExists(atPath: partial.path))
     do {
-      _ = try await cache.fetch(source(), record: record(b), base: 0) { _, _, _ in throw CancellationError() }
+      _ = try await cache.fetch(source(), record: record(b), base: 0) { _, _, _ in
+        throw CancellationError()
+      }
       XCTFail("Unadmitted range accepted")
     } catch is RestoreFailure {}
     do {
-      _ = try await cache.fetch(source(), record: record(a), base: Int.min) { _, _, _ in throw CancellationError() }
+      _ = try await cache.fetch(source(), record: record(a), base: Int.min) { _, _, _ in
+        throw CancellationError()
+      }
       XCTFail("Invalid base accepted")
     } catch is RestoreFailure {}
   }

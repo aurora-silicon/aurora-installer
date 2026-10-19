@@ -11,17 +11,23 @@ import Foundation
       let output = URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)
       let plan = try FirmwareExtractionPlan.bundled(for: "apple,j700")
       let extractor = FirmwareExtractor()
-      let checkpoint = CommandLine.arguments.count == 4
+      let checkpoint =
+        CommandLine.arguments.count == 4
         ? URL(fileURLWithPath: CommandLine.arguments[3], isDirectory: true) : nil
       let receipt: FirmwareExtractionReceipt
       if CommandLine.arguments[1] == "verify" {
         receipt = try extractor.verify(plan, at: output)
       } else {
         receipt = try await withDeadline(seconds: 180) {
-          try await extractor.extract(plan, to: output, cacheDirectory: checkpoint) { update in
+          let progress: @Sendable (FirmwareExtractionProgress) -> Void = { update in
             let line = "\(update.stage.rawValue) \(update.completedBytes)/\(update.totalBytes)\n"
             FileHandle.standardError.write(Data(line.utf8))
           }
+          if let checkpoint {
+            return try await extractor.extractOrResume(
+              plan, to: output, cacheDirectory: checkpoint, progress: progress)
+          }
+          return try await extractor.extract(plan, to: output, progress: progress)
         }
       }
       let encoder = JSONEncoder()
