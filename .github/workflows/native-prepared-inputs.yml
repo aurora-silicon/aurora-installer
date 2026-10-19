@@ -1,0 +1,134 @@
+name: Qualify native prepared inputs
+on:
+  push:
+    branches: [ci/native-recovery-review]
+    paths: [.github/workflows/native-prepared-inputs.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  portable:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+        working-directory: source/macOS
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: a300dfe657495f6077bd70213957b81324ae1d7d
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - name: Qualify portable source contracts
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          { git rev-parse HEAD; python3 --version; bash --version; } > "$RUNNER_TEMP/evidence/toolchain.txt"
+          bash test/all 2>&1 | tee "$RUNNER_TEMP/evidence/portable.log"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: native-inputs-portable-evidence
+          path: ${{ runner.temp }}/evidence/
+          retention-days: 14
+  native:
+    runs-on: macos-26
+    timeout-minutes: 35
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+      XCODEBUILDMCP_SENTRY_DISABLED: 'true'
+    defaults:
+      run:
+        shell: bash
+        working-directory: source/macOS
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: a300dfe657495f6077bd70213957b81324ae1d7d
+          path: source
+          persist-credentials: false
+      - name: Record immutable source and toolchain
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence" "$RUNNER_TEMP/tools"
+          { git rev-parse HEAD; sw_vers; uname -m; xcodebuild -version; xcrun swift --version; xcrun swift-format --version; } > "$RUNNER_TEMP/evidence/toolchain.txt"
+          [[ $(uname -m) == arm64 ]]
+          cd "$RUNNER_TEMP/tools"
+          curl --fail --location --silent --show-error --retry 3 \
+            https://github.com/getsentry/XcodeBuildMCP/releases/download/v2.7.0/xcodebuildmcp-2.7.0-darwin-arm64.tar.gz -o tool.tar.gz
+          echo 'bd724a2c0e6ffe027b3f46257e66d626149a64cd045f4867124bd683b3cf081a  tool.tar.gz' | shasum -a 256 -c -
+          tar -xzf tool.tar.gz
+          echo "$PWD/xcodebuildmcp-2.7.0-darwin-arm64/bin" >> "$GITHUB_PATH"
+      - name: Require exact Xcode formatting
+        run: |
+          set -euo pipefail
+          xcrun swift-format format -i --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
+          git diff --binary > "$RUNNER_TEMP/evidence/format.patch"
+          xcrun swift-format lint --strict --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
+          [[ ! -s "$RUNNER_TEMP/evidence/format.patch" ]]
+      - name: Qualify all Swift tests
+        run: |
+          set -euo pipefail
+          xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
+          xcodebuildmcp swift-package test --package-path "$PWD" --configuration release 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
+      - name: Build real Recovery and preview
+        run: |
+          set -euo pipefail
+          bash Recovery/build-recovery.sh "$RUNNER_TEMP/recovery-template" 2>&1 | tee "$RUNNER_TEMP/evidence/recovery.log"
+          bash Recovery/build-preview.sh "$RUNNER_TEMP/recovery-preview" 2>&1 | tee "$RUNNER_TEMP/evidence/recovery-preview.log"
+      - name: Reproduce and inspect the pinned runtime
+        run: |
+          set -euo pipefail
+          python3 Engine/prepare-engine.py --output Engine/artifacts 2>&1 | tee "$RUNNER_TEMP/evidence/engine.log"
+          python3 Engine/verify-engine-macho.py --signatures Engine/artifacts/*.tar.gz 2>&1 | tee "$RUNNER_TEMP/evidence/runtime-signatures.log"
+      - name: Assemble the real on-demand application
+        run: |
+          set -euo pipefail
+          source Packaging/identity.conf
+          release="$RUNNER_TEMP/release"
+          mkdir -p "$release"
+          cp Release/trust-root.ed25519.pub "$release/"
+          bash scripts/make-release-descriptor --public-key "$release/trust-root.ed25519.pub" \
+            --base-url "$INSTALLER_PUBLIC_BASE/$INSTALLER_STREAM_PATH" --adhoc --output "$release/release.json"
+          export OMARCHY_RECOVERY_TEMPLATE="$RUNNER_TEMP/recovery-template/$INSTALLER_APP_NAME.app"
+          OMARCHY_APP_VERSION=0.0.0-ci OMARCHY_APP_BUILD_NUMBER=1 OMARCHY_APP_SIGNING_IDENTITY=- \
+            bash Packaging/build-app.sh "$release" "$RUNNER_TEMP/assembled" 2>&1 | tee "$RUNNER_TEMP/evidence/app-assembly.log"
+          app="$RUNNER_TEMP/assembled/$INSTALLER_APP_NAME.app"
+          codesign --verify --deep --strict "$app"
+          source Packaging/code-identity.sh
+          helper="$app/Contents/Library/LaunchServices/$INSTALLER_HELPER_IDENTIFIER"
+          requirement=$(installer_code_requirement "$helper" "$INSTALLER_HELPER_IDENTIFIER")
+          actual=$(/usr/bin/plutil -extract helper_code_signing_requirement raw -o - "$app/Contents/Resources/Release/release.json")
+          [[ $actual == "$requirement" ]]
+          template="$app/Contents/Resources/RecoveryTemplate/$INSTALLER_APP_NAME.app"
+          daemon="$app/Contents/Library/LaunchDaemons/$INSTALLER_HELPER_IDENTIFIER.plist"
+          pin=$(/usr/bin/plutil -extract EnvironmentVariables.OMARCHY_RECOVERY_TEMPLATE_REQUIREMENT raw -o - "$daemon")
+          codesign --verify --deep --strict -R="$pin" "$template"
+          [[ $("$template/Contents/MacOS/OmarchyRecovery" --build-mode) == recovery ]]
+          [[ ! -e "$app/Contents/Resources/Artifacts" ]]
+          [[ ! -e "$template/Contents/Resources/install-config.json" ]]
+          [[ ! -e "$template/Contents/Resources/AuraPayloads" ]]
+          python3 Engine/verify-engine-macho.py --signatures "$app/Contents/Resources/Engine/artifacts/"*.tar.gz
+          du -sk "$app" | tee "$RUNNER_TEMP/evidence/app-size-kib.txt"
+          /usr/bin/codesign --display --verbose=4 "$app" 2> "$RUNNER_TEMP/evidence/app-identity.txt"
+          /usr/bin/codesign --display --verbose=4 "$template" 2> "$RUNNER_TEMP/evidence/recovery-identity.txt"
+          tar -czf "$RUNNER_TEMP/qualified-app.tar.gz" -C "$RUNNER_TEMP/assembled" "$INSTALLER_APP_NAME.app"
+      - name: Check exact packaged peer requirements
+        run: |
+          set -euo pipefail
+          bash test/macos-developer-peer-binding.sh 2>&1 | tee "$RUNNER_TEMP/evidence/peer-binding.log"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: native-inputs-qualification-evidence
+          path: ${{ runner.temp }}/evidence/
+          retention-days: 14
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: native-inputs-qualified-application
+          path: ${{ runner.temp }}/qualified-app.tar.gz
+          retention-days: 14
