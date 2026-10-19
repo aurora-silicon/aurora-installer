@@ -19,7 +19,9 @@ private final class InstallerApplicationDelegate: NSObject, NSApplicationDelegat
 
   func applicationWillFinishLaunching(_ notification: Notification) {
     #if !DEBUG
-      if ProcessInfo.processInfo.arguments.contains("--simulate") {
+      if ProcessInfo.processInfo.arguments.contains("--simulate")
+        || ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--preview-screen=") })
+      {
         fputs("Simulation requires a debug build. Refusing to launch the live installer.\n", stderr)
         NSApplication.shared.terminate(nil)
         return
@@ -57,6 +59,9 @@ private final class InstallerApplicationDelegate: NSObject, NSApplicationDelegat
             if let data = bitmap.representation(using: .png, properties: [:]) {
               try? data.write(to: URL(fileURLWithPath: path))
             }
+          }
+          if CommandLine.arguments.contains("--quit-after-snapshot") {
+            NSApplication.shared.terminate(nil)
           }
         }
       }
@@ -116,6 +121,23 @@ struct OmarchyAppleInstallerApp: App {
 
   @ViewBuilder
   private var installerContent: some View {
+    #if DEBUG
+      if let argument = CommandLine.arguments.first(where: { $0.hasPrefix("--preview-screen=") }) {
+        if isSimulation {
+          InstallerVisualPreview(screen: String(argument.dropFirst("--preview-screen=".count)))
+        } else {
+          ContentUnavailableView("Visual previews require --simulate", systemImage: "lock.shield")
+        }
+      } else {
+        selectedInstallerContent
+      }
+    #else
+      selectedInstallerContent
+    #endif
+  }
+
+  @ViewBuilder
+  private var selectedInstallerContent: some View {
     if choosingSystem {
       AuroraWelcomeView(selection: $selection) {
         choosingSystem = false

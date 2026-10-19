@@ -9,8 +9,8 @@ enum OmarchyTheme {
   static let secondaryText = Color.secondary
   static let separator = Color(nsColor: .separatorColor)
   static let track = Color.primary.opacity(0.08)
-  static let accent = Color.primary
-  static let accentText = Color(nsColor: .windowBackgroundColor)
+  static let accent = Color(nsColor: .controlAccentColor)
+  static let accentText = Color.white
   static let success = Color.green
   static let danger = Color.red
   static let caution = Color.orange
@@ -19,9 +19,9 @@ enum OmarchyTheme {
   static let buttonPressed = Color.primary.opacity(0.75)
   static let buttonHoverText = Color.primary
   static let buttonPressedSurface = Color.primary.opacity(0.08)
-  static let cardRadius: CGFloat = 12
+  static let cardRadius: CGFloat = 18
   static let buttonRadius: CGFloat = 8
-  static let buttonHeight: CGFloat = 34
+  static let buttonHeight: CGFloat = 36
   static let buttonTracking: CGFloat = 0
   static let helpLineSpacing: CGFloat = 3
   static let title = Font.system(size: 28, weight: .semibold)

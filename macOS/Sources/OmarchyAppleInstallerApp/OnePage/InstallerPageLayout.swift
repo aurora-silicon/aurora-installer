@@ -1,43 +1,41 @@
 import SwiftUI
 
-/// A steady brand position, scrollable content and a persistent action footer.
+/// A compact masthead, an adaptable content column and a persistent action footer.
 struct InstallerPageLayout<Header: View, Content: View, Actions: View>: View {
   @ViewBuilder let header: () -> Header
   @ViewBuilder let content: () -> Content
   @ViewBuilder let actions: () -> Actions
 
   var body: some View {
-    GeometryReader { geometry in
-      let topInset = 64.0
-      let wordmarkHeight = 104.0
-
-      VStack(spacing: 0) {
-        ScrollView {
-          VStack(spacing: 0) {
-            OmarchyWordmark()
-              .frame(width: 104, height: wordmarkHeight)
-              .padding(.top, topInset)
-              .padding(.bottom, 14)
-            Text("Aurora Linux").font(OmarchyTheme.title).padding(.bottom, 12)
-            header()
-              .frame(minHeight: 24)
-              .padding(.bottom, 18)
-            content()
-              .frame(maxWidth: 560)
-              .padding(.bottom, 24)
-          }
-          .padding(.horizontal, 48)
-          .frame(maxWidth: .infinity, alignment: .top)
-        }
-        .frame(maxHeight: .infinity)
-
-        actions()
-          .frame(maxWidth: .infinity, minHeight: OmarchyTheme.buttonHeight)
-          .padding(.horizontal, 48)
-          .padding(.top, 16)
-          .padding(.bottom, 32)
-          .background(OmarchyTheme.window)
+    VStack(spacing: 0) {
+      HStack(spacing: 12) {
+        OmarchyWordmark().frame(width: 36, height: 36)
+        Text("Aurora Linux").font(.system(size: 20, weight: .semibold))
+        Spacer()
       }
+      .frame(maxWidth: 640)
+      .padding(.horizontal, 40)
+      .padding(.top, 28)
+      .padding(.bottom, 20)
+      ScrollView {
+        VStack(alignment: .leading, spacing: 24) {
+          header()
+          content()
+        }
+        .frame(maxWidth: 640, alignment: .leading)
+        .padding(.horizontal, 40)
+        .padding(.top, 8)
+        .padding(.bottom, 28)
+        .frame(maxWidth: .infinity, alignment: .center)
+      }
+      .frame(maxHeight: .infinity)
+      actions()
+        .frame(maxWidth: .infinity, minHeight: OmarchyTheme.buttonHeight)
+        .padding(.horizontal, 40)
+        .padding(.top, 16)
+        .padding(.bottom, 24)
+        .background(OmarchyTheme.window)
+        .overlay(alignment: .top) { Divider().opacity(0.5) }
     }
   }
 }

@@ -148,8 +148,8 @@ struct OnePageInstallerView: View {
 
   @ViewBuilder
   private var header: some View {
-    VStack(spacing: 8) {
-      Text(selection.summary).font(.system(size: 14)).foregroundStyle(.secondary)
+    VStack(alignment: .leading, spacing: 8) {
+      Text(selection.summary).font(.system(size: 15, weight: .medium))
       hostHeader
     }
   }
@@ -161,7 +161,8 @@ struct OnePageInstallerView: View {
         Text(host.header(chosenOmarchyBytes: chosenOmarchyBytes))
           .font(OmarchyTheme.eyebrow)
 
-          .foregroundStyle(OmarchyTheme.accent)
+          .foregroundStyle(OmarchyTheme.secondaryText)
+        Spacer(minLength: 0)
         if let supported = session.modelSupported {
           StatusBadge(
             text: supported ? PlainLanguage.supportedBadge : PlainLanguage.blockedBadge,
@@ -379,15 +380,7 @@ struct OnePageInstallerView: View {
   // MARK: Pieces
 
   private func statusPanel(title: String) -> some View {
-    Panel {
-      VStack(alignment: .leading, spacing: 12) {
-        Text(title)
-          .font(OmarchyTheme.heading)
-          .foregroundStyle(OmarchyTheme.secondaryText)
-        ProgressTrack(fraction: nil, height: 14)
-      }
-      .padding(.vertical, 4)
-    }
+    PreparationStatusPanel(detail: title)
   }
 
   private func messagePanel(
@@ -646,7 +639,7 @@ private struct PrefetchStrip: View {
   }
 }
 
-private struct EncryptDiskToggle: View {
+struct EncryptDiskToggle: View {
   let isOn: Bool
   let enabled: Bool
   let onChange: (Bool) -> Void
@@ -677,65 +670,53 @@ private struct EncryptDiskToggle: View {
 
 /// One bar for the OS package download; later stages (engine checks,
 /// planning) keep the last position instead of resetting.
-private struct DownloadPanel: View {
+struct DownloadPanel: View {
   let update: AssetProgressUpdate
 
-  @State private var lastCompleted: UInt64 = 0
-  @State private var lastTotal: UInt64 = 0
-
-  private var package: AssetProgressRow? {
-    update.rows.first { $0.role == "payload" }
-  }
+  private var package: AssetProgressRow? { update.rows.first { $0.role == "payload" } }
 
   var body: some View {
     Panel {
-      VStack(alignment: .leading, spacing: 12) {
-        HStack(alignment: .firstTextBaseline) {
-          Text(title)
-            .font(OmarchyTheme.heading)
-          Spacer(minLength: 8)
-          if let accessory {
-            Text(accessory)
-              .font(OmarchyTheme.detail)
-              .foregroundStyle(OmarchyTheme.secondaryText)
+      VStack(alignment: .leading, spacing: 22) {
+        HStack(spacing: 16) {
+          Image(systemName: update.stage == .downloading ? "arrow.down.circle" : "checkmark.shield")
+            .font(.system(size: 32, weight: .light))
+            .foregroundStyle(OmarchyTheme.accent)
+          VStack(alignment: .leading, spacing: 6) {
+            Text("Preparing your installation").font(.system(size: 22, weight: .semibold))
+            Text(title).font(OmarchyTheme.body).foregroundStyle(.secondary)
           }
         }
-        ProgressTrack(fraction: fraction, height: 18)
+        VStack(spacing: 10) {
+          ProgressTrack(fraction: fraction, height: 7)
+          HStack {
+            if let package, update.stage == .downloading, package.totalBytes > 0 {
+              Text("\(PlainLanguage.bytes(package.bytesCompleted)) of \(PlainLanguage.bytes(package.totalBytes))")
+            } else {
+              Text("This may take a moment.")
+            }
+            Spacer()
+            if let fraction {
+              Text("\(Int(fraction * 100))%").monospacedDigit()
+            } else {
+              ProgressView().controlSize(.small)
+            }
+          }
+          .font(OmarchyTheme.detail).foregroundStyle(.secondary)
+        }
       }
-      .padding(.vertical, 4)
-    }
-    .onChange(of: update, initial: true) { _, _ in
-      if let package, package.totalBytes > 0 {
-        lastCompleted = package.bytesCompleted
-        lastTotal = package.totalBytes
-      }
+      .padding(.vertical, 14)
     }
   }
 
   private var title: String {
     update.stage == .downloading
-      ? PlainLanguage.downloadingPackagesTitle
-      : PlainLanguage.preparingStageTitle(update.stage)
+      ? PlainLanguage.downloadingPackagesTitle : PlainLanguage.preparingStageTitle(update.stage)
   }
 
   private var fraction: Double? {
-    if update.stage == .downloading, let package, package.totalBytes > 0 {
-      return Double(package.bytesCompleted) / Double(package.totalBytes)
-    }
-    guard lastTotal > 0 else {
-      return nil
-    }
-    return Double(lastCompleted) / Double(lastTotal)
-  }
-
-  private var accessory: String? {
-    guard update.stage == .downloading, let package,
-      package.totalBytes > 0, package.bytesCompleted < package.totalBytes
-    else {
-      return nil
-    }
-    return
-      "\(PlainLanguage.bytes(package.bytesCompleted)) of \(PlainLanguage.bytes(package.totalBytes))"
+    guard update.stage == .downloading, let package, package.totalBytes > 0 else { return nil }
+    return min(1, Double(package.bytesCompleted) / Double(package.totalBytes))
   }
 }
 
@@ -743,7 +724,7 @@ private struct DownloadPanel: View {
 
 /// The disk bar with the draggable divider. Letting go on a new whole-GB
 /// size re-plans; the chosen size stays on screen until the new plan lands.
-private struct DiskSplitPanel: View {
+struct DiskSplitPanel: View {
   let plan: PlanDisplay
   let editable: Bool
   let isBusy: Bool
@@ -758,15 +739,19 @@ private struct DiskSplitPanel: View {
     VStack(alignment: .leading, spacing: 12) {
       Panel {
         VStack(alignment: .leading, spacing: 10) {
-          HStack(alignment: .firstTextBaseline) {
-            Text(plan.fixedMacOSBytes == nil ? "macOS" : "macOS + free space")
-              .font(OmarchyTheme.heading)
-              .foregroundStyle(OmarchyTheme.accent)
-            Spacer(minLength: 8)
-            Text("Aurora")
-              .font(OmarchyTheme.heading)
-              .foregroundStyle(OmarchyTheme.accent)
+          Text("Choose your space").font(.system(size: 22, weight: .semibold))
+          Text(plan.fixedMacOSBytes == nil
+            ? "Set aside space for Aurora. Drag the divider or enter a size below."
+            : "Choose how much of the available free space Aurora will use.")
+            .font(OmarchyTheme.body).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+          HStack(alignment: .top) {
+            capacity("macOS", bytes: plan.macOSBytes(for: displayedOmarchyBytes), highlighted: false)
+            Spacer()
+            capacity("Aurora", bytes: displayedOmarchyBytes, highlighted: true)
           }
+          .padding(.top, 16)
+          .padding(.bottom, 8)
           DiskBar(
             macOSBytes: plan.macOSBytes(for: displayedOmarchyBytes),
             omarchyBytes: displayedOmarchyBytes,
@@ -795,7 +780,7 @@ private struct DiskSplitPanel: View {
                 )
                 .textFieldStyle(.roundedBorder)
                 .font(OmarchyTheme.control)
-                .frame(width: 62, height: 28)
+                .frame(width: 88, height: 30)
                 .focused($sizeFocused)
                 .onTapGesture {
                   beginSizeEdit()
@@ -825,7 +810,14 @@ private struct DiskSplitPanel: View {
                   .help("Cancel size edit (Escape)")
                 }
                 Spacer(minLength: 0)
+                if !sizeInput.isEditing {
+                  Button("Use maximum") { onSizeChosen(plan.maximumBytes) }
+                    .buttonStyle(.link)
+                    .disabled(plan.omarchyBytes == plan.maximumBytes)
+                }
               }
+              Text("From \(PlainLanguage.bytes(plan.minimumBytes)) to \(PlainLanguage.bytes(plan.maximumBytes))")
+                .font(OmarchyTheme.detail).foregroundStyle(.secondary)
               if let message = sizeInput.validationMessage {
                 Text(message).font(OmarchyTheme.detail).foregroundStyle(OmarchyTheme.danger)
               }
@@ -839,9 +831,6 @@ private struct DiskSplitPanel: View {
             )
             .omarchyHelpText()
           }
-          Text("Aurora will use the space selected above.")
-            .omarchyHelpText()
-            .padding(.trailing, 28)
         }
         .padding(.vertical, 4)
       }
@@ -862,6 +851,14 @@ private struct DiskSplitPanel: View {
     }
     .onChange(of: plan.omarchyBytes) { _, _ in
       exploredOmarchyGB = nil
+    }
+  }
+
+  private func capacity(_ title: String, bytes: UInt64, highlighted: Bool) -> some View {
+    VStack(alignment: highlighted ? .trailing : .leading, spacing: 5) {
+      Text(title).font(OmarchyTheme.detail).foregroundStyle(.secondary)
+      Text(PlainLanguage.bytes(bytes)).font(.system(size: 28, weight: .medium, design: .rounded))
+        .monospacedDigit().foregroundStyle(highlighted ? OmarchyTheme.accent : OmarchyTheme.text)
     }
   }
 
@@ -914,71 +911,65 @@ private struct DiskSplitPanel: View {
 
 /// Stage count and verified activity describe progress without inventing a
 /// percentage for operations whose duration is unknown.
-private struct InstallPanel: View {
+struct InstallPanel: View {
   let progress: InstallProgressDisplay
-  @State private var estimate = InstallationProgressEstimate(
-    expectedSeconds: InstallationTimingHistory.expectedSeconds)
-
-  private var stageLabel: String {
-    let index = progress.stageIndex
-    if progress.stageLabels.indices.contains(index) {
-      return progress.phaseTitle
-    }
-    return progress.phaseTitle
-  }
 
   var body: some View {
     Panel {
-      VStack(alignment: .leading, spacing: 12) {
-        HStack(alignment: .firstTextBaseline) {
-          Text(stageLabel)
-            .font(OmarchyTheme.heading)
-            .lineLimit(1)
-            .truncationMode(.tail)
-          Spacer(minLength: 8)
-          TimelineView(.periodic(from: progress.startedAt, by: 1)) { context in
-            Text(elapsed(at: context.date))
-              .font(OmarchyTheme.detail)
-              .foregroundStyle(OmarchyTheme.secondaryText)
-          }
-          Text(
-            "Step \(min(progress.stageIndex + 1, progress.stageLabels.count)) of \(progress.stageLabels.count)"
-          )
-          .font(OmarchyTheme.body)
+      VStack(alignment: .leading, spacing: 24) {
+        VStack(alignment: .leading, spacing: 8) {
+          Text("Installing Aurora").font(.system(size: 24, weight: .semibold))
+          Text(progress.phaseTitle).font(OmarchyTheme.body).foregroundStyle(.secondary)
         }
-        TimelineView(.periodic(from: progress.startedAt, by: 1)) { context in
-          let elapsed = max(0, context.date.timeIntervalSince(progress.startedAt))
-          VStack(alignment: .leading, spacing: 6) {
-            ProgressTrack(fraction: estimate.fraction, height: 18)
-            HStack {
-              Text("Estimated progress · \(Int(estimate.fraction * 100))%")
+        VStack(alignment: .leading, spacing: 18) {
+          ForEach(Array(progress.stageLabels.enumerated()), id: \.offset) { index, label in
+            HStack(spacing: 13) {
+              stageMark(index).frame(width: 22, height: 22)
+              Text(label).font(.system(size: 14, weight: index == progress.stageIndex ? .medium : .regular))
+                .foregroundStyle(index <= progress.stageIndex ? OmarchyTheme.text : OmarchyTheme.secondaryText)
               Spacer()
-              if let minutes = estimate.remainingMinutes(elapsed: elapsed) {
-                Text("About \(minutes) min remaining")
-              } else {
-                Text("Taking longer than estimated")
+              if verified(index) {
+                Text("Verified").font(OmarchyTheme.detail).foregroundStyle(.secondary)
+              } else if index == progress.stageIndex {
+                Text("In progress").font(OmarchyTheme.detail).foregroundStyle(.secondary)
               }
             }
-            .font(OmarchyTheme.detail)
-            .foregroundStyle(OmarchyTheme.secondaryText)
           }
-          .onChange(of: context.date, initial: true) { _, date in
-            estimate.update(
-              elapsed: date.timeIntervalSince(progress.startedAt),
-              completedStages: progress.stageFractions.filter { $0 >= 1 }.count)
+        }
+        TimelineView(.periodic(from: progress.startedAt, by: 1)) { context in
+          HStack {
+            Text("Step \(min(progress.stageIndex + 1, progress.stageLabels.count)) of \(progress.stageLabels.count)")
+            Spacer()
+            Text("\(elapsed(at: context.date)) elapsed").monospacedDigit()
           }
+          .font(OmarchyTheme.detail).foregroundStyle(.secondary)
         }
         DisclosureGroup("View activity") {
           ForEach(progress.feed) { line in
             Text(line.text).font(OmarchyTheme.technical).textSelection(.enabled)
           }
         }
+        .font(OmarchyTheme.detail)
         if progress.degraded {
-          Text(PlainLanguage.installDegraded)
-            .omarchyHelpText()
+          Text(PlainLanguage.installDegraded).omarchyHelpText()
         }
       }
-      .padding(.vertical, 4)
+      .padding(.vertical, 12)
+    }
+  }
+
+  private func verified(_ index: Int) -> Bool {
+    progress.stageFractions.indices.contains(index) && progress.stageFractions[index] >= 1
+  }
+
+  @ViewBuilder private func stageMark(_ index: Int) -> some View {
+    if verified(index) {
+      Image(systemName: "checkmark.circle.fill").font(.system(size: 20))
+        .foregroundStyle(OmarchyTheme.success)
+    } else if index == progress.stageIndex {
+      ProgressView().controlSize(.small)
+    } else {
+      Image(systemName: "circle").font(.system(size: 20)).foregroundStyle(.tertiary)
     }
   }
 

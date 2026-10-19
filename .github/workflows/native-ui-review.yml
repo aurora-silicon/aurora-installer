@@ -1,0 +1,72 @@
+name: Native installer visual review
+on:
+  push:
+    branches: [feat/swift-native-installer]
+    paths:
+      - macOS/Sources/OmarchyAppleInstallerApp/**
+      - .github/workflows/native-ui-review.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  review:
+    runs-on: macos-26
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+        working-directory: macOS
+    env:
+      XCODEBUILDMCP_SENTRY_DISABLED: 'true'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: Install pinned native build driver
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tools" "$RUNNER_TEMP/evidence"
+          cd "$RUNNER_TEMP/tools"
+          curl --fail --location --silent --show-error --retry 3 \
+            https://github.com/getsentry/XcodeBuildMCP/releases/download/v2.7.0/xcodebuildmcp-2.7.0-darwin-arm64.tar.gz -o tool.tar.gz
+          echo 'bd724a2c0e6ffe027b3f46257e66d626149a64cd045f4867124bd683b3cf081a  tool.tar.gz' | shasum -a 256 -c -
+          tar -xzf tool.tar.gz
+          echo "$PWD/xcodebuildmcp-2.7.0-darwin-arm64/bin" >> "$GITHUB_PATH"
+      - name: Record source and native toolchain
+        run: |
+          { git rev-parse HEAD; sw_vers; uname -m; xcrun swift --version; xcodebuild -version; } > "$RUNNER_TEMP/evidence/toolchain.txt"
+      - name: Format and retain any correction
+        id: format
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          xcrun swift-format format -i --recursive Package.swift Sources Plugins Tests
+          git diff --binary > "$RUNNER_TEMP/evidence/format.patch"
+          git diff --exit-code
+      - name: Run focused application tests in debug and release
+        run: |
+          set -euo pipefail
+          xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug --filter OmarchyAppleInstallerAppTests 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
+          xcodebuildmcp swift-package test --package-path "$PWD" --configuration release --filter OmarchyAppleInstallerAppTests 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
+      - name: Build the unprivileged native preview
+        run: bash Packaging/build-aurora-preview.sh "$RUNNER_TEMP/preview"
+      - name: Render actual native components in both appearances
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/preview/Aurora Installer.app"
+          for screen in chooser allocation loading download install; do
+            for appearance in light dark; do
+              output="$RUNNER_TEMP/evidence/$screen-$appearance.png"
+              arguments=(--simulate "--preview-screen=$screen" "--snapshot=$output" --quit-after-snapshot)
+              [[ $appearance != dark ]] || arguments+=(--preview-dark)
+              open -W "$app" --args "${arguments[@]}"
+              test -s "$output"
+            done
+          done
+      - name: Require clean source formatting
+        if: always()
+        run: test '${{ steps.format.outcome }}' = success
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: native-ui-review-evidence
+          path: ${{ runner.temp }}/evidence/
+          retention-days: 14

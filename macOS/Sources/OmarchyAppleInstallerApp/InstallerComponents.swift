@@ -10,8 +10,7 @@ struct Panel<Content: View>: View {
     VStack(alignment: .leading, spacing: 10) {
       content
     }
-    .padding(.horizontal, 14)
-    .padding(.vertical, 13)
+    .padding(20)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(
       RoundedRectangle(cornerRadius: OmarchyTheme.cardRadius)
@@ -19,7 +18,7 @@ struct Panel<Content: View>: View {
     )
     .overlay(
       RoundedRectangle(cornerRadius: OmarchyTheme.cardRadius)
-        .strokeBorder(OmarchyTheme.separator, lineWidth: 1)
+        .strokeBorder(OmarchyTheme.separator.opacity(0.45), lineWidth: 0.5)
     )
   }
 }
@@ -57,16 +56,15 @@ struct StatusBadge: View {
   var body: some View {
     Text(text)
       .font(OmarchyTheme.badge)
-      .textCase(.uppercase)
       .tracking(OmarchyTheme.buttonTracking)
       .foregroundStyle(
-        kind == .ok ? OmarchyTheme.accentText : Color.white
+        kind == .ok ? OmarchyTheme.secondaryText : OmarchyTheme.danger
       )
-      .padding(.horizontal, 12)
+      .padding(.horizontal, 9)
       .padding(.vertical, 4)
       .background(
         Capsule().fill(
-          kind == .ok ? OmarchyTheme.accent : OmarchyTheme.danger
+          kind == .ok ? OmarchyTheme.track : OmarchyTheme.danger.opacity(0.1)
         )
       )
   }
@@ -94,31 +92,30 @@ struct DiskBar: View {
       ZStack(alignment: .leading) {
         HStack(spacing: 0) {
           segment(
-            name: unallocatedBytes > 0 ? "macOS and free space" : "macOS",
-            bytes: macOSBytes + unallocatedBytes,
-            width: width - omarchyWidth,
-            background: macOSSpaceCaution == nil ? OmarchyTheme.track : OmarchyTheme.caution,
-            foreground: macOSSpaceCaution == nil
-              ? OmarchyTheme.secondaryText : OmarchyTheme.accentText
-          )
+            name: "macOS", bytes: macOSBytes,
+            width: width * Double(macOSBytes) / total,
+            background: macOSSpaceCaution == nil ? OmarchyTheme.track : OmarchyTheme.caution.opacity(0.2),
+            foreground: OmarchyTheme.secondaryText)
+          if unallocatedBytes > 0 {
+            segment(
+              name: "Unallocated", bytes: unallocatedBytes,
+              width: width * Double(unallocatedBytes) / total,
+              background: OmarchyTheme.track.opacity(0.4), foreground: OmarchyTheme.secondaryText)
+          }
           segment(
-            name: "Aurora",
-            bytes: omarchyBytes,
-            width: omarchyWidth,
-            background: OmarchyTheme.accent,
-            foreground: OmarchyTheme.accentText
-          )
+            name: "Aurora", bytes: omarchyBytes, width: omarchyWidth,
+            background: OmarchyTheme.accent, foreground: OmarchyTheme.accentText)
         }
+        .clipShape(RoundedRectangle(cornerRadius: 12))
         if onAdjustOmarchyFraction != nil {
-          RoundedRectangle(cornerRadius: 3)
-            .fill(OmarchyTheme.handle)
-            .frame(width: 6, height: 18)
-            .overlay(
-              RoundedRectangle(cornerRadius: 3)
-                .strokeBorder(Color.black.opacity(0.25), lineWidth: 1)
-            )
-            .shadow(color: .black.opacity(0.4), radius: 1.5)
-            .offset(x: min(max(4, width - omarchyWidth - 3), width - 10))
+          Image(systemName: "arrow.left.and.right")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(Color.primary.opacity(0.7))
+            .frame(width: 26, height: 34)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.35), lineWidth: 1))
+            .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+            .offset(x: min(max(0, width - omarchyWidth - 13), width - 26))
         }
       }
       .contentShape(Rectangle())
@@ -137,8 +134,7 @@ struct DiskBar: View {
         including: onAdjustOmarchyFraction == nil ? .none : .all
       )
     }
-    .frame(height: 24)
-    .clipShape(RoundedRectangle(cornerRadius: 8))
+    .frame(height: 54)
     .accessibilityElement(children: .combine)
     .accessibilityLabel("Disk space")
     .accessibilityValue(
@@ -167,13 +163,13 @@ struct DiskBar: View {
   ) -> some View {
     ZStack {
       background
-      // Center each live capacity in the full area on its side of the handle.
-      Text(PlainLanguage.bytes(bytes))
-        .accessibilityLabel(name + " " + PlainLanguage.bytes(bytes))
-        .font(OmarchyTheme.badge)
-        .foregroundStyle(foreground)
-        .lineLimit(1)
-        .padding(.horizontal, 4)
+      if width >= 68 {
+        Text(name)
+          .font(.system(size: 12, weight: .medium))
+          .foregroundStyle(foreground)
+          .lineLimit(1)
+          .padding(.horizontal, 8)
+      }
     }
     .frame(width: max(0, width))
   }
@@ -264,7 +260,25 @@ struct TechnicalDetailText: View {
 }
 
 extension View {
-  func omarchyPrimaryButton() -> some View { buttonStyle(.bordered).controlSize(.large) }
+  func omarchyPrimaryButton() -> some View { buttonStyle(.borderedProminent).controlSize(.large) }
   func omarchySecondaryButton() -> some View { buttonStyle(.bordered).controlSize(.large) }
   func omarchyDangerButton() -> some View { buttonStyle(.bordered).tint(.red).controlSize(.large) }
+}
+
+struct PreparationStatusPanel: View {
+  let detail: String
+
+  var body: some View {
+    Panel {
+      HStack(alignment: .center, spacing: 20) {
+        ProgressView().controlSize(.regular).frame(width: 38, height: 38)
+        VStack(alignment: .leading, spacing: 8) {
+          Text("Getting everything ready").font(.system(size: 22, weight: .semibold))
+          Text(detail).font(OmarchyTheme.body).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+      .padding(.vertical, 24)
+    }
+  }
 }
