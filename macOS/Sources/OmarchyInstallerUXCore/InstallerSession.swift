@@ -99,6 +99,7 @@
     /// the helper proved from its root-owned journal that no mutation began.
     public private(set) var hasExecutionStarted = false
     public private(set) var recoveryRetryAvailable = false
+    private var restoredRecoveryRetry = false
 
     private let environment: any InstallerEnvironment
     private var retrySheet = CredentialSheetState.hidden
@@ -183,8 +184,7 @@
       recoveryRetryAvailable
         && !environment.installationBlocked
         && !isExecuting
-        && environment.engineSupported
-        && environment.hasApprovedPlan
+        && (restoredRecoveryRetry || (environment.engineSupported && environment.hasApprovedPlan))
         && environment.helperStatus.isReady
     }
 
@@ -206,12 +206,20 @@
           installStartedAt = Date()
           phase = .installing(journal.display(startedAt: installStartedAt))
           let received = SessionJournalBuffer()
-          let completion = try await environment.resumeInstallation { [weak self] chunk in
+          let restoration = try await environment.resumeInstallation { [weak self] chunk in
             received.append(chunk)
             Task { @MainActor in self?.drainJournal(received) }
           }
           drainJournal(received)
-          await route(completion)
+          switch restoration {
+          case .completed(let completion):
+            await route(completion)
+          case .requiresRecoveryAuthorization:
+            restoredRecoveryRetry = true
+            recoveryRetryAvailable = true
+            phase = .failed(PlainLanguage.failure(
+              for: EngineXPCSubmissionError.recoveryAuthorizationFailed, retryRecoveryAvailable: true))
+          }
           return
         }
         let host = try await environment.inspect()
@@ -703,6 +711,12 @@
         // credentials; any new attempt still needs a new reviewed plan.
         hasExecutionStarted = false
         refusedPlan = plan
+      }
+      if restoredRecoveryRetry, error as? EngineXPCSubmissionError == .notSubmitted {
+        recoveryRetryAvailable = true
+        phase = .failed(PlainLanguage.failure(
+          for: EngineXPCSubmissionError.recoveryAuthorizationFailed, retryRecoveryAvailable: true))
+        return
       }
       beginInstallingIfNeeded()
       recoveryRetryAvailable = RecoveryAuthorizationRetryPolicy.isEligible(

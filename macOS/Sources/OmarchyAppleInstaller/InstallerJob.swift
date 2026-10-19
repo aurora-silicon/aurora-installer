@@ -63,6 +63,7 @@
     public let ticket: InstallerJobTicket
     public let helperMachServiceName: String
     public let helperCodeSigningRequirement: String
+    public let recoveryAttempt: UUID?
   }
 
   public final class InstallerJobExecutionContext: @unchecked Sendable {
@@ -145,11 +146,13 @@
     public let bindingDigest: String
     public let planDigest: String
     public let deviceIdentifier: String
+    public let storeIdentifier: String
 
     init(package: ImportedEngineHandoffPackage) {
       bindingDigest = package.bindingDigest
       planDigest = package.planDigest
       deviceIdentifier = package.deviceIdentifier
+      storeIdentifier = package.storeIdentifier
     }
   }
 
@@ -221,6 +224,8 @@
     let failure: InstallerJobFailure?
     public let journal: Data
     public let journalOffset: UInt64
+    public let recoveryAttempt: UUID?
+    public let recoveryRetryAvailable: Bool
 
     public func requireResult() throws -> (Data, InstallConfHandoff) {
       switch phase {
@@ -248,6 +253,17 @@
     let journalOffset: UInt64
   }
 
+  struct InstallerJobRecoveryRequest: Codable, Sendable {
+    let ticket: InstallerJobTicket
+    let attempt: UUID
+  }
+
+  struct InstallerJobRecoveryContext: Sendable {
+    let packageName: String
+    let identity: InstallerJobPlanIdentity
+    let installConf: Data
+  }
+
   private struct InstallerJobRecord: Codable {
     let format: Int
     let identifier: UUID
@@ -263,6 +279,9 @@
     var transcript: Data?
     var installConf: InstallConfHandoff?
     var failure: InstallerJobFailure?
+    var retainedPackageName: String?
+    var recoveryAttempt: UUID?
+    var recoveryAttempts: [UUID]?
   }
 
   /// Independent synchronization keeps observation responsive while the engine
@@ -274,16 +293,23 @@
     private let directory: URL
     private let workingDirectory: URL
     private let work: HelperWorkState
+    private let retryEligibility: @Sendable (InstallerJobPlanIdentity) -> Bool
     private var records = [UUID: InstallerJobRecord]()
     private var loaded = false
     private var loadError: (any Error)?
     private static let maximumRecordBytes = 12 * 1_048_576
     private static let maximumRecords = 32
 
-    init(workingDirectory: URL, work: HelperWorkState) {
+    init(
+      workingDirectory: URL, work: HelperWorkState,
+      retryEligibility: (@Sendable (InstallerJobPlanIdentity) -> Bool)? = nil
+    ) {
       self.workingDirectory = workingDirectory
       directory = workingDirectory.appendingPathComponent("installation-jobs", isDirectory: true)
       self.work = work
+      self.retryEligibility = retryEligibility ?? { identity in
+        PinnedAsahiEngineExecutor().canRetryRecoveryAuthorization(identity, in: workingDirectory)
+      }
       do { try load() } catch {
         loadError = error
         // Unknown persistent state cannot make an old executor safe to replace.
@@ -336,6 +362,7 @@
           record.bindingDigest == package.bindingDigest
         else { throw InstallerJobError.identityMismatch }
         record.plan = InstallerJobPlanIdentity(package: package)
+        record.retainedPackageName = package.packageURL.lastPathComponent
         record.phase = .running
         try persist(record)
         records[identifier] = record
@@ -343,7 +370,8 @@
     }
 
     func finish(_ identifier: UUID, result: Result<(Data, InstallConfHandoff), any Error>) {
-      defer { work.endJob() }
+      var holdForInspection = false
+      defer { if !holdForInspection { work.endJob() } }
       lock.withLock {
         guard var record = records[identifier] else { return }
         switch result {
@@ -352,12 +380,19 @@
             record.phase = .succeeded
             record.transcript = transcript
             record.installConf = conf
+            record.retainedPackageName = nil
           } else {
             record.phase = .interrupted
           }
         case .failure(let error):
           record.phase = .failed
           record.failure = InstallerJobFailure(error: error)
+          if record.recoveryAttempt != nil && record.failure?.code == "helper" {
+            record.phase = .interrupted
+          } else if record.failure?.code != "recovery" && record.recoveryAttempt == nil
+          {
+            record.retainedPackageName = nil
+          }
         }
         do {
           try persist(record)
@@ -369,6 +404,7 @@
           record.installConf = nil
         }
         records[identifier] = record
+        holdForInspection = record.phase == .interrupted
       }
     }
 
@@ -389,7 +425,59 @@
         identifier: record.identifier, bindingDigest: record.bindingDigest,
         selection: record.selection, phase: record.phase, plan: record.plan,
         transcript: record.transcript, installConf: record.installConf, failure: record.failure,
-        journal: journal, journalOffset: offset)
+        journal: journal, journalOffset: offset, recoveryAttempt: record.recoveryAttempt,
+        recoveryRetryAvailable: retryAvailable(record))
+    }
+
+    func beginRecoveryRetry(_ request: InstallerJobRecoveryRequest, initiatingUID: UInt32) throws -> Bool {
+      try request.ticket.validate()
+      return try lock.withLock {
+        try load()
+        guard var record = records[request.ticket.identifier] else { throw InstallerJobError.unavailable }
+        try authorize(record, ticket: request.ticket, uid: initiatingUID)
+        if record.recoveryAttempts?.contains(request.attempt) == true {
+          guard record.recoveryAttempt == request.attempt else { throw InstallerJobError.identityMismatch }
+          return false
+        }
+        guard retryAvailable(record) else { throw InstallerJobError.invalidRequest }
+        guard (record.recoveryAttempts?.count ?? 0) < 256 else { throw InstallerJobError.historyFull }
+        try work.beginJob()
+        record.recoveryAttempt = request.attempt
+        record.recoveryAttempts = (record.recoveryAttempts ?? []) + [request.attempt]
+        record.phase = .preparing
+        record.failure = nil
+        record.transcript = nil
+        record.installConf = nil
+        do {
+          try persist(record)
+          records[record.identifier] = record
+          return true
+        } catch {
+          work.endJob()
+          throw error
+        }
+      }
+    }
+
+    func recoveryContext(_ identifier: UUID) throws -> InstallerJobRecoveryContext {
+      try lock.withLock {
+        guard let record = records[identifier], record.recoveryAttempt != nil,
+          record.phase == .preparing, let identity = record.plan,
+          let name = record.retainedPackageName
+        else { throw InstallerJobError.invalidRequest }
+        return InstallerJobRecoveryContext(
+          packageName: name, identity: identity, installConf: record.installConfDocument)
+      }
+    }
+
+    func canRetryNow(_ identity: InstallerJobPlanIdentity) -> Bool { retryEligibility(identity) }
+
+    private func retryAvailable(_ record: InstallerJobRecord) -> Bool {
+      guard record.phase == .failed, record.retainedPackageName != nil, let identity = record.plan,
+        record.failure?.code == "recovery"
+          || (record.recoveryAttempt != nil && record.failure?.code == "credentials")
+      else { return false }
+      return retryEligibility(identity)
     }
 
     private func authorize(_ record: InstallerJobRecord, ticket: InstallerJobTicket, uid: UInt32)
@@ -440,7 +528,7 @@
 
     private func retireNonMutatingFailures() throws {
       let failures = records.values.filter {
-        $0.phase == .failed && $0.failure?.diskUnchanged == true
+        $0.phase == .failed && $0.failure?.diskUnchanged == true && $0.retainedPackageName == nil
       }.sorted { $0.createdAt < $1.createdAt }
       guard failures.count >= 8 else { return }
       let files = try PrivateInstallerJobFiles(directory: directory)

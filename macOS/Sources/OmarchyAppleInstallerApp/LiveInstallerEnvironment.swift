@@ -527,7 +527,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   }
 
   func resumeInstallation(journal: @escaping @Sendable (Data) -> Void) async throws
-    -> CompletionDisplay
+    -> InstallerRestorationResult
   {
     let store = try Self.pendingJobStore()
     guard let hint = try store.load(), hint.ticket.selection == selection else {
@@ -539,22 +539,56 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       helperCodeSigningRequirement: configuration.helperCodeSigningRequirement,
       journalProgress: journal)
     let snapshot = try await client.observeJob(hint)
+    if snapshot.recoveryRetryAvailable {
+      _ = try requireMatchingJobDevice(snapshot)
+      return .requiresRecoveryAuthorization
+    }
     let bytes: Data
     let handoff: InstallConfHandoff
     do { (bytes, handoff) = try snapshot.requireResult() } catch let error
       as EngineXPCSubmissionError where error == .machineOwnerCredentialsRejected
     {
+      guard snapshot.recoveryAttempt == nil else { throw InstallerJobError.interrupted }
       try store.clear()
       throw error
     }
+    let completion = try completionFromJob(snapshot, bytes: bytes, handoff: handoff)
+    try store.clear()
+    return .completed(completion)
+  }
+
+  private func requireMatchingJobDevice(_ snapshot: InstallerJobSnapshot) throws -> InstallerJobPlanIdentity {
     guard let identity = snapshot.plan,
-      identity.deviceIdentifier
-        == (try AppleSiliconHostInspector().inspect()).identity.deviceIdentifier
+      identity.deviceIdentifier == (try AppleSiliconHostInspector().inspect()).identity.deviceIdentifier
     else { throw InstallerJobError.identityMismatch }
+    return identity
+  }
+
+  private func completionFromJob(
+    _ snapshot: InstallerJobSnapshot, bytes: Data, handoff: InstallConfHandoff
+  ) throws -> CompletionDisplay {
+    let identity = try requireMatchingJobDevice(snapshot)
     let transcript = try AppleInstallerTrustCore().validateEngineTranscript(bytes)
     let progress = try InstallerExecutionProgress(observing: identity, transcript: transcript)
-    try store.clear()
     return Self.completionDisplay(progress, installConf: handoff)
+  }
+
+  private func retryPendingRecovery(
+    authorization: MachineOwnerAuthorization, journal: @escaping @Sendable (Data) -> Void
+  ) async throws -> CompletionDisplay {
+    let store = try Self.pendingJobStore()
+    guard let hint = try store.load(), hint.ticket.selection == selection else {
+      throw InstallerJobError.identityMismatch
+    }
+    let configuration = try loadConfiguration()
+    let client = try AuthenticatedEngineXPCSubmitter(
+      machServiceName: configuration.helperMachServiceName,
+      helperCodeSigningRequirement: configuration.helperCodeSigningRequirement, journalProgress: journal)
+    let snapshot = try await client.retryRecoveryJob(hint, store: store, authorization: authorization)
+    let (bytes, handoff) = try snapshot.requireResult()
+    let completion = try completionFromJob(snapshot, bytes: bytes, handoff: handoff)
+    try store.clear()
+    return completion
   }
 
   func execute(
@@ -563,6 +597,9 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     encryptLinuxDisk: Bool,
     journal: @escaping @Sendable (Data) -> Void
   ) async throws -> CompletionDisplay {
+    if operation == .retryRecoveryAuthorization {
+      return try await retryPendingRecovery(authorization: authorization, journal: journal)
+    }
     guard buildProfile.allowsEncryption || !encryptLinuxDisk else {
       throw NSError(
         domain: "OmarchyPrivateTest", code: 1,

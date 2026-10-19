@@ -532,6 +532,11 @@
   /// implementation retains the trust objects (host inspection, prepared plan,
   /// review, approval, release configuration); the preview implementation
   /// replays a recorded journal. Neither ever hands a credential back.
+  public enum InstallerRestorationResult: Sendable {
+    case completed(CompletionDisplay)
+    case requiresRecoveryAuthorization
+  }
+
   public protocol InstallerEnvironment: Sendable {
     var isSimulation: Bool { get }
     func inspectRecoveryAccount() async throws -> RecoveryAccountReply?
@@ -546,7 +551,7 @@
     /// observed. Neither method creates an execution approval or needs a password.
     func hasPendingInstallation() throws -> Bool
     func resumeInstallation(journal: @escaping @Sendable (Data) -> Void) async throws
-      -> CompletionDisplay
+      -> InstallerRestorationResult
     /// `omarchyBytes` asks the planner for that much space for Aurora; nil
     /// keeps the balanced default. The engine still clamps the request to the
     /// candidate's real minimum and maximum.
@@ -607,7 +612,7 @@
   extension InstallerEnvironment {
     public func hasPendingInstallation() throws -> Bool { false }
     public func resumeInstallation(journal: @escaping @Sendable (Data) -> Void) async throws
-      -> CompletionDisplay
+      -> InstallerRestorationResult
     {
       throw InstallerJobError.unavailable
     }

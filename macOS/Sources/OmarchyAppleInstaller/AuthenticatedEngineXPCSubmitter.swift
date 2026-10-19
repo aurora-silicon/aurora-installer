@@ -52,6 +52,11 @@
 
     func jobStatus(request: Data, reply: @escaping @Sendable (Data?, NSError?) -> Void)
 
+    func retryRecoveryJob(
+      request: Data, machineOwner: String, password: Data,
+      reply: @escaping @Sendable (Data?, NSError?) -> Void
+    )
+
     func writeInstallConf(
       document: Data,
       storeIdentifier: String,
@@ -635,7 +640,37 @@
         snapshot.selection == hint.ticket.selection,
         snapshot.plan == nil || snapshot.plan?.bindingDigest == hint.ticket.bindingDigest
       else { throw InstallerJobError.identityMismatch }
+      if let expected = hint.recoveryAttempt, snapshot.recoveryAttempt != expected {
+        throw InstallerJobError.unavailable
+      }
       return snapshot
+    }
+
+    public func retryRecoveryJob(
+      _ hint: PendingInstallerJob, store: PendingInstallerJobStore,
+      authorization: MachineOwnerAuthorization
+    ) async throws -> InstallerJobSnapshot {
+      guard hint.helperMachServiceName == machServiceName,
+        hint.helperCodeSigningRequirement == helperCodeSigningRequirement
+      else { throw InstallerJobError.identityMismatch }
+      let attempt = UUID()
+      let pending = PendingInstallerJob(
+        ticket: hint.ticket, helperMachServiceName: hint.helperMachServiceName,
+        helperCodeSigningRequirement: hint.helperCodeSigningRequirement, recoveryAttempt: attempt)
+      try store.save(pending)
+      let request = try JSONEncoder().encode(InstallerJobRecoveryRequest(ticket: hint.ticket, attempt: attempt))
+      do {
+        _ = try await jobCall { proxy, reply in
+          proxy.retryRecoveryJob(request: request, machineOwner: authorization.username,
+            password: authorization.password, reply: reply)
+        }
+      } catch let error as EngineXPCSubmissionError where error == .connectionFailed {
+        // Observe this exact attempt; credentials are never resent automatically.
+      } catch let error as InstallerJobError where error == .notAdmitted {
+        try store.save(hint)
+        throw EngineXPCSubmissionError.notSubmitted
+      }
+      return try await observeJob(pending)
     }
 
     /// Read-only polling needs no credential and survives replacing the GUI.

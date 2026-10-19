@@ -14,4 +14,6 @@ On reopening, the app restores the selected profile from its lookup hint and obs
 
 This change reconnects helper jobs. The full installation engine still uses its existing backend; native firmware extraction is the next integration step.
 
-Before release, restored Recovery-authorization failures still need a narrow credentialed retry using the original root-owned handoff and verified checkpoints. The current feature branch does not synthesize a fresh approval or replay those failures.
+Recovery-authorization retry is a separate credentialed action on the original job. It accepts only the ticket and a fresh attempt UUID, retains the original installation options, and revalidates the canonical root-owned package in place. The request cannot choose another operation, package or target. The helper checks the exact eight-record checkpoint and both evidence digests again before invoking only `retryRecoveryAuthorization`; the pinned backend additionally rereads the installed checkpoint.
+
+Retry attempt IDs are recorded before a worker starts and remain in bounded history, preventing an older duplicate from executing again after another attempt. A lost reply observes its exact attempt without resending credentials. Bad retry credentials retain the original installation context. The GUI exposes this capability separately from fresh-install approval. Unknown retry integrity or terminal-persistence failures keep the work/replacement gate held for inspection.

@@ -394,6 +394,16 @@
           .recoveryAuthorizationFailed
         )
       }
+      XCTAssertTrue(executor.canRetryRecoveryAuthorization(
+        InstallerJobPlanIdentity(package: fixture.package), in: fixture.package.packageURL.deletingLastPathComponent()))
+      let journal = try XCTUnwrap(EngineJournalLocator.journalURL(
+        workingDirectory: fixture.package.packageURL.deletingLastPathComponent(),
+        bindingDigest: fixture.package.bindingDigest))
+      let evidence = URL(fileURLWithPath: journal.path + ".stub-and-esp-installed.evidence")
+      XCTAssertEqual(chmod(evidence.path, 0o600), 0)
+      try Data("changed evidence".utf8).write(to: evidence)
+      XCTAssertFalse(executor.canRetryRecoveryAuthorization(
+        InstallerJobPlanIdentity(package: fixture.package), in: fixture.package.packageURL.deletingLastPathComponent()))
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
     }
 

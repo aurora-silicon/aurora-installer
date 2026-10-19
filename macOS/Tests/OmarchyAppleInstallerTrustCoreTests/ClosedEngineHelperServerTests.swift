@@ -566,6 +566,72 @@
           InstallerJobStatusRequest(ticket: ticket, journalOffset: 0), initiatingUID: 501))
     }
 
+    func testRecoveryRetryAfterRelaunchUsesOnlyTheRetainedPackageAndHardCodedOperation() async throws {
+      for tampered in [false, true] {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let source = try openDirectory(fixture.source)
+        defer { try? source.close() }
+        let first = ClosedEngineHelperServer(
+          workingDirectory: fixture.destination,
+          executor: FailingHandoffExecutor(error: .recoveryAuthorizationFailed),
+          credentialValidator: AcceptingMachineOwnerCredentialValidator(),
+          removalDisks: UnusedRemovalDisks(), removalAdminValidator: { _ in }, retryEligibility: { _ in true })
+        let ticket = try InstallerJobTicket(bindingDigest: digest(Data("binding".utf8)), selection: AuroraInstallationSelection())
+        let request = InstallerJobStartRequest(ticket: ticket, operation: "install",
+          installConf: try InstallConf(encrypt: false, lane: "rc").serializedData)
+        XCTAssertTrue(try first.jobs.begin(request, initiatingUID: 501))
+        do {
+          _ = try await first.executeRegisteredJob(packageDirectory: source,
+            authorization: try machineOwnerAuthorization(), operation: .install,
+            identifier: ticket.identifier, installConf: try InstallConf.parse(request.installConf))
+          XCTFail("Expected a Recovery handoff failure")
+        } catch { first.jobs.finish(ticket.identifier, result: .failure(error)) }
+        let directories = try FileManager.default.contentsOfDirectory(at: fixture.destination, includingPropertiesForKeys: nil)
+          .filter { $0.lastPathComponent.hasPrefix("imported-handoff-") }
+        let retained = try XCTUnwrap(directories.first)
+        XCTAssertEqual(directories.count, 1)
+        if tampered {
+          let payload = retained.appendingPathComponent("omarchy.img.zst")
+          XCTAssertEqual(chmod(payload.path, 0o600), 0)
+          try Data("corrupt".utf8).write(to: payload)
+        }
+        let disks = RecordingESPDisks(partitions: [
+          .init(identifier: "disk0s5", storeIdentifier: "disk0", type: "EFI", name: "EFI - OMARC",
+            offsetBytes: 447_750_000_000, lengthBytes: 500_000_000)
+        ])
+        let executor = RecoveryOnlyHandoffExecutor(result: fixture.transcript)
+        let restarted = ClosedEngineHelperServer(
+          workingDirectory: fixture.destination, executor: executor,
+          credentialValidator: AcceptingMachineOwnerCredentialValidator(),
+          removalDisks: UnusedRemovalDisks(), removalAdminValidator: { _ in }, espDisks: disks,
+          retryEligibility: { _ in true })
+        let attempt = InstallerJobRecoveryRequest(ticket: ticket, attempt: UUID())
+        XCTAssertTrue(try restarted.jobs.beginRecoveryRetry(attempt, initiatingUID: 501))
+        XCTAssertFalse(try restarted.jobs.beginRecoveryRetry(attempt, initiatingUID: 501))
+        do {
+          let result = try await restarted.retryRegisteredJob(identifier: ticket.identifier,
+            authorization: try machineOwnerAuthorization())
+          restarted.jobs.finish(ticket.identifier, result: .success(result))
+        } catch { restarted.jobs.finish(ticket.identifier, result: .failure(error)) }
+        let snapshot = try restarted.jobs.status(InstallerJobStatusRequest(ticket: ticket, journalOffset: 0), initiatingUID: 501)
+        let operations = await executor.operations
+        if tampered {
+          XCTAssertTrue(operations.isEmpty)
+          XCTAssertEqual(snapshot.phase, .interrupted)
+          XCTAssertTrue(FileManager.default.fileExists(atPath: retained.path))
+          XCTAssertFalse(restarted.work.beginReplacement(token: "replacement"))
+        } else {
+          XCTAssertEqual(operations, [.retryRecoveryAuthorization])
+          XCTAssertEqual(try snapshot.requireResult().1, .recorded)
+          XCTAssertFalse(snapshot.recoveryRetryAvailable)
+          XCTAssertEqual(disks.mountCalls, 1)
+          XCTAssertFalse(FileManager.default.fileExists(atPath: retained.path))
+          XCTAssertFalse(try restarted.jobs.beginRecoveryRetry(attempt, initiatingUID: 501))
+        }
+      }
+    }
+
     private func makeFixture(
       deviceIdentifier: String = "apple,j314s",
       transcriptPlanMismatch: Bool = false,
@@ -771,6 +837,17 @@
       operation: EngineHandoffOperation
     ) async throws -> Data {
       executionCount += 1
+      return result
+    }
+  }
+
+  private actor RecoveryOnlyHandoffExecutor: ImportedEngineHandoffExecuting {
+    let result: Data
+    private(set) var operations: [EngineHandoffOperation] = []
+    init(result: Data) { self.result = result }
+    func execute(_ package: ImportedEngineHandoffPackage, authorization: MachineOwnerAuthorization,
+      operation: EngineHandoffOperation) async throws -> Data {
+      operations.append(operation)
       return result
     }
   }

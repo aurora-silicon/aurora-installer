@@ -34,6 +34,22 @@
       XCTAssertEqual(environment.executeCount, 0)
     }
 
+    func testRestoredRecoveryRetryUsesASeparateCapabilityWithoutCreatingAFreshApproval() async throws {
+      let environment = MockInstallerEnvironment()
+      environment.pendingInstallation = true
+      environment.pendingRecoveryRetry = true
+      environment.engineSupported = false
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      XCTAssertFalse(environment.hasApprovedPlan)
+      XCTAssertTrue(session.canRetryRecoveryAuthorization)
+      XCTAssertFalse(session.canStartInstallation)
+      XCTAssertTrue(session.hasExecutionStarted)
+      XCTAssertEqual(environment.prepareCount, 0)
+      session.presentRecoveryRetryCredentials()
+      XCTAssertEqual(session.credentialSheet.context?.kind, .retryRecoveryAuthorization)
+    }
+
     func testUnknownPendingJobOutcomeKeepsFreshExecutionBlocked() async throws {
       let environment = MockInstallerEnvironment()
       environment.pendingInstallation = true
@@ -1629,18 +1645,20 @@
     }
 
     var pendingInstallation = false
+    var pendingRecoveryRetry = false
     var resumeError: (any Error)?
     private(set) var resumeCount = 0
 
     func hasPendingInstallation() throws -> Bool { pendingInstallation }
     func resumeInstallation(journal: @escaping @Sendable (Data) -> Void) async throws
-      -> CompletionDisplay
+      -> InstallerRestorationResult
     {
       resumeCount += 1
       if let resumeError { throw resumeError }
-      return CompletionDisplay(
+      if pendingRecoveryRetry { return .requiresRecoveryAuthorization }
+      return .completed(CompletionDisplay(
         nextAction: .verifyInstalledSystem, headline: "Done", subheadline: "Restored", verified: [],
-        handoff: nil)
+        handoff: nil))
     }
 
     func inspect() async throws -> HostDisplay {

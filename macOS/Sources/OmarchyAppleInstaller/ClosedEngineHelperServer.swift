@@ -169,13 +169,14 @@
       removalAdminValidator: @escaping @Sendable (MachineOwnerAuthorization) throws -> Void,
       espDisks: any InstallConfESPDiskOperating = DiskutilInstallConfESPOperator(),
       selfUninstaller: any HelperSelfUninstalling = NoHelperSelfUninstall(),
-      work: HelperWorkState = HelperWorkState()
+      work: HelperWorkState = HelperWorkState(),
+      retryEligibility: (@Sendable (InstallerJobPlanIdentity) -> Bool)? = nil
     ) {
       self.workingDirectory = workingDirectory
       self.executor = executor
       self.credentialValidator = credentialValidator
       self.work = work
-      jobs = InstallerJobRegistry(workingDirectory: workingDirectory, work: work)
+      jobs = InstallerJobRegistry(workingDirectory: workingDirectory, work: work, retryEligibility: retryEligibility)
       importer = EngineHandoffPackageImporter()
       self.removalDisks = removalDisks
       self.removalAdminValidator = removalAdminValidator
@@ -402,7 +403,8 @@
       let package = try InstallerPerformance.measure("helper_import") {
         try importer.prepare(from: packageDirectory, in: workingDirectory)
       }
-      defer { try? FileManager.default.removeItem(at: package.packageURL) }
+      var retainForRecovery = false
+      defer { if !retainForRecovery { try? FileManager.default.removeItem(at: package.packageURL) } }
 
       guard
         !Self.explicitlyUnsupportedDevices.contains(
@@ -418,6 +420,41 @@
         try jobs.admitted(jobIdentifier, package: package)
       }
 
+      do {
+        return try await executeImportedPackage(
+          package, authorization: authorization, operation: operation, progress: progress, installConf: installConf)
+      } catch {
+        if jobIdentifier != nil, error as? PinnedAsahiEngineExecutionError == .recoveryAuthorizationFailed {
+          retainForRecovery = true
+        }
+        throw error
+      }
+    }
+
+    func retryRegisteredJob(identifier: UUID, authorization: MachineOwnerAuthorization) async throws -> (Data, InstallConfHandoff) {
+      try requireNoInterruptedRemoval()
+      do { try credentialValidator.validate(authorization) }
+      catch { throw ClosedEngineHelperError.invalidMachineOwnerCredentials }
+      let context = try jobs.recoveryContext(identifier)
+      let package = try importer.reopenRetained(named: context.packageName, in: workingDirectory)
+      guard InstallerJobPlanIdentity(package: package) == context.identity,
+        !Self.explicitlyUnsupportedDevices.contains(package.deviceIdentifier),
+        jobs.canRetryNow(context.identity)
+      else { throw InstallerJobError.identityMismatch }
+      let conf = try InstallConf.parse(context.installConf)
+      try jobs.admitted(identifier, package: package)
+      // A failure keeps this canonical snapshot as retry input or evidence.
+      let result = try await executeImportedPackage(
+        package, authorization: authorization, operation: .retryRecoveryAuthorization,
+        progress: nil, installConf: conf)
+      try? FileManager.default.removeItem(at: package.packageURL)
+      return result
+    }
+
+    private func executeImportedPackage(
+      _ package: ImportedEngineHandoffPackage, authorization: MachineOwnerAuthorization,
+      operation: EngineHandoffOperation, progress: (any EngineJournalProgressSink)?, installConf: InstallConf?
+    ) async throws -> (Data, InstallConfHandoff) {
       var tailer: EngineJournalTailer?
       if let progress,
         let journalURL = EngineJournalLocator.journalURL(
@@ -795,6 +832,42 @@
         reply(try JSONEncoder().encode(snapshot), nil)
       } catch {
         reply(nil, InstallerJobXPCCodec.serviceError(error))
+      }
+    }
+
+    public func retryRecoveryJob(
+      request: Data, machineOwner: String, password: Data,
+      reply: @escaping @Sendable (Data?, NSError?) -> Void
+    ) {
+      var registered = false
+      do {
+        guard let initiatingUID, request.count <= 65_536, !server.isRetiring else {
+          throw InstallerJobError.invalidRequest
+        }
+        let request = try JSONDecoder().decode(InstallerJobRecoveryRequest.self, from: request)
+        let server = server
+        let jobs = server.jobs
+        let isNew = try jobs.beginRecoveryRetry(request, initiatingUID: initiatingUID)
+        registered = true
+        if isNew {
+          Task.detached {
+            do {
+              let authorization: MachineOwnerAuthorization
+              do { authorization = try MachineOwnerAuthorization(username: machineOwner, password: password) }
+              catch { throw ClosedEngineHelperError.invalidMachineOwnerCredentials }
+              let result = try await server.retryRegisteredJob(
+                identifier: request.ticket.identifier, authorization: authorization)
+              jobs.finish(request.ticket.identifier, result: .success(result))
+            } catch {
+              jobs.finish(request.ticket.identifier, result: .failure(error))
+            }
+          }
+        }
+        let snapshot = try jobs.status(
+          InstallerJobStatusRequest(ticket: request.ticket, journalOffset: 0), initiatingUID: initiatingUID)
+        reply(try JSONEncoder().encode(snapshot), nil)
+      } catch {
+        reply(nil, InstallerJobXPCCodec.serviceError(registered ? error : InstallerJobError.notAdmitted))
       }
     }
 

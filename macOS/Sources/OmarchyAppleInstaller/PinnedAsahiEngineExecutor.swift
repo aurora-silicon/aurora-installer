@@ -340,6 +340,13 @@
       return true
     }
 
+    func canRetryRecoveryAuthorization(_ identity: InstallerJobPlanIdentity, in directory: URL) -> Bool {
+      guard let journal = EngineJournalLocator.journalURL(
+        workingDirectory: directory, bindingDigest: identity.bindingDigest)
+      else { return false }
+      return isRecoveryAuthorizationRetryEligible(journal: journal, identity: RecoveryRetryIdentity(identity: identity))
+    }
+
     private func isRecoveryAuthorizationRetryEligible(
       journal: URL,
       identity: RecoveryRetryIdentity
@@ -806,6 +813,12 @@
         planDigest = package.planDigest
         deviceIdentifier = package.deviceIdentifier
         storeIdentifier = package.storeIdentifier
+      }
+
+      init(identity: InstallerJobPlanIdentity) {
+        planDigest = identity.planDigest
+        deviceIdentifier = identity.deviceIdentifier
+        storeIdentifier = identity.storeIdentifier
       }
     }
   }
