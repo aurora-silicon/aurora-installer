@@ -110,6 +110,10 @@ struct RangeRecipe: Codable, Sendable {
   var segments: [String: RangeRecord]
   var files: [RangeFile]
 
+  var rangeRecords: [RangeRecord] {
+    [zipHeader, prefix] + headers.map(\.record) + Array(segments.values)
+  }
+
   func validate() throws {
     let system = systemImage
     try require(

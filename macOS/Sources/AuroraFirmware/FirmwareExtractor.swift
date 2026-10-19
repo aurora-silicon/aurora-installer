@@ -69,19 +69,31 @@ public struct FirmwareExtractor: Sendable {
 
   public func extract(
     _ plan: FirmwareExtractionPlan, to output: URL,
+    cacheDirectory: URL? = nil,
     progress: @escaping @Sendable (FirmwareExtractionProgress) -> Void = { _ in }
   ) async throws -> FirmwareExtractionReceipt {
     try require(
       output.isFileURL && !exists(output), "Firmware output must be a new local directory.")
     let parent = output.deletingLastPathComponent()
     let attributes = try FileManager.default.attributesOfFileSystem(forPath: parent.path)
+    let cacheBudget = cacheDirectory == nil ? 0 : UInt64(plan.authenticatedRangeBytes + 6 * segmentBytes)
     guard let free = attributes[.systemFreeSize] as? NSNumber,
-      free.uint64Value >= plan.requiredDiskBytes
+      free.uint64Value >= plan.requiredDiskBytes + cacheBudget
     else { throw RestoreFailure("There is not enough free space to extract the firmware.") }
     progress(
       FirmwareExtractionProgress(
         stage: .downloading, completedBytes: 0, totalBytes: plan.authenticatedRangeBytes))
-    try await extractFirmwareRecipe(plan.recipe, output: output, progress: progress)
+    let cache: FirmwareRangeCache?
+    if let cacheDirectory {
+      let path = cacheDirectory.standardizedFileURL.path
+      let target = output.standardizedFileURL.path
+      try require(path != target && !path.hasPrefix(target + "/"), "Checkpoint overlaps firmware output.")
+      cache = try FirmwareRangeCache(directory: cacheDirectory, records: plan.recipe.rangeRecords)
+    } else {
+      cache = nil
+    }
+    try await extractFirmwareRecipe(plan.recipe, output: output, cache: cache, progress: progress)
+    try await cache?.retire(plan.recipe.rangeRecords)
     return FirmwareExtractionReceipt(
       deviceIdentifier: plan.deviceIdentifier, sourceURL: plan.sourceURL,
       recipeSHA256: plan.recipeSHA256, authenticatedRangeBytes: plan.authenticatedRangeBytes,

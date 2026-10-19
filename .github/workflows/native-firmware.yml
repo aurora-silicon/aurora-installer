@@ -1,7 +1,7 @@
 name: Native Swift firmware extractor
 on:
   push:
-    branches: [feat/swift-native-installer]
+    branches: [feat/swift-native-installer, feat/native-firmware-resume]
     paths:
       - macOS/Sources/AuroraFirmware/**
       - macOS/Tests/AuroraFirmwareTests/**
@@ -61,10 +61,12 @@ jobs:
           xcrun swift build --configuration release --product AuroraFirmwareCheck
           binary="$(xcrun swift build --configuration release --show-bin-path)/AuroraFirmwareCheck"
           output="$RUNNER_TEMP/firmware-output"
-          trap 'rm -rf "$output"' EXIT
-          "$binary" extract "$output" > "$RUNNER_TEMP/evidence/extraction.json" 2> "$RUNNER_TEMP/evidence/progress.log"
+          checkpoint="$RUNNER_TEMP/firmware-checkpoint"
+          trap 'rm -rf "$output" "$checkpoint"' EXIT
+          "$binary" extract "$output" "$checkpoint" > "$RUNNER_TEMP/evidence/extraction.json" 2> "$RUNNER_TEMP/evidence/progress.log"
           "$binary" verify "$output" > "$RUNNER_TEMP/evidence/reuse.json"
           cmp "$RUNNER_TEMP/evidence/extraction.json" "$RUNNER_TEMP/evidence/reuse.json"
+          test -z "$(find "$checkpoint" -mindepth 1 -print -quit)"
       - name: Require clean source formatting
         if: always()
         run: test '${{ steps.format.outcome }}' = success

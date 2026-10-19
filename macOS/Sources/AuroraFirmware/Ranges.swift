@@ -168,6 +168,7 @@ func assembleRangeFiles(_ recipe: RangeRecipe, decoded: [Int: Data], output: URL
 
 func extractFirmwareRecipe(
   _ recipe: RangeRecipe, output: URL,
+  cache: FirmwareRangeCache? = nil,
   progress: @Sendable (FirmwareExtractionProgress) -> Void
 ) async throws {
   // Admission and publication failures never trigger a whole-IPSW fallback.
@@ -175,7 +176,12 @@ func extractFirmwareRecipe(
   try require(!exists(output), "Firmware output already exists.")
   let decoded: [Int: Data]
   do {
-    let header = try await fetchRange(recipe.source, record: recipe.zipHeader, base: 0)
+    let header: Data
+    if let cache {
+      header = try await cache.fetch(recipe.source, record: recipe.zipHeader, base: 0)
+    } else {
+      header = try await fetchRange(recipe.source, record: recipe.zipHeader, base: 0)
+    }
     try require(
       try header.part(0, 4) == Data([0x50, 0x4b, 3, 4]) && header.little(8, 2) == 0,
       "System image is not a stored ZIP member.")
@@ -196,7 +202,10 @@ func extractFirmwareRecipe(
       var next = 0
       func submit(_ record: RangeRecord) {
         group.addTask {
-          (record, try await fetchRange(recipe.source, record: record, base: recipe.memberOffset))
+          if let cache {
+            return (record, try await cache.fetch(recipe.source, record: record, base: recipe.memberOffset))
+          }
+          return (record, try await fetchRange(recipe.source, record: record, base: recipe.memberOffset))
         }
       }
       while next < min(6, records.count) {
