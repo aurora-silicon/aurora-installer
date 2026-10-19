@@ -15,7 +15,8 @@
       let decoded = try AppleInstallerTrustCore().validateEngineTranscript(inspection)
       let candidate = try XCTUnwrap(decoded.inventory?.candidates.first)
       let prepared = try await InstallerPlanPreparationCoordinator().prepareExecution(
-        InstallerPlanPreparationRequest(host: base.host, release: base.release,
+        InstallerPlanPreparationRequest(
+          host: base.host, release: base.release,
           configuration: base.configuration, inspectionTranscript: inspection,
           candidate: candidate, requestedLengthBytes: candidate.lengthBytes,
           validationTime: base.validationTime))
@@ -27,8 +28,9 @@
     }
 
     private func freshInspection(from transcript: Data) -> Data {
-      Data((String(decoding: transcript, as: UTF8.self)
-        .split(separator: "\n").prefix(2).joined(separator: "\n") + "\n").utf8)
+      Data(
+        (String(decoding: transcript, as: UTF8.self)
+          .split(separator: "\n").prefix(2).joined(separator: "\n") + "\n").utf8)
     }
 
     func testPreparationRejectsACompletedTranscriptBeforePlanning() async throws {
@@ -39,7 +41,8 @@
       let planner = RecordingPlanExecutor(transcript: fixture.transcript)
       do {
         _ = try await InstallerPlanPreparationCoordinator(planner: planner).prepareExecution(
-          InstallerPlanPreparationRequest(host: base.host, release: base.release,
+          InstallerPlanPreparationRequest(
+            host: base.host, release: base.release,
             configuration: base.configuration, inspectionTranscript: fixture.transcript,
             candidate: candidate, requestedLengthBytes: candidate.lengthBytes,
             validationTime: base.validationTime))

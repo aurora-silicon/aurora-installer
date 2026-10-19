@@ -54,13 +54,17 @@
       }
       let (end, overflow) = candidate.offsetBytes.addingReportingOverflow(candidate.lengthBytes)
       guard !overflow else { throw NativeInstallerPlanningError.extentOverflow }
-      let offset = candidate.kind == "resize" ? end - request.requestedLengthBytes : candidate.offsetBytes
-      let steps = candidate.kind == "repair"
+      let offset =
+        candidate.kind == "resize" ? end - request.requestedLengthBytes : candidate.offsetBytes
+      let steps =
+        candidate.kind == "repair"
         ? ["authenticateMachineOwner"] : ["enterOneTrueRecovery", "authenticateMachineOwner"]
       var fields = [
         inspection.deviceIdentifier, inventory.systemStoreIdentifier, inventory.layoutDigest,
-        candidate.kind, candidate.sourceIdentifier, String(offset), String(request.requestedLengthBytes),
-        identity.engineVersion, identity.engineDigest, identity.metadataDigest, identity.payloadDigest,
+        candidate.kind, candidate.sourceIdentifier, String(offset),
+        String(request.requestedLengthBytes),
+        identity.engineVersion, identity.engineDigest, identity.metadataDigest,
+        identity.payloadDigest,
       ]
       if let repair = identity.repairManifestDigest { fields.append(repair) }
       fields.append(steps.joined(separator: ","))
@@ -83,13 +87,18 @@
       ]
       var transcript = Data()
       for (index, row) in [
-        ("inspection", ["device_identifier": inspection.deviceIdentifier, "support": "supported"] as [String: Any]),
+        (
+          "inspection",
+          ["device_identifier": inspection.deviceIdentifier, "support": "supported"]
+            as [String: Any]
+        ),
         ("inventory", inventoryPayload), ("plan", plan),
       ].enumerated() {
         let record: [String: Any] = [
           "schema_version": 1, "sequence": index + 1, "type": row.0, "payload": row.1,
         ]
-        transcript.append(try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys]))
+        transcript.append(
+          try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys]))
         transcript.append(10)
       }
       // The shared strict decoder also checks inventory identity and plan math;
@@ -106,8 +115,12 @@
         "minimum_container_bytes": candidate.minimumContainerBytes,
       ]
       if let digest = candidate.identityDigest { result["identity_digest"] = digest }
-      if let bytes = candidate.recommendedInstallBytes { result["recommended_install_bytes"] = bytes }
-      if let bytes = candidate.recommendedContainerBytes { result["recommended_container_bytes"] = bytes }
+      if let bytes = candidate.recommendedInstallBytes {
+        result["recommended_install_bytes"] = bytes
+      }
+      if let bytes = candidate.recommendedContainerBytes {
+        result["recommended_container_bytes"] = bytes
+      }
       return result
     }
   }
