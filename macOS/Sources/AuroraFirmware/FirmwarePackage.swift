@@ -70,7 +70,9 @@ public enum FirmwarePackageBuilder {
     bytes.append(Data(repeating: 0, count: (alignment - bytes.count % alignment) % alignment))
   }
 
-  private static func appendTar(_ archive: inout Data, name: String, bytes: Data, target: String?) throws {
+  private static func appendTar(_ archive: inout Data, name: String, bytes: Data, target: String?)
+    throws
+  {
     var header = Data(repeating: 0, count: 512)
     func field(_ offset: Int, _ width: Int, _ text: String) throws {
       let value = Data(text.utf8)
@@ -85,10 +87,12 @@ public enum FirmwarePackageBuilder {
     if name.utf8.count <= 100 {
       try field(0, 100, name)
     } else {
-      guard let split = name.indices.reversed().first(where: {
-        name[$0] == "/" && name[..<$0].utf8.count <= 155
-          && name[name.index(after: $0)...].utf8.count <= 100
-      }) else { throw RestoreFailure("Firmware path cannot be represented by USTAR.") }
+      guard
+        let split = name.indices.reversed().first(where: {
+          name[$0] == "/" && name[..<$0].utf8.count <= 155
+            && name[name.index(after: $0)...].utf8.count <= 100
+        })
+      else { throw RestoreFailure("Firmware path cannot be represented by USTAR.") }
       try field(0, 100, String(name[name.index(after: split)...]))
       try field(345, 155, String(name[..<split]))
     }
@@ -150,8 +154,10 @@ public enum FirmwarePackageBuilder {
       for entry in entries {
         FirmwarePackageBuilder.pad(&archive, alignment: 4)
         archive.append(Data("070701".utf8))
-        let fields = [entry.inode, entry.mode, 0, 0, links[entry.inode]!, 0,
-                      entry.bytes.count, 0, 0, 0, 0, entry.name.utf8.count + 1, 0]
+        let fields = [
+          entry.inode, entry.mode, 0, 0, links[entry.inode]!, 0,
+          entry.bytes.count, 0, 0, 0, 0, entry.name.utf8.count + 1, 0,
+        ]
         for field in fields { archive.append(Data(String(format: "%08x", field).utf8)) }
         archive.append(Data(entry.name.utf8))
         archive.append(0)
