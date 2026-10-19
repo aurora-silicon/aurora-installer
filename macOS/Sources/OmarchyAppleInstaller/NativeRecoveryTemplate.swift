@@ -97,12 +97,49 @@
       verify: (URL) throws -> Void
     ) throws -> PreparedNativeRecoveryTemplate {
       try requireSafe(archive, directory: false, owner: owner)
-      try requireSafe(parent, directory: true, owner: owner)
       let size = try archive.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
       guard size > 0, UInt64(size) <= maximumArchiveBytes else {
         throw NativeRecoveryTemplateError.unsafeTemplate
       }
-      let files = try JSONDecoder().decode([String: Data].self, from: Data(contentsOf: archive))
+      return try prepare(
+        data: Data(contentsOf: archive), in: parent, owner: owner,
+        requirement: requirement, verify: verify)
+    }
+
+    /// Refresh from the authenticated app at handoff, without starting or
+    /// replaying an installation. The helper still chooses the signature policy.
+    static func refresh(data: Data, in parent: URL) throws {
+      guard let requirement = requirement(environment: ProcessInfo.processInfo.environment) else {
+        throw NativeRecoveryTemplateError.unavailable
+      }
+      try refresh(
+        data: data, in: parent,
+        destination: URL(
+          fileURLWithPath: InstallerProductIdentity.installedRecoveryTemplateDirectory),
+        owner: 0, requirement: requirement)
+    }
+
+    static func refresh(
+      data: Data, in parent: URL, destination: URL, owner: uid_t, requirement: String
+    ) throws {
+      let prepared = try prepare(
+        data: data, in: parent, owner: owner, requirement: requirement
+      ) { try verify($0, requirement: requirement) }
+      defer { prepared.remove() }
+      try publish(
+        prepared, to: destination, owner: owner,
+        verify: { try verify($0, requirement: requirement) })
+    }
+
+    static func prepare(
+      data: Data, in parent: URL, owner: uid_t, requirement: String,
+      verify: (URL) throws -> Void
+    ) throws -> PreparedNativeRecoveryTemplate {
+      try requireSafe(parent, directory: true, owner: owner)
+      guard !data.isEmpty, UInt64(data.count) <= maximumArchiveBytes else {
+        throw NativeRecoveryTemplateError.unsafeTemplate
+      }
+      let files = try JSONDecoder().decode([String: Data].self, from: data)
       guard !files.isEmpty, files.count <= 10_000 else {
         throw NativeRecoveryTemplateError.unsafeTemplate
       }
@@ -169,13 +206,15 @@
       flushDirectory: (URL) throws -> Void = RecoveryFileTransaction.flushDirectory
     ) throws {
       let parent = destination.deletingLastPathComponent()
-      if !FileManager.default.fileExists(atPath: parent.path) {
+      let createsParent = !FileManager.default.fileExists(atPath: parent.path)
+      if createsParent {
         try requireSafe(parent.deletingLastPathComponent(), directory: true, owner: owner)
         if mkdir(parent.path, 0o755) != 0 && errno != EEXIST {
           throw NativeRecoveryTemplateError.unsafeTemplate
         }
       }
       try requireSafe(parent, directory: true, owner: owner)
+      if createsParent { try flushDirectory(parent.deletingLastPathComponent()) }
       let staged = parent.appendingPathComponent(".native-recovery-\(UUID().uuidString)")
       try FileManager.default.createDirectory(
         at: staged, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])

@@ -156,9 +156,22 @@
       }
     }
 
-    func testReconstructedAppMustSatisfyTheActualPinnedCodeSignature() throws {
+    private func codesign(_ arguments: [String]) throws -> String {
+      let task = Process()
+      task.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+      task.arguments = arguments
+      let output = Pipe()
+      task.standardOutput = output
+      task.standardError = output
+      try task.run()
+      let bytes = output.fileHandleForReading.readDataToEndOfFile()
+      task.waitUntilExit()
+      XCTAssertEqual(task.terminationStatus, 0)
+      return String(decoding: bytes, as: UTF8.self)
+    }
+
+    private func signedFixture() throws -> (URL, URL, String) {
       let (root, app) = try fixture()
-      defer { try? FileManager.default.removeItem(at: root) }
       let binary = app.appendingPathComponent("Contents/MacOS/OmarchyRecovery")
       try FileManager.default.removeItem(at: binary)
       let source = root.appendingPathComponent("entry.c")
@@ -169,23 +182,16 @@
       try compiler.run()
       compiler.waitUntilExit()
       XCTAssertEqual(compiler.terminationStatus, 0)
-      func codesign(_ arguments: [String]) throws -> String {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
-        task.arguments = arguments
-        let output = Pipe()
-        task.standardOutput = output
-        task.standardError = output
-        try task.run()
-        let bytes = output.fileHandleForReading.readDataToEndOfFile()
-        task.waitUntilExit()
-        XCTAssertEqual(task.terminationStatus, 0)
-        return String(decoding: bytes, as: UTF8.self)
-      }
       _ = try codesign(["--force", "--sign", "-", app.path])
       let description = try codesign(["--display", "--verbose=4", app.path])
       let hash = try XCTUnwrap(description.split(separator: "\n").first { $0.hasPrefix("CDHash=") })
       let requirement = "cdhash H\"" + hash.dropFirst(7) + "\""
+      return (root, app, requirement)
+    }
+
+    func testReconstructedAppMustSatisfyTheActualPinnedCodeSignature() throws {
+      let (root, app, requirement) = try signedFixture()
+      defer { try? FileManager.default.removeItem(at: root) }
       let archive = root.appendingPathComponent(NativeRecoveryTemplate.archiveFileName)
       try NativeRecoveryTemplate.archiveData(from: app).write(to: archive)
       let prepared = try NativeRecoveryTemplate.prepare(
@@ -199,6 +205,47 @@
         ) { try NativeRecoveryTemplate.verify($0, requirement: wrong) })
     }
 
+    func testHandoffRefreshRotatesTheTemplateAndRejectsThePreviousPin() throws {
+      let (root, app, originalPin) = try signedFixture()
+      defer { try? FileManager.default.removeItem(at: root) }
+      let destination = root.appendingPathComponent("Helpers/RecoveryTemplate")
+      let original = try NativeRecoveryTemplate.archiveData(from: app)
+      try NativeRecoveryTemplate.refresh(
+        data: original, in: root, destination: destination, owner: geteuid(),
+        requirement: originalPin)
+      let retained = destination.appendingPathComponent(
+        InstallerProductIdentity.recoveryAppBundleName)
+      try NativeRecoveryTemplate.verify(retained, requirement: originalPin)
+
+      let resource = app.appendingPathComponent("Contents/Resources/updated.txt")
+      try FileManager.default.createDirectory(
+        at: resource.deletingLastPathComponent(), withIntermediateDirectories: true,
+        attributes: [.posixPermissions: 0o700])
+      try Data("current Recovery resources".utf8).write(to: resource)
+      _ = try codesign(["--force", "--sign", "-", app.path])
+      let description = try codesign(["--display", "--verbose=4", app.path])
+      let hash = try XCTUnwrap(description.split(separator: "\n").first { $0.hasPrefix("CDHash=") })
+      let currentPin = "cdhash H\"" + hash.dropFirst(7) + "\""
+      XCTAssertNotEqual(originalPin, currentPin)
+      let current = try NativeRecoveryTemplate.archiveData(from: app)
+      try NativeRecoveryTemplate.refresh(
+        data: current, in: root, destination: destination, owner: geteuid(),
+        requirement: currentPin)
+      try NativeRecoveryTemplate.verify(retained, requirement: currentPin)
+      XCTAssertEqual(
+        try Data(contentsOf: retained.appendingPathComponent("Contents/Resources/updated.txt")),
+        Data("current Recovery resources".utf8))
+      XCTAssertThrowsError(
+        try NativeRecoveryTemplate.refresh(
+          data: original, in: root, destination: destination, owner: geteuid(),
+          requirement: currentPin))
+      try NativeRecoveryTemplate.verify(retained, requirement: currentPin)
+      XCTAssertFalse(
+        try FileManager.default.contentsOfDirectory(atPath: root.path).contains {
+          $0.hasPrefix("native-recovery-")
+        })
+    }
+
     func testFirstPublicationCreatesItsMissingValidatedParent() throws {
       let (root, app) = try fixture()
       defer { try? FileManager.default.removeItem(at: root) }
@@ -206,8 +253,12 @@
         source: app, in: root, owner: geteuid(), requirement: "identity", verify: { _ in })
       defer { prepared.remove() }
       let destination = root.appendingPathComponent("Helpers/RecoveryTemplate")
+      var flushed = [URL]()
       try NativeRecoveryTemplate.publish(
-        prepared, to: destination, owner: geteuid(), verify: { _ in })
+        prepared, to: destination, owner: geteuid(), verify: { _ in },
+        flushDirectory: { flushed.append($0) })
+      XCTAssertEqual(
+        flushed.map(\.path), [root.path, destination.deletingLastPathComponent().path])
       XCTAssertTrue(
         FileManager.default.fileExists(
           atPath:
