@@ -38,12 +38,26 @@ jobs:
           echo 'bd724a2c0e6ffe027b3f46257e66d626149a64cd045f4867124bd683b3cf081a  tool.tar.gz' | shasum -a 256 -c -
           tar -xzf tool.tar.gz
           echo "$PWD/xcodebuildmcp-2.7.0-darwin-arm64/bin" >> "$GITHUB_PATH"
-      - name: Verify independent planning vectors
+      - name: Verify independent planning and inspection vectors
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           export PYTHONPYCACHEPREFIX="$RUNNER_TEMP/planning-pycache"
           python3 -m py_compile test/native-plan-vectors.py
+          python3 -m py_compile test/native-inspection-vectors.py
           python3 test/native-plan-vectors.py | tee "$RUNNER_TEMP/evidence/reference-vectors.log"
+          # Reuse the authenticated runtime already qualified in this repository.
+          # This reads public reference source only; no archived code is launched.
+          archive="$RUNNER_TEMP/reference-application.zip"
+          runtime="$RUNNER_TEMP/reference-runtime.tar.gz"
+          trap 'rm -f "$archive" "$runtime"' EXIT
+          gh api repos/aurora-silicon/aurora-installer/actions/artifacts/12226459654/zip > "$archive"
+          echo "333239f74656ce63ea8dd2e563532d74b6bf42d4e0d8a0f4241c585c757f7911  $archive" | shasum -a 256 -c -
+          source Packaging/identity.conf
+          unzip -p "$archive" qualified-app.tar.gz | tar -xzOf - \
+            "$INSTALLER_APP_NAME.app/Contents/Resources/Engine/artifacts/installer-v0.9.2-aurora.4.tar.gz" > "$runtime"
+          python3 test/native-inspection-vectors.py --runtime "$runtime" | tee "$RUNNER_TEMP/evidence/inspection-vectors.log"
       - name: Apply and check Xcode formatting
         env:
           REQUIRE_EXACT_FORMAT: ${{ github.event_name == 'push' || inputs.require_exact_format }}
@@ -53,14 +67,23 @@ jobs:
           git diff --binary > "$RUNNER_TEMP/evidence/format.patch"
           xcrun swift-format lint --strict --recursive Package.swift Sources Plugins Tests
           if [[ $REQUIRE_EXACT_FORMAT == true ]]; then [[ ! -s "$RUNNER_TEMP/evidence/format.patch" ]]; fi
-      - name: Test native planning and the actual app coordinator
+      - name: Test native inspection, mount cleanup and app routing
         run: |
           set -euo pipefail
-          filter='NativeInstallerPlannerTests|PinnedAsahiPlanningTests|InstallerPlanReviewTests|EngineContractTests'
+          filter='NativeInstallerInspectorTests|NativeDiskCollectorReplayTests|LiveNativeInspectionTests|MacHostInspectionTests|OmarchyRemovalDiskOperatorTests|OmarchyRemovalHardwareReplayTests|NativeInstallerPlannerTests|InstallerPlanReviewTests|PayloadPrefetchWiringTests'
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug \
             --filter "$filter" 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration release \
             --filter "$filter" 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
+      - name: Retain native compiler and test logs
+        if: always()
+        run: |
+          set -euo pipefail
+          root="$HOME/Library/Developer/XcodeBuildMCP/workspaces"
+          if [[ -d $root ]]; then
+            find "$root" -type f -path '*/logs/swift_package_test_*.log' \
+              -exec cp {} "$RUNNER_TEMP/evidence/" \;
+          fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:

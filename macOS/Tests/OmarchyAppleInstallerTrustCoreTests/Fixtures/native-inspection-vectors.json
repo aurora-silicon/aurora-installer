@@ -1,0 +1,2440 @@
+{
+  "policy": {
+    "baselineMetadata": {
+      "os_list": [
+        {
+          "boot_object": "m1n1.bin",
+          "default_os_name": "Omarchy",
+          "icon": "omarchy-volume.icns",
+          "name": "Omarchy MX Mac",
+          "next_object": "m1n1/boot.bin",
+          "omarchy_target": "apple-silicon-full-os",
+          "package": "omarchy-2026.09.02-aarch64-apple-silicon-asahi-os-package.zip",
+          "partitions": [
+            {
+              "copy_firmware": true,
+              "copy_installer_data": true,
+              "format": "fat",
+              "name": "EFI",
+              "size": "524288000B",
+              "source": "esp",
+              "type": "EFI",
+              "volume_id": "0x4f4d5801"
+            },
+            {
+              "image": "boot.img",
+              "name": "Boot",
+              "size": "2147483648B",
+              "type": "Linux"
+            },
+            {
+              "expand": true,
+              "image": "root.img",
+              "name": "Root",
+              "size": "34359738368B",
+              "type": "Linux"
+            }
+          ],
+          "supported_fw": [
+            "13.5",
+            "14.8.3"
+          ]
+        }
+      ]
+    },
+    "chipMinimum": {
+      "24576": "12.0",
+      "24577": "12.0",
+      "24578": "12.3",
+      "24608": "13.1",
+      "24609": "13.1",
+      "24610": "13.4",
+      "24624": "14.8.3",
+      "24625": "14.8.3",
+      "24628": "14.8.3",
+      "33027": "11.0",
+      "33042": "12.4",
+      "33058": "14.8.3",
+      "33088": "26.6"
+    },
+    "devices": {
+      "j180d": {
+        "expert": false,
+        "minimum": "13.4"
+      },
+      "j274": {
+        "expert": false,
+        "minimum": "11.0"
+      },
+      "j293": {
+        "expert": false,
+        "minimum": "11.0"
+      },
+      "j313": {
+        "expert": false,
+        "minimum": "11.0"
+      },
+      "j314c": {
+        "expert": false,
+        "minimum": "12.0"
+      },
+      "j314s": {
+        "expert": false,
+        "minimum": "12.0"
+      },
+      "j316c": {
+        "expert": false,
+        "minimum": "12.0"
+      },
+      "j316s": {
+        "expert": false,
+        "minimum": "12.0"
+      },
+      "j375c": {
+        "expert": false,
+        "minimum": "12.3"
+      },
+      "j375d": {
+        "expert": false,
+        "minimum": "12.3"
+      },
+      "j413": {
+        "expert": false,
+        "minimum": "12.4"
+      },
+      "j414c": {
+        "expert": false,
+        "minimum": "13.2"
+      },
+      "j414s": {
+        "expert": false,
+        "minimum": "13.2"
+      },
+      "j415": {
+        "expert": false,
+        "minimum": "13.4"
+      },
+      "j416c": {
+        "expert": false,
+        "minimum": "13.2"
+      },
+      "j416s": {
+        "expert": false,
+        "minimum": "13.2"
+      },
+      "j433": {
+        "expert": false,
+        "minimum": "14.8.3"
+      },
+      "j434": {
+        "expert": false,
+        "minimum": "14.8.3"
+      },
+      "j456": {
+        "expert": false,
+        "minimum": "11.3"
+      },
+      "j457": {
+        "expert": false,
+        "minimum": "11.3"
+      },
+      "j473": {
+        "expert": false,
+        "minimum": "13.2"
+      },
+      "j474s": {
+        "expert": false,
+        "minimum": "13.2"
+      },
+      "j475c": {
+        "expert": false,
+        "minimum": "13.4"
+      },
+      "j475d": {
+        "expert": false,
+        "minimum": "13.4"
+      },
+      "j493": {
+        "expert": false,
+        "minimum": "12.4"
+      },
+      "j504": {
+        "expert": false,
+        "minimum": "14.8.3"
+      },
+      "j514c": {
+        "expert": false,
+        "minimum": "14.8.3"
+      },
+      "j514m": {
+        "expert": false,
+        "minimum": "14.8.3"
+      },
+      "j514s": {
+        "expert": false,
+        "minimum": "14.8.3"
+      },
+      "j516c": {
+        "expert": false,
+        "minimum": "14.8.3"
+      },
+      "j516m": {
+        "expert": false,
+        "minimum": "14.8.3"
+      },
+      "j516s": {
+        "expert": false,
+        "minimum": "14.8.3"
+      },
+      "j613": {
+        "expert": false,
+        "minimum": "14.8.3"
+      },
+      "j615": {
+        "expert": false,
+        "minimum": "14.8.3"
+      },
+      "j700": {
+        "expert": false,
+        "minimum": "26.6"
+      }
+    },
+    "firmware": [
+      {
+        "expert": false,
+        "minimumBoot": "mBoot-18000.161.9",
+        "minimumMacOS": "26.0",
+        "minimumRecovery": "25.7.72.0.0,0",
+        "models": [
+          "j700"
+        ],
+        "version": "26.6"
+      },
+      {
+        "expert": false,
+        "minimumBoot": "mBoot-18000.161.10",
+        "minimumMacOS": "26.0",
+        "minimumRecovery": "25.7.83.0.0,0",
+        "models": [
+          "j613",
+          "j615",
+          "j700"
+        ],
+        "version": "26.6.2"
+      },
+      {
+        "expert": false,
+        "minimumBoot": "iBoot-7459.101.3",
+        "minimumMacOS": "12.1",
+        "minimumRecovery": "21.5.258.0.0,0",
+        "models": null,
+        "version": "12.3.1"
+      },
+      {
+        "expert": false,
+        "minimumBoot": "iBoot-7459.101.2",
+        "minimumMacOS": "12.1",
+        "minimumRecovery": "21.5.230.0.0,0",
+        "models": null,
+        "version": "12.3"
+      },
+      {
+        "expert": false,
+        "minimumBoot": "iBoot-8422.141.2",
+        "minimumMacOS": "13.0",
+        "minimumRecovery": "22.7.74.0.0,0",
+        "models": null,
+        "version": "13.5"
+      },
+      {
+        "expert": false,
+        "minimumBoot": "iBoot-10151.140.19",
+        "minimumMacOS": "14.6",
+        "minimumRecovery": "23.10.220.0.0,0",
+        "models": [
+          "j433",
+          "j434",
+          "j504",
+          "j613",
+          "j615",
+          "j514s",
+          "j514c",
+          "j514m",
+          "j516s",
+          "j516c",
+          "j516m"
+        ],
+        "version": "14.8.3"
+      }
+    ],
+    "runtimeVersion": "v0.9.2-aurora.4",
+    "sourceSHA256": "17d0e11464af7996f45f83f0f535a0cc4e8d8c877a05775d3e1834aa38f16ad8"
+  },
+  "runtimeSHA256": "d92ffe7f908613deadcd1fd16c246588880987ab9c2dd62863b3c39f32098663",
+  "schema": 1,
+  "selectionSourceSHA256": "3f8e0646343304eff59b04f154da011176a1ffe554d0f5e25043d277e3856349",
+  "vectors": [
+    {
+      "containers": [
+        {
+          "capacity": 171798691840,
+          "free": 107374182400,
+          "preferredMinimum": 75161927680,
+          "storeUUID": "00000000-0000-0000-0000-000000000002",
+          "systems": [
+            {
+              "group": "00000000-0000-0000-0000-0000000000CA",
+              "label": "Macintosh HD",
+              "stub": false,
+              "version": "26.6.2"
+            }
+          ]
+        }
+      ],
+      "device": "apple,j314s",
+      "expectedInventory": {
+        "candidates": [
+          {
+            "kind": "resize",
+            "length_bytes": 171798691840,
+            "minimum_container_bytes": 102424903680,
+            "minimum_install_bytes": 39531315200,
+            "offset_bytes": 538968064,
+            "recommended_container_bytes": 102424903680,
+            "recommended_install_bytes": 76562825216,
+            "source_identifier": "disk0s2"
+          },
+          {
+            "kind": "free",
+            "length_bytes": 97171537920,
+            "minimum_container_bytes": 0,
+            "minimum_install_bytes": 76562825216,
+            "offset_bytes": 172337659904,
+            "recommended_container_bytes": 0,
+            "recommended_install_bytes": 76562825216,
+            "source_identifier": "disk0s2"
+          }
+        ],
+        "layout_digest": "sha256:e409646b8aab8fe9e89d10fbdbd1ff68aa6dd98d5840f2d3fd3d0954188cfd14",
+        "system_store_identifier": "disk0"
+      },
+      "hardware": {
+        "bootVersion": "iBoot-12000.1.1",
+        "chipID": 24576,
+        "macOSVersion": "26.6.2",
+        "recoveryVersion": "25.7.83.0.0,0"
+      },
+      "metadata": {
+        "os_list": [
+          {
+            "boot_object": "m1n1.bin",
+            "default_os_name": "Omarchy",
+            "icon": "omarchy-volume.icns",
+            "name": "Omarchy MX Mac",
+            "next_object": "m1n1/boot.bin",
+            "omarchy_target": "apple-silicon-full-os",
+            "package": "omarchy-2026.09.02-aarch64-apple-silicon-asahi-os-package.zip",
+            "partitions": [
+              {
+                "copy_firmware": true,
+                "copy_installer_data": true,
+                "format": "fat",
+                "name": "EFI",
+                "size": "524288000B",
+                "source": "esp",
+                "type": "EFI",
+                "volume_id": "0x4f4d5801"
+              },
+              {
+                "image": "boot.img",
+                "name": "Boot",
+                "size": "2147483648B",
+                "type": "Linux"
+              },
+              {
+                "expand": true,
+                "image": "root.img",
+                "name": "Root",
+                "size": "34359738368B",
+                "type": "Linux"
+              }
+            ],
+            "supported_fw": [
+              "13.5",
+              "14.8.3"
+            ]
+          }
+        ]
+      },
+      "name": "free-and-resize",
+      "snapshot": {
+        "containers": [],
+        "devicePath": "synthetic-internal",
+        "disk": "disk0",
+        "diskSize": 274877906944,
+        "macOSContainerUUID": "00000000-0000-0000-0000-000000000066",
+        "macOSStoreUUID": "00000000-0000-0000-0000-000000000002",
+        "partitions": [
+          {
+            "identifier": "disk0s1",
+            "name": "",
+            "offset": 20480,
+            "size": 536870912,
+            "type": "Apple_APFS_ISC",
+            "uuid": "00000000-0000-0000-0000-000000000001"
+          },
+          {
+            "identifier": "disk0s2",
+            "name": "Macintosh HD",
+            "offset": 538968064,
+            "size": 171798691840,
+            "type": "Apple_APFS",
+            "uuid": "00000000-0000-0000-0000-000000000002"
+          },
+          {
+            "identifier": "disk0s3",
+            "name": "",
+            "offset": 269509197824,
+            "size": 5368688640,
+            "type": "Apple_APFS_Recovery",
+            "uuid": "00000000-0000-0000-0000-000000000003"
+          }
+        ]
+      },
+      "stubBytes": 2499805184
+    },
+    {
+      "containers": [
+        {
+          "capacity": 171798691840,
+          "free": 107374182400,
+          "preferredMinimum": 75161927680,
+          "storeUUID": "00000000-0000-0000-0000-000000000002",
+          "systems": [
+            {
+              "group": "00000000-0000-0000-0000-0000000000CA",
+              "label": "Macintosh HD",
+              "stub": false,
+              "version": "26.6.2"
+            }
+          ]
+        }
+      ],
+      "device": "apple,j314s",
+      "expectedInventory": {
+        "candidates": [
+          {
+            "kind": "resize",
+            "length_bytes": 171798691840,
+            "minimum_container_bytes": 102424903680,
+            "minimum_install_bytes": 39531315200,
+            "offset_bytes": 553668608,
+            "recommended_container_bytes": 102424903680,
+            "recommended_install_bytes": 76562825216,
+            "source_identifier": "disk0s2"
+          },
+          {
+            "kind": "free",
+            "length_bytes": 97155809280,
+            "minimum_container_bytes": 0,
+            "minimum_install_bytes": 76562825216,
+            "offset_bytes": 172352360448,
+            "recommended_container_bytes": 0,
+            "recommended_install_bytes": 76562825216,
+            "source_identifier": "disk0s2"
+          }
+        ],
+        "layout_digest": "sha256:cae8929939c7146ef2280dbcb9853e1adf6425894e1c2511da3be2dd64ebfac5",
+        "system_store_identifier": "disk0"
+      },
+      "hardware": {
+        "bootVersion": "iBoot-12000.1.1",
+        "chipID": 24576,
+        "macOSVersion": "26.6.2",
+        "recoveryVersion": "25.7.83.0.0,0"
+      },
+      "metadata": {
+        "os_list": [
+          {
+            "boot_object": "m1n1.bin",
+            "default_os_name": "Omarchy",
+            "icon": "omarchy-volume.icns",
+            "name": "Omarchy MX Mac",
+            "next_object": "m1n1/boot.bin",
+            "omarchy_target": "apple-silicon-full-os",
+            "package": "omarchy-2026.09.02-aarch64-apple-silicon-asahi-os-package.zip",
+            "partitions": [
+              {
+                "copy_firmware": true,
+                "copy_installer_data": true,
+                "format": "fat",
+                "name": "EFI",
+                "size": "524288000B",
+                "source": "esp",
+                "type": "EFI",
+                "volume_id": "0x4f4d5801"
+              },
+              {
+                "image": "boot.img",
+                "name": "Boot",
+                "size": "2147483648B",
+                "type": "Linux"
+              },
+              {
+                "expand": true,
+                "image": "root.img",
+                "name": "Root",
+                "size": "34359738368B",
+                "type": "Linux"
+              }
+            ],
+            "supported_fw": [
+              "13.5",
+              "14.8.3"
+            ]
+          }
+        ]
+      },
+      "name": "gap-exact-threshold",
+      "snapshot": {
+        "containers": [],
+        "devicePath": "synthetic-internal",
+        "disk": "disk0",
+        "diskSize": 274877906944,
+        "macOSContainerUUID": "00000000-0000-0000-0000-000000000066",
+        "macOSStoreUUID": "00000000-0000-0000-0000-000000000002",
+        "partitions": [
+          {
+            "identifier": "disk0s1",
+            "name": "",
+            "offset": 20480,
+            "size": 536870912,
+            "type": "Apple_APFS_ISC",
+            "uuid": "00000000-0000-0000-0000-000000000001"
+          },
+          {
+            "identifier": "disk0s2",
+            "name": "Macintosh HD",
+            "offset": 553668608,
+            "size": 171798691840,
+            "type": "Apple_APFS",
+            "uuid": "00000000-0000-0000-0000-000000000002"
+          },
+          {
+            "identifier": "disk0s3",
+            "name": "",
+            "offset": 269509197824,
+            "size": 5368688640,
+            "type": "Apple_APFS_Recovery",
+            "uuid": "00000000-0000-0000-0000-000000000003"
+          }
+        ]
+      },
+      "stubBytes": 2499805184
+    },
+    {
+      "containers": [
+        {
+          "capacity": 171798691840,
+          "free": 107374182400,
+          "preferredMinimum": 75161927680,
+          "storeUUID": "00000000-0000-0000-0000-000000000002",
+          "systems": [
+            {
+              "group": "00000000-0000-0000-0000-0000000000CA",
+              "label": "Macintosh HD",
+              "stub": false,
+              "version": "26.6.2"
+            }
+          ]
+        }
+      ],
+      "device": "apple,j314s",
+      "expectedInventory": {
+        "candidates": [
+          {
+            "kind": "resize",
+            "length_bytes": 171798691840,
+            "minimum_container_bytes": 102424903680,
+            "minimum_install_bytes": 39531315200,
+            "offset_bytes": 553672704,
+            "recommended_container_bytes": 102424903680,
+            "recommended_install_bytes": 76562825216,
+            "source_identifier": "disk0s2"
+          },
+          {
+            "kind": "free",
+            "length_bytes": 97155809280,
+            "minimum_container_bytes": 0,
+            "minimum_install_bytes": 76562825216,
+            "offset_bytes": 172352364544,
+            "recommended_container_bytes": 0,
+            "recommended_install_bytes": 76562825216,
+            "source_identifier": "disk0s2"
+          }
+        ],
+        "layout_digest": "sha256:0a4fe304a1e2de31b7d908ed23b7a94618b438071e07399a7b76137a283d8dff",
+        "system_store_identifier": "disk0"
+      },
+      "hardware": {
+        "bootVersion": "iBoot-12000.1.1",
+        "chipID": 24576,
+        "macOSVersion": "26.6.2",
+        "recoveryVersion": "25.7.83.0.0,0"
+      },
+      "metadata": {
+        "os_list": [
+          {
+            "boot_object": "m1n1.bin",
+            "default_os_name": "Omarchy",
+            "icon": "omarchy-volume.icns",
+            "name": "Omarchy MX Mac",
+            "next_object": "m1n1/boot.bin",
+            "omarchy_target": "apple-silicon-full-os",
+            "package": "omarchy-2026.09.02-aarch64-apple-silicon-asahi-os-package.zip",
+            "partitions": [
+              {
+                "copy_firmware": true,
+                "copy_installer_data": true,
+                "format": "fat",
+                "name": "EFI",
+                "size": "524288000B",
+                "source": "esp",
+                "type": "EFI",
+                "volume_id": "0x4f4d5801"
+              },
+              {
+                "image": "boot.img",
+                "name": "Boot",
+                "size": "2147483648B",
+                "type": "Linux"
+              },
+              {
+                "expand": true,
+                "image": "root.img",
+                "name": "Root",
+                "size": "34359738368B",
+                "type": "Linux"
+              }
+            ],
+            "supported_fw": [
+              "13.5",
+              "14.8.3"
+            ]
+          }
+        ]
+      },
+      "name": "gap-above-threshold",
+      "snapshot": {
+        "containers": [],
+        "devicePath": "synthetic-internal",
+        "disk": "disk0",
+        "diskSize": 274877906944,
+        "macOSContainerUUID": "00000000-0000-0000-0000-000000000066",
+        "macOSStoreUUID": "00000000-0000-0000-0000-000000000002",
+        "partitions": [
+          {
+            "identifier": "disk0s1",
+            "name": "",
+            "offset": 20480,
+            "size": 536870912,
+            "type": "Apple_APFS_ISC",
+            "uuid": "00000000-0000-0000-0000-000000000001"
+          },
+          {
+            "identifier": "disk0s2",
+            "name": "Macintosh HD",
+            "offset": 553672704,
+            "size": 171798691840,
+            "type": "Apple_APFS",
+            "uuid": "00000000-0000-0000-0000-000000000002"
+          },
+          {
+            "identifier": "disk0s3",
+            "name": "",
+            "offset": 269509197824,
+            "size": 5368688640,
+            "type": "Apple_APFS_Recovery",
+            "uuid": "00000000-0000-0000-0000-000000000003"
+          }
+        ]
+      },
+      "stubBytes": 2499805184
+    },
+    {
+      "containers": [
+        {
+          "capacity": 171798691840,
+          "free": 107374182400,
+          "preferredMinimum": 75161927680,
+          "storeUUID": "00000000-0000-0000-0000-000000000002",
+          "systems": [
+            {
+              "group": "00000000-0000-0000-0000-0000000000CA",
+              "label": "Macintosh HD",
+              "stub": false,
+              "version": "26.6.2"
+            }
+          ]
+        },
+        {
+          "capacity": 34359738368,
+          "free": 32212254720,
+          "preferredMinimum": 4294967296,
+          "storeUUID": "00000000-0000-0000-0000-000000000005",
+          "systems": []
+        }
+      ],
+      "device": "apple,j314s",
+      "expectedInventory": {
+        "candidates": [
+          {
+            "kind": "resize",
+            "length_bytes": 171798691840,
+            "minimum_container_bytes": 102424903680,
+            "minimum_install_bytes": 39531315200,
+            "offset_bytes": 538968064,
+            "recommended_container_bytes": 102424903680,
+            "recommended_install_bytes": 76562825216,
+            "source_identifier": "disk0s2"
+          },
+          {
+            "kind": "resize",
+            "length_bytes": 34359738368,
+            "minimum_container_bytes": 40147877888,
+            "minimum_install_bytes": 39531315200,
+            "offset_bytes": 215287332864,
+            "recommended_container_bytes": 40147877888,
+            "recommended_install_bytes": 76562825216,
+            "source_identifier": "disk0s5"
+          }
+        ],
+        "layout_digest": "sha256:466c983cc4d64e4d3138e9b761ca3a9010df5e7996a7a06ea22bc3ebd238fffb",
+        "system_store_identifier": "disk0"
+      },
+      "hardware": {
+        "bootVersion": "iBoot-12000.1.1",
+        "chipID": 24576,
+        "macOSVersion": "26.6.2",
+        "recoveryVersion": "25.7.83.0.0,0"
+      },
+      "metadata": {
+        "os_list": [
+          {
+            "boot_object": "m1n1.bin",
+            "default_os_name": "Omarchy",
+            "icon": "omarchy-volume.icns",
+            "name": "Omarchy MX Mac",
+            "next_object": "m1n1/boot.bin",
+            "omarchy_target": "apple-silicon-full-os",
+            "package": "omarchy-2026.09.02-aarch64-apple-silicon-asahi-os-package.zip",
+            "partitions": [
+              {
+                "copy_firmware": true,
+                "copy_installer_data": true,
+                "format": "fat",
+                "name": "EFI",
+                "size": "524288000B",
+                "source": "esp",
+                "type": "EFI",
+                "volume_id": "0x4f4d5801"
+              },
+              {
+                "image": "boot.img",
+                "name": "Boot",
+                "size": "2147483648B",
+                "type": "Linux"
+              },
+              {
+                "expand": true,
+                "image": "root.img",
+                "name": "Root",
+                "size": "34359738368B",
+                "type": "Linux"
+              }
+            ],
+            "supported_fw": [
+              "13.5",
+              "14.8.3"
+            ]
+          }
+        ]
+      },
+      "name": "multiple-apfs-and-unrelated",
+      "snapshot": {
+        "containers": [],
+        "devicePath": "synthetic-internal",
+        "disk": "disk0",
+        "diskSize": 274877906944,
+        "macOSContainerUUID": "00000000-0000-0000-0000-000000000066",
+        "macOSStoreUUID": "00000000-0000-0000-0000-000000000002",
+        "partitions": [
+          {
+            "identifier": "disk0s1",
+            "name": "",
+            "offset": 20480,
+            "size": 536870912,
+            "type": "Apple_APFS_ISC",
+            "uuid": "00000000-0000-0000-0000-000000000001"
+          },
+          {
+            "identifier": "disk0s2",
+            "name": "Macintosh HD",
+            "offset": 538968064,
+            "size": 171798691840,
+            "type": "Apple_APFS",
+            "uuid": "00000000-0000-0000-0000-000000000002"
+          },
+          {
+            "identifier": "disk0s4",
+            "name": "Keep me",
+            "offset": 193812496384,
+            "size": 8589934592,
+            "type": "Microsoft Basic Data",
+            "uuid": "00000000-0000-0000-0000-000000000004"
+          },
+          {
+            "identifier": "disk0s5",
+            "name": "Other container",
+            "offset": 215287332864,
+            "size": 34359738368,
+            "type": "Apple_APFS",
+            "uuid": "00000000-0000-0000-0000-000000000005"
+          },
+          {
+            "identifier": "disk0s3",
+            "name": "",
+            "offset": 269509197824,
+            "size": 5368688640,
+            "type": "Apple_APFS_Recovery",
+            "uuid": "00000000-0000-0000-0000-000000000003"
+          }
+        ]
+      },
+      "stubBytes": 2499805184
+    },
+    {
+      "containers": [
+        {
+          "capacity": 171798691840,
+          "free": 107374182400,
+          "preferredMinimum": 170724950016,
+          "storeUUID": "00000000-0000-0000-0000-000000000002",
+          "systems": [
+            {
+              "group": "00000000-0000-0000-0000-0000000000CA",
+              "label": "Macintosh HD",
+              "stub": false,
+              "version": "26.6.2"
+            }
+          ]
+        }
+      ],
+      "device": "apple,j314s",
+      "expectedInventory": {
+        "candidates": [
+          {
+            "kind": "resize",
+            "length_bytes": 171798691840,
+            "minimum_container_bytes": 170724950016,
+            "minimum_install_bytes": 39531315200,
+            "offset_bytes": 538968064,
+            "recommended_container_bytes": 170724950016,
+            "recommended_install_bytes": 76562825216,
+            "source_identifier": "disk0s2"
+          },
+          {
+            "kind": "free",
+            "length_bytes": 97171537920,
+            "minimum_container_bytes": 0,
+            "minimum_install_bytes": 76562825216,
+            "offset_bytes": 172337659904,
+            "recommended_container_bytes": 0,
+            "recommended_install_bytes": 76562825216,
+            "source_identifier": "disk0s2"
+          }
+        ],
+        "layout_digest": "sha256:e409646b8aab8fe9e89d10fbdbd1ff68aa6dd98d5840f2d3fd3d0954188cfd14",
+        "system_store_identifier": "disk0"
+      },
+      "hardware": {
+        "bootVersion": "iBoot-12000.1.1",
+        "chipID": 24576,
+        "macOSVersion": "26.6.2",
+        "recoveryVersion": "25.7.83.0.0,0"
+      },
+      "metadata": {
+        "os_list": [
+          {
+            "boot_object": "m1n1.bin",
+            "default_os_name": "Omarchy",
+            "icon": "omarchy-volume.icns",
+            "name": "Omarchy MX Mac",
+            "next_object": "m1n1/boot.bin",
+            "omarchy_target": "apple-silicon-full-os",
+            "package": "omarchy-2026.09.02-aarch64-apple-silicon-asahi-os-package.zip",
+            "partitions": [
+              {
+                "copy_firmware": true,
+                "copy_installer_data": true,
+                "format": "fat",
+                "name": "EFI",
+                "size": "524288000B",
+                "source": "esp",
+                "type": "EFI",
+                "volume_id": "0x4f4d5801"
+              },
+              {
+                "image": "boot.img",
+                "name": "Boot",
+                "size": "2147483648B",
+                "type": "Linux"
+              },
+              {
+                "expand": true,
+                "image": "root.img",
+                "name": "Root",
+                "size": "34359738368B",
+                "type": "Linux"
+              }
+            ],
+            "supported_fw": [
+              "13.5",
+              "14.8.3"
+            ]
+          }
+        ]
+      },
+      "name": "snapshot-exhausted",
+      "snapshot": {
+        "containers": [],
+        "devicePath": "synthetic-internal",
+        "disk": "disk0",
+        "diskSize": 274877906944,
+        "macOSContainerUUID": "00000000-0000-0000-0000-000000000066",
+        "macOSStoreUUID": "00000000-0000-0000-0000-000000000002",
+        "partitions": [
+          {
+            "identifier": "disk0s1",
+            "name": "",
+            "offset": 20480,
+            "size": 536870912,
+            "type": "Apple_APFS_ISC",
+            "uuid": "00000000-0000-0000-0000-000000000001"
+          },
+          {
+            "identifier": "disk0s2",
+            "name": "Macintosh HD",
+            "offset": 538968064,
+            "size": 171798691840,
+            "type": "Apple_APFS",
+            "uuid": "00000000-0000-0000-0000-000000000002"
+          },
+          {
+            "identifier": "disk0s3",
+            "name": "",
+            "offset": 269509197824,
+            "size": 5368688640,
+            "type": "Apple_APFS_Recovery",
+            "uuid": "00000000-0000-0000-0000-000000000003"
+          }
+        ]
+      },
+      "stubBytes": 2499805184
+    },
+    {
+      "containers": [
+        {
+          "capacity": 171798691840,
+          "free": 21474836480,
+          "preferredMinimum": 163208757248,
+          "storeUUID": "00000000-0000-0000-0000-000000000002",
+          "systems": [
+            {
+              "group": "00000000-0000-0000-0000-0000000000CA",
+              "label": "Macintosh HD",
+              "stub": false,
+              "version": "26.6.2"
+            }
+          ]
+        }
+      ],
+      "device": "apple,j314s",
+      "expectedInventory": {
+        "candidates": [
+          {
+            "kind": "resize",
+            "length_bytes": 171798691840,
+            "minimum_container_bytes": 188324249600,
+            "minimum_install_bytes": 39531315200,
+            "offset_bytes": 538968064,
+            "recommended_container_bytes": 188324249600,
+            "recommended_install_bytes": 76562825216,
+            "source_identifier": "disk0s2"
+          },
+          {
+            "kind": "free",
+            "length_bytes": 97171537920,
+            "minimum_container_bytes": 0,
+            "minimum_install_bytes": 76562825216,
+            "offset_bytes": 172337659904,
+            "recommended_container_bytes": 0,
+            "recommended_install_bytes": 76562825216,
+            "source_identifier": "disk0s2"
+          }
+        ],
+        "layout_digest": "sha256:e409646b8aab8fe9e89d10fbdbd1ff68aa6dd98d5840f2d3fd3d0954188cfd14",
+        "system_store_identifier": "disk0"
+      },
+      "hardware": {
+        "bootVersion": "iBoot-12000.1.1",
+        "chipID": 24576,
+        "macOSVersion": "26.6.2",
+        "recoveryVersion": "25.7.83.0.0,0"
+      },
+      "metadata": {
+        "os_list": [
+          {
+            "boot_object": "m1n1.bin",
+            "default_os_name": "Omarchy",
+            "icon": "omarchy-volume.icns",
+            "name": "Omarchy MX Mac",
+            "next_object": "m1n1/boot.bin",
+            "omarchy_target": "apple-silicon-full-os",
+            "package": "omarchy-2026.09.02-aarch64-apple-silicon-asahi-os-package.zip",
+            "partitions": [
+              {
+                "copy_firmware": true,
+                "copy_installer_data": true,
+                "format": "fat",
+                "name": "EFI",
+                "size": "524288000B",
+                "source": "esp",
+                "type": "EFI",
+                "volume_id": "0x4f4d5801"
+              },
+              {
+                "image": "boot.img",
+                "name": "Boot",
+                "size": "2147483648B",
+                "type": "Linux"
+              },
+              {
+                "expand": true,
+                "image": "root.img",
+                "name": "Root",
+                "size": "34359738368B",
+                "type": "Linux"
+              }
+            ],
+            "supported_fw": [
+              "13.5",
+              "14.8.3"
+            ]
+          }
+        ]
+      },
+      "name": "low-free-macos",
+      "snapshot": {
+        "containers": [],
+        "devicePath": "synthetic-internal",
+        "disk": "disk0",
+        "diskSize": 274877906944,
+        "macOSContainerUUID": "00000000-0000-0000-0000-000000000066",
+        "macOSStoreUUID": "00000000-0000-0000-0000-000000000002",
+        "partitions": [
+          {
+            "identifier": "disk0s1",
+            "name": "",
+            "offset": 20480,
+            "size": 536870912,
+            "type": "Apple_APFS_ISC",
+            "uuid": "00000000-0000-0000-0000-000000000001"
+          },
+          {
+            "identifier": "disk0s2",
+            "name": "Macintosh HD",
+            "offset": 538968064,
+            "size": 171798691840,
+            "type": "Apple_APFS",
+            "uuid": "00000000-0000-0000-0000-000000000002"
+          },
+          {
+            "identifier": "disk0s3",
+            "name": "",
+            "offset": 269509197824,
+            "size": 5368688640,
+            "type": "Apple_APFS_Recovery",
+            "uuid": "00000000-0000-0000-0000-000000000003"
+          }
+        ]
+      },
+      "stubBytes": 2499805184
+    },
+    {
+      "containers": [
+        {
+          "capacity": 171798691840,
+          "free": 0,
+          "preferredMinimum": 171798691840,
+          "storeUUID": "00000000-0000-0000-0000-000000000002",
+          "systems": [
+            {
+              "group": "00000000-0000-0000-0000-0000000000CA",
+              "label": "Macintosh HD",
+              "stub": false,
+              "version": "26.6.2"
+            }
+          ]
+        }
+      ],
+      "device": "apple,j314s",
+      "expectedInventory": {
+        "candidates": [
+          {
+            "kind": "resize",
+            "length_bytes": 171798691840,
+            "minimum_container_bytes": 209799086080,
+            "minimum_install_bytes": 39531315200,
+            "offset_bytes": 538968064,
+            "recommended_container_bytes": 209799086080,
+            "recommended_install_bytes": 76562825216,
+            "source_identifier": "disk0s2"
+          },
+          {
+            "kind": "free",
+            "length_bytes": 97171537920,
+            "minimum_container_bytes": 0,
+            "minimum_install_bytes": 76562825216,
+            "offset_bytes": 172337659904,
+            "recommended_container_bytes": 0,
+            "recommended_install_bytes": 76562825216,
+            "source_identifier": "disk0s2"
+          }
+        ],
+        "layout_digest": "sha256:e409646b8aab8fe9e89d10fbdbd1ff68aa6dd98d5840f2d3fd3d0954188cfd14",
+        "system_store_identifier": "disk0"
+      },
+      "hardware": {
+        "bootVersion": "iBoot-12000.1.1",
+        "chipID": 24576,
+        "macOSVersion": "26.6.2",
+        "recoveryVersion": "25.7.83.0.0,0"
+      },
+      "metadata": {
+        "os_list": [
+          {
+            "boot_object": "m1n1.bin",
+            "default_os_name": "Omarchy",
+            "icon": "omarchy-volume.icns",
+            "name": "Omarchy MX Mac",
+            "next_object": "m1n1/boot.bin",
+            "omarchy_target": "apple-silicon-full-os",
+            "package": "omarchy-2026.09.02-aarch64-apple-silicon-asahi-os-package.zip",
+            "partitions": [
+              {
+                "copy_firmware": true,
+                "copy_installer_data": true,
+                "format": "fat",
+                "name": "EFI",
+                "size": "524288000B",
+                "source": "esp",
+                "type": "EFI",
+                "volume_id": "0x4f4d5801"
+              },
+              {
+                "image": "boot.img",
+                "name": "Boot",
+                "size": "2147483648B",
+                "type": "Linux"
+              },
+              {
+                "expand": true,
+                "image": "root.img",
+                "name": "Root",
+                "size": "34359738368B",
+                "type": "Linux"
+              }
+            ],
+            "supported_fw": [
+              "13.5",
+              "14.8.3"
+            ]
+          }
+        ]
+      },
+      "name": "zero-free-macos",
+      "snapshot": {
+        "containers": [],
+        "devicePath": "synthetic-internal",
+        "disk": "disk0",
+        "diskSize": 274877906944,
+        "macOSContainerUUID": "00000000-0000-0000-0000-000000000066",
+        "macOSStoreUUID": "00000000-0000-0000-0000-000000000002",
+        "partitions": [
+          {
+            "identifier": "disk0s1",
+            "name": "",
+            "offset": 20480,
+            "size": 536870912,
+            "type": "Apple_APFS_ISC",
+            "uuid": "00000000-0000-0000-0000-000000000001"
+          },
+          {
+            "identifier": "disk0s2",
+            "name": "Macintosh HD",
+            "offset": 538968064,
+            "size": 171798691840,
+            "type": "Apple_APFS",
+            "uuid": "00000000-0000-0000-0000-000000000002"
+          },
+          {
+            "identifier": "disk0s3",
+            "name": "",
+            "offset": 269509197824,
+            "size": 5368688640,
+            "type": "Apple_APFS_Recovery",
+            "uuid": "00000000-0000-0000-0000-000000000003"
+          }
+        ]
+      },
+      "stubBytes": 2499805184
+    },
+    {
+      "containers": [
+        {
+          "capacity": 171798691840,
+          "free": 21474836480,
+          "preferredMinimum": 163208757248,
+          "storeUUID": "00000000-0000-0000-0000-000000000002",
+          "systems": [
+            {
+              "group": "00000000-0000-0000-0000-0000000000CA",
+              "label": "Macintosh HD",
+              "stub": true,
+              "version": "26.6.2"
+            }
+          ]
+        }
+      ],
+      "device": "apple,j314s",
+      "expectedInventory": {
+        "candidates": [
+          {
+            "kind": "free",
+            "length_bytes": 97171537920,
+            "minimum_container_bytes": 0,
+            "minimum_install_bytes": 76562825216,
+            "offset_bytes": 172337659904,
+            "recommended_container_bytes": 0,
+            "recommended_install_bytes": 76562825216,
+            "source_identifier": "disk0s2"
+          }
+        ],
+        "layout_digest": "sha256:328df31ae25e708670195fb7fbef530963353418911fb279543f6283b60a13ed",
+        "system_store_identifier": "disk0"
+      },
+      "hardware": {
+        "bootVersion": "iBoot-12000.1.1",
+        "chipID": 24576,
+        "macOSVersion": "26.6.2",
+        "recoveryVersion": "25.7.83.0.0,0"
+      },
+      "metadata": {
+        "os_list": [
+          {
+            "boot_object": "m1n1.bin",
+            "default_os_name": "Omarchy",
+            "icon": "omarchy-volume.icns",
+            "name": "Omarchy MX Mac",
+            "next_object": "m1n1/boot.bin",
+            "omarchy_target": "apple-silicon-full-os",
+            "package": "omarchy-2026.09.02-aarch64-apple-silicon-asahi-os-package.zip",
+            "partitions": [
+              {
+                "copy_firmware": true,
+                "copy_installer_data": true,
+                "format": "fat",
+                "name": "EFI",
+                "size": "524288000B",
+                "source": "esp",
+                "type": "EFI",
+                "volume_id": "0x4f4d5801"
+              },
+              {
+                "image": "boot.img",
+                "name": "Boot",
+                "size": "2147483648B",
+                "type": "Linux"
+              },
+              {
+                "expand": true,
+                "image": "root.img",
+                "name": "Root",
+                "size": "34359738368B",
+                "type": "Linux"
+              }
+            ],
+            "supported_fw": [
+              "13.5",
+              "14.8.3"
+            ]
+          }
+        ]
+      },
+      "name": "low-free-stub",
+      "snapshot": {
+        "containers": [],
+        "devicePath": "synthetic-internal",
+        "disk": "disk0",
+        "diskSize": 274877906944,
+        "macOSContainerUUID": "00000000-0000-0000-0000-000000000066",
+        "macOSStoreUUID": "00000000-0000-0000-0000-000000000002",
+        "partitions": [
+          {
+            "identifier": "disk0s1",
+            "name": "",
+            "offset": 20480,
+            "size": 536870912,
+            "type": "Apple_APFS_ISC",
+            "uuid": "00000000-0000-0000-0000-000000000001"
+          },
+          {
+            "identifier": "disk0s2",
+            "name": "Macintosh HD",
+            "offset": 538968064,
+            "size": 171798691840,
+            "type": "Apple_APFS",
+            "uuid": "00000000-0000-0000-0000-000000000002"
+          },
+          {
+            "identifier": "disk0s3",
+            "name": "",
+            "offset": 269509197824,
+            "size": 5368688640,
+            "type": "Apple_APFS_Recovery",
+            "uuid": "00000000-0000-0000-0000-000000000003"
+          }
+        ]
+      },
+      "stubBytes": 2499805184
+    },
+    {
+      "containers": [
+        {
+          "capacity": 107374182400,
+          "free": 10737418240,
+          "preferredMinimum": 102005473280,
+          "storeUUID": "00000000-0000-0000-0000-000000000002",
+          "systems": [
+            {
+              "group": "00000000-0000-0000-0000-0000000000CA",
+              "label": "Macintosh HD",
+              "stub": false,
+              "version": "26.6.2"
+            }
+          ]
+        }
+      ],
+      "device": "apple,j314s",
+      "expectedInventory": {
+        "candidates": [
+          {
+            "kind": "resize",
+            "length_bytes": 107374182400,
+            "minimum_container_bytes": 134637158400,
+            "minimum_install_bytes": 39531315200,
+            "offset_bytes": 538968064,
+            "recommended_container_bytes": 134637158400,
+            "recommended_install_bytes": 76562825216,
+            "source_identifier": "disk0s2"
+          }
+        ],
+        "layout_digest": "sha256:998a247a906849f8376e1df4b7750e566132c33b91219f30c27cf552f3b9773a",
+        "system_store_identifier": "disk0"
+      },
+      "hardware": {
+        "bootVersion": "iBoot-12000.1.1",
+        "chipID": 24576,
+        "macOSVersion": "26.6.2",
+        "recoveryVersion": "25.7.83.0.0,0"
+      },
+      "metadata": {
+        "os_list": [
+          {
+            "boot_object": "m1n1.bin",
+            "default_os_name": "Omarchy",
+            "icon": "omarchy-volume.icns",
+            "name": "Omarchy MX Mac",
+            "next_object": "m1n1/boot.bin",
+            "omarchy_target": "apple-silicon-full-os",
+            "package": "omarchy-2026.09.02-aarch64-apple-silicon-asahi-os-package.zip",
+            "partitions": [
+              {
+                "copy_firmware": true,
+                "copy_installer_data": true,
+                "format": "fat",
+                "name": "EFI",
+                "size": "524288000B",
+                "source": "esp",
+                "type": "EFI",
+                "volume_id": "0x4f4d5801"
+              },
+              {
+                "image": "boot.img",
+                "name": "Boot",
+                "size": "2147483648B",
+                "type": "Linux"
+              },
+              {
+                "expand": true,
+                "image": "root.img",
+                "name": "Root",
+                "size": "34359738368B",
+                "type": "Linux"
+              }
+            ],
+            "supported_fw": [
+              "13.5",
+              "14.8.3"
+            ]
+          }
+        ]
+      },
+      "name": "education-exhausted",
+      "snapshot": {
+        "containers": [],
+        "devicePath": "synthetic-internal",
+        "disk": "disk0",
+        "diskSize": 137438953472,
+        "macOSContainerUUID": "00000000-0000-0000-0000-000000000066",
+        "macOSStoreUUID": "00000000-0000-0000-0000-000000000002",
+        "partitions": [
+          {
+            "identifier": "disk0s1",
+            "name": "",
+            "offset": 20480,
+            "size": 536870912,
+            "type": "Apple_APFS_ISC",
+            "uuid": "00000000-0000-0000-0000-000000000001"
+          },
+          {
+            "identifier": "disk0s2",
+            "name": "Macintosh HD",
+            "offset": 538968064,
+            "size": 107374182400,
+            "type": "Apple_APFS",
+            "uuid": "00000000-0000-0000-0000-000000000002"
+          },
+          {
+            "identifier": "disk0s3",
+            "name": "",
+            "offset": 132070244352,
+            "size": 5368688640,
+            "type": "Apple_APFS_Recovery",
+            "uuid": "00000000-0000-0000-0000-000000000003"
+          }
+        ]
+      },
+      "stubBytes": 2499805184
+    },
+    {
+      "containers": [
+        {
+          "capacity": 171798691840,
+          "free": 107374182400,
+          "preferredMinimum": 75161927680,
+          "storeUUID": "00000000-0000-0000-0000-000000000002",
+          "systems": [
+            {
+              "group": "00000000-0000-0000-0000-0000000000CA",
+              "label": "Macintosh HD",
+              "stub": false,
+              "version": "26.6.2"
+            }
+          ]
+        }
+      ],
+      "device": "apple,j700",
+      "expectedInventory": {
+        "candidates": [
+          {
+            "kind": "resize",
+            "length_bytes": 171798691840,
+            "minimum_container_bytes": 102424903680,
+            "minimum_install_bytes": 43031461888,
+            "offset_bytes": 538968064,
+            "recommended_container_bytes": 102424903680,
+            "recommended_install_bytes": 80062971904,
+            "source_identifier": "disk0s2"
+          },
+          {
+            "kind": "free",
+            "length_bytes": 97171537920,
+            "minimum_container_bytes": 0,
+            "minimum_install_bytes": 80062971904,
+            "offset_bytes": 172337659904,
+            "recommended_container_bytes": 0,
+            "recommended_install_bytes": 80062971904,
+            "source_identifier": "disk0s2"
+          }
+        ],
+        "layout_digest": "sha256:e409646b8aab8fe9e89d10fbdbd1ff68aa6dd98d5840f2d3fd3d0954188cfd14",
+        "system_store_identifier": "disk0"
+      },
+      "hardware": {
+        "bootVersion": "mBoot-18000.161.10",
+        "chipID": 33088,
+        "macOSVersion": "26.6.2",
+        "recoveryVersion": "25.7.83.0.0,0"
+      },
+      "metadata": {
+        "os_list": [
+          {
+            "boot_object": "m1n1.bin",
+            "default_os_name": "Omarchy",
+            "icon": "omarchy-volume.icns",
+            "name": "Omarchy MX Mac",
+            "next_object": "m1n1/boot.bin",
+            "omarchy_target": "apple-silicon-full-os",
+            "package": "omarchy-2026.09.02-aarch64-apple-silicon-asahi-os-package.zip",
+            "partitions": [
+              {
+                "copy_firmware": true,
+                "copy_installer_data": true,
+                "format": "fat",
+                "name": "EFI",
+                "size": "524288000B",
+                "source": "esp",
+                "type": "EFI",
+                "volume_id": "0x4f4d5801"
+              },
+              {
+                "image": "boot.img",
+                "name": "Boot",
+                "size": "2147483648B",
+                "type": "Linux"
+              },
+              {
+                "expand": true,
+                "image": "root.img",
+                "name": "Root",
+                "size": "34359738368B",
+                "type": "Linux"
+              }
+            ],
+            "supported_fw": [
+              "26.6.2"
+            ]
+          }
+        ]
+      },
+      "name": "neo",
+      "snapshot": {
+        "containers": [],
+        "devicePath": "synthetic-internal",
+        "disk": "disk0",
+        "diskSize": 274877906944,
+        "macOSContainerUUID": "00000000-0000-0000-0000-000000000066",
+        "macOSStoreUUID": "00000000-0000-0000-0000-000000000002",
+        "partitions": [
+          {
+            "identifier": "disk0s1",
+            "name": "",
+            "offset": 20480,
+            "size": 536870912,
+            "type": "Apple_APFS_ISC",
+            "uuid": "00000000-0000-0000-0000-000000000001"
+          },
+          {
+            "identifier": "disk0s2",
+            "name": "Macintosh HD",
+            "offset": 538968064,
+            "size": 171798691840,
+            "type": "Apple_APFS",
+            "uuid": "00000000-0000-0000-0000-000000000002"
+          },
+          {
+            "identifier": "disk0s3",
+            "name": "",
+            "offset": 269509197824,
+            "size": 5368688640,
+            "type": "Apple_APFS_Recovery",
+            "uuid": "00000000-0000-0000-0000-000000000003"
+          }
+        ]
+      },
+      "stubBytes": 5999951872
+    },
+    {
+      "containers": [
+        {
+          "capacity": 171798691840,
+          "free": 107374182400,
+          "preferredMinimum": 75161927680,
+          "storeUUID": "00000000-0000-0000-0000-000000000002",
+          "systems": [
+            {
+              "group": "00000000-0000-0000-0000-0000000000CA",
+              "label": "Macintosh HD",
+              "stub": false,
+              "version": "26.6.2"
+            }
+          ]
+        }
+      ],
+      "device": "apple,j613",
+      "expectedInventory": {
+        "candidates": [
+          {
+            "kind": "resize",
+            "length_bytes": 171798691840,
+            "minimum_container_bytes": 102424903680,
+            "minimum_install_bytes": 43031461888,
+            "offset_bytes": 538968064,
+            "recommended_container_bytes": 102424903680,
+            "recommended_install_bytes": 80062971904,
+            "source_identifier": "disk0s2"
+          },
+          {
+            "kind": "free",
+            "length_bytes": 97171537920,
+            "minimum_container_bytes": 0,
+            "minimum_install_bytes": 80062971904,
+            "offset_bytes": 172337659904,
+            "recommended_container_bytes": 0,
+            "recommended_install_bytes": 80062971904,
+            "source_identifier": "disk0s2"
+          }
+        ],
+        "layout_digest": "sha256:e409646b8aab8fe9e89d10fbdbd1ff68aa6dd98d5840f2d3fd3d0954188cfd14",
+        "system_store_identifier": "disk0"
+      },
+      "hardware": {
+        "bootVersion": "mBoot-18000.161.10",
+        "chipID": 33058,
+        "macOSVersion": "26.6.2",
+        "recoveryVersion": "25.7.83.0.0,0"
+      },
+      "metadata": {
+        "os_list": [
+          {
+            "boot_object": "m1n1.bin",
+            "default_os_name": "Omarchy",
+            "icon": "omarchy-volume.icns",
+            "name": "Omarchy MX Mac",
+            "next_object": "m1n1/boot.bin",
+            "omarchy_target": "apple-silicon-full-os",
+            "package": "omarchy-2026.09.02-aarch64-apple-silicon-asahi-os-package.zip",
+            "partitions": [
+              {
+                "copy_firmware": true,
+                "copy_installer_data": true,
+                "format": "fat",
+                "name": "EFI",
+                "size": "524288000B",
+                "source": "esp",
+                "type": "EFI",
+                "volume_id": "0x4f4d5801"
+              },
+              {
+                "image": "boot.img",
+                "name": "Boot",
+                "size": "2147483648B",
+                "type": "Linux"
+              },
+              {
+                "expand": true,
+                "image": "root.img",
+                "name": "Root",
+                "size": "34359738368B",
+                "type": "Linux"
+              }
+            ],
+            "supported_fw": [
+              "26.6.2"
+            ]
+          }
+        ]
+      },
+      "name": "m3-modern-firmware",
+      "snapshot": {
+        "containers": [],
+        "devicePath": "synthetic-internal",
+        "disk": "disk0",
+        "diskSize": 274877906944,
+        "macOSContainerUUID": "00000000-0000-0000-0000-000000000066",
+        "macOSStoreUUID": "00000000-0000-0000-0000-000000000002",
+        "partitions": [
+          {
+            "identifier": "disk0s1",
+            "name": "",
+            "offset": 20480,
+            "size": 536870912,
+            "type": "Apple_APFS_ISC",
+            "uuid": "00000000-0000-0000-0000-000000000001"
+          },
+          {
+            "identifier": "disk0s2",
+            "name": "Macintosh HD",
+            "offset": 538968064,
+            "size": 171798691840,
+            "type": "Apple_APFS",
+            "uuid": "00000000-0000-0000-0000-000000000002"
+          },
+          {
+            "identifier": "disk0s3",
+            "name": "",
+            "offset": 269509197824,
+            "size": 5368688640,
+            "type": "Apple_APFS_Recovery",
+            "uuid": "00000000-0000-0000-0000-000000000003"
+          }
+        ]
+      },
+      "stubBytes": 5999951872
+    },
+    {
+      "containers": [
+        {
+          "capacity": 171798691840,
+          "free": 107374182400,
+          "preferredMinimum": 75161927680,
+          "storeUUID": "00000000-0000-0000-0000-000000000002",
+          "systems": [
+            {
+              "group": "00000000-0000-0000-0000-0000000000CA",
+              "label": "Macintosh HD",
+              "stub": false,
+              "version": "26.6.2"
+            }
+          ]
+        }
+      ],
+      "device": "apple,j613",
+      "expectedInventory": {
+        "candidates": [
+          {
+            "kind": "resize",
+            "length_bytes": 171798691840,
+            "minimum_container_bytes": 102424903680,
+            "minimum_install_bytes": 39531315200,
+            "offset_bytes": 538968064,
+            "recommended_container_bytes": 102424903680,
+            "recommended_install_bytes": 76562825216,
+            "source_identifier": "disk0s2"
+          },
+          {
+            "kind": "free",
+            "length_bytes": 97171537920,
+            "minimum_container_bytes": 0,
+            "minimum_install_bytes": 76562825216,
+            "offset_bytes": 172337659904,
+            "recommended_container_bytes": 0,
+            "recommended_install_bytes": 76562825216,
+            "source_identifier": "disk0s2"
+          }
+        ],
+        "layout_digest": "sha256:e409646b8aab8fe9e89d10fbdbd1ff68aa6dd98d5840f2d3fd3d0954188cfd14",
+        "system_store_identifier": "disk0"
+      },
+      "hardware": {
+        "bootVersion": "mBoot-18000.161.10",
+        "chipID": 33058,
+        "macOSVersion": "26.6.2",
+        "recoveryVersion": "25.7.83.0.0,0"
+      },
+      "metadata": {
+        "os_list": [
+          {
+            "boot_object": "m1n1.bin",
+            "default_os_name": "Omarchy",
+            "icon": "omarchy-volume.icns",
+            "name": "Omarchy MX Mac",
+            "next_object": "m1n1/boot.bin",
+            "omarchy_target": "apple-silicon-full-os",
+            "package": "omarchy-2026.09.02-aarch64-apple-silicon-asahi-os-package.zip",
+            "partitions": [
+              {
+                "copy_firmware": true,
+                "copy_installer_data": true,
+                "format": "fat",
+                "name": "EFI",
+                "size": "524288000B",
+                "source": "esp",
+                "type": "EFI",
+                "volume_id": "0x4f4d5801"
+              },
+              {
+                "image": "boot.img",
+                "name": "Boot",
+                "size": "2147483648B",
+                "type": "Linux"
+              },
+              {
+                "expand": true,
+                "image": "root.img",
+                "name": "Root",
+                "size": "34359738368B",
+                "type": "Linux"
+              }
+            ],
+            "supported_fw": [
+              "26.6.2",
+              "14.8.3"
+            ]
+          }
+        ]
+      },
+      "name": "m3-mixed-firmware",
+      "snapshot": {
+        "containers": [],
+        "devicePath": "synthetic-internal",
+        "disk": "disk0",
+        "diskSize": 274877906944,
+        "macOSContainerUUID": "00000000-0000-0000-0000-000000000066",
+        "macOSStoreUUID": "00000000-0000-0000-0000-000000000002",
+        "partitions": [
+          {
+            "identifier": "disk0s1",
+            "name": "",
+            "offset": 20480,
+            "size": 536870912,
+            "type": "Apple_APFS_ISC",
+            "uuid": "00000000-0000-0000-0000-000000000001"
+          },
+          {
+            "identifier": "disk0s2",
+            "name": "Macintosh HD",
+            "offset": 538968064,
+            "size": 171798691840,
+            "type": "Apple_APFS",
+            "uuid": "00000000-0000-0000-0000-000000000002"
+          },
+          {
+            "identifier": "disk0s3",
+            "name": "",
+            "offset": 269509197824,
+            "size": 5368688640,
+            "type": "Apple_APFS_Recovery",
+            "uuid": "00000000-0000-0000-0000-000000000003"
+          }
+        ]
+      },
+      "stubBytes": 2499805184
+    },
+    {
+      "containers": [
+        {
+          "capacity": 171798691840,
+          "free": 107374182400,
+          "preferredMinimum": 75161927680,
+          "storeUUID": "00000000-0000-0000-0000-000000000002",
+          "systems": [
+            {
+              "group": "00000000-0000-0000-0000-0000000000CA",
+              "label": "Macintosh HD",
+              "stub": false,
+              "version": "26.6.2"
+            }
+          ]
+        }
+      ],
+      "device": "apple,j613",
+      "expectedInventory": {
+        "candidates": [
+          {
+            "kind": "resize",
+            "length_bytes": 171798691840,
+            "minimum_container_bytes": 102424903680,
+            "minimum_install_bytes": 39531315200,
+            "offset_bytes": 538968064,
+            "recommended_container_bytes": 102424903680,
+            "recommended_install_bytes": 76562825216,
+            "source_identifier": "disk0s2"
+          },
+          {
+            "kind": "free",
+            "length_bytes": 97171537920,
+            "minimum_container_bytes": 0,
+            "minimum_install_bytes": 76562825216,
+            "offset_bytes": 172337659904,
+            "recommended_container_bytes": 0,
+            "recommended_install_bytes": 76562825216,
+            "source_identifier": "disk0s2"
+          }
+        ],
+        "layout_digest": "sha256:e409646b8aab8fe9e89d10fbdbd1ff68aa6dd98d5840f2d3fd3d0954188cfd14",
+        "system_store_identifier": "disk0"
+      },
+      "hardware": {
+        "bootVersion": "mBoot-18000.161.10",
+        "chipID": 33058,
+        "macOSVersion": "26.6.2",
+        "recoveryVersion": null
+      },
+      "metadata": {
+        "os_list": [
+          {
+            "boot_object": "m1n1.bin",
+            "default_os_name": "Omarchy",
+            "icon": "omarchy-volume.icns",
+            "name": "Omarchy MX Mac",
+            "next_object": "m1n1/boot.bin",
+            "omarchy_target": "apple-silicon-full-os",
+            "package": "omarchy-2026.09.02-aarch64-apple-silicon-asahi-os-package.zip",
+            "partitions": [
+              {
+                "copy_firmware": true,
+                "copy_installer_data": true,
+                "format": "fat",
+                "name": "EFI",
+                "size": "524288000B",
+                "source": "esp",
+                "type": "EFI",
+                "volume_id": "0x4f4d5801"
+              },
+              {
+                "image": "boot.img",
+                "name": "Boot",
+                "size": "2147483648B",
+                "type": "Linux"
+              },
+              {
+                "expand": true,
+                "image": "root.img",
+                "name": "Root",
+                "size": "34359738368B",
+                "type": "Linux"
+              }
+            ],
+            "supported_fw": [
+              "26.6.2"
+            ]
+          }
+        ]
+      },
+      "name": "m3-unreadable-recovery",
+      "snapshot": {
+        "containers": [],
+        "devicePath": "synthetic-internal",
+        "disk": "disk0",
+        "diskSize": 274877906944,
+        "macOSContainerUUID": "00000000-0000-0000-0000-000000000066",
+        "macOSStoreUUID": "00000000-0000-0000-0000-000000000002",
+        "partitions": [
+          {
+            "identifier": "disk0s1",
+            "name": "",
+            "offset": 20480,
+            "size": 536870912,
+            "type": "Apple_APFS_ISC",
+            "uuid": "00000000-0000-0000-0000-000000000001"
+          },
+          {
+            "identifier": "disk0s2",
+            "name": "Macintosh HD",
+            "offset": 538968064,
+            "size": 171798691840,
+            "type": "Apple_APFS",
+            "uuid": "00000000-0000-0000-0000-000000000002"
+          },
+          {
+            "identifier": "disk0s3",
+            "name": "",
+            "offset": 269509197824,
+            "size": 5368688640,
+            "type": "Apple_APFS_Recovery",
+            "uuid": "00000000-0000-0000-0000-000000000003"
+          }
+        ]
+      },
+      "stubBytes": 2499805184
+    },
+    {
+      "containers": [
+        {
+          "capacity": 171798691840,
+          "free": 107374182400,
+          "preferredMinimum": 75161927680,
+          "storeUUID": "00000000-0000-0000-0000-000000000002",
+          "systems": [
+            {
+              "group": "00000000-0000-0000-0000-0000000000CA",
+              "label": "Macintosh HD",
+              "stub": false,
+              "version": "26.6.2"
+            }
+          ]
+        }
+      ],
+      "device": "apple,j314s",
+      "expectedInventory": {
+        "candidates": [
+          {
+            "kind": "resize",
+            "length_bytes": 171798691840,
+            "minimum_container_bytes": 102424903680,
+            "minimum_install_bytes": 39507197952,
+            "offset_bytes": 538968064,
+            "recommended_container_bytes": 102424903680,
+            "recommended_install_bytes": 76514590720,
+            "source_identifier": "disk0s2"
+          },
+          {
+            "kind": "free",
+            "length_bytes": 97171537920,
+            "minimum_container_bytes": 0,
+            "minimum_install_bytes": 76514590720,
+            "offset_bytes": 172337659904,
+            "recommended_container_bytes": 0,
+            "recommended_install_bytes": 76514590720,
+            "source_identifier": "disk0s2"
+          }
+        ],
+        "layout_digest": "sha256:e409646b8aab8fe9e89d10fbdbd1ff68aa6dd98d5840f2d3fd3d0954188cfd14",
+        "system_store_identifier": "disk0"
+      },
+      "hardware": {
+        "bootVersion": "iBoot-12000.1.1",
+        "chipID": 24576,
+        "macOSVersion": "26.6.2",
+        "recoveryVersion": "25.7.83.0.0,0"
+      },
+      "metadata": {
+        "os_list": [
+          {
+            "boot_object": "m1n1.bin",
+            "default_os_name": "Omarchy",
+            "icon": "omarchy-volume.icns",
+            "name": "Omarchy MX Mac",
+            "next_object": "m1n1/boot.bin",
+            "omarchy_target": "apple-silicon-full-os",
+            "package": "omarchy-2026.09.02-aarch64-apple-silicon-asahi-os-package.zip",
+            "partitions": [
+              {
+                "copy_firmware": true,
+                "copy_installer_data": true,
+                "format": "fat",
+                "name": "EFI",
+                "size": "500.1MB",
+                "source": "esp",
+                "type": "EFI",
+                "volume_id": "0x4f4d5801"
+              },
+              {
+                "image": "boot.img",
+                "name": "Boot",
+                "size": "2147483648B",
+                "type": "Linux"
+              },
+              {
+                "expand": true,
+                "image": "root.img",
+                "name": "Root",
+                "size": "34359738368B",
+                "type": "Linux"
+              }
+            ],
+            "supported_fw": [
+              "13.5",
+              "14.8.3"
+            ]
+          },
+          {
+            "omarchy_target": "other"
+          }
+        ]
+      },
+      "name": "partition-rounding-and-unrelated-template",
+      "snapshot": {
+        "containers": [],
+        "devicePath": "synthetic-internal",
+        "disk": "disk0",
+        "diskSize": 274877906944,
+        "macOSContainerUUID": "00000000-0000-0000-0000-000000000066",
+        "macOSStoreUUID": "00000000-0000-0000-0000-000000000002",
+        "partitions": [
+          {
+            "identifier": "disk0s1",
+            "name": "",
+            "offset": 20480,
+            "size": 536870912,
+            "type": "Apple_APFS_ISC",
+            "uuid": "00000000-0000-0000-0000-000000000001"
+          },
+          {
+            "identifier": "disk0s2",
+            "name": "Macintosh HD",
+            "offset": 538968064,
+            "size": 171798691840,
+            "type": "Apple_APFS",
+            "uuid": "00000000-0000-0000-0000-000000000002"
+          },
+          {
+            "identifier": "disk0s3",
+            "name": "",
+            "offset": 269509197824,
+            "size": 5368688640,
+            "type": "Apple_APFS_Recovery",
+            "uuid": "00000000-0000-0000-0000-000000000003"
+          }
+        ]
+      },
+      "stubBytes": 2499805184
+    },
+    {
+      "containers": [
+        {
+          "capacity": 171798691840,
+          "free": 107374182400,
+          "preferredMinimum": 75161927680,
+          "storeUUID": "00000000-0000-0000-0000-000000000002",
+          "systems": [
+            {
+              "group": "00000000-0000-0000-0000-0000000000CA",
+              "label": "Macintosh HD",
+              "stub": false,
+              "version": "26.6.2"
+            }
+          ]
+        },
+        {
+          "capacity": 2499805184,
+          "free": 1800000000,
+          "preferredMinimum": 1000000000,
+          "storeUUID": "00000000-0000-0000-0000-000000000004",
+          "systems": [
+            {
+              "group": "00000000-0000-0000-0000-0000000000CC",
+              "label": "Omarchy",
+              "stub": true,
+              "version": "26.6.2"
+            }
+          ]
+        }
+      ],
+      "device": "apple,j314s",
+      "expectedInventory": {
+        "candidates": [
+          {
+            "kind": "resize",
+            "length_bytes": 171798691840,
+            "minimum_container_bytes": 102424903680,
+            "minimum_install_bytes": 39531315200,
+            "offset_bytes": 538968064,
+            "recommended_container_bytes": 102424903680,
+            "recommended_install_bytes": 76562825216,
+            "source_identifier": "disk0s2"
+          },
+          {
+            "identity_digest": "sha256:a9fb580c6ce2eb05e22dab88c529341f30fae1fd9feae3a6f0d7deaa0766b717",
+            "kind": "replace",
+            "length_bytes": 97171537920,
+            "minimum_container_bytes": 0,
+            "minimum_install_bytes": 76562825216,
+            "offset_bytes": 172337659904,
+            "recommended_container_bytes": 0,
+            "recommended_install_bytes": 76562825216,
+            "source_identifier": "disk0s4"
+          },
+          {
+            "kind": "free",
+            "length_bytes": 43668996096,
+            "minimum_container_bytes": 0,
+            "minimum_install_bytes": 39531315200,
+            "offset_bytes": 225840201728,
+            "recommended_container_bytes": 0,
+            "recommended_install_bytes": 76562825216,
+            "source_identifier": "disk0s7"
+          }
+        ],
+        "layout_digest": "sha256:e40b8dc1ffe13cf04ad58c1d7c5e2957a032b2285c643328c860e2ed7836f058",
+        "system_store_identifier": "disk0"
+      },
+      "hardware": {
+        "bootVersion": "iBoot-12000.1.1",
+        "chipID": 24576,
+        "macOSVersion": "26.6.2",
+        "recoveryVersion": "25.7.83.0.0,0"
+      },
+      "metadata": {
+        "os_list": [
+          {
+            "boot_object": "m1n1.bin",
+            "default_os_name": "Omarchy",
+            "icon": "omarchy-volume.icns",
+            "name": "Omarchy MX Mac",
+            "next_object": "m1n1/boot.bin",
+            "omarchy_target": "apple-silicon-full-os",
+            "package": "omarchy-2026.09.02-aarch64-apple-silicon-asahi-os-package.zip",
+            "partitions": [
+              {
+                "copy_firmware": true,
+                "copy_installer_data": true,
+                "format": "fat",
+                "name": "EFI",
+                "size": "524288000B",
+                "source": "esp",
+                "type": "EFI",
+                "volume_id": "0x4f4d5801"
+              },
+              {
+                "image": "boot.img",
+                "name": "Boot",
+                "size": "2147483648B",
+                "type": "Linux"
+              },
+              {
+                "expand": true,
+                "image": "root.img",
+                "name": "Root",
+                "size": "34359738368B",
+                "type": "Linux"
+              }
+            ],
+            "supported_fw": [
+              "13.5",
+              "14.8.3"
+            ]
+          }
+        ]
+      },
+      "name": "complete-install",
+      "snapshot": {
+        "containers": [],
+        "devicePath": "synthetic-internal",
+        "disk": "disk0",
+        "diskSize": 274877906944,
+        "macOSContainerUUID": "00000000-0000-0000-0000-000000000066",
+        "macOSStoreUUID": "00000000-0000-0000-0000-000000000002",
+        "partitions": [
+          {
+            "identifier": "disk0s1",
+            "name": "",
+            "offset": 20480,
+            "size": 536870912,
+            "type": "Apple_APFS_ISC",
+            "uuid": "00000000-0000-0000-0000-000000000001"
+          },
+          {
+            "identifier": "disk0s2",
+            "name": "Macintosh HD",
+            "offset": 538968064,
+            "size": 171798691840,
+            "type": "Apple_APFS",
+            "uuid": "00000000-0000-0000-0000-000000000002"
+          },
+          {
+            "identifier": "disk0s4",
+            "name": "Omarchy",
+            "offset": 177706369024,
+            "size": 2499805184,
+            "type": "Apple_APFS",
+            "uuid": "00000000-0000-0000-0000-000000000004"
+          },
+          {
+            "identifier": "disk0s5",
+            "name": "EFI - OMARC",
+            "offset": 180206174208,
+            "size": 536870912,
+            "type": "EFI",
+            "uuid": "00000000-0000-0000-0000-000000000005"
+          },
+          {
+            "identifier": "disk0s6",
+            "name": "",
+            "offset": 180743045120,
+            "size": 2147483648,
+            "type": "Linux Filesystem",
+            "uuid": "00000000-0000-0000-0000-000000000006"
+          },
+          {
+            "identifier": "disk0s7",
+            "name": "",
+            "offset": 182890528768,
+            "size": 42949672960,
+            "type": "Linux Filesystem",
+            "uuid": "00000000-0000-0000-0000-000000000007"
+          },
+          {
+            "identifier": "disk0s3",
+            "name": "",
+            "offset": 269509197824,
+            "size": 5368688640,
+            "type": "Apple_APFS_Recovery",
+            "uuid": "00000000-0000-0000-0000-000000000003"
+          }
+        ]
+      },
+      "stubBytes": 2499805184
+    },
+    {
+      "containers": [
+        {
+          "capacity": 171798691840,
+          "free": 107374182400,
+          "preferredMinimum": 75161927680,
+          "storeUUID": "00000000-0000-0000-0000-000000000002",
+          "systems": [
+            {
+              "group": "00000000-0000-0000-0000-0000000000CA",
+              "label": "Macintosh HD",
+              "stub": false,
+              "version": "26.6.2"
+            }
+          ]
+        },
+        {
+          "capacity": 2499805184,
+          "free": 1800000000,
+          "preferredMinimum": 1000000000,
+          "storeUUID": "00000000-0000-0000-0000-000000000004",
+          "systems": [
+            {
+              "group": "00000000-0000-0000-0000-0000000000CC",
+              "label": "Omarchy",
+              "stub": true,
+              "version": "26.6.2"
+            }
+          ]
+        }
+      ],
+      "device": "apple,j314s",
+      "expectedInventory": {
+        "candidates": [
+          {
+            "kind": "resize",
+            "length_bytes": 171798691840,
+            "minimum_container_bytes": 102424903680,
+            "minimum_install_bytes": 39531315200,
+            "offset_bytes": 538968064,
+            "recommended_container_bytes": 102424903680,
+            "recommended_install_bytes": 76562825216,
+            "source_identifier": "disk0s2"
+          },
+          {
+            "kind": "free",
+            "length_bytes": 86618669056,
+            "minimum_container_bytes": 0,
+            "minimum_install_bytes": 76562825216,
+            "offset_bytes": 182890528768,
+            "recommended_container_bytes": 0,
+            "recommended_install_bytes": 76562825216,
+            "source_identifier": "disk0s6"
+          }
+        ],
+        "layout_digest": "sha256:80400200fbc24812a7f3dc2fada48b6ee25057f939c1626a060b10cbcee8dc8a",
+        "system_store_identifier": "disk0"
+      },
+      "hardware": {
+        "bootVersion": "iBoot-12000.1.1",
+        "chipID": 24576,
+        "macOSVersion": "26.6.2",
+        "recoveryVersion": "25.7.83.0.0,0"
+      },
+      "metadata": {
+        "os_list": [
+          {
+            "boot_object": "m1n1.bin",
+            "default_os_name": "Omarchy",
+            "icon": "omarchy-volume.icns",
+            "name": "Omarchy MX Mac",
+            "next_object": "m1n1/boot.bin",
+            "omarchy_target": "apple-silicon-full-os",
+            "package": "omarchy-2026.09.02-aarch64-apple-silicon-asahi-os-package.zip",
+            "partitions": [
+              {
+                "copy_firmware": true,
+                "copy_installer_data": true,
+                "format": "fat",
+                "name": "EFI",
+                "size": "524288000B",
+                "source": "esp",
+                "type": "EFI",
+                "volume_id": "0x4f4d5801"
+              },
+              {
+                "image": "boot.img",
+                "name": "Boot",
+                "size": "2147483648B",
+                "type": "Linux"
+              },
+              {
+                "expand": true,
+                "image": "root.img",
+                "name": "Root",
+                "size": "34359738368B",
+                "type": "Linux"
+              }
+            ],
+            "supported_fw": [
+              "13.5",
+              "14.8.3"
+            ]
+          }
+        ]
+      },
+      "name": "partial-install",
+      "snapshot": {
+        "containers": [],
+        "devicePath": "synthetic-internal",
+        "disk": "disk0",
+        "diskSize": 274877906944,
+        "macOSContainerUUID": "00000000-0000-0000-0000-000000000066",
+        "macOSStoreUUID": "00000000-0000-0000-0000-000000000002",
+        "partitions": [
+          {
+            "identifier": "disk0s1",
+            "name": "",
+            "offset": 20480,
+            "size": 536870912,
+            "type": "Apple_APFS_ISC",
+            "uuid": "00000000-0000-0000-0000-000000000001"
+          },
+          {
+            "identifier": "disk0s2",
+            "name": "Macintosh HD",
+            "offset": 538968064,
+            "size": 171798691840,
+            "type": "Apple_APFS",
+            "uuid": "00000000-0000-0000-0000-000000000002"
+          },
+          {
+            "identifier": "disk0s4",
+            "name": "Omarchy",
+            "offset": 177706369024,
+            "size": 2499805184,
+            "type": "Apple_APFS",
+            "uuid": "00000000-0000-0000-0000-000000000004"
+          },
+          {
+            "identifier": "disk0s5",
+            "name": "EFI - OMARC",
+            "offset": 180206174208,
+            "size": 536870912,
+            "type": "EFI",
+            "uuid": "00000000-0000-0000-0000-000000000005"
+          },
+          {
+            "identifier": "disk0s6",
+            "name": "",
+            "offset": 180743045120,
+            "size": 2147483648,
+            "type": "Linux Filesystem",
+            "uuid": "00000000-0000-0000-0000-000000000006"
+          },
+          {
+            "identifier": "disk0s3",
+            "name": "",
+            "offset": 269509197824,
+            "size": 5368688640,
+            "type": "Apple_APFS_Recovery",
+            "uuid": "00000000-0000-0000-0000-000000000003"
+          }
+        ]
+      },
+      "stubBytes": 2499805184
+    }
+  ]
+}

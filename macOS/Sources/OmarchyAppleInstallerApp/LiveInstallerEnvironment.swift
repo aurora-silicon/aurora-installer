@@ -13,9 +13,18 @@ import OmarchyInstallerUXCore
 final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable {
   private let lock = NSLock()
   private let selection: AuroraInstallationSelection
+  private let inspector: any NativeInstallerInspecting
+  private let inspectHost: @Sendable () throws -> AppleSiliconHostInspection
 
-  init(selection: AuroraInstallationSelection = AuroraInstallationSelection()) {
+  init(selection: AuroraInstallationSelection = AuroraInstallationSelection(),
+    inspector: any NativeInstallerInspecting = NativeInstallerInspector(),
+    inspectHost: @escaping @Sendable () throws -> AppleSiliconHostInspection = {
+      try AppleSiliconHostInspector().inspect()
+    }
+  ) {
     self.selection = selection
+    self.inspector = inspector
+    self.inspectHost = inspectHost
   }
 
   private func loadConfiguration() throws -> InstallerReleaseConfiguration {
@@ -116,14 +125,14 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
 
   func inspect() async throws -> HostDisplay {
     let host = try await Task.detached(priority: .userInitiated) {
-      try AppleSiliconHostInspector().inspect()
+      try self.inspectHost()
     }.value
 
     var engine: ValidatedEngineTranscript?
     var transcript: Data?
     var engineFailure: String?
     do {
-      let inspection = try await EngineInspectionRunner().inspect()
+      let inspection = try await inspector.inspect(host: host, metadata: nil)
       guard
         inspection.validated.deviceIdentifier == host.identity.deviceIdentifier
       else {
@@ -132,8 +141,6 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       }
       engine = inspection.validated
       transcript = inspection.transcript
-    } catch ValidationEngineArtifactError.unavailable {
-      engineFailure = PlainLanguage.engineUnavailable
     } catch InstallerAppError.hostChanged {
       // engineFailure already set above.
     } catch {
@@ -323,22 +330,16 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       AssetProgressUpdate(stage: .inspectingEngine, rows: collector.rows())
     )
 
-    // Sampled before the engine reads free space, so a download that moves on
+    // Sampled before native inspection reads free space, so a download that moves on
     // during inspection only makes the reserve more cautious.
     let payloadBytesOnDisk = prefetch.bytesOnDisk(for: release.assets.payload)
     let planningReserve = release.assets.planningReserveBytes(
       payloadBytesOnDisk: payloadBytesOnDisk)
     let freshHost = try await Task.detached(priority: .userInitiated) {
-      try AppleSiliconHostInspector().inspect()
+      try self.inspectHost()
     }.value
     guard freshHost.identity == host.identity else { throw InstallerAppError.hostChanged }
-    let stagedEngine = release.assets.engine
-    let archive = try PinnedAsahiEngineArchive(
-      fileURL: stagedEngine.fileURL,
-      expectedDigest: stagedEngine.artifact.expectedDigest,
-      expectedSizeBytes: stagedEngine.artifact.expectedSizeBytes
-    )
-    let signedInspection = try await EngineInspectionRunner().inspect(archive)
+    let signedInspection = try await inspector.inspect(host: freshHost, metadata: release.assets.metadata)
     guard
       signedInspection.validated.deviceIdentifier
         == host.identity.deviceIdentifier,
@@ -732,7 +733,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     }
   }
 
-  /// Runs the allocation recommendation on the bundled engine's inventory, so
+  /// Runs the allocation recommendation on the native inspection's inventory, so
   /// a disk that cannot hold Aurora is reported before the catalog is fetched
   /// or the release downloaded. The handoff reserve is not known yet, so this
   /// can only be more generous than the check after the download.

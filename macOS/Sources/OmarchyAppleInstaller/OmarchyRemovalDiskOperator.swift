@@ -13,6 +13,8 @@
     var commands: @Sendable ([String]) throws -> Data = {
       try Self.systemRun("/usr/sbin/diskutil", $0, timeout: Self.isQuery($0) ? 120 : nil)
     }
+    /// Cleanup must still unmount an inspection-owned volume after cancellation.
+    var cleanupCommands: (@Sendable ([String]) throws -> Data)?
     var targetType: @Sendable () throws -> String = {
       try SysctlHardwarePropertyReader().string(named: "hw.targettype")
     }
@@ -38,6 +40,12 @@
         any RemovalFileReading = { try RemovalFATVolume.rawDevice($0, blockSize: $1, size: $2) }
 
     func snapshot() throws -> RemovalSnapshot {
+      try snapshot(maximumPartitions: 32)
+    }
+
+    /// Native installation inspection uses the same neutral disk graph without
+    /// imposing the removal workflow's small, deliberately bounded layout.
+    func snapshot(maximumPartitions: Int) throws -> RemovalSnapshot {
       let target = try targetType().lowercased()
       guard target != "j614s", target != "apple,j614s" else {
         throw RemovalFailure(message: "Removal is not supported on this Mac model.")
@@ -64,7 +72,7 @@
         whole.filter({ $0["DeviceIdentifier"] as? String == disk }).count == 1,
         let entry = whole.first(where: { $0["DeviceIdentifier"] as? String == disk }),
         entry["Content"] as? String == "GUID_partition_scheme",
-        let records = entry["Partitions"] as? [[String: Any]], records.count <= 32
+        let records = entry["Partitions"] as? [[String: Any]], records.count <= maximumPartitions
       else { throw invalid() }
       let parts = try records.map { item -> RemovalPartition in
         let info = try plist(["info", "-plist", try string(item, "DeviceIdentifier")])
@@ -199,7 +207,7 @@
     /// Reads a volume in place when macOS already mounted it, otherwise mounts it
     /// read-only at a private directory and unmounts it again. The volume must be
     /// the one the approved snapshot names, by BSD identifier and UUID.
-    private func withVolume<T>(
+    func withVolume<T>(
       _ identifier: String, uuid expected: String,
       belongs: ([String: Any]) throws -> Bool, read body: (RemovalFileTree) throws -> T
     ) throws -> T {
@@ -210,8 +218,10 @@
       let directory = try makeMountPoint()
       let path = directory.resolvingSymlinksInPath().path
       func release() {
-        if (try? plist(["info", "-plist", identifier]))?["MountPoint"] as? String == path {
-          _ = try? run(["unmount", identifier])
+        if let data = try? cleanupRun(["info", "-plist", identifier]),
+          let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+          info["MountPoint"] as? String == path {
+          _ = try? cleanupRun(["unmount", identifier])
         }
       }
       do {
@@ -219,6 +229,7 @@
       } catch {
         release()
         _ = Darwin.rmdir(path)
+        if error is CancellationError { throw error }
         throw RemovalFailure(message: "\(identifier) couldn’t be mounted read-only.")
       }
       let result = Result<T, any Error>(catching: {
@@ -229,7 +240,7 @@
         else { throw RemovalFailure(message: "\(identifier) wasn’t mounted read-only.") }
         return try body(openTree(path, identifier))
       })
-      do { _ = try run(["unmount", identifier]) } catch {
+      do { _ = try cleanupRun(["unmount", identifier]) } catch {
         throw RemovalFailure(message: "\(identifier) couldn’t be unmounted after checking it.")
       }
       _ = Darwin.rmdir(path)
@@ -388,6 +399,9 @@
       return value
     }
     private func run(_ arguments: [String]) throws -> Data { try commands(arguments) }
+    private func cleanupRun(_ arguments: [String]) throws -> Data {
+      try (cleanupCommands ?? commands)(arguments)
+    }
 
     /// Reading the disk, and mounting or unmounting the startup container to
     /// read it, may be given up on. A change to the partition map never is.
