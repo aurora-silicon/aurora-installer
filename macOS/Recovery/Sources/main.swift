@@ -388,8 +388,21 @@ final class InstallerModel: ObservableObject {
 
 enum DestinationVolume {
   static let url = RecoveryActions.volume
-  static let name = RecoveryActions.volumeName
+  private static let previewDistribution: String? = {
+    guard RecoveryActions.isPreview,
+      let argument = CommandLine.arguments.first(where: { $0.hasPrefix("--preview-distro=") })
+    else { return nil }
+    let name = String(argument.dropFirst("--preview-distro=".count))
+    return ["fedora", "arch", "nixos"].contains(name) ? name : nil
+  }()
+  static let name = previewDistribution.flatMap {
+    ["fedora": "Fedora Aurora Remix", "arch": "Aurora ALARM", "nixos": "Aurora NixOS"][$0]
+  } ?? RecoveryActions.volumeName
   static let icon: NSImage = {
+    if let distribution = previewDistribution,
+      let url = Bundle.main.url(forResource: distribution, withExtension: "icns"),
+      let image = NSImage(contentsOf: url)
+    { return image }
     // Read the actual custom volume icon without synchronously asking
     // LaunchServices/IconServices while Recovery is launching this app.
     if let image = NSImage(contentsOf: url.appendingPathComponent(".VolumeIcon.icns")) {
@@ -461,9 +474,10 @@ struct InstallerView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      Image(nsImage: DestinationVolume.icon)
-        .resizable()
-        .scaledToFit()
+      Image(systemName: "externaldrive.badge.checkmark")
+        .font(.system(size: 48))
+        .symbolRenderingMode(.hierarchical)
+        .foregroundStyle(.tint)
         .frame(width: 64, height: 64)
         .padding(.top, 40)
         .padding(.bottom, 12)
@@ -490,27 +504,6 @@ struct InstallerView: View {
       .frame(maxWidth: 510)
       .frame(height: model.stage == .account ? 288 : 244, alignment: .top)
       Spacer(minLength: 12)
-
-      Group {
-        if model.stage == .welcome {
-          HStack(spacing: 5) {
-            Text("Made with")
-            Image(systemName: "heart.fill")
-              .font(RecoveryAppearance.font(10))
-              .foregroundColor(RecoveryAppearance.danger)
-            Text("by")
-            Text("Aurora Silicon")
-          }
-          .font(RecoveryAppearance.detail)
-          .foregroundColor(RecoveryAppearance.secondaryText)
-          .accessibilityElement(children: .ignore)
-          .accessibilityLabel("Made with love by Aurora Silicon")
-        } else {
-          Color.clear.accessibilityHidden(true)
-        }
-      }
-      .frame(height: 24)
-      .padding(.bottom, 10)
 
       ZStack {
         navigation

@@ -7,6 +7,9 @@ OUT="${2:-build}"
 export OMARCHY_RECOVERY_BUILD="$MODE"
 APP="$OUT/Aurora Installer.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+if [[ $MODE == "preview" ]]; then
+  cp ../Packaging/DistributionIcons/{fedora,arch,nixos}.icns "$APP/Contents/Resources/"
+fi
 mkdir -p "$APP/Contents/Resources/en.lproj"
 cp Resources/en.lproj/InfoPlist.strings "$APP/Contents/Resources/en.lproj/InfoPlist.strings"
 # Build the standalone Recovery target with XcodeBuildMCP before packaging.

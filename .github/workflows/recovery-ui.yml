@@ -50,7 +50,7 @@ jobs:
           for screen in welcome installing account complete error; do
             for appearance in light dark; do
               output="$RUNNER_TEMP/evidence/$screen-$appearance.png"
-              arguments=(--preview "--preview-stage=$screen" "--snapshot=$output")
+              arguments=(--preview --preview-distro=fedora "--preview-stage=$screen" "--snapshot=$output")
               [[ $appearance != dark ]] || arguments+=(--preview-dark)
               "$app/Contents/MacOS/OmarchyRecovery" "${arguments[@]}" > "$RUNNER_TEMP/evidence/$screen-$appearance.log" 2>&1 &
               preview_pid=$!
