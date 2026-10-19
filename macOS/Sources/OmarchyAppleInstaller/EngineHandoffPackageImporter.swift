@@ -233,7 +233,7 @@
       _ name: String, from directory: Int32, control: Bool,
       expectedBytes: UInt64? = nil, expectedDigest: String? = nil
     ) throws -> Data {
-      let descriptor = openat(directory, name, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+      let descriptor = openat(directory, name, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)
       guard descriptor >= 0 else { throw EngineHandoffImportError.unsafeFile(name) }
       defer { Darwin.close(descriptor) }
       var status = stat()

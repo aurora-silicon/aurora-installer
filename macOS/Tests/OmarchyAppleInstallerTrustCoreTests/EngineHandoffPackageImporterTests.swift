@@ -62,6 +62,24 @@
           named: imported.packageURL.lastPathComponent, in: fixture.destination))
     }
 
+    func testRetainedPackageRejectsFIFOsWithoutWaitingForAWritingProcess() throws {
+      for name in ["manifest.json", "omarchy.img.zst"] {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let source = try openDirectory(fixture.source)
+        defer { try? source.close() }
+        let importer = EngineHandoffPackageImporter()
+        let imported = try importer.prepare(from: source, in: fixture.destination)
+        let file = imported.packageURL.appendingPathComponent(name)
+        try FileManager.default.removeItem(at: file)
+        XCTAssertEqual(mkfifo(file.path, 0o600), 0)
+        XCTAssertThrowsError(try importer.reopenRetained(
+          named: imported.packageURL.lastPathComponent, in: fixture.destination)) {
+          XCTAssertEqual($0 as? EngineHandoffImportError, .unsafeFile(name))
+        }
+      }
+    }
+
     func testValidPackageIsRecopiedIntoPrivateHelperDirectory() throws {
       let fixture = try makeFixture()
       defer { try? FileManager.default.removeItem(at: fixture.root) }
