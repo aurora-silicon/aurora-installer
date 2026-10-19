@@ -31,11 +31,15 @@ import Foundation
       .cannotVerify)
     check("OS Type: one true recoveryOS\nPairing: Paired eventually", .cannotVerify)
 
-    for issue in [EnrollmentGateIssue.notRecovery, .wrongPair, .powerButtonRequired, .cannotVerify] {
+    for issue in [EnrollmentGateIssue.notRecovery, .wrongPair, .powerButtonRequired, .cannotVerify]
+    {
       precondition(!issue.message.contains("Omarchy"))
     }
-    precondition(EnrollmentGateIssue.notRecovery.message(for: "Fedora Aurora Remix").contains("“Fedora Aurora Remix”"))
-    precondition(EnrollmentGateIssue.wrongPair.message(for: "Aurora NixOS").contains("“Aurora NixOS”"))
+    precondition(
+      EnrollmentGateIssue.notRecovery.message(for: "Fedora Aurora Remix").contains(
+        "“Fedora Aurora Remix”"))
+    precondition(
+      EnrollmentGateIssue.wrongPair.message(for: "Aurora NixOS").contains("“Aurora NixOS”"))
 
     var selected = false
     var calls: [String] = []

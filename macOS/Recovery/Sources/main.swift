@@ -395,14 +395,17 @@ enum DestinationVolume {
     let name = String(argument.dropFirst("--preview-distro=".count))
     return ["fedora", "arch", "nixos"].contains(name) ? name : nil
   }()
-  static let name = previewDistribution.flatMap {
-    ["fedora": "Fedora Aurora Remix", "arch": "Aurora ALARM", "nixos": "Aurora NixOS"][$0]
-  } ?? RecoveryActions.volumeName
+  static let name =
+    previewDistribution.flatMap {
+      ["fedora": "Fedora Aurora Remix", "arch": "Aurora ALARM", "nixos": "Aurora NixOS"][$0]
+    } ?? RecoveryActions.volumeName
   static let icon: NSImage = {
     if let distribution = previewDistribution,
       let url = Bundle.main.url(forResource: distribution, withExtension: "icns"),
       let image = NSImage(contentsOf: url)
-    { return image }
+    {
+      return image
+    }
     // Read the actual custom volume icon without synchronously asking
     // LaunchServices/IconServices while Recovery is launching this app.
     if let image = NSImage(contentsOf: url.appendingPathComponent(".VolumeIcon.icns")) {
@@ -1017,8 +1020,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     guard RecoveryActions.isPreview,
       let argument = CommandLine.arguments.first(where: { $0.hasPrefix("--snapshot=") })
     else { return false }
-    NSApp.appearance = NSAppearance(named: CommandLine.arguments.contains("--preview-dark") ? .darkAqua : .aqua)
-    let screen = CommandLine.arguments.first(where: { $0.hasPrefix("--preview-stage=") })
+    NSApp.appearance = NSAppearance(
+      named: CommandLine.arguments.contains("--preview-dark") ? .darkAqua : .aqua)
+    let screen =
+      CommandLine.arguments.first(where: { $0.hasPrefix("--preview-stage=") })
       .map { String($0.dropFirst("--preview-stage=".count)) } ?? "welcome"
     switch screen {
     case "installing":
@@ -1035,7 +1040,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // AppKit alert loops may suspend main-queue callbacks. A run-loop timer
     // also observes the native alert surface without interacting with it.
     let capture = Timer(timeInterval: 1, repeats: false) { _ in
-      let surface = screen == "error" ? (window.attachedSheet ?? NSApp.modalWindow ?? window) : window
+      let surface =
+        screen == "error" ? (window.attachedSheet ?? NSApp.modalWindow ?? window) : window
       surface.contentView?.layoutSubtreeIfNeeded()
       if let view = surface.contentView,
         let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)
