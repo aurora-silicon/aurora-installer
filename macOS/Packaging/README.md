@@ -21,10 +21,14 @@ The generated `Aurora Installer.app` contains:
 - the helper's declaration for `SMJobBless` (`SMPrivilegedExecutables`) in the app's Info.plist, for builds with a real signing identity;
 - the launch-daemon property list the fallback installer package derives its system daemon from, in `Contents/Library/LaunchDaemons`, pointing at the same helper;
 - the immutable release descriptor and Ed25519 trust root in
-  `Contents/Resources/Release`; and
-- the pinned Asahi validation engine in `Contents/Resources/Engine/artifacts`.
+  `Contents/Resources/Release`;
+- the native Recovery template in `Contents/Resources/RecoveryTemplate`.
+
+Disk inspection and plan construction are compiled into the Swift app. The normal on-demand application contains no validation runtime or OS payload. It retrieves the selected metadata, installation backend and OS resources through its signed catalog. An explicitly sealed private or offline build can also bundle authenticated execution engines in `Contents/Resources/Engine/artifacts`; these remain subject to the runtime inventory and notarization checks.
 
 The engine producer checks every native file against the authenticated runtime inventory. The auxiliary decoder is excluded from that archive so application signing can cover it directly. Packaging verifies its unsigned build record, signs the nested executable before the enclosing app, and pins its requirement in the helper's launchd configuration. See [native prepared inputs](../docs/native-prepared-inputs.md) for admission and retained-job retry behavior.
+
+Optional private engines and catalog-selected offline engines both pass that runtime check. The release preflight also checks every archived runtime signature and requires the app, privileged helper, decoder and Recovery template to have matching Developer ID teams, secure timestamps and hardened runtime enabled.
 
 The helper and application use reciprocal code-signing requirements. The helper
 also authenticates each XPC client before accepting a request. A release
@@ -79,6 +83,8 @@ preconfigured keychain profile:
 OMARCHY_NOTARY_PROFILE="omarchy-notary" \
 Packaging/notarize-app.sh "/absolute/path/Aurora Installer.app"
 ```
+
+`Packaging/notarize-app.sh --verify-only APP` runs the same signature preflight without creating an archive or contacting the notary service. Passing it is signature evidence; notarization and stapling remain separate requirements. For named nine-profile builds, pass `--signing-team TEAMID` to `scripts/prepare-distribution-release.py` so the root and every profile descriptor use the helper requirement of that build. The signed catalogs and their trust root remain unchanged.
 
 The app installs its own helper with `SMJobBless` the first time the person authorizes an install, using the password they typed; ad hoc builds leave the declaration out and still need the installer package. After notarization, package the download:
 

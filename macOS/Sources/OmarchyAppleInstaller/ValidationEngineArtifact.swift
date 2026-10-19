@@ -5,18 +5,10 @@
     case unavailable
   }
 
-  /// Locates the engine bundled inside the app.
-  ///
-  /// This copy exists only to inspect the Mac before anything is downloaded,
-  /// which is what lets the app refuse a Mac that already runs Aurora without
-  /// touching the network. The engine that plans and performs an install comes
-  /// from the signed catalog instead, so the two versions are deliberately
-  /// allowed to differ. The bundled v0.9.2 engine recognizes M3 devices without
-  /// expert mode; the older v0.9.0 bundle refused them before catalog loading.
-  /// The .18 overlay also reports tight-disk candidates and keeps allocation
-  /// recommendations separate from the safety limits used after staging.
-  /// An installation engine fix ships in a catalog without rebuilding
-  /// and re-notarizing the app. Nothing may require them to be equal.
+  /// Locates the pinned reference runtime for developer qualification tools.
+  /// The app's inspection and planning paths are native and do not use this
+  /// locator or require the reference archive to be bundled. Installation
+  /// execution currently stages its independently authenticated catalog engine.
   public struct ValidationEngineArtifactLocator: Sendable {
     public static let version = "v0.9.2-aurora.4"
     public static let fileName = "installer-v0.9.2-aurora.4.tar.gz"

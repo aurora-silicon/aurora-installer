@@ -54,21 +54,6 @@ restore_image_identifier="$INSTALLER_RESTORE_IMAGE_IDENTIFIER"
 app_name="$INSTALLER_APP_NAME.app"
 app_executable_name="OmarchyAppleInstallerApp"
 daemon_plist_name="$helper_identifier.plist"
-read -r engine_file_name engine_digest engine_size < <(
-  python3 - "$package_directory/Sources/OmarchyAppleInstaller/ValidationEngineArtifact.swift" <<'PY'
-import re
-import sys
-from pathlib import Path
-
-source = Path(sys.argv[1]).read_text()
-name = re.search(r'public static let fileName = "(installer-[A-Za-z0-9.-]+\.tar\.gz)"', source)
-digest = re.search(r'public static let expectedDigest\s*=\s*"sha256:([0-9a-f]{64})"', source)
-size = re.search(r'public static let expectedSizeBytes: UInt64 = ([0-9_]+)', source)
-if not all((name, digest, size)):
-    raise SystemExit("Cannot read the runtime validation-engine identity")
-print(name[1], digest[1], int(size[1].replace("_", "")))
-PY
-)
 
 if [[ $signing_identity == "-" ]]; then
   # Ad-hoc apps cannot register their helper. The developer package pins the
@@ -188,20 +173,6 @@ if [[ $descriptor_fingerprint != "$actual_fingerprint" ]]; then
   fail "release.json trust root fingerprint does not match the public key"
 fi
 
-engine_source="$package_directory/Engine/artifacts/$engine_file_name"
-if [[ ! -f $engine_source || -L $engine_source ]]; then
-  fail "the pinned validation engine artifact is missing"
-fi
-actual_engine_digest="$(/usr/bin/shasum -a 256 "$engine_source" | awk '{print $1}')"
-if [[ $actual_engine_digest != "$engine_digest" ]]; then
-  fail "the pinned validation engine digest is incorrect"
-fi
-[[ $(stat -f %z "$engine_source") == "$engine_size" ]] \
-  || fail "the pinned validation engine size is incorrect"
-
-# The archive may contain only the authenticated runtime's native code.
-python3 "$package_directory/Engine/verify-engine-macho.py" "$engine_source" >/dev/null \
-  || fail "the validation engine carries native code outside its pinned runtime"
 restore_image_source="$package_directory/Engine/RestoreImage/bin/omarchy-restore-image"
 python3 "$package_directory/Engine/verify-restore-image.py" >/dev/null \
   || fail "the restore-image decoder differs from its recorded build"
@@ -284,7 +255,6 @@ helper_path="$assembled_app/$helper_relative_path"
 mkdir -p \
   "$contents/MacOS" \
   "$resources/Release" \
-  "$resources/Engine/artifacts" \
   "$contents/Library/LaunchDaemons" \
   "$contents/Library/LaunchServices"
 
@@ -307,7 +277,7 @@ install -m 0444 "$package_directory/Design/Assets/MacDesktopPowerButton.png" "$r
 mkdir -p "$resources/RecoveryTemplate"
 /usr/bin/ditto "$recovery_template" "$resources/RecoveryTemplate/Aurora Installer.app"
 codesign --force --sign "$signing_identity" "${timestamp_arguments[@]}" \
-  "$resources/RecoveryTemplate/Aurora Installer.app"
+  --options runtime "$resources/RecoveryTemplate/Aurora Installer.app"
 if [[ ${OMARCHY_PRIVATE_LIMINE_TEST:-0} == "1" ]]; then
   install -m 0444 "$release_directory/limine-inputs.json" "$resources/Release/limine-inputs.json"
 fi
@@ -317,10 +287,10 @@ if [[ $sealed_catalog_available == "true" ]]; then
     "$sealed_catalog_signature" \
     "$resources/Release/catalog.json.sig"
 fi
-install -m 0444 "$engine_source" "$resources/Engine/artifacts/$engine_file_name"
 # Optional execution engines belong to the signed app, not the download cache.
 # Admit only files whose name, size and hash match its sealed catalog.
 if [[ $sealed_catalog_available == "true" && -d "$release_directory/engine-artifacts" ]]; then
+  mkdir -p "$resources/Engine/artifacts"
   python3 - "$sealed_catalog" "$release_directory/engine-artifacts" "$resources/Engine/artifacts" <<'PYCODE'
 import hashlib
 import json
@@ -344,12 +314,13 @@ for model in json.loads(catalog.read_text())["models"]:
     target = destination / name
     if target.exists():
         if hashlib.sha256(target.read_bytes()).hexdigest() != expected:
-            raise SystemExit("bundled engine conflicts with inspection engine")
-        # The inspection engine is already this exact execution engine.
+            raise SystemExit("conflicting bundled execution engine")
+        # Several models can use the same authenticated execution engine.
         continue
     shutil.copyfile(source, target)
     target.chmod(0o444)
 PYCODE
+
 fi
 install -m 0444 \
   "$script_directory/AuroraInstaller.icns" \
@@ -380,6 +351,8 @@ fi
 if [[ -d "$release_directory/Profiles" ]]; then
   /usr/bin/ditto "$release_directory/Profiles" "$resources/Release/Profiles"
 fi
+python3 "$script_directory/verify-bundled-engines.py" "$assembled_app" \
+  || fail "a bundled execution engine is unsafe or carries unexpected native code"
 plutil -replace CFBundleVersion \
   -string "$build_number" "$contents/Info.plist"
 plutil -replace CFBundleIdentifier \

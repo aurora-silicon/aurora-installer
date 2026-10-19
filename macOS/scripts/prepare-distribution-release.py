@@ -14,7 +14,9 @@ PROFILES = tuple(f"{distribution}-{desktop}" for distribution in ("fedora", "arc
                  for desktop in ("kde", "gnome", "minimal"))
 
 
-def prepare(source, output, sealed=False):
+def prepare(source, output, sealed=False, signing_team=None):
+    if signing_team is not None and not re.fullmatch(r"[A-Z0-9]{10}", signing_team):
+        raise ValueError("invalid release signing team")
     identity = {}
     for line in (ROOT / "Packaging/identity.conf").read_text().splitlines():
         if not line.strip() or line.lstrip().startswith("#"):
@@ -61,6 +63,24 @@ def prepare(source, output, sealed=False):
                 if descriptor["channels"][channel]["catalog_url"] != base + "/channels/" + channel + "/catalog.signed.json":
                     raise ValueError(f"descriptor channel mismatch: {profile}")
             documents[profile] = data
+    def release_descriptor(content):
+        if signing_team is None:
+            return content
+        descriptor = json.loads(content)
+        helper = identity["INSTALLER_HELPER_IDENTIFIER"]
+        expected_fingerprint = "sha256:" + hashlib.sha256(trusted).hexdigest()
+        if (not re.fullmatch(r"[A-Za-z0-9.-]+", helper)
+                or descriptor.get("schema_version") != 3
+                or descriptor.get("helper_mach_service_name") != helper
+                or descriptor.get("trust_root_fingerprint") != expected_fingerprint):
+            raise ValueError("release descriptor does not match the configured helper and root")
+        descriptor["helper_code_signing_requirement"] = (
+            f'anchor apple generic and identifier "{helper}" '
+            f'and certificate leaf[subject.OU] = "{signing_team}"'
+        )
+        return (json.dumps(descriptor, indent=2) + "\n").encode()
+    descriptors = {profile: release_descriptor(data["release.json"]) for profile, data in documents.items()}
+    root_descriptor = release_descriptor((ROOT / "Release/release.json").read_bytes())
     # Nothing is emitted until the entire nine-profile set has verified.
     output.mkdir(parents=True)
     for profile, data in documents.items():
@@ -68,9 +88,9 @@ def prepare(source, output, sealed=False):
         directory.mkdir(parents=True)
         for name, content in data.items():
             if sealed or name not in ("catalog.json", "catalog.json.sig"):
-                (directory / name).write_bytes(content)
-    for name in ("release.json", "trust-root.ed25519.pub"):
-        shutil.copyfile(ROOT / "Release" / name, output / name)
+                (directory / name).write_bytes(descriptors[profile] if name == "release.json" else content)
+    (output / "release.json").write_bytes(root_descriptor)
+    shutil.copyfile(ROOT / "Release/trust-root.ed25519.pub", output / "trust-root.ed25519.pub")
     if sealed:
         for name in ("catalog.json", "catalog.json.sig"):
             (output / name).write_bytes(documents["fedora-kde"][name])
@@ -88,5 +108,6 @@ if __name__ == "__main__":
                         help="aurora-distributions/site/installer/Profiles from a verified checkout")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--sealed", action="store_true", help="seal exact signed catalogs for a developer/offline build")
+    parser.add_argument("--signing-team", help="bind the root and all profile descriptors to this named-signing team")
     args = parser.parse_args()
-    prepare(args.profiles, args.output, args.sealed)
+    prepare(args.profiles, args.output, args.sealed, args.signing_team)

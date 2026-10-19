@@ -19,7 +19,8 @@ class DistributionReleaseTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         (self.root / "Packaging").mkdir()
         (self.root / "Packaging/identity.conf").write_text(
-            'INSTALLER_PUBLIC_BASE="https://delivery.invalid"\nINSTALLER_STREAM_PATH="native"\n')
+            'INSTALLER_PUBLIC_BASE="https://delivery.invalid"\nINSTALLER_STREAM_PATH="native"\n'
+            'INSTALLER_HELPER_IDENTIFIER="invalid.example.installer.helper"\n')
         self.profiles = self.root / "profiles"
         self.key = self.root / "private.pem"
         subprocess.run(["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(self.key)], check=True)
@@ -28,13 +29,14 @@ class DistributionReleaseTests(unittest.TestCase):
         release = self.root / "Release"
         release.mkdir()
         (release / "trust-root.ed25519.pub").write_bytes(self.public)
-        (release / "release.json").write_text("{}")
         import hashlib
         fingerprint = "sha256:" + hashlib.sha256(self.public).hexdigest()
         for profile in module.PROFILES:
             directory = self.profiles / profile
             directory.mkdir(parents=True)
             descriptor = {"schema_version": 3, "trust_root_fingerprint": fingerprint,
+                          "helper_mach_service_name": "invalid.example.installer.helper",
+                          "helper_code_signing_requirement": 'identifier "invalid.example.installer.helper"',
                           "channels": {channel: {"catalog_url": "https://delivery.invalid/native/Profiles/"
                                                  + profile + "/channels/" + channel + "/catalog.signed.json"}
                                        for channel in ("stable", "rc", "edge")}}
@@ -43,6 +45,7 @@ class DistributionReleaseTests(unittest.TestCase):
             (directory / "catalog.json").write_text(json.dumps({"schemaVersion": 4, "sequence": 1,
                 "models": [{"status": "enabled", "installationProfile": profile}]}))
             self.sign(directory)
+        (release / "release.json").write_text(json.dumps(descriptor))
 
     def sign(self, directory):
         subprocess.run(["openssl", "pkeyutl", "-sign", "-inkey", str(self.key), "-rawin", "-in",
@@ -84,6 +87,33 @@ class DistributionReleaseTests(unittest.TestCase):
         output = self.root / "output"
         with patch.object(module, "ROOT", self.root), self.assertRaises(ValueError):
             module.prepare(self.profiles, output)
+        self.assertFalse(output.exists())
+
+    def test_named_build_binds_root_and_all_profiles_without_changing_signed_catalogs(self):
+        output = self.root / "output"
+        with patch.object(module, "ROOT", self.root):
+            module.prepare(self.profiles, output, sealed=True, signing_team="TESTTEAM01")
+        expected = ('anchor apple generic and identifier "invalid.example.installer.helper" '
+                    'and certificate leaf[subject.OU] = "TESTTEAM01"')
+        descriptors = [output / "release.json"] + [output / "Profiles" / p / "release.json" for p in module.PROFILES]
+        for descriptor in descriptors:
+            self.assertEqual(json.loads(descriptor.read_text())["helper_code_signing_requirement"], expected)
+        for profile in module.PROFILES:
+            for name in ("catalog.json", "catalog.json.sig", "trust-root.ed25519.pub"):
+                self.assertEqual((output / "Profiles" / profile / name).read_bytes(),
+                                 (self.profiles / profile / name).read_bytes())
+
+    def test_invalid_team_and_changed_helper_emit_no_partial_named_release(self):
+        output = self.root / "output"
+        with patch.object(module, "ROOT", self.root), self.assertRaises(ValueError):
+            module.prepare(self.profiles, output, signing_team='bad"team')
+        self.assertFalse(output.exists())
+        path = self.profiles / "arch-minimal/release.json"
+        descriptor = json.loads(path.read_text())
+        descriptor["helper_mach_service_name"] = "invalid.example.foreign.helper"
+        path.write_text(json.dumps(descriptor))
+        with patch.object(module, "ROOT", self.root), self.assertRaises(ValueError):
+            module.prepare(self.profiles, output, signing_team="TESTTEAM01")
         self.assertFalse(output.exists())
 
 
