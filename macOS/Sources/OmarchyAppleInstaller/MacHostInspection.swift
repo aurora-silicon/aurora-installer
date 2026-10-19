@@ -113,7 +113,8 @@
       )
     }
 
-    private func inspectIdentity() throws -> AppleMacIdentity {
+    /// Hardware labels only, without disk, power or installation probes.
+    public func inspectIdentity() throws -> AppleMacIdentity {
       let model = try nonemptyHardwareProperty("hw.model")
       let chip = try nonemptyHardwareProperty("machdep.cpu.brand_string")
       let rawTarget = try nonemptyHardwareProperty("hw.targettype").lowercased()

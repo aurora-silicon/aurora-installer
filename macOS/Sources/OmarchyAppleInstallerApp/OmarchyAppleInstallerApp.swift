@@ -140,7 +140,7 @@ struct OmarchyAppleInstallerApp: App {
   @ViewBuilder
   private var selectedInstallerContent: some View {
     if choosingSystem {
-      AuroraWelcomeView(selection: $selection) {
+      AuroraWelcomeView(selection: $selection, device: .inspect(isSimulation: isSimulation)) {
         choosingSystem = false
         generation = UUID()
       }

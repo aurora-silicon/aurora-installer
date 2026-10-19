@@ -13,12 +13,7 @@ struct OnePageInstallerView: View {
   @State private var session: InstallerSession
   @State private var showsShutdownConfirmation = false
   @State private var showsRecoveryRetryConfirmation = false
-  /// The last host seen, so the header stays on the page through the phases
-  /// that no longer carry it.
-  @State private var host: HostDisplay?
-  /// The size the owner chose for Aurora, kept through installation so the
-  /// header names it instead of the most Aurora could take.
-  @State private var chosenOmarchyBytes: UInt64?
+  private let device: MacHeaderDisplay
   /// Which channel this Mac reads. Owned by the scene so the banner always
   /// names the channel the next preparation will actually fetch; `nil` when
   /// the bundle has no release descriptor to fetch from.
@@ -42,6 +37,7 @@ struct OnePageInstallerView: View {
         allowsEncryption: selection.distribution.supportsDesktop
           && InstallerBuildProfile.current.allowsEncryption
       ))
+    self.device = MacHeaderDisplay.inspect(isSimulation: environment.isSimulation)
     self.selection = selection
     self.startAtPlan = startAtPlan
     self.channel = channel
@@ -52,9 +48,9 @@ struct OnePageInstallerView: View {
   var body: some View {
     Group {
       if let account = session.recoveryAccount, let target = account.target {
-        RecoveryHandoffView(volumeName: target.volumeName, session: session)
+        RecoveryHandoffView(volumeName: target.volumeName, session: session, selection: selection, device: device)
       } else if case .awaitingRecovery = session.phase {
-        RecoveryHandoffView(volumeName: "Aurora", session: session.isSimulation ? nil : session)
+        RecoveryHandoffView(volumeName: "Aurora", session: session.isSimulation ? nil : session, selection: selection, device: device)
       } else {
         installerPage
       }
@@ -79,7 +75,6 @@ struct OnePageInstallerView: View {
       }
     }
     .onChange(of: session.phase, initial: true) { _, phase in
-      remember(phase)
       if startAtPlan, case .welcome = phase {
         Task { await session.continueToPlan() }
       }
@@ -129,7 +124,7 @@ struct OnePageInstallerView: View {
   }
 
   private var installerPage: some View {
-    InstallerPageLayout {
+    InstallerPageLayout(showsFooter: session.phase != .inspecting) {
       header
     } content: {
       VStack(alignment: .leading, spacing: 16) { stage }
@@ -146,39 +141,8 @@ struct OnePageInstallerView: View {
     await session.refreshChannelAvailability()
   }
 
-  @ViewBuilder
   private var header: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Text(selection.summary).font(.system(size: 15, weight: .medium))
-      hostHeader
-    }
-  }
-
-  @ViewBuilder
-  private var hostHeader: some View {
-    if let host {
-      HStack(spacing: 12) {
-        Text(host.header(chosenOmarchyBytes: chosenOmarchyBytes))
-          .font(OmarchyTheme.eyebrow)
-
-          .foregroundStyle(OmarchyTheme.secondaryText)
-        Spacer(minLength: 0)
-        if let supported = session.modelSupported {
-          StatusBadge(
-            text: supported ? PlainLanguage.supportedBadge : PlainLanguage.blockedBadge,
-            kind: supported ? .ok : .blocked)
-        }
-        if let channel {
-          StatusBadge(text: PlainLanguage.badge(for: channel), kind: .ok)
-        }
-      }
-      .lineLimit(1)
-    } else {
-      Text(PlainLanguage.inspectingHeadline)
-        .font(OmarchyTheme.eyebrow)
-
-        .foregroundStyle(OmarchyTheme.accent)
-    }
+    InstallerMasthead(distribution: selection.distribution, device: device)
   }
 
   // MARK: The middle of the page
@@ -187,7 +151,7 @@ struct OnePageInstallerView: View {
   private var stage: some View {
     switch session.phase {
     case .inspecting:
-      statusPanel(title: PlainLanguage.inspectingSubheadline)
+      PreparationStatusPanel()
 
     case .unsupported(let failure):
       messagePanel(
@@ -218,7 +182,6 @@ struct OnePageInstallerView: View {
         editable: plan.isResizable,
         isBusy: session.isBusy,
         onSizeChosen: { bytes in
-          chosenOmarchyBytes = bytes
           session.setAcknowledged(false)
           Task { await session.replan(omarchyBytes: bytes) }
         },
@@ -378,10 +341,6 @@ struct OnePageInstallerView: View {
   }
 
   // MARK: Pieces
-
-  private func statusPanel(title: String) -> some View {
-    PreparationStatusPanel(detail: title)
-  }
 
   private func messagePanel(
     headline: String, detail: String, remedy: String?, technical: String?, isError: Bool
@@ -549,29 +508,6 @@ struct OnePageInstallerView: View {
     )
   }
 
-  private func remember(_ phase: InstallerSessionPhase) {
-    switch phase {
-    case .welcome(let seen):
-      host = seen
-      chosenOmarchyBytes = nil
-    case .existingInstallRefused(let seen):
-      host = seen
-      chosenOmarchyBytes = nil
-    case .unsupported(let failure):
-      host = failure.device
-      chosenOmarchyBytes = nil
-    case .inspecting:
-      host = nil
-      chosenOmarchyBytes = nil
-    case .planReview(let plan, _) where chosenOmarchyBytes != nil:
-      // The engine may round a chosen size; name the size it planned.
-      chosenOmarchyBytes = plan.omarchyBytes
-    case .awaitingInstall(let plan, _, _):
-      chosenOmarchyBytes = plan.omarchyBytes
-    default:
-      break
-    }
-  }
 }
 
 // MARK: - Prefetch strip and encryption
@@ -602,7 +538,7 @@ private struct PrefetchStrip: View {
               Button(PlainLanguage.prefetchRetry, action: onRetry)
             }
           } else {
-            ProgressTrack(fraction: fraction, height: 10)
+            ProgressTrack(fraction: fraction)
           }
         }
         .padding(.vertical, 2)
@@ -676,39 +612,25 @@ struct DownloadPanel: View {
   private var package: AssetProgressRow? { update.rows.first { $0.role == "payload" } }
 
   var body: some View {
-    Panel {
-      VStack(alignment: .leading, spacing: 22) {
-        HStack(spacing: 16) {
-          Image(systemName: update.stage == .downloading ? "arrow.down.circle" : "checkmark.shield")
-            .font(.system(size: 32, weight: .light))
-            .foregroundStyle(OmarchyTheme.accent)
-          VStack(alignment: .leading, spacing: 6) {
-            Text("Preparing your installation").font(.system(size: 22, weight: .semibold))
-            Text(title).font(OmarchyTheme.body).foregroundStyle(.secondary)
-          }
-        }
-        VStack(spacing: 10) {
-          ProgressTrack(fraction: fraction, height: 7)
-          HStack {
-            if let package, update.stage == .downloading, package.totalBytes > 0 {
-              Text(
-                "\(PlainLanguage.bytes(package.bytesCompleted)) of \(PlainLanguage.bytes(package.totalBytes))"
-              )
-            } else {
-              Text("This may take a moment.")
-            }
-            Spacer()
-            if let fraction {
-              Text("\(Int(fraction * 100))%").monospacedDigit()
-            } else {
-              ProgressView().controlSize(.small)
-            }
-          }
-          .font(OmarchyTheme.detail).foregroundStyle(.secondary)
-        }
+    VStack(spacing: 24) {
+      VStack(spacing: 8) {
+        Text("Preparing your installation").font(.system(size: 20, weight: .medium))
+        Text(title).font(OmarchyTheme.body).foregroundStyle(.secondary)
       }
-      .padding(.vertical, 14)
+      VStack(spacing: 10) {
+        ProgressTrack(fraction: fraction)
+        HStack {
+          if let package, update.stage == .downloading, package.totalBytes > 0 {
+            Text("\(PlainLanguage.bytes(package.bytesCompleted)) of \(PlainLanguage.bytes(package.totalBytes))")
+          }
+          Spacer()
+          if let fraction { Text("\(Int(fraction * 100))%").monospacedDigit() }
+        }
+        .font(OmarchyTheme.detail).foregroundStyle(.secondary)
+      }
     }
+    .frame(maxWidth: 420)
+    .frame(maxWidth: .infinity)
   }
 
   private var title: String {
@@ -923,7 +845,7 @@ struct InstallPanel: View {
   let progress: InstallProgressDisplay
 
   var body: some View {
-    Panel {
+    VStack {
       VStack(alignment: .leading, spacing: 24) {
         VStack(alignment: .leading, spacing: 8) {
           Text("Installing Aurora").font(.system(size: 24, weight: .semibold))
