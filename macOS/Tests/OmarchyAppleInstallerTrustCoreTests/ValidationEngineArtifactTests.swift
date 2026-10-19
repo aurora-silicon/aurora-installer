@@ -5,22 +5,22 @@
   @testable import OmarchyAppleInstallerTrustCore
 
   final class ValidationEngineArtifactTests: XCTestCase {
-    func testM3CapableInspectionIdentityIsPinnedExactly() {
+    func testInspectionIdentityIsPinnedToTheReproducedRuntime() {
       XCTAssertEqual(
         ValidationEngineArtifactLocator.version,
-        "v0.9.2-aurora.2"
+        "v0.9.2-aurora.3"
       )
       XCTAssertEqual(
         ValidationEngineArtifactLocator.fileName,
-        "installer-v0.9.2-aurora.2.tar.gz"
+        "installer-v0.9.2-aurora.3.tar.gz"
       )
       XCTAssertEqual(
         ValidationEngineArtifactLocator.expectedDigest,
-        "sha256:feec92e46b5b14ab7ae0a05c689c0af59cd8e5bc75f04225119ea969fa7ea6e2"
+        "sha256:5199dbe7b0758762739f1ae174de084e56996164d87e03cdc0cd63e6d5c4be2f"
       )
       XCTAssertEqual(
         ValidationEngineArtifactLocator.expectedSizeBytes,
-        18_039_345
+        18_041_248
       )
     }
 
