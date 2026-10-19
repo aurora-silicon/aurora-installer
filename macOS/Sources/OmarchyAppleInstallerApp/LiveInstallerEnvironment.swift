@@ -543,6 +543,10 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       _ = try requireMatchingJobDevice(snapshot)
       return .requiresRecoveryAuthorization
     }
+    if let failure = snapshot.initialFailureWithoutDiskChanges {
+      try store.clear(ifMatching: hint)
+      return .failedBeforeDiskChanges(failure)
+    }
     let bytes: Data
     let handoff: InstallConfHandoff
     do { (bytes, handoff) = try snapshot.requireResult() } catch let error

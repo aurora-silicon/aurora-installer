@@ -19,7 +19,8 @@
         assets: fixture.assets,
         handoffDirectory: fixture.handoffDirectory,
         submitter: submitter,
-        authorization: try machineOwnerAuthorization()
+        authorization: try machineOwnerAuthorization(),
+        recoveryTemplate: nil
       )
 
       let result = try await ClosedEngineProcessAdapter().execute(
@@ -84,7 +85,8 @@
             assets: fixture.assets,
             handoffDirectory: fixture.handoffDirectory,
             submitter: submitter,
-            authorization: try machineOwnerAuthorization()
+            authorization: try machineOwnerAuthorization(),
+            recoveryTemplate: nil
           )
         )
       ) {
@@ -112,7 +114,8 @@
           assets: fixture.assets,
           handoffDirectory: fixture.handoffDirectory,
           submitter: submitter,
-          authorization: try machineOwnerAuthorization()
+          authorization: try machineOwnerAuthorization(),
+          recoveryTemplate: nil
         )
       )
 
@@ -157,7 +160,8 @@
           assets: fixture.assets,
           handoffDirectory: fixture.handoffDirectory,
           submitter: submitter,
-          authorization: try machineOwnerAuthorization()
+          authorization: try machineOwnerAuthorization(),
+          recoveryTemplate: nil
         )
       )
 
@@ -204,7 +208,8 @@
             assets: fixture.assets,
             handoffDirectory: fixture.handoffDirectory,
             submitter: submitter,
-            authorization: try machineOwnerAuthorization()
+            authorization: try machineOwnerAuthorization(),
+            recoveryTemplate: nil
           )
         )
       ) {
@@ -230,7 +235,8 @@
         handoffDirectory: fixture.handoffDirectory,
         submitter: submitter,
         authorization: try machineOwnerAuthorization(),
-        operation: .retryRecoveryAuthorization
+        operation: .retryRecoveryAuthorization,
+        recoveryTemplate: nil
       )
 
       _ = try await ClosedEngineProcessAdapter().execute(
@@ -267,7 +273,8 @@
             assets: fixture.assets,
             handoffDirectory: fixture.handoffDirectory,
             submitter: submitter,
-            authorization: try machineOwnerAuthorization()
+            authorization: try machineOwnerAuthorization(),
+            recoveryTemplate: nil
           )
         )
       ) {

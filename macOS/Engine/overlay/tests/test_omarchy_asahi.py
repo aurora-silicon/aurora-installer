@@ -232,6 +232,132 @@ class AsahiStage1AdapterTests(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
+    def test_helper_native_template_overrides_legacy_payload_metadata(self):
+        installer = FakeInstaller(FakeDiskUtil([[self.free]]))
+        adapter = self._adapter(installer)
+        adapter.recovery_app = "/private/job/Recovery.app"
+        adapter.recovery_manifest = "/private/job/recovery.json"
+        adapter.recovery_requirement = 'cdhash H"' + 'a' * 40 + '"'
+        adapter.authorized_owner = "mina"
+        with patch("omarchy_asahi.omarchy_recovery.validate_source") as validate, patch(
+            "omarchy_asahi.omarchy_recovery.source_bootstrap"
+        ) as bootstrap:
+            bootstrap.return_value = {"ownerUUIDs": ["original owner"]}
+            adapter.preflight(self.plan)
+        self.assertTrue(adapter.native_recovery_gui)
+        self.assertNotIn("recovery_gui", adapter.template)
+        validate.assert_called_once_with(
+            adapter.recovery_app, adapter.recovery_manifest,
+            requirement=adapter.recovery_requirement,
+        )
+        bootstrap.assert_called_once_with(installer.dutil, installer.cur_os, "mina")
+        adapter.prepare_target(self.plan)
+        with patch("omarchy_asahi.omarchy_recovery.stage") as stage:
+            adapter.install_stub_and_esp(self.plan)
+        self.assertEqual(stage.call_args.kwargs, {
+            "source_os": installer.cur_os, "app_source": adapter.recovery_app,
+            "manifest_path": adapter.recovery_manifest,
+            "requirement": adapter.recovery_requirement, "authorized_owner": "mina",
+            "expected_bootstrap": {"ownerUUIDs": ["original owner"]},
+        })
+
+    def test_invalid_helper_template_or_source_owner_stops_before_disk_calls(self):
+        import omarchy_recovery
+        for failed in ("template", "owner"):
+            installer = FakeInstaller(FakeDiskUtil([[self.free]]))
+            adapter = self._adapter(installer)
+            adapter.recovery_app = "/private/job/Recovery.app"
+            adapter.recovery_manifest = "/private/job/recovery.json"
+            adapter.recovery_requirement = "fixed identity"
+            with patch("omarchy_asahi.omarchy_recovery.validate_source") as validate, patch(
+                "omarchy_asahi.omarchy_recovery.source_bootstrap"
+            ) as bootstrap:
+                (validate if failed == "template" else bootstrap).side_effect = omarchy_recovery.RecoveryError("rejected")
+                with self.assertRaisesRegex(AsahiAdapterError, "native Recovery preflight failed"):
+                    adapter.preflight(self.plan)
+            self.assertIsNone(adapter.osins)
+            self.assertFalse(adapter.preflight_complete)
+            self.assertIsNone(adapter.template)
+
+    def test_required_native_firmware_is_refused_before_payload_or_disk_access(self):
+        installer = FakeInstaller(FakeDiskUtil([[self.free]]))
+        adapter = self._adapter(installer)
+        adapter.require_native_firmware = True
+        with self.assertRaisesRegex(AsahiAdapterError, "native firmware preparation is required"):
+            adapter.preflight(self.plan)
+        self.assertIsNone(adapter.osins)
+        self.assertIsNone(adapter.template)
+
+    def test_native_firmware_cannot_target_another_board_or_a_link(self):
+        raw = self.root / "native"
+        raw.mkdir(mode=0o700)
+        link = self.root / "linked-native"
+        link.symlink_to(raw)
+        for board, path in (("j314s", raw), ("j700ap", link)):
+            installer = FakeInstaller(FakeDiskUtil([[self.free]]))
+            installer.sysinfo.device_class = board
+            adapter = self._adapter(installer)
+            adapter.native_firmware_root = str(path)
+            with self.assertRaises(AsahiAdapterError):
+                adapter.preflight(self.plan)
+            self.assertIsNone(adapter.osins)
+            self.assertIsNone(adapter.template)
+
+    def test_native_calibration_and_camera_are_admitted_before_disk_metadata_and_reused(self):
+        import struct
+        import omarchy_asahi as module
+        entries = [module.omarchy_isp.SetFile(1, 0x19210106, "1921_01XX", 64),
+                   module.omarchy_isp.SetFile(2, 0x19220206, "1922_02XX", 64)]
+        camera = bytearray()
+        for entry in entries + [module.omarchy_isp.IMX558_1925]:
+            camera.extend(bytes((-len(camera)) % module.omarchy_isp.ALIGNMENT))
+            blob = bytearray((entry.size + 63) & ~63)
+            struct.pack_into(">8I", blob, 0, entry.magic, 1, 0, 0, 0x1000000, 0x10000, 0, 0x3C00000)
+            camera.extend(blob)
+        radio = {"mediatek/mt7932/" + name: b"admitted" for name in (
+            module.omarchy_mt7932.WIFI_PATCH, module.omarchy_mt7932.WIFI_RAM,
+            "ppr.bin", "oca2.bin", "wcal.bin", "config-original.bin")}
+        radio.update({"mediatek/" + name: b"admitted" for name in module.omarchy_mt7932.BT_FIRMWARE})
+        radio.update({"mediatek/" + module.omarchy_mt7932.BT_PTX: b"admitted",
+                      "mediatek/j700-mt7932-btcal.bin": b"calibration",
+                      "mediatek/j700-mt7932-bdaddr.bin": b"address"})
+        for failure in ("camera", "radio", "als", None):
+            raw = self.root / ("native-" + str(failure))
+            raw.mkdir(mode=0o700)
+            for prefix in ("sunrise", "bluetooth", "camera"):
+                (raw / prefix).mkdir(mode=0o700)
+            (raw / "camera/input").write_bytes(b"invalid" if failure == "camera" else camera)
+            installer = FakeInstaller(FakeDiskUtil([[self.free]]))
+            installer.sysinfo.device_class = "j700ap"
+            adapter = self._adapter(installer)
+            adapter.native_firmware_root = str(raw)
+            with patch.object(module, "asahi_firmware", SimpleNamespace(isp=SimpleNamespace(ISP_SETFILES=entries),
+                core=SimpleNamespace(FWFile=lambda name, data: (name, data)))), patch.object(
+                module.omarchy_mt7932, "collect", return_value=radio
+            ) as collect, patch.object(module.omarchy_als, "read_lsci", return_value=b"raw") as lsci, patch.object(
+                module.omarchy_als, "calibration", return_value=b"calibration"
+            ), patch.object(adapter, "_load_metadata", side_effect=RuntimeError("metadata gate reached")) as metadata:
+                if failure == "radio": collect.side_effect = module.omarchy_mt7932.Mt7932Error("bad calibration")
+                if failure == "als": lsci.side_effect = ValueError("bad calibration")
+                if failure is None:
+                    with self.assertRaisesRegex(RuntimeError, "metadata gate reached"):
+                        adapter.preflight(self.plan)
+                    self.assertEqual(len(adapter.native_camera_setfiles), 3)
+                    self.assertEqual(adapter.native_als_calibration, b"calibration")
+                    output = []
+                    prepared = SimpleNamespace(sysinfo=installer.sysinfo,
+                        native_firmware_root=str(raw), native_radio_files=adapter.native_radio_files,
+                        neo_regulatory_policies={"mediatek/mt7932/policy/world-XZ.bin": b"admitted policy"})
+                    module._collect_neo_radios(prepared,
+                        SimpleNamespace(add_file=lambda name, value: output.append(name)), required=True)
+                    self.assertEqual(collect.call_count, 1)
+                    self.assertEqual(set(output), set(radio) | {"mediatek/mt7932/policy/world-XZ.bin"})
+                else:
+                    with self.assertRaises(AsahiAdapterError): adapter.preflight(self.plan)
+                    metadata.assert_not_called()
+                self.assertIsNone(adapter.osins)
+                self.assertIsNone(adapter.template)
+
     def test_preflight_accepts_the_partition_floor(self):
         metadata = self._target_metadata()
         metadata["floor_size"] = 40 * GIB

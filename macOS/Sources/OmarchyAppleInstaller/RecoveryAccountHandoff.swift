@@ -47,18 +47,18 @@
     }
 
     static func updateRecoveryApp(for target: RecoveryAccountTarget) throws {
-      let source = URL(
-        fileURLWithPath:
-          "/Applications/\(InstallerProductIdentity.appName).app/Contents/Resources/RecoveryTemplate/Aurora Installer.app"
-      )
+      let source = URL(fileURLWithPath: InstallerProductIdentity.installedRecoveryTemplateDirectory)
+        .appendingPathComponent(InstallerProductIdentity.recoveryAppBundleName)
       let fm = FileManager.default
-      guard fm.fileExists(atPath: source.path) else {
+      guard fm.fileExists(atPath: source.path),
+        let requirement = NativeRecoveryTemplate.requirement(
+          environment: ProcessInfo.processInfo.environment)
+      else {
         throw AccountSetupFailure(
-          "This installer is missing its native Recovery app. Reinstall the updated installer package."
+          "This helper is missing its verified native Recovery template. Reinstall the updated installer."
         )
       }
-      _ = try AccountNativeCommand.checked(
-        "/usr/bin/codesign", ["--verify", "--deep", "--strict", source.path])
+      try NativeRecoveryTemplate.verify(source, requirement: requirement)
       let sourceInfo = try Data(contentsOf: source.appendingPathComponent("Contents/Info.plist"))
       guard
         let plist = try PropertyListSerialization.propertyList(from: sourceInfo, format: nil)
@@ -91,7 +91,8 @@
       try RecoveryVersionMetadata.hideForInitialRecovery(system: system)
       if try recoveryAppMatchesTemplate(destination, template: source) {
         _ = try AccountNativeCommand.checked(
-          "/usr/bin/codesign", ["--verify", "--deep", "--strict", destination.path])
+          "/usr/bin/codesign",
+          ["--verify", "--deep", "--strict", "-R=" + requirement, destination.path])
         return
       }
       let scratch = system.appendingPathComponent(
@@ -102,7 +103,8 @@
       let candidate = scratch.appendingPathComponent("Aurora Installer.app", isDirectory: true)
       try fm.copyItem(at: source, to: candidate)
       _ = try AccountNativeCommand.checked(
-        "/usr/bin/codesign", ["--verify", "--deep", "--strict", candidate.path])
+        "/usr/bin/codesign",
+        ["--verify", "--deep", "--strict", "-R=" + requirement, candidate.path])
       let backup = system.appendingPathComponent(
         "Aurora/Recovery/AppBackups/\(UUID().uuidString).app", isDirectory: true)
       try fm.createDirectory(

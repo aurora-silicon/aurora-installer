@@ -37,19 +37,23 @@
     private let submitter: any EngineHandoffSubmitting
     private let authorization: MachineOwnerAuthorization
     private let operation: EngineHandoffOperation
+    private let recoveryTemplate: URL?
 
     public init(
       assets: PreparedInstallerAssets,
       handoffDirectory: URL,
       submitter: any EngineHandoffSubmitting,
       authorization: MachineOwnerAuthorization,
-      operation: EngineHandoffOperation = .install
+      operation: EngineHandoffOperation = .install,
+      recoveryTemplate: URL? = Bundle.main.bundleURL.appendingPathComponent(
+        "Contents/Resources/RecoveryTemplate/" + InstallerProductIdentity.recoveryAppBundleName)
     ) {
       self.assets = assets
       self.handoffDirectory = handoffDirectory
       self.submitter = submitter
       self.authorization = authorization
       self.operation = operation
+      self.recoveryTemplate = recoveryTemplate
     }
 
     public func execute(_ invocation: ClosedEngineInvocation) async throws -> Data {
@@ -57,6 +61,7 @@
         try ClosedEngineHandoffBuilder().prepare(
           invocation: invocation,
           assets: assets,
+          recoveryTemplate: recoveryTemplate,
           in: handoffDirectory
         )
       }
@@ -74,11 +79,13 @@
       "manifest.json",
       "request.json",
       "identity.json",
+      NativeRecoveryTemplate.archiveFileName,
     ]
 
     func prepare(
       invocation: ClosedEngineInvocation,
       assets: PreparedInstallerAssets,
+      recoveryTemplate: URL?,
       in handoffDirectory: URL
     ) throws -> PreparedEngineHandoff {
       try validateBindings(invocation: invocation, assets: assets)
@@ -131,6 +138,19 @@
       let repairManifestURL = assets.repairManifest.map {
         pending.appendingPathComponent($0.artifact.fileName)
       }
+      let recoveryArtifact: EngineHandoffArtifact?
+      if let recoveryTemplate {
+        let bytes = try NativeRecoveryTemplate.archiveData(from: recoveryTemplate)
+        let file = pending.appendingPathComponent(NativeRecoveryTemplate.archiveFileName)
+        try bytes.write(to: file, options: .withoutOverwriting)
+        try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: file.path)
+        recoveryArtifact = EngineHandoffArtifact(
+          fileName: NativeRecoveryTemplate.archiveFileName,
+          digest: "sha256:" + SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined(),
+          sizeBytes: UInt64(bytes.count))
+      } else {
+        recoveryArtifact = nil
+      }
       try copyVerified(assets.engine, role: "engine", to: engineURL)
       try copyVerified(assets.metadata, role: "metadata", to: metadataURL)
       try copyVerified(assets.payload, role: "payload", to: payloadURL)
@@ -154,7 +174,8 @@
         to: identityURL
       )
       try writePrivateJSON(
-        EngineHandoffManifest(invocation: invocation, assets: assets),
+        EngineHandoffManifest(
+          invocation: invocation, assets: assets, recoveryTemplate: recoveryArtifact),
         to: manifestURL
       )
 
@@ -422,11 +443,13 @@
     let metadata: EngineHandoffArtifact
     let payload: EngineHandoffArtifact
     let repairManifest: EngineHandoffArtifact?
+    let recoveryTemplate: EngineHandoffArtifact?
 
     init(
       invocation: ClosedEngineInvocation,
-      assets: PreparedInstallerAssets
+      assets: PreparedInstallerAssets, recoveryTemplate: EngineHandoffArtifact?
     ) {
+      self.recoveryTemplate = recoveryTemplate
       bindingDigest = invocation.candidateIdentity.bindingDigest
       engine = EngineHandoffArtifact(staged: assets.engine)
       metadata = EngineHandoffArtifact(staged: assets.metadata)
@@ -445,6 +468,7 @@
       case metadata
       case payload
       case repairManifest = "repair_manifest"
+      case recoveryTemplate = "recovery_template"
     }
   }
 
@@ -452,6 +476,12 @@
     let fileName: String
     let digest: String
     let sizeBytes: UInt64
+
+    init(fileName: String, digest: String, sizeBytes: UInt64) {
+      self.fileName = fileName
+      self.digest = digest
+      self.sizeBytes = sizeBytes
+    }
 
     init(staged: StagedInstallerArtifact) {
       fileName = staged.artifact.fileName

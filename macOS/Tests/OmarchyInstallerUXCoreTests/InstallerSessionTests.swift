@@ -34,6 +34,23 @@
       XCTAssertEqual(environment.executeCount, 0)
     }
 
+    func testRestoredPreparationFailureAllowsFreshInspectionWithoutReplayingTheJob() async throws {
+      let environment = MockInstallerEnvironment()
+      environment.pendingInstallation = true
+      environment.pendingInitialFailure = .engineFailed(
+        EngineFailureNotice(
+          reason: .firmwarePreparation, exitStatus: 1, diskUnchanged: true,
+          summary: "Preparation failed"))
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      XCTAssertFalse(session.hasExecutionStarted)
+      XCTAssertTrue(session.canInspect)
+      XCTAssertFalse(session.canStartInstallation)
+      XCTAssertEqual(environment.executeCount, 0)
+      XCTAssertEqual(environment.prepareCount, 0)
+      guard case .failed = session.phase else { return XCTFail("Expected preparation error") }
+    }
+
     func testRestoredRecoveryRetryUsesASeparateCapabilityWithoutCreatingAFreshApproval()
       async throws
     {
@@ -1667,6 +1684,7 @@
 
     var pendingInstallation = false
     var pendingRecoveryRetry = false
+    var pendingInitialFailure: EngineXPCSubmissionError?
     var resumeError: (any Error)?
     private(set) var resumeCount = 0
 
@@ -1676,6 +1694,7 @@
     {
       resumeCount += 1
       if let resumeError { throw resumeError }
+      if let pendingInitialFailure { return .failedBeforeDiskChanges(pendingInitialFailure) }
       if pendingRecoveryRetry { return .requiresRecoveryAuthorization }
       return .completed(
         CompletionDisplay(

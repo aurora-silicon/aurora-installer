@@ -233,17 +233,21 @@ def _read(root, *parts):
         return source.read()
 
 
-def collect(root="/", chosen=None):
+def collect(root="/", chosen=None, raw_directory=None):
     """{firmware path: bytes} for this Mac's MT7932, all checked.
 
     Firmware paths are relative to /lib/firmware, as the drivers request them.
     """
+    def radio_file(prefix, system_path, name):
+        return (_read(raw_directory, prefix, name) if raw_directory is not None
+                else _read(root, system_path, name))
+
     files = {}
     wifi = "mediatek/mt7932/"
-    files[wifi + WIFI_PATCH] = _read(root, IZUBA, WIFI_PATCH)
-    files[wifi + WIFI_RAM] = _read(root, IZUBA, WIFI_RAM)
+    files[wifi + WIFI_PATCH] = radio_file("sunrise", IZUBA, WIFI_PATCH)
+    files[wifi + WIFI_RAM] = radio_file("sunrise", IZUBA, WIFI_RAM)
 
-    ppr = _read(root, IZUBA, "IZUBA_PPR_MT7932.bin")
+    ppr = radio_file("sunrise", IZUBA, "IZUBA_PPR_MT7932.bin")
     if len(ppr) != PPR_BYTES or ppr[:4] != b"BLOB":
         raise Mt7932Error("IZUBA_PPR_MT7932.bin is not the 412-byte BLOB ppr.bin needs")
     files[wifi + "ppr.bin"] = ppr
@@ -264,14 +268,14 @@ def collect(root="/", chosen=None):
         raise Mt7932Error("the factory WCAL field is not a BLOB of at most 1024 bytes")
     files[wifi + "wcal.bin"] = fields["WCAL"]
 
-    config = _read(root, IZUBA, "IZUBA_wifi.cfg").decode("ascii")
+    config = radio_file("sunrise", IZUBA, "IZUBA_wifi.cfg").decode("ascii")
     files[wifi + "config-original.bin"] = j7cf(config)
 
     for name in BT_FIRMWARE:
-        firmware = _read(root, BLUETOOTH, name)
+        firmware = radio_file("bluetooth", BLUETOOTH, name)
         validate_bluetooth_firmware(firmware)
         files["mediatek/" + name] = firmware
-    ptx = _read(root, BLUETOOTH, BT_PTX)
+    ptx = radio_file("bluetooth", BLUETOOTH, BT_PTX)
     validate_ptx(ptx)
     files["mediatek/" + BT_PTX] = ptx
     if not 0 < len(fields["BCAL"]) <= BTCAL_MAXIMUM:

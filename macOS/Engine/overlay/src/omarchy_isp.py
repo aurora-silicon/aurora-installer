@@ -90,7 +90,7 @@ def collect(source_path, setfiles):
     return files
 
 
-def collection_class(upstream):
+def collection_class(upstream, native_files=None):
     """A drop-in collection preserving upstream's FWFile and registry API."""
     setfiles = extended_setfiles(upstream.ISP_SETFILES)
 
@@ -100,7 +100,8 @@ def collection_class(upstream):
                 yield upstream.FWFile(name, blob)
 
         def load(self, source_path):
-            for name, blob in sorted(collect(source_path, setfiles).items()):
+            collected = native_files if native_files is not None else collect(source_path, setfiles)
+            for name, blob in sorted(collected.items()):
                 self.fwfiles.append((name, upstream.FWFile(name, blob)))
 
     return ISPFWCollection

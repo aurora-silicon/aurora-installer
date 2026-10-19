@@ -209,6 +209,20 @@ class CollectTests(unittest.TestCase):
         self.assertEqual(files['mediatek/mt7932/oca2.bin'], oca2())
         self.assertFalse(any('policy' in name for name in files))
 
+    def test_native_outputs_replace_only_model_wide_files_and_preserve_local_calibration(self):
+        import shutil
+        expected = mt.collect(str(self.root), chosen=self.chosen)
+        raw = self.root / "helper-native"
+        raw.mkdir(mode=0o700)
+        shutil.move(self.root / mt.IZUBA, raw / "sunrise")
+        shutil.move(self.root / mt.BLUETOOTH, raw / "bluetooth")
+        actual = mt.collect(str(self.root), chosen=self.chosen, raw_directory=str(raw))
+        self.assertEqual(actual, expected)
+        for record in (self.root / mt.FACTORY_DATA).glob('BWC2-*'):
+            record.unlink()
+        with self.assertRaisesRegex(mt.Mt7932Error, "factory BWC2"):
+            mt.collect(str(self.root), chosen=self.chosen, raw_directory=str(raw))
+
     def test_a_ppr_of_another_size_is_refused(self):
         self.write(mt.IZUBA, 'IZUBA_PPR_MT7932.bin', b'BLOB' + b'p' * 400)
         with self.assertRaisesRegex(mt.Mt7932Error, '412-byte'):
