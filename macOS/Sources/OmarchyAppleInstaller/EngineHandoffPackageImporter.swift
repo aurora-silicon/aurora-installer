@@ -12,6 +12,7 @@
     public let metadataURL: URL
     public let payloadURL: URL
     public let repairManifestURL: URL?
+    public let recoveryTemplateURL: URL?
     public let bindingDigest: String
     public let planDigest: String
     public let deviceIdentifier: String
@@ -26,6 +27,7 @@
       metadataURL: URL,
       payloadURL: URL,
       repairManifestURL: URL? = nil,
+      recoveryTemplateURL: URL? = nil,
       bindingDigest: String,
       planDigest: String,
       deviceIdentifier: String,
@@ -39,6 +41,7 @@
       self.metadataURL = metadataURL
       self.payloadURL = payloadURL
       self.repairManifestURL = repairManifestURL
+      self.recoveryTemplateURL = recoveryTemplateURL
       self.bindingDigest = bindingDigest
       self.planDigest = planDigest
       self.deviceIdentifier = deviceIdentifier
@@ -61,7 +64,11 @@
   public struct EngineHandoffPackageImporter: Sendable {
     private static let maximumControlFileBytes = 65_536
 
-    public init() {}
+    private let readArtifactChunk: @Sendable (String, FileHandle, Int) throws -> Data?
+    public init() { readArtifactChunk = { _, handle, limit in try handle.read(upToCount: limit) } }
+    init(readArtifactChunk: @escaping @Sendable (String, FileHandle, Int) throws -> Data?) {
+      self.readArtifactChunk = readArtifactChunk
+    }
 
     public func prepare(
       from packageDirectory: FileHandle,
@@ -153,6 +160,10 @@
         )
       }
 
+      let recoveryTemplateURL = manifest.recoveryTemplate.map { package.appendingPathComponent($0.fileName) }
+      if let artifact = manifest.recoveryTemplate, let recoveryTemplateURL {
+        try copyArtifact(artifact, role: "recovery-template", from: sourceDescriptor, to: recoveryTemplateURL)
+      }
       keepPackage = true
       return ImportedEngineHandoffPackage(
         packageURL: package,
@@ -163,6 +174,7 @@
         metadataURL: metadataURL,
         payloadURL: payloadURL,
         repairManifestURL: repairManifestURL,
+        recoveryTemplateURL: recoveryTemplateURL,
         bindingDigest: identity.bindingDigest,
         planDigest: request.planDigest,
         deviceIdentifier: request.deviceIdentifier,
@@ -204,6 +216,7 @@
       let artifacts =
         [manifest.engine, manifest.metadata, manifest.payload]
         + (manifest.repairManifest.map { [$0] } ?? [])
+        + (manifest.recoveryTemplate.map { [$0] } ?? [])
       let expectedNames = Set(
         ["manifest.json", "request.json", "identity.json"] + artifacts.map(\.fileName))
       guard Set(try FileManager.default.contentsOfDirectory(atPath: package.path)) == expectedNames
@@ -225,6 +238,7 @@
         repairManifestURL: manifest.repairManifest.map {
           package.appendingPathComponent($0.fileName)
         },
+        recoveryTemplateURL: manifest.recoveryTemplate.map { package.appendingPathComponent($0.fileName) },
         bindingDigest: identity.bindingDigest, planDigest: request.planDigest,
         deviceIdentifier: request.deviceIdentifier, storeIdentifier: request.storeIdentifier)
     }
@@ -295,7 +309,7 @@
       let descriptor = openat(
         directoryDescriptor,
         name,
-        O_RDONLY | O_CLOEXEC | O_NOFOLLOW
+        O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
       )
       guard descriptor >= 0 else {
         throw EngineHandoffImportError.unsafeFile(name)
@@ -332,7 +346,7 @@
       let source = openat(
         directoryDescriptor,
         artifact.fileName,
-        O_RDONLY | O_CLOEXEC | O_NOFOLLOW
+        O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
       )
       guard source >= 0 else {
         throw EngineHandoffImportError.unsafeFile(role)
@@ -376,17 +390,17 @@
       )
       var hasher = SHA256()
       var size: UInt64 = 0
-      while let chunk = try sourceHandle.read(upToCount: 1_048_576),
+      while let chunk = try readArtifactChunk(role, sourceHandle, 1_048_576),
         !chunk.isEmpty
       {
-        try targetHandle.write(contentsOf: chunk)
-        hasher.update(data: chunk)
         let (updatedSize, overflow) = size.addingReportingOverflow(
           UInt64(chunk.count)
         )
-        guard !overflow else {
+        guard !overflow, updatedSize <= artifact.sizeBytes else {
           throw EngineHandoffImportError.sizeMismatch(role)
         }
+        try targetHandle.write(contentsOf: chunk)
+        hasher.update(data: chunk)
         size = updatedSize
       }
       try targetHandle.synchronize()
@@ -422,6 +436,7 @@
           "format", "binding_digest", "request_file", "identity_file",
           "engine", "metadata", "payload",
         ]
+        if rawObject["recovery_template"] != nil { manifestKeys.insert("recovery_template") }
         if rawObject["repair_manifest"] != nil {
           manifestKeys.insert("repair_manifest")
         }
@@ -430,7 +445,7 @@
           keys: manifestKeys,
           error: .invalidManifest
         )
-        for key in ["engine", "metadata", "payload", "repair_manifest"]
+        for key in ["engine", "metadata", "payload", "repair_manifest", "recovery_template"]
         where object[key] != nil {
           guard let artifact = object[key] as? [String: Any],
             Set(artifact.keys) == ["file_name", "digest", "size_bytes"]
@@ -448,6 +463,7 @@
             manifest.metadata.fileName,
             manifest.payload.fileName,
           ] + (manifest.repairManifest.map { [$0.fileName] } ?? [])
+            + (manifest.recoveryTemplate.map { [$0.fileName] } ?? [])
         guard manifest.format == 1,
           manifest.requestFile == "request.json",
           manifest.identityFile == "identity.json",
@@ -456,8 +472,10 @@
             with: ["manifest.json", "request.json", "identity.json"]
           ),
           ([manifest.engine, manifest.metadata, manifest.payload]
-            + (manifest.repairManifest.map { [$0] } ?? []))
-            .allSatisfy(validArtifact)
+            + (manifest.repairManifest.map { [$0] } ?? [])
+            + (manifest.recoveryTemplate.map { [$0] } ?? []))
+            .allSatisfy(validArtifact),
+          manifest.recoveryTemplate == nil || (manifest.recoveryTemplate?.fileName == NativeRecoveryTemplate.archiveFileName && manifest.recoveryTemplate!.sizeBytes <= NativeRecoveryTemplate.maximumArchiveBytes)
         else {
           throw EngineHandoffImportError.invalidManifest
         }
@@ -661,6 +679,7 @@
     let metadata: ImportedArtifactRecord
     let payload: ImportedArtifactRecord
     let repairManifest: ImportedArtifactRecord?
+    let recoveryTemplate: ImportedArtifactRecord?
 
     enum CodingKeys: String, CodingKey {
       case format
@@ -671,6 +690,7 @@
       case metadata
       case payload
       case repairManifest = "repair_manifest"
+      case recoveryTemplate = "recovery_template"
     }
   }
 

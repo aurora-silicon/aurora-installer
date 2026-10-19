@@ -388,6 +388,10 @@ if [[ $signing_identity != "-" ]]; then
     -json "{\"$helper_identifier\":$(printf '%s' "$helper_requirement" | python3 -c 'import json,sys;print(json.dumps(sys.stdin.read()))')}" \
     "$contents/Info.plist"
 fi
+recovery_hash=$(codesign --display --verbose=4 "$resources/RecoveryTemplate/$INSTALLER_APP_NAME.app" 2>&1 | sed -n 's/^CDHash=//p')
+[[ $recovery_hash =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]] || fail "cannot identify the signed Recovery template"
+plutil -replace EnvironmentVariables.OMARCHY_RECOVERY_TEMPLATE_REQUIREMENT \
+  -string "cdhash H\"$recovery_hash\"" "$contents/Library/LaunchDaemons/$daemon_plist_name"
 plutil -replace \
   EnvironmentVariables.OMARCHY_CLIENT_CODE_SIGNING_REQUIREMENT \
   -string "$client_requirement" \

@@ -147,6 +147,11 @@
         JSONEncoder().encode(hint), name: "pending-installation.json", maximumBytes: 65_536)
     }
 
+    public func clear(ifMatching hint: PendingInstallerJob) throws {
+      guard try load() == hint else { throw InstallerJobError.identityMismatch }
+      try clear()
+    }
+
     public func clear() throws {
       try PrivateInstallerJobFiles(directory: directory).remove("pending-installation.json")
     }
@@ -236,6 +241,17 @@
     public let journalOffset: UInt64
     public let recoveryAttempt: UUID?
     public let recoveryRetryAvailable: Bool
+
+    public var initialFailureWithoutDiskChanges: EngineXPCSubmissionError? {
+      guard phase == .failed, recoveryAttempt == nil, let failure, failure.diskUnchanged else {
+        return nil
+      }
+      switch failure.submissionError() {
+      case .machineOwnerCredentialsRejected: return .machineOwnerCredentialsRejected
+      case .engineFailed(let notice) where notice.diskUnchanged: return .engineFailed(notice)
+      default: return nil
+      }
+    }
 
     public func requireResult() throws -> (Data, InstallConfHandoff) {
       switch phase {

@@ -20,6 +20,8 @@
     /// root-only diagnostics.
     case engineFailed(EngineFailureReport)
     case recoveryAuthorizationFailed
+    case recoveryTemplateRejected
+    case recoveryTemplateUnsupported
     case unsafeTranscript
   }
 
@@ -55,21 +57,29 @@
     private let effectiveUserID: @Sendable () -> uid_t
     private let expectedFileOwnerID: @Sendable () -> uid_t
     private let extractionOptions: [String]
+    private let firmwarePreparer: any NativeFirmwarePreparing
+    private let prepareRecoveryTemplate: @Sendable (ImportedEngineHandoffPackage) throws -> PreparedNativeRecoveryTemplate
 
     public init() {
       effectiveUserID = { geteuid() }
       expectedFileOwnerID = { geteuid() }
       extractionOptions = []
+      firmwarePreparer = NativeFirmwarePreparer()
+      prepareRecoveryTemplate = { try NativeRecoveryTemplate.prepare(package: $0) }
     }
 
     init(
       effectiveUserID: @escaping @Sendable () -> uid_t,
       expectedFileOwnerID: @escaping @Sendable () -> uid_t = { geteuid() },
-      extractionOptions: [String] = []
+      extractionOptions: [String] = [],
+      firmwarePreparer: any NativeFirmwarePreparing = NativeFirmwarePreparer(),
+      prepareRecoveryTemplate: @escaping @Sendable (ImportedEngineHandoffPackage) throws -> PreparedNativeRecoveryTemplate = { try NativeRecoveryTemplate.prepare(package: $0) }
     ) {
       self.effectiveUserID = effectiveUserID
       self.expectedFileOwnerID = expectedFileOwnerID
       self.extractionOptions = extractionOptions
+      self.firmwarePreparer = firmwarePreparer
+      self.prepareRecoveryTemplate = prepareRecoveryTemplate
     }
 
     public func execute(
@@ -81,19 +91,61 @@
         throw PinnedAsahiEngineExecutionError.privilegeRequired
       }
       let journal = try preparePersistentJournal(for: package)
-      return try run(
+      let recovery: PreparedNativeRecoveryTemplate
+      do { recovery = try prepareRecoveryTemplate(package) }
+      catch {
+        throw preparationFailure(error, reason: .recoveryPreparation, operation: operation,
+                                 journal: journal, password: authorization.password)
+      }
+      defer { recovery.remove() }
+      var environment = installEnvironment(
+        package: package, authorization: authorization, operation: operation)
+      environment.merge(recovery.environment) { _, new in new }
+      if operation == .install {
+        do {
+          if let raw = try await firmwarePreparer.prepare(
+            deviceIdentifier: package.deviceIdentifier,
+            in: package.packageURL.deletingLastPathComponent())
+          {
+            environment["OMARCHY_NATIVE_FIRMWARE_ROOT"] = raw.path
+          }
+        } catch {
+          throw PinnedAsahiEngineExecutionError.engineFailed(
+            EngineFailureReport(
+              notice: EngineFailureNotice(
+                reason: .firmwarePreparation, exitStatus: 1,
+                diskUnchanged: journalProvesNoMutation(journal),
+                summary: "Native firmware preparation did not complete."),
+              redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
+                Data(String(describing: error).utf8), truncated: false,
+                secrets: [authorization.password])))
+        }
+      }
+      do { return try run(
         archive: package.engineURL,
         executionParent: package.packageURL.deletingLastPathComponent(),
         journal: journal,
-        additionalEnvironment: installEnvironment(
-          package: package,
-          authorization: authorization,
-          operation: operation
-        ),
+        additionalEnvironment: environment,
         standardInput: authorization.password + Data([10]),
         secrets: [authorization.password],
         retryIdentity: RecoveryRetryIdentity(package: package)
-      )
+      ) } catch PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported {
+        throw preparationFailure(PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported,
+                                 reason: .recoveryPreparation, operation: operation,
+                                 journal: journal, password: authorization.password)
+      }
+    }
+
+    private func preparationFailure(
+      _ error: any Error, reason: EngineFailureReason, operation: EngineHandoffOperation,
+      journal: URL, password: Data
+    ) -> PinnedAsahiEngineExecutionError {
+      .engineFailed(EngineFailureReport(
+        notice: EngineFailureNotice(reason: reason, exitStatus: 1,
+          diskUnchanged: operation == .install && journalProvesNoMutation(journal),
+          summary: "Native Recovery resources could not be verified."),
+        redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
+          Data(String(describing: error).utf8), truncated: false, secrets: [password])))
     }
 
     public func inspect(
@@ -198,6 +250,22 @@
       try validateArchiveEntries(archive)
       try extract(archive, into: bundle)
       try validateExtractedBundle(bundle)
+      if additionalEnvironment["OMARCHY_RECOVERY_APP"] != nil {
+        do {
+          let capabilities = bundle.appendingPathComponent("engine-capabilities.json")
+          try requireRegularFile(capabilities, executable: false)
+          guard
+            let values = try JSONSerialization.jsonObject(with: Data(contentsOf: capabilities))
+              as? [String: Any],
+            values["schema"] as? Int == 1,
+            values["nativeRecoveryInput"] as? String == "helper-template-v1",
+            additionalEnvironment["OMARCHY_NATIVE_FIRMWARE_ROOT"] == nil
+              || values["nativeFirmwareInput"] as? String == "helper-raw-v1"
+          else { throw PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported }
+        } catch {
+          throw PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported
+        }
+      }
 
       let transcriptURL =
         journal

@@ -20,6 +20,21 @@ def blob(entry, fill=0):
 
 
 class IspTests(unittest.TestCase):
+    def test_native_camera_data_bypasses_legacy_filesystem_collection(self):
+        from unittest.mock import patch
+        class Base:
+            def __init__(self, path):
+                self.fwfiles = []
+                self.load(path)
+        upstream = SimpleNamespace(ISPFWCollection=Base, ISP_SETFILES=[LEGACY],
+                                   FWFile=lambda name, data: (name, data))
+        first = blob(LEGACY)
+        data = first + bytes((-len(first)) % isp.ALIGNMENT) + blob(isp.IMX558_1925)
+        with patch.object(isp, "collect", side_effect=AssertionError("legacy input was read")):
+            collection = isp.collection_class(upstream, native_files=isp.extract(data, upstream.ISP_SETFILES))("/unused")
+        self.assertEqual({name for name, _ in collection.fwfiles},
+                         {"apple/isp_1820_01XX.dat", "apple/isp_1925_03XX.dat"})
+
     def test_extends_registry_without_changing_inherited_entries(self):
         custom = isp.SetFile(1, 0xABCD1234, "future_01XX", 100)
         result = isp.extended_setfiles([LEGACY, IMX558_1921, custom])

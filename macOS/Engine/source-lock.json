@@ -141,7 +141,7 @@
     }
   },
   "downstream_overlay": {
-    "version": "v0.9.2-omarchy.50",
+    "version": "v0.9.2-aurora.3",
     "capability": "candidate_bound_full_os_stage_one_authenticated_recovery",
     "engine_modes": [
       "inspect",
@@ -171,7 +171,7 @@
       {
         "path": "overlay/src/omarchy_asahi.py",
         "destination": "src/omarchy_asahi.py",
-        "sha256": "df9e99dcabc92077c5feee9805af1b9b4e925437ede229ee1566c778a3ad8c9e"
+        "sha256": "9250e4da1dc2862d275a7a9e8f82d9448749acdc04d03194c8fa36563b0aeb81"
       },
       {
         "path": "overlay/src/omarchy_contract.py",
@@ -196,7 +196,7 @@
       {
         "path": "overlay/src/omarchy_runtime.py",
         "destination": "src/omarchy_runtime.py",
-        "sha256": "5e03ee9795d3651055dfd3ed24ae55658e949c85ffd029d99bc2713671965aae"
+        "sha256": "002bf69cba3f2f7173fe97ee60cbee9e439d54dc848120fa314e676f2873cfe4"
       },
       {
         "path": "overlay/src/omarchy_stage1.py",
@@ -206,7 +206,7 @@
       {
         "path": "overlay/tests/test_omarchy_asahi.py",
         "destination": "tests/test_omarchy_asahi.py",
-        "sha256": "2611f57b2859d64b1f993116912b85f6ed5bf133e41bf4e9cec84f3c8ba9184b"
+        "sha256": "af37142192c01b381b8a7503113fd21eaefe31959986bb70e2ca0571ba1093b4"
       },
       {
         "path": "overlay/tests/test_omarchy_contract.py",
@@ -236,7 +236,7 @@
       {
         "path": "overlay/tests/test_omarchy_runtime.py",
         "destination": "tests/test_omarchy_runtime.py",
-        "sha256": "bb32b2bdf69f21c91bf02af8062238bfb880352e91bb0e6e2b1a72d8e02b8a2b"
+        "sha256": "31b2d969823029671ebc7ed488a586ac6321f0275039adfa0e7375e3806b5819"
       },
       {
         "path": "overlay/tests/test_omarchy_stage1.py",
@@ -256,12 +256,12 @@
       {
         "path": "overlay/src/omarchy_mt7932.py",
         "destination": "src/omarchy_mt7932.py",
-        "sha256": "01586a4c2f1f7aa6f7938447948d265f64ede35055262d86f34c62d943a80b9e"
+        "sha256": "39f3148908137ff12fa1f9aa0e7116e9feef321ca27b1f0e3b7e0986954ee3c4"
       },
       {
         "path": "overlay/tests/test_omarchy_mt7932.py",
         "destination": "tests/test_omarchy_mt7932.py",
-        "sha256": "b9668eb4a6407f35cfdeb9addd061190720208d5ee1cbb4f969cb6499aa6a822"
+        "sha256": "6a0bf2ab23ffc37f61fd4339b128c8248004907556c591b4ed2d0abb1be84931"
       },
       {
         "path": "overlay/src/omarchy_mesa.py",
@@ -291,12 +291,12 @@
       {
         "path": "overlay/src/omarchy_isp.py",
         "destination": "src/omarchy_isp.py",
-        "sha256": "bbb156702c3a9dd61c4069871d130de48f8e6ad506a6c682197c3e809b9d97ce"
+        "sha256": "f8ee2840989463a0f73a411b83c57fb99626b958864ca011df2693890755fc10"
       },
       {
         "path": "overlay/src/omarchy_recovery.py",
         "destination": "src/omarchy_recovery.py",
-        "sha256": "03e05e17264bdaa77674b9dfff53623a39990d1eeeb5758cea73a8a9399c6376"
+        "sha256": "747ac8dee8b9862d75b363f640ac4a7e1970b9f4e8053db01ade4a3f444c5167"
       },
       {
         "path": "overlay/src/omarchy_apple_aea.py",
@@ -321,12 +321,12 @@
       {
         "path": "overlay/tests/test_omarchy_isp.py",
         "destination": "tests/test_omarchy_isp.py",
-        "sha256": "9458c0dc1b5218b38601bd1bde1177b9de6c56096c1ba53cb47b92662f75be60"
+        "sha256": "a49861ef898f5a8249c6f26caad26b497964b770755e27a2711b5b405df620f0"
       },
       {
         "path": "overlay/tests/test_omarchy_recovery.py",
         "destination": "tests/test_omarchy_recovery.py",
-        "sha256": "0dbf88bb206c01cc87064d549d39f24e6e6f6c40c0d701c204618594ceec91fa"
+        "sha256": "45fe5585d032fe2560729f66d0a651326c5a580ddfa9109d8ccadaabf3a83a54"
       },
       {
         "path": "overlay/bin/omarchy-restore-image.LICENSE",
@@ -350,7 +350,7 @@
     },
     {
       "path": "rebuild-python-overlay.py",
-      "sha256": "e226b5b49fd659ca4e5ca38d679626dcbfc1a867ab7d28a324f599d23e096974"
+      "sha256": "076a9538110993e72d64225fa3ef049a3e5183f81ddeb0f5dbb15026c11ede35"
     },
     {
       "path": "RestoreImage/LICENSE",
@@ -462,9 +462,9 @@
     }
   ],
   "validation_artifact": {
-    "filename": "installer-v0.9.2-aurora.2.tar.gz",
-    "size_bytes": 18039345,
-    "sha256": "feec92e46b5b14ab7ae0a05c689c0af59cd8e5bc75f04225119ea969fa7ea6e2",
+    "filename": "installer-v0.9.2-aurora.3.tar.gz",
+    "size_bytes": 18041248,
+    "sha256": "5199dbe7b0758762739f1ae174de084e56996164d87e03cdc0cd63e6d5c4be2f",
     "reproducibility_scope": "two-identical-python-overlay-repacks-authenticated-base",
     "signature": "absent",
     "metadata_sha256": "2e6181ce6b6e17c11039e04bfadade8d10ae0e11889885ad8c9960b68f179a5d"

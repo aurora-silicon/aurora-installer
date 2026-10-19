@@ -535,6 +535,7 @@
   public enum InstallerRestorationResult: Sendable {
     case completed(CompletionDisplay)
     case requiresRecoveryAuthorization
+    case failedBeforeDiskChanges(EngineXPCSubmissionError)
   }
 
   public protocol InstallerEnvironment: Sendable {

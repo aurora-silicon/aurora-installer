@@ -633,6 +633,25 @@ class _WithNeoFirmwareArchive(_WithoutRecoveryMount):
         return self._module.run(command, *args, **kwargs)
 
 
+def _read_native_camera_firmware(root):
+    paths = list(os.scandir(os.path.join(root, "camera")))
+    if len(paths) != 1:
+        raise AsahiAdapterError("native camera input is missing or ambiguous")
+    descriptor = os.open(paths[0].path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        info = os.fstat(descriptor)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                or info.st_mode & 0o022 or not 0 < info.st_size <= 16 << 20):
+            raise AsahiAdapterError("unsafe native camera input")
+        with os.fdopen(os.dup(descriptor), "rb") as source:
+            data = source.read((16 << 20) + 1)
+        if len(data) != info.st_size:
+            raise AsahiAdapterError("native camera input changed")
+        return data
+    finally:
+        os.close(descriptor)
+
+
 @contextlib.contextmanager
 def _neo_peripheral_collectors(installer):
     """Patch only the Neo's collectors; retain the inherited legacy paths."""
@@ -640,8 +659,12 @@ def _neo_peripheral_collectors(installer):
         yield
         return
     try:
-        raw = omarchy_als.read_lsci()
-        als = omarchy_als.calibration(raw)
+        raw = getattr(installer, "native_lsci", None)
+        if raw is None:
+            raw = omarchy_als.read_lsci()
+        als = getattr(installer, "native_als_calibration", None)
+        if als is None:
+            als = omarchy_als.calibration(raw)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         raise AsahiAdapterError(f"MacBook Neo ALS calibration collection failed: {error}") from error
 
@@ -650,7 +673,8 @@ def _neo_peripheral_collectors(installer):
             name = omarchy_als.FIRMWARE_NAME
             return [(name, asahi_firmware.core.FWFile(name, als))]
 
-    upgraded_isp = omarchy_isp.collection_class(asahi_firmware.isp)
+    upgraded_isp = omarchy_isp.collection_class(
+        asahi_firmware.isp, native_files=getattr(installer, "native_camera_setfiles", None))
 
     class NeoIspCollection(upgraded_isp):
         def __init__(self, source_path):
@@ -751,6 +775,21 @@ def _validate_neo_firmware_package(pkg):
         raise AsahiAdapterError("MacBook Neo firmware package is incomplete: " + ", ".join(sorted(missing)))
 
 
+def _validate_neo_radio_files(files):
+    required_files = {
+        "mediatek/mt7932/" + name for name in (
+            omarchy_mt7932.WIFI_PATCH, omarchy_mt7932.WIFI_RAM,
+            "ppr.bin", "oca2.bin", "wcal.bin", "config-original.bin",
+        )
+    } | {"mediatek/" + name for name in omarchy_mt7932.BT_FIRMWARE} | {
+        "mediatek/" + omarchy_mt7932.BT_PTX,
+        "mediatek/j700-mt7932-btcal.bin", "mediatek/j700-mt7932-bdaddr.bin",
+    }
+    missing = sorted(name for name in required_files if not files.get(name))
+    if missing:
+        raise omarchy_mt7932.Mt7932Error("missing required files: " + ", ".join(missing))
+
+
 def _collect_neo_radios(installer, pkg, collect=None, *, required=False):
     """Collect the Neo's complete MT7932 Wi-Fi and Bluetooth input set.
 
@@ -761,22 +800,18 @@ def _collect_neo_radios(installer, pkg, collect=None, *, required=False):
         return
     try:
         if collect is None:
-            with omarchy_apple_aea.neo_radio_root() as root:
-                files = omarchy_mt7932.collect(root)
+            native = getattr(installer, "native_firmware_root", None)
+            prepared = getattr(installer, "native_radio_files", None)
+            if prepared is not None:
+                files = dict(prepared)
+            elif native is not None:
+                files = omarchy_mt7932.collect(raw_directory=native)
+            else:
+                with omarchy_apple_aea.neo_radio_root() as root:
+                    files = omarchy_mt7932.collect(root)
         else:
             files = collect()
-        required_files = {
-            "mediatek/mt7932/" + name for name in (
-                omarchy_mt7932.WIFI_PATCH, omarchy_mt7932.WIFI_RAM,
-                "ppr.bin", "oca2.bin", "wcal.bin", "config-original.bin",
-            )
-        } | {"mediatek/" + name for name in omarchy_mt7932.BT_FIRMWARE} | {
-            "mediatek/" + omarchy_mt7932.BT_PTX,
-            "mediatek/j700-mt7932-btcal.bin", "mediatek/j700-mt7932-bdaddr.bin",
-        }
-        missing = sorted(name for name in required_files if not files.get(name))
-        if missing:
-            raise omarchy_mt7932.Mt7932Error("missing required files: " + ", ".join(missing))
+        _validate_neo_radio_files(files)
     except (OSError, ValueError, subprocess.CalledProcessError, omarchy_mt7932.Mt7932Error,
             omarchy_apple_aea.AppleInputError) as error:
         if required:
@@ -1184,6 +1219,12 @@ class AsahiStage1Adapter:
         raw_partition_writer=None,
         image_flush=flush_device,
         full_readback=False,
+        recovery_app=None,
+        recovery_manifest=None,
+        recovery_requirement=None,
+        authorized_owner=None,
+        native_firmware_root=None,
+        require_native_firmware=False,
     ):
         self.installer = installer
         self.metadata_path = metadata_path
@@ -1195,6 +1236,17 @@ class AsahiStage1Adapter:
         self.image_writer = raw_partition_writer or open_target
         self.image_flush = image_flush
         self.full_readback = full_readback
+        self.recovery_app = recovery_app
+        self.recovery_manifest = recovery_manifest
+        self.recovery_requirement = recovery_requirement
+        self.authorized_owner = authorized_owner
+        self.source_bootstrap = None
+        self.native_firmware_root = native_firmware_root
+        self.require_native_firmware = require_native_firmware
+        self.native_camera_setfiles = None
+        self.native_radio_files = None
+        self.native_lsci = None
+        self.native_als_calibration = None
         self.template = None
         self.osins = None
         self.os_firmware = None
@@ -1204,6 +1256,45 @@ class AsahiStage1Adapter:
     def preflight(self, plan):
         if self.preflight_complete:
             return
+        helper_recovery = (self.recovery_app, self.recovery_manifest, self.recovery_requirement)
+        if any(value is not None for value in helper_recovery):
+            if not all(isinstance(value, str) and value for value in helper_recovery):
+                raise AsahiAdapterError("incomplete helper Recovery template contract")
+            try:
+                omarchy_recovery.validate_source(self.recovery_app, self.recovery_manifest,
+                                                requirement=self.recovery_requirement)
+                self.source_bootstrap = omarchy_recovery.source_bootstrap(
+                    self.installer.dutil, self.installer.cur_os, self.authorized_owner)
+            except (omarchy_recovery.RecoveryError, subprocess.CalledProcessError) as error:
+                raise AsahiAdapterError("native Recovery preflight failed") from error
+        if self.require_native_firmware and self.native_firmware_root is None:
+            raise AsahiAdapterError("native firmware preparation is required for this Mac")
+        if self.native_firmware_root is not None:
+            if (getattr(self.installer.sysinfo, "device_class", "") != "j700ap"
+                    or not isinstance(self.native_firmware_root, str)
+                    or not os.path.isabs(self.native_firmware_root)):
+                raise AsahiAdapterError("invalid native firmware input")
+            try:
+                info = os.lstat(self.native_firmware_root)
+                if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+                    raise ValueError("unsafe native firmware directory")
+                for prefix in ("sunrise", "bluetooth", "camera"):
+                    child = os.lstat(os.path.join(self.native_firmware_root, prefix))
+                    if not stat.S_ISDIR(child.st_mode) or child.st_uid != os.geteuid() or child.st_mode & 0o022:
+                        raise ValueError("unsafe native firmware input directory")
+                camera_data = _read_native_camera_firmware(self.native_firmware_root)
+                self.native_camera_setfiles = omarchy_isp.extract(camera_data, asahi_firmware.isp.ISP_SETFILES)
+                expected = {"apple/isp_" + sensor + ".dat" for sensor in (
+                    "1921_01XX", "1922_02XX", "1925_03XX")}
+                if expected - self.native_camera_setfiles.keys():
+                    raise ValueError("required native camera setfiles are missing")
+                self.native_radio_files = omarchy_mt7932.collect(raw_directory=self.native_firmware_root)
+                _validate_neo_radio_files(self.native_radio_files)
+                self.native_lsci = omarchy_als.read_lsci()
+                self.native_als_calibration = omarchy_als.calibration(self.native_lsci)
+            except (OSError, ValueError, omarchy_mt7932.Mt7932Error,
+                    omarchy_isp.IspError, subprocess.CalledProcessError) as error:
+                raise AsahiAdapterError("native firmware input is unavailable") from error
         metadata = self._load_metadata()
         templates = [
             template
@@ -1248,7 +1339,7 @@ class AsahiStage1Adapter:
         self._validate_full_os_package()
         neo_policies = {}
         required = self.template.get("required_neo_peripherals", [])
-        if board == "j700ap" and "radio" in required:
+        if board == "j700ap" and ("radio" in required or self.native_firmware_root is not None):
             try:
                 neo_policies = omarchy_mt7932.collect_policy_inputs(
                     self.osins.pkg, self.template.get("neo_regulatory_policy"))
@@ -1265,7 +1356,14 @@ class AsahiStage1Adapter:
         required = self.template.get("required_neo_peripherals", [])
         if not isinstance(required, list) or any(item not in ("radio", "touch-id") for item in required):
             raise AsahiAdapterError("unknown required Neo peripheral contract")
+        if self.native_firmware_root is not None and "radio" not in required:
+            required = [*required, "radio"]
         self.installer.ins.required_neo_peripherals = required
+        self.installer.ins.native_firmware_root = self.native_firmware_root
+        self.installer.ins.native_camera_setfiles = self.native_camera_setfiles
+        self.installer.ins.native_radio_files = self.native_radio_files
+        self.installer.ins.native_lsci = self.native_lsci
+        self.installer.ins.native_als_calibration = self.native_als_calibration
         self.installer.ins.neo_regulatory_policies = neo_policies
         self.installer.ins.load_ipsw(ipsw)
         self.os_firmware = ipsw.version.split(maxsplit=1)[0]
@@ -1459,6 +1557,11 @@ class AsahiStage1Adapter:
                 self.installer.ins, self.osins.efi_part.uuid,
                 self.installer.dutil.mount(self.osins.efi_part.name),
                 source_os=self.installer.cur_os,
+                app_source=self.recovery_app,
+                manifest_path=self.recovery_manifest,
+                requirement=self.recovery_requirement,
+                authorized_owner=self.authorized_owner,
+                expected_bootstrap=self.source_bootstrap,
             )
         for target in self.osins.idata_targets:
             self.installer.ins.collect_installer_data(target)
@@ -2070,8 +2173,8 @@ class AsahiStage1Adapter:
         recovery_mode = self.template.get("recovery_gui")
         if recovery_mode not in (None, "omarchy-native-v1"):
             raise AsahiAdapterError("unknown Recovery GUI contract")
-        self.native_recovery_gui = recovery_mode is not None
-        if self.native_recovery_gui:
+        self.native_recovery_gui = self.recovery_app is not None or recovery_mode is not None
+        if self.recovery_app is None and self.native_recovery_gui:
             try:
                 omarchy_recovery.validate_payload(self.osins.pkg)
             except omarchy_recovery.RecoveryError as error:

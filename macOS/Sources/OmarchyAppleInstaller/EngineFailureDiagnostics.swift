@@ -21,6 +21,9 @@
     case deviceUnsupported = 3
     /// The plan, request, or identity failed an integrity check.
     case planIntegrity = 4
+    /// Native preparation stopped before the installation engine was launched.
+    case firmwarePreparation = 5
+    case recoveryPreparation = 6
 
     /// Exact final-exception messages raised before the first mutation by
     /// `omarchy_execution.admit_execution`, `omarchy_runtime` and the Asahi

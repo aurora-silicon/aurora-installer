@@ -612,12 +612,16 @@
       }
       do {
         let snapshot = try await observeJob(hint)
+        if let failure = snapshot.initialFailureWithoutDiskChanges {
+          try context.store.clear(ifMatching: hint)
+          throw failure
+        }
         let (transcript, handoff) = try snapshot.requireResult()
         context.completed(handoff)
         return transcript
       } catch let error as EngineXPCSubmissionError where error == .machineOwnerCredentialsRejected
       {
-        try? context.store.clear()
+        if try context.store.load() == hint { try context.store.clear(ifMatching: hint) }
         throw error
       }
     }

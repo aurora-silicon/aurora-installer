@@ -4,6 +4,9 @@ import Foundation
 /// OmarchyInstallerIdentityPlugin.
 public enum InstallerProductIdentity {
   public static let appName = InstallerBuildConfiguration.appName
+  public static let recoveryAppBundleName = appName + ".app"
+  public static let installedRecoveryTemplateDirectory =
+    "/Library/PrivilegedHelperTools/" + helperIdentifier + ".RecoveryTemplate"
   /// The name the app had before the rename; package-installed copies may
   /// still carry it.
   public static let legacyAppName = InstallerBuildConfiguration.legacyAppName

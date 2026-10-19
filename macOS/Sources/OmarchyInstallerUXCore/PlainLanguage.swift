@@ -492,6 +492,24 @@
             ? "Choose Check again to inspect this Mac and prepare a new plan. \(engineDiagnosticsLocation)"
             : "Save the error details and check the verified installation record before trying again. \(engineDiagnosticsLocation)"
         )
+      case .firmwarePreparation:
+        return FailureDisplay(
+          headline: "Firmware preparation didn’t finish",
+          plainDetail: diskState,
+          technicalDetail: technicalDetail,
+          remedy: unchanged
+            ? "Check your internet connection and free space, then choose Check again. Verified downloads will be reused."
+            : "Save the error details and check the verified installation record before trying again."
+        )
+      case .recoveryPreparation:
+        return FailureDisplay(
+          headline: "Recovery preparation didn’t finish",
+          plainDetail: diskState,
+          technicalDetail: technicalDetail,
+          remedy: unchanged
+            ? "Update the installer and choose Check again."
+            : "Save the error details and check the verified installation record before trying again."
+        )
       case .unclassified:
         return FailureDisplay(
           headline: "The installer engine stopped with an error",

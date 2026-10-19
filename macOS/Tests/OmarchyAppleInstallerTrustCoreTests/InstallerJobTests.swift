@@ -22,6 +22,41 @@
         installConf: try InstallConf(encrypt: true, lane: "stable").serializedData)
     }
 
+    func testOnlyAnInitialTerminalFailureWithNoDiskChangesCanReleaseItsHint() throws {
+      let request = try request()
+      for phase in [InstallerJobPhase.failed, .interrupted, .running] {
+        for attempt in [nil, UUID()] as [UUID?] {
+          for unchanged in [false, true] {
+            let notice = EngineFailureNotice(reason: .firmwarePreparation, exitStatus: 1,
+              diskUnchanged: unchanged, summary: "Preparation failed")
+            let failure = InstallerJobFailure(error: PinnedAsahiEngineExecutionError.engineFailed(
+              EngineFailureReport(notice: notice, redactedStandardErrorTail: "")))
+            let snapshot = InstallerJobSnapshot(identifier: request.ticket.identifier,
+              bindingDigest: request.ticket.bindingDigest, selection: request.ticket.selection,
+              phase: phase, plan: nil, transcript: nil, installConf: nil, failure: failure,
+              journal: Data(), journalOffset: 0, recoveryAttempt: attempt, recoveryRetryAvailable: false)
+            XCTAssertEqual(snapshot.initialFailureWithoutDiskChanges != nil,
+              phase == .failed && attempt == nil && unchanged)
+          }
+        }
+      }
+    }
+
+    func testClearingATerminalHintCannotClearAnotherJob() throws {
+      let store = PendingInstallerJobStore(directory: try workspace())
+      let first = PendingInstallerJob(ticket: try request().ticket,
+        helperMachServiceName: InstallerProductIdentity.helperMachServiceName,
+        helperCodeSigningRequirement: "identifier \"\(InstallerProductIdentity.helperIdentifier)\"")
+      let other = PendingInstallerJob(ticket: try request().ticket,
+        helperMachServiceName: first.helperMachServiceName,
+        helperCodeSigningRequirement: first.helperCodeSigningRequirement)
+      try store.save(first)
+      XCTAssertThrowsError(try store.clear(ifMatching: other))
+      XCTAssertEqual(try store.load(), first)
+      try store.clear(ifMatching: first)
+      XCTAssertNil(try store.load())
+    }
+
     func testExactDuplicateObservesOnceWhileChangedOptionsAndOtherUIDAreRejected() throws {
       let root = try workspace()
       let work = HelperWorkState()

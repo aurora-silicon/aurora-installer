@@ -214,6 +214,9 @@
           switch restoration {
           case .completed(let completion):
             await route(completion)
+          case .failedBeforeDiskChanges(let failure):
+            hasExecutionStarted = false
+            phase = .failed(PlainLanguage.failure(for: failure))
           case .requiresRecoveryAuthorization:
             restoredRecoveryRetry = true
             recoveryRetryAvailable = true

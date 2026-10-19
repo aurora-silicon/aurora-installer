@@ -31,7 +31,7 @@
         expectedDigest: try digest(of: fixture.package.engineURL),
         expectedSizeBytes: try size(of: fixture.package.engineURL)
       )
-      let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 501 })
+      let executor = fixtureExecutor(effectiveUserID: { 501 })
 
       let result = try await executor.inspect(archive, in: scratch)
 
@@ -56,7 +56,7 @@
         expectedDigest: "sha256:" + String(repeating: "0", count: 64),
         expectedSizeBytes: try size(of: fixture.package.engineURL)
       )
-      let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 501 })
+      let executor = fixtureExecutor(effectiveUserID: { 501 })
 
       await assertThrowsErrorAsync(
         try await executor.inspect(archive, in: scratch)
@@ -111,7 +111,7 @@
         metadataDigest: "sha256:" + String(repeating: "e", count: 64),
         payloadDigest: "sha256:" + String(repeating: "f", count: 64)
       )
-      let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 501 })
+      let executor = fixtureExecutor(effectiveUserID: { 501 })
 
       let result = try await executor.plan(
         archive,
@@ -129,7 +129,7 @@
       let package = importedPackage(
         at: URL(fileURLWithPath: "/does-not-exist")
       )
-      let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 501 })
+      let executor = fixtureExecutor(effectiveUserID: { 501 })
 
       await assertThrowsErrorAsync(
         try await executor.execute(
@@ -149,7 +149,7 @@
     {
       let fixture = try makeFixture()
       defer { try? FileManager.default.removeItem(at: fixture.root) }
-      let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 0 })
+      let executor = fixtureExecutor(effectiveUserID: { 0 })
 
       let transcript = try await executor.execute(
         fixture.package,
@@ -168,7 +168,7 @@
         expectedInstallMode: "retry-recovery-authorization"
       )
       defer { try? FileManager.default.removeItem(at: fixture.root) }
-      let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 0 })
+      let executor = fixtureExecutor(effectiveUserID: { 0 })
 
       let transcript = try await executor.execute(
         fixture.package,
@@ -185,7 +185,7 @@
         repairManifest: Data("{\"operation\":\"repair-installed-system\"}".utf8)
       )
       defer { try? FileManager.default.removeItem(at: fixture.root) }
-      let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 0 })
+      let executor = fixtureExecutor(effectiveUserID: { 0 })
 
       let transcript = try await executor.execute(
         fixture.package,
@@ -200,7 +200,7 @@
     {
       let fixture = try makeFixture(groupWritableBundleEntry: true)
       defer { try? FileManager.default.removeItem(at: fixture.root) }
-      let executor = PinnedAsahiEngineExecutor(
+      let executor = fixtureExecutor(
         effectiveUserID: { 0 },
         extractionOptions: ["--preserve-permissions"]
       )
@@ -217,7 +217,7 @@
     func testEscapingBundleSymlinkIsRejected() async throws {
       let fixture = try makeFixture(escapingSymlink: true)
       defer { try? FileManager.default.removeItem(at: fixture.root) }
-      let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 0 })
+      let executor = fixtureExecutor(effectiveUserID: { 0 })
 
       await assertThrowsErrorAsync(
         try await executor.execute(
@@ -238,7 +238,7 @@
     {
       let fixture = try makeFixture(exitCode: 17)
       defer { try? FileManager.default.removeItem(at: fixture.root) }
-      let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 0 })
+      let executor = fixtureExecutor(effectiveUserID: { 0 })
 
       await assertThrowsErrorAsync(
         try await executor.execute(
@@ -277,7 +277,7 @@
         standardError: Data(stderr.utf8)
       )
       defer { try? FileManager.default.removeItem(at: fixture.root) }
-      let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 0 })
+      let executor = fixtureExecutor(effectiveUserID: { 0 })
 
       await assertThrowsErrorAsync(
         try await executor.execute(
@@ -313,7 +313,7 @@
           "omarchy_asahi.AsahiAdapterError: approved extent is smaller than Asahi minimum\n".utf8)
       )
       defer { try? FileManager.default.removeItem(at: fixture.root) }
-      let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 0 })
+      let executor = fixtureExecutor(effectiveUserID: { 0 })
 
       await assertThrowsErrorAsync(
         try await executor.execute(
@@ -340,7 +340,7 @@
         standardError: stderr
       )
       defer { try? FileManager.default.removeItem(at: fixture.root) }
-      let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 0 })
+      let executor = fixtureExecutor(effectiveUserID: { 0 })
       let started = Date()
 
       await assertThrowsErrorAsync(
@@ -381,7 +381,7 @@
         ]
       )
       defer { try? FileManager.default.removeItem(at: fixture.root) }
-      let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 0 })
+      let executor = fixtureExecutor(effectiveUserID: { 0 })
 
       await assertThrowsErrorAsync(
         try await executor.execute(
@@ -451,7 +451,7 @@
     func testTruncatedTranscriptIsRejected() async throws {
       let fixture = try makeFixture(transcript: Data("truncated".utf8))
       defer { try? FileManager.default.removeItem(at: fixture.root) }
-      let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 0 })
+      let executor = fixtureExecutor(effectiveUserID: { 0 })
 
       await assertThrowsErrorAsync(
         try await executor.execute(
@@ -483,7 +483,7 @@
         [.posixPermissions: 0o755],
         ofItemAtPath: journalDirectory.path
       )
-      let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 0 })
+      let executor = fixtureExecutor(effectiveUserID: { 0 })
 
       await assertThrowsErrorAsync(
         try await executor.execute(
@@ -497,6 +497,78 @@
         )
       }
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
+
+    private struct FailedFirmware: NativeFirmwarePreparing {
+      func prepare(deviceIdentifier: String, in workingDirectory: URL) async throws -> URL? {
+        throw CocoaError(.fileReadUnknown, userInfo: [NSLocalizedDescriptionKey: "owner-password extraction failed"])
+      }
+    }
+
+    func testNativeFirmwareFailureAttestsNoMutationAndRedactsTheOwnerPassword() async throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let executor = fixtureExecutor(effectiveUserID: { 0 }, firmwarePreparer: FailedFirmware())
+      await assertThrowsErrorAsync(try await executor.execute(
+        fixture.package, authorization: try machineOwnerAuthorization()
+      )) {
+        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+          XCTFail("Expected a typed firmware failure"); return
+        }
+        XCTAssertEqual(report.notice.reason, .firmwarePreparation)
+        XCTAssertTrue(report.notice.diskUnchanged)
+        XCTAssertFalse(report.redactedStandardErrorTail.contains("owner-password"))
+      }
+      XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
+
+    func testRecoveryAuthorizationRetryDoesNotRepeatNativeFirmwareDownloads() async throws {
+      let fixture = try makeFixture(expectedInstallMode: "retry-recovery-authorization")
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let executor = fixtureExecutor(effectiveUserID: { 0 }, firmwarePreparer: FailedFirmware())
+      let result = try await executor.execute(fixture.package,
+        authorization: try machineOwnerAuthorization(), operation: .retryRecoveryAuthorization)
+      XCTAssertEqual(result, fixture.transcript)
+    }
+
+    func testRecoveryPreparationFailureNeverClaimsAnInstalledRetryWasUnchanged() async throws {
+      for operation in [EngineHandoffOperation.install, .retryRecoveryAuthorization] {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let executor = fixtureExecutor(effectiveUserID: { 0 }, rejectRecovery: true)
+        await assertThrowsErrorAsync(try await executor.execute(
+          fixture.package, authorization: try machineOwnerAuthorization(), operation: operation
+        )) {
+          guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+            XCTFail("Expected typed preparation failure"); return
+          }
+          XCTAssertEqual(report.notice.reason, .recoveryPreparation)
+          XCTAssertEqual(report.notice.diskUnchanged, operation == .install)
+        }
+        XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+      }
+    }
+
+    private func fixtureExecutor(
+      effectiveUserID: @escaping @Sendable () -> uid_t,
+      expectedFileOwnerID: @escaping @Sendable () -> uid_t = { geteuid() },
+      extractionOptions: [String] = [],
+      firmwarePreparer: any NativeFirmwarePreparing = NativeFirmwarePreparer(),
+      rejectRecovery: Bool = false
+    ) -> PinnedAsahiEngineExecutor {
+      PinnedAsahiEngineExecutor(
+        effectiveUserID: effectiveUserID, expectedFileOwnerID: expectedFileOwnerID,
+        extractionOptions: extractionOptions, firmwarePreparer: firmwarePreparer,
+        prepareRecoveryTemplate: { package in
+          if rejectRecovery { throw NativeRecoveryTemplateError.unavailable }
+          let directory = package.packageURL.deletingLastPathComponent().appendingPathComponent("fixture-recovery-\(UUID().uuidString)")
+          try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+          let app = directory.appendingPathComponent("Recovery.app")
+          let manifest = directory.appendingPathComponent("manifest.json")
+          try Data("app".utf8).write(to: app)
+          try Data("{}".utf8).write(to: manifest)
+          return PreparedNativeRecoveryTemplate(directory: directory, app: app, manifest: manifest, requirement: "fixture")
+        })
     }
 
     private func makeFixture(
@@ -532,6 +604,7 @@
         attributes: [.posixPermissions: 0o700]
       )
 
+      try Data(#"{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1"}"#.utf8).write(to: bundleSource.appendingPathComponent("engine-capabilities.json"))
       let main = bundleSource.appendingPathComponent("main.py")
       try writePrivate(Data("# synthetic engine\n".utf8), to: main)
       var checkpointCommands = [String]()
