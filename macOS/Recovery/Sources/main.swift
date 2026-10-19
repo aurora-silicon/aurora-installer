@@ -386,6 +386,16 @@ final class InstallerModel: ObservableObject {
   }
 }
 
+enum RecoveryBrand {
+  static let logo: NSImage = {
+    guard let url = Bundle.main.url(forResource: "AuroraLogo", withExtension: "png"),
+      let image = NSImage(contentsOf: url)
+    else { preconditionFailure("The Aurora branding asset is missing.") }
+    image.isTemplate = false
+    return image
+  }()
+}
+
 enum DestinationVolume {
   static let url = RecoveryActions.volume
   private static let previewDistribution: String? = {
@@ -477,8 +487,9 @@ struct InstallerView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      Image("AuroraLogo", bundle: .main)
+      Image(nsImage: RecoveryBrand.logo)
         .resizable()
+        .renderingMode(.original)
         .interpolation(.high)
         .scaledToFit()
         .frame(width: 80, height: 80)
@@ -923,7 +934,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     window.backgroundColor = .windowBackgroundColor
     window.hasShadow = true
     window.isMovableByWindowBackground = true
-    NSApp.applicationIconImage = DestinationVolume.icon
+    NSApp.applicationIconImage = RecoveryBrand.logo
     LaunchTrace.mark("window.creatingContent")
     let content = NSHostingView(rootView: InstallerView(model: model))
     // This fixed-size design includes the transparent titlebar. Do not let
