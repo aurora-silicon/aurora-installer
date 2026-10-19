@@ -50,7 +50,7 @@ jobs:
           for screen in welcome installing account complete error; do
             for appearance in light dark; do
               output="$RUNNER_TEMP/evidence/$screen-$appearance.png"
-              arguments=("--preview-stage=$screen" "--snapshot=$output")
+              arguments=(--preview "--preview-stage=$screen" "--snapshot=$output")
               [[ $appearance != dark ]] || arguments+=(--preview-dark)
               open -W "$app" --args "${arguments[@]}"
               test -s "$output"
