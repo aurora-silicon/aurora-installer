@@ -69,7 +69,7 @@ private final class InstallerApplicationDelegate: NSObject, NSApplicationDelegat
     DispatchQueue.main.async {
       for window in NSApp.windows where window.sheetParent == nil {
         if Bundle.main.object(forInfoDictionaryKey: "AuroraPreviewOnly") as? Bool == true {
-          window.setContentSize(NSSize(width: 840, height: 600))
+          window.setContentSize(NSSize(width: 840, height: 680))
           window.center()
         }
         for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
@@ -219,7 +219,7 @@ struct OmarchyAppleInstallerApp: App {
       // translucent system title bar never tints from the wallpaper behind.
       .containerBackground(OmarchyTheme.window, for: .window)
     }
-    .defaultSize(width: 840, height: 600)
+    .defaultSize(width: 840, height: 680)
     .windowResizability(.contentMinSize)
     .windowStyle(.hiddenTitleBar)
     .commands {
@@ -299,6 +299,9 @@ struct OmarchyAppleInstallerApp: App {
 
   private var previewColorScheme: ColorScheme? {
     #if DEBUG
+      if CommandLine.arguments.contains(where: { $0.hasPrefix("--preview-screen=") }) {
+        return CommandLine.arguments.contains("--preview-dark") ? .dark : .light
+      }
       if isSimulation { return simulation.dark ? .dark : .light }
     #endif
     return nil

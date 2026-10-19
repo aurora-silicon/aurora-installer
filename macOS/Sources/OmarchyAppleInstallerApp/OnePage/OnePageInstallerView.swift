@@ -691,7 +691,9 @@ struct DownloadPanel: View {
           ProgressTrack(fraction: fraction, height: 7)
           HStack {
             if let package, update.stage == .downloading, package.totalBytes > 0 {
-              Text("\(PlainLanguage.bytes(package.bytesCompleted)) of \(PlainLanguage.bytes(package.totalBytes))")
+              Text(
+                "\(PlainLanguage.bytes(package.bytesCompleted)) of \(PlainLanguage.bytes(package.totalBytes))"
+              )
             } else {
               Text("This may take a moment.")
             }
@@ -740,13 +742,16 @@ struct DiskSplitPanel: View {
       Panel {
         VStack(alignment: .leading, spacing: 10) {
           Text("Choose your space").font(.system(size: 22, weight: .semibold))
-          Text(plan.fixedMacOSBytes == nil
-            ? "Set aside space for Aurora. Drag the divider or enter a size below."
-            : "Choose how much of the available free space Aurora will use.")
-            .font(OmarchyTheme.body).foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
+          Text(
+            plan.fixedMacOSBytes == nil
+              ? "Set aside space for Aurora. Drag the divider or enter a size below."
+              : "Choose how much of the available free space Aurora will use."
+          )
+          .font(OmarchyTheme.body).foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
           HStack(alignment: .top) {
-            capacity("macOS", bytes: plan.macOSBytes(for: displayedOmarchyBytes), highlighted: false)
+            capacity(
+              "macOS", bytes: plan.macOSBytes(for: displayedOmarchyBytes), highlighted: false)
             Spacer()
             capacity("Aurora", bytes: displayedOmarchyBytes, highlighted: true)
           }
@@ -773,6 +778,7 @@ struct DiskSplitPanel: View {
                       sizeInput.isEditing ? sizeInput.text : sizeInput.display(plan.omarchyBytes)
                     },
                     set: { value in
+                      guard sizeInput.isEditing || value != sizeInput.display(plan.omarchyBytes) else { return }
                       beginSizeEdit()
                       sizeInput.text = value
                     }
@@ -816,8 +822,10 @@ struct DiskSplitPanel: View {
                     .disabled(plan.omarchyBytes == plan.maximumBytes)
                 }
               }
-              Text("From \(PlainLanguage.bytes(plan.minimumBytes)) to \(PlainLanguage.bytes(plan.maximumBytes))")
-                .font(OmarchyTheme.detail).foregroundStyle(.secondary)
+              Text(
+                "From \(PlainLanguage.bytes(plan.minimumBytes)) to \(PlainLanguage.bytes(plan.maximumBytes))"
+              )
+              .font(OmarchyTheme.detail).foregroundStyle(.secondary)
               if let message = sizeInput.validationMessage {
                 Text(message).font(OmarchyTheme.detail).foregroundStyle(OmarchyTheme.danger)
               }
@@ -925,8 +933,11 @@ struct InstallPanel: View {
           ForEach(Array(progress.stageLabels.enumerated()), id: \.offset) { index, label in
             HStack(spacing: 13) {
               stageMark(index).frame(width: 22, height: 22)
-              Text(label).font(.system(size: 14, weight: index == progress.stageIndex ? .medium : .regular))
-                .foregroundStyle(index <= progress.stageIndex ? OmarchyTheme.text : OmarchyTheme.secondaryText)
+              Text(label).font(
+                .system(size: 14, weight: index == progress.stageIndex ? .medium : .regular)
+              )
+              .foregroundStyle(
+                index <= progress.stageIndex ? OmarchyTheme.text : OmarchyTheme.secondaryText)
               Spacer()
               if verified(index) {
                 Text("Verified").font(OmarchyTheme.detail).foregroundStyle(.secondary)
@@ -938,7 +949,9 @@ struct InstallPanel: View {
         }
         TimelineView(.periodic(from: progress.startedAt, by: 1)) { context in
           HStack {
-            Text("Step \(min(progress.stageIndex + 1, progress.stageLabels.count)) of \(progress.stageLabels.count)")
+            Text(
+              "Step \(min(progress.stageIndex + 1, progress.stageLabels.count)) of \(progress.stageLabels.count)"
+            )
             Spacer()
             Text("\(elapsed(at: context.date)) elapsed").monospacedDigit()
           }

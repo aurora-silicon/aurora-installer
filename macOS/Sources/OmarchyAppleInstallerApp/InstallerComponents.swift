@@ -94,11 +94,12 @@ struct DiskBar: View {
           segment(
             name: "macOS", bytes: macOSBytes,
             width: width * Double(macOSBytes) / total,
-            background: macOSSpaceCaution == nil ? OmarchyTheme.track : OmarchyTheme.caution.opacity(0.2),
+            background: macOSSpaceCaution == nil
+              ? OmarchyTheme.track : OmarchyTheme.caution.opacity(0.2),
             foreground: OmarchyTheme.secondaryText)
           if unallocatedBytes > 0 {
             segment(
-              name: "Unallocated", bytes: unallocatedBytes,
+              name: "Free", bytes: unallocatedBytes,
               width: width * Double(unallocatedBytes) / total,
               background: OmarchyTheme.track.opacity(0.4), foreground: OmarchyTheme.secondaryText)
           }
@@ -113,7 +114,9 @@ struct DiskBar: View {
             .foregroundStyle(Color.primary.opacity(0.7))
             .frame(width: 26, height: 34)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.35), lineWidth: 1))
+            .overlay(
+              RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.35), lineWidth: 1)
+            )
             .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
             .offset(x: min(max(0, width - omarchyWidth - 13), width - 26))
         }
