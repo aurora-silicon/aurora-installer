@@ -9,7 +9,7 @@ permissions:
 jobs:
   native:
     runs-on: macos-26
-    timeout-minutes: 20
+    timeout-minutes: 35
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
       XCODEBUILDMCP_SENTRY_DISABLED: 'true'
@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           repository: aurora-silicon/omarchy-mac
-          ref: dfa5e57a93f6d203fb466f07ee6bf11f67a36450
+          ref: b346b302047e638ef5833594156e0e435962cfcf
           path: source
           persist-credentials: false
       - name: Record immutable source and tools
@@ -42,13 +42,29 @@ jobs:
           xcrun swift-format format -i --recursive Package.swift Sources Plugins Tests
           git diff --binary > "$RUNNER_TEMP/evidence/format.patch"
           xcrun swift-format lint --strict --recursive Package.swift Sources Plugins Tests
-      - name: Test template admission and execution in both configurations
+          [[ ! -s "$RUNNER_TEMP/evidence/format.patch" ]]
+      - name: Qualify all Swift tests in both configurations
         run: |
           set -euo pipefail
-          xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug \
-            --filter 'NativeRecoveryTemplateTests|PinnedAsahiEngineExecutorTests|EngineHandoffPackageImporterTests|ClosedEngineHandoffProcessTests|RecoveryAccountTests' 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
-          xcodebuildmcp swift-package test --package-path "$PWD" --configuration release \
-            --filter 'NativeRecoveryTemplateTests|PinnedAsahiEngineExecutorTests|EngineHandoffPackageImporterTests|ClosedEngineHandoffProcessTests|RecoveryAccountTests' 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
+          xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
+          xcodebuildmcp swift-package test --package-path "$PWD" --configuration release 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
+      - name: Build and verify native Recovery enrollment
+        run: |
+          set -euo pipefail
+          bash Recovery/build-app.sh recovery "$RUNNER_TEMP/evidence/recovery-enrollment" 2>&1 | tee "$RUNNER_TEMP/evidence/recovery-enrollment.log"
+          OMARCHY_RECOVERY_BUILD=preview xcodebuildmcp swift-package build --package-path "$PWD/Recovery" --configuration release 2>&1 | tee "$RUNNER_TEMP/evidence/recovery-preview.log"
+      - name: Reproduce the pinned engine
+        run: |
+          set -euo pipefail
+          python3 Engine/prepare-engine.py --output Engine/artifacts 2>&1 | tee "$RUNNER_TEMP/evidence/engine-reproduction.log"
+          python3 Engine/verify-engine-macho.py --signatures Engine/artifacts/*.tar.gz 2>&1 | tee "$RUNNER_TEMP/evidence/runtime-signatures.log"
+      - name: Assemble and inspect the application
+        run: |
+          set -euo pipefail
+          source Packaging/identity.conf
+          export OMARCHY_RECOVERY_TEMPLATE="$RUNNER_TEMP/evidence/recovery-enrollment/$INSTALLER_RECOVERY_APP_NAME.app"
+          bash Packaging/validate-app-assembly.sh "$RUNNER_TEMP/app-assembly" 2>&1 | tee "$RUNNER_TEMP/evidence/app-assembly.log"
+          python3 Engine/verify-engine-macho.py --signatures "$RUNNER_TEMP/app-assembly/app/$INSTALLER_APP_NAME.app/Contents/Resources/Engine/artifacts/"*.tar.gz
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
