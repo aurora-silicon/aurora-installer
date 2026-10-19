@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: 85939577ccadcb98012af5e65413f0f77f30e780
+          ref: 604c383edc62a89ed705ed1e3f72c1e6fa1f6bcf
           path: source
           persist-credentials: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
@@ -48,7 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: 85939577ccadcb98012af5e65413f0f77f30e780
+          ref: 604c383edc62a89ed705ed1e3f72c1e6fa1f6bcf
           path: source
           persist-credentials: false
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -131,6 +131,14 @@ jobs:
           PYPROFILES
           template="$app/Contents/Resources/RecoveryTemplate/$INSTALLER_APP_NAME.app"
           daemon="$app/Contents/Library/LaunchDaemons/$INSTALLER_HELPER_IDENTIFIER.plist"
+          decoder="$app/Contents/Helpers/omarchy-restore-image"
+          decoder_pin=$(/usr/bin/plutil -extract EnvironmentVariables.OMARCHY_RESTORE_IMAGE_REQUIREMENT raw -o - "$daemon")
+          expected_decoder_pin=$(installer_code_requirement "$decoder" "$INSTALLER_RESTORE_IMAGE_IDENTIFIER")
+          [[ $decoder_pin == "$expected_decoder_pin" ]]
+          codesign --verify --strict -R="$decoder_pin" "$decoder"
+          "$decoder" capabilities > "$RUNNER_TEMP/evidence/decoder-capabilities.json"
+          codesign --display --verbose=4 "$decoder" 2> "$RUNNER_TEMP/evidence/decoder-identity.txt"
+          [[ ! -e "$app/Contents/Resources/Engine/bin/omarchy-restore-image" ]]
           pin=$(/usr/bin/plutil -extract EnvironmentVariables.OMARCHY_RECOVERY_TEMPLATE_REQUIREMENT raw -o - "$daemon")
           codesign --verify --deep --strict -R="$pin" "$template"
           [[ $("$template/Contents/MacOS/OmarchyRecovery" --build-mode) == recovery ]]
