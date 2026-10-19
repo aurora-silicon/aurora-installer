@@ -17,6 +17,7 @@
 
     func recoveryAccount(
       action: String, ticket: String, username: String, password: Data,
+      recoveryTemplate: Data,
       reply: @escaping @Sendable (Data?, NSError?) -> Void)
 
     /// Removes the installer app the installer package left in
@@ -400,6 +401,8 @@
     public func recoveryAccount(
       action: String, ticket: String = "", username: String = "", password: Data = Data()
     ) async throws -> RecoveryAccountReply {
+      let template = action == "handoff" || action == "prepare"
+        ? try NativeRecoveryTemplate.archiveData(from: NativeRecoveryTemplate.bundledURL()) : Data()
       let connection = makeConnection()
       let handle = SendableXPCConnection(connection)
       let timer = Task {
@@ -427,7 +430,8 @@
           return
         }
         proxy.recoveryAccount(
-          action: action, ticket: ticket, username: username, password: password
+          action: action, ticket: ticket, username: username, password: password,
+          recoveryTemplate: template
         ) { response, error in
           defer { handle.invalidate() }
           if let error {

@@ -46,6 +46,62 @@
       }
     }
 
+    private struct AppUpdateJournal: Codable {
+      let target: RecoveryAccountTarget
+      let backup: String
+      let snapshot: String
+      let originalFiles: [String]
+    }
+
+    private static func appUpdateFiles(_ system: URL) -> [URL] {
+      ["SystemVersion.plist", "SystemVersion-disabled.plist"].map {
+        system.appendingPathComponent("System/Library/CoreServices/" + $0)
+      } + [system.appendingPathComponent(".IAPhysicalMedia")]
+    }
+
+    static func resumeAppUpdate(
+      system: URL, target: RecoveryAccountTarget,
+      read: (URL, Int) throws -> Data = RecoveryAccountInstaller.protectedRead
+    ) throws {
+      let fm = FileManager.default
+      let state = system.appendingPathComponent("Aurora/Recovery/State")
+      let pending = state.appendingPathComponent("app-update.pending.json")
+      guard fm.fileExists(atPath: pending.path) else { return }
+      let journal = try JSONDecoder().decode(
+        AppUpdateJournal.self,
+        from: read(pending, 65536))
+      guard journal.target == target,
+        UUID(uuidString: String(journal.backup.dropLast(4))) != nil,
+        journal.backup.hasSuffix(".app"), journal.snapshot.hasPrefix("app-update-"),
+        UUID(uuidString: String(journal.snapshot.dropFirst("app-update-".count))) != nil,
+        [2, 3].contains(journal.originalFiles.count)
+      else {
+        throw AccountSetupFailure("An interrupted Recovery app update belongs to another target.")
+      }
+      let snapshot = state.appendingPathComponent(journal.snapshot)
+      let transaction = try RecoveryFileTransaction.resume(
+        directory: snapshot,
+        files: Array(appUpdateFiles(system).prefix(journal.originalFiles.count)),
+        originalFiles: journal.originalFiles.map { URL(fileURLWithPath: $0) })
+      let status = try? Data(contentsOf: snapshot.appendingPathComponent("status"))
+      if status != Data("committed\n".utf8) {
+        try transaction.restore()
+        let backup = system.appendingPathComponent("Aurora/Recovery/AppBackups/" + journal.backup)
+        let destination = system.appendingPathComponent(
+          InstallerProductIdentity.recoveryAppBundleName)
+        if fm.fileExists(atPath: backup.path) {
+          if fm.fileExists(atPath: destination.path) { try fm.removeItem(at: destination) }
+          try fm.moveItem(at: backup, to: destination)
+          try RecoveryFileTransaction.flushDirectory(system)
+          try RecoveryFileTransaction.flushDirectory(backup.deletingLastPathComponent())
+        }
+        let identity = backup.appendingPathExtension("json")
+        if fm.fileExists(atPath: identity.path) { try fm.removeItem(at: identity) }
+      }
+      try fm.removeItem(at: pending)
+      try RecoveryFileTransaction.flushDirectory(state)
+    }
+
     static func updateRecoveryApp(for target: RecoveryAccountTarget) throws {
       let source = URL(fileURLWithPath: InstallerProductIdentity.installedRecoveryTemplateDirectory)
         .appendingPathComponent(InstallerProductIdentity.recoveryAppBundleName)
@@ -77,6 +133,7 @@
       _ = try AccountNativeCommand.checked("/sbin/mount", ["-u", "-w", mount])
       let system = URL(fileURLWithPath: mount, isDirectory: true)
       let destination = system.appendingPathComponent("Aurora Installer.app", isDirectory: true)
+      try resumeAppUpdate(system: system, target: target)
       let configuration = try installationConfiguration(system: system)
       guard let config = try JSONSerialization.jsonObject(with: configuration) as? [String: Any],
         config["systemUUID"] as? String == target.systemUUID,
@@ -88,32 +145,108 @@
       _ = try RecoveryInstallData.migrateLegacy(
         system: system, appName: "Aurora Installer.app", target: target)
       try RecoveryAccountInstaller.refreshMountedGroup(target)
-      try RecoveryVersionMetadata.hideForInitialRecovery(system: system)
-      if try recoveryAppMatchesTemplate(destination, template: source) {
-        _ = try AccountNativeCommand.checked(
-          "/usr/bin/codesign",
-          ["--verify", "--deep", "--strict", "-R=" + requirement, destination.path])
-        return
-      }
       let scratch = system.appendingPathComponent(
         ".omarchy-recovery-update-\(UUID().uuidString)", isDirectory: true)
       try fm.createDirectory(
         at: scratch, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
       defer { try? fm.removeItem(at: scratch) }
-      let candidate = scratch.appendingPathComponent("Aurora Installer.app", isDirectory: true)
+      let candidate = scratch.appendingPathComponent(
+        InstallerProductIdentity.recoveryAppBundleName, isDirectory: true)
       try fm.copyItem(at: source, to: candidate)
       _ = try AccountNativeCommand.checked(
         "/usr/bin/codesign",
         ["--verify", "--deep", "--strict", "-R=" + requirement, candidate.path])
+      try RecoveryFileTransaction.flushTree(candidate)
       let backup = system.appendingPathComponent(
         "Aurora/Recovery/AppBackups/\(UUID().uuidString).app", isDirectory: true)
       try fm.createDirectory(
         at: backup.deletingLastPathComponent(), withIntermediateDirectories: true,
         attributes: [.posixPermissions: 0o700])
-      try fm.moveItem(at: destination, to: backup)
-      do { try fm.moveItem(at: candidate, to: destination) } catch {
-        try fm.moveItem(at: backup, to: destination)
-        throw error
+      try RecoveryFileTransaction.flushDirectory(backup.deletingLastPathComponent().deletingLastPathComponent())
+      let state = system.appendingPathComponent("Aurora/Recovery/State")
+      try fm.createDirectory(
+        at: state, withIntermediateDirectories: true,
+        attributes: [.posixPermissions: 0o700])
+      let snapshot = state.appendingPathComponent("app-update-" + UUID().uuidString)
+      let files = appUpdateFiles(system)
+      let transaction = try RecoveryFileTransaction(directory: snapshot, files: files)
+      let pending = state.appendingPathComponent("app-update.pending.json")
+      try RecoveryFileTransaction.write(
+        try JSONEncoder().encode(
+          AppUpdateJournal(
+            target: target, backup: backup.lastPathComponent, snapshot: snapshot.lastPathComponent,
+            originalFiles: files.map(\.path))), to: pending)
+      do {
+        // Keep the target binding beside the immutable backup, never inside it.
+        try RecoveryFileTransaction.write(
+          try JSONEncoder().encode(target), to: backup.appendingPathExtension("json"))
+        try fm.moveItem(at: destination, to: backup)
+        try RecoveryFileTransaction.flushDirectory(system)
+        try RecoveryFileTransaction.flushDirectory(backup.deletingLastPathComponent())
+        try fm.moveItem(at: candidate, to: destination)
+        try RecoveryFileTransaction.flushDirectory(system)
+        let receipt = system.appendingPathComponent("Aurora/Recovery/State/installation.json")
+        if let bytes = try? RecoveryAccountInstaller.protectedRead(receipt, limit: 65536),
+          let value = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+          value["recoveryAccountDeferred"] as? Bool == true
+        {
+          let saved = try RecoveryAccountInstaller.protectedRead(
+            system.appendingPathComponent("IAPhysicalMedia-disabled.plist"), limit: 65536)
+          guard
+            let launch = try PropertyListSerialization.propertyList(from: saved, format: nil)
+              as? [String: Any],
+            launch["AppName"] as? String == InstallerProductIdentity.recoveryAppBundleName
+          else { throw AccountSetupFailure("The deferred Recovery launcher is unavailable.") }
+          try RecoveryFileTransaction.write(
+            saved, to: system.appendingPathComponent(".IAPhysicalMedia"))
+        }
+        let movesVersion =
+          fm.fileExists(atPath: files[0].path)
+          && fm.fileExists(atPath: system.appendingPathComponent(".IAPhysicalMedia").path)
+        try RecoveryVersionMetadata.hideForInitialRecovery(system: system)
+        try transaction.commit(relocated: movesVersion ? [files[0].path: files[1]] : [:])
+        try fm.removeItem(at: pending)
+        try RecoveryFileTransaction.flushDirectory(state)
+      } catch {
+        let original = error
+        try resumeAppUpdate(system: system, target: target)
+        throw original
+      }
+      // Keep two previous GUI versions. Per-install inputs stay in InstallData.
+      let backups = backup.deletingLastPathComponent()
+      let versions = try fm.contentsOfDirectory(
+        at: backups, includingPropertiesForKeys: [.contentModificationDateKey],
+        options: [.skipsHiddenFiles]
+      ).filter {
+        $0.pathExtension == "app"
+          && UUID(uuidString: $0.deletingPathExtension().lastPathComponent) != nil
+      }
+      let ordered = versions.sorted {
+        ((try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
+          ?? .distantPast)
+          > ((try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
+            ?? .distantPast)
+      }
+      for obsolete in ordered.dropFirst(2) {
+        let identity = obsolete.appendingPathExtension("json")
+        if let bytes = try? RecoveryAccountInstaller.protectedRead(identity, limit: 65536),
+          let owner = try? JSONDecoder().decode(RecoveryAccountTarget.self, from: bytes),
+          owner.systemUUID == target.systemUUID, owner.groupUUID == target.groupUUID,
+          owner.prebootUUID == target.prebootUUID
+        {
+          try? fm.removeItem(at: obsolete)
+          try? fm.removeItem(at: identity)
+          continue
+        }
+        // Older backups predate the external baseline and carry their binding.
+        let config = try? RecoveryAccountInstaller.protectedRead(
+          obsolete.appendingPathComponent("Contents/Resources/install-config.json"), limit: 65536)
+        if let config,
+          let object = try? JSONSerialization.jsonObject(with: config) as? [String: Any],
+          object["groupUUID"] as? String == target.groupUUID
+        {
+          try? fm.removeItem(at: obsolete)
+        }
       }
     }
 

@@ -3,10 +3,36 @@
   import Darwin
   import Foundation
   import XCTest
+  import RecoveryAccountCore
 
   @testable import OmarchyAppleInstallerTrustCore
 
   final class ClosedEngineHelperServerTests: XCTestCase {
+    func testAccountRequestsCannotRefreshWithoutAValidBoundTargetOrUseAnUnexpectedTemplate() async throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let executor = RecordingHandoffExecutor(result: fixture.transcript)
+      let server = ClosedEngineHelperServer(
+        workingDirectory: fixture.destination, executor: executor,
+        credentialValidator: AcceptingMachineOwnerCredentialValidator())
+      let before = try FileManager.default.contentsOfDirectory(atPath: fixture.destination.path)
+      for (action, template) in [
+        ("handoff", Data()), ("prepare", Data()), ("inspect", Data("template".utf8)),
+        ("finalize", Data("template".utf8)), ("handoff", Data("untrusted template".utf8)),
+      ] {
+        do {
+          _ = try await server.recoveryAccount(
+            action: action, ticket: "unknown", username: "", password: Data(),
+            recoveryTemplate: template)
+          XCTFail("Unexpected account request accepted: \(action)")
+        } catch {
+          XCTAssertTrue(error is NativeRecoveryTemplateError || error is AccountSetupFailure)
+        }
+      }
+      XCTAssertEqual(
+        try FileManager.default.contentsOfDirectory(atPath: fixture.destination.path), before)
+    }
+
     func testEndpointReportsItsHelperVersionAndEmptyWhenItHasNone() async throws {
       let fixture = try makeFixture()
       defer { try? FileManager.default.removeItem(at: fixture.root) }

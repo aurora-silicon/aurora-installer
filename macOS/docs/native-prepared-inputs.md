@@ -9,4 +9,6 @@ The privileged helper prepares Recovery and the Neo's model-wide firmware before
 
 An initial, terminal failure with a helper-attested absence of disk changes may clear only its matching GUI lookup hint and allow a newly reviewed plan. Recovery retries, interrupted workers and failures after mutation retain their original context. A Recovery authorization retry reuses the original package and does not restart firmware downloads.
 
+Account preparation and shutdown handoff send the authenticated app's current flat Recovery container with the existing target ticket. After revalidating that target, the helper verifies the container against its own current signature policy and durably refreshes the retained template under the same job gate as the target update. Installing a newer app can therefore update Recovery without a new disk plan or replaying installation. Inspection and finalization reject unexpected template inputs; a missing or invalid update cannot replace the retained copy.
+
 The disk-installation backend still uses the existing engine adapter. Native country-policy generation, the remaining firmware collectors and the full Swift disk backend remain unfinished. Existing signed policy inputs are validated during preflight; missing policy is not bypassed. Fresh-install and Recovery hardware qualification remains separate from native component tests.
