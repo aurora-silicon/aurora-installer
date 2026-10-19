@@ -22,6 +22,46 @@
   }
 
   final class EngineHandoffPackageImporterTests: XCTestCase {
+    func testDecoderIsExecutableAndRetainedRetryRejectsChangedOrNonExecutableBytes() throws {
+      for change in ["bytes", "execute-bit"] {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let source = try openDirectory(fixture.source)
+        defer { try? source.close() }
+        let importer = EngineHandoffPackageImporter()
+        let package = try importer.prepare(from: source, in: fixture.destination)
+        let decoder = try XCTUnwrap(package.restoreImageURL)
+        XCTAssertEqual(try mode(decoder), 0o500)
+        let reopened = try importer.reopenRetained(named: package.packageURL.lastPathComponent, in: fixture.destination)
+        XCTAssertEqual(reopened.restoreImageURL, decoder)
+        XCTAssertEqual(chmod(decoder.path, 0o700), 0)
+        if change == "bytes" { try Data("changed".utf8).write(to: decoder) }
+        else { XCTAssertEqual(chmod(decoder.path, 0o400), 0) }
+        XCTAssertThrowsError(try importer.reopenRetained(named: package.packageURL.lastPathComponent, in: fixture.destination))
+      }
+    }
+
+    func testDecoderContainerRejectsMissingRenamedOversizedAndChangedArtifacts() throws {
+      for change in ["missing", "renamed", "oversized", "changed"] {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let manifestURL = fixture.source.appendingPathComponent("manifest.json")
+        var document = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any])
+        var decoder = try XCTUnwrap(document["restore_image"] as? [String: Any])
+        if change == "missing" { document.removeValue(forKey: "restore_image") }
+        if change == "renamed" { decoder["file_name"] = "another-decoder"; document["restore_image"] = decoder }
+        if change == "oversized" { decoder["size_bytes"] = RestoreImageHelper.maximumBytes + 1; document["restore_image"] = decoder }
+        try JSONSerialization.data(withJSONObject: document).write(to: manifestURL, options: .atomic)
+        if change == "changed" {
+          try Data("changed".utf8).write(to: fixture.source.appendingPathComponent(RestoreImageHelper.fileName), options: .atomic)
+        }
+        let source = try openDirectory(fixture.source)
+        defer { try? source.close() }
+        XCTAssertThrowsError(try EngineHandoffPackageImporter().prepare(from: source, in: fixture.destination))
+        XCTAssertTrue(try importedEntries(in: fixture.destination).isEmpty)
+      }
+    }
+
     func testRetainedPackageIsRevalidatedInPlaceAndChangedPayloadIsRejected() throws {
       let fixture = try makeFixture()
       defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -507,9 +547,11 @@
         includeRepairManifest
         ? ",\"repair_manifest\":{\"file_name\":\"repair.json\",\"digest\":\"\(repairDigest)\",\"size_bytes\":\(repairManifest.count)}"
         : ""
+      let decoder = Data("decoder".utf8)
+      try writePrivate(decoder, to: source.appendingPathComponent(RestoreImageHelper.fileName))
       let manifest = Data(
         """
-        {"format":1,"binding_digest":"\(bindingDigest)","request_file":"request.json","identity_file":"identity.json","engine":{"file_name":"\(engineFileName)","digest":"\(engineDigest)","size_bytes":\(engine.count)},"metadata":{"file_name":"installer-data.json","digest":"\(metadataDigest)","size_bytes":\(metadata.count)},"payload":{"file_name":"omarchy.img.zst","digest":"\(payloadDigest)","size_bytes":\(payload.count)}\(repairManifestField)\(extraField)}
+        {"format":1,"binding_digest":"\(bindingDigest)","request_file":"request.json","identity_file":"identity.json","engine":{"file_name":"\(engineFileName)","digest":"\(engineDigest)","size_bytes":\(engine.count)},"metadata":{"file_name":"installer-data.json","digest":"\(metadataDigest)","size_bytes":\(metadata.count)},"payload":{"file_name":"omarchy.img.zst","digest":"\(payloadDigest)","size_bytes":\(payload.count)},"restore_image":{"file_name":"\(RestoreImageHelper.fileName)","digest":"\(digest(decoder))","size_bytes":\(decoder.count)}\(repairManifestField)\(extraField)}
         """.utf8
       )
       let request = Data(

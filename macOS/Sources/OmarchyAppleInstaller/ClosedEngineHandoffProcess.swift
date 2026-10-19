@@ -12,6 +12,7 @@
     public let metadataURL: URL
     public let payloadURL: URL
     public let repairManifestURL: URL?
+    public let restoreImageURL: URL
   }
 
   public protocol EngineHandoffSubmitting: Sendable {
@@ -29,6 +30,7 @@
     case unsafeArtifact(String)
     case artifactSizeMismatch(String)
     case artifactDigestMismatch(String)
+    case restoreImageUnavailable
   }
 
   public struct ClosedEngineHandoffProcess: EngineProcessExecuting, Sendable {
@@ -37,14 +39,18 @@
     private let submitter: any EngineHandoffSubmitting
     private let authorization: MachineOwnerAuthorization
     private let operation: EngineHandoffOperation
+    private let restoreImage: URL
     private let recoveryTemplate: URL?
 
+    /// `restoreImage` is the app's signed decoder in its sealed
+    /// Contents/Helpers; the helper receives a copy with the package.
     public init(
       assets: PreparedInstallerAssets,
       handoffDirectory: URL,
       submitter: any EngineHandoffSubmitting,
       authorization: MachineOwnerAuthorization,
       operation: EngineHandoffOperation = .install,
+      restoreImage: URL = RestoreImageHelper.bundledURL(),
       recoveryTemplate: URL? = Bundle.main.bundleURL.appendingPathComponent(
         "Contents/Resources/RecoveryTemplate/" + InstallerProductIdentity.recoveryAppBundleName)
     ) {
@@ -53,17 +59,24 @@
       self.submitter = submitter
       self.authorization = authorization
       self.operation = operation
+      self.restoreImage = restoreImage
       self.recoveryTemplate = recoveryTemplate
     }
 
     public func execute(_ invocation: ClosedEngineInvocation) async throws -> Data {
-      let handoff = try InstallerPerformance.measure("app_handoff") {
-        try ClosedEngineHandoffBuilder().prepare(
-          invocation: invocation,
-          assets: assets,
-          recoveryTemplate: recoveryTemplate,
-          in: handoffDirectory
-        )
+      let handoff: PreparedEngineHandoff
+      do {
+        handoff = try InstallerPerformance.measure("app_handoff") {
+          try ClosedEngineHandoffBuilder().prepare(
+            invocation: invocation,
+            assets: assets,
+            restoreImage: restoreImage,
+            recoveryTemplate: recoveryTemplate,
+            in: handoffDirectory
+          )
+        }
+      } catch {
+        throw InstallerPreSubmissionFailure(error)
       }
       defer { try? FileManager.default.removeItem(at: handoff.packageURL) }
       return try await submitter.submit(
@@ -79,12 +92,14 @@
       "manifest.json",
       "request.json",
       "identity.json",
+      RestoreImageHelper.fileName,
       NativeRecoveryTemplate.archiveFileName,
     ]
 
     func prepare(
       invocation: ClosedEngineInvocation,
       assets: PreparedInstallerAssets,
+      restoreImage: URL,
       recoveryTemplate: URL?,
       in handoffDirectory: URL
     ) throws -> PreparedEngineHandoff {
@@ -138,6 +153,8 @@
       let repairManifestURL = assets.repairManifest.map {
         pending.appendingPathComponent($0.artifact.fileName)
       }
+      let restoreImageURL = pending.appendingPathComponent(RestoreImageHelper.fileName)
+      let restoreImageArtifact = try copyRestoreImage(restoreImage, to: restoreImageURL)
       let recoveryArtifact: EngineHandoffArtifact?
       if let recoveryTemplate {
         let bytes = try NativeRecoveryTemplate.archiveData(from: recoveryTemplate)
@@ -175,7 +192,11 @@
       )
       try writePrivateJSON(
         EngineHandoffManifest(
-          invocation: invocation, assets: assets, recoveryTemplate: recoveryArtifact),
+          invocation: invocation,
+          assets: assets,
+          restoreImage: restoreImageArtifact,
+          recoveryTemplate: recoveryArtifact
+        ),
         to: manifestURL
       )
 
@@ -197,7 +218,64 @@
         ),
         repairManifestURL: assets.repairManifest.map {
           package.appendingPathComponent($0.artifact.fileName)
+        },
+        restoreImageURL: package.appendingPathComponent(RestoreImageHelper.fileName)
+      )
+    }
+
+    /// A private, executable copy of the app's decoder and its record. The
+    /// helper trusts it for its signature, not this digest, which only
+    /// detects a change in transit.
+    private func copyRestoreImage(
+      _ source: URL,
+      to destination: URL
+    ) throws -> EngineHandoffArtifact {
+      let sourceDescriptor = Darwin.open(source.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)
+      guard sourceDescriptor >= 0 else {
+        throw ClosedEngineHandoffError.restoreImageUnavailable
+      }
+      defer { Darwin.close(sourceDescriptor) }
+      var status = stat()
+      guard fstat(sourceDescriptor, &status) == 0,
+        (status.st_mode & S_IFMT) == S_IFREG,
+        status.st_mode & 0o022 == 0,
+        status.st_size > 0,
+        UInt64(status.st_size) <= RestoreImageHelper.maximumBytes
+      else {
+        throw ClosedEngineHandoffError.unsafeArtifact("restore-image")
+      }
+      let destinationDescriptor = Darwin.open(
+        destination.path,
+        O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC,
+        S_IRUSR | S_IXUSR
+      )
+      guard destinationDescriptor >= 0 else {
+        throw ClosedEngineHandoffError.unsafeArtifact("restore-image")
+      }
+      defer { Darwin.close(destinationDescriptor) }
+      let sourceHandle = FileHandle(fileDescriptor: sourceDescriptor, closeOnDealloc: false)
+      let destinationHandle = FileHandle(
+        fileDescriptor: destinationDescriptor,
+        closeOnDealloc: false
+      )
+      var hasher = SHA256()
+      var size: UInt64 = 0
+      while let chunk = try sourceHandle.read(upToCount: 1_048_576), !chunk.isEmpty {
+        size += UInt64(chunk.count)
+        guard size <= RestoreImageHelper.maximumBytes else {
+          throw ClosedEngineHandoffError.artifactSizeMismatch("restore-image")
         }
+        try destinationHandle.write(contentsOf: chunk)
+        hasher.update(data: chunk)
+      }
+      try destinationHandle.synchronize()
+      guard size == UInt64(status.st_size) else {
+        throw ClosedEngineHandoffError.artifactSizeMismatch("restore-image")
+      }
+      return EngineHandoffArtifact(
+        fileName: RestoreImageHelper.fileName,
+        digest: SHA256Digest.prefixedHex(hasher.finalize()),
+        sizeBytes: size
       )
     }
 
@@ -443,13 +521,15 @@
     let metadata: EngineHandoffArtifact
     let payload: EngineHandoffArtifact
     let repairManifest: EngineHandoffArtifact?
+    let restoreImage: EngineHandoffArtifact
     let recoveryTemplate: EngineHandoffArtifact?
 
     init(
       invocation: ClosedEngineInvocation,
-      assets: PreparedInstallerAssets, recoveryTemplate: EngineHandoffArtifact?
+      assets: PreparedInstallerAssets,
+      restoreImage: EngineHandoffArtifact,
+      recoveryTemplate: EngineHandoffArtifact?
     ) {
-      self.recoveryTemplate = recoveryTemplate
       bindingDigest = invocation.candidateIdentity.bindingDigest
       engine = EngineHandoffArtifact(staged: assets.engine)
       metadata = EngineHandoffArtifact(staged: assets.metadata)
@@ -457,6 +537,8 @@
       repairManifest = assets.repairManifest.map {
         EngineHandoffArtifact(staged: $0)
       }
+      self.restoreImage = restoreImage
+      self.recoveryTemplate = recoveryTemplate
     }
 
     enum CodingKeys: String, CodingKey {
@@ -468,6 +550,7 @@
       case metadata
       case payload
       case repairManifest = "repair_manifest"
+      case restoreImage = "restore_image"
       case recoveryTemplate = "recovery_template"
     }
   }
@@ -477,16 +560,16 @@
     let digest: String
     let sizeBytes: UInt64
 
-    init(fileName: String, digest: String, sizeBytes: UInt64) {
-      self.fileName = fileName
-      self.digest = digest
-      self.sizeBytes = sizeBytes
-    }
-
     init(staged: StagedInstallerArtifact) {
       fileName = staged.artifact.fileName
       digest = staged.artifact.expectedDigest
       sizeBytes = staged.artifact.expectedSizeBytes
+    }
+
+    init(fileName: String, digest: String, sizeBytes: UInt64) {
+      self.fileName = fileName
+      self.digest = digest
+      self.sizeBytes = sizeBytes
     }
 
     enum CodingKeys: String, CodingKey {

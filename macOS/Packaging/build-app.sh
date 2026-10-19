@@ -50,6 +50,7 @@ team_identifier="${OMARCHY_TEAM_ID:-}"
 
 app_identifier="$INSTALLER_APP_IDENTIFIER"
 helper_identifier="$INSTALLER_HELPER_IDENTIFIER"
+restore_image_identifier="$INSTALLER_RESTORE_IMAGE_IDENTIFIER"
 app_name="$INSTALLER_APP_NAME.app"
 app_executable_name="OmarchyAppleInstallerApp"
 daemon_plist_name="$helper_identifier.plist"
@@ -198,6 +199,13 @@ fi
 [[ $(stat -f %z "$engine_source") == "$engine_size" ]] \
   || fail "the pinned validation engine size is incorrect"
 
+# The archive may contain only the authenticated runtime's native code.
+python3 "$package_directory/Engine/verify-engine-macho.py" "$engine_source" >/dev/null \
+  || fail "the validation engine carries native code outside its pinned runtime"
+restore_image_source="$package_directory/Engine/RestoreImage/bin/omarchy-restore-image"
+python3 "$package_directory/Engine/verify-restore-image.py" >/dev/null \
+  || fail "the restore-image decoder differs from its recorded build"
+
 mkdir -p "$output_directory"
 final_app="$output_directory/$app_name"
 [[ ! -e $final_app ]] \
@@ -280,6 +288,12 @@ mkdir -p \
   "$contents/Library/LaunchDaemons" \
   "$contents/Library/LaunchServices"
 
+mkdir -p "$contents/Helpers"
+restore_image_path="$contents/Helpers/omarchy-restore-image"
+install -m 0755 "$restore_image_source" "$restore_image_path"
+python3 "$package_directory/Engine/verify-restore-image.py" "$restore_image_path" >/dev/null \
+  || fail "the decoder copy differs from its recorded build"
+install -m 0444 "$package_directory/Engine/RestoreImage/LICENSE" "$resources/omarchy-restore-image.LICENSE"
 install -m 0755 "$app_binary" "$contents/MacOS/$app_executable_name"
 install -m 0755 "$helper_binary" "$helper_path"
 install -m 0444 "$release_descriptor" "$resources/Release/release.json"
@@ -388,6 +402,17 @@ if [[ $signing_identity != "-" ]]; then
     -json "{\"$helper_identifier\":$(printf '%s' "$helper_requirement" | python3 -c 'import json,sys;print(json.dumps(sys.stdin.read()))')}" \
     "$contents/Info.plist"
 fi
+codesign --force --sign "$signing_identity" "${timestamp_arguments[@]}" \
+  --options runtime --identifier "$restore_image_identifier" "$restore_image_path"
+source "$script_directory/code-identity.sh"
+if [[ $signing_identity == "-" ]]; then
+  restore_image_requirement=$(installer_code_requirement "$restore_image_path" "$restore_image_identifier")
+else
+  restore_image_requirement="anchor apple generic and identifier \"$restore_image_identifier\" and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = \"$team_identifier\""
+fi
+codesign --verify --strict -R="$restore_image_requirement" "$restore_image_path"
+plutil -replace EnvironmentVariables.OMARCHY_RESTORE_IMAGE_REQUIREMENT \
+  -string "$restore_image_requirement" "$contents/Library/LaunchDaemons/$daemon_plist_name"
 recovery_hash=$(codesign --display --verbose=4 "$resources/RecoveryTemplate/$INSTALLER_APP_NAME.app" 2>&1 | sed -n 's/^CDHash=//p')
 [[ $recovery_hash =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]] || fail "cannot identify the signed Recovery template"
 plutil -replace EnvironmentVariables.OMARCHY_RECOVERY_TEMPLATE_REQUIREMENT \

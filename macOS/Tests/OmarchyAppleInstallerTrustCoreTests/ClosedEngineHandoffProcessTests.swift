@@ -20,6 +20,7 @@
         handoffDirectory: fixture.handoffDirectory,
         submitter: submitter,
         authorization: try machineOwnerAuthorization(),
+        restoreImage: fixture.restoreImage,
         recoveryTemplate: nil
       )
 
@@ -67,6 +68,51 @@
         manifestEngine["file_name"] as? String,
         fixture.assets.engine.artifact.fileName
       )
+      // The app's own decoder travels with the package, executable by its owner only.
+      XCTAssertEqual(snapshot.restoreImage, fixture.restoreImageBytes)
+      XCTAssertEqual(snapshot.restoreImageMode, 0o500)
+      XCTAssertEqual(
+        manifest["restore_image"] as? [String: AnyHashable],
+        [
+          "file_name": RestoreImageHelper.fileName,
+          "digest": SHA256Digest.prefixedHex(SHA256.hash(data: fixture.restoreImageBytes)),
+          "size_bytes": fixture.restoreImageBytes.count,
+        ])
+    }
+
+    func testAMissingOrLinkedDecoderStopsBeforeSubmission() async throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let link = fixture.root.appendingPathComponent("linked-decoder")
+      try FileManager.default.createSymbolicLink(at: link, withDestinationURL: fixture.restoreImage)
+      for decoder in [fixture.root.appendingPathComponent("missing"), link] {
+        let submitter = RecordingHandoffSubmitter(transcript: fixture.executionTranscript)
+        await assertThrows(
+          try await ClosedEngineProcessAdapter().execute(
+            fixture.request,
+            approval: fixture.approval,
+            authorization: GrantedEngineAuthorization(),
+            process: ClosedEngineHandoffProcess(
+              assets: fixture.assets,
+              handoffDirectory: fixture.handoffDirectory,
+              submitter: submitter,
+              authorization: try machineOwnerAuthorization(),
+              restoreImage: decoder,
+              recoveryTemplate: nil
+            )
+          )
+        ) {
+          XCTAssertEqual(
+            ($0 as? InstallerPreSubmissionFailure)?.underlying as? ClosedEngineHandoffError,
+            .restoreImageUnavailable
+          )
+        }
+        let submissionCount = await submitter.submissionCount
+        XCTAssertEqual(submissionCount, 0)
+        XCTAssertTrue(
+          try FileManager.default.contentsOfDirectory(atPath: fixture.handoffDirectory.path).isEmpty
+        )
+      }
     }
 
     func testChangedEngineBytesStopBeforeSubmission() async throws {
@@ -86,12 +132,13 @@
             handoffDirectory: fixture.handoffDirectory,
             submitter: submitter,
             authorization: try machineOwnerAuthorization(),
+            restoreImage: fixture.restoreImage,
             recoveryTemplate: nil
           )
         )
       ) {
         XCTAssertEqual(
-          $0 as? ClosedEngineHandoffError,
+          ($0 as? InstallerPreSubmissionFailure)?.underlying as? ClosedEngineHandoffError,
           .artifactDigestMismatch("engine")
         )
       }
@@ -115,6 +162,7 @@
           handoffDirectory: fixture.handoffDirectory,
           submitter: submitter,
           authorization: try machineOwnerAuthorization(),
+          restoreImage: fixture.restoreImage,
           recoveryTemplate: nil
         )
       )
@@ -161,6 +209,7 @@
           handoffDirectory: fixture.handoffDirectory,
           submitter: submitter,
           authorization: try machineOwnerAuthorization(),
+          restoreImage: fixture.restoreImage,
           recoveryTemplate: nil
         )
       )
@@ -209,12 +258,13 @@
             handoffDirectory: fixture.handoffDirectory,
             submitter: submitter,
             authorization: try machineOwnerAuthorization(),
+            restoreImage: fixture.restoreImage,
             recoveryTemplate: nil
           )
         )
       ) {
         XCTAssertEqual(
-          $0 as? ClosedEngineHandoffError,
+          ($0 as? InstallerPreSubmissionFailure)?.underlying as? ClosedEngineHandoffError,
           .assetBindingMismatch
         )
       }
@@ -236,6 +286,7 @@
         submitter: submitter,
         authorization: try machineOwnerAuthorization(),
         operation: .retryRecoveryAuthorization,
+        restoreImage: fixture.restoreImage,
         recoveryTemplate: nil
       )
 
@@ -274,12 +325,13 @@
             handoffDirectory: fixture.handoffDirectory,
             submitter: submitter,
             authorization: try machineOwnerAuthorization(),
+            restoreImage: fixture.restoreImage,
             recoveryTemplate: nil
           )
         )
       ) {
         XCTAssertEqual(
-          $0 as? ClosedEngineHandoffError,
+          ($0 as? InstallerPreSubmissionFailure)?.underlying as? ClosedEngineHandoffError,
           .unsafeArtifact("payload")
         )
       }
@@ -316,6 +368,13 @@
       let engine = Data("engine-a".utf8)
       let metadata = Data("metadata".utf8)
       let payload = Data("payload".utf8)
+      let restoreImageBytes = Data("signed decoder".utf8)
+      let restoreImage = root.appendingPathComponent("Helpers/\(RestoreImageHelper.fileName)")
+      try FileManager.default.createDirectory(
+        at: restoreImage.deletingLastPathComponent(), withIntermediateDirectories: false)
+      try restoreImageBytes.write(to: restoreImage)
+      try FileManager.default.setAttributes(
+        [.posixPermissions: 0o755], ofItemAtPath: restoreImage.path)
       let repairManifest = Data("{\"operation\":\"repair-installed-system\"}".utf8)
       let engineArtifact = try artifact(
         role: "engine",
@@ -456,7 +515,9 @@
         engine: engine,
         metadata: metadata,
         payload: payload,
-        repairManifest: repair ? repairManifest : nil
+        repairManifest: repair ? repairManifest : nil,
+        restoreImage: restoreImage,
+        restoreImageBytes: restoreImageBytes
       )
     }
 
@@ -652,6 +713,8 @@
     let metadata: Data
     let payload: Data
     let repairManifest: Data?
+    let restoreImage: Data
+    let restoreImageMode: mode_t
 
     init(handoff: PreparedEngineHandoff) throws {
       packageURL = handoff.packageURL
@@ -674,6 +737,8 @@
       repairManifest = try handoff.repairManifestURL.map {
         try Data(contentsOf: $0)
       }
+      restoreImage = try Data(contentsOf: handoff.restoreImageURL)
+      restoreImageMode = try Self.mode(handoff.restoreImageURL)
     }
 
     private static func mode(_ url: URL) throws -> mode_t {
@@ -697,6 +762,8 @@
     let metadata: Data
     let payload: Data
     let repairManifest: Data?
+    let restoreImage: URL
+    let restoreImageBytes: Data
   }
 
   private struct HandoffTranscript {

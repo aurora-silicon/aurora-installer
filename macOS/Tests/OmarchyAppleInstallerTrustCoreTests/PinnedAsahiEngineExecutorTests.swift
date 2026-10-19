@@ -6,6 +6,41 @@
   @testable import OmarchyAppleInstallerTrustCore
 
   final class PinnedAsahiEngineExecutorTests: XCTestCase {
+    func testDecoderAdmissionFailureStopsBeforeExtractionAndAttestsOnlyInitialNoMutation() async throws {
+      for operation in [EngineHandoffOperation.install, .retryRecoveryAuthorization] {
+        for rejection in ["missing", "requirement", "signature"] {
+          let fixture = try makeFixture(includeDecoder: rejection != "missing")
+          defer { try? FileManager.default.removeItem(at: fixture.root) }
+          let requirement = rejection == "requirement" ? nil : RestoreImageHelper.adHocRequirement(codeHash: String(repeating: "a", count: 40))
+          let executor = fixtureExecutor(effectiveUserID: { 0 }, restoreImageRequirement: requirement, rejectDecoder: rejection == "signature")
+          await assertThrowsErrorAsync(try await executor.execute(fixture.package,
+            authorization: try machineOwnerAuthorization(), operation: operation)) {
+            guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+              return XCTFail("Expected typed decoder admission failure")
+            }
+            XCTAssertEqual(report.notice.reason, .recoveryPreparation)
+            XCTAssertEqual(report.notice.diskUnchanged, operation == .install)
+          }
+          XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+        }
+      }
+    }
+
+    func testAnOlderEngineCannotSilentlyUseABundledDecoder() async throws {
+      let fixture = try makeFixture(supportsSignedDecoder: false)
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let executor = fixtureExecutor(effectiveUserID: { 0 })
+      await assertThrowsErrorAsync(try await executor.execute(fixture.package,
+        authorization: try machineOwnerAuthorization())) {
+        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+          return XCTFail("Expected incompatible runtime refusal")
+        }
+        XCTAssertEqual(report.notice.reason, .recoveryPreparation)
+        XCTAssertTrue(report.notice.diskUnchanged)
+      }
+      XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
+
     func testVerifiedReadOnlyInspectionRunsWithoutRootAndCleansExecutionRoot()
       async throws
     {
@@ -563,11 +598,18 @@
       expectedFileOwnerID: @escaping @Sendable () -> uid_t = { geteuid() },
       extractionOptions: [String] = [],
       firmwarePreparer: any NativeFirmwarePreparing = NativeFirmwarePreparer(),
-      rejectRecovery: Bool = false
+      rejectRecovery: Bool = false,
+      restoreImageRequirement: String? = RestoreImageHelper.adHocRequirement(codeHash: String(repeating: "a", count: 40)),
+      rejectDecoder: Bool = false
     ) -> PinnedAsahiEngineExecutor {
       PinnedAsahiEngineExecutor(
         effectiveUserID: effectiveUserID, expectedFileOwnerID: expectedFileOwnerID,
-        extractionOptions: extractionOptions, firmwarePreparer: firmwarePreparer,
+        extractionOptions: extractionOptions,
+        restoreImageRequirement: restoreImageRequirement,
+        verifyRestoreImage: { _, _ in
+          if rejectDecoder { throw RestoreImageHelperError.signatureRejected }
+        },
+        firmwarePreparer: firmwarePreparer,
         prepareRecoveryTemplate: { package in
           if rejectRecovery { throw NativeRecoveryTemplateError.unavailable }
           let directory = package.packageURL.deletingLastPathComponent().appendingPathComponent(
@@ -592,7 +634,9 @@
       expectedInstallMode: String = "install",
       checkpointEvidence: [String: Data] = [:],
       repairManifest: Data? = nil,
-      standardError: Data? = nil
+      standardError: Data? = nil,
+      includeDecoder: Bool = true,
+      supportsSignedDecoder: Bool = true
     ) throws -> PinnedExecutorFixture {
       let root = FileManager.default.temporaryDirectory.appendingPathComponent(
         "omarchy-pinned-executor-\(UUID().uuidString.lowercased())",
@@ -617,8 +661,9 @@
         attributes: [.posixPermissions: 0o700]
       )
 
+      let capability = supportsSignedDecoder ? ",\"signedHelperInput\":\"helper-executable-v1\"" : ""
       try Data(
-        #"{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1"}"#
+        #"{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1"\#(capability)}"#
           .utf8
       ).write(to: bundleSource.appendingPathComponent("engine-capabilities.json"))
       let main = bundleSource.appendingPathComponent("main.py")
@@ -715,6 +760,8 @@
         [.posixPermissions: 0o400],
         ofItemAtPath: engineURL.path
       )
+      let decoderURL = packageURL.appendingPathComponent(RestoreImageHelper.fileName)
+      try writePrivate(Data("decoder".utf8), to: decoderURL)
       let manifestURL = packageURL.appendingPathComponent("manifest.json")
       let requestURL = packageURL.appendingPathComponent("request.json")
       let identityURL = packageURL.appendingPathComponent("identity.json")
@@ -743,6 +790,7 @@
           metadataURL: metadataURL,
           payloadURL: payloadURL,
           repairManifestURL: repairManifestURL,
+          restoreImageURL: includeDecoder ? decoderURL : nil,
           bindingDigest: "sha256:" + String(repeating: "b", count: 64),
           planDigest: String(repeating: "a", count: 64),
           deviceIdentifier: "apple,j314s",
@@ -905,6 +953,7 @@
         engineURL: packageURL.appendingPathComponent("engine.tar.gz"),
         metadataURL: packageURL.appendingPathComponent("installer-data.json"),
         payloadURL: packageURL.appendingPathComponent("omarchy.img.zst"),
+        restoreImageURL: packageURL.appendingPathComponent(RestoreImageHelper.fileName),
         bindingDigest: "sha256:" + String(repeating: "b", count: 64),
         planDigest: String(repeating: "a", count: 64),
         deviceIdentifier: "apple,j314s",

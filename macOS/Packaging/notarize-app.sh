@@ -8,6 +8,7 @@ fail() {
 }
 
 source "$(cd "$(dirname "$0")" && pwd -P)/identity.conf"
+packaging_directory="$(cd "$(dirname "$0")" && pwd -P)"
 
 (( $# == 1 )) \
   || fail "usage: notarize-app.sh '/absolute/path/$INSTALLER_APP_NAME.app'"
@@ -28,6 +29,14 @@ signing_details="$(codesign -d --verbose=4 "$app_path" 2>&1)"
   || fail "application is not signed with Developer ID Application"
 [[ $signing_details != *"TeamIdentifier=not set"* ]] \
   || fail "application has no signing team"
+python3 "$packaging_directory/../Engine/verify-engine-macho.py" --signatures \
+  "$app_path/Contents/Resources/Engine/artifacts/"*.tar.gz
+decoder="$app_path/Contents/Helpers/omarchy-restore-image"
+decoder_details="$(codesign --display --verbose=4 "$decoder" 2>&1)"
+[[ $decoder_details == *"Authority=Developer ID Application:"* \
+  && $decoder_details == *"Timestamp="* && $decoder_details == *"runtime"* ]] \
+  || fail "the bundled helper lacks its release signature"
+codesign --verify --strict "$decoder"
 
 archive_root="$(mktemp -d /private/tmp/omarchy-notary.XXXXXX)"
 trap 'rm -rf "$archive_root"' EXIT

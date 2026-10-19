@@ -21,6 +21,9 @@
     case engineFailed(EngineFailureReport)
     case recoveryAuthorizationFailed
     case recoveryTemplateRejected
+    case restoreImageUnavailable
+    case restoreImageRejected
+    case restoreImageUnsupported
     case recoveryTemplateUnsupported
     case unsafeTranscript
   }
@@ -57,11 +60,17 @@
     private let effectiveUserID: @Sendable () -> uid_t
     private let expectedFileOwnerID: @Sendable () -> uid_t
     private let extractionOptions: [String]
+    private let restoreImageRequirement: String?
+    private let verifyRestoreImage: @Sendable (URL, String) throws -> Void
     private let firmwarePreparer: any NativeFirmwarePreparing
     private let prepareRecoveryTemplate:
       @Sendable (ImportedEngineHandoffPackage) throws -> PreparedNativeRecoveryTemplate
 
-    public init() {
+    public init(
+      restoreImageRequirement: String? = RestoreImageHelper.requirement(environment: ProcessInfo.processInfo.environment)
+    ) {
+      self.restoreImageRequirement = restoreImageRequirement
+      verifyRestoreImage = { try RestoreImageHelper.verify($0, requirement: $1) }
       effectiveUserID = { geteuid() }
       expectedFileOwnerID = { geteuid() }
       extractionOptions = []
@@ -73,6 +82,8 @@
       effectiveUserID: @escaping @Sendable () -> uid_t,
       expectedFileOwnerID: @escaping @Sendable () -> uid_t = { geteuid() },
       extractionOptions: [String] = [],
+      restoreImageRequirement: String? = nil,
+      verifyRestoreImage: @escaping @Sendable (URL, String) throws -> Void = { try RestoreImageHelper.verify($0, requirement: $1) },
       firmwarePreparer: any NativeFirmwarePreparing = NativeFirmwarePreparer(),
       prepareRecoveryTemplate:
         @escaping @Sendable (ImportedEngineHandoffPackage) throws -> PreparedNativeRecoveryTemplate =
@@ -80,6 +91,8 @@
     ) {
       self.effectiveUserID = effectiveUserID
       self.expectedFileOwnerID = expectedFileOwnerID
+      self.restoreImageRequirement = restoreImageRequirement
+      self.verifyRestoreImage = verifyRestoreImage
       self.extractionOptions = extractionOptions
       self.firmwarePreparer = firmwarePreparer
       self.prepareRecoveryTemplate = prepareRecoveryTemplate
@@ -94,6 +107,15 @@
         throw PinnedAsahiEngineExecutionError.privilegeRequired
       }
       let journal = try preparePersistentJournal(for: package)
+      do {
+        guard let restoreImageRequirement, let restoreImage = package.restoreImageURL else {
+          throw PinnedAsahiEngineExecutionError.restoreImageUnavailable
+        }
+        try verifyRestoreImage(restoreImage, restoreImageRequirement)
+      } catch {
+        throw preparationFailure(error, reason: .recoveryPreparation, operation: operation,
+          journal: journal, password: authorization.password)
+      }
       let recovery: PreparedNativeRecoveryTemplate
       do { recovery = try prepareRecoveryTemplate(package) } catch {
         throw preparationFailure(
@@ -104,6 +126,8 @@
       var environment = installEnvironment(
         package: package, authorization: authorization, operation: operation)
       environment.merge(recovery.environment) { _, new in new }
+      environment[RestoreImageHelper.pathEnvironmentVariable] = package.restoreImageURL!.path
+      environment[RestoreImageHelper.requirementEnvironmentVariable] = restoreImageRequirement!
       if operation == .install {
         do {
           if let raw = try await firmwarePreparer.prepare(
@@ -134,6 +158,10 @@
           secrets: [authorization.password],
           retryIdentity: RecoveryRetryIdentity(package: package)
         )
+      } catch PinnedAsahiEngineExecutionError.restoreImageUnsupported {
+        throw preparationFailure(PinnedAsahiEngineExecutionError.restoreImageUnsupported,
+          reason: .recoveryPreparation, operation: operation, journal: journal,
+          password: authorization.password)
       } catch PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported {
         throw preparationFailure(
           PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported,
@@ -258,6 +286,14 @@
       try validateArchiveEntries(archive)
       try extract(archive, into: bundle)
       try validateExtractedBundle(bundle)
+      if additionalEnvironment[RestoreImageHelper.pathEnvironmentVariable] != nil {
+        let capability = bundle.appendingPathComponent("engine-capabilities.json")
+        guard let bytes = try? Data(contentsOf: capability), bytes.count <= 65536,
+          let values = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+          values["schema"] as? Int == 1,
+          values["signedHelperInput"] as? String == "helper-executable-v1"
+        else { throw PinnedAsahiEngineExecutionError.restoreImageUnsupported }
+      }
       if additionalEnvironment["OMARCHY_RECOVERY_APP"] != nil {
         do {
           let capabilities = bundle.appendingPathComponent("engine-capabilities.json")

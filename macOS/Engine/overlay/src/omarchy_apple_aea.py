@@ -3,9 +3,18 @@
 
 A macOS 26 restore image ships its recoveryOS and ExclaveOS images AEA
 encrypted. Instead of borrowing the running macOS's decrypted copies, which
-exist only when it is the same build as the stub, the bundled
+exist only when it is the same build as the stub, the installer app's
 omarchy-restore-image decrypts each archive with the key Apple's FCS service
 releases for it, and verifies it while doing so.
+
+The decoder is not part of this engine: the archive no longer carries the
+decoder executable,
+and its only native code is the authenticated Python runtime. It ships signed in the app's sealed
+Contents/Helpers; the privileged helper imports the app's copy into its
+root-only package directory and passes its path in OMARCHY_RESTORE_IMAGE and
+the code requirement it must satisfy in OMARCHY_RESTORE_IMAGE_REQUIREMENT.
+Every use checks that signature first. There is no fallback to a copy beside
+the engine or on $PATH.
 
 The MacBook Neo's model-wide MT7932 inputs come the same way: the decoder
 fetches them by authenticated byte ranges from Apple's pinned 26.6.2 (25G83)
@@ -23,10 +32,29 @@ import contextlib
 import hashlib
 import os
 from pathlib import Path
+import re
+import stat
 import subprocess
 import tempfile
 
-DECODER = Path(__file__).resolve().parent / "bin" / "omarchy-restore-image"
+DECODER_ENVIRONMENT = "OMARCHY_RESTORE_IMAGE"
+REQUIREMENT_ENVIRONMENT = "OMARCHY_RESTORE_IMAGE_REQUIREMENT"
+CODESIGN = "/usr/bin/codesign"
+# The two requirements the privileged helper hands on, built from the app's
+# compiled identity (Packaging/identity.conf's decoder identifier and team):
+# a Developer ID Application certificate of the app's team (TN3127: the
+# Developer ID CA intermediate and the leaf's Developer ID Application
+# marker), or the exact code hash of a development build's ad hoc copy. An ad
+# hoc identifier alone proves nothing, so a requirement of any other shape is
+# never accepted.
+_IDENTIFIER = r'identifier "[A-Za-z0-9][A-Za-z0-9.-]{0,127}"'
+REQUIREMENT = re.compile(
+    r'anchor apple generic and ' + _IDENTIFIER
+    + r' and certificate 1\[field\.1\.2\.840\.113635\.100\.6\.2\.6\]'
+    + r' and certificate leaf\[field\.1\.2\.840\.113635\.100\.6\.1\.13\]'
+    + r' and certificate leaf\[subject\.OU\] = "[A-Z0-9]{10}"'
+    + r'|' + _IDENTIFIER + r' and cdhash H"[0-9a-f]{40}(?:[0-9a-f]{24})?"'
+)
 # Where the decoder publishes each recipe output, and where the MT7932
 # collector reads it from a macOS system root.
 IZUBA = "System/Library/DriverExtensions/com.apple.AppleSunriseWLAN.dext/IZUBA"
@@ -592,11 +620,38 @@ def file_sha256(path):
     return digest.hexdigest()
 
 
-def decrypt(source, destination, run=subprocess.run):
+def decoder(environment=None, run=subprocess.run):
+    """The path of the app's decoder, once its signature satisfies its requirement.
+
+    Refuses when the app passed none, when the path is not an absolute,
+    regular, unshared file, or when codesign does not accept it.
+    """
+    environment = os.environ if environment is None else environment
+    path = environment.get(DECODER_ENVIRONMENT) or ""
+    requirement = environment.get(REQUIREMENT_ENVIRONMENT) or ""
+    if not path or not os.path.isabs(path):
+        raise AppleInputError("the installer app passed no omarchy-restore-image")
+    if not REQUIREMENT.fullmatch(requirement):
+        raise AppleInputError("the omarchy-restore-image code requirement is missing or not the app's")
+    try:
+        status = os.lstat(path)
+    except OSError as error:
+        raise AppleInputError(f"omarchy-restore-image is unavailable: {error}") from error
+    if not stat.S_ISREG(status.st_mode) or status.st_mode & 0o022 or not status.st_mode & 0o100:
+        raise AppleInputError("omarchy-restore-image is not a private executable file")
+    try:
+        run([CODESIGN, "--verify", "--strict", "-R=" + requirement, path],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise AppleInputError("omarchy-restore-image is not the installer app's signed decoder") from error
+    return path
+
+
+def decrypt(source, destination, run=subprocess.run, locate=decoder):
     """Write the decrypted, authenticated contents of the AEA archive SOURCE to DESTINATION."""
     if os.path.lexists(destination):
         raise AppleInputError(f"{destination} already exists")
-    run([str(DECODER), str(source), file_sha256(source), str(destination)], check=True)
+    run([locate(), str(source), file_sha256(source), str(destination)], check=True)
     if not os.path.isfile(destination):
         raise AppleInputError(f"the decoder wrote no {os.path.basename(destination)}")
 
@@ -609,7 +664,7 @@ def recipe():
 
 
 @contextlib.contextmanager
-def neo_radio_root(run=subprocess.run, factory_data="/" + FACTORY_DATA):
+def neo_radio_root(run=subprocess.run, factory_data="/" + FACTORY_DATA, locate=decoder):
     """A system root holding the pinned MT7932 inputs, for omarchy_mt7932.collect.
 
     The Wi-Fi driver extension and Bluetooth files are Apple's 25G83 ones;
@@ -620,7 +675,7 @@ def neo_radio_root(run=subprocess.run, factory_data="/" + FACTORY_DATA):
         path = directory / RECIPE_NAME
         path.write_bytes(recipe())
         fetched = directory / "fetched"
-        run([str(DECODER), "firmware-ranges", str(path), RECIPE_SHA256, str(fetched)], check=True)
+        run([locate(), "firmware-ranges", str(path), RECIPE_SHA256, str(fetched)], check=True)
         root = directory / "root"
         for prefix, target in (("sunrise", IZUBA), ("bluetooth", BLUETOOTH)):
             source = fetched / prefix

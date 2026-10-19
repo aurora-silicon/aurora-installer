@@ -12,6 +12,7 @@
     public let metadataURL: URL
     public let payloadURL: URL
     public let repairManifestURL: URL?
+    public let restoreImageURL: URL?
     public let recoveryTemplateURL: URL?
     public let bindingDigest: String
     public let planDigest: String
@@ -27,6 +28,7 @@
       metadataURL: URL,
       payloadURL: URL,
       repairManifestURL: URL? = nil,
+      restoreImageURL: URL? = nil,
       recoveryTemplateURL: URL? = nil,
       bindingDigest: String,
       planDigest: String,
@@ -41,6 +43,7 @@
       self.metadataURL = metadataURL
       self.payloadURL = payloadURL
       self.repairManifestURL = repairManifestURL
+      self.restoreImageURL = restoreImageURL
       self.recoveryTemplateURL = recoveryTemplateURL
       self.bindingDigest = bindingDigest
       self.planDigest = planDigest
@@ -160,6 +163,13 @@
         )
       }
 
+      let restoreImageURL = package.appendingPathComponent(manifest.restoreImage.fileName)
+      try copyArtifact(
+        manifest.restoreImage, role: "restore-image", from: sourceDescriptor, to: restoreImageURL)
+      guard chmod(restoreImageURL.path, S_IRUSR | S_IXUSR) == 0 else {
+        throw EngineHandoffImportError.unsafeFile("restore-image")
+      }
+
       let recoveryTemplateURL = manifest.recoveryTemplate.map {
         package.appendingPathComponent($0.fileName)
       }
@@ -177,6 +187,7 @@
         metadataURL: metadataURL,
         payloadURL: payloadURL,
         repairManifestURL: repairManifestURL,
+        restoreImageURL: restoreImageURL,
         recoveryTemplateURL: recoveryTemplateURL,
         bindingDigest: identity.bindingDigest,
         planDigest: request.planDigest,
@@ -217,7 +228,7 @@
         readRetainedFile("identity.json", from: descriptor, control: true))
       try validateBindings(manifest: manifest, request: request, identity: identity)
       let artifacts =
-        [manifest.engine, manifest.metadata, manifest.payload]
+        [manifest.engine, manifest.metadata, manifest.payload, manifest.restoreImage]
         + (manifest.repairManifest.map { [$0] } ?? [])
         + (manifest.recoveryTemplate.map { [$0] } ?? [])
       let expectedNames = Set(
@@ -229,7 +240,8 @@
       for artifact in artifacts {
         _ = try readRetainedFile(
           artifact.fileName, from: descriptor, control: false,
-          expectedBytes: artifact.sizeBytes, expectedDigest: artifact.digest)
+          expectedBytes: artifact.sizeBytes, expectedDigest: artifact.digest,
+          executable: artifact.fileName == RestoreImageHelper.fileName)
       }
       return ImportedEngineHandoffPackage(
         packageURL: package, manifestURL: package.appendingPathComponent("manifest.json"),
@@ -241,6 +253,7 @@
         repairManifestURL: manifest.repairManifest.map {
           package.appendingPathComponent($0.fileName)
         },
+        restoreImageURL: package.appendingPathComponent(manifest.restoreImage.fileName),
         recoveryTemplateURL: manifest.recoveryTemplate.map {
           package.appendingPathComponent($0.fileName)
         },
@@ -250,7 +263,7 @@
 
     private func readRetainedFile(
       _ name: String, from directory: Int32, control: Bool,
-      expectedBytes: UInt64? = nil, expectedDigest: String? = nil
+      expectedBytes: UInt64? = nil, expectedDigest: String? = nil, executable: Bool = false
     ) throws -> Data {
       let descriptor = openat(directory, name, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)
       guard descriptor >= 0 else { throw EngineHandoffImportError.unsafeFile(name) }
@@ -262,6 +275,9 @@
       else { throw EngineHandoffImportError.unsafeFile(name) }
       if let expectedBytes, UInt64(status.st_size) != expectedBytes {
         throw EngineHandoffImportError.sizeMismatch(name)
+      }
+      guard !executable || status.st_mode & S_IXUSR != 0 else {
+        throw EngineHandoffImportError.unsafeFile(name)
       }
       let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
       var bytes = Data()
@@ -439,7 +455,7 @@
         }
         var manifestKeys: Set<String> = [
           "format", "binding_digest", "request_file", "identity_file",
-          "engine", "metadata", "payload",
+          "engine", "metadata", "payload", "restore_image",
         ]
         if rawObject["recovery_template"] != nil { manifestKeys.insert("recovery_template") }
         if rawObject["repair_manifest"] != nil {
@@ -450,7 +466,7 @@
           keys: manifestKeys,
           error: .invalidManifest
         )
-        for key in ["engine", "metadata", "payload", "repair_manifest", "recovery_template"]
+        for key in ["engine", "metadata", "payload", "restore_image", "repair_manifest", "recovery_template"]
         where object[key] != nil {
           guard let artifact = object[key] as? [String: Any],
             Set(artifact.keys) == ["file_name", "digest", "size_bytes"]
@@ -467,6 +483,7 @@
             manifest.engine.fileName,
             manifest.metadata.fileName,
             manifest.payload.fileName,
+            manifest.restoreImage.fileName,
           ] + (manifest.repairManifest.map { [$0.fileName] } ?? [])
           + (manifest.recoveryTemplate.map { [$0.fileName] } ?? [])
         guard manifest.format == 1,
@@ -476,10 +493,12 @@
           Set(fileNames).isDisjoint(
             with: ["manifest.json", "request.json", "identity.json"]
           ),
-          ([manifest.engine, manifest.metadata, manifest.payload]
+          ([manifest.engine, manifest.metadata, manifest.payload, manifest.restoreImage]
             + (manifest.repairManifest.map { [$0] } ?? [])
             + (manifest.recoveryTemplate.map { [$0] } ?? []))
             .allSatisfy(validArtifact),
+          manifest.restoreImage.fileName == RestoreImageHelper.fileName,
+          manifest.restoreImage.sizeBytes <= RestoreImageHelper.maximumBytes,
           manifest.recoveryTemplate == nil
             || (manifest.recoveryTemplate?.fileName == NativeRecoveryTemplate.archiveFileName
               && manifest.recoveryTemplate!.sizeBytes <= NativeRecoveryTemplate.maximumArchiveBytes)
@@ -685,6 +704,7 @@
     let engine: ImportedArtifactRecord
     let metadata: ImportedArtifactRecord
     let payload: ImportedArtifactRecord
+    let restoreImage: ImportedArtifactRecord
     let repairManifest: ImportedArtifactRecord?
     let recoveryTemplate: ImportedArtifactRecord?
 
@@ -696,6 +716,7 @@
       case engine
       case metadata
       case payload
+      case restoreImage = "restore_image"
       case repairManifest = "repair_manifest"
       case recoveryTemplate = "recovery_template"
     }

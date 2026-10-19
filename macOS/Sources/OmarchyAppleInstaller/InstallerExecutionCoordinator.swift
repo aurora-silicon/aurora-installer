@@ -1,6 +1,15 @@
 #if os(macOS)
   import Foundation
 
+  /// App-side failure before any execution request; never wraps transport errors.
+  public struct InstallerPreSubmissionFailure: Error, Sendable {
+    public let underlying: any Error
+
+    public init(_ underlying: any Error) {
+      self.underlying = underlying
+    }
+  }
+
   public struct InstallerExecutionCoordinator: Sendable {
     private let processAdapter = ClosedEngineProcessAdapter()
 

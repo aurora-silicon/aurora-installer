@@ -46,11 +46,9 @@ class RestoreProvenanceTests(unittest.TestCase):
             engine = Path(directory)
             root = engine / 'RestoreImage'
             (root / 'Sources').mkdir(parents=True)
-            binary = engine / 'overlay/bin/omarchy-restore-image'
+            binary = root / 'bin/omarchy-restore-image'
             binary.parent.mkdir(parents=True)
             binary.write_bytes(b'synthetic executable')
-            (root / 'LICENSE').write_text('synthetic license')
-            binary.with_suffix('.LICENSE').write_text('synthetic license')
             paths = [root / 'Package.swift', root / 'build.sh', root / 'Sources/main.swift']
             for path in paths:
                 path.write_text('synthetic source')
@@ -73,8 +71,21 @@ class RestoreProvenanceTests(unittest.TestCase):
                 MODULE.verify(engine)
             paths[-1].write_text('synthetic source')
             binary.write_bytes(b'changed executable')
-            with self.assertRaisesRegex(ValueError, 'differs from its Swift build'):
+            with self.assertRaisesRegex(ValueError, 'differs from the Swift restore-image build'):
                 MODULE.verify(engine)
+            binary.write_bytes(b'synthetic executable')
+            # An unsigned app's copy must be the same bytes; a link is not a copy.
+            copy = engine / 'Helpers/omarchy-restore-image'
+            copy.parent.mkdir()
+            copy.write_bytes(b'synthetic executable')
+            MODULE.verify_binary(engine, copy)
+            copy.write_bytes(b'synthetic executable, signed')
+            with self.assertRaisesRegex(ValueError, 'differs from the Swift restore-image build'):
+                MODULE.verify_binary(engine, copy)
+            copy.unlink()
+            copy.symlink_to(binary)
+            with self.assertRaisesRegex(ValueError, 'differs from the Swift restore-image build'):
+                MODULE.verify_binary(engine, copy)
 
     def test_production_helper_has_checked_in_source(self):
         # This checks the actual source/build identity independently of the archive lock.

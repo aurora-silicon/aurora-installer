@@ -439,6 +439,8 @@ class EngineRuntimeTests(unittest.TestCase):
             "OMARCHY_MACHINE_OWNER": "mina",
             "OMARCHY_RECOVERY_APP": "/var/db/test/Recovery.app",
             "OMARCHY_RECOVERY_MANIFEST": "/var/db/test/recovery.json",
+            "OMARCHY_RESTORE_IMAGE": "/var/db/test/decoder",
+            "OMARCHY_RESTORE_IMAGE_REQUIREMENT": 'identifier "test.decoder" and cdhash H"' + "a" * 40 + '"',
             "OMARCHY_RECOVERY_REQUIREMENT": 'cdhash H"' + 'a' * 40 + '"',
             "DISTRO": "Omarchy",
             "OMARCHY_INSTALLER_NAME": "Probe Installer",

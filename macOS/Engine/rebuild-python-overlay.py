@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Repack the authenticated deployed engine with a Python overlay and its bundled tools."""
+"""Repack the authenticated deployed engine with a Python overlay.
+
+The overlay is Python and data only. The engine's native code stays exactly
+the authenticated base runtime (runtime-macho.json); the Swift restore-image
+helper ships signed in the app bundle instead, where notarization accepts it.
+"""
 import argparse
 import copy
 import difflib
@@ -21,12 +26,15 @@ BOOTSTRAP_MEMBERS = {
     'asahi_firmware/bluetooth.py': 'aa12e6cd684ed5b55d732db1f040d84570537bacc991d03ee6f854cbb232c369',
 }
 BASE_COMMIT = 'f0469cea0899f3efed8efead604174c7a53c4451'
-VERSION = 'v0.9.2-aurora.3'
 
 _SPEC = importlib.util.spec_from_file_location(
     'verify_source_lock', Path(__file__).resolve().parent / 'verify-source-lock.py')
 VERIFY = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(VERIFY)
+_SPEC = importlib.util.spec_from_file_location(
+    'verify_engine_macho', Path(__file__).resolve().parent / 'verify-engine-macho.py')
+MACHO = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(MACHO)
 
 
 def sha256(data):
@@ -117,7 +125,6 @@ def rebuild(checkout, base, output):
     lock = json.loads((root / 'source-lock.json').read_text())
     require_base(data, lock)
     VERIFY.verify_upstream(root, lock, checkout)
-    VERIFY.require_restore_image(root)
     records = lock['downstream_overlay']['files']
     expected = {item['path'] for item in records if item['destination'].startswith('src/')}
     actual = {str(p.relative_to(root)) for p in (root / 'overlay/src').glob('*.py')}
@@ -128,17 +135,16 @@ def rebuild(checkout, base, output):
         if sha256((root / item['path']).read_bytes()) != item['sha256']:
             raise ValueError('source lock digest mismatch: ' + item['path'])
     overlay = {Path(name).name: (root / name).read_bytes() for name in sorted(expected)}
-    # Bundled tools and their license notices ship under bin/, present in the base.
-    tools = {item['path'] for item in records if item['destination'].startswith('bin/')}
-    if tools != {str(p.relative_to(root)) for p in (root / 'overlay/bin').glob('*')}:
-        raise ValueError('bundled tool inventory differs from source lock')
+    # Executables are the app's to sign: notarization rejects native code the
+    # release signing cannot reach, and the engine archive is byte-pinned.
+    if any(item['destination'].startswith('bin/') for item in records) or (root / 'overlay/bin').exists():
+        raise ValueError('the engine overlay ships no tools; the app bundles its helpers')
     for item in records:
-        if item['path'] in tools:
-            if item['destination'] != 'bin/' + Path(item['path']).name:
-                raise ValueError('bundled tool destination is invalid: ' + item['path'])
-            overlay[item['destination']] = (root / item['path']).read_bytes()
-    overlay['engine-capabilities.json'] = b'{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1"}\n'
-    overlay['version.tag'] = (VERSION + '\n').encode()
+        if MACHO.is_macho((root / item['path']).read_bytes()):
+            raise ValueError('the engine overlay carries native code: ' + item['path'])
+    # The name is the lock's; Engine/engine_pin.py chooses it.
+    overlay['engine-capabilities.json'] = b'{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1","signedHelperInput":"helper-executable-v1"}\n'
+    overlay['version.tag'] = (lock['downstream_overlay']['version'] + '\n').encode()
     with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as archive:
         # The engine carries its own installer metadata; the per-payload copy in the repository is a different file.
         if sha256(archive.extractfile('./installer_data.json').read()) != lock['validation_artifact']['metadata_sha256']:
@@ -172,10 +178,14 @@ def rebuild(checkout, base, output):
                     result.addfile(canonical_member(member), archive.extractfile(member) if member.isfile() else None)
                 for name, content in sorted(overlay.items()):
                     member = tarfile.TarInfo('./' + name)
-                    member.mode = 0o755 if name.startswith('bin/') and not name.endswith('.LICENSE') else 0o644
+                    member.mode = 0o644
                     member.mtime = 1786436181
                     member.size = len(content)
                     result.addfile(member, io.BytesIO(content))
+    findings = MACHO.verify(output)
+    if findings:
+        output.unlink()
+        raise ValueError('engine native code differs from the authenticated runtime: ' + '; '.join(findings))
     artifact = output.read_bytes()
     print(json.dumps({'file': str(output), 'size': len(artifact),
                       'sha256': sha256(artifact),

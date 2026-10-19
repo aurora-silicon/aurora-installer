@@ -141,7 +141,7 @@
     }
   },
   "downstream_overlay": {
-    "version": "v0.9.2-aurora.3",
+    "version": "v0.9.2-aurora.4",
     "capability": "candidate_bound_full_os_stage_one_authenticated_recovery",
     "engine_modes": [
       "inspect",
@@ -196,7 +196,7 @@
       {
         "path": "overlay/src/omarchy_runtime.py",
         "destination": "src/omarchy_runtime.py",
-        "sha256": "002bf69cba3f2f7173fe97ee60cbee9e439d54dc848120fa314e676f2873cfe4"
+        "sha256": "3f8e0646343304eff59b04f154da011176a1ffe554d0f5e25043d277e3856349"
       },
       {
         "path": "overlay/src/omarchy_stage1.py",
@@ -236,7 +236,7 @@
       {
         "path": "overlay/tests/test_omarchy_runtime.py",
         "destination": "tests/test_omarchy_runtime.py",
-        "sha256": "31b2d969823029671ebc7ed488a586ac6321f0275039adfa0e7375e3806b5819"
+        "sha256": "b73f0ff85b4b4d226d71dc44ad8c7db6f6f26aa012740aca328866763d203bb4"
       },
       {
         "path": "overlay/tests/test_omarchy_stage1.py",
@@ -301,17 +301,12 @@
       {
         "path": "overlay/src/omarchy_apple_aea.py",
         "destination": "src/omarchy_apple_aea.py",
-        "sha256": "8134010a3badf6b971470a6f444176f296842eb674c89e91462ff1ab12c086fb"
+        "sha256": "ae762ff5c11045d5036895e200d716e437384e979c3cae8a07a940e8136afaf6"
       },
       {
         "path": "overlay/tests/test_omarchy_apple_aea.py",
         "destination": "tests/test_omarchy_apple_aea.py",
-        "sha256": "6edc1ff0ea32b21ecb62803305e21e7df5af63a7e16de44f68c1c1ac554cfe49"
-      },
-      {
-        "path": "overlay/bin/omarchy-restore-image",
-        "destination": "bin/omarchy-restore-image",
-        "sha256": "f443d4c4477b9d80800390d2398655c64406022754d4ab34cea577a8ffa0b64c"
+        "sha256": "83e58a26d28d9ad6bc92612e438a5c06f7866a514d6c96dbff1ef19f5615c05a"
       },
       {
         "path": "overlay/tests/test_omarchy_als.py",
@@ -327,11 +322,6 @@
         "path": "overlay/tests/test_omarchy_recovery.py",
         "destination": "tests/test_omarchy_recovery.py",
         "sha256": "45fe5585d032fe2560729f66d0a651326c5a580ddfa9109d8ccadaabf3a83a54"
-      },
-      {
-        "path": "overlay/bin/omarchy-restore-image.LICENSE",
-        "destination": "bin/omarchy-restore-image.LICENSE",
-        "sha256": "8e9f696e6a0191791608399c87a5c8430ae1fcdc79d66900ca6629c2177035d2"
       }
     ]
   },
@@ -350,7 +340,7 @@
     },
     {
       "path": "rebuild-python-overlay.py",
-      "sha256": "076a9538110993e72d64225fa3ef049a3e5183f81ddeb0f5dbb15026c11ede35"
+      "sha256": "1153cdd45822f5ce4469af638e546f1cf2108f4b6fff6a2e0cbe0ba4521d4357"
     },
     {
       "path": "RestoreImage/LICENSE",
@@ -434,7 +424,7 @@
     },
     {
       "path": "verify-restore-image.py",
-      "sha256": "b26eca4fb43f8f5b90c6a88a5fcc6a483676825a04e7f357d59bd679135f96ff"
+      "sha256": "7bf10ac549a4773b0011b42e2f79b9d2181f1e0118fb3ff687f64f1c6a3e02ea"
     },
     {
       "path": "RestoreImage/Sources/RestoreImageCore/WorkDirectory.swift",
@@ -459,12 +449,24 @@
     {
       "path": "overlay/tests/test_omarchy_mt7932_policy.py",
       "sha256": "e90abce9f0abff713998a813ec577653ecfc313b64872fc2dd3538a34e306cb0"
+    },
+    {
+      "path": "verify-engine-macho.py",
+      "sha256": "15da1380a0788d8ded5ed25a8d179fe9d4594244896dd7cd6a747333c24e54cb"
+    },
+    {
+      "path": "runtime-macho.json",
+      "sha256": "5e5619ea449d43ac3c529997fe685a47cd0230460075c2cc181fe1adc3080848"
+    },
+    {
+      "path": "RestoreImage/bin/omarchy-restore-image",
+      "sha256": "f443d4c4477b9d80800390d2398655c64406022754d4ab34cea577a8ffa0b64c"
     }
   ],
   "validation_artifact": {
-    "filename": "installer-v0.9.2-aurora.3.tar.gz",
-    "size_bytes": 18041248,
-    "sha256": "5199dbe7b0758762739f1ae174de084e56996164d87e03cdc0cd63e6d5c4be2f",
+    "filename": "installer-v0.9.2-aurora.4.tar.gz",
+    "size_bytes": 17887533,
+    "sha256": "d92ffe7f908613deadcd1fd16c246588880987ab9c2dd62863b3c39f32098663",
     "reproducibility_scope": "two-identical-python-overlay-repacks-authenticated-base",
     "signature": "absent",
     "metadata_sha256": "2e6181ce6b6e17c11039e04bfadade8d10ae0e11889885ad8c9960b68f179a5d"
