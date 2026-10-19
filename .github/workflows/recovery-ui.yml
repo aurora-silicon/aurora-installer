@@ -52,7 +52,21 @@ jobs:
               output="$RUNNER_TEMP/evidence/$screen-$appearance.png"
               arguments=(--preview "--preview-stage=$screen" "--snapshot=$output")
               [[ $appearance != dark ]] || arguments+=(--preview-dark)
-              open -W "$app" --args "${arguments[@]}"
+              "$app/Contents/MacOS/OmarchyRecovery" "${arguments[@]}" > "$RUNNER_TEMP/evidence/$screen-$appearance.log" 2>&1 &
+              preview_pid=$!
+              exited=0
+              for attempt in {1..30}; do
+                if ! kill -0 "$preview_pid" 2>/dev/null; then exited=1; break; fi
+                sleep 1
+              done
+              if [[ $exited != 1 ]]; then
+                ps -p "$preview_pid" -o pid,stat,command >> "$RUNNER_TEMP/evidence/$screen-$appearance.log"
+                kill "$preview_pid" 2>/dev/null || true
+                wait "$preview_pid" || true
+                echo "Recovery preview timed out: $screen $appearance" >&2
+                exit 1
+              fi
+              wait "$preview_pid"
               test -s "$output"
             done
           done
