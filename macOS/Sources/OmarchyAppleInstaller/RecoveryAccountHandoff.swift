@@ -59,6 +59,14 @@
       }
       _ = try AccountNativeCommand.checked(
         "/usr/bin/codesign", ["--verify", "--deep", "--strict", source.path])
+      let sourceInfo = try Data(contentsOf: source.appendingPathComponent("Contents/Info.plist"))
+      guard
+        let plist = try PropertyListSerialization.propertyList(from: sourceInfo, format: nil)
+          as? [String: Any],
+        plist["OmarchyRecoveryDataLayout"] as? String == "external-install-data-v1"
+      else {
+        throw AccountSetupFailure("The Recovery app uses an unsupported installation data layout.")
+      }
       let info = try AccountNativeCommand.disk(target.systemUUID)
       guard (info["VolumeUUID"] as? String)?.uppercased() == target.systemUUID,
         let mount = info["MountPoint"] as? String, mount.hasPrefix("/Volumes/")
@@ -69,20 +77,19 @@
       _ = try AccountNativeCommand.checked("/sbin/mount", ["-u", "-w", mount])
       let system = URL(fileURLWithPath: mount, isDirectory: true)
       let destination = system.appendingPathComponent("Aurora Installer.app", isDirectory: true)
-      let oldResources = destination.appendingPathComponent("Contents/Resources", isDirectory: true)
-      let configuration = try RecoveryAccountInstaller.protectedRead(
-        oldResources.appendingPathComponent("install-config.json"), limit: 65536)
+      let configuration = try installationConfiguration(system: system)
       guard let config = try JSONSerialization.jsonObject(with: configuration) as? [String: Any],
         config["systemUUID"] as? String == target.systemUUID,
         config["groupUUID"] as? String == target.groupUUID,
         config["prebootUUID"] as? String == target.prebootUUID
       else { throw AccountSetupFailure("The Recovery app does not match this installation.") }
+      // Keep installation inputs outside the immutable, signed Recovery app.
+      // Older installations are verified and migrated before replacing their app.
+      _ = try RecoveryInstallData.migrateLegacy(
+        system: system, appName: "Aurora Installer.app", target: target)
       try RecoveryAccountInstaller.refreshMountedGroup(target)
       try RecoveryVersionMetadata.hideForInitialRecovery(system: system)
-      let executable = "Contents/MacOS/OmarchyRecovery"
-      if try Data(contentsOf: destination.appendingPathComponent(executable))
-        == Data(contentsOf: source.appendingPathComponent(executable))
-      {
+      if try recoveryAppMatchesTemplate(destination, template: source) {
         _ = try AccountNativeCommand.checked(
           "/usr/bin/codesign", ["--verify", "--deep", "--strict", destination.path])
         return
@@ -94,14 +101,6 @@
       defer { try? fm.removeItem(at: scratch) }
       let candidate = scratch.appendingPathComponent("Aurora Installer.app", isDirectory: true)
       try fm.copyItem(at: source, to: candidate)
-      let resources = candidate.appendingPathComponent("Contents/Resources", isDirectory: true)
-      try configuration.write(
-        to: resources.appendingPathComponent("install-config.json"), options: .atomic)
-      try fm.copyItem(
-        at: oldResources.appendingPathComponent("AuraPayloads"),
-        to: resources.appendingPathComponent("AuraPayloads"))
-      _ = try AccountNativeCommand.checked(
-        "/usr/bin/codesign", ["--force", "--sign", "-", candidate.path])
       _ = try AccountNativeCommand.checked(
         "/usr/bin/codesign", ["--verify", "--deep", "--strict", candidate.path])
       let backup = system.appendingPathComponent(
@@ -114,6 +113,29 @@
         try fm.moveItem(at: backup, to: destination)
         throw error
       }
+    }
+
+    static func recoveryAppMatchesTemplate(_ app: URL, template: URL) throws -> Bool {
+      // Bind executable code, signed settings and sealed resources. Executable equality
+      // alone misses a changed installation data layout or a resource-only update.
+      for name in [
+        "Contents/Info.plist", "Contents/MacOS/OmarchyRecovery",
+        "Contents/_CodeSignature/CodeResources",
+      ] {
+        guard let current = try? Data(contentsOf: app.appendingPathComponent(name)),
+          current == (try Data(contentsOf: template.appendingPathComponent(name)))
+        else { return false }
+      }
+      return true
+    }
+
+    static func installationConfiguration(
+      system: URL,
+      read: (URL, Int) throws -> Data = RecoveryAccountInstaller.protectedRead
+    ) throws -> Data {
+      let path = try RecoveryInstallData.configuration(
+        system: system, appName: "Aurora Installer.app")
+      return try read(path, 65536)
     }
 
     static func completedEvidence(transcript: Data, evidence: [String: Data]) throws -> (
@@ -296,9 +318,7 @@
       guard let mount = system["MountPoint"] as? String else {
         throw AccountSetupFailure("Couldn’t mount the completed installation.")
       }
-      let path = URL(fileURLWithPath: mount).appendingPathComponent(
-        "Aurora Installer.app/Contents/Resources/install-config.json")
-      let configBytes = try RecoveryAccountInstaller.protectedRead(path, limit: 65536)
+      let configBytes = try installationConfiguration(system: URL(fileURLWithPath: mount))
       guard let config = try JSONSerialization.jsonObject(with: configBytes) as? [String: Any],
         config["schema"] as? Int == 2,
         config["systemUUID"] as? String == systemUUID.uppercased(),

@@ -6,6 +6,81 @@
   @testable import OmarchyAppleInstallerTrustCore
 
   final class RecoveryAccountTests: XCTestCase {
+    func testCompletedRecoveryDiscoversExternalConfigurationWithoutChangingTheSignedApp() throws {
+      let fm = FileManager.default
+      let system = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      defer { try? fm.removeItem(at: system) }
+      let external = system.appendingPathComponent("Aurora/Recovery/InstallData")
+      let embedded = system.appendingPathComponent("Aurora Installer.app/Contents/Resources")
+      try fm.createDirectory(at: external, withIntermediateDirectories: true)
+      try fm.createDirectory(at: embedded, withIntermediateDirectories: true)
+      let configuration = Data("external installation configuration".utf8)
+      try configuration.write(to: external.appendingPathComponent("install-config.json"))
+      let old = embedded.appendingPathComponent("install-config.json")
+      let stale = Data("stale embedded configuration".utf8)
+      try stale.write(to: old)
+      let read: (URL, Int) throws -> Data = { url, _ in try Data(contentsOf: url) }
+      XCTAssertEqual(
+        try RecoveryAccountHandoff.installationConfiguration(system: system, read: read),
+        configuration)
+      XCTAssertEqual(try Data(contentsOf: old), stale)
+      try fm.removeItem(at: old)
+      XCTAssertEqual(
+        try RecoveryAccountHandoff.installationConfiguration(system: system, read: read),
+        configuration)
+      // A damaged new layout must not fall back to a stale app-embedded record.
+      try fm.removeItem(at: external.appendingPathComponent("install-config.json"))
+      try stale.write(to: old)
+      XCTAssertThrowsError(
+        try RecoveryAccountHandoff.installationConfiguration(system: system, read: read))
+      try fm.removeItem(at: external)
+      XCTAssertEqual(
+        try RecoveryAccountHandoff.installationConfiguration(system: system, read: read), stale)
+    }
+
+    func testCompletedRecoveryRefusesASymlinkedExternalDataDirectory() throws {
+      let fm = FileManager.default
+      let system = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      defer { try? fm.removeItem(at: system) }
+      let parent = system.appendingPathComponent("Aurora/Recovery")
+      let other = system.appendingPathComponent("other")
+      try fm.createDirectory(at: parent, withIntermediateDirectories: true)
+      try fm.createDirectory(at: other, withIntermediateDirectories: true)
+      try fm.createSymbolicLink(
+        at: parent.appendingPathComponent("InstallData"), withDestinationURL: other)
+      XCTAssertThrowsError(
+        try RecoveryAccountHandoff.installationConfiguration(
+          system: system, read: { url, _ in try Data(contentsOf: url) }))
+    }
+
+    func testRecoveryTemplateMatchIncludesSignedSettingsAndResources() throws {
+      let fm = FileManager.default
+      let root = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      defer { try? fm.removeItem(at: root) }
+      let app = root.appendingPathComponent("installed.app")
+      let template = root.appendingPathComponent("template.app")
+      let names = [
+        "Contents/Info.plist", "Contents/MacOS/OmarchyRecovery",
+        "Contents/_CodeSignature/CodeResources",
+      ]
+      for bundle in [app, template] {
+        for name in names {
+          let url = bundle.appendingPathComponent(name)
+          try fm.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+          try Data(name.utf8).write(to: url)
+        }
+      }
+      XCTAssertTrue(try RecoveryAccountHandoff.recoveryAppMatchesTemplate(app, template: template))
+      for name in names {
+        let url = app.appendingPathComponent(name)
+        try Data("changed".utf8).write(to: url)
+        XCTAssertFalse(
+          try RecoveryAccountHandoff.recoveryAppMatchesTemplate(app, template: template))
+        try Data(name.utf8).write(to: url)
+      }
+    }
+
     func testTokenAuthorityWaitsForNativePersistence() throws {
       let id = UUID().uuidString
       let hashes = [Data("fixture-hash".utf8)]
