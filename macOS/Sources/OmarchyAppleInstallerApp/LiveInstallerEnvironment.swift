@@ -508,10 +508,13 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   // MARK: Execution
 
   static func pendingJobStore() throws -> PendingInstallerJobStore {
-    guard let support = FileManager.default.urls(
-      for: .applicationSupportDirectory, in: .userDomainMask).first
+    guard
+      let support = FileManager.default.urls(
+        for: .applicationSupportDirectory, in: .userDomainMask
+      ).first
     else { throw InstallerAppError.workspaceUnavailable }
-    let base = support.appendingPathComponent(InstallerBuildProfile.current.workspaceName, isDirectory: true)
+    let base = support.appendingPathComponent(
+      InstallerBuildProfile.current.workspaceName, isDirectory: true)
     if !FileManager.default.fileExists(atPath: base.path) {
       try FileManager.default.createDirectory(
         at: base, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
@@ -523,7 +526,9 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     try Self.pendingJobStore().load() != nil
   }
 
-  func resumeInstallation(journal: @escaping @Sendable (Data) -> Void) async throws -> CompletionDisplay {
+  func resumeInstallation(journal: @escaping @Sendable (Data) -> Void) async throws
+    -> CompletionDisplay
+  {
     let store = try Self.pendingJobStore()
     guard let hint = try store.load(), hint.ticket.selection == selection else {
       throw InstallerJobError.identityMismatch
@@ -536,13 +541,15 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     let snapshot = try await client.observeJob(hint)
     let bytes: Data
     let handoff: InstallConfHandoff
-    do { (bytes, handoff) = try snapshot.requireResult() }
-    catch let error as EngineXPCSubmissionError where error == .machineOwnerCredentialsRejected {
+    do { (bytes, handoff) = try snapshot.requireResult() } catch let error
+      as EngineXPCSubmissionError where error == .machineOwnerCredentialsRejected
+    {
       try store.clear()
       throw error
     }
     guard let identity = snapshot.plan,
-      identity.deviceIdentifier == (try AppleSiliconHostInspector().inspect()).identity.deviceIdentifier
+      identity.deviceIdentifier
+        == (try AppleSiliconHostInspector().inspect()).identity.deviceIdentifier
     else { throw InstallerJobError.identityMismatch }
     let transcript = try AppleInstallerTrustCore().validateEngineTranscript(bytes)
     let progress = try InstallerExecutionProgress(observing: identity, transcript: transcript)

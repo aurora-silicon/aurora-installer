@@ -90,7 +90,8 @@
   enum InstallerJobXPCCodec {
     private static let domain = InstallerProductIdentity.appIdentifier + ".installation-job"
     private static let errors: [InstallerJobError] = [
-      .invalidRequest, .identityMismatch, .unavailable, .unsafeState, .interrupted, .historyFull, .notAdmitted,
+      .invalidRequest, .identityMismatch, .unavailable, .unsafeState, .interrupted, .historyFull,
+      .notAdmitted,
     ]
 
     static func serviceError(_ error: any Error) -> NSError {
@@ -131,7 +132,8 @@
     public func save(_ hint: PendingInstallerJob) throws {
       try hint.ticket.validate()
       let files = try PrivateInstallerJobFiles(directory: directory)
-      try files.write(JSONEncoder().encode(hint), name: "pending-installation.json", maximumBytes: 65_536)
+      try files.write(
+        JSONEncoder().encode(hint), name: "pending-installation.json", maximumBytes: 65_536)
     }
 
     public func clear() throws {
@@ -164,17 +166,33 @@
     let summary: String
 
     init(error: any Error) {
-      let submission = EngineXPCErrorBridge.submissionError(EngineXPCErrorBridge.serviceError(for: error))
+      let submission = EngineXPCErrorBridge.submissionError(
+        EngineXPCErrorBridge.serviceError(for: error))
       switch submission {
       case .machineOwnerCredentialsRejected:
-        code = "credentials"; reason = nil; exitStatus = nil; diskUnchanged = true; summary = ""
+        code = "credentials"
+        reason = nil
+        exitStatus = nil
+        diskUnchanged = true
+        summary = ""
       case .recoveryAuthorizationFailed:
-        code = "recovery"; reason = nil; exitStatus = nil; diskUnchanged = false; summary = ""
+        code = "recovery"
+        reason = nil
+        exitStatus = nil
+        diskUnchanged = false
+        summary = ""
       case .engineFailed(let notice):
-        code = "engine"; reason = notice.reason.rawValue; exitStatus = notice.exitStatus
-        diskUnchanged = notice.diskUnchanged; summary = EngineFailureNotice.sanitizedSummary(notice.summary)
+        code = "engine"
+        reason = notice.reason.rawValue
+        exitStatus = notice.exitStatus
+        diskUnchanged = notice.diskUnchanged
+        summary = EngineFailureNotice.sanitizedSummary(notice.summary)
       default:
-        code = "helper"; reason = nil; exitStatus = nil; diskUnchanged = false; summary = ""
+        code = "helper"
+        reason = nil
+        exitStatus = nil
+        diskUnchanged = false
+        summary = ""
       }
     }
 
@@ -183,9 +201,10 @@
       case "credentials": .machineOwnerCredentialsRejected
       case "recovery": .recoveryAuthorizationFailed
       case "engine":
-        .engineFailed(EngineFailureNotice(
-          reason: EngineFailureReason(rawValue: reason ?? 0) ?? .unclassified,
-          exitStatus: exitStatus ?? -1, diskUnchanged: diskUnchanged, summary: summary))
+        .engineFailed(
+          EngineFailureNotice(
+            reason: EngineFailureReason(rawValue: reason ?? 0) ?? .unclassified,
+            exitStatus: exitStatus ?? -1, diskUnchanged: diskUnchanged, summary: summary))
       default: .helperRejected(domain: "AuroraInstallerJob", code: 1)
       }
     }
@@ -265,8 +284,7 @@
       self.workingDirectory = workingDirectory
       directory = workingDirectory.appendingPathComponent("installation-jobs", isDirectory: true)
       self.work = work
-      do { try load() }
-      catch {
+      do { try load() } catch {
         loadError = error
         // Unknown persistent state cannot make an old executor safe to replace.
         try? work.beginJob()
@@ -284,7 +302,8 @@
         try load()
         if let old = records[request.ticket.identifier] {
           try authorize(old, ticket: request.ticket, uid: initiatingUID)
-          guard old.operation == request.operation, old.installConfDocument == request.installConf else {
+          guard old.operation == request.operation, old.installConfDocument == request.installConf
+          else {
             throw InstallerJobError.identityMismatch
           }
           return false
@@ -330,29 +349,38 @@
         switch result {
         case .success(let (transcript, conf)):
           if Int64(transcript.count) <= PinnedAsahiEngineExecutor.maximumTranscriptBytes {
-            record.phase = .succeeded; record.transcript = transcript; record.installConf = conf
+            record.phase = .succeeded
+            record.transcript = transcript
+            record.installConf = conf
           } else {
             record.phase = .interrupted
           }
         case .failure(let error):
-          record.phase = .failed; record.failure = InstallerJobFailure(error: error)
+          record.phase = .failed
+          record.failure = InstallerJobFailure(error: error)
         }
         do {
           try persist(record)
         } catch {
           // The old durable record remains unfinished. Never infer success or
           // replay mutation when its final durable write could not be confirmed.
-          record.phase = .interrupted; record.transcript = nil; record.installConf = nil
+          record.phase = .interrupted
+          record.transcript = nil
+          record.installConf = nil
         }
         records[identifier] = record
       }
     }
 
-    func status(_ request: InstallerJobStatusRequest, initiatingUID: UInt32) throws -> InstallerJobSnapshot {
+    func status(_ request: InstallerJobStatusRequest, initiatingUID: UInt32) throws
+      -> InstallerJobSnapshot
+    {
       try request.ticket.validate()
       let record = try lock.withLock {
         try load()
-        guard let record = records[request.ticket.identifier] else { throw InstallerJobError.unavailable }
+        guard let record = records[request.ticket.identifier] else {
+          throw InstallerJobError.unavailable
+        }
         try authorize(record, ticket: request.ticket, uid: initiatingUID)
         return record
       }
@@ -364,7 +392,9 @@
         journal: journal, journalOffset: offset)
     }
 
-    private func authorize(_ record: InstallerJobRecord, ticket: InstallerJobTicket, uid: UInt32) throws {
+    private func authorize(_ record: InstallerJobRecord, ticket: InstallerJobTicket, uid: UInt32)
+      throws
+    {
       guard record.initiatingUID == uid, record.tokenDigest == ticket.tokenDigest,
         record.bindingDigest == ticket.bindingDigest, record.selection == ticket.selection
       else { throw InstallerJobError.identityMismatch }
@@ -399,7 +429,8 @@
         }
         restored[record.identifier] = record
       }
-      records = restored; loaded = true
+      records = restored
+      loaded = true
       if records.values.contains(where: { $0.phase == .interrupted }) {
         // A child of the previous helper may still be alive. Keep every existing
         // privileged operation and helper replacement blocked pending inspection.
@@ -427,7 +458,8 @@
 
     private func readJournal(_ record: InstallerJobRecord, offset: UInt64) -> (Data, UInt64) {
       guard record.plan != nil,
-        let url = EngineJournalLocator.journalURL(workingDirectory: workingDirectory, bindingDigest: record.bindingDigest)
+        let url = EngineJournalLocator.journalURL(
+          workingDirectory: workingDirectory, bindingDigest: record.bindingDigest)
       else { return (Data(), offset) }
       let fd = Darwin.open(url.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
       guard fd >= 0 else { return (Data(), offset) }
@@ -439,7 +471,8 @@
       else { return (Data(), offset) }
       let start = offset <= UInt64(status.st_size) ? offset : 0
       guard Darwin.lseek(fd, off_t(start), SEEK_SET) >= 0,
-        let bytes = try? FileHandle(fileDescriptor: fd, closeOnDealloc: false).read(upToCount: 262_144),
+        let bytes = try? FileHandle(fileDescriptor: fd, closeOnDealloc: false).read(
+          upToCount: 262_144),
         let newline = bytes.lastIndex(of: 0x0A)
       else { return (Data(), start) }
       let complete = Data(bytes[...newline])
@@ -452,13 +485,18 @@
     private let fd: Int32
 
     init(directory: URL) throws {
-      if mkdir(directory.path, 0o700) != 0 && errno != EEXIST { throw InstallerJobError.unsafeState }
+      if mkdir(directory.path, 0o700) != 0 && errno != EEXIST {
+        throw InstallerJobError.unsafeState
+      }
       let opened = Darwin.open(directory.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
       guard opened >= 0 else { throw InstallerJobError.unsafeState }
       var status = stat()
       guard fstat(opened, &status) == 0, status.st_mode & S_IFMT == S_IFDIR,
         status.st_mode & 0o077 == 0, status.st_uid == geteuid()
-      else { Darwin.close(opened); throw InstallerJobError.unsafeState }
+      else {
+        Darwin.close(opened)
+        throw InstallerJobError.unsafeState
+      }
       fd = opened
     }
 
@@ -466,7 +504,9 @@
 
     private func validateName(_ name: String) throws {
       guard !name.isEmpty, name.utf8.count <= 128,
-        name.utf8.allSatisfy({ (48...57).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 46 }),
+        name.utf8.allSatisfy({
+          (48...57).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 46
+        }),
         name != ".", name != ".."
       else { throw InstallerJobError.unsafeState }
     }
@@ -483,7 +523,8 @@
       guard fstat(file, &status) == 0, status.st_mode & S_IFMT == S_IFREG,
         status.st_mode & 0o077 == 0, status.st_uid == geteuid(), status.st_nlink == 1,
         status.st_size >= 0, status.st_size <= Int64(maximumBytes),
-        let bytes = try FileHandle(fileDescriptor: file, closeOnDealloc: false).read(upToCount: maximumBytes + 1),
+        let bytes = try FileHandle(fileDescriptor: file, closeOnDealloc: false).read(
+          upToCount: maximumBytes + 1),
         bytes.count == Int(status.st_size)
       else { throw InstallerJobError.unsafeState }
       return bytes
@@ -495,7 +536,10 @@
       let temporary = ".pending-" + UUID().uuidString.lowercased()
       let file = openat(fd, temporary, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0o600)
       guard file >= 0 else { throw InstallerJobError.unsafeState }
-      defer { Darwin.close(file); unlinkat(fd, temporary, 0) }
+      defer {
+        Darwin.close(file)
+        unlinkat(fd, temporary, 0)
+      }
       try FileHandle(fileDescriptor: file, closeOnDealloc: false).write(contentsOf: data)
       guard fsync(file) == 0, renameat(fd, temporary, fd, name) == 0, fsync(fd) == 0 else {
         throw InstallerJobError.unsafeState
@@ -525,7 +569,7 @@
           if !snapshot.journal.isEmpty { journal?(snapshot.journal) }
           switch snapshot.phase {
           case .preparing, .running:
-            try await sleep( snapshot.journal.isEmpty ? .seconds(1) : .milliseconds(100))
+            try await sleep(snapshot.journal.isEmpty ? .seconds(1) : .milliseconds(100))
           case .succeeded, .failed, .interrupted:
             if let transcript = snapshot.transcript { journal?(transcript) }
             return snapshot
@@ -533,13 +577,13 @@
         } catch let error as EngineXPCSubmissionError where error == .connectionFailed {
           lostConnections += 1
           guard lostConnections <= 8 else { throw InstallerJobError.unavailable }
-          try await sleep( .seconds(1))
+          try await sleep(.seconds(1))
         } catch let error as InstallerJobError where error == .unavailable {
           lostConnections += 1
           guard lostConnections <= 8 else { throw error }
-          try await sleep( .seconds(1))
+          try await sleep(.seconds(1))
         }
       }
-        }
+    }
   }
 #endif

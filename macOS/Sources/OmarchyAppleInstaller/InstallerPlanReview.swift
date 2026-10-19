@@ -174,7 +174,9 @@
 
     /// Observation-only restoration from the authenticated helper's admitted
     /// identity. This creates no review, approval or execution authorization.
-    public init(observing identity: InstallerJobPlanIdentity, transcript: ValidatedEngineTranscript) throws {
+    public init(observing identity: InstallerJobPlanIdentity, transcript: ValidatedEngineTranscript)
+      throws
+    {
       guard transcript.support == .supported,
         transcript.deviceIdentifier == identity.deviceIdentifier,
         let plan = transcript.plan, plan.deviceIdentifier == identity.deviceIdentifier,

@@ -18,7 +18,8 @@
         ticket: try InstallerJobTicket(
           bindingDigest: "sha256:" + String(repeating: "a", count: 64),
           selection: AuroraInstallationSelection(distribution: .fedora, desktop: .gnome)),
-        operation: "install", installConf: try InstallConf(encrypt: true, lane: "stable").serializedData)
+        operation: "install",
+        installConf: try InstallConf(encrypt: true, lane: "stable").serializedData)
     }
 
     func testExactDuplicateObservesOnceWhileChangedOptionsAndOtherUIDAreRejected() throws {
@@ -47,11 +48,14 @@
       let jobs = InstallerJobRegistry(workingDirectory: root, work: HelperWorkState())
       let request = try request()
       XCTAssertTrue(try jobs.begin(request, initiatingUID: 501))
-      var fields = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(request.ticket)) as? [String: Any])
+      var fields = try XCTUnwrap(
+        JSONSerialization.jsonObject(with: JSONEncoder().encode(request.ticket)) as? [String: Any])
       fields["observationToken"] = String(repeating: "b", count: 64)
-      let wrong = try JSONDecoder().decode(InstallerJobTicket.self, from: JSONSerialization.data(withJSONObject: fields))
-      XCTAssertThrowsError(try jobs.status(
-        InstallerJobStatusRequest(ticket: wrong, journalOffset: 0), initiatingUID: 501))
+      let wrong = try JSONDecoder().decode(
+        InstallerJobTicket.self, from: JSONSerialization.data(withJSONObject: fields))
+      XCTAssertThrowsError(
+        try jobs.status(
+          InstallerJobStatusRequest(ticket: wrong, journalOffset: 0), initiatingUID: 501))
       let saved = root.appendingPathComponent("installation-jobs")
         .appendingPathComponent(request.ticket.identifier.uuidString.lowercased() + ".json")
       let text = try String(contentsOf: saved, encoding: .utf8)
@@ -86,7 +90,9 @@
       for _ in 0..<40 {
         let request = try request()
         XCTAssertTrue(try jobs.begin(request, initiatingUID: 501))
-        jobs.finish(request.ticket.identifier, result: .failure(ClosedEngineHelperError.invalidMachineOwnerCredentials))
+        jobs.finish(
+          request.ticket.identifier,
+          result: .failure(ClosedEngineHelperError.invalidMachineOwnerCredentials))
       }
       let saved = try FileManager.default.contentsOfDirectory(
         atPath: root.appendingPathComponent("installation-jobs").path)
@@ -102,7 +108,8 @@
         transcript: Data("result\n".utf8), installConf: .recorded, failure: nil,
         journal: Data(), journalOffset: 0)
       let source = JobObservationFixture(responses: [
-        .failure(InstallerJobError.unavailable), .failure(EngineXPCSubmissionError.connectionFailed),
+        .failure(InstallerJobError.unavailable),
+        .failure(EngineXPCSubmissionError.connectionFailed),
         .success(terminal),
       ])
       let result = try await InstallerJobObservation.wait(
@@ -113,10 +120,12 @@
     }
 
     func testUnresolvedAdmissionIsBoundedAndNeverReportedAsNotAdmitted() async throws {
-      let source = JobObservationFixture(responses: Array(
-        repeating: .failure(InstallerJobError.unavailable), count: 9))
+      let source = JobObservationFixture(
+        responses: Array(
+          repeating: .failure(InstallerJobError.unavailable), count: 9))
       do {
-        _ = try await InstallerJobObservation.wait(fetch: { _ in try await source.next() }, sleep: { _ in })
+        _ = try await InstallerJobObservation.wait(
+          fetch: { _ in try await source.next() }, sleep: { _ in })
         XCTFail("Expected an unresolved lookup")
       } catch { XCTAssertEqual(error as? InstallerJobError, .unavailable) }
       let calls = await source.calls
@@ -129,7 +138,8 @@
       let request = try request()
       XCTAssertTrue(try first.begin(request, initiatingUID: 501))
       let transcript = Data("bounded transcript fixture\n".utf8)
-      first.finish(request.ticket.identifier, result: .success((transcript, .unconfirmed(encrypt: true))))
+      first.finish(
+        request.ticket.identifier, result: .success((transcript, .unconfirmed(encrypt: true))))
       let restarted = InstallerJobRegistry(workingDirectory: root, work: HelperWorkState())
       let snapshot = try restarted.status(
         InstallerJobStatusRequest(ticket: request.ticket, journalOffset: 0), initiatingUID: 501)

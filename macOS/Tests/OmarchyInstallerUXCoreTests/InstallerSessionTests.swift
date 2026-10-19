@@ -1633,11 +1633,14 @@
     private(set) var resumeCount = 0
 
     func hasPendingInstallation() throws -> Bool { pendingInstallation }
-    func resumeInstallation(journal: @escaping @Sendable (Data) -> Void) async throws -> CompletionDisplay {
+    func resumeInstallation(journal: @escaping @Sendable (Data) -> Void) async throws
+      -> CompletionDisplay
+    {
       resumeCount += 1
       if let resumeError { throw resumeError }
       return CompletionDisplay(
-        nextAction: .verifyInstalledSystem, headline: "Done", subheadline: "Restored", verified: [], handoff: nil)
+        nextAction: .verifyInstalledSystem, headline: "Done", subheadline: "Restored", verified: [],
+        handoff: nil)
     }
 
     func inspect() async throws -> HostDisplay {

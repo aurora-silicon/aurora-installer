@@ -365,7 +365,8 @@
       defer { work.endJob() }
       return try await executeSubmittedPackage(
         packageDirectory: packageDirectory, authorization: authorization, operation: operation,
-        progress: progress, jobIdentifier: nil, installConf: nil).0
+        progress: progress, jobIdentifier: nil, installConf: nil
+      ).0
     }
 
     func executeRegisteredJob(
@@ -760,8 +761,10 @@
           Task.detached {
             do {
               let authorization: MachineOwnerAuthorization
-              do { authorization = try MachineOwnerAuthorization(username: machineOwner, password: password) }
-              catch { throw ClosedEngineHelperError.invalidMachineOwnerCredentials }
+              do {
+                authorization = try MachineOwnerAuthorization(
+                  username: machineOwner, password: password)
+              } catch { throw ClosedEngineHelperError.invalidMachineOwnerCredentials }
               let result = try await server.executeRegisteredJob(
                 packageDirectory: packageDirectory, authorization: authorization,
                 operation: operation, identifier: request.ticket.identifier, installConf: conf)
@@ -772,16 +775,21 @@
           }
         }
         let snapshot = try jobs.status(
-          InstallerJobStatusRequest(ticket: request.ticket, journalOffset: 0), initiatingUID: initiatingUID)
+          InstallerJobStatusRequest(ticket: request.ticket, journalOffset: 0),
+          initiatingUID: initiatingUID)
         reply(try JSONEncoder().encode(snapshot), nil)
       } catch {
-        reply(nil, InstallerJobXPCCodec.serviceError(registered ? error : InstallerJobError.notAdmitted))
+        reply(
+          nil, InstallerJobXPCCodec.serviceError(registered ? error : InstallerJobError.notAdmitted)
+        )
       }
     }
 
     public func jobStatus(request: Data, reply: @escaping @Sendable (Data?, NSError?) -> Void) {
       do {
-        guard let initiatingUID, request.count <= 65_536 else { throw InstallerJobError.invalidRequest }
+        guard let initiatingUID, request.count <= 65_536 else {
+          throw InstallerJobError.invalidRequest
+        }
         let request = try JSONDecoder().decode(InstallerJobStatusRequest.self, from: request)
         let snapshot = try server.jobs.status(request, initiatingUID: initiatingUID)
         reply(try JSONEncoder().encode(snapshot), nil)

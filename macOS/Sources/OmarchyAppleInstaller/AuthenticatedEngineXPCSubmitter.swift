@@ -533,9 +533,10 @@
     }
 
     private func jobCall(
-      _ invoke: @escaping @Sendable (
-        any ClosedEngineXPCService, @escaping @Sendable (Data?, NSError?) -> Void
-      ) -> Void
+      _ invoke:
+        @escaping @Sendable (
+          any ClosedEngineXPCService, @escaping @Sendable (Data?, NSError?) -> Void
+        ) -> Void
     ) async throws -> InstallerJobSnapshot {
       let connection = makeConnection()
       let handle = SendableXPCConnection(connection)
@@ -546,22 +547,32 @@
       defer { timer.cancel() }
       let bytes: Data = try await withCheckedThrowingContinuation { continuation in
         let gate = EngineXPCReplyGate(continuation: continuation)
-        connection.interruptionHandler = { gate.resume(throwing: EngineXPCSubmissionError.connectionFailed) }
-        connection.invalidationHandler = { gate.resume(throwing: EngineXPCSubmissionError.connectionFailed) }
-        connection.activate()
-        guard let proxy = connection.remoteObjectProxyWithErrorHandler({ _ in
+        connection.interruptionHandler = {
           gate.resume(throwing: EngineXPCSubmissionError.connectionFailed)
-          handle.invalidate()
-        }) as? ClosedEngineXPCService else {
+        }
+        connection.invalidationHandler = {
+          gate.resume(throwing: EngineXPCSubmissionError.connectionFailed)
+        }
+        connection.activate()
+        guard
+          let proxy = connection.remoteObjectProxyWithErrorHandler({ _ in
+            gate.resume(throwing: EngineXPCSubmissionError.connectionFailed)
+            handle.invalidate()
+          }) as? ClosedEngineXPCService
+        else {
           gate.resume(throwing: EngineXPCSubmissionError.connectionFailed)
           handle.invalidate()
           return
         }
         invoke(proxy) { data, error in
           defer { handle.invalidate() }
-          if let error { gate.resume(throwing: InstallerJobXPCCodec.decodedError(error)) }
-          else if let data, data.count <= 12 * 1_048_576 { gate.resume(returning: data) }
-          else { gate.resume(throwing: InstallerJobError.unsafeState) }
+          if let error {
+            gate.resume(throwing: InstallerJobXPCCodec.decodedError(error))
+          } else if let data, data.count <= 12 * 1_048_576 {
+            gate.resume(returning: data)
+          } else {
+            gate.resume(throwing: InstallerJobError.unsafeState)
+          }
         }
       }
       return try JSONDecoder().decode(InstallerJobSnapshot.self, from: bytes)
@@ -571,14 +582,17 @@
       directoryHandle: FileHandle, authorization: MachineOwnerAuthorization,
       operation: EngineHandoffOperation, context: InstallerJobExecutionContext
     ) async throws -> Data {
-      let ticket = try InstallerJobTicket(bindingDigest: context.bindingDigest, selection: context.selection)
+      let ticket = try InstallerJobTicket(
+        bindingDigest: context.bindingDigest, selection: context.selection)
       let hint = PendingInstallerJob(
         ticket: ticket, helperMachServiceName: machServiceName,
         helperCodeSigningRequirement: helperCodeSigningRequirement)
       // Persist before sending: losing the start reply cannot lose the lookup.
       try context.store.save(hint)
-      let request = try JSONEncoder().encode(InstallerJobStartRequest(
-        ticket: ticket, operation: operation.rawValue, installConf: context.installConf.serializedData))
+      let request = try JSONEncoder().encode(
+        InstallerJobStartRequest(
+          ticket: ticket, operation: operation.rawValue,
+          installConf: context.installConf.serializedData))
       do {
         _ = try await jobCall { proxy, reply in
           proxy.startJob(
@@ -596,22 +610,29 @@
         let (transcript, handoff) = try snapshot.requireResult()
         context.completed(handoff)
         return transcript
-      } catch let error as EngineXPCSubmissionError where error == .machineOwnerCredentialsRejected {
+      } catch let error as EngineXPCSubmissionError where error == .machineOwnerCredentialsRejected
+      {
         try? context.store.clear()
         throw error
       }
     }
 
-    public func jobStatus(_ hint: PendingInstallerJob, journalOffset: UInt64 = 0) async throws -> InstallerJobSnapshot {
+    public func jobStatus(_ hint: PendingInstallerJob, journalOffset: UInt64 = 0) async throws
+      -> InstallerJobSnapshot
+    {
       guard hint.helperMachServiceName == machServiceName,
         hint.helperCodeSigningRequirement == helperCodeSigningRequirement
       else { throw InstallerJobError.identityMismatch }
       try hint.ticket.validate()
-      let request = try JSONEncoder().encode(InstallerJobStatusRequest(
-        ticket: hint.ticket, journalOffset: journalOffset))
-      let snapshot = try await jobCall { proxy, reply in proxy.jobStatus(request: request, reply: reply) }
+      let request = try JSONEncoder().encode(
+        InstallerJobStatusRequest(
+          ticket: hint.ticket, journalOffset: journalOffset))
+      let snapshot = try await jobCall { proxy, reply in
+        proxy.jobStatus(request: request, reply: reply)
+      }
       guard snapshot.identifier == hint.ticket.identifier,
-        snapshot.bindingDigest == hint.ticket.bindingDigest, snapshot.selection == hint.ticket.selection,
+        snapshot.bindingDigest == hint.ticket.bindingDigest,
+        snapshot.selection == hint.ticket.selection,
         snapshot.plan == nil || snapshot.plan?.bindingDigest == hint.ticket.bindingDigest
       else { throw InstallerJobError.identityMismatch }
       return snapshot

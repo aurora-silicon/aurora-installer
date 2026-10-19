@@ -16,7 +16,8 @@
       let imported = try importer.prepare(from: source, in: fixture.destination)
       var before = stat()
       XCTAssertEqual(lstat(imported.payloadURL.path, &before), 0)
-      let reopened = try importer.reopenRetained(named: imported.packageURL.lastPathComponent, in: fixture.destination)
+      let reopened = try importer.reopenRetained(
+        named: imported.packageURL.lastPathComponent, in: fixture.destination)
       var after = stat()
       XCTAssertEqual(lstat(reopened.payloadURL.path, &after), 0)
       XCTAssertEqual(before.st_ino, after.st_ino)
@@ -26,9 +27,12 @@
       var changed = fixture.payload
       changed[0] ^= 1
       try changed.write(to: imported.payloadURL)
-      XCTAssertThrowsError(try importer.reopenRetained(
-        named: imported.packageURL.lastPathComponent, in: fixture.destination)) {
-        XCTAssertEqual($0 as? EngineHandoffImportError, .digestMismatch(imported.payloadURL.lastPathComponent))
+      XCTAssertThrowsError(
+        try importer.reopenRetained(
+          named: imported.packageURL.lastPathComponent, in: fixture.destination)
+      ) {
+        XCTAssertEqual(
+          $0 as? EngineHandoffImportError, .digestMismatch(imported.payloadURL.lastPathComponent))
       }
     }
 
@@ -39,16 +43,23 @@
       defer { try? source.close() }
       let importer = EngineHandoffPackageImporter()
       let imported = try importer.prepare(from: source, in: fixture.destination)
-      for name in ["../source", imported.packageURL.path, imported.packageURL.lastPathComponent + "/child"] {
+      for name in [
+        "../source", imported.packageURL.path, imported.packageURL.lastPathComponent + "/child",
+      ] {
         XCTAssertThrowsError(try importer.reopenRetained(named: name, in: fixture.destination))
       }
       let alias = fixture.root.appendingPathComponent("hardlink")
       XCTAssertEqual(link(imported.engineURL.path, alias.path), 0)
-      XCTAssertThrowsError(try importer.reopenRetained(named: imported.packageURL.lastPathComponent, in: fixture.destination))
+      XCTAssertThrowsError(
+        try importer.reopenRetained(
+          named: imported.packageURL.lastPathComponent, in: fixture.destination))
       XCTAssertEqual(unlink(alias.path), 0)
       try FileManager.default.removeItem(at: imported.metadataURL)
-      try FileManager.default.createSymbolicLink(at: imported.metadataURL, withDestinationURL: fixture.engineURL)
-      XCTAssertThrowsError(try importer.reopenRetained(named: imported.packageURL.lastPathComponent, in: fixture.destination))
+      try FileManager.default.createSymbolicLink(
+        at: imported.metadataURL, withDestinationURL: fixture.engineURL)
+      XCTAssertThrowsError(
+        try importer.reopenRetained(
+          named: imported.packageURL.lastPathComponent, in: fixture.destination))
     }
 
     func testValidPackageIsRecopiedIntoPrivateHelperDirectory() throws {

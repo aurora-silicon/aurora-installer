@@ -172,7 +172,9 @@
 
     /// Revalidates the original helper-owned snapshot in place. Recovery retry
     /// cannot supply another package, and never duplicates its payload.
-    func reopenRetained(named name: String, in directory: URL) throws -> ImportedEngineHandoffPackage {
+    func reopenRetained(named name: String, in directory: URL) throws
+      -> ImportedEngineHandoffPackage
+    {
       let prefix = "imported-handoff-"
       guard name.hasPrefix(prefix),
         let identifier = UUID(uuidString: String(name.dropFirst(prefix.count))),
@@ -192,13 +194,20 @@
         status.st_mode & 0o077 == 0, status.st_uid == geteuid()
       else { throw EngineHandoffImportError.unsafeSourceDirectory }
 
-      let manifest = try decodeManifest(readRetainedFile("manifest.json", from: descriptor, control: true))
-      let request = try decodeRequest(readRetainedFile("request.json", from: descriptor, control: true))
-      let identity = try decodeIdentity(readRetainedFile("identity.json", from: descriptor, control: true))
+      let manifest = try decodeManifest(
+        readRetainedFile("manifest.json", from: descriptor, control: true))
+      let request = try decodeRequest(
+        readRetainedFile("request.json", from: descriptor, control: true))
+      let identity = try decodeIdentity(
+        readRetainedFile("identity.json", from: descriptor, control: true))
       try validateBindings(manifest: manifest, request: request, identity: identity)
-      let artifacts = [manifest.engine, manifest.metadata, manifest.payload] + (manifest.repairManifest.map { [$0] } ?? [])
-      let expectedNames = Set(["manifest.json", "request.json", "identity.json"] + artifacts.map(\.fileName))
-      guard Set(try FileManager.default.contentsOfDirectory(atPath: package.path)) == expectedNames else {
+      let artifacts =
+        [manifest.engine, manifest.metadata, manifest.payload]
+        + (manifest.repairManifest.map { [$0] } ?? [])
+      let expectedNames = Set(
+        ["manifest.json", "request.json", "identity.json"] + artifacts.map(\.fileName))
+      guard Set(try FileManager.default.contentsOfDirectory(atPath: package.path)) == expectedNames
+      else {
         throw EngineHandoffImportError.invalidManifest
       }
       for artifact in artifacts {
@@ -213,7 +222,9 @@
         engineURL: package.appendingPathComponent(manifest.engine.fileName),
         metadataURL: package.appendingPathComponent(manifest.metadata.fileName),
         payloadURL: package.appendingPathComponent(manifest.payload.fileName),
-        repairManifestURL: manifest.repairManifest.map { package.appendingPathComponent($0.fileName) },
+        repairManifestURL: manifest.repairManifest.map {
+          package.appendingPathComponent($0.fileName)
+        },
         bindingDigest: identity.bindingDigest, planDigest: request.planDigest,
         deviceIdentifier: request.deviceIdentifier, storeIdentifier: request.storeIdentifier)
     }
@@ -237,15 +248,20 @@
       var bytes = Data()
       var hasher = SHA256()
       var count: UInt64 = 0
-      while let chunk = try handle.read(upToCount: control ? Self.maximumControlFileBytes + 1 : 4 * 1_048_576),
+      while let chunk = try handle.read(
+        upToCount: control ? Self.maximumControlFileBytes + 1 : 4 * 1_048_576),
         !chunk.isEmpty
       {
         count += UInt64(chunk.count)
-        guard count <= UInt64(status.st_size) else { throw EngineHandoffImportError.sizeMismatch(name) }
+        guard count <= UInt64(status.st_size) else {
+          throw EngineHandoffImportError.sizeMismatch(name)
+        }
         hasher.update(data: chunk)
         if control { bytes.append(chunk) }
       }
-      guard count == UInt64(status.st_size) else { throw EngineHandoffImportError.sizeMismatch(name) }
+      guard count == UInt64(status.st_size) else {
+        throw EngineHandoffImportError.sizeMismatch(name)
+      }
       if let expectedDigest, SHA256Digest.prefixedHex(hasher.finalize()) != expectedDigest {
         throw EngineHandoffImportError.digestMismatch(name)
       }

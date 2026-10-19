@@ -490,7 +490,8 @@
       let source = try openDirectory(fixture.source)
       defer { try? source.close() }
       let disks = RecordingESPDisks(partitions: [
-        .init(identifier: "disk0s5", storeIdentifier: "disk0", type: "EFI",
+        .init(
+          identifier: "disk0s5", storeIdentifier: "disk0", type: "EFI",
           name: "EFI - OMARC", offsetBytes: 447_750_000_000, lengthBytes: 500_000_000)
       ])
       let executor = RecordingHandoffExecutor(result: fixture.transcript)
@@ -500,9 +501,12 @@
         removalDisks: UnusedRemovalDisks(), removalAdminValidator: { _ in }, espDisks: disks)
       let endpoint = ClosedEngineXPCServiceEndpoint(server: server, initiatingUID: 501)
       let binding = digest(Data("binding".utf8))
-      let ticket = try InstallerJobTicket(bindingDigest: binding, selection: AuroraInstallationSelection())
-      let request = try JSONEncoder().encode(InstallerJobStartRequest(
-        ticket: ticket, operation: "install", installConf: try InstallConf(encrypt: true, lane: "stable").serializedData))
+      let ticket = try InstallerJobTicket(
+        bindingDigest: binding, selection: AuroraInstallationSelection())
+      let request = try JSONEncoder().encode(
+        InstallerJobStartRequest(
+          ticket: ticket, operation: "install",
+          installConf: try InstallConf(encrypt: true, lane: "stable").serializedData))
       // No reply continuation or progress client survives the initial submission.
       let authorization = try machineOwnerAuthorization()
       endpoint.startJob(
@@ -524,8 +528,9 @@
       XCTAssertEqual(executed, 1)
       let duplicate = try JSONDecoder().decode(InstallerJobStartRequest.self, from: request)
       XCTAssertFalse(try server.jobs.begin(duplicate, initiatingUID: 501))
-      XCTAssertThrowsError(try server.jobs.status(
-        InstallerJobStatusRequest(ticket: ticket, journalOffset: 0), initiatingUID: 502))
+      XCTAssertThrowsError(
+        try server.jobs.status(
+          InstallerJobStatusRequest(ticket: ticket, journalOffset: 0), initiatingUID: 502))
     }
 
     func testBusyStartExplicitlyReportsNotAdmittedAndRunsNoExecutor() async throws {
@@ -542,17 +547,23 @@
       let endpoint = ClosedEngineXPCServiceEndpoint(server: server, initiatingUID: 501)
       let ticket = try InstallerJobTicket(
         bindingDigest: digest(Data("binding".utf8)), selection: AuroraInstallationSelection())
-      let request = try JSONEncoder().encode(InstallerJobStartRequest(
-        ticket: ticket, operation: "install", installConf: try InstallConf(encrypt: true, lane: "stable").serializedData))
+      let request = try JSONEncoder().encode(
+        InstallerJobStartRequest(
+          ticket: ticket, operation: "install",
+          installConf: try InstallConf(encrypt: true, lane: "stable").serializedData))
       let reply: NSError? = await withCheckedContinuation { continuation in
-        endpoint.startJob(request: request, packageDirectory: source, machineOwner: "owner",
-          password: Data("not retained".utf8)) { _, error in continuation.resume(returning: error) }
+        endpoint.startJob(
+          request: request, packageDirectory: source, machineOwner: "owner",
+          password: Data("not retained".utf8)
+        ) { _, error in continuation.resume(returning: error) }
       }
-      XCTAssertEqual(InstallerJobXPCCodec.decodedError(try XCTUnwrap(reply)) as? InstallerJobError, .notAdmitted)
+      XCTAssertEqual(
+        InstallerJobXPCCodec.decodedError(try XCTUnwrap(reply)) as? InstallerJobError, .notAdmitted)
       let executed = await executor.executionCount
       XCTAssertEqual(executed, 0)
-      XCTAssertThrowsError(try server.jobs.status(
-        InstallerJobStatusRequest(ticket: ticket, journalOffset: 0), initiatingUID: 501))
+      XCTAssertThrowsError(
+        try server.jobs.status(
+          InstallerJobStatusRequest(ticket: ticket, journalOffset: 0), initiatingUID: 501))
     }
 
     private func makeFixture(
