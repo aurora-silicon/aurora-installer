@@ -3,6 +3,12 @@
   import Darwin
   import Foundation
 
+  public enum ImportedInstallationIntent: Equatable, Sendable {
+    case fresh
+    case replace
+    case repair
+  }
+
   public struct ImportedEngineHandoffPackage: Sendable {
     public let packageURL: URL
     public let manifestURL: URL
@@ -18,6 +24,7 @@
     public let planDigest: String
     public let deviceIdentifier: String
     public let storeIdentifier: String
+    public let installationIntent: ImportedInstallationIntent
 
     public init(
       packageURL: URL,
@@ -33,7 +40,8 @@
       bindingDigest: String,
       planDigest: String,
       deviceIdentifier: String,
-      storeIdentifier: String
+      storeIdentifier: String,
+      installationIntent: ImportedInstallationIntent = .fresh
     ) {
       self.packageURL = packageURL
       self.manifestURL = manifestURL
@@ -49,6 +57,7 @@
       self.planDigest = planDigest
       self.deviceIdentifier = deviceIdentifier
       self.storeIdentifier = storeIdentifier
+      self.installationIntent = installationIntent
     }
   }
 
@@ -192,7 +201,9 @@
         bindingDigest: identity.bindingDigest,
         planDigest: request.planDigest,
         deviceIdentifier: request.deviceIdentifier,
-        storeIdentifier: request.storeIdentifier
+        storeIdentifier: request.storeIdentifier,
+        installationIntent: request.operation == "repair-installed-system" ? .repair
+          : request.candidateKind == "replace" ? .replace : .fresh
       )
     }
 
@@ -258,7 +269,9 @@
           package.appendingPathComponent($0.fileName)
         },
         bindingDigest: identity.bindingDigest, planDigest: request.planDigest,
-        deviceIdentifier: request.deviceIdentifier, storeIdentifier: request.storeIdentifier)
+        deviceIdentifier: request.deviceIdentifier, storeIdentifier: request.storeIdentifier,
+        installationIntent: request.operation == "repair-installed-system" ? .repair
+          : request.candidateKind == "replace" ? .replace : .fresh)
     }
 
     private func readRetainedFile(

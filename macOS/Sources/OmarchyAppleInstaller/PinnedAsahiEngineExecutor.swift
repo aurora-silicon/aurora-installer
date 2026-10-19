@@ -63,6 +63,7 @@
     private let restoreImageRequirement: String?
     private let verifyRestoreImage: @Sendable (URL, String) throws -> Void
     private let firmwarePreparer: any NativeFirmwarePreparing
+    private let collectInstallAdmission: @Sendable () throws -> NativeInstallAdmissionFacts
     private let prepareRecoveryTemplate:
       @Sendable (ImportedEngineHandoffPackage) throws -> PreparedNativeRecoveryTemplate
 
@@ -76,6 +77,7 @@
       expectedFileOwnerID = { geteuid() }
       extractionOptions = []
       firmwarePreparer = NativeFirmwarePreparer()
+      collectInstallAdmission = { try NativeInstallAdmissionFacts.live() }
       prepareRecoveryTemplate = { try NativeRecoveryTemplate.prepare(package: $0) }
     }
 
@@ -88,6 +90,9 @@
         try RestoreImageHelper.verify($0, requirement: $1)
       },
       firmwarePreparer: any NativeFirmwarePreparing = NativeFirmwarePreparer(),
+      collectInstallAdmission: @escaping @Sendable () throws -> NativeInstallAdmissionFacts = {
+        try NativeInstallAdmissionFacts.live()
+      },
       prepareRecoveryTemplate:
         @escaping @Sendable (ImportedEngineHandoffPackage) throws -> PreparedNativeRecoveryTemplate =
         { try NativeRecoveryTemplate.prepare(package: $0) }
@@ -98,6 +103,7 @@
       self.verifyRestoreImage = verifyRestoreImage
       self.extractionOptions = extractionOptions
       self.firmwarePreparer = firmwarePreparer
+      self.collectInstallAdmission = collectInstallAdmission
       self.prepareRecoveryTemplate = prepareRecoveryTemplate
     }
 
@@ -118,13 +124,13 @@
       } catch {
         throw preparationFailure(
           error, reason: .recoveryPreparation, operation: operation,
-          journal: journal, password: authorization.password)
+          journal: journal, package: package, password: authorization.password)
       }
       let recovery: PreparedNativeRecoveryTemplate
       do { recovery = try prepareRecoveryTemplate(package) } catch {
         throw preparationFailure(
           error, reason: .recoveryPreparation, operation: operation,
-          journal: journal, password: authorization.password)
+          journal: journal, package: package, password: authorization.password)
       }
       defer { recovery.remove() }
       var environment = installEnvironment(
@@ -145,7 +151,7 @@
             EngineFailureReport(
               notice: EngineFailureNotice(
                 reason: .firmwarePreparation, exitStatus: 1,
-                diskUnchanged: journalProvesNoMutation(journal),
+                diskUnchanged: journalProvesNoMutation(journal, identity: RecoveryRetryIdentity(package: package)),
                 summary: "Native firmware preparation did not complete."),
               redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
                 Data(String(describing: error).utf8), truncated: false,
@@ -160,30 +166,50 @@
           additionalEnvironment: environment,
           standardInput: authorization.password + Data([10]),
           secrets: [authorization.password],
-          retryIdentity: RecoveryRetryIdentity(package: package)
+          retryIdentity: RecoveryRetryIdentity(package: package),
+          beforeLaunch: {
+            guard operation == .install else { return }
+            do {
+              let bytes = try self.readAdmissionJournal(journal)
+              try NativeInstallAdmission.check(
+                package: package, journal: bytes, collect: self.collectInstallAdmission,
+                readEvidence: { try self.readCheckpointEvidence(journal: journal, identifier: $0) })
+            } catch {
+              throw PinnedAsahiEngineExecutionError.engineFailed(
+                EngineFailureReport(
+                  notice: EngineFailureNotice(
+                    reason: error as? NativeInstallAdmissionError == .invalidJournal
+                      ? .planIntegrity : .diskLayoutChanged,
+                    exitStatus: 1, diskUnchanged: self.journalProvesNoMutation(journal, identity: RecoveryRetryIdentity(package: package)),
+                    summary: "The current disk could not be admitted for a fresh installation."),
+                  redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
+                    Data(String(describing: error).utf8), truncated: false,
+                    secrets: [authorization.password])))
+            }
+          }
         )
       } catch PinnedAsahiEngineExecutionError.restoreImageUnsupported {
         throw preparationFailure(
           PinnedAsahiEngineExecutionError.restoreImageUnsupported,
-          reason: .recoveryPreparation, operation: operation, journal: journal,
+          reason: .recoveryPreparation, operation: operation, journal: journal, package: package,
           password: authorization.password)
       } catch PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported {
         throw preparationFailure(
           PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported,
           reason: .recoveryPreparation, operation: operation,
-          journal: journal, password: authorization.password)
+          journal: journal, package: package, password: authorization.password)
       }
     }
 
     private func preparationFailure(
       _ error: any Error, reason: EngineFailureReason, operation: EngineHandoffOperation,
-      journal: URL, password: Data
+      journal: URL, package: ImportedEngineHandoffPackage, password: Data
     ) -> PinnedAsahiEngineExecutionError {
       .engineFailed(
         EngineFailureReport(
           notice: EngineFailureNotice(
             reason: reason, exitStatus: 1,
-            diskUnchanged: operation == .install && journalProvesNoMutation(journal),
+            diskUnchanged: operation == .install && journalProvesNoMutation(journal, identity: RecoveryRetryIdentity(package: package)),
             summary: "Native Recovery resources could not be verified."),
           redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
             Data(String(describing: error).utf8), truncated: false, secrets: [password])))
@@ -258,7 +284,8 @@
       additionalEnvironment: [String: String],
       standardInput: Data? = nil,
       secrets: [Data] = [],
-      retryIdentity: RecoveryRetryIdentity? = nil
+      retryIdentity: RecoveryRetryIdentity? = nil,
+      beforeLaunch: (() throws -> Void)? = nil
     ) throws -> Data {
       try validateArchive(
         archive,
@@ -348,6 +375,7 @@
       }
       // Every exit from here, including a failed stdin write, stops the reader.
       defer { errorCollector.cancel() }
+      try beforeLaunch?()
       do {
         try process.run()
         if let standardInput, let inputPipe {
@@ -376,7 +404,8 @@
             standardError: capturedError,
             secrets: secrets,
             exitStatus: process.terminationStatus,
-            journal: journal
+            journal: journal,
+            identity: retryIdentity
           )
         )
       }
@@ -387,7 +416,8 @@
       standardError: (data: Data, truncated: Bool),
       secrets: [Data],
       exitStatus: Int32,
-      journal: URL?
+      journal: URL?,
+      identity: RecoveryRetryIdentity?
     ) -> EngineFailureReport {
       let redacted = EngineStandardErrorRedactor.redact(
         standardError.data,
@@ -403,7 +433,7 @@
         notice: EngineFailureNotice(
           reason: reason,
           exitStatus: exitStatus,
-          diskUnchanged: journal.map(journalProvesNoMutation) ?? false,
+          diskUnchanged: journal.map { journalProvesNoMutation($0, identity: identity) } ?? false,
           summary: final.map {
             EngineStandardErrorRedactor.summary(from: $0.line, secrets: secrets)
           } ?? ""
@@ -418,12 +448,25 @@
     /// the disk, so the absence of event, checkpoint and completion records
     /// proves no mutation began. Anything unreadable or unexpected makes no
     /// claim.
-    func journalProvesNoMutation(_ journal: URL) -> Bool {
+    private func journalProvesNoMutation(_ journal: URL, identity: RecoveryRetryIdentity?) -> Bool {
+      guard let bytes = try? readAdmissionJournal(journal),
+        NativeInstallAdmission.provesNoMutation(bytes) else { return false }
+      if bytes.isEmpty { return true }
+      guard let identity,
+        let validated = try? AppleInstallerTrustCore().validateEngineTranscript(bytes),
+        validated.deviceIdentifier == identity.deviceIdentifier,
+        validated.inventory.map({ $0.systemStoreIdentifier == identity.storeIdentifier }) ?? true,
+        validated.plan.map({ $0.planDigest == identity.planDigest }) ?? true
+      else { return false }
+      return true
+    }
+
+    private func readAdmissionJournal(_ journal: URL) throws -> Data {
       let descriptor = Darwin.open(
         journal.path,
-        O_RDONLY | O_CLOEXEC | O_NOFOLLOW
+        O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
       )
-      guard descriptor >= 0 else { return false }
+      guard descriptor >= 0 else { throw PinnedAsahiEngineExecutionError.unsafeTranscript }
       defer { Darwin.close(descriptor) }
       var status = stat()
       guard fstat(descriptor, &status) == 0,
@@ -433,28 +476,17 @@
         status.st_size >= 0,
         status.st_size <= Self.maximumTranscriptBytes
       else {
-        return false
+        throw PinnedAsahiEngineExecutionError.unsafeTranscript
       }
-      if status.st_size == 0 { return true }
+      if status.st_size == 0 { return Data() }
       let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
       guard let data = try? handle.readToEnd(),
         data.count == Int(status.st_size),
         data.last == 0x0A
       else {
-        return false
+        throw PinnedAsahiEngineExecutionError.unsafeTranscript
       }
-      let readOnlyRecords: Set<String> = ["inspection", "inventory", "plan"]
-      for line in data.split(separator: 0x0A, omittingEmptySubsequences: true) {
-        guard
-          let object = try? JSONSerialization.jsonObject(with: Data(line)),
-          let record = object as? [String: Any],
-          let type = record["type"] as? String,
-          readOnlyRecords.contains(type)
-        else {
-          return false
-        }
-      }
-      return true
+      return data
     }
 
     func canRetryRecoveryAuthorization(_ identity: InstallerJobPlanIdentity, in directory: URL)
@@ -508,7 +540,7 @@
       )
       let descriptor = Darwin.open(
         evidenceURL.path,
-        O_RDONLY | O_CLOEXEC | O_NOFOLLOW
+        O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
       )
       guard descriptor >= 0 else {
         throw PinnedAsahiEngineExecutionError.unsafeTranscript

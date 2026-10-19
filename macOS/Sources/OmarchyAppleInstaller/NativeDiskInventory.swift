@@ -19,7 +19,7 @@
   /// Pure geometry and candidate construction; live collection has no authority
   /// to resize, erase, bless or otherwise change the partition map.
   struct NativeDiskInventory {
-    private struct Extent {
+    struct Extent {
       let source: String
       let offset: UInt64
       let length: UInt64
@@ -171,7 +171,7 @@
       return bytes
     }
 
-    private static func extents(_ snapshot: RemovalSnapshot) throws -> [Extent] {
+    static func extents(_ snapshot: RemovalSnapshot) throws -> [Extent] {
       guard snapshot.diskSize > 40_960, !snapshot.partitions.isEmpty,
         NativeInspectionCommands.identifier(snapshot.disk),
         Set(snapshot.partitions.map(\.uuid)).count == snapshot.partitions.count,

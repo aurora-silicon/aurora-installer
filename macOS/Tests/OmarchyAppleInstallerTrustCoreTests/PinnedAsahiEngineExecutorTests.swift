@@ -6,6 +6,117 @@
   @testable import OmarchyAppleInstallerTrustCore
 
   final class PinnedAsahiEngineExecutorTests: XCTestCase {
+    private struct FirmwareMarker: NativeFirmwarePreparing {
+      let url: URL
+      func prepare(deviceIdentifier: String, in workingDirectory: URL) async throws -> URL? {
+        try Data("prepared".utf8).write(to: url)
+        return nil
+      }
+    }
+
+    func testNativeAdmissionRecollectsAfterFirmwareAndStopsBeforeBackendLaunch() async throws {
+      for failure in ["existing", "unreadable"] {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let marker = fixture.root.appendingPathComponent("firmware-marker")
+        let executor = fixtureExecutor(effectiveUserID: { 0 },
+          firmwarePreparer: FirmwareMarker(url: marker), collectInstallAdmission: {
+            guard try Data(contentsOf: marker) == Data("prepared".utf8) else {
+              throw CocoaError(.fileReadUnknown)
+            }
+            if failure == "unreadable" { throw CocoaError(.fileReadNoPermission) }
+            return NativeAdmissionTestData.facts(existing: true)
+          })
+        await assertThrowsErrorAsync(try await executor.execute(fixture.package,
+          authorization: try machineOwnerAuthorization())) {
+          guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+            return XCTFail("Expected native admission failure, got \($0)")
+          }
+          XCTAssertEqual(report.notice.reason, .diskLayoutChanged)
+          XCTAssertTrue(report.notice.diskUnchanged)
+        }
+        XCTAssertEqual(try Data(contentsOf: marker), Data("prepared".utf8))
+        let journal = try XCTUnwrap(journalEntries(in: fixture.root).first)
+        XCTAssertTrue(try Data(contentsOf: journal).isEmpty)
+        XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+      }
+    }
+
+    func testMalformedRetainedJournalCannotBypassAdmissionOrClaimNoMutation() async throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let directory = fixture.root.appendingPathComponent("execution-journals")
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+        attributes: [.posixPermissions: 0o700])
+      let journal = directory.appendingPathComponent(String(repeating: "b", count: 64) + ".jsonl")
+      try Data("{\"type\":\"plan\"}\n".utf8).write(to: journal)
+      try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: journal.path)
+      let executor = fixtureExecutor(effectiveUserID: { 0 })
+      await assertThrowsErrorAsync(try await executor.execute(fixture.package,
+        authorization: try machineOwnerAuthorization())) {
+        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+          return XCTFail("Expected journal rejection")
+        }
+        XCTAssertEqual(report.notice.reason, .planIntegrity)
+        XCTAssertFalse(report.notice.diskUnchanged)
+      }
+      XCTAssertEqual(try Data(contentsOf: journal), Data("{\"type\":\"plan\"}\n".utf8))
+      XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
+
+    func testExplicitRepairAndReplacementReachTheBackendWithKnownInstallations() async throws {
+      for intent in [ImportedInstallationIntent.repair, .replace] {
+        let fixture = try makeFixture(installationIntent: intent)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let executor = fixtureExecutor(effectiveUserID: { 0 }, collectInstallAdmission: {
+          NativeAdmissionTestData.facts(existing: true)
+        })
+        let result = try await executor.execute(fixture.package, authorization: try machineOwnerAuthorization())
+        XCTAssertEqual(result, fixture.transcript)
+      }
+    }
+
+    func testRecordedInstallResumesOnlyWithPrivateMatchingCheckpointEvidence() async throws {
+      for evidenceState in ["valid", "changed", "missing", "symlink", "public"] {
+        let fixture = try makeFixture(planDigest: NativeAdmissionTestData.plan.planDigest)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let directory = fixture.root.appendingPathComponent("execution-journals")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+          attributes: [.posixPermissions: 0o700])
+        let journal = directory.appendingPathComponent(String(repeating: "b", count: 64) + ".jsonl")
+        let retained = try NativeAdmissionTestData.journal(stages: 2, pendingRecovery: true)
+        try retained.write(to: journal)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: journal.path)
+        for identifier in ["apfs-target-prepared", "stub-and-esp-installed"] {
+          let evidence = URL(fileURLWithPath: journal.path + "." + identifier + ".evidence")
+          if evidenceState == "missing" { continue }
+          if evidenceState == "symlink" {
+            try FileManager.default.createSymbolicLink(at: evidence, withDestinationURL: journal)
+          } else {
+            try (evidenceState == "changed" ? Data("changed".utf8) : NativeAdmissionTestData.evidence).write(to: evidence)
+            try FileManager.default.setAttributes([.posixPermissions: evidenceState == "public" ? 0o644 : 0o600], ofItemAtPath: evidence.path)
+          }
+        }
+        let executor = fixtureExecutor(effectiveUserID: { 0 }, collectInstallAdmission: {
+          throw CocoaError(.fileReadUnknown)
+        })
+        if evidenceState == "valid" {
+          let result = try await executor.execute(fixture.package, authorization: try machineOwnerAuthorization())
+          XCTAssertEqual(result, fixture.transcript)
+        } else {
+          await assertThrowsErrorAsync(try await executor.execute(fixture.package,
+            authorization: try machineOwnerAuthorization())) {
+            guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+              return XCTFail("Expected checkpoint rejection")
+            }
+            XCTAssertEqual(report.notice.reason, .planIntegrity)
+            XCTAssertFalse(report.notice.diskUnchanged)
+          }
+          XCTAssertEqual(try Data(contentsOf: journal), retained)
+        }
+      }
+    }
+
     func testDecoderAdmissionFailureStopsBeforeExtractionAndAttestsOnlyInitialNoMutation()
       async throws
     {
@@ -610,6 +721,9 @@
       expectedFileOwnerID: @escaping @Sendable () -> uid_t = { geteuid() },
       extractionOptions: [String] = [],
       firmwarePreparer: any NativeFirmwarePreparing = NativeFirmwarePreparer(),
+      collectInstallAdmission: @escaping @Sendable () throws -> NativeInstallAdmissionFacts = {
+        NativeAdmissionTestData.facts()
+      },
       rejectRecovery: Bool = false,
       restoreImageRequirement: String? = RestoreImageHelper.adHocRequirement(
         codeHash: String(repeating: "a", count: 40)),
@@ -623,6 +737,7 @@
           if rejectDecoder { throw RestoreImageHelperError.signatureRejected }
         },
         firmwarePreparer: firmwarePreparer,
+        collectInstallAdmission: collectInstallAdmission,
         prepareRecoveryTemplate: { package in
           if rejectRecovery { throw NativeRecoveryTemplateError.unavailable }
           let directory = package.packageURL.deletingLastPathComponent().appendingPathComponent(
@@ -649,7 +764,9 @@
       repairManifest: Data? = nil,
       standardError: Data? = nil,
       includeDecoder: Bool = true,
-      supportsSignedDecoder: Bool = true
+      supportsSignedDecoder: Bool = true,
+      installationIntent: ImportedInstallationIntent = .fresh,
+      planDigest: String = String(repeating: "a", count: 64)
     ) throws -> PinnedExecutorFixture {
       let root = FileManager.default.temporaryDirectory.appendingPathComponent(
         "omarchy-pinned-executor-\(UUID().uuidString.lowercased())",
@@ -806,27 +923,19 @@
           repairManifestURL: repairManifestURL,
           restoreImageURL: includeDecoder ? decoderURL : nil,
           bindingDigest: "sha256:" + String(repeating: "b", count: 64),
-          planDigest: String(repeating: "a", count: 64),
+          planDigest: planDigest,
           deviceIdentifier: "apple,j314s",
-          storeIdentifier: "disk0"
+          storeIdentifier: "disk0",
+          installationIntent: installationIntent
         ),
         transcript: transcript
       )
     }
 
     private func readOnlyJournal(withEvent: Bool = false) -> Data {
-      let planDigest = String(repeating: "a", count: 64)
-      var lines = [
-        #"{"schema_version":1,"sequence":1,"type":"inspection","payload":{"device_identifier":"apple,j314s","support":"supported"}}"#,
-        #"{"schema_version":1,"sequence":2,"type":"inventory","payload":{"layout_digest":"sha256:\#(String(repeating: "c", count: 64))","system_store_identifier":"disk0","candidates":[]}}"#,
-        #"{"schema_version":1,"sequence":3,"type":"plan","payload":{"plan_digest":"\#(planDigest)","device_identifier":"apple,j314s","store_identifier":"disk0"}}"#,
-      ]
-      if withEvent {
-        lines.append(
-          #"{"schema_version":1,"sequence":4,"type":"event","payload":{"plan_digest":"\#(planDigest)","name":"apfs_preparation_started"}}"#
-        )
-      }
-      return Data((lines.joined(separator: "\n") + "\n").utf8)
+      let bytes = try! NativeAdmissionTestData.journal(pendingDisk: withEvent)
+      if withEvent { return bytes }
+      return Data(bytes.split(separator: 10).prefix(2).flatMap { Array($0) + [10] })
     }
 
     private func recoveryRetryTranscript(

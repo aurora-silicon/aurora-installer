@@ -22,6 +22,20 @@
   }
 
   final class EngineHandoffPackageImporterTests: XCTestCase {
+    func testFreshRepairAndReplacementIntentSurvivesRetainedRevalidation() throws {
+      for intent in [ImportedInstallationIntent.fresh, .repair, .replace] {
+        let fixture = try makeFixture(repair: intent == .repair, replace: intent == .replace)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let source = try openDirectory(fixture.source)
+        defer { try? source.close() }
+        let importer = EngineHandoffPackageImporter()
+        let imported = try importer.prepare(from: source, in: fixture.destination)
+        XCTAssertEqual(imported.installationIntent, intent)
+        let reopened = try importer.reopenRetained(named: imported.packageURL.lastPathComponent,
+          in: fixture.destination)
+        XCTAssertEqual(reopened.installationIntent, intent)
+      }
+    }
     func testDecoderIsExecutableAndRetainedRetryRejectsChangedOrNonExecutableBytes() throws {
       for change in ["bytes", "execute-bit"] {
         let fixture = try makeFixture()

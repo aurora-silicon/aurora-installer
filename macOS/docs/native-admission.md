@@ -1,0 +1,11 @@
+# Native installation admission
+
+The native inspector reports known Fedora Aurora Remix, Aurora ALARM, Aurora NixOS and Omarchy installations independently of the selected profile. Recognition requires a collected stub System volume and its matching EFI, boot and root partition sequence. The report uses the actual partition extent without applying the new image's size floor or including nearby free space. It is a nondestructive report, never deletion or repair authority.
+
+Welcome inspection and the fresh inspection before planning both consume this report. The existing inventory transcript, replacement candidates and layout digests retain their original contract. Collection failures are errors, rather than evidence that no installation exists.
+
+The privileged executor independently recollects native host and disk facts immediately before launching a fresh installation, after firmware preparation and backend admission. It compares device and whole-disk identifiers with the imported request and refuses a known installation. Explicit replacement and installed-system repair retain their existing plan, owner approval and backend checks. The importer preserves that validated request intent when reopening retained inputs.
+
+A recorded operation can resume only with a strictly decoded journal matching the imported device, store and plan. Its mutation records must form completed stage prefixes, with private checkpoint evidence matching every recorded digest. Recovery handoff may have an outstanding intent after both disk stages completed; an incomplete disk-stage intent is ambiguous and refused. An already completed Recovery handoff requires all three checkpoints. The dedicated Recovery authorization retry keeps its existing live installed-state validation.
+
+Empty and valid read-only journals receive fresh admission again. Malformed, foreign or ambiguous journals do not become resume authority. A failure only claims the disk is unchanged when its private journal is empty or contains complete, identity-matching read-only records. Tests exercise recognition, GUI consumption, the actual executor launch boundary, retained input intent and valid versus damaged checkpoint evidence. Physical installation remains a separate qualification.

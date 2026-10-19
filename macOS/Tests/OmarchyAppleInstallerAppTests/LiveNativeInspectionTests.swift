@@ -41,11 +41,15 @@ final class LiveNativeInspectionTests: XCTestCase {
         isInternal: true, containerSizeBytes: 512 * 1024 * unit,
         containerFreeBytes: 256 * 1024 * unit,
         minimumPreferredSizeBytes: 128 * 1024 * unit))
-    let service = FixedNativeInspection(result: try NativeInstallerInspection(transcript: bytes))
+    let known = NativeKnownInstallation(sourceIdentifier: "disk0s4", offsetBytes: 4096,
+      lengthBytes: 16_384 * unit)
+    let service = FixedNativeInspection(result: try NativeInstallerInspection(transcript: bytes,
+      knownInstallations: [known, known]))
     let environment = LiveInstallerEnvironment(inspector: service, inspectHost: { host })
     let display = try await environment.inspect()
     XCTAssertTrue(display.supported)
     XCTAssertTrue(environment.engineSupported)
+    XCTAssertEqual(display.existingInstalls.map(\.sourceIdentifier), ["disk0s4"])
     let calls = await service.calls()
     XCTAssertEqual(calls, [false])
   }

@@ -88,6 +88,26 @@
         hardware: { value.hardware }, collect: { _ in value.disk })
       let result = try await inspector.inspect(host: value.host)
       XCTAssertEqual(result.validated, value.expected)
+      XCTAssertTrue(result.knownInstallations.isEmpty)
+    }
+
+    func testKnownInstallationReportIsConnectedWithoutChangingLegacyInventory() async throws {
+      let value = try first()
+      let vector = try XCTUnwrap(vectors().first { $0["name"] as? String == "complete-install" })
+      let snapshot = try decode(RemovalSnapshot.self, vector["snapshot"]!)
+      let facts = try decode([NativeContainerFacts].self, vector["containers"]!)
+      let disk = NativeCollectedDisk(snapshot: snapshot, containers: facts)
+      let inspector = NativeInstallerInspector(policy: { try NativeInspectionPolicy.sealed() },
+        hardware: { value.hardware }, collect: { _ in disk })
+      let result = try await inspector.inspect(host: value.host)
+      XCTAssertEqual(result.knownInstallations.map(\.sourceIdentifier), ["disk0s4"])
+      let policy = try NativeInspectionPolicy.sealed()
+      let metadata = policy.baselineMetadata
+      let stub = try policy.stubBytes(value.host.identity.deviceIdentifier, hardware: value.hardware,
+        metadata: metadata)
+      XCTAssertEqual(result.transcript, try NativeDiskInventory.transcript(
+        device: value.host.identity.deviceIdentifier, snapshot: snapshot, containers: facts,
+        metadata: metadata, stubBytes: stub))
     }
 
     func testUnknownChipIsRefusedBeforeDiskCollection() async throws {

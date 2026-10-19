@@ -5,10 +5,12 @@
   public struct NativeInstallerInspection: Sendable {
     public let transcript: Data
     public let validated: ValidatedEngineTranscript
+    public let knownInstallations: [NativeKnownInstallation]
 
-    public init(transcript: Data) throws {
+    public init(transcript: Data, knownInstallations: [NativeKnownInstallation] = []) throws {
       self.transcript = transcript
       validated = try AppleInstallerTrustCore().validateEngineTranscript(transcript)
+      self.knownInstallations = knownInstallations
     }
   }
 
@@ -66,7 +68,8 @@
         let result = try NativeInstallerInspection(
           transcript: NativeDiskInventory.transcript(
             device: device, snapshot: disk.snapshot, containers: disk.containers,
-            metadata: metadata, stubBytes: stub))
+            metadata: metadata, stubBytes: stub),
+          knownInstallations: NativeKnownInstallations.recognize(disk))
         try Task.checkCancellation()
         return result
       }

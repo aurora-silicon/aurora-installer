@@ -132,6 +132,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     var engine: ValidatedEngineTranscript?
     var transcript: Data?
     var engineFailure: String?
+    var knownInstallations = [NativeKnownInstallation]()
     do {
       let inspection = try await inspector.inspect(host: host, metadata: nil)
       guard
@@ -142,6 +143,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       }
       engine = inspection.validated
       transcript = inspection.transcript
+      knownInstallations = inspection.knownInstallations
     } catch InstallerAppError.hostChanged {
       // engineFailure already set above.
     } catch {
@@ -175,7 +177,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
 
     return display(
       host: host, engine: engine, engineFailure: engineFailure,
-      unsupportedModel: unsupportedModel)
+      unsupportedModel: unsupportedModel, knownInstallations: knownInstallations)
   }
 
   /// The signed catalog's model list for the unsupported-Mac message. Any
@@ -357,7 +359,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
 
     // Existing installs are never replaced or joined: report them and let
     // the session refuse.
-    let existing = Self.existingInstalls(in: signedInspection.validated)
+    let existing = Self.existingInstalls(in: signedInspection.validated,
+      knownInstallations: signedInspection.knownInstallations)
     if !existing.isEmpty {
       return .existingInstallChoice(existing)
     }
@@ -695,7 +698,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     host: AppleSiliconHostInspection,
     engine: ValidatedEngineTranscript?,
     engineFailure: String?,
-    unsupportedModel: UnsupportedModelDisplay?
+    unsupportedModel: UnsupportedModelDisplay?,
+    knownInstallations: [NativeKnownInstallation]
   ) -> HostDisplay {
     let blocked: Bool
     if case .blocked = host.eligibility {
@@ -704,7 +708,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       blocked = false
     }
 
-    let existing = Self.existingInstalls(in: engine)
+    let existing = Self.existingInstalls(in: engine, knownInstallations: knownInstallations)
     let space = existing.isEmpty ? Self.spaceCheck(engine: engine, host: host) : nil
     let chipAndFreeSpace =
       "\(host.identity.chip) · \(PlainLanguage.bytes(host.storage.containerFreeBytes)) free"
@@ -759,16 +763,13 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     }
   }
 
-  /// Existing Aurora installs the bundled engine's inventory reports as
-  /// replace candidates. Read at the welcome stage, so the installer can
-  /// refuse before it fetches the catalog or downloads anything.
+  /// The native report is independent of the selected profile and minimum
+  /// image size. Keep legacy candidates too, without changing their contract.
   static func existingInstalls(
-    in engine: ValidatedEngineTranscript?
+    in engine: ValidatedEngineTranscript?,
+    knownInstallations: [NativeKnownInstallation] = []
   ) -> [ExistingInstallDisplay] {
-    guard let inventory = engine?.inventory else {
-      return []
-    }
-    return inventory.candidates
+    var result = (engine?.inventory?.candidates ?? [])
       .filter { $0.kind == "replace" }
       .map { existing in
         ExistingInstallDisplay(
@@ -776,6 +777,12 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
           sizeDescription: PlainLanguage.bytes(existing.lengthBytes)
         )
       }
+    var sources = Set(result.map(\.sourceIdentifier))
+    for known in knownInstallations where sources.insert(known.sourceIdentifier).inserted {
+      result.append(ExistingInstallDisplay(sourceIdentifier: known.sourceIdentifier,
+        sizeDescription: PlainLanguage.bytes(known.lengthBytes)))
+    }
+    return result
   }
 
   private func blockingReason(
