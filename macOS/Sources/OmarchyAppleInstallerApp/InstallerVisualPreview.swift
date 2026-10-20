@@ -48,11 +48,13 @@
             }
           } actions: {
             if screen.hasPrefix("allocation") {
-              if screen == "allocation-checking" {
-                Button("Cancel check", action: {}).omarchySecondaryButton()
+              HStack(spacing: 16) {
+                if screen == "allocation-checking" {
+                  Button("Cancel check", action: {}).omarchySecondaryButton()
+                }
+                Button("Install Aurora", action: {}).nativeInstallButton()
+                  .disabled(screen != "allocation-ready").keyboardShortcut(.defaultAction)
               }
-              Button("Install Aurora", action: {}).nativeInstallButton()
-                .disabled(screen != "allocation-ready").keyboardShortcut(.defaultAction)
             } else {
               Text("Keep this Mac open and plugged in.")
                 .font(OmarchyTheme.detail).foregroundStyle(.secondary)
