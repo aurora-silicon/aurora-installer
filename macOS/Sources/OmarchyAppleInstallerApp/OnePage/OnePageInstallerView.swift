@@ -322,8 +322,8 @@ struct OnePageInstallerView: View {
         Button(plan.preservesStage1 ? "Check again" : "Check size") {
           Task { await session.checkDraftAllocation() }
         }
-          .omarchySecondaryButton()
-          .disabled(session.isEditingSize)
+        .omarchySecondaryButton()
+        .disabled(session.isEditingSize)
       }
       Button(plan.preservesStage1 ? "Reinstall" : PlainLanguage.planInstall) {
         // Approve the exact plan and go straight to the password. If the
@@ -594,9 +594,9 @@ struct ExistingInstallationContent: View {
       Text(
         "Choose the installed Aurora distribution to reinstall while keeping its startup setup. Or erase Linux and return its space to macOS."
       )
-        .font(OmarchyTheme.body)
-        .foregroundStyle(OmarchyTheme.secondaryText)
-        .fixedSize(horizontal: false, vertical: true)
+      .font(OmarchyTheme.body)
+      .foregroundStyle(OmarchyTheme.secondaryText)
+      .fixedSize(horizontal: false, vertical: true)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
   }

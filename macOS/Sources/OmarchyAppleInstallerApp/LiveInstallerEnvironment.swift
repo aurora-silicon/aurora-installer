@@ -911,14 +911,18 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       ?? (review.plan.candidateKind == "free"
         ? host.storage.containerSizeBytes + recommendation.candidate.lengthBytes
         : max(host.storage.containerSizeBytes, length))
-    let source: PlanAllocationSource =
-      review.plan.candidateKind == "reinstall"
-      ? .preservedInstall
-      : review.plan.candidateKind == "free"
-      ? .freeExtent
-      : (review.plan.sourceIdentifier
+    let source: PlanAllocationSource
+    switch review.plan.candidateKind {
+    case "reinstall": source = .preservedInstall
+    case "free": source = .freeExtent
+    default:
+      source = review.plan.sourceIdentifier
         == (geometry?.macOSStoreIdentifier ?? host.storage.physicalStoreIdentifier)
-        ? .macOSResize : .otherContainerResize)
+        ? .macOSResize : .otherContainerResize
+    }
+    let otherAllocated = geometry?.otherAllocatedBytes ?? 0
+    let otherAfter = source == .preservedInstall
+      ? otherAllocated - min(otherAllocated, length) : otherAllocated
     let sourceName = (geometry?.partitionNames[review.plan.sourceIdentifier]).flatMap {
       $0.isEmpty ? nil : String($0.prefix(128))
     }
@@ -951,10 +955,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
         ? nil : recommendation.candidate.recommendedInstallBytes,
       allocationSource: source,
       baselineMacOSBytes: geometry?.macOSBytes,
-      otherAllocatedBytes: source == .preservedInstall
-        ? (geometry?.otherAllocatedBytes ?? 0) - min(
-          geometry?.otherAllocatedBytes ?? 0, length)
-        : geometry?.otherAllocatedBytes ?? 0
+      otherAllocatedBytes: otherAfter
     )
   }
 
