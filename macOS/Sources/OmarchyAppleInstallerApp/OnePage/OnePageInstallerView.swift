@@ -387,9 +387,11 @@ struct OnePageInstallerView: View {
           .font(OmarchyTheme.body)
           InstallerDetailsButton(
             title: "Last verified steps",
-            text: ([headline, detail, technical ?? ""] + (session.journal.feed.isEmpty
-              ? ["No completed disk step was confirmed. Disk changes may still have started."]
-              : session.journal.feed.map(\.text))).joined(separator: "\n"))
+            text: ([headline, detail, technical ?? ""]
+              + (session.journal.feed.isEmpty
+                ? ["No completed disk step was confirmed. Disk changes may still have started."]
+                : session.journal.feed.map(\.text)))
+              .joined(separator: "\n"))
         }
       }
       .padding(.vertical, 2)
@@ -691,9 +693,12 @@ struct DiskSplitPanel: View {
         Text(caution).font(OmarchyTheme.body).foregroundStyle(OmarchyTheme.caution)
       }
     }
-    .sheet(isPresented: $showsSizePrompt, onDismiss: {
-      if sizeInput.isEditing { cancelSize() }
-    }) {
+    .sheet(
+      isPresented: $showsSizePrompt,
+      onDismiss: {
+        if sizeInput.isEditing { cancelSize() }
+      }
+    ) {
       DiskSizePrompt(
         input: $sizeInput, minimumBytes: plan.minimumBytes, maximumBytes: plan.maximumBytes,
         onApply: applySize, onCancel: cancelSize)
@@ -790,10 +795,15 @@ struct DiskSizePrompt: View {
           .onSubmit { if input.requestedBytes != nil { onApply() } }
         Text("GB").font(OmarchyTheme.body).foregroundStyle(.secondary)
       }
-      Text(input.validationMessage ?? "From \(PlainLanguage.bytes(minimumBytes)) to \(PlainLanguage.bytes(maximumBytes))")
-        .font(OmarchyTheme.detail)
-        .foregroundStyle(input.validationMessage == nil ? OmarchyTheme.secondaryText : OmarchyTheme.danger)
-        .fixedSize(horizontal: false, vertical: true)
+      Text(
+        input.validationMessage
+          ?? "From \(PlainLanguage.bytes(minimumBytes)) to \(PlainLanguage.bytes(maximumBytes))"
+      )
+      .font(OmarchyTheme.detail)
+      .foregroundStyle(
+        input.validationMessage == nil ? OmarchyTheme.secondaryText : OmarchyTheme.danger
+      )
+      .fixedSize(horizontal: false, vertical: true)
       HStack(spacing: 12) {
         Spacer()
         Button("Cancel", action: onCancel).omarchySecondaryButton().keyboardShortcut(.cancelAction)
@@ -851,7 +861,8 @@ struct InstallPanel: View {
         }
         InstallerDetailsButton(
           title: "View activity",
-          text: progress.feed.isEmpty ? "No activity recorded yet." : progress.feed.map(\.text).joined(separator: "\n"))
+          text: progress.feed.isEmpty
+            ? "No activity recorded yet." : progress.feed.map(\.text).joined(separator: "\n"))
         if progress.degraded {
           Text(PlainLanguage.installDegraded).omarchyHelpText()
         }

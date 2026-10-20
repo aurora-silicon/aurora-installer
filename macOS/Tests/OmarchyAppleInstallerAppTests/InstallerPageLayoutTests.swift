@@ -18,7 +18,8 @@
         } content: {
           VStack(spacing: 20) {
             Text("Choose your space")
-            DiskBar(macOSBytes: 272_000_000_000, omarchyBytes: 128_000_000_000,
+            DiskBar(
+              macOSBytes: 272_000_000_000, omarchyBytes: 128_000_000_000,
               unallocatedBytes: 48_000_000_000, otherAllocatedBytes: 64_000_000_000)
           }
         } actions: {

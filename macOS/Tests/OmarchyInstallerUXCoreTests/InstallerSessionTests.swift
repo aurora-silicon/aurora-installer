@@ -1672,7 +1672,11 @@
     var savedJournal: (@Sendable (Data) -> Void)?
     var inspectError: (any Error)?
     var prepareError: (any Error)?
-    var prepareHandler: (@Sendable (UInt64?, @escaping @Sendable (AssetProgressUpdate) -> Void) async throws -> PlanPreparationDisplay)?
+    var prepareHandler:
+      (
+        @Sendable (UInt64?, @escaping @Sendable (AssetProgressUpdate) -> Void) async throws ->
+          PlanPreparationDisplay
+      )?
     var approveError: (any Error)?
     var executeResults = [Result<CompletionDisplay, any Error>]()
     var journalChunks = [Data]()

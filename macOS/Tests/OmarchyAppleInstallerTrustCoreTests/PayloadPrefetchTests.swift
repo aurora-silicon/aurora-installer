@@ -746,7 +746,9 @@
       XCTAssertEqual(orchestrator.currentState(), .idle)
     }
 
-    func testBackgroundCancellationJoinsWritersBeforeRetirementAndSuccessorSpaceChecks() async throws {
+    func testBackgroundCancellationJoinsWritersBeforeRetirementAndSuccessorSpaceChecks()
+      async throws
+    {
       let firstData = Data("retired-payload".utf8)
       let secondData = Data("current-payload".utf8)
       let first = try pinnedPayload(firstData, fileName: "first.bin")
@@ -764,8 +766,9 @@
         makeFreeSpace: { directory in
           RetirementFreeSpace {
             if let retired = directories.values.first, retired != directory {
-              events.append(FileManager.default.fileExists(atPath: retired.path)
-                ? "space-before-retirement" : "space-after-retirement")
+              events.append(
+                FileManager.default.fileExists(atPath: retired.path)
+                  ? "space-before-retirement" : "space-after-retirement")
             }
             return 8_000_000_000
           }
@@ -785,10 +788,13 @@
             try secondData.write(to: file)
             events.append("successor-staged")
           }
-          return StagedInstallerArtifact(artifact: artifact, fileURL: file, reusedExistingFile: false)
+          return StagedInstallerArtifact(
+            artifact: artifact, fileURL: file, reusedExistingFile: false)
         })
-      orchestrator.begin(payload: StagedInstallerArtifact(
-        artifact: first, fileURL: root.appendingPathComponent(first.fileName), reusedExistingFile: false))
+      orchestrator.begin(
+        payload: StagedInstallerArtifact(
+          artifact: first, fileURL: root.appendingPathComponent(first.fileName),
+          reusedExistingFile: false))
       await gate.waitUntilEntered()
       let retired = try XCTUnwrap(directories.values.first)
       orchestrator.cancel()
@@ -796,8 +802,10 @@
       // this directory. Its files must stay until that writer finishes.
       XCTAssertEqual(orchestrator.currentState(), .idle)
       XCTAssertTrue(FileManager.default.fileExists(atPath: retired.path))
-      orchestrator.begin(payload: StagedInstallerArtifact(
-        artifact: second, fileURL: root.appendingPathComponent(second.fileName), reusedExistingFile: false))
+      orchestrator.begin(
+        payload: StagedInstallerArtifact(
+          artifact: second, fileURL: root.appendingPathComponent(second.fileName),
+          reusedExistingFile: false))
       try await Task.sleep(for: .milliseconds(100))
       XCTAssertFalse(events.values.contains("successor-staged"))
       XCTAssertFalse(events.values.contains("space-before-retirement"))
@@ -805,7 +813,8 @@
       try await orchestrator.waitForRetirement()
       try await orchestrator.waitUntilVerified { _ in }
       XCTAssertFalse(FileManager.default.fileExists(atPath: retired.path))
-      XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(first.fileName).path))
+      XCTAssertFalse(
+        FileManager.default.fileExists(atPath: root.appendingPathComponent(first.fileName).path))
       XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent(second.fileName)), secondData)
       let order = events.values
       let finished = try XCTUnwrap(order.firstIndex(of: "writer-finished"))
@@ -824,7 +833,10 @@
         makeNetwork: { MockNetworkPath(Self.unmetered) },
         makeKeepAwake: { MockKeepAwake() },
         makeFreeSpace: { _ in MockFreeSpace(bytes: 8_000_000_000) },
-        matchesPinned: { _, _ in hashes.append(true); return false },
+        matchesPinned: { _, _ in
+          hashes.append(true)
+          return false
+        },
         requiredFreeBytes: { $0 }, stage: { _, _, _ in throw CancellationError() })
       let watcher = Task {
         try await orchestrator.waitUntilVerified { state in
@@ -838,10 +850,11 @@
         }
       }
       XCTAssertEqual(observed, .success)
-      orchestrator.begin(payload: StagedInstallerArtifact(
-        artifact: artifact,
-        fileURL: FileManager.default.temporaryDirectory.appendingPathComponent(
-          "callback-cancel-\(UUID().uuidString).bin"), reusedExistingFile: false))
+      orchestrator.begin(
+        payload: StagedInstallerArtifact(
+          artifact: artifact,
+          fileURL: FileManager.default.temporaryDirectory.appendingPathComponent(
+            "callback-cancel-\(UUID().uuidString).bin"), reusedExistingFile: false))
       do {
         try await watcher.value
         XCTFail("The observer cancelled this generation")

@@ -71,10 +71,11 @@ struct OmarchyRemovalSheet: View {
       fixedHeightCap = heightCap
       preloaded = true
       self.onControlFrame = onControlFrame
-      if reviewConfirmation, let ticket {
+      if reviewConfirmation {
         _reviewPage = State(initialValue: RemovalReviewPage.pages(for: ticket).count - 1)
-      } else if let previewPage, let ticket {
-        _reviewPage = State(initialValue: min(max(0, previewPage), RemovalReviewPage.pages(for: ticket).count - 1))
+      } else if let previewPage {
+        _reviewPage = State(
+          initialValue: min(max(0, previewPage), RemovalReviewPage.pages(for: ticket).count - 1))
       }
     }
   #endif
@@ -151,12 +152,15 @@ struct OmarchyRemovalSheet: View {
         case .kept(let index):
           planSection("Stays as it is", items: [ticket.kept[index]])
         case .note(let index):
-          Text(ticket.notes[index]).font(OmarchyTheme.body).fixedSize(horizontal: false, vertical: true)
+          Text(ticket.notes[index]).font(OmarchyTheme.body).fixedSize(
+            horizontal: false, vertical: true)
         case .confirmation:
-          Text(ticket.kind == .freeSpace
-            ? "Your macOS files stay as they are. This can’t be undone."
-            : "Your macOS files stay as they are. Everything in the deleted partitions is lost. Removal can’t be undone.")
-            .font(OmarchyTheme.body).fixedSize(horizontal: false, vertical: true)
+          Text(
+            ticket.kind == .freeSpace
+              ? "Your macOS files stay as they are. This can’t be undone."
+              : "Your macOS files stay as they are. Everything in the deleted partitions is lost. Removal can’t be undone."
+          )
+          .font(OmarchyTheme.body).fixedSize(horizontal: false, vertical: true)
           if let actionError {
             Text(actionError).font(OmarchyTheme.body).foregroundStyle(OmarchyTheme.danger)
               .fixedSize(horizontal: false, vertical: true)
@@ -484,7 +488,11 @@ struct OmarchyRemovalSheet: View {
 /// Every deletion, retained item and note is reviewed before confirmation.
 /// Paging keeps the sheet finite without hiding destructive scope in a scroll.
 enum RemovalReviewPage: Equatable {
-  case overview, startup, deleted(Int), kept(Int), note(Int), confirmation
+  case overview, startup
+  case deleted(Int)
+  case kept(Int)
+  case note(Int)
+  case confirmation
 
   static func pages(for ticket: OmarchyRemovalTicket) -> [Self] {
     var result: [Self] = [.overview]

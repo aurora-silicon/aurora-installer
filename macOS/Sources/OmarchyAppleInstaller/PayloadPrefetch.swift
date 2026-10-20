@@ -687,59 +687,61 @@
       let artifact = payload.artifact
       let canonical = payload.fileURL
       let parent = canonical.deletingLastPathComponent()
-        guard self.isCurrent(generation), !Task.isCancelled else { return }
-        self.publish(.verifying, generation: generation)
-        guard self.isCurrent(generation), !Task.isCancelled else { return }
-        if self.matchesPinned(artifact, canonical) {
-          self.publish(.verified, generation: generation)
-          return
-        }
+      guard self.isCurrent(generation), !Task.isCancelled else { return }
+      self.publish(.verifying, generation: generation)
+      guard self.isCurrent(generation), !Task.isCancelled else { return }
+      if self.matchesPinned(artifact, canonical) {
+        self.publish(.verified, generation: generation)
+        return
+      }
 
-        guard self.isCurrent(generation), !Task.isCancelled else { return }
-        let work = parent.appendingPathComponent(
-          "prefetch-\(generation.uuidString.lowercased())",
-          isDirectory: true
+      guard self.isCurrent(generation), !Task.isCancelled else { return }
+      let work = parent.appendingPathComponent(
+        "prefetch-\(generation.uuidString.lowercased())",
+        isDirectory: true
+      )
+      do {
+        try FileManager.default.createDirectory(
+          at: work,
+          withIntermediateDirectories: true,
+          attributes: [.posixPermissions: 0o700]
         )
-        do {
-          try FileManager.default.createDirectory(
-            at: work,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-          )
-        } catch {
-          self.publish(
-            .failed(PayloadPrefetchFailure.reason(for: error)), generation: generation)
-          return
-        }
-        let owned = self.lock.withLock { () -> Bool in
-          guard self.generation == generation else { return false }
-          self.ownedWorkDirectories.append(work)
-          return true
-        }
-        guard owned else {
-          try? FileManager.default.removeItem(at: work)
-          return
-        }
+      } catch {
+        self.publish(
+          .failed(PayloadPrefetchFailure.reason(for: error)), generation: generation)
+        return
+      }
+      let owned = self.lock.withLock { () -> Bool in
+        guard self.generation == generation else { return false }
+        self.ownedWorkDirectories.append(work)
+        return true
+      }
+      guard owned else {
+        try? FileManager.default.removeItem(at: work)
+        return
+      }
 
-        let controller = PayloadPrefetchController(
-          network: self.makeNetwork(),
-          freeSpace: self.makeFreeSpace(work),
-          keepAwake: self.makeKeepAwake(),
-          retainedBytes: { Self.regularFileBytes(in: work) },
-          requiresNetwork: self.requiresNetwork(artifact),
-          onState: { [weak self] state in
-            self?.publish(state, generation: generation)
-          }
-        )
-        let current = self.lock.withLock { () -> Bool in
-          guard self.generation == generation else { return false }
-          self.controller = controller
-          return true
+      let controller = PayloadPrefetchController(
+        network: self.makeNetwork(),
+        freeSpace: self.makeFreeSpace(work),
+        keepAwake: self.makeKeepAwake(),
+        retainedBytes: { Self.regularFileBytes(in: work) },
+        requiresNetwork: self.requiresNetwork(artifact),
+        onState: { [weak self] state in
+          self?.publish(state, generation: generation)
         }
-        guard current else { return }
+      )
+      let current = self.lock.withLock { () -> Bool in
+        guard self.generation == generation else { return false }
+        self.controller = controller
+        return true
+      }
+      guard current else { return }
 
-        let required = self.requiredFreeBytes(artifact.expectedSizeBytes)
-        await controller.start(requiredBytes: required, admitted: { self.isCurrent(generation) }, work: {
+      let required = self.requiredFreeBytes(artifact.expectedSizeBytes)
+      await controller.start(
+        requiredBytes: required, admitted: { self.isCurrent(generation) },
+        work: {
           try self.requireCurrent(generation)
           let staged = try await self.stage(artifact, work) { event in
             Task {

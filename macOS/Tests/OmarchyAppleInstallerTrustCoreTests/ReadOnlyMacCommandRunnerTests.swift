@@ -23,12 +23,15 @@
       let oversized = process("/bin/dd", ["if=/dev/zero", "bs=1048576", "count=9"])
       XCTAssertThrowsError(
         try FoundationReadOnlyMacCommandRunner.collect(
-          process: oversized, auditName: "output-budget", timeout: .seconds(10))) {
-        XCTAssertEqual($0 as? AppleSiliconHostInspectionError, .invalidCommandResponse("output-budget"))
+          process: oversized, auditName: "output-budget", timeout: .seconds(10))
+      ) {
+        XCTAssertEqual(
+          $0 as? AppleSiliconHostInspectionError, .invalidCommandResponse("output-budget"))
       }
       let failed = process("/bin/sh", ["-c", "printf partial; exit 3"])
       XCTAssertThrowsError(
-        try FoundationReadOnlyMacCommandRunner.collect(process: failed, auditName: "exit-fixture")) {
+        try FoundationReadOnlyMacCommandRunner.collect(process: failed, auditName: "exit-fixture")
+      ) {
         XCTAssertEqual($0 as? AppleSiliconHostInspectionError, .commandFailed("exit-fixture", 3))
       }
     }
@@ -37,7 +40,8 @@
       let child = process("/bin/sleep", ["10"])
       XCTAssertThrowsError(
         try FoundationReadOnlyMacCommandRunner.collect(
-          process: child, auditName: "timeout-fixture", timeout: .milliseconds(100))) {
+          process: child, auditName: "timeout-fixture", timeout: .milliseconds(100))
+      ) {
         XCTAssertEqual($0 as? AppleSiliconHostInspectionError, .commandTimedOut("timeout-fixture"))
       }
       XCTAssertFalse(child.isRunning)

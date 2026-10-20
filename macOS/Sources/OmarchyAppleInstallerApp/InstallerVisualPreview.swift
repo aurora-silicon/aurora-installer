@@ -61,7 +61,8 @@
 
     @ViewBuilder private var stage: some View {
       switch screen {
-      case "allocation", "allocation-free", "allocation-other", "allocation-checking", "allocation-editing":
+      case "allocation", "allocation-free", "allocation-other", "allocation-checking",
+        "allocation-editing":
         DiskSplitPanel(
           plan: plan, editable: true, isBusy: screen == "allocation-checking",
           pendingAllocationBytes: screen == "allocation-checking" ? 160_000_000_000 : nil,

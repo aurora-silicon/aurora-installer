@@ -82,7 +82,9 @@
       await gate.release()
       await check.value
       XCTAssertTrue(session.planNeedsCheck)
-      guard case .planReview(let plan, _) = session.phase else { return XCTFail("Keep the draft visible") }
+      guard case .planReview(let plan, _) = session.phase else {
+        return XCTFail("Keep the draft visible")
+      }
       XCTAssertEqual(plan.omarchyBytes, 128_000_000_000)
       // Checking the same draft explicitly is necessary before approval.
       environment.prepareHandler = nil

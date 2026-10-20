@@ -74,7 +74,8 @@ final class LiveNativeInspectionTests: XCTestCase {
     let artifact = try PinnedInstallerArtifact(
       role: "payload", sourceURL: URL(string: "https://example.com/payload.bin")!,
       fileName: "payload.bin",
-      expectedDigest: "sha256:" + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
+      expectedDigest: "sha256:"
+        + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
       expectedSizeBytes: UInt64(data.count))
     let gate = LiveRetirementGate()
     let events = LiveInspectionEvents()
@@ -89,12 +90,18 @@ final class LiveNativeInspectionTests: XCTestCase {
         events.append("writer-finished")
         return StagedInstallerArtifact(artifact: artifact, fileURL: file, reusedExistingFile: false)
       })
-    prefetch.begin(payload: StagedInstallerArtifact(
-      artifact: artifact, fileURL: root.appendingPathComponent(artifact.fileName), reusedExistingFile: false))
+    prefetch.begin(
+      payload: StagedInstallerArtifact(
+        artifact: artifact, fileURL: root.appendingPathComponent(artifact.fileName),
+        reusedExistingFile: false))
     await gate.waitUntilEntered()
     prefetch.cancel()
     let environment = LiveInstallerEnvironment(
-      inspector: service, inspectHost: { events.append("host-sampled"); return host }, prefetch: prefetch)
+      inspector: service,
+      inspectHost: {
+        events.append("host-sampled")
+        return host
+      }, prefetch: prefetch)
     let inspection = Task { try await environment.inspect() }
     try await Task.sleep(for: .milliseconds(50))
     XCTAssertFalse(events.values.contains("host-sampled"))
@@ -119,7 +126,10 @@ private actor LiveRetirementGate {
     await withCheckedContinuation { continuation = $0 }
   }
   func waitUntilEntered() async { while !entered { await Task.yield() } }
-  func release() { continuation?.resume(); continuation = nil }
+  func release() {
+    continuation?.resume()
+    continuation = nil
+  }
 }
 
 private struct DisplayTestNetwork: InstallerNetworkPathObserving {

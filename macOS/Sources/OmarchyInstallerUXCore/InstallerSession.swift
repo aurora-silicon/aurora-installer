@@ -344,7 +344,9 @@
     }
 
     public func checkDraftAllocation() async {
-      guard !isBusy, !isEditingSize, planNeedsCheck, case .planReview(let plan, _) = phase else { return }
+      guard !isBusy, !isEditingSize, planNeedsCheck, case .planReview(let plan, _) = phase else {
+        return
+      }
       await replan(omarchyBytes: draftAllocationBytes ?? plan.omarchyBytes)
     }
 
@@ -404,48 +406,50 @@
           let outcome = try await task.value
           preparationTask = nil
           guard operationID == request.id else { continue }
-        switch outcome {
-        case .plan(let plan):
-          planNeedsCheck = false
-          draftAllocationBytes = nil
-          planRevision += 1
-          allocationNotice = request.bytes.flatMap {
-            PlainLanguage.allocationNotice(requestedBytes: $0, actualBytes: plan.omarchyBytes)
-          }
-          let lastUpdate: AssetProgressUpdate =
-            if case .preparingPlan(let update) = phase {
-              update
-            } else {
-              lastPrepared?.update ?? AssetProgressUpdate(stage: .planning)
+          switch outcome {
+          case .plan(let plan):
+            planNeedsCheck = false
+            draftAllocationBytes = nil
+            planRevision += 1
+            allocationNotice = request.bytes.flatMap {
+              PlainLanguage.allocationNotice(requestedBytes: $0, actualBytes: plan.omarchyBytes)
             }
-          lastPrepared = (plan, lastUpdate)
-          phase = request.hold ? .planPrepared(plan, lastUpdate) : .planReview(plan, acknowledged: false)
-          if request.replanning {
-            // The re-plan may have replaced or restarted the download. Watch it
-            // afresh so no result from the old watcher counts for this plan.
-            forgetPrefetchWatcher()
-            if environment.payloadPrefetchRequired {
-              prefetchState = environment.payloadPrefetchState
+            let lastUpdate: AssetProgressUpdate =
+              if case .preparingPlan(let update) = phase {
+                update
+              } else {
+                lastPrepared?.update ?? AssetProgressUpdate(stage: .planning)
+              }
+            lastPrepared = (plan, lastUpdate)
+            phase =
+              request.hold
+              ? .planPrepared(plan, lastUpdate) : .planReview(plan, acknowledged: false)
+            if request.replanning {
+              // The re-plan may have replaced or restarted the download. Watch it
+              // afresh so no result from the old watcher counts for this plan.
+              forgetPrefetchWatcher()
+              if environment.payloadPrefetchRequired {
+                prefetchState = environment.payloadPrefetchState
+              }
             }
-          }
-          startPrefetchIfNeeded()
-        case .existingInstallChoice(let options):
-          // Never replace, never install alongside: say what was found and
-          // stop. The only way forward is to remove the existing copy first.
-          stopPrefetch()
-          guard let host = request.host, !options.isEmpty else {
-            // A choice without the host context (or without options) has no
-            // safe way forward; require a fresh inspection.
-            phase = .failed(
-              FailureDisplay(
-                headline: PlainLanguage.planChangedBeforeApproval,
-                plainDetail: PlainLanguage.inspectionRequired
+            startPrefetchIfNeeded()
+          case .existingInstallChoice(let options):
+            // Never replace, never install alongside: say what was found and
+            // stop. The only way forward is to remove the existing copy first.
+            stopPrefetch()
+            guard let host = request.host, !options.isEmpty else {
+              // A choice without the host context (or without options) has no
+              // safe way forward; require a fresh inspection.
+              phase = .failed(
+                FailureDisplay(
+                  headline: PlainLanguage.planChangedBeforeApproval,
+                  plainDetail: PlainLanguage.inspectionRequired
+                )
               )
-            )
-            return
+              return
+            }
+            phase = .existingInstallRefused(host: host)
           }
-          phase = .existingInstallRefused(host: host)
-        }
         } catch {
           preparationTask = nil
           guard operationID == request.id else { continue }

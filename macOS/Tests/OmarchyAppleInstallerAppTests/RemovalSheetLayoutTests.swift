@@ -180,11 +180,16 @@
           let pages = RemovalReviewPage.pages(for: ticket)
           XCTAssertEqual(pages.first, .overview)
           XCTAssertEqual(pages.last, .confirmation)
-          XCTAssertEqual(pages.filter { if case .deleted = $0 { true } else { false } }.count, ticket.deletions.count)
-          XCTAssertEqual(pages.filter { if case .kept = $0 { true } else { false } }.count, ticket.kept.count)
-          XCTAssertEqual(pages.filter { if case .note = $0 { true } else { false } }.count, ticket.notes.count)
+          XCTAssertEqual(
+            pages.filter { if case .deleted = $0 { true } else { false } }.count,
+            ticket.deletions.count)
+          XCTAssertEqual(
+            pages.filter { if case .kept = $0 { true } else { false } }.count, ticket.kept.count)
+          XCTAssertEqual(
+            pages.filter { if case .note = $0 { true } else { false } }.count, ticket.notes.count)
           for page in pages.indices {
-            let hosted = host(.success, cap: 580, showsAccountFields: showsAccountFields, page: page)
+            let hosted = host(
+              .success, cap: 580, showsAccountFields: showsAccountFields, page: page)
             defer { hosted.window.close() }
             XCTAssertLessThanOrEqual(hosted.size.height, 580)
             XCTAssertFalse(hasScrollView(try XCTUnwrap(hosted.view)))

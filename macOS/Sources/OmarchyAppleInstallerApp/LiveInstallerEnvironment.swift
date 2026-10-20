@@ -360,7 +360,9 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     try requirePreparation(generation)
     try selection.requireMatchingProfile(release.assets.installer.installationProfile)
     try lock.withLock {
-      guard preparationGeneration == generation, !Task.isCancelled else { throw CancellationError() }
+      guard preparationGeneration == generation, !Task.isCancelled else {
+        throw CancellationError()
+      }
       reusableAssets = release.assets
       selectedLane = channel.rawValue
     }
@@ -435,7 +437,9 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       )
 
     try lock.withLock {
-      guard preparationGeneration == generation, !Task.isCancelled else { throw CancellationError() }
+      guard preparationGeneration == generation, !Task.isCancelled else {
+        throw CancellationError()
+      }
       preparedPlan = prepared
       planReview = prepared.review
       releaseConfiguration = configuration
@@ -560,7 +564,9 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
 
   private func beginPayloadPrefetch(_ payload: StagedInstallerArtifact, generation: UUID) throws {
     try lock.withLock {
-      guard preparationGeneration == generation, !Task.isCancelled else { throw CancellationError() }
+      guard preparationGeneration == generation, !Task.isCancelled else {
+        throw CancellationError()
+      }
       plannedPayload = payload
       prefetch.begin(payload: payload)
     }
