@@ -157,7 +157,8 @@
         authorization: authorization, bootstrap: bootstrap)
       XCTAssertEqual(espRepeated.digest, espFirst.digest)
       let firstESP = try XCTUnwrap(espFirst.files.first)
-      let espEvidence = journalURL.path + ".preserved-esp-new-"
+      let espEvidence =
+        journalURL.path + ".preserved-esp-new-"
         + NativeStubFileStore.hash(Data(firstESP.path.utf8)) + ".evidence"
       try FileManager.default.removeItem(at: URL(fileURLWithPath: espEvidence))
       let espRecovered = try await espWriter.prepare(

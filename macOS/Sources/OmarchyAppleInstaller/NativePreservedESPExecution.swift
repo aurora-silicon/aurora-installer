@@ -80,8 +80,9 @@
             try store.identity(entry.path, maximum: bytes.count) == installed
           else { throw NativeHandoffValidationError.changedContent }
           if let backup = recorded.backup {
-            guard try store.identity(backup.backupPath, maximum: backup.previous.bytes)
-              == backup.previous
+            guard
+              try store.identity(backup.backupPath, maximum: backup.previous.bytes)
+                == backup.previous
             else { throw NativeHandoffValidationError.changedContent }
           } else {
             guard try store.tree.isAbsent(store.replacementPaths(entry.path).backup) else {
