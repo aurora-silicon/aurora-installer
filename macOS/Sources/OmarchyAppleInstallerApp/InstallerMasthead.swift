@@ -29,10 +29,11 @@ struct MacHeaderDisplay {
 struct InstallerMasthead: View {
   var distribution: AuroraDistribution? = nil
   let device: MacHeaderDisplay
+  private static let markSpacing: CGFloat = 10
 
   var body: some View {
     HStack(spacing: 16) {
-      HStack(spacing: 10) {
+      HStack(spacing: Self.markSpacing) {
         if let distribution {
           DistributionMark(distribution: distribution).frame(width: 30, height: 30)
         } else {
@@ -41,8 +42,9 @@ struct InstallerMasthead: View {
         Text(title).font(.system(size: 17, weight: .semibold)).lineLimit(1)
       }
       Spacer(minLength: 16)
-      HStack(spacing: 9) {
+      HStack(spacing: Self.markSpacing) {
         Image(systemName: device.symbol).font(.system(size: 23, weight: .regular))
+          .frame(width: 30, height: 30)
           .accessibilityHidden(true)
         VStack(alignment: .leading, spacing: 2) {
           Text(device.name).font(.system(size: 12, weight: .medium))
