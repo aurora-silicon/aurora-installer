@@ -1,4 +1,5 @@
 #if os(macOS)
+  import AuroraFirmware
   import Foundation
 
   /// Reconstructs the owner-reviewed plan from the current disk and selected
