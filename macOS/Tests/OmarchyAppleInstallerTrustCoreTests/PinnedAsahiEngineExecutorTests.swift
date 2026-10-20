@@ -83,7 +83,9 @@
       }
     }
 
-    private struct NativeFinishingFixture: NativeInstallationFinishingPreparing, NativeInstallationFinishing {
+    private struct NativeFinishingFixture: NativeInstallationFinishingPreparing,
+      NativeInstallationFinishing
+    {
       let esp: URL
       let marker: URL
       func preflight(

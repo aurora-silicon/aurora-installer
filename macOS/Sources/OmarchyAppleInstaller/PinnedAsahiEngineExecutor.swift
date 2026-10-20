@@ -266,8 +266,12 @@
             preparedOSPartitions == nil ? nil : try await payloadImagesPreparer.preflight(package)
           preparedESPFiles =
             preparedPayloadImages == nil ? nil : try await espFilesPreparer.preflight(package)
-          preparedFinishing = preparedESPFiles == nil ? nil : try installationFinisher.preflight(
-            package: package, stub: preparedStubFiles?.firmwarePlan, peripherals: preparedPeripherals)
+          preparedFinishing =
+            preparedESPFiles == nil
+            ? nil
+            : try installationFinisher.preflight(
+              package: package, stub: preparedStubFiles?.firmwarePlan,
+              peripherals: preparedPeripherals)
           if preparedESPFiles != nil { environment["OMARCHY_NATIVE_ESP_FILES"] = "helper-esp-v1" }
           if preparedPayloadImages != nil {
             environment["OMARCHY_NATIVE_PAYLOAD_IMAGES"] = "helper-images-v1"
@@ -295,47 +299,47 @@
             summary: "Native disk preparation could not be verified.")
         }
         let prepareDiskStages: @Sendable () async throws -> Void = {
-              guard operation == .install else { return }
-              do {
-                if let preparedAPFS {
-                  guard let sourceBootstrap else { throw NativeHandoffValidationError.invalidOwner }
-                  try preparedAPFS.prepareTarget(
-                    journal: journal, authorization: authorization, sourceBootstrap: sourceBootstrap
-                  )
-                  try await preparedStubFiles?.prepare(
-                    journal: journal, authorization: authorization,
-                    sourceBootstrap: sourceBootstrap)
-                  try preparedOSPartitions?.prepare(
-                    journal: journal, authorization: authorization,
-                    sourceBootstrap: sourceBootstrap)
-                  try await preparedPayloadImages?.prepare(
-                    journal: journal, authorization: authorization,
-                    sourceBootstrap: sourceBootstrap)
-                  try await preparedESPFiles?.prepare(
-                    journal: journal, authorization: authorization,
-                    sourceBootstrap: sourceBootstrap)
-                } else {
-                  let bytes = try self.readAdmissionJournal(journal)
-                  try NativeInstallAdmission.check(
-                    package: package, journal: bytes, collect: self.collectInstallAdmission,
-                    readEvidence: {
-                      try self.readCheckpointEvidence(journal: journal, identifier: $0)
-                    })
-                }
-              } catch {
-                throw PinnedAsahiEngineExecutionError.engineFailed(
-                  EngineFailureReport(
-                    notice: EngineFailureNotice(
-                      reason: error as? NativeInstallAdmissionError == .invalidJournal
-                        ? .planIntegrity : .diskLayoutChanged,
-                      exitStatus: 1,
-                      diskUnchanged: self.journalProvesNoMutation(
-                        journal, identity: RecoveryRetryIdentity(package: package)),
-                      summary: "The current disk could not be admitted for a fresh installation."),
-                    redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
-                      Data(String(describing: error).utf8), truncated: false,
-                      secrets: [authorization.password])))
-              }
+          guard operation == .install else { return }
+          do {
+            if let preparedAPFS {
+              guard let sourceBootstrap else { throw NativeHandoffValidationError.invalidOwner }
+              try preparedAPFS.prepareTarget(
+                journal: journal, authorization: authorization, sourceBootstrap: sourceBootstrap
+              )
+              try await preparedStubFiles?.prepare(
+                journal: journal, authorization: authorization,
+                sourceBootstrap: sourceBootstrap)
+              try preparedOSPartitions?.prepare(
+                journal: journal, authorization: authorization,
+                sourceBootstrap: sourceBootstrap)
+              try await preparedPayloadImages?.prepare(
+                journal: journal, authorization: authorization,
+                sourceBootstrap: sourceBootstrap)
+              try await preparedESPFiles?.prepare(
+                journal: journal, authorization: authorization,
+                sourceBootstrap: sourceBootstrap)
+            } else {
+              let bytes = try self.readAdmissionJournal(journal)
+              try NativeInstallAdmission.check(
+                package: package, journal: bytes, collect: self.collectInstallAdmission,
+                readEvidence: {
+                  try self.readCheckpointEvidence(journal: journal, identifier: $0)
+                })
+            }
+          } catch {
+            throw PinnedAsahiEngineExecutionError.engineFailed(
+              EngineFailureReport(
+                notice: EngineFailureNotice(
+                  reason: error as? NativeInstallAdmissionError == .invalidJournal
+                    ? .planIntegrity : .diskLayoutChanged,
+                  exitStatus: 1,
+                  diskUnchanged: self.journalProvesNoMutation(
+                    journal, identity: RecoveryRetryIdentity(package: package)),
+                  summary: "The current disk could not be admitted for a fresh installation."),
+                redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
+                  Data(String(describing: error).utf8), truncated: false,
+                  secrets: [authorization.password])))
+          }
         }
         do {
           if let preparedFinishing {

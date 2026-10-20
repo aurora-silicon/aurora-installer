@@ -72,23 +72,27 @@ public enum FirmwarePackageBuilder {
   public static func fallback(
     _ inputs: [FirmwarePackageInput], symbolicLinks: [String: String]
   ) throws -> Data {
-    try require(!inputs.isEmpty && inputs.count + symbolicLinks.count <= 20000,
+    try require(
+      !inputs.isEmpty && inputs.count + symbolicLinks.count <= 20000,
       "Invalid fallback file count.")
     var names = Set<String>()
     var total = 0
     for input in inputs {
-      try require(safeRelative(input.name) && input.name.utf8.count <= 255,
+      try require(
+        safeRelative(input.name) && input.name.utf8.count <= 255,
         "Invalid fallback input name.")
-      try require(names.insert(input.name).inserted && input.bytes.count <= maxFileBytes,
+      try require(
+        names.insert(input.name).inserted && input.bytes.count <= maxFileBytes,
         "Conflicting fallback input.")
       total += input.bytes.count
       try require(total <= 256 << 20, "Fallback inputs exceed their budget.")
     }
     for (name, target) in symbolicLinks {
-      try require(safeRelative(name) && name.utf8.count <= 255 && names.insert(name).inserted
-        && name.split(separator: "/").count >= 2
-        && target.hasPrefix("../") && safeRelative(String(target.dropFirst(3)))
-        && target.utf8.count <= 100, "Invalid fallback alias.")
+      try require(
+        safeRelative(name) && name.utf8.count <= 255 && names.insert(name).inserted
+          && name.split(separator: "/").count >= 2
+          && target.hasPrefix("../") && safeRelative(String(target.dropFirst(3)))
+          && target.utf8.count <= 100, "Invalid fallback alias.")
       let components = name.split(separator: "/").dropLast().dropLast().map(String.init)
       let resolved = (components + [String(target.dropFirst(3))]).joined(separator: "/")
       try require(inputs.contains(where: { $0.name == resolved }), "Missing fallback alias target.")
@@ -105,7 +109,8 @@ public enum FirmwarePackageBuilder {
     let files = Dictionary(uniqueKeysWithValues: inputs.map { ($0.name, $0.bytes) })
     for name in sorted {
       try Task.checkCancellation()
-      try appendTar(&tar, name: name, bytes: files[name] ?? Data(),
+      try appendTar(
+        &tar, name: name, bytes: files[name] ?? Data(),
         target: symbolicLinks[name], symbolic: symbolicLinks[name] != nil)
     }
     tar.append(Data(repeating: 0, count: 1024))
@@ -117,7 +122,8 @@ public enum FirmwarePackageBuilder {
     try require(initialized == Z_OK, "Cannot initialize fallback compression.")
     defer { deflateEnd(&stream) }
     return try tar.withUnsafeBytes { source in
-      stream.next_in = UnsafeMutablePointer(mutating: source.bindMemory(to: UInt8.self).baseAddress!)
+      stream.next_in = UnsafeMutablePointer(
+        mutating: source.bindMemory(to: UInt8.self).baseAddress!)
       stream.avail_in = uInt(tar.count)
       var compressed = Data()
       while true {
@@ -130,7 +136,8 @@ public enum FirmwarePackageBuilder {
         }
         try require(status == Z_OK || status == Z_STREAM_END, "Fallback compression failed.")
         block.count -= Int(stream.avail_out)
-        try require(block.count <= (256 << 20) - compressed.count,
+        try require(
+          block.count <= (256 << 20) - compressed.count,
           "Compressed fallback exceeds its budget.")
         compressed.append(block)
         if status == Z_STREAM_END { return compressed }
@@ -143,7 +150,8 @@ public enum FirmwarePackageBuilder {
   }
 
   private static func appendTar(
-    _ archive: inout Data, name: String, bytes: Data, target: String?, symbolic: Bool = false)
+    _ archive: inout Data, name: String, bytes: Data, target: String?, symbolic: Bool = false
+  )
     throws
   {
     var header = Data(repeating: 0, count: 512)

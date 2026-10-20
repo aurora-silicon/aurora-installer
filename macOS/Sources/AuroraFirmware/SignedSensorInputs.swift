@@ -75,14 +75,14 @@ public enum SignedSensorInputs {
     return found.first!
   }
 
-
   private static func validStandalone(_ data: Data, _ outer: FirmwareDER.Element) throws -> Bool {
     let parts = try FirmwareDER.children(data, outer)
     guard parts.count >= 3, FirmwareDER.text(data, parts[0], "IMG4"), parts[1].tag == 0x30,
       parts[2].tag == 0xa0
     else { return false }
     let payload = try FirmwareDER.children(data, parts[1])
-    guard payload.count >= 4, FirmwareDER.text(data, payload[0], "IM4P"), FirmwareDER.text(data, payload[1], "FSC2"),
+    guard payload.count >= 4, FirmwareDER.text(data, payload[0], "IM4P"),
+      FirmwareDER.text(data, payload[1], "FSC2"),
       payload[3].tag == 4
     else { return false }
     let prefix = data[payload[3].content].prefix(256)
@@ -106,9 +106,12 @@ public enum SignedSensorInputs {
       return false
     }
     let parts = try FirmwareDER.children(data, image)
-    guard parts.count >= 2, FirmwareDER.text(data, parts[0], "IMG4"), parts[1].tag == 0x30 else { return false }
+    guard parts.count >= 2, FirmwareDER.text(data, parts[0], "IMG4"), parts[1].tag == 0x30 else {
+      return false
+    }
     let payload = try FirmwareDER.children(data, parts[1])
-    guard payload.count >= 4, FirmwareDER.text(data, payload[0], "IM4P"), FirmwareDER.text(data, payload[1], "FSCl"),
+    guard payload.count >= 4, FirmwareDER.text(data, payload[0], "IM4P"),
+      FirmwareDER.text(data, payload[1], "FSCl"),
       payload[2].tag == 0x16, payload[3].tag == 4
     else { return false }
     let prefix = data[payload[3].content].prefix(64)

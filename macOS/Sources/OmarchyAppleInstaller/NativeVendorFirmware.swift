@@ -188,9 +188,10 @@
           files[name] = NativeStubFileIdentity(
             bytes: bytes.count, sha256: NativeStubFileStore.hash(bytes))
         }
-        let aliases = Dictionary(uniqueKeysWithValues: source.fud.map {
-          ("fud_firmware/" + source.machine + "/" + $0.component + ".im4p", "../" + $0.member)
-        })
+        let aliases = Dictionary(
+          uniqueKeysWithValues: source.fud.map {
+            ("fud_firmware/" + source.machine + "/" + $0.component + ".im4p", "../" + $0.member)
+          })
         let fallbackArchive = try FirmwarePackageBuilder.fallback(
           fallback.keys.sorted().map { FirmwarePackageInput(name: $0, bytes: fallback[$0]!) },
           symbolicLinks: aliases)

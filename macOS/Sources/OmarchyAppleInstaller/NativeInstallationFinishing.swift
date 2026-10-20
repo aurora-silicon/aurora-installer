@@ -30,10 +30,12 @@
       peripherals: PreparedNativePeripheralInputs?
     ) throws -> (any NativeInstallationFinishing)? {
       guard enabled, package.installationIntent == .fresh, package.deviceIdentifier == "apple,j700",
-        let stub, let peripherals else { return nil }
+        let stub, let peripherals
+      else { return nil }
       let approved = try EngineHandoffPackageImporter().executionPlan(package, owner: owner)
       let source = try NativeFirmwareSourcePlan(manifest: stub.manifest)
-      guard source.machine == "j700", source.fud.contains(where: { $0.component == "Multitouch" }) else {
+      guard source.machine == "j700", source.fud.contains(where: { $0.component == "Multitouch" })
+      else {
         throw NativeFirmwareInputFailure.invalidSource
       }
       return NativeInstallationFinishingExecution(
@@ -85,16 +87,22 @@
       let before = try file.readJournal()
       let transcript = try AppleInstallerTrustCore().validateEngineTranscript(before)
       guard transcript.plan == approved else { throw NativeHandoffValidationError.invalidEvidence }
-      if transcript.checkpoints.contains(where: { $0.identifier == "stub-and-esp-installed" }) { return }
-      guard try file.diskPreparationCanResume() else { throw NativeRecoveryJournalError.invalidState }
+      if transcript.checkpoints.contains(where: { $0.identifier == "stub-and-esp-installed" }) {
+        return
+      }
+      guard try file.diskPreparationCanResume() else {
+        throw NativeRecoveryJournalError.invalidState
+      }
       let target = try NativeInstallationTarget(
         package: package, approved: approved, journal: file, authorization: authorization,
         bootstrap: bootstrap, owner: owner, environment: environment, disks: disks)
-      guard let staged = try JSONSerialization.jsonObject(
-        with: file.readEvidence("native-recovery-staged")) as? [String: Any],
+      guard
+        let staged = try JSONSerialization.jsonObject(
+          with: file.readEvidence("native-recovery-staged")) as? [String: Any],
         staged["plan_digest"] as? String == approved.planDigest,
-        staged["publication_sha256"] as? String == (try NativeStubFileStore.hash(
-          file.readEvidence("native-recovery-publication")))
+        staged["publication_sha256"] as? String
+          == (try NativeStubFileStore.hash(
+            file.readEvidence("native-recovery-publication")))
       else { throw NativeHandoffValidationError.invalidEvidence }
       let esp = try NativeESPFileStore(
         root: target.espRoot(), volumeDevice: target.esp.identifier,
@@ -113,7 +121,9 @@
       }
       var digest = SHA256()
       var total = 0
-      for entry in receipt.files.sorted(by: { $0.member.utf8.lexicographicallyPrecedes($1.member.utf8) }) {
+      for entry in receipt.files.sorted(by: {
+        $0.member.utf8.lexicographicallyPrecedes($1.member.utf8)
+      }) {
         guard try esp.identity(entry.path) == entry.identity,
           let hash = SHA256Digest(hexadecimal: entry.identity.sha256)
         else { throw NativeHandoffValidationError.changedContent }
@@ -121,28 +131,36 @@
         var length = UInt64(name.count).bigEndian
         digest.update(data: withUnsafeBytes(of: &length) { Data($0) })
         digest.update(data: name)
-        digest.update(data: Data(stride(from: 0, to: 64, by: 2).map { index in
-          UInt8(hash.hexadecimal.dropFirst(index).prefix(2), radix: 16)!
-        }))
+        digest.update(
+          data: Data(
+            stride(from: 0, to: 64, by: 2).map { index in
+              UInt8(hash.hexadecimal.dropFirst(index).prefix(2), radix: 16)!
+            }))
         total += entry.identity.bytes
       }
-      var parts: [[String: Any]] = [[
-        "name": "EFI", "partition_identifier": target.esp.identifier,
-        "partition_uuid": target.esp.uuid.lowercased(), "partition_size_bytes": target.esp.size,
-        "population": "esp", "installed_bytes": total, "verification": "copied-tree-sha256",
-        "content_sha256": digest.finalize().map { String(format: "%02x", $0) }.joined(),
-      ]]
+      var parts: [[String: Any]] = [
+        [
+          "name": "EFI", "partition_identifier": target.esp.identifier,
+          "partition_uuid": target.esp.uuid.lowercased(), "partition_size_bytes": target.esp.size,
+          "population": "esp", "installed_bytes": total, "verification": "copied-tree-sha256",
+          "content_sha256": digest.finalize().map { String(format: "%02x", $0) }.joined(),
+        ]
+      ]
       for (index, name) in ["boot", "root"].enumerated() {
         let image = try JSONDecoder().decode(
           NativeRawImageReceipt.self, from: file.readEvidence("native-image-" + name))
         let partition = target.partitions.partitions[index + 1]
         guard image.partitionIdentifier == partition.identifier,
-          image.partitionUUID == partition.uuid.lowercased(), image.partitionSizeBytes == partition.size,
+          image.partitionUUID == partition.uuid.lowercased(),
+          image.partitionSizeBytes == partition.size,
           image.installedBytes > 0, image.installedBytes <= partition.size,
           image.verification == "source-sha256-write-flushed-v1"
         else { throw NativeHandoffValidationError.invalidEvidence }
         if index == 0 {
-          guard try environment.rawDigest(partition.identifier, image.installedBytes) == image.contentSHA256 else {
+          guard
+            try environment.rawDigest(partition.identifier, image.installedBytes)
+              == image.contentSHA256
+          else {
             throw NativeHandoffValidationError.changedContent
           }
         }
@@ -154,24 +172,31 @@
           "content_sha256": image.contentSHA256,
         ])
       }
-      let installed = try JSONSerialization.data(withJSONObject: [
-        "plan_digest": approved.planDigest, "apfs_vgid": target.group,
-        "system_volume": target.system.identifier, "efi_partition": target.esp.uuid.lowercased(),
-        "startup_volume_icon": ["member": icon, "installed_bytes": receipt.icon.bytes,
-          "verification": "stub-file-sha256", "content_sha256": receipt.icon.sha256] as [String: Any],
-        "populated_partitions": parts,
-      ], options: [.sortedKeys, .withoutEscapingSlashes])
+      let installed = try JSONSerialization.data(
+        withJSONObject: [
+          "plan_digest": approved.planDigest, "apfs_vgid": target.group,
+          "system_volume": target.system.identifier, "efi_partition": target.esp.uuid.lowercased(),
+          "startup_volume_icon": [
+            "member": icon, "installed_bytes": receipt.icon.bytes,
+            "verification": "stub-file-sha256", "content_sha256": receipt.icon.sha256,
+          ] as [String: Any],
+          "populated_partitions": parts,
+        ], options: [.sortedKeys, .withoutEscapingSlashes])
       try target.verifyUnchanged()
       if before.split(separator: 10).count == 5 {
-        try file.append(type: "event", payload: [
-          "plan_digest": approved.planDigest, "name": "stub_and_esp_started",
-        ], before: before)
+        try file.append(
+          type: "event",
+          payload: [
+            "plan_digest": approved.planDigest, "name": "stub_and_esp_started",
+          ], before: before)
       }
       try file.publishEvidence(installed, identifier: "stub-and-esp-installed")
-      try file.append(type: "checkpoint", payload: [
-        "plan_digest": approved.planDigest, "identifier": "stub-and-esp-installed",
-        "phase": "stub_and_esp", "evidence_digest": SHA256Digest(hashing: installed).rawValue,
-      ], before: file.readJournal())
+      try file.append(
+        type: "checkpoint",
+        payload: [
+          "plan_digest": approved.planDigest, "identifier": "stub-and-esp-installed",
+          "phase": "stub_and_esp", "evidence_digest": SHA256Digest(hashing: installed).rawValue,
+        ], before: file.readJournal())
       let saved = try NativeRecoveryJournalSnapshot.decode(
         file.readJournal(), package: package, evidence: file.readEvidence)
       _ = try NativeHandoffEvidence(snapshot: saved, metadata: metadata)

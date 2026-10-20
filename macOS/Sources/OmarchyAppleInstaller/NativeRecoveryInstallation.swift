@@ -37,11 +37,13 @@
       ]
       guard vendor.plan == approved.planDigest, vendor.groupUUID == target.group,
         vendor.espUUID == target.esp.uuid,
-        vendor.sourceBinding == NativeStubFileStore.hash(try file.readEvidence("native-stub-file-binding")),
+        vendor.sourceBinding
+          == NativeStubFileStore.hash(try file.readEvidence("native-stub-file-binding")),
         Set(vendor.files.keys) == required,
         espReceipt.stage1.bytes > 0,
         try NativeStubFileStore(tree: system, owner: owner).identity(
-          "Finish Installation.app/Contents/Resources/boot.bin", maximum: 64 << 20) == espReceipt.stage1
+          "Finish Installation.app/Contents/Resources/boot.bin", maximum: 64 << 20)
+          == espReceipt.stage1
       else { throw NativeHandoffValidationError.invalidEvidence }
       let stage2 = try esp.identity("m1n1/boot.bin")
       guard let stage2Entry = espReceipt.files.first(where: { $0.path == "m1n1/boot.bin" }),
@@ -101,7 +103,8 @@
         try system.createDirectory(candidateRelative)
         let candidate = systemRoot.appendingPathComponent(candidateRelative)
         let candidateTree = try NativeHandoffFileTree(candidate, protected: true, owner: owner)
-        let store = NativeStubFileStore(tree: candidateTree, owner: owner, namespace: approved.planDigest)
+        let store = NativeStubFileStore(
+          tree: candidateTree, owner: owner, namespace: approved.planDigest)
         _ = try await store.data(configuration, at: "install-config.json", mode: 0o600)
         _ = try await store.data(payloadManifest, at: "AuraPayloads/manifest.json", mode: 0o600)
         for (path, identity) in files {
@@ -120,24 +123,29 @@
         let (parent, leaf) = try system.writableParent(relative)
         defer { close(parent) }
         guard renameatx_np(parent, candidateName, parent, leaf, UInt32(RENAME_EXCL)) == 0,
-          fsync(parent) == 0 else { throw NativeStubFileError.writeFailed }
+          fsync(parent) == 0
+        else { throw NativeStubFileError.writeFailed }
       }
       try verifyData(destination, expected: expected)
       try NativeRecoveryTemplate.publishApp(
-        template, to: systemRoot.appendingPathComponent(InstallerProductIdentity.recoveryAppBundleName),
+        template,
+        to: systemRoot.appendingPathComponent(InstallerProductIdentity.recoveryAppBundleName),
         owner: owner, verify: { try verifyApp($0, template.requirement) })
       let launcher = try system.read(
         "Finish Installation.app/Contents/Resources/step2.sh", maximum: 65536)
-      guard String(data: launcher, encoding: .utf8)?.contains(
-        "../../../Aurora Installer.app/Contents/MacOS/OmarchyRecovery") == true,
+      guard
+        String(data: launcher, encoding: .utf8)?.contains(
+          "../../../Aurora Installer.app/Contents/MacOS/OmarchyRecovery") == true,
         let marker = try PropertyListSerialization.propertyList(
           from: system.read(".IAPhysicalMedia", maximum: 65536), format: nil) as? [String: Any],
         marker["AppName"] as? String == InstallerProductIdentity.recoveryAppBundleName
       else { throw NativeHandoffValidationError.changedContent }
       try target.verifyUnchanged()
       try file.publishEvidence(
-        json(["plan_digest": approved.planDigest,
-              "publication_sha256": NativeStubFileStore.hash(publication)]),
+        json([
+          "plan_digest": approved.planDigest,
+          "publication_sha256": NativeStubFileStore.hash(publication),
+        ]),
         identifier: "native-recovery-staged")
     }
 
@@ -145,9 +153,13 @@
       let tree = try NativeHandoffFileTree(root, protected: true, owner: owner)
       let store = NativeStubFileStore(tree: tree, owner: owner)
       var failure: Error?
-      guard let enumerator = FileManager.default.enumerator(
-        at: root, includingPropertiesForKeys: nil,
-        errorHandler: { _, error in failure = error; return false })
+      guard
+        let enumerator = FileManager.default.enumerator(
+          at: root, includingPropertiesForKeys: nil,
+          errorHandler: { _, error in
+            failure = error
+            return false
+          })
       else { throw NativeHandoffValidationError.unsafePath }
       let prefix = root.path + "/"
       var actual = Set<String>()
@@ -171,15 +183,16 @@
     }
 
     private func json(_ value: [String: Any]) throws -> Data {
-      try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .withoutEscapingSlashes])
+      try JSONSerialization.data(
+        withJSONObject: value, options: [.sortedKeys, .withoutEscapingSlashes])
     }
     private func identity(_ data: Data) -> NativeStubFileIdentity {
       NativeStubFileIdentity(bytes: data.count, sha256: NativeStubFileStore.hash(data))
     }
   }
 
-  private extension Dictionary where Key == String {
-    func mapKeys(_ transform: (String) -> String) -> [String: Value] {
+  extension Dictionary where Key == String {
+    fileprivate func mapKeys(_ transform: (String) -> String) -> [String: Value] {
       Dictionary(uniqueKeysWithValues: map { (transform($0.key), $0.value) })
     }
   }

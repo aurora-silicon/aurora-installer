@@ -125,13 +125,18 @@
       defer { close(descriptor) }
       var directory = stat()
       guard fstat(descriptor, &directory) == 0, directory.st_mode & S_IFMT == S_IFDIR,
-        directory.st_uid == owner, directory.st_mode & 0o022 == 0 else {
+        directory.st_uid == owner, directory.st_mode & 0o022 == 0
+      else {
         throw NativeFirmwareInputFailure.invalidSource
       }
       var failure: Error?
-      guard let enumerator = FileManager.default.enumerator(
+      guard
+        let enumerator = FileManager.default.enumerator(
           at: root.appendingPathComponent(prefix), includingPropertiesForKeys: nil,
-          errorHandler: { _, error in failure = error; return false })
+          errorHandler: { _, error in
+            failure = error
+            return false
+          })
       else { throw NativeFirmwareInputFailure.invalidSource }
       var files = [String: Data]()
       var total = 0

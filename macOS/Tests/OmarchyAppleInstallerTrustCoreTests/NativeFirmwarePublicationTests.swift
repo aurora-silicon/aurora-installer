@@ -15,20 +15,31 @@
         "Manifest": [
           "KernelCache": ["Info": ["Path": "kernelcache.release.synthetic"]],
           "Multitouch": ["Info": ["Path": "Firmware/Multitouch.im4p", "IsFUDFirmware": true]],
-          "BootLoaded": ["Info": ["Path": "Firmware/boot.im4p", "IsFUDFirmware": true,
-                                      "IsLoadedByiBoot": true]],
-          "Stage1Loaded": ["Info": ["Path": "Firmware/stage1.im4p", "IsFUDFirmware": true,
-                                        "IsLoadedByiBootStage1": true]],
+          "BootLoaded": [
+            "Info": [
+              "Path": "Firmware/boot.im4p", "IsFUDFirmware": true,
+              "IsLoadedByiBoot": true,
+            ]
+          ],
+          "Stage1Loaded": [
+            "Info": [
+              "Path": "Firmware/stage1.im4p", "IsFUDFirmware": true,
+              "IsLoadedByiBootStage1": true,
+            ]
+          ],
           "Other": ["Info": ["Path": "Firmware/other.im4p"]],
         ],
       ]
       let source = try NativeFirmwareSourcePlan(manifest: manifest([identity]))
       XCTAssertEqual(source.machine, "j700")
       XCTAssertEqual(source.kernel, "kernelcache.release.synthetic")
-      XCTAssertEqual(source.fud, [.init(component: "Multitouch", member: "Firmware/Multitouch.im4p")])
+      XCTAssertEqual(
+        source.fud, [.init(component: "Multitouch", member: "Firmware/Multitouch.im4p")])
       XCTAssertThrowsError(try NativeFirmwareSourcePlan(manifest: manifest([identity, identity])))
       var malformed = identity
-      malformed["Manifest"] = ["Multitouch": ["Info": ["Path": "../outside", "IsFUDFirmware": true]]]
+      malformed["Manifest"] = [
+        "Multitouch": ["Info": ["Path": "../outside", "IsFUDFirmware": true]]
+      ]
       XCTAssertThrowsError(try NativeFirmwareSourcePlan(manifest: manifest([malformed])))
     }
 
@@ -54,24 +65,31 @@
         root: espRoot, volumeDevice: "fixture", namespace: "archive", verifyMount: { _, _, _ in },
         admitFilesystem: { _ in })
       let published = try await esp.file(
-        sourceTree, path: "archive", identity: expected, owner: geteuid(), at: "vendorfw/firmware.tar")
+        sourceTree, path: "archive", identity: expected, owner: geteuid(),
+        at: "vendorfw/firmware.tar")
       XCTAssertEqual(published, expected)
       XCTAssertThrowsError(try esp.identity("vendorfw/firmware.tar"))
       XCTAssertEqual(try esp.identity("vendorfw/firmware.tar", maximum: 256 << 20), expected)
       let repeated = try await esp.file(
-        sourceTree, path: "archive", identity: expected, owner: geteuid(), at: "vendorfw/firmware.tar")
+        sourceTree, path: "archive", identity: expected, owner: geteuid(),
+        at: "vendorfw/firmware.tar")
       XCTAssertEqual(repeated, expected)
       do {
         _ = try await esp.data(Data(count: size), at: "boot/too-large.bin")
         XCTFail("Boot data writer accepted the archive budget")
       } catch {}
-      XCTAssertFalse(FileManager.default.fileExists(atPath: espRoot.appendingPathComponent("boot/too-large.bin").path))
+      XCTAssertFalse(
+        FileManager.default.fileExists(
+          atPath: espRoot.appendingPathComponent("boot/too-large.bin").path))
       let wrong = NativeStubFileIdentity(bytes: size, sha256: String(repeating: "0", count: 64))
       do {
-        _ = try await esp.file(sourceTree, path: "archive", identity: wrong, owner: geteuid(), at: "vendorfw/wrong.tar")
+        _ = try await esp.file(
+          sourceTree, path: "archive", identity: wrong, owner: geteuid(), at: "vendorfw/wrong.tar")
         XCTFail("Changed source digest was published")
       } catch {}
-      XCTAssertFalse(FileManager.default.fileExists(atPath: espRoot.appendingPathComponent("vendorfw/wrong.tar").path))
+      XCTAssertFalse(
+        FileManager.default.fileExists(
+          atPath: espRoot.appendingPathComponent("vendorfw/wrong.tar").path))
       let copied = try await NativeStubFileStore(tree: sourceTree, owner: geteuid()).file(
         esp.tree, path: "vendorfw/firmware.tar", identity: expected, at: "recovery/firmware.tar")
       XCTAssertEqual(copied, expected)
