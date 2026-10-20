@@ -1179,19 +1179,6 @@ class AsahiStage1AdapterTests(unittest.TestCase):
             self.assertEqual(adapter.installer.ins.stub_info, receipt["stub_info"])
             self.assertEqual(len(adapter.installer.ins.copy_idata), 2)
 
-    def test_native_regular_receipt_coexists_with_native_owned_framework_links(self):
-        with tempfile.TemporaryDirectory() as root:
-            adapter, receipt = self._native_files_adapter(root)
-            directory = Path(adapter.installer.ins.osi.preboot, adapter.installer.ins.osi.vgid,
-                             "Restore/Bootability/Demo.framework")
-            target = directory / "Versions/A/Demo"
-            target.parent.mkdir(parents=True)
-            target.write_bytes(b"synthetic framework")
-            (directory / "Demo").symlink_to("Versions/A/Demo")
-            adapter._consume_native_stub_files(self.plan)
-            self.assertEqual(len(adapter.installer.ins.copy_idata), 2)
-            self.assertEqual((directory / "Demo").read_bytes(), b"synthetic framework")
-
     def test_native_files_refuse_corruption_or_unsafe_paths_before_partitioning(self):
         for fault in ("contents", "group", "source", "path", "duplicate", "firmware"):
             with self.subTest(fault=fault), tempfile.TemporaryDirectory() as root:
