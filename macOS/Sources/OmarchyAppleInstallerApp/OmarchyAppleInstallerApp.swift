@@ -61,6 +61,14 @@ private final class InstallerApplicationDelegate: NSObject, NSApplicationDelegat
             }
           }
           if CommandLine.arguments.contains("--quit-after-snapshot") {
+            // An open preview sheet can defer application termination. End it
+            // after capture so automated snapshots release their instance lease.
+            for window in NSApp.windows {
+              if let sheet = window.attachedSheet {
+                window.endSheet(sheet)
+                sheet.orderOut(nil)
+              }
+            }
             NSApplication.shared.terminate(nil)
           }
         }
