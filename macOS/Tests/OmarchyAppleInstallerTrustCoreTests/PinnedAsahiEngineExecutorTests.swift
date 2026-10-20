@@ -56,9 +56,76 @@
         try FileManager.default.createDirectory(
           at: url, withIntermediateDirectories: false,
           attributes: [.posixPermissions: 0o700])
-        return PreparedNativePeripheralInputs(
-          directory: url, recipeSHA256: String(repeating: "a", count: 64))
+        return try PreparedNativePeripheralInputs(
+          directory: url, recipeSHA256: String(repeating: "a", count: 64), owner: geteuid())
       }
+    }
+
+    private struct NoNativeESPFixture: NativeESPFilesPreparing {
+      func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (
+        any NativeESPFilesExecuting
+      )? { nil }
+    }
+    private struct NativeESPFixture: NativeESPFilesPreparing, NativeESPFilesExecuting {
+      let marker: URL
+      let images: URL
+      func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (
+        any NativeESPFilesExecuting
+      )? { self }
+      func prepare(
+        journal: URL, authorization: MachineOwnerAuthorization,
+        sourceBootstrap: NativeSourceBootstrap
+      ) async throws {
+        guard FileManager.default.fileExists(atPath: images.path) else {
+          throw NativeHandoffValidationError.invalidTarget
+        }
+        try Data("ESP prepared".utf8).write(to: marker)
+      }
+    }
+
+    private struct NativeImagesFixture: NativePayloadImagesPreparing, NativePayloadImagesExecuting {
+      var marker: URL? = nil
+      var partitions: URL? = nil
+      func preflight(_ package: ImportedEngineHandoffPackage) async throws
+        -> any NativePayloadImagesExecuting
+      { self }
+      func prepare(
+        journal: URL, authorization: MachineOwnerAuthorization,
+        sourceBootstrap: NativeSourceBootstrap
+      ) async throws {
+        if let partitions {
+          guard FileManager.default.fileExists(atPath: partitions.path) else {
+            throw NativeRawImageError.invalidTarget
+          }
+        }
+        if let marker { try Data("images prepared".utf8).write(to: marker) }
+      }
+    }
+
+    private struct NativePartitionsFixture: NativeOSPartitionsPreparing, NativeOSPartitionsExecuting
+    {
+      var marker: URL? = nil
+      var files: URL? = nil
+      func preflight(_ package: ImportedEngineHandoffPackage) throws
+        -> any NativeOSPartitionsExecuting
+      { self }
+      func prepare(
+        journal: URL, authorization: MachineOwnerAuthorization,
+        sourceBootstrap: NativeSourceBootstrap
+      ) throws {
+        if let files {
+          guard FileManager.default.fileExists(atPath: files.path) else {
+            throw NativeOSPartitionError.changedLayout
+          }
+        }
+        if let marker { try Data("partitions prepared".utf8).write(to: marker) }
+      }
+    }
+
+    private struct NoNativeStubFilesFixture: NativeStubFilesPreparing {
+      func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (
+        any NativeStubFilesExecuting
+      )? { nil }
     }
 
     private struct NoNativeAPFSFixture: NativeAPFSPreparing {
@@ -113,6 +180,132 @@
         NativeAdmissionTestData.evidence)
       XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.package.metadataURL.path))
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
+
+    private struct NativeFilesFixture: NativeStubFilesPreparing, NativeStubFilesExecuting {
+      let marker: URL
+      let apfs: URL
+      func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (
+        any NativeStubFilesExecuting
+      )? { self }
+      func prepare(
+        journal: URL, authorization: MachineOwnerAuthorization,
+        sourceBootstrap: NativeSourceBootstrap
+      ) async throws {
+        guard FileManager.default.fileExists(atPath: apfs.path) else {
+          throw NativeStubFileError.invalidPlan
+        }
+        try Data("files prepared".utf8).write(to: marker)
+      }
+    }
+
+    func testNativeFileCapabilityIsAdmittedBeforeAnyMutationAndFilesFollowAPFS() async throws {
+      for supported in [false, true] {
+        let fixture = try makeFixture(
+          supportsNativeFiles: supported, expectNativeAPFS: true, expectNativeFiles: true)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let apfs = fixture.root.appendingPathComponent("apfs")
+        let files = fixture.root.appendingPathComponent("files")
+        let executor = fixtureExecutor(
+          effectiveUserID: { 0 },
+          apfsPreparer: NativeAPFSFixture(marker: apfs),
+          stubFilesPreparer: NativeFilesFixture(marker: files, apfs: apfs))
+        if supported {
+          _ = try await executor.execute(
+            fixture.package, authorization: machineOwnerAuthorization())
+          XCTAssertTrue(FileManager.default.fileExists(atPath: files.path))
+        } else {
+          await assertThrowsErrorAsync(
+            try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
+          ) { _ in }
+          XCTAssertFalse(FileManager.default.fileExists(atPath: apfs.path))
+          XCTAssertFalse(FileManager.default.fileExists(atPath: files.path))
+        }
+      }
+    }
+
+    func testNativePartitionCapabilityPrecedesMutationAndPartitionsFollowFiles() async throws {
+      for supported in [false, true] {
+        let fixture = try makeFixture(
+          supportsNativePartitions: supported, expectNativeAPFS: true, expectNativeFiles: true)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let apfs = fixture.root.appendingPathComponent("apfs")
+        let files = fixture.root.appendingPathComponent("files")
+        let partitions = fixture.root.appendingPathComponent("partitions")
+        let executor = fixtureExecutor(
+          effectiveUserID: { 0 }, apfsPreparer: NativeAPFSFixture(marker: apfs),
+          stubFilesPreparer: NativeFilesFixture(marker: files, apfs: apfs),
+          osPartitionsPreparer: NativePartitionsFixture(marker: partitions, files: files))
+        if supported {
+          _ = try await executor.execute(
+            fixture.package, authorization: machineOwnerAuthorization())
+          XCTAssertTrue(FileManager.default.fileExists(atPath: partitions.path))
+        } else {
+          await assertThrowsErrorAsync(
+            try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
+          ) { _ in }
+          XCTAssertFalse(FileManager.default.fileExists(atPath: apfs.path))
+          XCTAssertFalse(FileManager.default.fileExists(atPath: partitions.path))
+        }
+      }
+    }
+
+    func testNativeImageCapabilityPrecedesMutationAndImagesFollowPartitions() async throws {
+      for supported in [false, true] {
+        let fixture = try makeFixture(
+          supportsNativeImages: supported, expectNativeAPFS: true, expectNativeFiles: true)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let apfs = fixture.root.appendingPathComponent("apfs")
+        let files = fixture.root.appendingPathComponent("files")
+        let partitions = fixture.root.appendingPathComponent("partitions")
+        let images = fixture.root.appendingPathComponent("images")
+        let executor = fixtureExecutor(
+          effectiveUserID: { 0 }, apfsPreparer: NativeAPFSFixture(marker: apfs),
+          stubFilesPreparer: NativeFilesFixture(marker: files, apfs: apfs),
+          osPartitionsPreparer: NativePartitionsFixture(marker: partitions, files: files),
+          payloadImagesPreparer: NativeImagesFixture(marker: images, partitions: partitions))
+        if supported {
+          _ = try await executor.execute(
+            fixture.package, authorization: machineOwnerAuthorization())
+          XCTAssertTrue(FileManager.default.fileExists(atPath: images.path))
+        } else {
+          await assertThrowsErrorAsync(
+            try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
+          ) { _ in }
+          XCTAssertFalse(FileManager.default.fileExists(atPath: apfs.path))
+          XCTAssertFalse(FileManager.default.fileExists(atPath: images.path))
+        }
+      }
+    }
+
+    func testNativeESPCapabilityPrecedesMutationAndPublicationFollowsImages() async throws {
+      for supported in [false, true] {
+        let fixture = try makeFixture(
+          supportsNativeESP: supported, expectNativeAPFS: true, expectNativeFiles: true)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let apfs = fixture.root.appendingPathComponent("apfs")
+        let files = fixture.root.appendingPathComponent("files")
+        let partitions = fixture.root.appendingPathComponent("partitions")
+        let images = fixture.root.appendingPathComponent("images")
+        let esp = fixture.root.appendingPathComponent("esp")
+        let executor = fixtureExecutor(
+          effectiveUserID: { 0 }, apfsPreparer: NativeAPFSFixture(marker: apfs),
+          stubFilesPreparer: NativeFilesFixture(marker: files, apfs: apfs),
+          osPartitionsPreparer: NativePartitionsFixture(marker: partitions, files: files),
+          payloadImagesPreparer: NativeImagesFixture(marker: images, partitions: partitions),
+          espFilesPreparer: NativeESPFixture(marker: esp, images: images))
+        if supported {
+          _ = try await executor.execute(
+            fixture.package, authorization: machineOwnerAuthorization())
+          XCTAssertTrue(FileManager.default.fileExists(atPath: esp.path))
+        } else {
+          await assertThrowsErrorAsync(
+            try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
+          ) { _ in }
+          XCTAssertFalse(FileManager.default.fileExists(atPath: apfs.path))
+          XCTAssertFalse(FileManager.default.fileExists(atPath: esp.path))
+        }
+      }
     }
 
     func testNativeAPFSCapabilityIsAdmittedBeforePreparationAndPassedToContinuation() async throws {
@@ -932,6 +1125,10 @@
       firmwarePreparer: any NativeFirmwarePreparing = NativeFirmwarePreparer(),
       peripheralPreparer: any NativePeripheralPreparing = NativeNeoPeripheralPreparer(),
       apfsPreparer: any NativeAPFSPreparing = NoNativeAPFSFixture(),
+      stubFilesPreparer: any NativeStubFilesPreparing = NoNativeStubFilesFixture(),
+      osPartitionsPreparer: any NativeOSPartitionsPreparing = NativePartitionsFixture(),
+      payloadImagesPreparer: any NativePayloadImagesPreparing = NativeImagesFixture(),
+      espFilesPreparer: any NativeESPFilesPreparing = NoNativeESPFixture(),
       collectInstallAdmission: @escaping @Sendable () throws -> NativeInstallAdmissionFacts = {
         NativeAdmissionTestData.facts()
       },
@@ -952,7 +1149,9 @@
         },
         firmwarePreparer: firmwarePreparer,
         peripheralPreparer: peripheralPreparer,
-        apfsPreparer: apfsPreparer,
+        apfsPreparer: apfsPreparer, stubFilesPreparer: stubFilesPreparer,
+        osPartitionsPreparer: osPartitionsPreparer, payloadImagesPreparer: payloadImagesPreparer,
+        espFilesPreparer: espFilesPreparer,
         nativeHandoff: FixtureNativeHandoff(),
         collectInstallAdmission: collectInstallAdmission,
         validatePayload: { _ in
@@ -996,7 +1195,12 @@
       supportsNativeHandoff: Bool = true,
       supportsNativePeripherals: Bool = true,
       supportsNativeAPFS: Bool = true,
+      supportsNativeFiles: Bool = true,
+      supportsNativePartitions: Bool = true,
+      supportsNativeImages: Bool = true,
+      supportsNativeESP: Bool = true,
       expectNativeAPFS: Bool = false,
+      expectNativeFiles: Bool = false,
       missingBackendInterpreter: Bool = false,
       installationIntent: ImportedInstallationIntent? = nil,
       planDigest: String = NativeAdmissionTestData.plan.planDigest
@@ -1034,9 +1238,17 @@
         supportsNativeHandoff ? ",\"nativeHandoff\":\"helper-finalize-v1\"" : ""
       let peripheralCapability =
         supportsNativePeripherals ? ",\"nativePeripheralInput\":\"helper-converted-v1\"" : ""
-      let apfsCapability = supportsNativeAPFS ? ",\"nativeAPFSInput\":\"helper-target-v1\"" : ""
+      let apfsCapability =
+        supportsNativeAPFS
+        ? ",\"nativeAPFSInput\":\"helper-target-v1\",\"nativeStubInput\":\"helper-volumes-v1\"" : ""
+      let filesCapability = supportsNativeFiles ? ",\"nativeStubFiles\":\"helper-files-v1\"" : ""
+      let partitionsCapability =
+        supportsNativePartitions ? ",\"nativeOSPartitions\":\"helper-partitions-v1\"" : ""
+      let imagesCapability =
+        supportsNativeImages ? ",\"nativePayloadImages\":\"helper-images-v1\"" : ""
+      let espCapability = supportsNativeESP ? ",\"nativeESPFiles\":\"helper-esp-v1\"" : ""
       try Data(
-        #"{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1"\#(apfsCapability)\#(peripheralCapability)\#(handoffCapability)\#(capability)}"#
+        #"{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1"\#(apfsCapability)\#(filesCapability)\#(partitionsCapability)\#(imagesCapability)\#(espCapability)\#(peripheralCapability)\#(handoffCapability)\#(capability)}"#
           .utf8
       ).write(to: bundleSource.appendingPathComponent("engine-capabilities.json"))
       let main = bundleSource.appendingPathComponent("main.py")
@@ -1104,6 +1316,7 @@
             [ -r "$OMARCHY_ENGINE_METADATA" ] || exit 75
             [ -r "$OMARCHY_ENGINE_PAYLOAD" ] || exit 76
             \(expectNativeAPFS ? "[ \"$OMARCHY_NATIVE_APFS_TARGET\" = \"helper-target-v1\" ] || exit 85" : "")
+            \(expectNativeFiles ? "[ \"$OMARCHY_NATIVE_STUB_FILES\" = \"helper-files-v1\" ] || exit 86" : "")
             \(repairManifest == nil ? "" : "[ -r \"$OMARCHY_ENGINE_REPAIR_MANIFEST\" ] || exit 82")
             ;;
           *) exit 70 ;;

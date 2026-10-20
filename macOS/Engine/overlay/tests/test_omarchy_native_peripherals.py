@@ -79,6 +79,24 @@ class PreparedPeripheralTests(unittest.TestCase):
         self.assertEqual(flat, self.files)
         self.assertEqual({name: hashlib.sha256(data).hexdigest() for name, data in flat.items()}, self.value["outputSHA256"])
 
+    def test_sensor_inputs_require_both_complete_bound_files(self):
+        # Synthetic opaque containers: the native producer validates DER; this
+        # adoption boundary verifies the private snapshot and exact bytes.
+        for name, key in ((native.SENSOR, "sensorCalibration"), (native.SENSOR_ROOT_KEY, "sensorRootKey")):
+            data = ("synthetic:" + name).encode()
+            path = self.root / "files" / name
+            path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            path.write_bytes(data)
+            path.chmod(0o600)
+            self.manifest["files"][name] = dict(role="sensor", bytes=len(data), sha256=hashlib.sha256(data).hexdigest())
+            self.manifest["local_inputs"][key] = hashlib.sha256(data).hexdigest()
+        self.save()
+        self.assertEqual(set(self.load()["sensor"]), {native.SENSOR, native.SENSOR_ROOT_KEY})
+        del self.manifest["files"][native.SENSOR_ROOT_KEY]
+        self.save()
+        with self.assertRaisesRegex(native.NativePeripheralError, "missing or changed"):
+            self.load()
+
     def test_all_context_fields_refuse_another_job_plan_payload_or_recipe(self):
         for key, changed in [("device", "apple,j613"), ("binding", "sha256:" + "d" * 64),
                              ("plan", "d" * 64), ("metadata", "sha256:" + "d" * 64),

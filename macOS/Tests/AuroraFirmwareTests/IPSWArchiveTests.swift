@@ -95,6 +95,69 @@ final class IPSWArchiveTests: XCTestCase, @unchecked Sendable {
     }
   }
 
+  func testStreamingStoredDeflatedZIP64AndDescriptorsPreserveContentAndDigest() async throws {
+    for record in try fixture().archives {
+      let archive = try await IPSWArchive.open(
+        ZIPSource(data: XCTUnwrap(Data(base64Encoded: record.data))))
+      let member = try XCTUnwrap(archive.members.first)
+      let expected = Data("<plist>synthetic</plist>".utf8)
+      var output = Data()
+      let digest = try await archive.stream(
+        member, maximumBytes: 1024, maximumCompressedBytes: 1024,
+        expectedSHA256: expected.sha256, consume: { output.append($0) })
+      XCTAssertEqual(output, expected, record.name)
+      XCTAssertEqual(digest, expected.sha256, record.name)
+    }
+  }
+
+  func testLargeStreamingMemberRetainsOnlyBoundedChunksAndChecksTheCompleteDigest() async throws {
+    let source = ZIPSource(data: try largeBytes())
+    let archive = try await IPSWArchive.open(source)
+    let member = try XCTUnwrap(archive.members.first)
+    var count = 0
+    var largest = 0
+    let expected = "3b6a07d0d404fab4e23b6d34bc6696a6a312dd92821332385e5af7c01c421351"
+    let digest = try await archive.stream(
+      member, maximumBytes: 64 << 20, maximumCompressedBytes: 1 << 20,
+      expectedSHA256: expected,
+      consume: {
+        count += $0.count
+        largest = max(largest, $0.count)
+        XCTAssertTrue($0.allSatisfy { $0 == 0 })
+      })
+    XCTAssertEqual(count, 64 << 20)
+    XCTAssertLessThanOrEqual(largest, 1 << 20)
+    XCTAssertEqual(digest, expected)
+  }
+
+  func testStreamingBudgetsFailBeforeReadingAMemberAndSinkFailureStopsDelivery() async throws {
+    let source = ZIPSource(data: try largeBytes())
+    let archive = try await IPSWArchive.open(source)
+    let member = try XCTUnwrap(archive.members.first)
+    let before = await source.transferred()
+    for (output, input) in [(1, 1 << 20), (64 << 20, 1), (-1, 1 << 20)] {
+      do {
+        try await archive.stream(member, maximumBytes: output, maximumCompressedBytes: input) { _ in
+          XCTFail("Invalid budget reached the sink")
+        }
+        XCTFail("Invalid streaming budget admitted")
+      } catch is RestoreFailure {}
+    }
+    let after = await source.transferred()
+    XCTAssertEqual(after, before)
+    var deliveries = 0
+    do {
+      try await archive.stream(
+        member, maximumBytes: 64 << 20, maximumCompressedBytes: 1 << 20
+      ) { _ in
+        deliveries += 1
+        throw CancellationError()
+      }
+      XCTFail("Cancelled sink continued")
+    } catch is CancellationError {}
+    XCTAssertEqual(deliveries, 1)
+  }
+
   func testSparseArchiveBeyond4GiBUsesOnlyBoundedRanges() async throws {
     let fixture = try fixture().sparse
     let spans = try fixture.spans.map { ($0.offset, try XCTUnwrap(Data(base64Encoded: $0.data))) }
@@ -273,6 +336,18 @@ final class IPSWArchiveTests: XCTestCase, @unchecked Sendable {
     XCTAssertEqual(prefix, Data(repeating: 0, count: 0x11000))
     let transferred = await source.transferred()
     XCTAssertLessThan(transferred, 150_000)
+    var delivered = 0
+    do {
+      try await archive.stream(member, maximumBytes: size, maximumCompressedBytes: size) { bytes in
+        delivered += bytes.count
+        XCTAssertEqual(bytes.count, 4 << 20)
+        throw CancellationError()
+      }
+      XCTFail("Cancelled stored-image sink continued")
+    } catch is CancellationError {}
+    XCTAssertEqual(delivered, 4 << 20)
+    let streamed = await source.transferred()
+    XCTAssertLessThan(streamed, 5 << 20)
   }
 
   func testWholeDirectoryAdmissionRejectsUnusedUnsafeLocalRecords() async throws {

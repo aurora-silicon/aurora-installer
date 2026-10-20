@@ -35,11 +35,13 @@ PY
 
 python3 Packaging/read-validation-engine.py >/dev/null
 python3 test/native-plan-vectors.py
+python3 test/native-stub-file-vectors.py
 python3 test/native-inspection-vectors.py
 python3 test/native-handoff-vectors.py
 python3 test/native-payload-vectors.py
 python3 test/native-firmware-selection-vectors.py
 python3 test/native-source-owner-vectors.py
+python3 test/native-sensor-calibration-vectors.py
 python3 test/native-neo-firmware-vectors.py
 
 python3 -m unittest discover -s Engine/tests -p 'test_*.py'

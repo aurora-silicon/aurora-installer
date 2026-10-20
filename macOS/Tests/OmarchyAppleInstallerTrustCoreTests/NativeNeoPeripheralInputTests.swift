@@ -14,6 +14,11 @@
       let metadata: String
       let manifest: NativeNeoPeripheralPreparer.Manifest
       let outputSHA256: [String: String]
+      struct Vector: Decodable, Sendable {
+        let name: String
+        let data: Data
+      }
+      let vectors: [Vector]
     }
 
     func testConvertedSnapshotMatchesTheReferenceManifestAndStaysOutsideRetainedInputs()
@@ -23,7 +28,7 @@
       defer { fixture.remove() }
       let prepared = try await fixture.preparer().prepare(
         package: fixture.package, rawDirectory: fixture.raw)
-      defer { prepared.remove() }
+      defer { try? prepared.remove() }
       XCTAssertEqual(prepared.directory.deletingLastPathComponent().path, fixture.root.path)
       XCTAssertEqual(prepared.recipeSHA256, fixture.value.manifest.recipeSHA256)
       let observed = try Data(
@@ -49,8 +54,26 @@
       XCTAssertFalse(
         FileManager.default.fileExists(
           atPath: fixture.raw.appendingPathComponent("manifest.json").path))
-      prepared.remove()
+      try prepared.remove()
       XCTAssertFalse(FileManager.default.fileExists(atPath: prepared.directory.path))
+    }
+
+    func testPolicyPreparationUsesAuthenticatedRawTablesWithoutPayloadPolicyMembers() async throws {
+      let fixture = try InputFixture()
+      defer { fixture.remove() }
+      try FileManager.default.removeItem(at: fixture.package.payloadURL)
+      try Data("{\"os_list\":[{\"omarchy_target\":\"apple-silicon-full-os\"}]}".utf8).write(
+        to: fixture.package.metadataURL)
+      try fixture.rebindMetadata()
+      let prepared = try await fixture.preparer().prepare(
+        package: fixture.package, rawDirectory: fixture.raw)
+      defer { try? prepared.remove() }
+      let bytes = try Data(
+        contentsOf: prepared.directory.appendingPathComponent(
+          "files/mediatek/mt7932/policy/world-XZ.bin"))
+      XCTAssertEqual(
+        String(SHA256Digest(hashing: bytes).rawValue.dropFirst(7)),
+        fixture.value.outputSHA256["mediatek/mt7932/policy/world-XZ.bin"])
     }
 
     func testEachAttemptRecollectsLocalInputsInsteadOfCachingAnotherDeviceCalibration() async throws
@@ -59,11 +82,11 @@
       defer { fixture.remove() }
       let first = try await fixture.preparer().prepare(
         package: fixture.package, rawDirectory: fixture.raw)
-      defer { first.remove() }
+      defer { try? first.remove() }
       let other = Data([6, 5, 4, 3, 2, 1])
       let second = try await fixture.preparer(address: other).prepare(
         package: fixture.package, rawDirectory: fixture.raw)
-      defer { second.remove() }
+      defer { try? second.remove() }
       XCTAssertNotEqual(first.directory, second.directory)
       let record = "files/mediatek/j700-mt7932-bdaddr.bin"
       XCTAssertEqual(
@@ -76,6 +99,28 @@
       XCTAssertEqual(
         manifest.localInputs["address"], String(SHA256Digest(hashing: other).rawValue.dropFirst(7))
       )
+    }
+
+    func testSensorSnapshotIncludesBothCompleteDeviceLocalContainers() async throws {
+      let fixture = try InputFixture()
+      defer { fixture.remove() }
+      let sensor = NativeSensorInputs(
+        calibration: NativeSensorCalibrationTests.calibration(),
+        rootKey: NativeSensorCalibrationTests.rootKey())
+      let prepared = try await fixture.preparer(sensor: sensor).prepare(
+        package: fixture.package, rawDirectory: fixture.raw)
+      defer { try? prepared.remove() }
+      let tree = try NativeHandoffFileTree(prepared.directory, protected: true, owner: geteuid())
+      XCTAssertEqual(
+        try tree.read("files/apple/mesacal-j700.bin", maximum: 1 << 20), sensor.calibration)
+      XCTAssertEqual(try tree.read("files/apple/msrk-j700.bin", maximum: 1 << 20), sensor.rootKey)
+      let manifest = try JSONDecoder().decode(
+        NativeNeoPeripheralPreparer.Manifest.self,
+        from: tree.read("manifest.json", maximum: 65536))
+      XCTAssertEqual(manifest.files["apple/msrk-j700.bin"]?.role, "sensor")
+      XCTAssertEqual(
+        manifest.localInputs["sensorRootKey"],
+        String(SHA256Digest(hashing: sensor.rootKey).rawValue.dropFirst(7)))
     }
 
     func testChangedRawInputsUnsafeLinksMissingLocalCalibrationOrPolicyNeverPublishASnapshot()
@@ -92,6 +137,8 @@
           try FileManager.default.createSymbolicLink(
             at: source, withDestinationURL: fixture.package.payloadURL)
         case "policy":
+          try Data("changed".utf8).write(
+            to: fixture.raw.appendingPathComponent("sunrise/IZUBA_db.dat"))
           try Data("{\"os_list\":[{\"omarchy_target\":\"apple-silicon-full-os\"}]}".utf8).write(
             to: fixture.package.metadataURL)
           try fixture.rebindMetadata()
@@ -112,6 +159,14 @@
 
     private final class InputFixture: @unchecked Sendable {
       let value: Fixture
+      var rawFiles: [String: Data] {
+        value.rawFiles.merging(
+          Dictionary(
+            uniqueKeysWithValues: NeoRegulatoryPolicy.inputSHA256.keys.map {
+              ("sunrise/" + $0, Data(("synthetic " + $0).utf8))
+            })
+        ) { _, new in new }
+      }
       let root: URL, raw: URL
       let package: ImportedEngineHandoffPackage
       init() throws {
@@ -136,7 +191,7 @@
         try Data(value.metadata.utf8).write(to: package.metadataURL)
         try value.payload.write(to: package.payloadURL)
         try rebindMetadata()
-        for (name, bytes) in value.rawFiles {
+        for (name, bytes) in rawFiles {
           let url = raw.appendingPathComponent(name)
           try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
@@ -150,23 +205,31 @@
           "payload_digest": value.manifest.payloadDigest,
         ]).write(to: package.identityURL)
       }
-      func preparer(address: Data? = nil, missingLocal: Bool = false) -> NativeNeoPeripheralPreparer
-      {
+      func preparer(
+        address: Data? = nil, missingLocal: Bool = false, sensor: NativeSensorInputs? = nil
+      ) -> NativeNeoPeripheralPreparer {
         let inventory = NativeNeoInputInventory(
           recipeSHA256: value.manifest.recipeSHA256,
-          files: value.rawFiles.map { name, bytes in
+          files: rawFiles.map { name, bytes in
             NativeNeoInputInventory.File(
               name: name, bytes: bytes.count,
               sha256: String(SHA256Digest(hashing: bytes).rawValue.dropFirst(7)))
           })
         let inputs = NativeNeoLocalInputs(
           factory: value.local["factory"]!, lsci: value.local["lsci"]!,
-          address: address ?? value.local["address"]!)
+          address: address ?? value.local["address"]!, sensor: sensor)
         return NativeNeoPeripheralPreparer(
           owner: geteuid(), inventory: { inventory },
-          localInputs: {
+          localInputs: { _ in
             if missingLocal { throw NativePeripheralInputError.localInput }
             return inputs
+          },
+          policyDeriver: { tables in
+            guard Set(tables.keys) == Set(NeoRegulatoryPolicy.inputSHA256.keys),
+              tables.allSatisfy({ $0.value == Data(("synthetic " + $0.key).utf8) }),
+              let policy = self.value.vectors.first(where: { $0.name == "policy-valid" })
+            else { throw NativePeripheralInputError.invalidPolicy }
+            return ["mediatek/mt7932/policy/world-XZ.bin": policy.data]
           })
       }
       func remove() { try? FileManager.default.removeItem(at: root) }

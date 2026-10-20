@@ -37,7 +37,10 @@
         } else if screen == "recovery" {
           RecoveryHandoffView(volumeName: "Aurora Fedora Remix", device: .simulation)
         } else {
-          InstallerPageLayout(showsFooter: screen != "loading") {
+          InstallerPageLayout(
+            showsFooter: screen != "loading",
+            contentAlignment: screen.hasPrefix("allocation") ? .top : .center
+          ) {
             InstallerMasthead(distribution: .fedora, device: .simulation)
           } content: {
             VStack(alignment: .leading, spacing: 16) {
@@ -45,10 +48,13 @@
             }
           } actions: {
             if screen.hasPrefix("allocation") {
-              if screen == "allocation-checking" {
-                Button("Cancel check", action: {}).omarchySecondaryButton()
+              HStack(spacing: 16) {
+                if screen == "allocation-checking" {
+                  Button("Cancel check", action: {}).omarchySecondaryButton()
+                }
+                Button("Install Aurora", action: {}).nativeInstallButton()
+                  .disabled(screen != "allocation-ready").keyboardShortcut(.defaultAction)
               }
-              Button("Install Aurora", action: {}).omarchyPrimaryButton().disabled(true)
             } else {
               Text("Keep this Mac open and plugged in.")
                 .font(OmarchyTheme.detail).foregroundStyle(.secondary)
@@ -62,7 +68,7 @@
     @ViewBuilder private var stage: some View {
       switch screen {
       case "allocation", "allocation-free", "allocation-other", "allocation-checking",
-        "allocation-editing":
+        "allocation-editing", "allocation-ready":
         DiskSplitPanel(
           plan: plan, editable: true, isBusy: screen == "allocation-checking",
           pendingAllocationBytes: screen == "allocation-checking" ? 160_000_000_000 : nil,
@@ -71,9 +77,9 @@
         EncryptDiskToggle(isOn: true, enabled: true, onChange: { _ in })
         Toggle(
           PlainLanguage.planAcknowledgement(resizesMacOS: plan.allocationSource != .freeExtent),
-          isOn: .constant(false)
+          isOn: .constant(screen == "allocation-ready")
         )
-        .toggleStyle(.checkbox).font(OmarchyTheme.body)
+        .toggleStyle(.checkbox).controlSize(.regular).font(OmarchyTheme.body).tint(.blue)
       case "loading":
         PreparationStatusPanel()
       case "preparing":

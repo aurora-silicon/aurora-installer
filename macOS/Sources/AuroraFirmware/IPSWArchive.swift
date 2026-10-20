@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import CryptoKit
 import Foundation
 import zlib
 
@@ -339,26 +340,106 @@ public struct IPSWArchive: Sendable {
       maximumBytes >= 0 && maximumBytes <= maxFileBytes && member.sizeBytes <= maximumBytes
         && member.compressedSize <= maximumBytes + 65536,
       "IPSW member exceeds its extraction budget.")
+    var bytes = Data()
+    _ = try await stream(
+      member, maximumBytes: maximumBytes, maximumCompressedBytes: maximumBytes + 65536,
+      expectedSHA256: expectedSHA256, consume: { bytes.append($0) })
+    return bytes
+  }
+
+  /// Delivers bounded chunks without retaining a complete compressed or decoded
+  /// member. A sink must keep its output private until this method returns:
+  /// final length, CRC and optional digest checks can reject the last chunk.
+  @discardableResult
+  public func stream(
+    _ member: IPSWArchiveMember, maximumBytes: Int, maximumCompressedBytes: Int,
+    expectedSHA256: String? = nil, consume: (Data) throws -> Void
+  ) async throws -> String {
+    try require(
+      (0...(128 << 30)).contains(maximumBytes)
+        && (0...(128 << 30)).contains(maximumCompressedBytes)
+        && member.sizeBytes <= maximumBytes && member.compressedSize <= maximumCompressedBytes,
+      "IPSW member exceeds its streaming budget.")
     if let expectedSHA256 { try require(validHash(expectedSHA256), "Invalid member digest.") }
     let offset = try await dataOffset(for: member)
-    var compressed = Data()
-    while compressed.count < member.compressedSize {
-      let count = min(1024 * 1024, member.compressedSize - compressed.count)
-      compressed.append(
-        try await Self.exact(source, offset: offset + compressed.count, count: count))
+    var digest = SHA256()
+    var checksum: uLong = 0
+    var produced = 0
+    func emit(_ bytes: Data) throws {
+      try Task.checkCancellation()
+      try require(
+        bytes.count <= member.sizeBytes - produced, "IPSW output exceeds its declared size.")
+      digest.update(data: bytes)
+      checksum = bytes.withUnsafeBytes {
+        zlib.crc32(checksum, $0.bindMemory(to: Bytef.self).baseAddress, uInt(bytes.count))
+      }
+      produced += bytes.count
+      try consume(bytes)
     }
-    let bytes: Data
     if member.compressionMethod == 0 {
       try require(member.compressedSize == member.sizeBytes, "Stored IPSW member size mismatch.")
-      bytes = compressed
+      while produced < member.sizeBytes {
+        try Task.checkCancellation()
+        let count = min(4 << 20, member.sizeBytes - produced)
+        let bytes = try await Self.exact(source, offset: offset + produced, count: count)
+        try emit(bytes)
+      }
     } else {
-      bytes = try Self.inflateRaw(compressed, expected: member.sizeBytes)
+      var inflater = z_stream()
+      try require(
+        inflateInit2_(&inflater, -MAX_WBITS, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
+          == Z_OK,
+        "Cannot initialize IPSW streaming decoder.")
+      defer { inflateEnd(&inflater) }
+      var input = Data()
+      var cursor = 0
+      var fetched = 0
+      while true {
+        try Task.checkCancellation()
+        if cursor == input.count && fetched < member.compressedSize {
+          let count = min(4 << 20, member.compressedSize - fetched)
+          input = try await Self.exact(source, offset: offset + fetched, count: count)
+          cursor = 0
+          fetched += count
+        }
+        let previousInput = inflater.total_in
+        let previousOutput = inflater.total_out
+        // The extra byte detects output beyond the directory's declared size.
+        var output = Data(count: min(1 << 20, member.sizeBytes - produced + 1))
+        let capacity = output.count
+        let status = output.withUnsafeMutableBytes { target in
+          input.withUnsafeBytes { bytes in
+            inflater.next_in = UnsafeMutablePointer(
+              mutating: bytes.bindMemory(to: Bytef.self).baseAddress?.advanced(by: cursor))
+            inflater.avail_in = uInt(input.count - cursor)
+            inflater.next_out = target.bindMemory(to: Bytef.self).baseAddress
+            inflater.avail_out = uInt(capacity)
+            return inflate(&inflater, Z_NO_FLUSH)
+          }
+        }
+        cursor += Int(inflater.total_in - previousInput)
+        let count = Int(inflater.total_out - previousOutput)
+        try require(
+          (status == Z_STREAM_END
+            || (status == Z_OK && (inflater.total_in > previousInput || count > 0)))
+            && count <= member.sizeBytes - produced,
+          "IPSW deflate stream is truncated or oversized.")
+        if count > 0 { try emit(Data(output.prefix(count))) }
+        if status == Z_STREAM_END {
+          try require(
+            inflater.total_in == member.compressedSize && produced == member.sizeBytes,
+            "IPSW deflate stream has trailing data or an incorrect length.")
+          break
+        }
+      }
     }
-    try Self.verifyCRC(bytes, member: member)
-    if let expectedSHA256 {
-      try require(bytes.sha256 == expectedSHA256, "IPSW member digest mismatch.")
-    }
-    return bytes
+    try Task.checkCancellation()
+    try require(
+      produced == member.sizeBytes && UInt32(checksum) == member.crc32,
+      "IPSW member length or CRC mismatch.")
+    let hash = digest.finalize().map { String(format: "%02x", $0) }.joined()
+    if let expectedSHA256 { try require(hash == expectedSHA256, "IPSW member digest mismatch.") }
+    return hash
   }
 
   private static func verifyCRC(_ bytes: Data, member: IPSWArchiveMember) throws {
@@ -410,27 +491,4 @@ public struct IPSWArchive: Sendable {
     )
   }
 
-  private static func inflateRaw(_ bytes: Data, expected: Int) throws -> Data {
-    var stream = z_stream()
-    try require(
-      inflateInit2_(&stream, -MAX_WBITS, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK,
-      "Cannot initialize IPSW deflate decoder.")
-    defer { inflateEnd(&stream) }
-    var output = Data(count: expected + 1)
-    let capacity = output.count
-    let status = output.withUnsafeMutableBytes { target in
-      bytes.withUnsafeBytes { input in
-        stream.next_in = UnsafeMutablePointer(
-          mutating: input.bindMemory(to: Bytef.self).baseAddress)
-        stream.avail_in = uInt(bytes.count)
-        stream.next_out = target.bindMemory(to: Bytef.self).baseAddress
-        stream.avail_out = uInt(capacity)
-        return inflate(&stream, Z_FINISH)
-      }
-    }
-    try require(
-      status == Z_STREAM_END && stream.total_in == bytes.count && stream.total_out == expected,
-      "IPSW deflate stream is truncated, oversized or has trailing data.")
-    return Data(output.prefix(expected))
-  }
 }

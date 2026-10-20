@@ -3,6 +3,7 @@
 
 import os
 import json
+import hashlib
 
 import omarchy_asahi
 import omarchy_contract
@@ -32,6 +33,11 @@ ENVIRONMENT_KEYS = {
     "OMARCHY_NATIVE_PERIPHERALS",
     "OMARCHY_NATIVE_FIRMWARE_RECIPE",
     "OMARCHY_NATIVE_APFS_TARGET",
+    "OMARCHY_NATIVE_STUB_VOLUMES",
+    "OMARCHY_NATIVE_STUB_FILES",
+    "OMARCHY_NATIVE_OS_PARTITIONS",
+    "OMARCHY_NATIVE_PAYLOAD_IMAGES",
+    "OMARCHY_NATIVE_ESP_FILES",
     "OMARCHY_NATIVE_SOURCE_BOOTSTRAP",
     "DISTRO",
     "DISTRO_DOCS",
@@ -48,6 +54,11 @@ OPTIONAL_INSTALL_KEYS = {
     "OMARCHY_NATIVE_PERIPHERALS",
     "OMARCHY_NATIVE_FIRMWARE_RECIPE",
     "OMARCHY_NATIVE_APFS_TARGET",
+    "OMARCHY_NATIVE_STUB_VOLUMES",
+    "OMARCHY_NATIVE_STUB_FILES",
+    "OMARCHY_NATIVE_OS_PARTITIONS",
+    "OMARCHY_NATIVE_PAYLOAD_IMAGES",
+    "OMARCHY_NATIVE_ESP_FILES",
     "OMARCHY_NATIVE_SOURCE_BOOTSTRAP",
 }
 
@@ -297,6 +308,36 @@ class EngineRuntime:
                     raise ValueError("invalid source bootstrap")
             except ValueError as error:
                 raise EngineRuntimeError("native source bootstrap is required") from error
+        native_volumes = None
+        if "OMARCHY_NATIVE_STUB_VOLUMES" in self.values:
+            if (self.values["OMARCHY_NATIVE_STUB_VOLUMES"] != "helper-volumes-v1"
+                    or native_target is None):
+                raise EngineRuntimeError("native stub volumes require native APFS preparation")
+            native_volumes = self.journal._read_checkpoint_evidence("native-stub-volumes")
+        native_files = None
+        if "OMARCHY_NATIVE_STUB_FILES" in self.values:
+            if self.values["OMARCHY_NATIVE_STUB_FILES"] != "helper-files-v1" or native_volumes is None:
+                raise EngineRuntimeError("native stub files require native volume preparation")
+            native_files = self.journal._read_checkpoint_evidence("native-stub-files")
+            binding = self.journal._read_checkpoint_evidence("native-stub-file-binding")
+            if hashlib.sha256(binding).hexdigest() != json.loads(native_files).get("binding_sha256"):
+                raise EngineRuntimeError("native stub file binding changed")
+        native_partitions = None
+        if "OMARCHY_NATIVE_OS_PARTITIONS" in self.values:
+            if self.values["OMARCHY_NATIVE_OS_PARTITIONS"] != "helper-partitions-v1" or native_files is None:
+                raise EngineRuntimeError("native OS partitions require native file preparation")
+            native_partitions = self.journal._read_checkpoint_evidence("native-os-partitions")
+        native_images = None
+        if "OMARCHY_NATIVE_PAYLOAD_IMAGES" in self.values:
+            if self.values["OMARCHY_NATIVE_PAYLOAD_IMAGES"] != "helper-images-v1" or native_partitions is None:
+                raise EngineRuntimeError("native payload images require native partition preparation")
+            native_images = {name + ".img": self.journal._read_checkpoint_evidence("native-image-" + name)
+                             for name in ("boot", "root")}
+        native_esp = None
+        if "OMARCHY_NATIVE_ESP_FILES" in self.values:
+            if self.values["OMARCHY_NATIVE_ESP_FILES"] != "helper-esp-v1" or native_images is None:
+                raise EngineRuntimeError("native ESP files require native payload image preparation")
+            native_esp = self.journal._read_checkpoint_evidence("native-esp-files")
         adapter = omarchy_asahi.AsahiStage1Adapter(
             installer=installer,
             metadata_path=self.values["OMARCHY_ENGINE_METADATA"],
@@ -313,6 +354,11 @@ class EngineRuntime:
             native_recipe_sha256=self.values.get("OMARCHY_NATIVE_FIRMWARE_RECIPE"),
             require_native_peripherals=self.mode in ("install", "prepare-native-handoff") and self.device_identifier == "apple,j700",
             native_target_evidence=native_target,
+            native_volume_evidence=native_volumes,
+            native_file_evidence=native_files,
+            native_partition_evidence=native_partitions,
+            native_image_evidence=native_images,
+            native_esp_evidence=native_esp,
             expected_native_bootstrap=native_bootstrap,
             full_readback=os.environ.get("OMARCHY_FULL_READBACK") == "1",
         )

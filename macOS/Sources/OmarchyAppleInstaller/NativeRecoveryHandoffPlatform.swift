@@ -66,14 +66,18 @@
       }
     }
     func mounted(
-      _ identifier: String, uuid: String, key: String = "VolumeUUID", sourcePreboot: Bool = false
+      _ identifier: String, uuid: String, key: String = "VolumeUUID", sourcePreboot: Bool = false,
+      writable: Bool = false
     ) throws -> URL {
       var info = try environment.disk(identifier)
       guard (info[key] as? String)?.uppercased() == uuid.uppercased() else {
         throw NativeHandoffValidationError.invalidTarget
       }
       if (info["MountPoint"] as? String)?.isEmpty != false {
-        _ = try environment.command("/usr/sbin/diskutil", ["mount", "readOnly", identifier])
+        _ = try environment.command(
+          "/usr/sbin/diskutil",
+          writable
+            ? ["mount", identifier] : ["mount", "readOnly", identifier])
         owned.append(identifier)
         info = try environment.disk(identifier)
       }
@@ -84,6 +88,12 @@
         URL(fileURLWithPath: mount).standardizedFileURL.path == mount
       else {
         throw NativeHandoffValidationError.invalidTarget
+      }
+      if writable {
+        guard info["WritableVolume"] as? Bool == true || info["ReadOnlyVolume"] as? Bool == false
+        else {
+          throw NativeHandoffValidationError.invalidTarget
+        }
       }
       return URL(fileURLWithPath: mount, isDirectory: true)
     }

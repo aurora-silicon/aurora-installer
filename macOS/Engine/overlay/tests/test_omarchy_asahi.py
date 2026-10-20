@@ -405,7 +405,7 @@ class AsahiStage1AdapterTests(unittest.TestCase):
                     "radio": {name:b"radio" for name in module.omarchy_native_peripherals.RADIO},
                     "als": {module.omarchy_native_peripherals.ALS:b"a" * 80},
                     "lsci": {module.omarchy_native_peripherals.LSCI:b"l" * 156},
-                    "policy": {"mediatek/mt7932/policy/world-XZ.bin":b"supplied"}}
+                    "policy": {"mediatek/mt7932/policy/world-XZ.bin":b"supplied"}, "sensor": {}}
         with patch.object(module.omarchy_native_peripherals, "load", return_value=prepared) as load, patch.object(
             module.omarchy_mt7932, "collect", side_effect=AssertionError("legacy radio collector")
         ), patch.object(module.omarchy_isp, "extract", side_effect=AssertionError("legacy camera conversion")), patch.object(
@@ -882,6 +882,297 @@ class AsahiStage1AdapterTests(unittest.TestCase):
         prepare.assert_called_once_with(target)
         self.assertEqual(adapter.installer.dutil.resize_calls, [])
         self.assertEqual(adapter.installer.dutil.add_calls, [])
+
+    def _native_volume_adapter(self):
+        adapter, target = self._native_target_adapter()
+        adapter.preflight(self.plan)
+        group = "00000000-0000-0000-0000-000000000900"
+        volumes = []
+        for index, role in enumerate(("Data", "System", "Preboot", "Recovery")):
+            volumes.append(dict(uuid=f"00000000-0000-0000-0000-{index + 1:012d}",
+                                identifier=f"disk8s{index + 1}", roles=[role],
+                                name=("Omarchy - Data" if role == "Data" else
+                                      "Omarchy" if role == "System" else role),
+                                **({"group": group} if role in ("Data", "System") else {})))
+        target.container = dict(APFSContainerUUID="00000000-0000-0000-0000-000000000123",
+                                Volumes=[dict(APFSVolumeUUID=item["uuid"], Name=item["name"],
+                                              Roles=item["roles"], DeviceIdentifier=item["identifier"])
+                                         for item in volumes],
+                                VolumeGroups=[dict(APFSVolumeGroupUUID=group, Volumes=[
+                                    dict(Role=role, DeviceIdentifier=volumes[index]["identifier"])
+                                    for index, role in enumerate(("Data", "System"))])])
+        receipt = dict(planDigest=self.plan.plan_digest, partitionUUID=target.uuid,
+                       containerUUID=target.container["APFSContainerUUID"], label="Omarchy", volumes=volumes)
+        adapter.native_volume_evidence = json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode()
+        adapter.installer.ins.osi.vgid = group
+        adapter.installer.ins.osi.sys_volume = "disk8s2"
+        adapter.installer.ins.osi.data_volume = "disk8s1"
+        adapter.installer.ins.osi.preboot_vgid = volumes[2]["uuid"]
+        adapter.installer.ins.osi.rec_vgid = volumes[3]["uuid"]
+        return adapter, target
+
+    def test_native_volumes_continue_at_file_population_without_recreating_any_volume(self):
+        adapter, target = self._native_volume_adapter()
+        with patch.object(adapter.installer.ins, "prepare_volume") as prepare, \
+             patch.object(adapter.installer.ins, "install_files", side_effect=RuntimeError("files gate")) as files:
+            with self.assertRaisesRegex(RuntimeError, "files gate"):
+                adapter.install_stub_and_esp(self.plan)
+        prepare.assert_not_called()
+        files.assert_called_once_with(adapter.installer.cur_os)
+        self.assertIs(adapter.installer.ins.part, target)
+        self.assertEqual(adapter.installer.dutil.add_calls, [])
+
+    def test_native_volume_identity_changes_are_rejected_before_file_population(self):
+        for fault in ("container", "name", "role", "uuid", "group", "member", "duplicate", "discovery"):
+            with self.subTest(fault=fault):
+                adapter, target = self._native_volume_adapter()
+                container = target.container
+                if fault == "container":
+                    container["APFSContainerUUID"] = "changed"
+                elif fault in ("name", "role", "uuid"):
+                    key = {"name": "Name", "role": "Roles", "uuid": "APFSVolumeUUID"}[fault]
+                    container["Volumes"][0][key] = "changed"
+                elif fault == "group":
+                    container["VolumeGroups"][0]["APFSVolumeGroupUUID"] = "changed"
+                elif fault == "member":
+                    container["VolumeGroups"][0]["Volumes"][0]["DeviceIdentifier"] = "disk99s1"
+                elif fault == "duplicate":
+                    container["Volumes"].append(container["Volumes"][0])
+                elif fault == "discovery":
+                    adapter.installer.ins.osi.data_volume = "disk99s1"
+                with patch.object(adapter.installer.ins, "prepare_volume") as prepare, \
+                     patch.object(adapter.installer.ins, "install_files") as files:
+                    with self.assertRaisesRegex(AsahiAdapterError, "native stub volume"):
+                        adapter.install_stub_and_esp(self.plan)
+                prepare.assert_not_called()
+                files.assert_not_called()
+
+    def test_native_volume_continuation_resolves_renumbered_volumes_by_uuid(self):
+        adapter, target = self._native_volume_adapter()
+        for index, volume in enumerate(target.container["Volumes"]):
+            volume["DeviceIdentifier"] = f"disk99s{index + 1}"
+        for index, volume in enumerate(target.container["VolumeGroups"][0]["Volumes"]):
+            volume["DeviceIdentifier"] = f"disk99s{index + 1}"
+        adapter.installer.ins.osi.data_volume = "disk99s1"
+        adapter.installer.ins.osi.sys_volume = "disk99s2"
+        with patch.object(adapter.installer.ins, "prepare_volume") as prepare, \
+             patch.object(adapter.installer.ins, "install_files", side_effect=RuntimeError("files gate")):
+            with self.assertRaisesRegex(RuntimeError, "files gate"):
+                adapter.install_stub_and_esp(self.plan)
+        prepare.assert_not_called()
+
+    def _native_files_adapter(self, root):
+        adapter, target = self._native_volume_adapter()
+        osi = adapter.installer.ins.osi
+        for role, attribute in (("System", "system"), ("Preboot", "preboot"), ("Recovery", "recovery")):
+            path = Path(root, role); path.mkdir(); setattr(osi, attribute, str(path))
+        version = dict(ProductVersion=adapter.os_firmware, ProductUserVisibleVersion=adapter.os_firmware + " (stub)")
+        files = [("System", "System/Library/CoreServices/SystemVersion.plist", plistlib.dumps(version), "SystemVersion.plist"),
+                 ("System", ".IAPhysicalMedia", plistlib.dumps(dict(AppName="Aurora Installer.app")), None),
+                 ("System", "usr/standalone/bootcaches.plist", b"metadata", None),
+                 ("Preboot", osi.vgid + "/Restore/BuildManifest.plist", b"manifest", "BuildManifest.plist"),
+                 ("Recovery", osi.vgid + "/usr/standalone/firmware/arm64eBaseSystem.dmg", b"synthetic-image", None)]
+        entries = []
+        for role, name, data, idata in files:
+            path = Path(getattr(osi, role.lower()), name); path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(data)
+            entry = dict(role=role, path=name, identity=dict(bytes=len(data), sha256=hashlib.sha256(data).hexdigest()))
+            if idata is not None: entry["installerDataName"] = idata
+            entries.append(entry)
+        adapter.installer.ins.sv_path = str(Path(osi.system, files[0][1]))
+        adapter.restore_source_url = "https://updates.cdn-apple.com/test.ipsw"
+        receipt = dict(schema=1, plan_digest=self.plan.plan_digest, binding_sha256="a" * 64,
+                       group_uuid=osi.vgid, source_url=adapter.restore_source_url, firmware_version=adapter.os_firmware,
+                       files=entries, stub_info=dict(vgid=osi.vgid, system_version=version, manifest_info={}, admin_users={}))
+        adapter.native_file_evidence = json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode()
+        return adapter, receipt
+
+    def _native_partition_adapter(self):
+        adapter, target = self._native_volume_adapter()
+        adapter.target_part = target
+        templates = [dict(name="EFI", type="EFI", size="8388608B"),
+                     dict(name="Boot", type="Linux", size="16777216B"),
+                     dict(name="Root", type="Linux", size="33554432B", expand=True)]
+        adapter.template["partitions"] = templates
+        adapter.osins.align = lambda value: (value + 1048575) // 1048576 * 1048576
+        adapter.osins.min_size = 56 * 1024**2
+        os_size = self.plan.length_bytes - adapter.stub_size
+        sizes = [8 * 1024**2, 16 * 1024**2, os_size - 24 * 1024**2]
+        offset = target.offset + target.size
+        rows, layouts, physical = [], [], []
+        for index, (template, size) in enumerate(zip(templates, sizes, strict=True)):
+            identifier, uuid = f"disk0s{index + 9}", f"00000000-0000-0000-0000-{index + 9:012d}"
+            kind = "EFI" if index == 0 else "Linux Filesystem"
+            rows.append(dict(identifier=identifier, uuid=uuid, type=kind, offset=offset, size=size, name=""))
+            layouts.append(dict(name=template["name"], type=template["type"], bytes=size))
+            physical.append(FakePart(identifier, offset=offset, size=size, free=False, part_type=kind, uuid=uuid))
+            offset += size
+        adapter.installer.dutil.partition_rounds = [[target, *physical]]
+        adapter.installer.dutil.round = 0
+        receipt = dict(plan=self.plan.plan_digest, stubUUID=target.uuid, layout=dict(parts=layouts), partitions=rows)
+        adapter.native_partition_evidence = json.dumps(receipt).encode()
+        return adapter, receipt, os_size
+
+    def test_native_partition_receipt_adopts_the_live_layout_without_repartitioning(self):
+        adapter, receipt, size = self._native_partition_adapter()
+        with patch.object(adapter.osins, "partition_disk") as partition:
+            adapter._consume_native_partitions(self.plan, size)
+        partition.assert_not_called()
+        self.assertEqual([part.name for part in adapter.osins.part_info], [row["identifier"] for row in receipt["partitions"]])
+        self.assertEqual(adapter.osins.efi_part.uuid, receipt["partitions"][0]["uuid"])
+        self.assertEqual(adapter.osins.install_size, size)
+
+    def test_native_partition_receipt_refuses_changed_identity_geometry_or_metadata(self):
+        for fault in ("plan", "stub", "uuid", "offset", "size", "layout", "foreign", "type", "shape"):
+            with self.subTest(fault=fault):
+                adapter, receipt, size = self._native_partition_adapter()
+                if fault == "plan": receipt["plan"] = "changed"
+                elif fault == "stub": receipt["stubUUID"] = "changed"
+                elif fault in ("uuid", "offset", "size", "type"): receipt["partitions"][0][fault] = "changed"
+                elif fault == "layout": receipt["layout"]["parts"][0]["bytes"] += 4096
+                elif fault == "shape": receipt["partitions"][0]["extra"] = True
+                elif fault == "foreign": adapter.installer.dutil.partition_rounds[0].append(
+                    FakePart("disk0s99", offset=receipt["partitions"][0]["offset"], size=4096, free=False))
+                adapter.native_partition_evidence = json.dumps(receipt).encode()
+                with self.assertRaisesRegex(AsahiAdapterError, "native OS partitions"):
+                    adapter._consume_native_partitions(self.plan, size)
+
+    def _native_image_adapter(self):
+        adapter, partitions, size = self._native_partition_adapter()
+        adapter._consume_native_partitions(self.plan, size)
+        adapter.template["partitions"][1]["image"] = "boot.img"
+        adapter.template["partitions"][2]["image"] = "root.img"
+        receipts = {}
+        for image, info in zip(("boot.img", "root.img"), adapter.osins.part_info[1:], strict=True):
+            receipts[image] = dict(partition_identifier=info.name, partition_uuid=info.uuid.lower(),
+                partition_size_bytes=info.size, installed_bytes=adapter.osins.pkg.getinfo(image).file_size,
+                content_sha256=hashlib.sha256(adapter.osins.pkg.read(image)).hexdigest(),
+                verification="source-sha256-write-flushed-v1")
+        adapter.native_image_evidence = {name: json.dumps(value).encode() for name, value in receipts.items()}
+        return adapter, receipts
+
+    def test_native_image_receipts_skip_all_python_raw_writes(self):
+        adapter, receipts = self._native_image_adapter()
+        adapter._consume_native_images()
+        with patch("omarchy_asahi.write_image", side_effect=AssertionError("raw image rewritten")) as write:
+            for image, info in zip(("boot.img", "root.img"), adapter.osins.part_info[1:], strict=True):
+                adapter.osins.install_raw_image(image, info)
+        write.assert_not_called()
+        self.assertEqual(adapter.osins.image_receipts, receipts)
+
+    def test_native_image_receipts_refuse_changed_identity_or_missing_completion(self):
+        for fault in ("uuid", "size", "length", "hash", "verification", "missing", "partition"):
+            with self.subTest(fault=fault):
+                adapter, receipts = self._native_image_adapter()
+                receipt = receipts["root.img"]
+                if fault == "uuid": receipt["partition_uuid"] = "changed"
+                elif fault == "size": receipt["partition_size_bytes"] -= 4096
+                elif fault == "length": receipt["installed_bytes"] -= 4096
+                elif fault == "hash": receipt["content_sha256"] = "changed"
+                elif fault == "verification": receipt["verification"] = "changed"
+                elif fault == "missing": del receipts["root.img"]
+                elif fault == "partition": adapter.native_partition_evidence = None
+                adapter.native_image_evidence = {name: json.dumps(value).encode() for name, value in receipts.items()}
+                with self.assertRaisesRegex(AsahiAdapterError, "native payload images"):
+                    adapter._consume_native_images()
+                self.assertIsNone(getattr(adapter.osins, "native_image_receipts", None))
+
+    def _native_esp_adapter(self):
+        self._common_payload()
+        metadata = self._target_metadata()
+        metadata["aurora_stage1"] = dict(kind="common-raw-v1", qualified_machines={"j613ap": ["14.8.3"]})
+        self._write_metadata([metadata])
+        adapter, images = self._native_image_adapter()
+        adapter._consume_native_images()
+        adapter.template["partitions"][0]["source"] = "esp"
+        adapter.installer.dutil.mount_points[adapter.osins.efi_part.name] = str(self.installed_esp)
+        layout = esp_board_layout(adapter.installer.sysinfo.device_class, adapter._esp_members(), common_allowed=adapter.common_stage1)
+        files = []
+        for member, path in sorted(layout.items()):
+            data = adapter.osins.pkg.read(member)
+            target = self.installed_esp / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+            files.append(dict(member=member, path=path, identity=dict(bytes=len(data), sha256=hashlib.sha256(data).hexdigest())))
+        system = self.root / "native-system"
+        system.mkdir()
+        adapter.installer.ins.osi.system = str(system)
+        icon = adapter.osins.pkg.read(adapter.template["icon"])
+        adapter.installer.ins.icon_path = str(system / ".VolumeIcon.icns")
+        Path(adapter.installer.ins.icon_path).write_bytes(icon)
+        boot = system / "Finish Installation.app/Contents/Resources/boot.bin"
+        boot.parent.mkdir(parents=True)
+        data = fill_aurora_stage1(adapter.osins.pkg.read("esp/aurora/stage1.bin"), adapter.osins.efi_part.uuid.lower(), "m1n1/boot.bin", 0)
+        boot.write_bytes(data)
+        adapter.installer.ins.boot_obj_path = str(boot)
+        receipt = dict(plan=self.plan.plan_digest, firmware=adapter.os_firmware,
+            groupUUID=adapter.installer.ins.osi.vgid, espUUID=adapter.osins.efi_part.uuid,
+            files=files, icon=dict(bytes=len(icon), sha256=hashlib.sha256(icon).hexdigest()),
+            stage1=dict(bytes=len(data), sha256=hashlib.sha256(data).hexdigest()))
+        adapter.native_esp_evidence = json.dumps(receipt).encode()
+        return adapter, receipt
+
+    def test_native_esp_receipt_skips_legacy_copy_and_boot_object_rebuild(self):
+        adapter, receipt = self._native_esp_adapter()
+        adapter._consume_native_esp(self.plan)
+        self.assertTrue(adapter.osins.native_esp_prepared)
+        paths = [Path(adapter.installer.ins.icon_path), Path(adapter.installer.ins.boot_obj_path)]
+        inodes = [path.stat().st_ino for path in paths]
+        with patch.object(FakeOSInstaller, "install", side_effect=AssertionError("legacy ESP copy")), \
+             patch("omarchy_asahi.write_image", side_effect=AssertionError("raw image rewrite")):
+            adapter.osins.install(adapter.installer.ins)
+        self.assertEqual([path.stat().st_ino for path in paths], inodes)
+        self.assertEqual(set(adapter.osins.image_receipts), {"boot.img", "root.img"})
+
+    def test_native_esp_receipt_refuses_changed_binding_files_icon_or_stage1(self):
+        for fault in ("plan", "firmware", "group", "esp", "mapping", "digest", "contents", "icon", "stage1", "missing"):
+            with self.subTest(fault=fault):
+                # Each case owns its publication directories.
+                for path in (self.root / "native-system",):
+                    if path.exists(): shutil.rmtree(path)
+                adapter, receipt = self._native_esp_adapter()
+                if fault == "plan": receipt["plan"] = "changed"
+                elif fault == "firmware": receipt["firmware"] = "changed"
+                elif fault == "group": receipt["groupUUID"] = "changed"
+                elif fault == "esp": receipt["espUUID"] = "changed"
+                elif fault == "mapping": receipt["files"][0]["path"] = "../escape"
+                elif fault == "digest": receipt["files"][0]["identity"]["sha256"] = "a" * 64
+                elif fault == "contents": (self.installed_esp / "m1n1/boot.bin").write_bytes(b"changed")
+                elif fault == "icon": Path(adapter.installer.ins.icon_path).write_bytes(b"changed")
+                elif fault == "stage1": Path(adapter.installer.ins.boot_obj_path).write_bytes(b"changed")
+                elif fault == "missing": receipt["files"].pop()
+                adapter.native_esp_evidence = json.dumps(receipt).encode()
+                with self.assertRaisesRegex(AsahiAdapterError, "native ESP"):
+                    adapter._consume_native_esp(self.plan)
+                self.assertFalse(getattr(adapter.osins, "native_esp_prepared", False))
+
+    def test_native_files_are_verified_and_skip_python_population_before_partitioning(self):
+        with tempfile.TemporaryDirectory() as root:
+            adapter, receipt = self._native_files_adapter(root)
+            with patch.object(adapter.installer.ins, "install_files") as populate, \
+                 patch.object(adapter.osins, "partition_disk", side_effect=RuntimeError("partition gate")) as partition:
+                with self.assertRaisesRegex(RuntimeError, "partition gate"):
+                    adapter.install_stub_and_esp(self.plan)
+            populate.assert_not_called()
+            partition.assert_called_once()
+            self.assertEqual(adapter.installer.ins.stub_info, receipt["stub_info"])
+            self.assertEqual(len(adapter.installer.ins.copy_idata), 2)
+
+    def test_native_files_refuse_corruption_or_unsafe_paths_before_partitioning(self):
+        for fault in ("contents", "group", "source", "path", "duplicate", "firmware"):
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as root:
+                adapter, receipt = self._native_files_adapter(root)
+                if fault == "contents": Path(adapter.installer.ins.sv_path).write_bytes(b"changed")
+                elif fault == "group": receipt["group_uuid"] = "other"
+                elif fault == "source": receipt["source_url"] = "https://example.org/other"
+                elif fault == "path": receipt["files"][0]["path"] = "../escape"
+                elif fault == "duplicate": receipt["files"].append(receipt["files"][0])
+                elif fault == "firmware": receipt["firmware_version"] = "0"
+                adapter.native_file_evidence = json.dumps(receipt).encode()
+                with patch.object(adapter.installer.ins, "install_files") as populate, \
+                     patch.object(adapter.osins, "partition_disk") as partition:
+                    with self.assertRaisesRegex(AsahiAdapterError, "native stub files"):
+                        adapter.install_stub_and_esp(self.plan)
+                populate.assert_not_called(); partition.assert_not_called()
 
     def test_native_apfs_identity_is_reread_before_any_stub_write(self):
         for field, value in [("uuid", "11111111-2222-3333-4444-555555555555"), ("name", "disk0s9"),
@@ -2571,6 +2862,18 @@ class NeoTouchIdCalibrationTests(unittest.TestCase):
             ("apple/mesacal-j700.bin", ("FWFile", "apple/mesacal-j700.bin", b"img4")),
         ])
         self.assertEqual(devices, ["/dev/rdisk0s1"])
+
+    def test_native_snapshot_is_adopted_without_reading_live_sensor_or_container(self):
+        import omarchy_mesa
+        data = {"apple/mesacal-j700.bin": b"calibration", "apple/msrk-j700.bin": b"signed-root"}
+        package = SimpleNamespace(added=[])
+        package.add_file = lambda name, value: package.added.append((name, value))
+        installer = SimpleNamespace(sysinfo=SimpleNamespace(device_class="j700ap"), native_touch_id=data)
+        firmware = SimpleNamespace(core=SimpleNamespace(FWFile=lambda name, value: value))
+        with patch("omarchy_asahi.asahi_firmware", firmware):
+            _collect_neo_touch_id(installer, package, collect=lambda _: self.fail("read device"),
+                                  sensor_present=lambda: self.fail("read registry"))
+        self.assertEqual(dict(package.added), data)
 
     def test_other_macs_collect_nothing(self):
         self.assertEqual(self.run_hook("j613ap", lambda device: self.fail("read the container")), [])

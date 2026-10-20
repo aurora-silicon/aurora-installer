@@ -11,7 +11,7 @@
         defer { fixture.remove() }
         try fixture.prepare()
         let expected = kind == "resize" ? ["apfs", "addPartition"] : ["addPartition"]
-        XCTAssertEqual(fixture.commands.map { $0[0] }, expected)
+        XCTAssertEqual(Array(fixture.commands.prefix(expected.count)).map { $0[0] }, expected)
         if kind == "resize" {
           XCTAssertEqual(
             fixture.commands[0],
@@ -22,7 +22,7 @@
             ])
         }
         XCTAssertEqual(
-          fixture.commands.last,
+          fixture.commands[kind == "resize" ? 1 : 0],
           ["addPartition", "disk0s2", "apfs", "Omarchy", String(fixture.firmware.stubBytes)])
         let transcript = try Data(contentsOf: fixture.journal)
         let validated = try AppleInstallerTrustCore().validateEngineTranscript(transcript)
@@ -83,7 +83,7 @@
       ) {
         XCTAssertEqual($0 as? NativeHandoffValidationError, .invalidOwner)
       }
-      XCTAssertEqual(fixture.commands.count, 1)
+      XCTAssertEqual(fixture.commands.count, 6)
     }
 
     func testSafeFreshMinimumChangesPreserveTheApprovedHeaderAndUseTheNewBound() throws {
@@ -94,7 +94,7 @@
       try fixture.prepare()
       XCTAssertEqual(
         try Data(contentsOf: fixture.journal).prefix(fixture.transcript.count), fixture.transcript)
-      XCTAssertEqual(fixture.commands.count, 2)
+      XCTAssertEqual(fixture.commands.count, 7)
     }
 
     func testChangedResizeResultTargetOrUnrelatedPartitionNeverGetsACheckpoint() throws {
@@ -127,7 +127,7 @@
         defer { fixture.remove() }
         try fixture.transcript.prefix(length).write(to: fixture.journal)
         try fixture.prepare()
-        XCTAssertEqual(fixture.commands.count, 1)
+        XCTAssertEqual(fixture.commands.count, 6)
       }
       let fixture = try InputFixture(kind: "free")
       defer { fixture.remove() }
@@ -153,7 +153,7 @@
       XCTAssertThrowsError(try incomplete.prepare()) {
         XCTAssertEqual($0 as? NativeAPFSError, .ambiguousMutation)
       }
-      XCTAssertEqual(incomplete.commands.count, 1)
+      XCTAssertEqual(incomplete.commands.count, 6)
 
       let completed = try InputFixture(kind: "free")
       defer { completed.remove() }
@@ -164,7 +164,7 @@
       XCTAssertThrowsError(try completed.prepare()) {
         XCTAssertEqual($0 as? NativeAPFSError, .changedTarget)
       }
-      XCTAssertEqual(completed.commands.count, 1)
+      XCTAssertEqual(completed.commands.count, 6)
     }
 
     func testSourceControlsAndRestoreArchiveMustBeAdmittedBeforeDiskWork() async throws {
@@ -191,7 +191,84 @@
       try prepared.prepareTarget(
         journal: fixture.journal, authorization: fixture.authorization,
         sourceBootstrap: fixture.sourceBootstrap)
-      XCTAssertEqual(fixture.commands.count, 1)
+      XCTAssertEqual(fixture.commands.count, 6)
+    }
+
+    func testVolumePreparationIsCoveredByTheAPFSIntentAndCannotReplayAnInterruption() throws {
+      for command in 2...6 {
+        let fixture = try InputFixture(kind: "free")
+        defer { fixture.remove() }
+        fixture.stopAtCommand = command
+        XCTAssertThrowsError(try fixture.prepare())
+        XCTAssertEqual(fixture.commands.count, command)
+        XCTAssertTrue(
+          try AppleInstallerTrustCore().validateEngineTranscript(
+            Data(contentsOf: fixture.journal)
+          ).checkpoints.isEmpty)
+        fixture.stopAtCommand = nil
+        XCTAssertThrowsError(try fixture.prepare())
+        XCTAssertEqual(fixture.commands.count, command)
+      }
+    }
+
+    func testVolumePreparationPreservesAutomaticVolumesAndReconcilesAMountFailure() throws {
+      for fault in ["automatic-volumes", "system-mount-error"] {
+        let fixture = try InputFixture(kind: "free")
+        defer { fixture.remove() }
+        fixture.fault = fault
+        try fixture.prepare()
+        XCTAssertEqual(fixture.commands.count, fault == "automatic-volumes" ? 4 : 6)
+        let receipt = try NativeStubVolumes.read(
+          Data(
+            contentsOf: URL(
+              fileURLWithPath: fixture.journal.path + ".native-stub-volumes.evidence")))
+        XCTAssertEqual(receipt.volumes.count, 4)
+        try fixture.prepare()
+        XCTAssertEqual(fixture.commands.count, fault == "automatic-volumes" ? 4 : 6)
+      }
+    }
+
+    func testWrongVolumeGraphAndUnrelatedChangesCannotPublishAnAPFSCheckpoint() throws {
+      for fault in [
+        "duplicate-preboot", "wrong-group", "unrelated-volume", "renumber-before-command",
+      ] {
+        let fixture = try InputFixture(kind: "free")
+        defer { fixture.remove() }
+        fixture.fault = fault
+        XCTAssertThrowsError(try fixture.prepare(), fault)
+        XCTAssertTrue(
+          try AppleInstallerTrustCore().validateEngineTranscript(
+            Data(contentsOf: fixture.journal)
+          ).checkpoints.isEmpty)
+      }
+    }
+
+    func testCompletedVolumeReceiptIsRequiredAndTheGroupIsRevalidatedOnResume() throws {
+      for fault in ["missing", "group", "name", "duplicate"] {
+        let fixture = try InputFixture(kind: "free")
+        defer { fixture.remove() }
+        try fixture.prepare()
+        let file = URL(fileURLWithPath: fixture.journal.path + ".native-stub-volumes.evidence")
+        if fault == "missing" {
+          try FileManager.default.removeItem(at: file)
+        } else {
+          let index = try XCTUnwrap(
+            fixture.snapshot.containers.firstIndex { $0.storeUUID.hasSuffix("000009") })
+          let old = fixture.snapshot.containers[index]
+          var volumes = old.volumes
+          let data = volumes[0]
+          volumes[0] = RemovalVolume(
+            uuid: data.uuid,
+            name: fault == "name" ? "Changed" : data.name, roles: data.roles,
+            group: fault == "group" ? "00000000-0000-0000-0000-000000000901" : data.group,
+            identifier: data.identifier)
+          if fault == "duplicate" { volumes.append(data) }
+          fixture.snapshot.containers[index] = RemovalContainer(
+            uuid: old.uuid, storeUUID: old.storeUUID, volumes: volumes)
+        }
+        XCTAssertThrowsError(try fixture.prepare(), fault)
+        XCTAssertEqual(fixture.commands.count, 6)
+      }
     }
 
     private final class InputFixture: @unchecked Sendable {
@@ -209,6 +286,8 @@
       var fault: String?
       var commands = [[String]]()
       var intentChecks = 0
+      var stopAtCommand: Int?
+      var targetReadbacks = 0
 
       init(kind: String, label: String = "Omarchy") throws {
         let file = try XCTUnwrap(
@@ -312,7 +391,26 @@
               deviceIdentifier: self.original.deviceIdentifier, hardware: self.original.hardware,
               disk: NativeCollectedDisk(
                 snapshot: snapshot, containers: self.original.disk.containers))
-          }, snapshot: { self.snapshot },
+          },
+          snapshot: {
+            if self.commands.count == 1 && self.fault == "renumber-before-command" {
+              self.targetReadbacks += 1
+              if self.targetReadbacks > 1 {
+                let index = try XCTUnwrap(
+                  self.snapshot.containers.firstIndex { $0.storeUUID.hasSuffix("000009") })
+                let old = self.snapshot.containers[index]
+                self.snapshot.containers[index] = RemovalContainer(
+                  uuid: old.uuid,
+                  storeUUID: old.storeUUID,
+                  volumes: old.volumes.map {
+                    RemovalVolume(
+                      uuid: $0.uuid, name: $0.name, roles: $0.roles,
+                      group: $0.group, identifier: "disk99s1")
+                  })
+              }
+            }
+            return self.snapshot
+          },
           verifyPartition: { part, _ in
             if self.fault == "identity-check"
               || !self.snapshot.partitions.contains(where: {
@@ -333,11 +431,14 @@
                 "apfs_preparation_started"))
             self.intentChecks += 1
             self.commands.append(arguments)
+            if self.commands.count == self.stopAtCommand {
+              throw NativeStubVolumeError.changedVolumes
+            }
             if self.fault == "command-error" { throw NativeAPFSError.changedLayout }
-            if arguments[0] == "apfs" {
+            if arguments.prefix(2) == ["apfs", "resizeContainer"] {
               self.snapshot.partitions[1].size =
                 UInt64(arguments[3])! + (self.fault == "resize-rounding" ? 4096 : 0)
-            } else {
+            } else if arguments[0] == "addPartition" {
               let id = "00000000-0000-0000-0000-000000000009"
               let part = RemovalPartition(
                 identifier: "disk0s9", uuid: id, type: "Apple_APFS",
@@ -351,11 +452,63 @@
                   volumes: [
                     RemovalVolume(
                       uuid: "00000000-0000-0000-0000-000000000456",
-                      name: self.fault == "target-label" ? "Other" : arguments[3], roles: [])
+                      name: self.fault == "target-label" ? "Other" : arguments[3], roles: [],
+                      identifier: "disk8s1")
                   ]))
               if self.fault == "unrelated" { self.snapshot.partitions[0].size -= 4096 }
+              if self.fault == "automatic-volumes" || self.fault == "duplicate-preboot" {
+                try self.mutateVolume([
+                  "apfs", "addVolume", "disk8", "apfs", "Preboot", "-role", "B",
+                ])
+                try self.mutateVolume([
+                  "apfs", "addVolume", "disk8", "apfs",
+                  self.fault == "automatic-volumes" ? "Recovery" : "Preboot", "-role",
+                  self.fault == "automatic-volumes" ? "R" : "B",
+                ])
+              }
+            } else {
+              try self.mutateVolume(arguments)
+              if arguments.prefix(2) == ["apfs", "addVolume"], arguments[6] == "S" {
+                if self.fault == "system-mount-error" { throw NativeStubVolumeError.changedVolumes }
+                if self.fault == "unrelated-volume" { self.snapshot.partitions[0].size -= 4096 }
+              }
             }
-          })
+          }, containerReference: { _, _ in "disk8" })
+      }
+
+      private func mutateVolume(_ arguments: [String]) throws {
+        let index = try XCTUnwrap(
+          snapshot.containers.firstIndex { $0.storeUUID.hasSuffix("000009") })
+        let container = snapshot.containers[index]
+        var volumes = container.volumes
+        let group = "00000000-0000-0000-0000-000000000900"
+        if arguments.prefix(2) == ["apfs", "changeVolumeRole"] {
+          volumes[0] = RemovalVolume(
+            uuid: volumes[0].uuid, name: volumes[0].name,
+            roles: ["Data"], identifier: volumes[0].identifier)
+        } else if arguments[0] == "rename" {
+          volumes[0] = RemovalVolume(
+            uuid: volumes[0].uuid, name: arguments[2],
+            roles: volumes[0].roles, identifier: volumes[0].identifier)
+        } else {
+          let role = ["S": "System", "B": "Preboot", "R": "Recovery"][arguments[6]]!
+          if role == "System" {
+            volumes[0] = RemovalVolume(
+              uuid: volumes[0].uuid, name: volumes[0].name,
+              roles: volumes[0].roles, group: group, identifier: volumes[0].identifier)
+          }
+          let number = volumes.count + 1
+          volumes.append(
+            RemovalVolume(
+              uuid: "00000000-0000-0000-0000-00000000045" + String(number + 5),
+              name: arguments[4], roles: [role],
+              group: role == "System"
+                ? (fault == "wrong-group" ? "00000000-0000-0000-0000-000000000901" : group) : nil,
+              identifier: "disk8s" + String(number)))
+        }
+        snapshot.containers[index] = RemovalContainer(
+          uuid: container.uuid, storeUUID: container.storeUUID,
+          volumes: volumes.sorted { $0.uuid < $1.uuid })
       }
 
       var execution: NativeAPFSExecution {

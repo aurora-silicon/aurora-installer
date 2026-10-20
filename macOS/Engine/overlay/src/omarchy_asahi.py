@@ -18,7 +18,7 @@ import sys
 import tempfile
 import zipfile
 import zlib
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 import asahi_firmware
 import osinstall
@@ -839,8 +839,13 @@ def _iboot_system_container(dutil):
 
 def _collect_neo_touch_id(installer, pkg, collect=omarchy_mesa.collect,
                           sensor_present=omarchy_mesa.has_builtin_sensor, *, required=False):
-    """Collect optional calibration; requiring it needs an explicit template opt-in."""
+    """Adopt the private native calibration snapshot when available."""
     if getattr(getattr(installer, "sysinfo", None), "device_class", "") != "j700ap":
+        return
+    prepared = getattr(installer, "native_touch_id", None)
+    if prepared is not None:
+        for name, data in sorted(prepared.items()):
+            pkg.add_file(name, asahi_firmware.core.FWFile(name, data))
         return
     try:
         if not sensor_present():
@@ -1201,7 +1206,33 @@ class OmarchyOSInstaller(osinstall.OSInstaller):
                 os.makedirs(parent, exist_ok=True)
         return super().extract_tree(source, destination)
 
+    def install(self, stub_ins):
+        if not getattr(self, "native_esp_prepared", False):
+            return super().install(stub_ins)
+        if getattr(self, "native_image_receipts", None) is None or self.template.get("extras"):
+            raise AsahiAdapterError("native ESP population has an incomplete resource contract")
+        for part, info in zip(self.template["partitions"], self.part_info, strict=True):
+            if part.get("image"):
+                self.install_raw_image(part["image"], info)
+            if part.get("copy_firmware", False):
+                mountpoint = self.dutil.mount(info.name)
+                shutil.copytree(self.firmware_package.path, os.path.join(mountpoint, "vendorfw"))
+            if part.get("copy_installer_data", False):
+                mountpoint = self.dutil.mount(info.name)
+                path = os.path.join(mountpoint, "asahi")
+                os.makedirs(path, exist_ok=True)
+                self.idata_targets.append(path)
+
     def install_raw_image(self, image, info):
+        native = getattr(self, "native_image_receipts", None)
+        if native is not None:
+            receipt = native[image]
+            if (receipt["partition_uuid"] != info.uuid.lower()
+                    or receipt["partition_size_bytes"] != info.size
+                    or receipt["installed_bytes"] != self.pkg.getinfo(image).file_size):
+                raise AsahiAdapterError("native image target changed")
+            self.image_receipts[image] = dict(receipt, partition_identifier=info.name)
+            return
         self.image_receipts[image] = write_image(
             self.pkg, image, info,
             opener=self.image_opener, flush=self.image_flush,
@@ -1231,6 +1262,11 @@ class AsahiStage1Adapter:
         native_recipe_sha256=None,
         require_native_peripherals=False,
         native_target_evidence=None,
+        native_volume_evidence=None,
+        native_file_evidence=None,
+        native_partition_evidence=None,
+        native_image_evidence=None,
+        native_esp_evidence=None,
         expected_native_bootstrap=None,
     ):
         self.installer = installer
@@ -1255,6 +1291,11 @@ class AsahiStage1Adapter:
         self.native_recipe_sha256 = native_recipe_sha256
         self.require_native_peripherals = require_native_peripherals
         self.native_target_evidence = native_target_evidence
+        self.native_volume_evidence = native_volume_evidence
+        self.native_file_evidence = native_file_evidence
+        self.native_partition_evidence = native_partition_evidence
+        self.native_image_evidence = native_image_evidence
+        self.native_esp_evidence = native_esp_evidence
         self.expected_native_bootstrap = expected_native_bootstrap
         self.prepared_native_peripherals = None
         self.native_camera_setfiles = None
@@ -1311,6 +1352,7 @@ class AsahiStage1Adapter:
                     self.prepared_native_peripherals = prepared
                     self.native_camera_setfiles = prepared["camera"]
                     self.native_radio_files = prepared["radio"]
+                    self.installer.native_touch_id = prepared["sensor"]
                     self.native_lsci = prepared["lsci"][omarchy_native_peripherals.LSCI]
                     self.native_als_calibration = prepared["als"][omarchy_native_peripherals.ALS]
                 else:
@@ -1400,6 +1442,7 @@ class AsahiStage1Adapter:
         self.installer.ins.native_als_calibration = self.native_als_calibration
         self.installer.ins.neo_regulatory_policies = neo_policies
         self.installer.ins.load_ipsw(ipsw)
+        self.restore_source_url = getattr(ipsw, "url", None)
         self.os_firmware = ipsw.version.split(maxsplit=1)[0]
         esp_members = self._esp_members()
         self.common_stage1 = COMMON_STAGE1.member in esp_members and common_stage1_allowed(
@@ -1416,6 +1459,8 @@ class AsahiStage1Adapter:
         self.installer.osins = self.osins
         if self.native_target_evidence is not None:
             self._validate_native_target(plan)
+        if self.native_volume_evidence is not None:
+            self._validate_native_volumes(plan)
         self.preflight_complete = True
 
     def remove_existing_install(self, plan):
@@ -1560,11 +1605,27 @@ class AsahiStage1Adapter:
             self.target_part = self._find_prepared_target(plan)
             self.installer.part = self.target_part
 
-        self.installer.ins.prepare_volume(self.target_part)
+        if self.native_volume_evidence is None:
+            self.installer.ins.prepare_volume(self.target_part)
+        else:
+            self._validate_native_volumes(plan)
+            self.installer.ins.part = self.target_part
         self.installer.ins.check_volume()
-        self.installer.ins.install_files(self.installer.cur_os)
+        if self.native_volume_evidence is not None:
+            self._validate_native_volume_group()
+        if self.native_file_evidence is None:
+            self.installer.ins.install_files(self.installer.cur_os)
+        else:
+            self._consume_native_stub_files(plan)
         os_size = plan.length_bytes - self.stub_size
-        self.osins.partition_disk(self.target_part.name, os_size)
+        if self.native_partition_evidence is None:
+            self.osins.partition_disk(self.target_part.name, os_size)
+        else:
+            self._consume_native_partitions(plan, os_size)
+        if self.native_image_evidence is not None:
+            self._consume_native_images()
+        if self.native_esp_evidence is not None:
+            self._consume_native_esp(plan)
 
         firmware_package = None
         if self.osins.needs_firmware:
@@ -1577,21 +1638,22 @@ class AsahiStage1Adapter:
             self.osins.firmware_package = firmware_package
 
         self.osins.install(self.installer.ins)
-        install_board_stage1(
-            self.installer.sysinfo.device_class,
-            self.os_firmware,
-            self.osins.pkg.read,
-            self.osins.efi_part.uuid,
-            self.installer.ins.boot_obj_path,
-            self.template.get("next_object", "m1n1/boot.bin"),
-            common_allowed=self.common_stage1,
-        )
-        install_esp_board_layout(
-            self.installer.sysinfo.device_class,
-            self._esp_members(),
-            self.installer.dutil.mount(self.osins.efi_part.name),
-            common_allowed=self.common_stage1,
-        )
+        if self.native_esp_evidence is None:
+            install_board_stage1(
+                self.installer.sysinfo.device_class,
+                self.os_firmware,
+                self.osins.pkg.read,
+                self.osins.efi_part.uuid,
+                self.installer.ins.boot_obj_path,
+                self.template.get("next_object", "m1n1/boot.bin"),
+                common_allowed=self.common_stage1,
+            )
+            install_esp_board_layout(
+                self.installer.sysinfo.device_class,
+                self._esp_members(),
+                self.installer.dutil.mount(self.osins.efi_part.name),
+                common_allowed=self.common_stage1,
+            )
         if self.native_recovery_gui:
             omarchy_recovery.stage(
                 self.installer.ins, self.osins.efi_part.uuid,
@@ -1610,6 +1672,151 @@ class AsahiStage1Adapter:
                 os.path.join(target, "installer.log"),
             )
         return self._installed_evidence(plan)
+
+    def _consume_native_esp(self, plan):
+        try:
+            receipt = json.loads(self.native_esp_evidence)
+            if (self.native_image_evidence is None or not isinstance(receipt, dict)
+                    or set(receipt) != {"plan", "firmware", "groupUUID", "espUUID", "files", "icon", "stage1"}
+                    or receipt["plan"] != plan.plan_digest or receipt["firmware"] != self.os_firmware
+                    or receipt["groupUUID"] != self.installer.ins.osi.vgid
+                    or receipt["espUUID"].lower() != self.osins.efi_part.uuid.lower()):
+                raise ValueError("native ESP binding changed")
+            layout = esp_board_layout(self.installer.sysinfo.device_class, self._esp_members(),
+                                      common_allowed=self.common_stage1)
+            if not isinstance(receipt["files"], list) or len(receipt["files"]) != len(layout):
+                raise ValueError("native ESP member count changed")
+            records = {}
+            for entry in receipt["files"]:
+                if (not isinstance(entry, dict) or set(entry) != {"member", "path", "identity"}
+                        or entry["member"] in records or layout.get(entry["member"]) != entry["path"]):
+                    raise ValueError("native ESP mapping changed")
+                identity = entry["identity"]
+                self._native_file_identity(identity)
+                if identity["bytes"] != self.osins.pkg.getinfo(entry["member"]).file_size:
+                    raise ValueError("native ESP member size changed")
+                records[entry["member"]] = identity
+            if set(records) != set(layout):
+                raise ValueError("native ESP member set changed")
+            digest = hashlib.sha256()
+            total = 0
+            for name, identity in sorted(records.items()):
+                encoded = name.encode("utf-8")
+                digest.update(len(encoded).to_bytes(8, "big"))
+                digest.update(encoded)
+                digest.update(bytes.fromhex(identity["sha256"]))
+                total += identity["bytes"]
+            if self._verify_copied_tree("esp", self.osins.efi_part) != (total, digest.hexdigest()):
+                raise ValueError("native ESP files changed")
+            icon = receipt["icon"]
+            self._native_file_identity(icon)
+            installed = self._verify_installed_file(self.template["icon"], self.installer.ins.icon_path)
+            if installed["installed_bytes"] != icon["bytes"] or installed["content_sha256"] != icon["sha256"]:
+                raise ValueError("native volume icon changed")
+            board = board_stage1(self.installer.sysinfo.device_class, self.os_firmware,
+                                 self._esp_members(), common_allowed=self.common_stage1)
+            if board is None:
+                raise ValueError("native Stage 1 is not qualified")
+            expected = fill_aurora_stage1(read_board_stage1(board, self.osins.pkg.read),
+                self.osins.efi_part.uuid.lower(), "m1n1/boot.bin", board.window_ms)
+            identity = receipt["stage1"]
+            self._native_file_identity(identity)
+            if identity != dict(bytes=len(expected), sha256=hashlib.sha256(expected).hexdigest()):
+                raise ValueError("native Stage 1 identity changed")
+            boot_path = Path(self.installer.ins.osi.system, "Finish Installation.app/Contents/Resources/boot.bin")
+            if Path(self.installer.ins.boot_obj_path) != boot_path:
+                raise ValueError("native Stage 1 target changed")
+            descriptor = os.open(boot_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
+            with os.fdopen(descriptor, "rb") as observed:
+                info = os.fstat(observed.fileno())
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                        or info.st_mode & 0o022 or info.st_nlink != 1 or info.st_size != len(expected)):
+                    raise ValueError("unsafe native Stage 1")
+                self._matching_stream_digest(io.BytesIO(expected), observed, len(expected))
+            self.osins.native_esp_prepared = True
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, zipfile.BadZipFile, AsahiAdapterError) as error:
+            raise AsahiAdapterError("native ESP files could not be verified") from error
+
+    @staticmethod
+    def _native_file_identity(identity):
+        if (not isinstance(identity, dict) or set(identity) != {"bytes", "sha256"}
+                or type(identity["bytes"]) is not int or not 0 <= identity["bytes"] <= 64 << 20
+                or not isinstance(identity["sha256"], str)
+                or re.fullmatch(r"[0-9a-f]{64}", identity["sha256"]) is None):
+            raise ValueError("invalid native file identity")
+
+    def _consume_native_images(self):
+        try:
+            if (self.native_partition_evidence is None
+                    or set(self.native_image_evidence) != {"boot.img", "root.img"}):
+                raise ValueError("native image partition binding missing")
+            receipts = {}
+            for template, info in zip(self.template["partitions"], self.osins.part_info, strict=True):
+                image = template.get("image")
+                if not image:
+                    continue
+                receipt = json.loads(self.native_image_evidence[image])
+                if (not isinstance(receipt, dict) or set(receipt) != {
+                        "partition_identifier", "partition_uuid", "partition_size_bytes", "installed_bytes",
+                        "content_sha256", "verification"}
+                        or receipt["partition_uuid"] != info.uuid.lower()
+                        or receipt["partition_size_bytes"] != info.size
+                        or receipt["installed_bytes"] != self.osins.pkg.getinfo(image).file_size
+                        or receipt["verification"] != WRITE_VERIFICATION
+                        or re.fullmatch(r"[0-9a-f]{64}", receipt["content_sha256"]) is None):
+                    raise ValueError("native image identity changed")
+                receipts[image] = receipt
+            if set(receipts) != {"boot.img", "root.img"}:
+                raise ValueError("native images incomplete")
+            self.osins.native_image_receipts = receipts
+        except (ValueError, KeyError, TypeError, AttributeError) as error:
+            raise AsahiAdapterError("native payload images could not be verified") from error
+
+    def _consume_native_partitions(self, plan, os_size):
+        """Adopt only the exact helper-created layout; never partition twice."""
+        try:
+            receipt = json.loads(self.native_partition_evidence)
+            if (not isinstance(receipt, dict) or set(receipt) != {"plan", "stubUUID", "layout", "partitions"}
+                    or receipt["plan"] != plan.plan_digest
+                    or receipt["stubUUID"].lower() != self.target_part.uuid.lower()
+                    or set(receipt["layout"]) != {"parts"}):
+                raise ValueError("native partition binding changed")
+            rows = receipt["partitions"]
+            layouts = receipt["layout"]["parts"]
+            if len(rows) != len(self.template["partitions"]) or len(layouts) != len(rows):
+                raise ValueError("native partition count changed")
+            self._refresh_parts()
+            physical = sorted((part for part in self.installer.parts if not part.free
+                               and self.target_part.offset + self.target_part.size <= part.offset
+                               < plan.offset_bytes + plan.length_bytes), key=lambda part: part.offset)
+            if len(physical) != len(rows):
+                raise ValueError("native partition layout changed")
+            expansion = os_size - self.osins.min_size
+            offset = self.target_part.offset + self.target_part.size
+            for row, layout, template, live in zip(rows, layouts, self.template["partitions"], physical, strict=True):
+                size = self.osins.align(osinstall.psize(template["size"]))
+                if template.get("expand", False):
+                    size += expansion
+                if (not isinstance(row, dict)
+                        or set(row) != {"identifier", "uuid", "type", "offset", "size", "name"}
+                        or row["uuid"].lower() != live.uuid.lower()
+                        or row["identifier"] != live.name
+                        or row["offset"] != offset or row["offset"] != live.offset
+                        or row["size"] != size or row["size"] != live.size
+                        or row["type"] != ("EFI" if template["type"] == "EFI" else "Linux Filesystem")
+                        or row["type"] != live.type
+                        or layout.get("name") != template["name"] or layout.get("type") != template["type"]
+                        or layout.get("bytes") != size):
+                    raise ValueError("native partition identity changed")
+                offset += size
+            if offset != plan.offset_bytes + plan.length_bytes:
+                raise ValueError("native partitions exceed approved extent")
+            self.osins.part_info = physical
+            self.osins.efi_part = next(part for template, part in zip(self.template["partitions"], physical, strict=True)
+                                      if template["type"] == "EFI")
+            self.osins.install_size = os_size
+        except (ValueError, KeyError, TypeError, AttributeError, StopIteration) as error:
+            raise AsahiAdapterError("native OS partitions could not be verified") from error
 
     def validate_installed_checkpoint(
         self,
@@ -1878,6 +2085,159 @@ class AsahiStage1Adapter:
             raise AsahiAdapterError("native APFS target identity changed")
         self.target_part = matches[0]
         self.installer.part = self.target_part
+
+    def _validate_native_volumes(self, plan):
+        if self.native_target_evidence is None:
+            raise AsahiAdapterError("native stub volumes require a native target")
+        try:
+            receipt = json.loads(self.native_volume_evidence)
+            if (not isinstance(receipt, dict)
+                    or set(receipt) != {"planDigest", "partitionUUID", "containerUUID", "label", "volumes"}
+                    or json.dumps(receipt, sort_keys=True, separators=(",", ":"),
+                                  ensure_ascii=False).encode() != self.native_volume_evidence
+                    or receipt["planDigest"] != plan.plan_digest
+                    or receipt["partitionUUID"] != self.target_part.uuid
+                    or receipt["label"] != self.osins.name):
+                raise ValueError("invalid receipt")
+            container = self.target_part.container
+            if container["APFSContainerUUID"] != receipt["containerUUID"]:
+                raise ValueError("changed container")
+            expected = receipt["volumes"]
+            observed = container["Volumes"]
+            if not isinstance(expected, list) or not 4 <= len(expected) <= 5 or len(observed) != len(expected):
+                raise ValueError("changed volume count")
+            by_uuid = {}
+            for item in observed:
+                uuid = item["APFSVolumeUUID"]
+                if uuid in by_uuid:
+                    raise ValueError("duplicate volume")
+                by_uuid[uuid] = item
+            roles = {}
+            for item in expected:
+                keys = {"uuid", "name", "roles", "identifier"}
+                if (not isinstance(item, dict) or set(item) not in (keys, keys | {"group"})
+                        or not re.fullmatch(r"[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}", item["uuid"])
+                        or PARTITION_PATTERN.fullmatch(item["identifier"]) is None
+                        or item["roles"] not in (["System"], ["Data"], ["Preboot"], ["Recovery"], ["VM"])):
+                    raise ValueError("invalid volume")
+                role = item["roles"][0]
+                if role in roles:
+                    raise ValueError("duplicate role")
+                live = by_uuid.pop(item["uuid"])
+                if (live["Name"] != item["name"] or live["Roles"] != item["roles"]
+                        or PARTITION_PATTERN.fullmatch(live["DeviceIdentifier"]) is None):
+                    raise ValueError("changed volume")
+                roles[role] = (item, live)
+            if by_uuid or not {"System", "Data", "Preboot", "Recovery"} <= set(roles):
+                raise ValueError("incomplete group")
+            group = roles["System"][0]["group"]
+            if (not re.fullmatch(r"[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}", group)
+                    or group == "00000000-0000-0000-0000-000000000000"
+                    or roles["Data"][0]["group"] != group
+                    or roles["System"][0]["name"] != receipt["label"]
+                    or roles["Data"][0]["name"] != receipt["label"] + " - Data"
+                    or any(item.get("group") is not None for role, (item, _) in roles.items()
+                           if role not in ("System", "Data"))):
+                raise ValueError("changed group")
+            groups = container["VolumeGroups"]
+            if (len(groups) != 1 or groups[0]["APFSVolumeGroupUUID"] != group
+                    or sorted((item["Role"], item["DeviceIdentifier"]) for item in groups[0]["Volumes"])
+                    != sorted((role, roles[role][1]["DeviceIdentifier"]) for role in ("System", "Data"))):
+                raise ValueError("changed group members")
+        except (ValueError, TypeError, KeyError, AttributeError) as error:
+            raise AsahiAdapterError("native stub volume identity changed") from error
+        self.native_volume_roles = roles
+        self.installer.ins.label = receipt["label"]
+
+    def _validate_native_volume_group(self):
+        roles = self.native_volume_roles
+        osi = self.installer.ins.osi
+        if (osi.vgid != roles["System"][0]["group"]
+                or osi.sys_volume != roles["System"][1]["DeviceIdentifier"]
+                or osi.data_volume != roles["Data"][1]["DeviceIdentifier"]
+                or osi.preboot_vgid != roles["Preboot"][0]["uuid"]
+                or osi.rec_vgid != roles["Recovery"][0]["uuid"]):
+            raise AsahiAdapterError("native stub volume discovery changed")
+
+    def _consume_native_stub_files(self, plan):
+        if self.native_volume_evidence is None:
+            raise AsahiAdapterError("native stub files have no admitted volumes")
+        try:
+            receipt = json.loads(self.native_file_evidence)
+            keys = {"schema", "plan_digest", "binding_sha256", "group_uuid", "source_url",
+                    "firmware_version", "files", "stub_info"}
+            if (not isinstance(receipt, dict) or set(receipt) != keys or receipt["schema"] != 1
+                    or receipt["plan_digest"] != plan.plan_digest
+                    or receipt["group_uuid"] != self.installer.ins.osi.vgid
+                    or receipt["source_url"] != self.restore_source_url
+                    or receipt["firmware_version"] != self.os_firmware
+                    or re.fullmatch(r"[0-9a-f]{64}", receipt["binding_sha256"]) is None
+                    or not isinstance(receipt["files"], list) or not 5 <= len(receipt["files"]) <= 10000):
+                raise ValueError("invalid file receipt")
+            self.installer.ins.load_identity()
+            osi = self.installer.ins.osi
+            roots = {"System": osi.system, "Preboot": osi.preboot, "Recovery": osi.recovery}
+            observed = set()
+            installer_data = []
+            for item in receipt["files"]:
+                if (not isinstance(item, dict) or set(item) not in (
+                        {"role", "path", "identity"}, {"role", "path", "identity", "installerDataName"})
+                        or item["role"] not in roots or not isinstance(item["path"], str)
+                        or not item["path"] or item["path"].startswith("/")
+                        or any(c in item["path"] for c in "\\\0\r\n")
+                        or any(c in ("", ".", "..") for c in item["path"].split("/"))):
+                    raise ValueError("unsafe installed path")
+                identity = item["identity"]
+                if (not isinstance(identity, dict) or set(identity) != {"bytes", "sha256"}
+                        or type(identity["bytes"]) is not int or not 0 <= identity["bytes"] <= 8 << 30
+                        or re.fullmatch(r"[0-9a-f]{64}", identity["sha256"]) is None):
+                    raise ValueError("invalid installed identity")
+                key = (item["role"], item["path"])
+                if key in observed:
+                    raise ValueError("duplicate installed path")
+                observed.add(key)
+                if item["role"] != "System" and not item["path"].startswith(osi.vgid + "/"):
+                    raise ValueError("foreign installed volume group")
+                root = roots[item["role"]]
+                descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+                try:
+                    components = item["path"].split("/")
+                    for component in components[:-1]:
+                        following = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                            dir_fd=descriptor)
+                        os.close(descriptor)
+                        descriptor = following
+                    fd = os.open(components[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK,
+                                 dir_fd=descriptor)
+                    with os.fdopen(fd, "rb") as stream:
+                        info = os.fstat(stream.fileno())
+                        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                                or info.st_mode & 0o022 or info.st_nlink != 1 or info.st_size != identity["bytes"]
+                                or hashlib.file_digest(stream, "sha256").hexdigest() != identity["sha256"]):
+                            raise ValueError("installed file changed")
+                finally:
+                    os.close(descriptor)
+                name = item.get("installerDataName")
+                if name is not None:
+                    if (not isinstance(name, str) or os.path.basename(name) != name
+                            or name not in ("BuildManifest.plist", "RestoreVersion.plist", "SystemVersion.plist",
+                                            "AdminUserRecoveryInfo.plist") and not name.startswith("kernelcache.")):
+                        raise ValueError("unexpected installer data")
+                    installer_data.append((os.path.join(root, item["path"]), name))
+            required = {("System", "System/Library/CoreServices/SystemVersion.plist"),
+                        ("System", ".IAPhysicalMedia"),
+                        ("Recovery", osi.vgid + "/usr/standalone/firmware/arm64eBaseSystem.dmg")}
+            if not required <= observed:
+                raise ValueError("incomplete native stub")
+            data = receipt["stub_info"]
+            if (not isinstance(data, dict) or set(data) != {"vgid", "system_version", "manifest_info", "admin_users"}
+                    or data["vgid"] != osi.vgid
+                    or plistlib.loads(Path(self.installer.ins.sv_path).read_bytes()) != data["system_version"]):
+                raise ValueError("native stub metadata changed")
+            self.installer.ins.stub_info = data
+            self.installer.ins.copy_idata = installer_data
+        except (OSError, ValueError, TypeError, KeyError, AttributeError, plistlib.InvalidFileException) as error:
+            raise AsahiAdapterError("native stub files could not be verified") from error
 
     def _target_evidence(self, plan):
         return json.dumps(

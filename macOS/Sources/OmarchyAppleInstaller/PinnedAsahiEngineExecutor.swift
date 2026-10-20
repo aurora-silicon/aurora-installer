@@ -65,6 +65,10 @@
     private let firmwarePreparer: any NativeFirmwarePreparing
     private let peripheralPreparer: any NativePeripheralPreparing
     private let apfsPreparer: any NativeAPFSPreparing
+    private let stubFilesPreparer: any NativeStubFilesPreparing
+    private let osPartitionsPreparer: any NativeOSPartitionsPreparing
+    private let payloadImagesPreparer: any NativePayloadImagesPreparing
+    private let espFilesPreparer: any NativeESPFilesPreparing
     private let nativeHandoff: any NativeRecoveryHandoffExecuting
     private let collectInstallAdmission: @Sendable () throws -> NativeInstallAdmissionFacts
     private let validatePayload: @Sendable (ImportedEngineHandoffPackage) async throws -> Void
@@ -86,6 +90,10 @@
       firmwarePreparer = NativeFirmwarePreparer()
       peripheralPreparer = NativeNeoPeripheralPreparer()
       apfsPreparer = NativeAPFSPreparer()
+      stubFilesPreparer = NativeStubFilesPreparer()
+      osPartitionsPreparer = NativeOSPartitionsPreparer()
+      payloadImagesPreparer = NativePayloadImagesPreparer()
+      espFilesPreparer = NativeESPFilesPreparer()
       nativeHandoff = NativeRecoveryHandoffExecutor()
       collectInstallAdmission = { try NativeInstallAdmissionFacts.live() }
       validatePayload = { try await NativePayloadPreflight.check($0) }
@@ -106,6 +114,10 @@
       firmwarePreparer: any NativeFirmwarePreparing = NativeFirmwarePreparer(),
       peripheralPreparer: any NativePeripheralPreparing = NativeNeoPeripheralPreparer(),
       apfsPreparer: any NativeAPFSPreparing = NativeAPFSPreparer(),
+      stubFilesPreparer: any NativeStubFilesPreparing = NativeStubFilesPreparer(),
+      osPartitionsPreparer: any NativeOSPartitionsPreparing = NativeOSPartitionsPreparer(),
+      payloadImagesPreparer: any NativePayloadImagesPreparing = NativePayloadImagesPreparer(),
+      espFilesPreparer: any NativeESPFilesPreparing = NativeESPFilesPreparer(),
       nativeHandoff: any NativeRecoveryHandoffExecuting = NativeRecoveryHandoffExecutor(),
       collectInstallAdmission: @escaping @Sendable () throws -> NativeInstallAdmissionFacts = {
         try NativeInstallAdmissionFacts.live()
@@ -131,6 +143,10 @@
       self.firmwarePreparer = firmwarePreparer
       self.peripheralPreparer = peripheralPreparer
       self.apfsPreparer = apfsPreparer
+      self.stubFilesPreparer = stubFilesPreparer
+      self.osPartitionsPreparer = osPartitionsPreparer
+      self.payloadImagesPreparer = payloadImagesPreparer
+      self.espFilesPreparer = espFilesPreparer
       self.nativeHandoff = nativeHandoff
       self.collectInstallAdmission = collectInstallAdmission
       self.validatePayload = validatePayload
@@ -200,7 +216,6 @@
       environment[RestoreImageHelper.pathEnvironmentVariable] = package.restoreImageURL!.path
       environment[RestoreImageHelper.requirementEnvironmentVariable] = restoreImageRequirement!
       var preparedPeripherals: PreparedNativePeripheralInputs?
-      defer { preparedPeripherals?.remove() }
       if operation == .install {
         do {
           if let raw = try await firmwarePreparer.prepare(
@@ -228,88 +243,126 @@
                 secrets: [authorization.password])))
         }
       }
-      let preparedAPFS: (any NativeAPFSExecuting)?
-      do {
-        preparedAPFS =
-          operation == .install && nativeFinalization
-          ? try await apfsPreparer.preflight(package) : nil
-        if preparedAPFS != nil {
-          guard let sourceBootstrap else { throw NativeHandoffValidationError.invalidOwner }
-          environment["OMARCHY_NATIVE_APFS_TARGET"] = "helper-target-v1"
-          environment["OMARCHY_NATIVE_SOURCE_BOOTSTRAP"] = String(
-            decoding:
-              try JSONSerialization.data(
-                withJSONObject: sourceBootstrap.configuration,
-                options: [.sortedKeys, .withoutEscapingSlashes]), as: UTF8.self)
-        }
-      } catch {
-        throw preparationFailure(
-          error, reason: .planIntegrity, operation: operation,
-          journal: journal, package: package, password: authorization.password,
-          summary: "Native disk preparation could not be verified.")
-      }
-      do {
-        let result = try run(
-          archive: package.engineURL,
-          executionParent: package.packageURL.deletingLastPathComponent(),
-          journal: journal,
-          additionalEnvironment: environment,
-          standardInput: nativeFinalization ? nil : authorization.password + Data([10]),
-          secrets: [authorization.password],
-          retryIdentity: RecoveryRetryIdentity(package: package),
-          beforeLaunch: {
-            guard operation == .install else { return }
-            do {
-              if let preparedAPFS {
-                guard let sourceBootstrap else { throw NativeHandoffValidationError.invalidOwner }
-                try preparedAPFS.prepareTarget(
-                  journal: journal, authorization: authorization, sourceBootstrap: sourceBootstrap)
-              } else {
-                let bytes = try self.readAdmissionJournal(journal)
-                try NativeInstallAdmission.check(
-                  package: package, journal: bytes, collect: self.collectInstallAdmission,
-                  readEvidence: {
-                    try self.readCheckpointEvidence(journal: journal, identifier: $0)
-                  })
-              }
-            } catch {
-              throw PinnedAsahiEngineExecutionError.engineFailed(
-                EngineFailureReport(
-                  notice: EngineFailureNotice(
-                    reason: error as? NativeInstallAdmissionError == .invalidJournal
-                      ? .planIntegrity : .diskLayoutChanged,
-                    exitStatus: 1,
-                    diskUnchanged: self.journalProvesNoMutation(
-                      journal, identity: RecoveryRetryIdentity(package: package)),
-                    summary: "The current disk could not be admitted for a fresh installation."),
-                  redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
-                    Data(String(describing: error).utf8), truncated: false,
-                    secrets: [authorization.password])))
-            }
+      return try await PreparedNativePeripheralInputs.withCleanup(preparedPeripherals) {
+        let preparedAPFS: (any NativeAPFSExecuting)?
+        let preparedStubFiles: (any NativeStubFilesExecuting)?
+        let preparedOSPartitions: (any NativeOSPartitionsExecuting)?
+        let preparedPayloadImages: (any NativePayloadImagesExecuting)?
+        let preparedESPFiles: (any NativeESPFilesExecuting)?
+        do {
+          preparedAPFS =
+            operation == .install && nativeFinalization
+            ? try await apfsPreparer.preflight(package) : nil
+          preparedStubFiles =
+            preparedAPFS == nil ? nil : try await stubFilesPreparer.preflight(package)
+          preparedOSPartitions =
+            preparedStubFiles == nil ? nil : try osPartitionsPreparer.preflight(package)
+          preparedPayloadImages =
+            preparedOSPartitions == nil ? nil : try await payloadImagesPreparer.preflight(package)
+          preparedESPFiles =
+            preparedPayloadImages == nil ? nil : try await espFilesPreparer.preflight(package)
+          if preparedESPFiles != nil { environment["OMARCHY_NATIVE_ESP_FILES"] = "helper-esp-v1" }
+          if preparedPayloadImages != nil {
+            environment["OMARCHY_NATIVE_PAYLOAD_IMAGES"] = "helper-images-v1"
           }
-        )
-        if nativeFinalization {
-          return try await finalizeNativeHandoff(
-            package, journal: journal, authorization: authorization,
-            requirement: recovery.requirement, fullReadback: hadDiskWrites)
+          if preparedStubFiles != nil {
+            environment["OMARCHY_NATIVE_STUB_FILES"] = "helper-files-v1"
+          }
+          if preparedOSPartitions != nil {
+            environment["OMARCHY_NATIVE_OS_PARTITIONS"] = "helper-partitions-v1"
+          }
+          if preparedAPFS != nil {
+            guard let sourceBootstrap else { throw NativeHandoffValidationError.invalidOwner }
+            environment["OMARCHY_NATIVE_APFS_TARGET"] = "helper-target-v1"
+            environment["OMARCHY_NATIVE_STUB_VOLUMES"] = "helper-volumes-v1"
+            environment["OMARCHY_NATIVE_SOURCE_BOOTSTRAP"] = String(
+              decoding:
+                try JSONSerialization.data(
+                  withJSONObject: sourceBootstrap.configuration,
+                  options: [.sortedKeys, .withoutEscapingSlashes]), as: UTF8.self)
+          }
+        } catch {
+          throw preparationFailure(
+            error, reason: .planIntegrity, operation: operation,
+            journal: journal, package: package, password: authorization.password,
+            summary: "Native disk preparation could not be verified.")
         }
-        return result
-      } catch PinnedAsahiEngineExecutionError.launchFailed where preparedAPFS != nil {
-        throw preparationFailure(
-          PinnedAsahiEngineExecutionError.launchFailed,
-          reason: .unclassified, operation: operation, journal: journal, package: package,
-          password: authorization.password,
-          summary: "The installation backend could not be started.")
-      } catch PinnedAsahiEngineExecutionError.restoreImageUnsupported {
-        throw preparationFailure(
-          PinnedAsahiEngineExecutionError.restoreImageUnsupported,
-          reason: .recoveryPreparation, operation: operation, journal: journal, package: package,
-          password: authorization.password)
-      } catch PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported {
-        throw preparationFailure(
-          PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported,
-          reason: .recoveryPreparation, operation: operation,
-          journal: journal, package: package, password: authorization.password)
+        do {
+          let result = try await run(
+            archive: package.engineURL,
+            executionParent: package.packageURL.deletingLastPathComponent(),
+            journal: journal,
+            additionalEnvironment: environment,
+            standardInput: nativeFinalization ? nil : authorization.password + Data([10]),
+            secrets: [authorization.password],
+            retryIdentity: RecoveryRetryIdentity(package: package),
+            beforeLaunch: {
+              guard operation == .install else { return }
+              do {
+                if let preparedAPFS {
+                  guard let sourceBootstrap else { throw NativeHandoffValidationError.invalidOwner }
+                  try preparedAPFS.prepareTarget(
+                    journal: journal, authorization: authorization, sourceBootstrap: sourceBootstrap
+                  )
+                  try await preparedStubFiles?.prepare(
+                    journal: journal, authorization: authorization,
+                    sourceBootstrap: sourceBootstrap)
+                  try preparedOSPartitions?.prepare(
+                    journal: journal, authorization: authorization,
+                    sourceBootstrap: sourceBootstrap)
+                  try await preparedPayloadImages?.prepare(
+                    journal: journal, authorization: authorization,
+                    sourceBootstrap: sourceBootstrap)
+                  try await preparedESPFiles?.prepare(
+                    journal: journal, authorization: authorization,
+                    sourceBootstrap: sourceBootstrap)
+                } else {
+                  let bytes = try self.readAdmissionJournal(journal)
+                  try NativeInstallAdmission.check(
+                    package: package, journal: bytes, collect: self.collectInstallAdmission,
+                    readEvidence: {
+                      try self.readCheckpointEvidence(journal: journal, identifier: $0)
+                    })
+                }
+              } catch {
+                throw PinnedAsahiEngineExecutionError.engineFailed(
+                  EngineFailureReport(
+                    notice: EngineFailureNotice(
+                      reason: error as? NativeInstallAdmissionError == .invalidJournal
+                        ? .planIntegrity : .diskLayoutChanged,
+                      exitStatus: 1,
+                      diskUnchanged: self.journalProvesNoMutation(
+                        journal, identity: RecoveryRetryIdentity(package: package)),
+                      summary: "The current disk could not be admitted for a fresh installation."),
+                    redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
+                      Data(String(describing: error).utf8), truncated: false,
+                      secrets: [authorization.password])))
+              }
+            }
+          )
+          if nativeFinalization {
+            return try await finalizeNativeHandoff(
+              package, journal: journal, authorization: authorization,
+              requirement: recovery.requirement, fullReadback: hadDiskWrites)
+          }
+          return result
+        } catch PinnedAsahiEngineExecutionError.launchFailed where preparedAPFS != nil {
+          throw preparationFailure(
+            PinnedAsahiEngineExecutionError.launchFailed,
+            reason: .unclassified, operation: operation, journal: journal, package: package,
+            password: authorization.password,
+            summary: "The installation backend could not be started.")
+        } catch PinnedAsahiEngineExecutionError.restoreImageUnsupported {
+          throw preparationFailure(
+            PinnedAsahiEngineExecutionError.restoreImageUnsupported,
+            reason: .recoveryPreparation, operation: operation, journal: journal, package: package,
+            password: authorization.password)
+        } catch PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported {
+          throw preparationFailure(
+            PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported,
+            reason: .recoveryPreparation, operation: operation,
+            journal: journal, package: package, password: authorization.password)
+        }
       }
     }
 
@@ -355,7 +408,7 @@
       in scratchDirectory: URL
     ) async throws -> Data {
       try validateJournalDirectory(scratchDirectory)
-      return try run(
+      return try await run(
         archive: archive.fileURL,
         expectedDigest: archive.expectedDigest,
         expectedSizeBytes: archive.expectedSizeBytes,
@@ -391,7 +444,7 @@
       let identityURL = inputDirectory.appendingPathComponent("identity.json")
       try writePrivateJSON(request, to: requestURL)
       try writePrivateJSON(identity, to: identityURL)
-      return try run(
+      return try await run(
         archive: archive.fileURL,
         expectedDigest: archive.expectedDigest,
         expectedSizeBytes: archive.expectedSizeBytes,
@@ -419,8 +472,8 @@
       standardInput: Data? = nil,
       secrets: [Data] = [],
       retryIdentity: RecoveryRetryIdentity? = nil,
-      beforeLaunch: (() throws -> Void)? = nil
-    ) throws -> Data {
+      beforeLaunch: (() async throws -> Void)? = nil
+    ) async throws -> Data {
       try validateArchive(
         archive,
         expectedDigest: expectedDigest,
@@ -476,7 +529,17 @@
             additionalEnvironment["OMARCHY_NATIVE_PERIPHERALS"] == nil
               || values["nativePeripheralInput"] as? String == "helper-converted-v1",
             additionalEnvironment["OMARCHY_NATIVE_APFS_TARGET"] == nil
-              || values["nativeAPFSInput"] as? String == "helper-target-v1"
+              || values["nativeAPFSInput"] as? String == "helper-target-v1",
+            additionalEnvironment["OMARCHY_NATIVE_STUB_VOLUMES"] == nil
+              || values["nativeStubInput"] as? String == "helper-volumes-v1",
+            additionalEnvironment["OMARCHY_NATIVE_STUB_FILES"] == nil
+              || values["nativeStubFiles"] as? String == "helper-files-v1",
+            additionalEnvironment["OMARCHY_NATIVE_OS_PARTITIONS"] == nil
+              || values["nativeOSPartitions"] as? String == "helper-partitions-v1",
+            additionalEnvironment["OMARCHY_NATIVE_PAYLOAD_IMAGES"] == nil
+              || values["nativePayloadImages"] as? String == "helper-images-v1",
+            additionalEnvironment["OMARCHY_NATIVE_ESP_FILES"] == nil
+              || values["nativeESPFiles"] as? String == "helper-esp-v1"
           else { throw PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported }
         } catch {
           throw PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported
@@ -515,7 +578,7 @@
       }
       // Every exit from here, including a failed stdin write, stops the reader.
       defer { errorCollector.cancel() }
-      try beforeLaunch?()
+      try await beforeLaunch?()
       do {
         try process.run()
         if let standardInput, let inputPipe {

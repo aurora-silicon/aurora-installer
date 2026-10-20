@@ -52,6 +52,15 @@
       try lock.withLock(body)
     }
 
+    /// A decoder inherits this open description as stdin. Its lifetime then
+    /// retains the mutation lease even if the supervising helper is killed.
+    func leaseForChild() throws -> FileHandle {
+      let descriptor = dup(file)
+      guard descriptor >= 0 else { throw NativeRecoveryJournalError.busy }
+      _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC)
+      return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+    }
+
     /// An interrupted initial header may be completed only when every saved
     /// byte is a prefix of the freshly reconstructed, approved plan. A disk
     /// intent or checkpoint can never enter this path.
@@ -99,6 +108,17 @@
         throw NativeRecoveryJournalError.evidenceChanged
       }
       return try read(fd, bytes: Int(info.st_size))
+    }
+
+    func containsEvidence(_ identifier: String) throws -> Bool {
+      var info = stat()
+      if fstatat(directory, name + "." + identifier + ".evidence", &info, AT_SYMLINK_NOFOLLOW) == 0
+      {
+        guard safe(info, maximum: 1 << 20) else { throw NativeRecoveryJournalError.evidenceChanged }
+        return true
+      }
+      guard errno == ENOENT else { throw NativeRecoveryJournalError.evidenceChanged }
+      return false
     }
 
     private func read(_ fd: Int32, bytes count: Int) throws -> Data {
