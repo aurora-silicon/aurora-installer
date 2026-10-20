@@ -117,11 +117,14 @@
   /// Picks the new Aurora ESP from the engine plan's store and extent.
   ///
   /// The engine allocates `[offset, offset+length)` on `storeIdentifier` and
-  /// creates the stub APFS, then `EFI - OMARC`, then the Linux boot and root
-  /// partitions. Exactly one EFI volume named `EFI - OMARC` inside that extent
-  /// is the handover target.
+  /// creates the stub APFS, then a distribution-labelled EFI partition, then
+  /// the Linux boot and root partitions. Exactly one recognized EFI volume
+  /// inside that extent is the handover target.
   public enum InstallConfESPLocator {
     public static let volumeName = "EFI - OMARC"
+    private static let recognizedVolumeNames: Set<String> =
+      Set(AuroraDistribution.allCases.map { NativeKnownInstallations.espLabel(for: $0.title) })
+      .union([volumeName])
     private static let efiTypes: Set<String> = ["EFI", "EFI System Partition"]
     private static let storePattern = #"^disk[0-9]+$"#
     private static let partitionPattern = #"^disk[0-9]+s[0-9]+$"#
@@ -146,7 +149,7 @@
         let partitionEnd = partition.offsetBytes.addingReportingOverflow(partition.lengthBytes)
         return partition.storeIdentifier == storeIdentifier
           && Self.efiTypes.contains(partition.type)
-          && partition.name == volumeName
+          && recognizedVolumeNames.contains(partition.name)
           && partition.lengthBytes > 0
           && !partitionEnd.overflow
           && partition.offsetBytes >= offsetBytes
