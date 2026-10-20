@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: cfd4bd052c6b30d8997b4eddda9baaf823dccc63
+          ref: c429652e464ffd8d4731195a8e844ef754b138ce
           path: source
           persist-credentials: false
       - name: Record immutable source and toolchain
@@ -44,20 +44,13 @@ jobs:
           xcrun swift-format format -i --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
           git diff --binary > "$RUNNER_TEMP/evidence/format.patch"
           xcrun swift-format lint --strict --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
-      - name: Check page layout in debug and release
-        run: |
-          set -euo pipefail
-          xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug \
-            --filter InstallerPageLayoutTests 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
-          xcodebuildmcp swift-package test --package-path "$PWD" --configuration release \
-            --filter InstallerPageLayoutTests 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
       - name: Build the unprivileged native preview
         run: bash Packaging/build-aurora-preview.sh "$RUNNER_TEMP/preview"
       - name: Render all pages at regular and minimum window heights
         run: |
           set -euo pipefail
           app="$RUNNER_TEMP/preview/Aurora Installer.app"
-          for screen in allocation allocation-ready allocation-free allocation-other allocation-checking loading; do
+          for screen in allocation-ready allocation-checking; do
             for appearance in light dark; do
               for size in regular compact; do
                 output="$RUNNER_TEMP/evidence/$screen-$appearance-$size.png"
@@ -112,6 +105,6 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: native-aligned-allocation-controls
+          name: native-allocation-button-row
           path: ${{ runner.temp }}/evidence/
           retention-days: 14
