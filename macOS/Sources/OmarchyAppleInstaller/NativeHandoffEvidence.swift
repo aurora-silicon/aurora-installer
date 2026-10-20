@@ -163,37 +163,9 @@
     }
 
     func espLayout(members: Set<String>, firmware: String) throws -> [String: String] {
-      let common =
-        members.contains("esp/aurora/stage1.bin") && qualifiedCommonFirmware.contains(firmware)
-      let own =
-        !common && Self.board(plan.deviceIdentifier) == "j700ap" ? "esp/m1n1/boot-j700.bin" : nil
-      guard !common || members.contains("esp/m1n1/boot.bin"),
-        own.map({ members.contains($0) }) ?? true
-      else {
-        throw NativeHandoffValidationError.changedContent
-      }
-      var layout = [String: String]()
-      for member in members.sorted() {
-        guard member.hasPrefix("esp/"), Self.safeRelative(member) else {
-          throw NativeHandoffValidationError.unsafePath
-        }
-        if member == own {
-          layout[member] = "m1n1/boot.bin"
-        } else if (member == "esp/aurora/stage1.bin" && !common)
-          || member == "esp/m1n1/boot-j700.bin"
-          || (common
-            && ["esp/aurora/stage1-j700.bin", "esp/aurora/stage1-j613.bin"].contains(member))
-          || (own != nil && member == "esp/m1n1/boot.bin")
-        {
-          continue
-        } else {
-          layout[member] = String(member.dropFirst(4))
-        }
-      }
-      guard !layout.isEmpty, Set(layout.values).count == layout.count else {
-        throw NativeHandoffValidationError.changedContent
-      }
-      return layout
+      try NativeESPLayout.map(
+        deviceIdentifier: plan.deviceIdentifier, members: members,
+        commonAllowed: qualifiedCommonFirmware.contains(firmware))
     }
 
     static func safeRelative(_ path: String) -> Bool {

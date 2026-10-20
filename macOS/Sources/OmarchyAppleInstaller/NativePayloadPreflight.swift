@@ -11,11 +11,16 @@
     case unsupportedRecovery
   }
 
-  /// Read-only admission of the full-OS image contract. Source ownership,
-  /// firmware conversion, board boot objects and live disk geometry are separate
+  /// Read-only payload, firmware-selection and boot-chain admission. Source
+  /// ownership, firmware conversion and live disk geometry remain separate
   /// execution gates; this check does not authorize a disk operation.
   enum NativePayloadPreflight {
-    static func check(_ package: ImportedEngineHandoffPackage, owner: uid_t = 0) async throws {
+    static func check(
+      _ package: ImportedEngineHandoffPackage, owner: uid_t = 0,
+      firmwareFacts: @Sendable () throws -> NativeFirmwareSelection.Facts = {
+        try NativeFirmwareSelection.Facts.live()
+      }
+    ) async throws {
       guard package.metadataURL.deletingLastPathComponent().path == package.packageURL.path,
         package.payloadURL.deletingLastPathComponent().path == package.packageURL.path
       else { throw NativePayloadPreflightError.invalidPayload }
@@ -25,20 +30,19 @@
         NativePayloadRangeReader(package.payloadURL, owner: owner))
       try await validate(
         metadata: metadata, payloadName: package.payloadURL.lastPathComponent, archive: archive)
+      let firmware = try NativeFirmwareSelection.choose(
+        deviceIdentifier: package.deviceIdentifier, facts: firmwareFacts(),
+        metadata: NativeInstallationMetadata(data: metadata), policy: NativeInspectionPolicy.sealed())
+      _ = try await NativeBootChain.admit(
+        metadata: metadata, archive: archive, deviceIdentifier: package.deviceIdentifier,
+        firmware: firmware.version.components(separatedBy: " ")[0])
     }
 
     /// The caller has already authenticated the archive and supplied the
     /// helper's signed native Recovery template. Embedded legacy Recovery apps
     /// are never used by this execution path.
     static func validate(metadata: Data, payloadName: String, archive: IPSWArchive) async throws {
-      guard !metadata.isEmpty, metadata.count <= 65_536,
-        let document = try JSONSerialization.jsonObject(with: metadata) as? [String: Any],
-        Set(document.keys) == ["os_list"], let templates = document["os_list"] as? [[String: Any]]
-      else { throw NativePayloadPreflightError.invalidMetadata }
-      let matches = templates.filter { $0["omarchy_target"] as? String == "apple-silicon-full-os" }
-      guard matches.count == 1, let template = matches.first else {
-        throw NativePayloadPreflightError.invalidMetadata
-      }
+      let template = try target(metadata)
       let contracts = [
         "fedora-btrfs-v1": ("fedora", "btrfs"), "alarm-ext4-v1": ("arch", "ext4"),
         "alarm-btrfs-v1": ("arch", "btrfs"), "nixos-ext4-v1": ("nixos", "ext4"),
@@ -102,6 +106,18 @@
           else { throw NativePayloadPreflightError.invalidFilesystem }
         }
       }
+    }
+
+    static func target(_ metadata: Data) throws -> [String: Any] {
+      guard !metadata.isEmpty, metadata.count <= 65_536,
+        let document = try JSONSerialization.jsonObject(with: metadata) as? [String: Any],
+        Set(document.keys) == ["os_list"], let templates = document["os_list"] as? [[String: Any]]
+      else { throw NativePayloadPreflightError.invalidMetadata }
+      let matches = templates.filter { $0["omarchy_target"] as? String == "apple-silicon-full-os" }
+      guard matches.count == 1, let template = matches.first else {
+        throw NativePayloadPreflightError.invalidMetadata
+      }
+      return template
     }
 
     private static func absent(_ value: Any?) -> Bool { value == nil || value is NSNull }

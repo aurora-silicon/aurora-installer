@@ -1,5 +1,5 @@
 #if os(macOS)
-  // Source-pinned inspection policy extracted from the retained runtime.
+  // Source-pinned firmware policy extracted from the retained runtime.
   // This table admits backend capability; the signed catalog separately
   // admits the selected public release and model qualification.
   enum NativeInspectionPolicySource {
@@ -213,6 +213,7 @@
             "models": [
               "j700"
             ],
+            "sourceURL": "https://updates.cdn-apple.com/2026SummerFCS/fullrestores/140-65618/10445B26-DE2C-43EC-9149-0A831602E74B/UniversalMac_26.6_25G72_Restore.ipsw",
             "version": "26.6"
           },
           {
@@ -225,6 +226,7 @@
               "j615",
               "j700"
             ],
+            "sourceURL": "https://updates.cdn-apple.com/2026SummerFCS/fullrestores/140-75212/A2A24B94-1FC1-45A3-93F7-C51B02AF1F4D/UniversalMac_26.6.2_25G83_Restore.ipsw",
             "version": "26.6.2"
           },
           {
@@ -233,6 +235,7 @@
             "minimumMacOS": "12.1",
             "minimumRecovery": "21.5.258.0.0,0",
             "models": null,
+            "sourceURL": "https://updates.cdn-apple.com/2022SpringFCS/fullrestores/002-79219/851BEDF0-19DB-4040-B765-0F4089D1530D/UniversalMac_12.3.1_21E258_Restore.ipsw",
             "version": "12.3.1"
           },
           {
@@ -241,6 +244,7 @@
             "minimumMacOS": "12.1",
             "minimumRecovery": "21.5.230.0.0,0",
             "models": null,
+            "sourceURL": "https://updates.cdn-apple.com/2022SpringFCS/fullrestores/071-08757/74A4F2A1-C747-43F9-A22A-C0AD5FB4ECB6/UniversalMac_12.3_21E230_Restore.ipsw",
             "version": "12.3"
           },
           {
@@ -249,6 +253,7 @@
             "minimumMacOS": "13.0",
             "minimumRecovery": "22.7.74.0.0,0",
             "models": null,
+            "sourceURL": "https://updates.cdn-apple.com/2023SummerFCS/fullrestores/032-69606/D3E05CDF-E105-434C-A4A1-4E3DC7668DD0/UniversalMac_13.5_22G74_Restore.ipsw",
             "version": "13.5"
           },
           {
@@ -269,6 +274,7 @@
               "j516c",
               "j516m"
             ],
+            "sourceURL": "https://updates.cdn-apple.com/2025FallFCS/patches/089-71124/49AD260A-D47F-4B5E-A793-30446187196E/com_apple_MobileAsset_MacSoftwareUpdate/f6d1ac9149f6a06401ff87fae5b262c420bfc5f7.zip",
             "version": "14.8.3"
           }
         ],

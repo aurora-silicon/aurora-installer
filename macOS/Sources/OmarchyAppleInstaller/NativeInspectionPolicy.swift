@@ -169,6 +169,7 @@
       let minimumRecovery: String
       let expert: Bool
       let models: [String]?
+      let sourceURL: String
     }
     let runtimeVersion: String
     let sourceSHA256: String
@@ -226,7 +227,7 @@
       return small
     }
 
-    private struct Version {
+    struct Version {
       private enum Part: Equatable {
         case number(Int)
         case text(String)

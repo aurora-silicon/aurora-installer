@@ -88,10 +88,11 @@ def reference(archive):
                for key, value in zip(values["DEVICES"].keys, values["DEVICES"].values)}
     firmware = []
     for value in values["IPSW_VERSIONS"].elts:
-        version, mac, boot, recovery, expert, models, _ = map(ast.literal_eval, value.args)
+        version, mac, boot, recovery, expert, models, url = map(ast.literal_eval, value.args)
         firmware.append(dict(version=version, minimumMacOS=mac, minimumBoot=boot,
                              minimumRecovery=recovery, expert=expert,
-                             models=None if models is None else [item.removesuffix("ap") for item in models]))
+                             models=None if models is None else [item.removesuffix("ap") for item in models],
+                             sourceURL=url))
     policy = dict(runtimeVersion="v0.9.2-aurora.5", sourceSHA256=hashlib.sha256(main).hexdigest(),
                   chipMinimum={str(key): value for key, value in chips.items()}, devices=devices,
                   firmware=firmware, baselineMetadata=metadata)
