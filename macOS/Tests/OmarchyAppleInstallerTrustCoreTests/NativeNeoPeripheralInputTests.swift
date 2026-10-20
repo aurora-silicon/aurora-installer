@@ -14,6 +14,11 @@
       let metadata: String
       let manifest: NativeNeoPeripheralPreparer.Manifest
       let outputSHA256: [String: String]
+      struct Vector: Decodable, Sendable {
+        let name: String
+        let data: Data
+      }
+      let vectors: [Vector]
     }
 
     func testConvertedSnapshotMatchesTheReferenceManifestAndStaysOutsideRetainedInputs()
@@ -51,6 +56,24 @@
           atPath: fixture.raw.appendingPathComponent("manifest.json").path))
       try prepared.remove()
       XCTAssertFalse(FileManager.default.fileExists(atPath: prepared.directory.path))
+    }
+
+    func testPolicyPreparationUsesAuthenticatedRawTablesWithoutPayloadPolicyMembers() async throws {
+      let fixture = try InputFixture()
+      defer { fixture.remove() }
+      try FileManager.default.removeItem(at: fixture.package.payloadURL)
+      try Data("{\"os_list\":[{\"omarchy_target\":\"apple-silicon-full-os\"}]}".utf8).write(
+        to: fixture.package.metadataURL)
+      try fixture.rebindMetadata()
+      let prepared = try await fixture.preparer().prepare(
+        package: fixture.package, rawDirectory: fixture.raw)
+      defer { try? prepared.remove() }
+      let bytes = try Data(
+        contentsOf: prepared.directory.appendingPathComponent(
+          "files/mediatek/mt7932/policy/world-XZ.bin"))
+      XCTAssertEqual(
+        String(SHA256Digest(hashing: bytes).rawValue.dropFirst(7)),
+        fixture.value.outputSHA256["mediatek/mt7932/policy/world-XZ.bin"])
     }
 
     func testEachAttemptRecollectsLocalInputsInsteadOfCachingAnotherDeviceCalibration() async throws
@@ -114,6 +137,8 @@
           try FileManager.default.createSymbolicLink(
             at: source, withDestinationURL: fixture.package.payloadURL)
         case "policy":
+          try Data("changed".utf8).write(
+            to: fixture.raw.appendingPathComponent("sunrise/IZUBA_db.dat"))
           try Data("{\"os_list\":[{\"omarchy_target\":\"apple-silicon-full-os\"}]}".utf8).write(
             to: fixture.package.metadataURL)
           try fixture.rebindMetadata()
@@ -134,6 +159,14 @@
 
     private final class InputFixture: @unchecked Sendable {
       let value: Fixture
+      var rawFiles: [String: Data] {
+        value.rawFiles.merging(
+          Dictionary(
+            uniqueKeysWithValues: NeoRegulatoryPolicy.inputSHA256.keys.map {
+              ("sunrise/" + $0, Data(("synthetic " + $0).utf8))
+            })
+        ) { _, new in new }
+      }
       let root: URL, raw: URL
       let package: ImportedEngineHandoffPackage
       init() throws {
@@ -158,7 +191,7 @@
         try Data(value.metadata.utf8).write(to: package.metadataURL)
         try value.payload.write(to: package.payloadURL)
         try rebindMetadata()
-        for (name, bytes) in value.rawFiles {
+        for (name, bytes) in rawFiles {
           let url = raw.appendingPathComponent(name)
           try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
@@ -177,7 +210,7 @@
       ) -> NativeNeoPeripheralPreparer {
         let inventory = NativeNeoInputInventory(
           recipeSHA256: value.manifest.recipeSHA256,
-          files: value.rawFiles.map { name, bytes in
+          files: rawFiles.map { name, bytes in
             NativeNeoInputInventory.File(
               name: name, bytes: bytes.count,
               sha256: String(SHA256Digest(hashing: bytes).rawValue.dropFirst(7)))
@@ -190,6 +223,13 @@
           localInputs: { _ in
             if missingLocal { throw NativePeripheralInputError.localInput }
             return inputs
+          },
+          policyDeriver: { tables in
+            guard Set(tables.keys) == Set(NeoRegulatoryPolicy.inputSHA256.keys),
+              tables.allSatisfy({ $0.value == Data(("synthetic " + $0.key).utf8) }),
+              let policy = self.value.vectors.first(where: { $0.name == "policy-valid" })
+            else { throw NativePeripheralInputError.invalidPolicy }
+            return ["mediatek/mt7932/policy/world-XZ.bin": policy.data]
           })
       }
       func remove() { try? FileManager.default.removeItem(at: root) }

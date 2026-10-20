@@ -22,14 +22,44 @@ private actor MeasuredIPSWReader: FirmwareRangeReading {
 @main struct AuroraFirmwareCheck {
   static func main() async {
     do {
+      if CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "policy" {
+        let directory = URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)
+        let inputs = try Dictionary(
+          uniqueKeysWithValues: NeoRegulatoryPolicy.inputSHA256.keys.map { name in
+            let file = try FileHandle(
+              forReadingFrom: directory.appendingPathComponent("sunrise/" + name))
+            defer { try? file.close() }
+            let bytes = try file.read(upToCount: (32 << 20) + 1) ?? Data()
+            guard bytes.count <= 32 << 20 else {
+              throw RestoreFailure("Regulatory input exceeds its budget.")
+            }
+            return (name, bytes)
+          })
+        let policies = try NeoRegulatoryPolicy.derive(inputs)
+        let index = policies.keys.sorted().map { name in
+          let sha = SHA256.hash(data: policies[name]!).map { String(format: "%02x", $0) }.joined()
+          return name + " " + sha + "\n"
+        }.joined()
+        let digest = SHA256.hash(data: Data(index.utf8)).map { String(format: "%02x", $0) }.joined()
+        guard policies.count == 244,
+          digest == "b1578bcc83fb3270c4fcef4f88de37b384ac1c46c8bc7093c5b2ea867d1c08c1"
+        else {
+          throw RestoreFailure("Regulatory output differs from the reference inventory.")
+        }
+        let report: [String: Any] = ["policyCount": policies.count, "inventorySHA256": digest]
+        FileHandle.standardOutput.write(
+          try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]) + Data([10]))
+        return
+      }
       if CommandLine.arguments == [CommandLine.arguments[0], "plan"] {
         let plan = try FirmwareExtractionPlan.bundled(for: "apple,j700")
         let report: [String: Any] = [
           "deviceIdentifier": plan.deviceIdentifier, "recipeSHA256": plan.recipeSHA256,
           "outputCount": plan.outputs.count, "rangeBytes": plan.authenticatedRangeBytes,
         ]
-        FileHandle.standardOutput.write(try JSONSerialization.data(
-          withJSONObject: report, options: [.sortedKeys]) + Data([10]))
+        FileHandle.standardOutput.write(
+          try JSONSerialization.data(
+            withJSONObject: report, options: [.sortedKeys]) + Data([10]))
         return
       }
       guard [3, 4].contains(CommandLine.arguments.count),

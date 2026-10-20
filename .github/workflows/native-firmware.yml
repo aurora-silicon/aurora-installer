@@ -5,6 +5,8 @@ on:
     paths:
       - macOS/Sources/AuroraFirmware/**
       - macOS/Tests/AuroraFirmwareTests/**
+      - macOS/Sources/OmarchyAppleInstaller/NativeNeoPeripheralInputs.swift
+      - macOS/Tests/OmarchyAppleInstallerTrustCoreTests/NativeNeoPeripheralInputTests.swift
       - macOS/Development/NativeFirmwareCheck/**
       - macOS/Package.swift
       - .github/workflows/native-firmware.yml
@@ -49,11 +51,13 @@ jobs:
           xcrun swift-format format -i --recursive Package.swift Sources/AuroraFirmware Tests/AuroraFirmwareTests Development/NativeFirmwareCheck
           git diff --binary > "$RUNNER_TEMP/evidence/format.patch"
           git diff --exit-code
+          xcrun swift-format lint --strict --recursive Package.swift Sources/AuroraFirmware Tests/AuroraFirmwareTests Development/NativeFirmwareCheck
+          xcrun swift-format lint --strict Sources/OmarchyAppleInstaller/NativeNeoPeripheralInputs.swift Tests/OmarchyAppleInstallerTrustCoreTests/NativeNeoPeripheralInputTests.swift
       - name: Test native crypto, transport, bounds and resume validation
         run: |
           set -euo pipefail
-          xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug --filter 'AuroraFirmwareTests' 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
-          xcodebuildmcp swift-package test --package-path "$PWD" --configuration release --filter 'AuroraFirmwareTests' 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
+          xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug --filter 'AuroraFirmwareTests|NativeNeoPeripheralInputTests' 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
+          xcodebuildmcp swift-package test --package-path "$PWD" --configuration release --filter 'AuroraFirmwareTests|NativeNeoPeripheralInputTests' 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
       - name: Exercise real partial extraction and independent reuse
         if: inputs.live-apple-extraction || github.event_name == 'push' 
         run: |
@@ -100,6 +104,7 @@ jobs:
           cmp "$RUNNER_TEMP/evidence/extraction.json" "$RUNNER_TEMP/evidence/reuse.json"
           cmp "$RUNNER_TEMP/evidence/extraction.json" "$RUNNER_TEMP/evidence/resume-complete.json"
           test -z "$(find "$checkpoint" -mindepth 1 -print -quit)"
+          "$binary" policy "$output" > "$RUNNER_TEMP/evidence/policy-inventory.json"
           "$binary" zip unused > "$RUNNER_TEMP/evidence/zip64-live.json"
       - name: Require clean source formatting
         if: always()
