@@ -92,6 +92,7 @@
           throw NativePayloadPreflightError.invalidPayload
         }
       }
+      var bootHeader: Data?
       for (index, name) in ["boot.img", "root.img"].enumerated() {
         guard let size = partitions[index + 1]["size"] as? String,
           let capacity = try? NativeInstallationMetadata.bytes(size),
@@ -105,8 +106,36 @@
           guard header.count >= offset + magic.count,
             header.subdata(in: offset..<(offset + magic.count)) == magic
           else { throw NativePayloadPreflightError.invalidFilesystem }
+          if index == 0 { bootHeader = header }
         }
       }
+      if (template["installation_profile"] as? String)?.hasPrefix("nixos-") == true {
+        // Installation moves Boot to another GPT slot. Its EFI loader must
+        // locate the filesystem by UUID, not the source image's slot number.
+        guard let bootHeader, let member = members["esp/EFI/BOOT/BOOTAA64.EFI"],
+          member.sizeBytes <= 16 << 20,
+          portableGRUB(
+            bootHeader: bootHeader,
+            efi: try await archive.read(member, maximumBytes: 16 << 20))
+        else { throw NativePayloadPreflightError.invalidPayload }
+      }
+    }
+
+    static func portableGRUB(bootHeader: Data, efi: Data) -> Bool {
+      let uuidOffset = 0x468
+      guard bootHeader.count >= uuidOffset + 16,
+        efi.starts(with: Data([0x4d, 0x5a]))
+      else { return false }
+      let bytes = bootHeader[uuidOffset..<(uuidOffset + 16)]
+      guard bytes.contains(where: { $0 != 0 }) else { return false }
+      let hex = bytes.map { String(format: "%02x", $0) }.joined()
+      let uuid = [
+        String(hex.prefix(8)), String(hex.dropFirst(8).prefix(4)),
+        String(hex.dropFirst(12).prefix(4)), String(hex.dropFirst(16).prefix(4)),
+        String(hex.dropFirst(20)),
+      ].joined(separator: "-")
+      let script = Data("search.fs_uuid \(uuid) root\nset prefix=($root)/grub\n".utf8)
+      return efi.range(of: script) != nil
     }
 
     static func target(_ metadata: Data) throws -> [String: Any] {

@@ -11,6 +11,7 @@ import os
 from pathlib import Path, PurePosixPath
 import sys
 from types import SimpleNamespace
+import uuid
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,14 +61,22 @@ def generate():
     validate, digest = reference()
     header = bytearray(0x11000)
     header[0x438:0x43a] = b"\x53\xef"
+    header[0x468:0x478] = uuid.UUID("41dc57cf-2d07-50f9-ba96-7c95cde85ada").bytes
     btrfs = bytearray(len(header))
     btrfs[0x10040:0x10048] = b"_BHRfS_M"
     files = {"boot.img": bytes(header), "root.img": bytes(btrfs),
              "aurora-volume.icns": b"icon", "omarchy-volume.icns": b"legacy icon",
              "esp/m1n1/boot.bin": b"stage2", "esp/EFI/BOOT/BOOTAA64.EFI": b"efi"}
     archives = {"btrfs": archive(files)}
+    portable_grub = (b"MZ" + b"search.fs_uuid 41dc57cf-2d07-50f9-ba96-7c95cde85ada root\n"
+                     b"set prefix=($root)/grub\n")
+    nixos_files = files.copy()
+    nixos_files["esp/EFI/BOOT/BOOTAA64.EFI"] = portable_grub
+    archives["nixos-btrfs"] = archive(nixos_files)
     files["root.img"] = bytes(header)
     archives["ext4"] = archive(files)
+    nixos_files["root.img"] = bytes(header)
+    archives["nixos-ext4"] = archive(nixos_files)
     files["root.img"] = b"bad" * 4096
     archives["bad-root"] = archive(files)
     files["root.img"] = bytes(header) + b"!"
@@ -107,7 +116,8 @@ def generate():
         for desktop in ("kde", "gnome", "minimal"):
             template = copy.deepcopy(base)
             template.update(layout_kind=layout, installation_profile=prefix + "-" + desktop)
-            add(layout + "-" + desktop, template, filesystem)
+            add(layout + "-" + desktop, template,
+                "nixos-" + filesystem if prefix == "nixos" else filesystem)
     legacy = copy.deepcopy(base)
     del legacy["layout_kind"]
     del legacy["installation_profile"]

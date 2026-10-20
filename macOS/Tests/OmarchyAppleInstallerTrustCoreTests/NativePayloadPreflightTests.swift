@@ -53,6 +53,45 @@
       }
     }
 
+    func testNixOSRefusesAnEFILoaderTiedToTheSourcePartitionNumber() async throws {
+      let fixture = try fixture()
+      let vector = try XCTUnwrap(
+        fixture.vectors.first { $0.name == "nixos-btrfs-v1-kde" })
+      let oldArchive = try await IPSWArchive.open(
+        PayloadFixtureSource(bytes: try XCTUnwrap(fixture.archives["btrfs"])))
+      do {
+        try await NativePayloadPreflight.validate(
+          metadata: Data(vector.metadata.utf8), payloadName: "payload.zip",
+          archive: oldArchive)
+        XCTFail("Position-dependent GRUB loader admitted")
+      } catch NativePayloadPreflightError.invalidPayload {}
+    }
+
+    func testNixOSGRUBMustSearchForItsExactBootFilesystemUUID() {
+      var header = Data(repeating: 0, count: 0x478)
+      header.replaceSubrange(
+        0x468..<0x478,
+        with: Data([
+          0x41, 0xdc, 0x57, 0xcf, 0x2d, 0x07, 0x50, 0xf9,
+          0xba, 0x96, 0x7c, 0x95, 0xcd, 0xe8, 0x5a, 0xda,
+        ]))
+      let portable = Data(
+        "MZsearch.fs_uuid 41dc57cf-2d07-50f9-ba96-7c95cde85ada root\nset prefix=($root)/grub\n"
+          .utf8)
+      XCTAssertTrue(NativePayloadPreflight.portableGRUB(bootHeader: header, efi: portable))
+      XCTAssertFalse(
+        NativePayloadPreflight.portableGRUB(
+          bootHeader: header, efi: Data("MZ(,gpt2)/grub".utf8)))
+      XCTAssertFalse(
+        NativePayloadPreflight.portableGRUB(
+          bootHeader: header,
+          efi: Data(
+            "MZsearch.fs_uuid 00000000-0000-0000-0000-000000000001 root\nset prefix=($root)/grub\n"
+              .utf8)))
+      header.replaceSubrange(0x468..<0x478, with: Data(repeating: 0, count: 16))
+      XCTAssertFalse(NativePayloadPreflight.portableGRUB(bootHeader: header, efi: portable))
+    }
+
     func testBooleanPartitionFieldsCannotBeStringsOrNumbers() async throws {
       let fixture = try fixture()
       let vector = try XCTUnwrap(fixture.vectors.first)
