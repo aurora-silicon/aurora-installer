@@ -89,10 +89,10 @@ final class LiveNativeInspectionTests: XCTestCase {
         events.append("writer-finished")
         return StagedInstallerArtifact(artifact: artifact, fileURL: file, reusedExistingFile: false)
       })
-    prefetch.beginInBackground(payload: StagedInstallerArtifact(
+    prefetch.begin(payload: StagedInstallerArtifact(
       artifact: artifact, fileURL: root.appendingPathComponent(artifact.fileName), reusedExistingFile: false))
     await gate.waitUntilEntered()
-    prefetch.cancelInBackground()
+    prefetch.cancel()
     let environment = LiveInstallerEnvironment(
       inspector: service, inspectHost: { events.append("host-sampled"); return host }, prefetch: prefetch)
     let inspection = Task { try await environment.inspect() }

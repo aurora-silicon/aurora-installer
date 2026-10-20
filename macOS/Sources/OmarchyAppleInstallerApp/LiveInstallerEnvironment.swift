@@ -532,20 +532,20 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
 
   func cancelPayloadPrefetch() {
     lock.withLock { plannedPayload = nil }
-    prefetch.cancelInBackground()
+    prefetch.cancel()
   }
 
   func cancelPayloadPrefetchOnQuit() {
     cancelPlanPreparation()
     lock.withLock { plannedPayload = nil }
-    prefetch.cancel()
+    prefetch.cancelAndDrainForQuit()
   }
 
   func restartPayloadPrefetch() {
     guard let payload = lock.withLock({ plannedPayload }) else { return }
     // A failed or cancelled download of the same digest starts afresh; a
     // running one is left alone.
-    prefetch.beginInBackground(payload: payload)
+    prefetch.begin(payload: payload)
   }
 
   func prefetchPayload(
@@ -562,7 +562,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     try lock.withLock {
       guard preparationGeneration == generation, !Task.isCancelled else { throw CancellationError() }
       plannedPayload = payload
-      prefetch.beginInBackground(payload: payload)
+      prefetch.begin(payload: payload)
     }
   }
 

@@ -599,14 +599,9 @@
       lock.withLock { latest }
     }
 
-    /// Retires earlier writers before returning. Interactive UI uses the
-    /// background reservation API; this synchronous form also supports tools.
-    public func begin(payload: StagedInstallerArtifact) {
-      Self.waitSynchronously(reserveBegin(payload))
-    }
-
     /// Reserves ownership under short locks; no hashing or file removal here.
-    public func beginInBackground(payload: StagedInstallerArtifact) {
+    /// Callers sampling storage await waitForRetirement before their checks.
+    public func begin(payload: StagedInstallerArtifact) {
       _ = reserveBegin(payload)
     }
 
@@ -694,6 +689,7 @@
       let parent = canonical.deletingLastPathComponent()
         guard self.isCurrent(generation), !Task.isCancelled else { return }
         self.publish(.verifying, generation: generation)
+        guard self.isCurrent(generation), !Task.isCancelled else { return }
         if self.matchesPinned(artifact, canonical) {
           self.publish(.verified, generation: generation)
           return
@@ -743,7 +739,7 @@
         guard current else { return }
 
         let required = self.requiredFreeBytes(artifact.expectedSizeBytes)
-        await controller.start(requiredBytes: required, admitted: { self.isCurrent(generation) }) {
+        await controller.start(requiredBytes: required, admitted: { self.isCurrent(generation) }, work: {
           try self.requireCurrent(generation)
           let staged = try await self.stage(artifact, work) { event in
             Task {
@@ -758,7 +754,7 @@
           }
           try self.promote(staged.fileURL, to: canonical, generation: generation)
           try? FileManager.default.removeItem(at: work)
-        }
+        })
     }
 
     /// Payload bytes already on the staging volume: the promoted file, or
@@ -836,14 +832,14 @@
       }
     }
 
-    /// Quit/tool cleanup is synchronous, so the process cannot exit before
-    /// its retired writers and partial directories have been drained.
-    public func cancel() {
+    /// Explicit quit cleanup joins retirement before the process can exit.
+    /// Invoked outside the startup/writer and their progress callbacks.
+    public func cancelAndDrainForQuit() {
       Self.waitSynchronously(reserveCancellation())
     }
 
     /// Logical cancellation returns immediately; owned retirement runs off-main.
-    public func cancelInBackground() {
+    public func cancel() {
       _ = reserveCancellation()
     }
 

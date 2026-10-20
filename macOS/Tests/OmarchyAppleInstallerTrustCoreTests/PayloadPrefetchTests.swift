@@ -273,7 +273,8 @@
       XCTAssertTrue(FileManager.default.fileExists(atPath: abandoned.path))
 
       orchestrator.begin(payload: payload)
-      // Gone before begin returns, so planning never counts the failed parts.
+      try await orchestrator.waitForRetirement()
+      // Planning awaits retirement instead of blocking the UI in begin.
       XCTAssertFalse(FileManager.default.fileExists(atPath: abandoned.path))
       try await orchestrator.waitUntilVerified { _ in }
       XCTAssertEqual(orchestrator.currentState(), .verified)
@@ -327,6 +328,7 @@
       XCTAssertTrue(
         FileManager.default.fileExists(atPath: busy.appendingPathComponent("part-1").path))
       windowA.cancel()
+      try await windowA.waitForRetirement()
     }
 
     func testCancellingRemovesThePartialDownload() async throws {
@@ -362,7 +364,7 @@
         reusedExistingFile: false)
       XCTAssertEqual(orchestrator.bytesOnDisk(for: payload), 4)
 
-      orchestrator.cancel()
+      orchestrator.cancelAndDrainForQuit()
 
       // Synchronous, because quitting cancels and then exits.
       XCTAssertFalse(FileManager.default.fileExists(atPath: partial.path))
@@ -736,7 +738,7 @@
         }
       }
 
-      orchestrator.cancelInBackground()
+      orchestrator.cancel()
       XCTAssertEqual(orchestrator.currentState(), .idle)
       release.signal()
       try await orchestrator.waitForRetirement()
@@ -785,16 +787,16 @@
           }
           return StagedInstallerArtifact(artifact: artifact, fileURL: file, reusedExistingFile: false)
         })
-      orchestrator.beginInBackground(payload: StagedInstallerArtifact(
+      orchestrator.begin(payload: StagedInstallerArtifact(
         artifact: first, fileURL: root.appendingPathComponent(first.fileName), reusedExistingFile: false))
       await gate.waitUntilEntered()
       let retired = try XCTUnwrap(directories.values.first)
-      orchestrator.cancelInBackground()
+      orchestrator.cancel()
       // Cancellation has returned while the deliberately blocked writer owns
       // this directory. Its files must stay until that writer finishes.
       XCTAssertEqual(orchestrator.currentState(), .idle)
       XCTAssertTrue(FileManager.default.fileExists(atPath: retired.path))
-      orchestrator.beginInBackground(payload: StagedInstallerArtifact(
+      orchestrator.begin(payload: StagedInstallerArtifact(
         artifact: second, fileURL: root.appendingPathComponent(second.fileName), reusedExistingFile: false))
       try await Task.sleep(for: .milliseconds(100))
       XCTAssertFalse(events.values.contains("successor-staged"))
@@ -811,6 +813,42 @@
       XCTAssertLessThan(finished, space)
       XCTAssertFalse(order.contains("space-before-retirement"))
       orchestrator.cancel()
+      try await orchestrator.waitForRetirement()
+    }
+
+    func testCancellationFromStartupProgressReturnsWithoutHashingOrDeadlocking() async throws {
+      let artifact = try pinnedPayload(Data("callback-cancel".utf8))
+      let registered = DispatchSemaphore(value: 0)
+      let hashes = RecordingBox<Bool>()
+      let orchestrator = PayloadPrefetchOrchestrator(
+        makeNetwork: { MockNetworkPath(Self.unmetered) },
+        makeKeepAwake: { MockKeepAwake() },
+        makeFreeSpace: { _ in MockFreeSpace(bytes: 8_000_000_000) },
+        matchesPinned: { _, _ in hashes.append(true); return false },
+        requiredFreeBytes: { $0 }, stage: { _, _, _ in throw CancellationError() })
+      let watcher = Task {
+        try await orchestrator.waitUntilVerified { state in
+          if state == .idle { registered.signal() }
+          if state == .verifying { orchestrator.cancel() }
+        }
+      }
+      let observed = await withCheckedContinuation { continuation in
+        DispatchQueue.global().async {
+          continuation.resume(returning: registered.wait(timeout: .now() + .seconds(3)))
+        }
+      }
+      XCTAssertEqual(observed, .success)
+      orchestrator.begin(payload: StagedInstallerArtifact(
+        artifact: artifact,
+        fileURL: FileManager.default.temporaryDirectory.appendingPathComponent(
+          "callback-cancel-\(UUID().uuidString).bin"), reusedExistingFile: false))
+      do {
+        try await watcher.value
+        XCTFail("The observer cancelled this generation")
+      } catch { XCTAssertEqual(error as? PayloadPrefetchError, .cancelled) }
+      try await orchestrator.waitForRetirement()
+      XCTAssertTrue(hashes.values.isEmpty)
+      XCTAssertEqual(orchestrator.currentState(), .idle)
     }
 
     private func pinnedPayload(_ data: Data, fileName: String = "os.bin") throws
