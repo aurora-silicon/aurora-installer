@@ -736,11 +736,81 @@
         }
       }
 
-      orchestrator.cancel()
+      orchestrator.cancelInBackground()
+      XCTAssertEqual(orchestrator.currentState(), .idle)
       release.signal()
-      try await Task.sleep(for: .milliseconds(100))
+      try await orchestrator.waitForRetirement()
 
       XCTAssertEqual(orchestrator.currentState(), .idle)
+    }
+
+    func testBackgroundCancellationJoinsWritersBeforeRetirementAndSuccessorSpaceChecks() async throws {
+      let firstData = Data("retired-payload".utf8)
+      let secondData = Data("current-payload".utf8)
+      let first = try pinnedPayload(firstData, fileName: "first.bin")
+      let second = try pinnedPayload(secondData, fileName: "second.bin")
+      let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+        "prefetch-retirement-\(UUID().uuidString)", isDirectory: true)
+      try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: root) }
+      let directories = RecordingBox<URL>()
+      let events = RecordingBox<String>()
+      let gate = PrefetchRetirementGate()
+      let orchestrator = PayloadPrefetchOrchestrator(
+        makeNetwork: { MockNetworkPath(Self.unmetered) },
+        makeKeepAwake: { MockKeepAwake() },
+        makeFreeSpace: { directory in
+          RetirementFreeSpace {
+            if let retired = directories.values.first, retired != directory {
+              events.append(FileManager.default.fileExists(atPath: retired.path)
+                ? "space-before-retirement" : "space-after-retirement")
+            }
+            return 8_000_000_000
+          }
+        },
+        matchesPinned: { _, _ in false },
+        requiredFreeBytes: { VerifiedArtifactStager.requiredFreeBytes(forPayloadSize: $0) },
+        stage: { artifact, directory, _ in
+          let file = directory.appendingPathComponent(artifact.fileName)
+          if artifact.fileName == "first.bin" {
+            try firstData.write(to: file)
+            directories.append(directory)
+            await gate.wait()
+            // Ignore cancellation and finish a write: deletion must join us.
+            try Data("late writer".utf8).write(to: directory.appendingPathComponent("late-part"))
+            events.append("writer-finished")
+          } else {
+            try secondData.write(to: file)
+            events.append("successor-staged")
+          }
+          return StagedInstallerArtifact(artifact: artifact, fileURL: file, reusedExistingFile: false)
+        })
+      orchestrator.beginInBackground(payload: StagedInstallerArtifact(
+        artifact: first, fileURL: root.appendingPathComponent(first.fileName), reusedExistingFile: false))
+      await gate.waitUntilEntered()
+      let retired = try XCTUnwrap(directories.values.first)
+      orchestrator.cancelInBackground()
+      // Cancellation has returned while the deliberately blocked writer owns
+      // this directory. Its files must stay until that writer finishes.
+      XCTAssertEqual(orchestrator.currentState(), .idle)
+      XCTAssertTrue(FileManager.default.fileExists(atPath: retired.path))
+      orchestrator.beginInBackground(payload: StagedInstallerArtifact(
+        artifact: second, fileURL: root.appendingPathComponent(second.fileName), reusedExistingFile: false))
+      try await Task.sleep(for: .milliseconds(100))
+      XCTAssertFalse(events.values.contains("successor-staged"))
+      XCTAssertFalse(events.values.contains("space-before-retirement"))
+      await gate.release()
+      try await orchestrator.waitForRetirement()
+      try await orchestrator.waitUntilVerified { _ in }
+      XCTAssertFalse(FileManager.default.fileExists(atPath: retired.path))
+      XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(first.fileName).path))
+      XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent(second.fileName)), secondData)
+      let order = events.values
+      let finished = try XCTUnwrap(order.firstIndex(of: "writer-finished"))
+      let space = try XCTUnwrap(order.firstIndex(of: "space-after-retirement"))
+      XCTAssertLessThan(finished, space)
+      XCTAssertFalse(order.contains("space-before-retirement"))
+      orchestrator.cancel()
     }
 
     private func pinnedPayload(_ data: Data, fileName: String = "os.bin") throws
@@ -765,6 +835,28 @@
     }
     var values: [Value] {
       lock.withLock { storage }
+    }
+  }
+
+  private struct RetirementFreeSpace: InstallerFreeSpaceChecking {
+    let read: @Sendable () throws -> UInt64
+    init(_ read: @escaping @Sendable () throws -> UInt64) { self.read = read }
+    func availableBytes() throws -> UInt64 { try read() }
+  }
+
+  private actor PrefetchRetirementGate {
+    private var entered = false
+    private var continuation: CheckedContinuation<Void, Never>?
+    func wait() async {
+      entered = true
+      await withCheckedContinuation { continuation = $0 }
+    }
+    func waitUntilEntered() async {
+      while !entered { await Task.yield() }
+    }
+    func release() {
+      continuation?.resume()
+      continuation = nil
     }
   }
 

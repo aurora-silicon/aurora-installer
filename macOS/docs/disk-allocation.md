@@ -14,6 +14,8 @@ Size checks use one session-owned preparation task at a time. A new committed si
 
 The controls remain usable during checking. Cancel check leaves the chosen draft visible and disables Install until Check size succeeds. Cancelling initial release preparation returns to Welcome. Approval is invalidated at once; the live environment independently verifies generation ownership before publishing its retained plan. These actions never cancel a helper-owned installation or Recovery operation.
 
+Prefetch cancellation reserves a new generation without file I/O. An owned background retirement chain joins prior startup, cancels and joins its writer, and removes only captured private work directories. Successor startup and live host/release space checks await retirement; cancelled startup and stale file promotion are refused. Interactive cancellation returns immediately, while the explicit quit path drains retirement before allowing process exit.
+
 Detached host probes forward cancellation. Read-only commands drain both output streams concurrently, retain bounded output, use a 120-second query deadline and terminate only their owned process on cancellation or timeout. Native inspection retains its separate mount-cleanup path, which finishes before a queued size check starts.
 
 The `allocation-checking` visual fixture shows responsive sizing controls and the cancellation action. Regression tests include an intentionally cancellation-ignoring worker, late success and failure, latest-size queuing, approval invalidation, initial cancellation, output pressure and process termination.

@@ -634,6 +634,7 @@
     ) async throws
     func waitUntilPayloadVerified() async throws
     func cancelPayloadPrefetch()
+    func cancelPayloadPrefetchOnQuit()
     /// Starts the planned payload's download again after it failed.
     func restartPayloadPrefetch()
     /// What each release channel's verified catalog offers this Mac. Read
@@ -642,6 +643,7 @@
   }
 
   extension InstallerEnvironment {
+    public func cancelPayloadPrefetchOnQuit() { cancelPayloadPrefetch() }
     public func cancelPlanPreparation() { discardApproval() }
     public func hasPendingInstallation() throws -> Bool { false }
     public func resumeInstallation(journal: @escaping @Sendable (Data) -> Void) async throws

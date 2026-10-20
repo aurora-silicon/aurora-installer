@@ -189,8 +189,10 @@
 
     public func start(
       requiredBytes: UInt64,
+      admitted: @Sendable () -> Bool = { true },
       work: @escaping @Sendable () async throws -> Void
     ) {
+      guard admitted() else { return }
       runTask?.cancel()
       runTask = Task { try await self.drive(requiredBytes: requiredBytes, work: work) }
     }
@@ -215,6 +217,12 @@
       setState(.cancelled)
       runTask?.cancel()
       failWaiters(PayloadPrefetchError.cancelled)
+    }
+
+    public func cancelAndWait() async {
+      let running = runTask
+      cancel()
+      _ = try? await running?.value
     }
 
     public func waitUntilVerified() async throws {
@@ -288,6 +296,7 @@
           keepAwake.acquire()
           defer { keepAwake.release() }
           try await runInterruptible(work: work)
+          try Task.checkCancellation()
           setState(.verified)
           resumeWaiters()
           return
@@ -541,6 +550,8 @@
 
     private var generation = UUID()
     private var controller: PayloadPrefetchController?
+    private var startupTask: Task<Void, Never>?
+    private var retirementTask: Task<Void, Never>?
     private var runningDigest: String?
     private var latest: PayloadPrefetchState = .idle
     private var observers: [UUID: @Sendable (PayloadPrefetchState) -> Void] = [:]
@@ -588,60 +599,107 @@
       lock.withLock { latest }
     }
 
+    /// Retires earlier writers before returning. Interactive UI uses the
+    /// background reservation API; this synchronous form also supports tools.
     public func begin(payload: StagedInstallerArtifact) {
+      Self.waitSynchronously(reserveBegin(payload))
+    }
+
+    /// Reserves ownership under short locks; no hashing or file removal here.
+    public func beginInBackground(payload: StagedInstallerArtifact) {
+      _ = reserveBegin(payload)
+    }
+
+    private func reserveBegin(_ payload: StagedInstallerArtifact) -> Task<Void, Never>? {
+      lock.lock()
+      if runningDigest == payload.artifact.expectedDigest {
+        switch latest {
+        case .failed, .cancelled: break
+        default:
+          let retirement = retirementTask
+          lock.unlock()
+          return retirement
+        }
+      }
+      let priorStartup = startupTask
+      let priorRetirement = retirementTask
+      let predecessor = controller
+      let abandoned = ownedWorkDirectories
+      controller = nil
+      ownedWorkDirectories.removeAll()
+      runningDigest = payload.artifact.expectedDigest
+      generation = UUID()
+      let generation = self.generation
+      latest = .idle
+      priorStartup?.cancel()
+      let retirement = Self.retire(
+        priorStartup: priorStartup, priorRetirement: priorRetirement,
+        predecessor: predecessor, directories: abandoned)
+      retirementTask = retirement
+      // Install both handles before unlocking, so a successor cannot lose a
+      // startup that has not yet registered its controller or work directory.
+      startupTask = Task.detached(priority: .utility) { [self] in
+        await retirement.value
+        await startGeneration(payload, generation: generation)
+      }
+      lock.unlock()
+      return retirement
+    }
+
+    private static func retire(
+      priorStartup: Task<Void, Never>?, priorRetirement: Task<Void, Never>?,
+      predecessor: PayloadPrefetchController?, directories: [URL]
+    ) -> Task<Void, Never> {
+      Task.detached(priority: .utility) {
+        await priorRetirement?.value
+        // A controller may be registered but not started yet. Join startup
+        // before cancelling its actual writer, then join that writer too.
+        await priorStartup?.value
+        await predecessor?.cancelAndWait()
+        for directory in directories {
+          try? FileManager.default.removeItem(at: directory)
+        }
+      }
+    }
+
+    private static func waitSynchronously(_ retirement: Task<Void, Never>?) {
+      guard let retirement else { return }
+      let finished = DispatchSemaphore(value: 0)
+      Task.detached {
+        await retirement.value
+        finished.signal()
+      }
+      finished.wait()
+    }
+
+    public func waitForRetirement() async throws {
+      try Task.checkCancellation()
+      let retirement = lock.withLock { retirementTask }
+      await retirement?.value
+      try Task.checkCancellation()
+    }
+
+    private func isCurrent(_ generation: UUID) -> Bool {
+      lock.withLock { self.generation == generation }
+    }
+
+    private func requireCurrent(_ generation: UUID) throws {
+      try Task.checkCancellation()
+      guard isCurrent(generation) else { throw CancellationError() }
+    }
+
+    private func startGeneration(_ payload: StagedInstallerArtifact, generation: UUID) async {
       let artifact = payload.artifact
       let canonical = payload.fileURL
       let parent = canonical.deletingLastPathComponent()
-
-      let reuse = lock.withLock { () -> Bool in
-        if runningDigest == artifact.expectedDigest {
-          switch latest {
-          case .failed, .cancelled:
-            return false
-          default:
-            return true
-          }
-        }
-        return false
-      }
-      if reuse {
-        return
-      }
-
-      let predecessor: PayloadPrefetchController?
-      let generation: UUID
-      lock.lock()
-      predecessor = controller
-      controller = nil
-      runningDigest = artifact.expectedDigest
-      generation = UUID()
-      self.generation = generation
-      latest = .idle
-      // Earlier generations are superseded under this lock hold and nothing
-      // they produce is published any more, so their directories are
-      // reclaimed now: before the space check, so Try again does not count a
-      // failed run's parts as used, and before planning samples bytesOnDisk.
-      // A successor appends its directory only while still current, so this
-      // snapshot never holds it.
-      let abandoned = ownedWorkDirectories
-      ownedWorkDirectories.removeAll()
-      lock.unlock()
-      for directory in abandoned {
-        try? FileManager.default.removeItem(at: directory)
-      }
-
-      Task {
-        if let predecessor {
-          await predecessor.cancel()
-        }
-        let stillCurrent = self.lock.withLock { self.generation == generation }
-        guard stillCurrent else { return }
+        guard self.isCurrent(generation), !Task.isCancelled else { return }
         self.publish(.verifying, generation: generation)
         if self.matchesPinned(artifact, canonical) {
           self.publish(.verified, generation: generation)
           return
         }
 
+        guard self.isCurrent(generation), !Task.isCancelled else { return }
         let work = parent.appendingPathComponent(
           "prefetch-\(generation.uuidString.lowercased())",
           isDirectory: true
@@ -685,7 +743,8 @@
         guard current else { return }
 
         let required = self.requiredFreeBytes(artifact.expectedSizeBytes)
-        await controller.start(requiredBytes: required) {
+        await controller.start(requiredBytes: required, admitted: { self.isCurrent(generation) }) {
+          try self.requireCurrent(generation)
           let staged = try await self.stage(artifact, work) { event in
             Task {
               await controller.reportDownload(
@@ -697,10 +756,9 @@
               }
             }
           }
-          try self.promote(staged.fileURL, to: canonical)
+          try self.promote(staged.fileURL, to: canonical, generation: generation)
           try? FileManager.default.removeItem(at: work)
         }
-      }
     }
 
     /// Payload bytes already on the staging volume: the promoted file, or
@@ -778,36 +836,45 @@
       }
     }
 
+    /// Quit/tool cleanup is synchronous, so the process cannot exit before
+    /// its retired writers and partial directories have been drained.
     public func cancel() {
+      Self.waitSynchronously(reserveCancellation())
+    }
+
+    /// Logical cancellation returns immediately; owned retirement runs off-main.
+    public func cancelInBackground() {
+      _ = reserveCancellation()
+    }
+
+    private func reserveCancellation() -> Task<Void, Never> {
       lock.lock()
       latest = .idle
       runningDigest = nil
       cancelEpoch &+= 1
-      let existing = controller
+      let predecessor = controller
+      let priorStartup = startupTask
+      let priorRetirement = retirementTask
+      let abandoned = ownedWorkDirectories
       controller = nil
+      startupTask = nil
+      ownedWorkDirectories.removeAll()
       generation = UUID()
+      let cancelledGeneration = generation
       let pending = Array(waiters.values)
       waiters.removeAll()
       let observers = Array(self.observers.values)
-      // Backing out leaves no partial download behind. Only directories taken
-      // here are removed, so a download begun after this cancel keeps its own.
-      // Removal is immediate because quitting also cancels, and the process
-      // may exit before a deferred task runs.
-      let abandoned = ownedWorkDirectories
-      ownedWorkDirectories.removeAll()
+      priorStartup?.cancel()
+      let retirement = Self.retire(
+        priorStartup: priorStartup, priorRetirement: priorRetirement,
+        predecessor: predecessor, directories: abandoned)
+      retirementTask = retirement
       lock.unlock()
-      for waiter in pending {
-        waiter.resume(throwing: PayloadPrefetchError.cancelled)
-      }
-      if let existing {
-        Task { await existing.cancel() }
-      }
-      for directory in abandoned {
-        try? FileManager.default.removeItem(at: directory)
-      }
+      for waiter in pending { waiter.resume(throwing: PayloadPrefetchError.cancelled) }
       for observer in observers {
-        observer(.idle)
+        if isCurrent(cancelledGeneration) { observer(.idle) }
       }
+      return retirement
     }
 
     /// Checks and publishes under one lock hold, so a replaced or cancelled
@@ -869,7 +936,15 @@
       return total
     }
 
-    private func promote(_ staged: URL, to canonical: URL) throws {
+    private func promote(_ staged: URL, to canonical: URL, generation: UUID) throws {
+      try Task.checkCancellation()
+      try lock.withLock {
+        guard self.generation == generation, !Task.isCancelled else { throw CancellationError() }
+        try promoteCurrent(staged, to: canonical)
+      }
+    }
+
+    private func promoteCurrent(_ staged: URL, to canonical: URL) throws {
       let fileManager = FileManager.default
       guard staged != canonical else { return }
       if fileManager.fileExists(atPath: canonical.path) {

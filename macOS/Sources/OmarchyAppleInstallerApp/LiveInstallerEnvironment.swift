@@ -21,11 +21,13 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     inspector: any NativeInstallerInspecting = NativeInstallerInspector(),
     inspectHost: @escaping @Sendable () throws -> AppleSiliconHostInspection = {
       try AppleSiliconHostInspector().inspect()
-    }
+    },
+    prefetch: PayloadPrefetchOrchestrator = PayloadPrefetchOrchestrator()
   ) {
     self.selection = selection
     self.inspector = inspector
     self.inspectHost = inspectHost
+    self.prefetch = prefetch
   }
 
   private func loadConfiguration() throws -> InstallerReleaseConfiguration {
@@ -51,7 +53,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   private let buildProfile = InstallerBuildProfile.current
   private var encryptLinuxDisk = true
   private var selectedLane = ReleaseChannel.stable.rawValue
-  private let prefetch = PayloadPrefetchOrchestrator()
+  private let prefetch: PayloadPrefetchOrchestrator
   private var plannedPayload: StagedInstallerArtifact?
   private var preparationGeneration = UUID()
 
@@ -157,6 +159,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   // MARK: Inspection
 
   func inspect() async throws -> HostDisplay {
+    try await prefetch.waitForRetirement()
     let host = try await inspectCurrentHost()
 
     var engine: ValidatedEngineTranscript?
@@ -321,6 +324,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     guard let host, hasTranscript else {
       throw InstallerAppError.inspectionRequired
     }
+    try await prefetch.waitForRetirement()
+    try requirePreparation(generation)
 
     progress(AssetProgressUpdate(stage: .fetchingCatalog))
 
@@ -364,6 +369,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     // plan, so it downloads while the engine checks the Mac and the owner picks
     // a size. The session cancels it if this preparation fails.
     try beginPayloadPrefetch(release.assets.payload, generation: generation)
+    try await prefetch.waitForRetirement()
+    try requirePreparation(generation)
 
     progress(
       AssetProgressUpdate(stage: .inspectingEngine, rows: collector.rows())
@@ -525,6 +532,12 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
 
   func cancelPayloadPrefetch() {
     lock.withLock { plannedPayload = nil }
+    prefetch.cancelInBackground()
+  }
+
+  func cancelPayloadPrefetchOnQuit() {
+    cancelPlanPreparation()
+    lock.withLock { plannedPayload = nil }
     prefetch.cancel()
   }
 
@@ -532,7 +545,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     guard let payload = lock.withLock({ plannedPayload }) else { return }
     // A failed or cancelled download of the same digest starts afresh; a
     // running one is left alone.
-    prefetch.begin(payload: payload)
+    prefetch.beginInBackground(payload: payload)
   }
 
   func prefetchPayload(
@@ -549,7 +562,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     try lock.withLock {
       guard preparationGeneration == generation, !Task.isCancelled else { throw CancellationError() }
       plannedPayload = payload
-      prefetch.begin(payload: payload)
+      prefetch.beginInBackground(payload: payload)
     }
   }
 

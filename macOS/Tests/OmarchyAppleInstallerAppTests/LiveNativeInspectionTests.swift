@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import XCTest
 
@@ -6,6 +7,21 @@ import XCTest
 
 final class LiveNativeInspectionTests: XCTestCase {
   func testWelcomeInspectionUsesNativeServiceBeforeDownloadingAnEngine() async throws {
+    let (host, bytes, known) = try fixture()
+    let service = FixedNativeInspection(
+      result: try NativeInstallerInspection(
+        transcript: bytes,
+        knownInstallations: [known, known]))
+    let environment = LiveInstallerEnvironment(inspector: service, inspectHost: { host })
+    let display = try await environment.inspect()
+    XCTAssertTrue(display.supported)
+    XCTAssertTrue(environment.engineSupported)
+    XCTAssertEqual(display.existingInstalls.map(\.sourceIdentifier), ["disk0s4"])
+    let calls = await service.calls()
+    XCTAssertEqual(calls, [false])
+  }
+
+  private func fixture() throws -> (AppleSiliconHostInspection, Data, NativeKnownInstallation) {
     let unit: UInt64 = 1_048_576
     let candidate = EngineInstallCandidate(
       kind: "free", sourceIdentifier: "disk0s2",
@@ -44,18 +60,82 @@ final class LiveNativeInspectionTests: XCTestCase {
     let known = NativeKnownInstallation(
       sourceIdentifier: "disk0s4", offsetBytes: 4096,
       lengthBytes: 16_384 * unit)
-    let service = FixedNativeInspection(
-      result: try NativeInstallerInspection(
-        transcript: bytes,
-        knownInstallations: [known, known]))
-    let environment = LiveInstallerEnvironment(inspector: service, inspectHost: { host })
-    let display = try await environment.inspect()
-    XCTAssertTrue(display.supported)
-    XCTAssertTrue(environment.engineSupported)
-    XCTAssertEqual(display.existingInstalls.map(\.sourceIdentifier), ["disk0s4"])
-    let calls = await service.calls()
-    XCTAssertEqual(calls, [false])
+    return (host, bytes, known)
   }
+
+  func testInspectionWaitsForRetiredWritersBeforeSamplingHostFreeSpace() async throws {
+    let (host, bytes, _) = try fixture()
+    let service = FixedNativeInspection(result: try NativeInstallerInspection(transcript: bytes))
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "live-retirement-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let data = Data("payload".utf8)
+    let artifact = try PinnedInstallerArtifact(
+      role: "payload", sourceURL: URL(string: "https://example.com/payload.bin")!,
+      fileName: "payload.bin",
+      expectedDigest: "sha256:" + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
+      expectedSizeBytes: UInt64(data.count))
+    let gate = LiveRetirementGate()
+    let events = LiveInspectionEvents()
+    let prefetch = PayloadPrefetchOrchestrator(
+      makeNetwork: { DisplayTestNetwork() }, makeKeepAwake: { DisplayTestKeepAwake() },
+      makeFreeSpace: { _ in DisplayTestFreeSpace() }, matchesPinned: { _, _ in false },
+      requiredFreeBytes: { $0 }, requiresNetwork: { _ in false },
+      stage: { artifact, directory, _ in
+        let file = directory.appendingPathComponent(artifact.fileName)
+        try data.write(to: file)
+        await gate.wait()
+        events.append("writer-finished")
+        return StagedInstallerArtifact(artifact: artifact, fileURL: file, reusedExistingFile: false)
+      })
+    prefetch.beginInBackground(payload: StagedInstallerArtifact(
+      artifact: artifact, fileURL: root.appendingPathComponent(artifact.fileName), reusedExistingFile: false))
+    await gate.waitUntilEntered()
+    prefetch.cancelInBackground()
+    let environment = LiveInstallerEnvironment(
+      inspector: service, inspectHost: { events.append("host-sampled"); return host }, prefetch: prefetch)
+    let inspection = Task { try await environment.inspect() }
+    try await Task.sleep(for: .milliseconds(50))
+    XCTAssertFalse(events.values.contains("host-sampled"))
+    await gate.release()
+    _ = try await inspection.value
+    XCTAssertEqual(events.values, ["writer-finished", "host-sampled"])
+  }
+}
+
+private final class LiveInspectionEvents: @unchecked Sendable {
+  private let lock = NSLock()
+  private var storage: [String] = []
+  func append(_ value: String) { lock.withLock { storage.append(value) } }
+  var values: [String] { lock.withLock { storage } }
+}
+
+private actor LiveRetirementGate {
+  private var entered = false
+  private var continuation: CheckedContinuation<Void, Never>?
+  func wait() async {
+    entered = true
+    await withCheckedContinuation { continuation = $0 }
+  }
+  func waitUntilEntered() async { while !entered { await Task.yield() } }
+  func release() { continuation?.resume(); continuation = nil }
+}
+
+private struct DisplayTestNetwork: InstallerNetworkPathObserving {
+  func current() -> InstallerNetworkPathSnapshot {
+    InstallerNetworkPathSnapshot(isSatisfied: true, isExpensive: false, isConstrained: false)
+  }
+  func updates() -> AsyncStream<InstallerNetworkPathSnapshot> { AsyncStream { $0.finish() } }
+}
+
+private struct DisplayTestKeepAwake: InstallerKeepAwakeHolding {
+  func acquire() {}
+  func release() {}
+}
+
+private struct DisplayTestFreeSpace: InstallerFreeSpaceChecking {
+  func availableBytes() throws -> UInt64 { 8_000_000_000 }
 }
 
 private actor FixedNativeInspection: NativeInstallerInspecting {

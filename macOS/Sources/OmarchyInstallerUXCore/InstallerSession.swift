@@ -960,7 +960,13 @@
     }
 
     public func cancelPrefetchOnQuit() {
-      environment.cancelPayloadPrefetch()
+      if !hasExecutionStarted && !isExecuting {
+        operationID = UUID()
+        pendingPreparation = nil
+        preparationTask?.cancel()
+        environment.cancelPlanPreparation()
+      }
+      environment.cancelPayloadPrefetchOnQuit()
       if prefetchState != .verified {
         prefetchState = .cancelled
       }
