@@ -328,6 +328,15 @@
         _ member: IPSWArchiveMember, role: String, path: String, compressed: Bool,
         dataName: String? = nil
       ) async throws {
+        // A completed entry has a protected per-file receipt. Recheck its
+        // on-volume identity before considering another archive download or
+        // decode; the copy helper rejects a changed path or content.
+        if try file.containsEvidence("native-stub-file-" + String(installed.count)) {
+          try await copy(role, path, dataName: dataName) { _, _ in
+            throw NativeStubFileError.invalidPlan
+          }
+          return
+        }
         let prefix = try await plan.archive.readPrefix(member, maximumBytes: 4)
         if prefix != Data("AEA1".utf8) {
           try await copy(role, path, dataName: dataName) {

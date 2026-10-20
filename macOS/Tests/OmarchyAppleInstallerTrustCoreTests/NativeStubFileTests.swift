@@ -7,6 +7,14 @@
   @testable import OmarchyAppleInstallerTrustCore
 
   final class NativeStubFileTests: XCTestCase, @unchecked Sendable {
+    final class ReadGate: @unchecked Sendable {
+      private let lock = NSLock()
+      private var blocked = false
+      func close() { lock.withLock { blocked = true } }
+      func check() throws {
+        guard !lock.withLock({ blocked }) else { throw NativeStubFileError.invalidImage }
+      }
+    }
     struct Vectors: Decodable {
       struct Vector: Decodable {
         let name: String
@@ -21,9 +29,11 @@
     }
     struct Source: FirmwareRangeReading {
       let bytes: Data
+      var gate: ReadGate? = nil
       var sizeBytes: Int { bytes.count }
       func read(offset: Int, count: Int) async throws -> Data {
         try Task.checkCancellation()
+        try gate?.check()
         return bytes.subdata(in: offset..<(offset + count))
       }
     }
@@ -194,6 +204,37 @@
           planDigest: String(repeating: "0", count: 64),
           deviceIdentifier: fixture.package.deviceIdentifier,
           storeIdentifier: fixture.package.storeIdentifier, evidence: { _ in source }))
+    }
+
+    func testSavedRestoreImageIsVerifiedWithoutDownloadingItAgain() async throws {
+      let fixture = try ExecutionFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.directory) }
+      let vector = try XCTUnwrap(vectors().vectors.first { $0.name == "aea" })
+      let gate = ReadGate()
+      let archive = try await IPSWArchive.open(Source(bytes: vector.archive, gate: gate))
+      let source = try await NativeStubFilePlan(
+        archive: archive,
+        source: NativeFirmwareSelection(
+          version: "26.6.2", sourceURL: URL(string: "https://updates.cdn-apple.com/test.ipsw")!,
+          stubBytes: 6_000_000_000),
+        deviceClass: "j700ap", boardID: 1, chipID: 2)
+      var platform = fixture.platform
+      platform.decode = { _, _, output, _, _ in
+        var bytes = Data(repeating: 0x69, count: 131072 + 13)
+        bytes.append(Data("koly".utf8))
+        bytes.append(Data(repeating: 0, count: 508))
+        try bytes.write(to: output)
+      }
+      let execution = NativeStubFilesExecution(
+        package: fixture.package, approved: fixture.approved,
+        plan: source, owner: geteuid(), platform: platform, cache: nil)
+      try await execution.prepare(
+        journal: fixture.journal, authorization: fixture.authorization,
+        sourceBootstrap: fixture.bootstrap)
+      gate.close()
+      try await execution.prepare(
+        journal: fixture.journal, authorization: fixture.authorization,
+        sourceBootstrap: fixture.bootstrap)
     }
 
     func testNativeResourceForkCompressionRoundTripsThroughTheFilesystem() async throws {
