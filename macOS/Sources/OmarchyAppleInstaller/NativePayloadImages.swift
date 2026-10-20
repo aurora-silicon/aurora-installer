@@ -69,7 +69,8 @@
         from: file.readEvidence("native-os-partitions"))
       let baseline = try platform.disks.snapshot()
       _ = try NativeDiskInventory.extents(baseline)
-      var recordedLayout = try JSONDecoder().decode(RemovalSnapshot.self,
+      var recordedLayout = try JSONDecoder().decode(
+        RemovalSnapshot.self,
         from: file.readEvidence("native-os-partition-baseline"))
       recordedLayout.partitions.append(contentsOf: receipt.partitions)
       recordedLayout.partitions.sort { $0.offset < $1.offset }

@@ -32,9 +32,11 @@
         var original = base.snapshot
         let created = Set(parts.map(\.uuid))
         original.partitions.removeAll { created.contains($0.uuid) }
-        let baselinePath = URL(fileURLWithPath: base.journal.path + ".native-os-partition-baseline.evidence")
+        let baselinePath = URL(
+          fileURLWithPath: base.journal.path + ".native-os-partition-baseline.evidence")
         try JSONEncoder().encode(original).write(to: baselinePath)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: baselinePath.path)
+        try FileManager.default.setAttributes(
+          [.posixPermissions: 0o600], ofItemAtPath: baselinePath.path)
         let layout = try NativeOSPartitionPlan(
           metadata: NativeOSPartitionTests.metadata(),
           available: base.approved.lengthBytes - stub.size)
