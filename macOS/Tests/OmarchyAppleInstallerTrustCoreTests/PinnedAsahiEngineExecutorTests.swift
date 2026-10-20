@@ -89,6 +89,7 @@
     {
       let esp: URL
       let marker: URL
+      var requiresNativePath: Bool { true }
       func preflight(
         package: ImportedEngineHandoffPackage, stub: NativeStubFilePlan?,
         peripherals: PreparedNativePeripheralInputs?
@@ -155,6 +156,25 @@
         XCTAssertTrue(report.notice.diskUnchanged)
       }
       XCTAssertFalse(FileManager.default.fileExists(atPath: apfs.path))
+      XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
+
+    func testRequiredNativeClosureRefusesMissingStageBeforeDiskOrRuntimeLaunch() async throws {
+      let fixture = try makeFixture(
+        transcript: NativeAdmissionTestData.journal(), missingBackendInterpreter: true)
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let marker = fixture.root.appendingPathComponent("finished")
+      let executor = fixtureExecutor(
+        effectiveUserID: { 0 },
+        installationFinisher: NativeFinishingFixture(esp: marker, marker: marker))
+      do {
+        _ = try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
+        XCTFail("Missing native stages reached execution")
+      } catch let PinnedAsahiEngineExecutionError.engineFailed(report) {
+        XCTAssertEqual(report.notice.reason, .planIntegrity)
+        XCTAssertTrue(report.notice.diskUnchanged)
+      }
+      XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
     }
 
@@ -1219,7 +1239,8 @@
       osPartitionsPreparer: any NativeOSPartitionsPreparing = NativePartitionsFixture(),
       payloadImagesPreparer: any NativePayloadImagesPreparing = NativeImagesFixture(),
       espFilesPreparer: any NativeESPFilesPreparing = NoNativeESPFixture(),
-      installationFinisher: any NativeInstallationFinishingPreparing = NativeInstallationFinisher(),
+      installationFinisher: any NativeInstallationFinishingPreparing = NativeInstallationFinisher(
+        enabled: false),
       collectInstallAdmission: @escaping @Sendable () throws -> NativeInstallAdmissionFacts = {
         NativeAdmissionTestData.facts()
       },
