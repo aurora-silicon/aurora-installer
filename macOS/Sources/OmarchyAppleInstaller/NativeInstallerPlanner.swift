@@ -57,7 +57,7 @@
       let offset =
         candidate.kind == "resize" ? end - request.requestedLengthBytes : candidate.offsetBytes
       let steps =
-        candidate.kind == "repair"
+        ["repair", "reinstall"].contains(candidate.kind)
         ? ["authenticateMachineOwner"] : ["enterOneTrueRecovery", "authenticateMachineOwner"]
       var fields = [
         inspection.deviceIdentifier, inventory.systemStoreIdentifier, inventory.layoutDigest,

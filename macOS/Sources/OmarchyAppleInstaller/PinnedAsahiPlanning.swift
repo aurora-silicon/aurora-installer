@@ -26,7 +26,7 @@ public struct PinnedAsahiPlanRequest: Equatable, Sendable, Encodable {
     let maximum: UInt64
     if candidate.kind == "free" {
       maximum = candidate.lengthBytes
-    } else if candidate.kind == "repair" || candidate.kind == "replace" {
+    } else if ["repair", "replace", "reinstall"].contains(candidate.kind) {
       maximum = candidate.lengthBytes
     } else if candidate.kind == "resize",
       candidate.lengthBytes > candidate.minimumContainerBytes
@@ -38,7 +38,7 @@ public struct PinnedAsahiPlanRequest: Equatable, Sendable, Encodable {
     guard requestedLengthBytes >= candidate.minimumInstallBytes,
       requestedLengthBytes <= maximum,
       requestedLengthBytes % Self.allocationUnitBytes == 0,
-      !["repair", "replace"].contains(candidate.kind)
+      !["repair", "replace", "reinstall"].contains(candidate.kind)
         || requestedLengthBytes == candidate.lengthBytes
     else {
       throw PinnedAsahiPlanningError.invalidRequestedLength

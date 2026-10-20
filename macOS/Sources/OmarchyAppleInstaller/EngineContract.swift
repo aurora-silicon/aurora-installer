@@ -34,7 +34,7 @@ struct EngineInventoryMessage: Codable, Equatable, Sendable {
         String(candidate.offsetBytes),
         String(candidate.lengthBytes),
       ])
-      if ["repair", "replace"].contains(candidate.kind),
+      if ["repair", "replace", "reinstall"].contains(candidate.kind),
         let identity = candidate.identityDigest
       {
         fields.append(identity)
@@ -195,7 +195,7 @@ struct EngineTranscriptDecoder: Sendable {
         }
         for candidate in candidates {
           var candidateKeys: Set<String> =
-            ["repair", "replace"].contains(candidate["kind"] as? String ?? "")
+            ["repair", "replace", "reinstall"].contains(candidate["kind"] as? String ?? "")
             ? [
               "kind", "source_identifier", "offset_bytes", "length_bytes",
               "minimum_install_bytes", "minimum_container_bytes",
@@ -307,7 +307,7 @@ struct EngineTranscriptDecoder: Sendable {
         }
         var candidateIdentities = Set<String>()
         for candidate in candidateInventory.candidates {
-          guard ["free", "resize", "repair", "replace"].contains(candidate.kind),
+          guard ["free", "resize", "repair", "replace", "reinstall"].contains(candidate.kind),
             isPartitionIdentifier(candidate.sourceIdentifier),
             candidateIdentities.insert("\(candidate.kind):\(candidate.sourceIdentifier)").inserted,
             candidate.lengthBytes > 0,
@@ -333,6 +333,10 @@ struct EngineTranscriptDecoder: Sendable {
                 && candidate.minimumContainerBytes == 0
                 && candidate.minimumInstallBytes <= candidate.lengthBytes
                 && candidate.identityDigest.map(isSHA256Digest) == true)
+              || (candidate.kind == "reinstall"
+                && candidate.minimumContainerBytes == 0
+                && candidate.minimumInstallBytes == candidate.lengthBytes
+                && candidate.identityDigest.map(isSHA256Digest) == true)
           else {
             throw EngineContractError.unsafeExtent(lineNumber)
           }
@@ -352,7 +356,9 @@ struct EngineTranscriptDecoder: Sendable {
           plan.lengthBytes > 0,
           plan.offsetBytes.addingReportingOverflow(plan.lengthBytes).overflow == false,
           !plan.engineVersion.isEmpty,
-          !plan.requiredHumanSteps.isEmpty
+          !plan.requiredHumanSteps.isEmpty,
+          (plan.candidateKind != "reinstall"
+            || plan.requiredHumanSteps == ["authenticateMachineOwner"])
         else {
           if plan.lengthBytes == 0
             || plan.offsetBytes.addingReportingOverflow(plan.lengthBytes).overflow
@@ -423,7 +429,7 @@ struct EngineTranscriptDecoder: Sendable {
       return plan.offsetBytes == candidate.offsetBytes && plan.lengthBytes <= candidate.lengthBytes
     }
 
-    if candidate.kind == "repair" || candidate.kind == "replace" {
+    if ["repair", "replace", "reinstall"].contains(candidate.kind) {
       return plan.offsetBytes == candidate.offsetBytes
         && plan.lengthBytes == candidate.lengthBytes
     }

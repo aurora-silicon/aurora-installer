@@ -23,12 +23,19 @@
       _ collected: NativeCollectedDisk, sourceIdentifier: String, title: String,
       bootImageBytes: UInt64, rootImageBytes: UInt64
     ) throws -> Self {
+      let target = try recognize(collected, sourceIdentifier: sourceIdentifier, title: title)
+      try target.admitImages(bootImageBytes: bootImageBytes, rootImageBytes: rootImageBytes)
+      return target
+    }
+
+    static func recognize(
+      _ collected: NativeCollectedDisk, sourceIdentifier: String, title: String
+    ) throws -> Self {
       let snapshot = collected.snapshot
       _ = try NativeDiskInventory.extents(snapshot)
-      guard AuroraDistribution.allCases.map(\.title).contains(title),
-        bootImageBytes > 0, rootImageBytes > 0,
-        bootImageBytes % 4096 == 0, rootImageBytes % 4096 == 0
-      else { throw NativePreservedInstallError.unavailable }
+      guard AuroraDistribution.allCases.map(\.title).contains(title) else {
+        throw NativePreservedInstallError.unavailable
+      }
       let ordered = snapshot.partitions.sorted { $0.offset < $1.offset }
       guard let index = ordered.firstIndex(where: { $0.identifier == sourceIdentifier }),
         index + 3 < ordered.count,
@@ -45,9 +52,6 @@
           pair.0.end == pair.1.offset
         }), Set(parts.map(\.uuid)).count == 4
       else { throw NativePreservedInstallError.changedLayout }
-      guard bootImageBytes <= parts[2].size, rootImageBytes <= parts[3].size else {
-        throw NativePreservedInstallError.imageTooLarge
-      }
       let matchingFacts = collected.containers.filter { $0.storeUUID == parts[0].uuid }
       let matchingContainers = snapshot.containers.filter { $0.storeUUID == parts[0].uuid }
       guard matchingFacts.count == 1, matchingContainers.count == 1,
@@ -93,6 +97,13 @@
         disk: snapshot.disk, title: title, group: system.group,
         stub: parts[0], esp: parts[1], boot: parts[2], root: parts[3],
         identityDigest: InstallerDigest.lengthPrefixedSHA256(fields).rawValue)
+    }
+
+    func admitImages(bootImageBytes: UInt64, rootImageBytes: UInt64) throws {
+      guard bootImageBytes > 0, rootImageBytes > 0,
+        bootImageBytes % 4096 == 0, rootImageBytes % 4096 == 0,
+        bootImageBytes <= boot.size, rootImageBytes <= root.size
+      else { throw NativePreservedInstallError.imageTooLarge }
     }
   }
 #endif

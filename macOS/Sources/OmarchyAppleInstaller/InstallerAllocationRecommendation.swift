@@ -102,7 +102,9 @@ public struct InstallerAllocationRecommendation:
     guard let selected = ranked.first else {
       // Existing installations require an explicit choice before any space diagnosis.
       guard
-        !inventory.candidates.contains(where: { $0.kind == "repair" || $0.kind == "replace" })
+        !inventory.candidates.contains(where: {
+          ["repair", "replace", "reinstall"].contains($0.kind)
+        })
       else {
         throw InstallerAllocationRecommendationError.noEligibleCandidate
       }

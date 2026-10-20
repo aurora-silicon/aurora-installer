@@ -127,5 +127,60 @@
           sourceIdentifier: "disk0s4", title: AuroraDistribution.nixos.title,
           bootImageBytes: 4096, rootImageBytes: 4096))
     }
+
+    func testPreservedCandidateProducesAPlanWithoutRecoveryEnrollment() throws {
+      let disk = try fixture()
+      let directory = try XCTUnwrap(Bundle.module.url(forResource: "Fixtures", withExtension: nil))
+      let document = try XCTUnwrap(
+        JSONSerialization.jsonObject(
+          with: Data(
+            contentsOf: directory.appendingPathComponent("native-inspection-vectors.json")))
+          as? [String: Any])
+      let vectors = try XCTUnwrap(document["vectors"] as? [[String: Any]])
+      let vector = try XCTUnwrap(vectors.first { $0["name"] as? String == "complete-install" })
+      var metadata = try XCTUnwrap(vector["metadata"] as? [String: Any])
+      var templates = try XCTUnwrap(metadata["os_list"] as? [[String: Any]])
+      templates[0]["default_os_name"] = AuroraDistribution.nixos.title
+      metadata["os_list"] = templates
+      let bytes = try JSONSerialization.data(withJSONObject: metadata)
+      let inspected = try AppleInstallerTrustCore().validateEngineTranscript(
+        NativeDiskInventory.transcript(
+          device: "apple,j314s", snapshot: disk.snapshot, containers: disk.containers,
+          metadata: try NativeInstallationMetadata(data: bytes), stubBytes: 2_499_805_184))
+      let inventory = try XCTUnwrap(inspected.inventory)
+      let candidate = try XCTUnwrap(
+        inventory.candidates.first { $0.kind == "reinstall" })
+      let target = try NativePreservedInstallTarget.recognize(
+        disk, sourceIdentifier: "disk0s4", title: AuroraDistribution.nixos.title)
+      XCTAssertEqual(candidate.sourceIdentifier, target.stub.identifier)
+      XCTAssertEqual(candidate.identityDigest, target.identityDigest)
+      XCTAssertEqual(candidate.minimumInstallBytes, candidate.lengthBytes)
+      XCTAssertThrowsError(
+        try PinnedAsahiPlanRequest(
+          inventory: inventory, candidate: candidate,
+          requestedLengthBytes: candidate.lengthBytes - PinnedAsahiPlanRequest.allocationUnitBytes))
+      let request = try PinnedAsahiPlanRequest(
+        inventory: inventory, candidate: candidate,
+        requestedLengthBytes: candidate.lengthBytes)
+      let identity = try PinnedAsahiPlanIdentity(
+        engineVersion: "test", engineDigest: "sha256:" + String(repeating: "a", count: 64),
+        metadataDigest: "sha256:" + String(repeating: "b", count: 64),
+        payloadDigest: "sha256:" + String(repeating: "c", count: 64))
+      let planned = try AppleInstallerTrustCore().validateEngineTranscript(
+        NativeInstallerPlanner.transcript(
+          inspection: inspected, request: request, identity: identity))
+      XCTAssertEqual(planned.plan?.candidateKind, "reinstall")
+      XCTAssertEqual(planned.plan?.requiredHumanSteps, ["authenticateMachineOwner"])
+      var unbound = disk.snapshot
+      unbound.containers.removeAll()
+      let unboundInspection = try AppleInstallerTrustCore().validateEngineTranscript(
+        NativeDiskInventory.transcript(
+          device: "apple,j314s", snapshot: unbound, containers: disk.containers,
+          metadata: try NativeInstallationMetadata(data: bytes), stubBytes: 2_499_805_184))
+      XCTAssertFalse(
+        try XCTUnwrap(unboundInspection.inventory).candidates.contains {
+          $0.kind == "reinstall"
+        })
+    }
   }
 #endif
