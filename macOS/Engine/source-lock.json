@@ -141,7 +141,7 @@
     }
   },
   "downstream_overlay": {
-    "version": "v0.9.2-aurora.4",
+    "version": "v0.9.2-aurora.5",
     "capability": "candidate_bound_full_os_stage_one_authenticated_recovery",
     "engine_modes": [
       "inspect",
@@ -196,12 +196,12 @@
       {
         "path": "overlay/src/omarchy_runtime.py",
         "destination": "src/omarchy_runtime.py",
-        "sha256": "3f8e0646343304eff59b04f154da011176a1ffe554d0f5e25043d277e3856349"
+        "sha256": "a88f00d5ffe8be41a9c5a0ff0bf6bc85657b30366a5c2ae65d478357d38f6d8c"
       },
       {
         "path": "overlay/src/omarchy_stage1.py",
         "destination": "src/omarchy_stage1.py",
-        "sha256": "206f1decf3176359f0e11b8a4d2afdc2997ff24fa9498fa057ddd2d75b295ea5"
+        "sha256": "e37deb9878b24ced8fd80e57b0116bd06190933db6c8c3d2d30997e1910b4402"
       },
       {
         "path": "overlay/tests/test_omarchy_asahi.py",
@@ -236,12 +236,12 @@
       {
         "path": "overlay/tests/test_omarchy_runtime.py",
         "destination": "tests/test_omarchy_runtime.py",
-        "sha256": "b73f0ff85b4b4d226d71dc44ad8c7db6f6f26aa012740aca328866763d203bb4"
+        "sha256": "abb626adac337e1c0ff5e2b56688ff3f024a2a52b661c3ed07ccc0b202d1ba80"
       },
       {
         "path": "overlay/tests/test_omarchy_stage1.py",
         "destination": "tests/test_omarchy_stage1.py",
-        "sha256": "170989306f796c8baab19e715613be380f24f0646be2c6d8ffc565e2e676e4c0"
+        "sha256": "423dbb42a4475abdd98d0509cc856b10b3c861f8dd559191b7212153549be9d7"
       },
       {
         "path": "overlay/src/omarchy_image.py",
@@ -340,7 +340,7 @@
     },
     {
       "path": "rebuild-python-overlay.py",
-      "sha256": "1153cdd45822f5ce4469af638e546f1cf2108f4b6fff6a2e0cbe0ba4521d4357"
+      "sha256": "f5548c12d7a9fe62d39e6ce70e7942163e1173b520a22e28931dfca81b99e49d"
     },
     {
       "path": "RestoreImage/LICENSE",
@@ -464,9 +464,9 @@
     }
   ],
   "validation_artifact": {
-    "filename": "installer-v0.9.2-aurora.4.tar.gz",
-    "size_bytes": 17887533,
-    "sha256": "d92ffe7f908613deadcd1fd16c246588880987ab9c2dd62863b3c39f32098663",
+    "filename": "installer-v0.9.2-aurora.5.tar.gz",
+    "size_bytes": 17887766,
+    "sha256": "7ea1c925f717cf0ce07c00a09d8f3732ac1e749601bd9a85049ea4d71fa92d74",
     "reproducibility_scope": "two-identical-python-overlay-repacks-authenticated-base",
     "signature": "absent",
     "metadata_sha256": "2e6181ce6b6e17c11039e04bfadade8d10ae0e11889885ad8c9960b68f179a5d"

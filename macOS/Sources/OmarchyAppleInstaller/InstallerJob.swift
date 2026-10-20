@@ -420,7 +420,7 @@
           record.failure = InstallerJobFailure(error: error)
           if record.recoveryAttempt != nil && record.failure?.code == "helper" {
             record.phase = .interrupted
-          } else if record.failure?.code != "recovery" && record.recoveryAttempt == nil {
+          } else if record.failure?.diskUnchanged == true && record.recoveryAttempt == nil {
             record.retainedPackageName = nil
           }
         }
@@ -519,6 +519,7 @@
     private func retryAvailable(_ record: InstallerJobRecord) -> Bool {
       guard record.phase == .failed, record.retainedPackageName != nil, let identity = record.plan,
         record.failure?.code == "recovery"
+          || (record.failure?.code == "engine" && record.failure?.diskUnchanged == false)
           || (record.recoveryAttempt != nil && record.failure?.code == "credentials")
       else { return false }
       return retryEligibility(identity)

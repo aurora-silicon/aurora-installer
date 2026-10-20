@@ -73,6 +73,7 @@ class EngineRuntime:
             "inspect",
             "plan",
             "install",
+            "prepare-native-handoff",
             "retry-recovery-authorization",
         ):
             raise EngineRuntimeError("unsupported engine mode")
@@ -87,6 +88,7 @@ class EngineRuntime:
                 "OMARCHY_ENGINE_IDENTITY",
             },
             "install": ENVIRONMENT_KEYS - OPTIONAL_INSTALL_KEYS,
+            "prepare-native-handoff": ENVIRONMENT_KEYS - OPTIONAL_INSTALL_KEYS,
             "retry-recovery-authorization": ENVIRONMENT_KEYS - OPTIONAL_INSTALL_KEYS,
         }[mode]
         missing = sorted(required - set(values))
@@ -99,6 +101,7 @@ class EngineRuntime:
     def metadata(self, bundled_metadata):
         if self.mode not in (
             "install",
+            "prepare-native-handoff",
             "retry-recovery-authorization",
         ):
             return bundled_metadata
@@ -187,6 +190,7 @@ class EngineRuntime:
             )
         elif self.journal.plan_payload is None or self.mode not in (
             "install",
+            "prepare-native-handoff",
             "retry-recovery-authorization",
         ):
             self.journal.inventory(
@@ -233,6 +237,8 @@ class EngineRuntime:
         )
         self._record_execution_plan(plan)
         if getattr(plan, "operation", "install") == omarchy_repair.REPAIR_OPERATION:
+            if self.mode == "prepare-native-handoff":
+                raise EngineRuntimeError("native handoff requires a full OS installation")
             if repair_manifest is None:
                 raise EngineRuntimeError("repair manifest is required")
             adapter = omarchy_asahi.AsahiInPlaceRepairAdapter(
@@ -272,11 +278,13 @@ class EngineRuntime:
             recovery_requirement=self.values["OMARCHY_RECOVERY_REQUIREMENT"],
             authorized_owner=self.values["OMARCHY_MACHINE_OWNER"],
             native_firmware_root=self.values.get("OMARCHY_NATIVE_FIRMWARE_ROOT"),
-            require_native_firmware=self.mode == "install" and self.device_identifier == "apple,j700",
+            require_native_firmware=self.mode in ("install", "prepare-native-handoff") and self.device_identifier == "apple,j700",
             full_readback=os.environ.get("OMARCHY_FULL_READBACK") == "1",
         )
         with omarchy_asahi.timing("preflight"):
             adapter.preflight(plan)
+        if self.mode == "prepare-native-handoff":
+            return omarchy_stage1.prepare_native_handoff(plan, self.journal, adapter)
         if self.mode == "retry-recovery-authorization":
             return omarchy_stage1.retry_recovery_authorization(
                 plan,

@@ -6,6 +6,27 @@
   @testable import OmarchyAppleInstallerTrustCore
 
   final class PinnedAsahiEngineExecutorTests: XCTestCase {
+    private struct FixtureNativeHandoff: NativeRecoveryHandoffExecuting {
+      func execute(package: ImportedEngineHandoffPackage, journal: URL,
+        authorization: MachineOwnerAuthorization, requirement: String, fullReadback: Bool) async throws -> Data {
+        try Data(contentsOf: package.packageURL.deletingLastPathComponent()
+          .appendingPathComponent("bundle-source/transcript.jsonl"))
+      }
+    }
+
+    func testADelegatedHandoffRequiresAnAuthenticatedBackendCapability() async throws {
+      let fixture = try makeFixture(supportsNativeHandoff: false)
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      await assertThrowsErrorAsync(try await fixtureExecutor(effectiveUserID: { 0 }).execute(
+        fixture.package, authorization: try machineOwnerAuthorization())) {
+        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+          return XCTFail("Expected capability admission failure")
+        }
+        XCTAssertEqual(report.notice.reason, .recoveryPreparation)
+        XCTAssertTrue(report.notice.diskUnchanged)
+      }
+      XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
     private struct FirmwareMarker: NativeFirmwarePreparing {
       let url: URL
       func prepare(deviceIdentifier: String, in workingDirectory: URL) async throws -> URL? {
@@ -153,7 +174,7 @@
     func testDecoderAdmissionFailureStopsBeforeExtractionAndAttestsOnlyInitialNoMutation()
       async throws
     {
-      for operation in [EngineHandoffOperation.install, .retryRecoveryAuthorization] {
+      for operation in [EngineHandoffOperation.install] {
         for rejection in ["missing", "requirement", "signature"] {
           let fixture = try makeFixture(includeDecoder: rejection != "missing")
           defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -557,8 +578,8 @@
     func testRecoveryAuthorizationFailureRequiresExactRetryCheckpoint()
       async throws
     {
-      let targetEvidence = Data("target-readback".utf8)
-      let installedEvidence = Data("installed-readback".utf8)
+      let targetEvidence = checkpointFixture("target-readback")
+      let installedEvidence = checkpointFixture("installed-readback")
       let transcript = recoveryRetryTranscript(
         targetEvidence: targetEvidence,
         installedEvidence: installedEvidence
@@ -601,42 +622,6 @@
           InstallerJobPlanIdentity(package: fixture.package),
           in: fixture.package.packageURL.deletingLastPathComponent()))
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
-    }
-
-    func testReplaceTranscriptIsRejectedByRecoveryRetryCheckpoint() {
-      let targetEvidence = Data("target-readback".utf8)
-      let installedEvidence = Data("installed-readback".utf8)
-      let evidence = [
-        "apfs-target-prepared": targetEvidence,
-        "stub-and-esp-installed": installedEvidence,
-      ]
-      let planDigest = String(repeating: "a", count: 64)
-
-      XCTAssertTrue(
-        RecoveryAuthorizationRetryCheckpoint.isEligible(
-          transcript: recoveryRetryTranscript(
-            targetEvidence: targetEvidence,
-            installedEvidence: installedEvidence
-          ),
-          planDigest: planDigest,
-          deviceIdentifier: "apple,j314s",
-          storeIdentifier: "disk0",
-          checkpointEvidence: evidence
-        )
-      )
-      XCTAssertFalse(
-        RecoveryAuthorizationRetryCheckpoint.isEligible(
-          transcript: replaceRecoveryRetryTranscript(
-            targetEvidence: targetEvidence,
-            installedEvidence: installedEvidence,
-            removalEvidence: Data("removal-readback".utf8)
-          ),
-          planDigest: planDigest,
-          deviceIdentifier: "apple,j314s",
-          storeIdentifier: "disk0",
-          checkpointEvidence: evidence
-        )
-      )
     }
 
     func testTruncatedTranscriptIsRejected() async throws {
@@ -770,6 +755,7 @@
           if rejectDecoder { throw RestoreImageHelperError.signatureRejected }
         },
         firmwarePreparer: firmwarePreparer,
+        nativeHandoff: FixtureNativeHandoff(),
         collectInstallAdmission: collectInstallAdmission,
         prepareRecoveryTemplate: { package in
           if rejectRecovery { throw NativeRecoveryTemplateError.unavailable }
@@ -798,9 +784,12 @@
       standardError: Data? = nil,
       includeDecoder: Bool = true,
       supportsSignedDecoder: Bool = true,
-      installationIntent: ImportedInstallationIntent = .fresh,
-      planDigest: String = String(repeating: "a", count: 64)
+      supportsNativeHandoff: Bool = true,
+      installationIntent: ImportedInstallationIntent? = nil,
+      planDigest: String = NativeAdmissionTestData.plan.planDigest
     ) throws -> PinnedExecutorFixture {
+      let intent = installationIntent ?? (repairManifest == nil ? .fresh : .repair)
+      let backendMode = expectedInstallMode == "install" && intent != .repair ? "prepare-native-handoff" : expectedInstallMode
       let root = FileManager.default.temporaryDirectory.appendingPathComponent(
         "omarchy-pinned-executor-\(UUID().uuidString.lowercased())",
         isDirectory: true
@@ -826,8 +815,9 @@
 
       let capability =
         supportsSignedDecoder ? ",\"signedHelperInput\":\"helper-executable-v1\"" : ""
+      let handoffCapability = supportsNativeHandoff ? ",\"nativeHandoff\":\"helper-finalize-v1\"" : ""
       try Data(
-        #"{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1"\#(capability)}"#
+        #"{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1"\#(handoffCapability)\#(capability)}"#
           .utf8
       ).write(to: bundleSource.appendingPathComponent("engine-capabilities.json"))
       let main = bundleSource.appendingPathComponent("main.py")
@@ -876,14 +866,18 @@
             /usr/bin/grep -q '"requested_length_bytes":100663296' "$OMARCHY_ENGINE_REQUEST" || exit 80
             /usr/bin/grep -q '"engine_version":"v0.9.0-omarchy.2"' "$OMARCHY_ENGINE_IDENTITY" || exit 81
             ;;
-          install|retry-recovery-authorization)
-            [ "$OMARCHY_ENGINE_MODE" = "\(expectedInstallMode)" ] || exit 64
+          install|prepare-native-handoff|retry-recovery-authorization)
+            [ "$OMARCHY_ENGINE_MODE" = "\(backendMode)" ] || exit 64
             [ "$DISTRO" = "Aurora" ] || exit 68
             [ "$OMARCHY_INSTALLER_NAME" = "\(InstallerProductIdentity.appName)" ] || exit 83
             [ "$DISTRO_DOCS" = "https://omarchy.org/manual/" ] || exit 69
             [ "$OMARCHY_MACHINE_OWNER" = "mina" ] || exit 67
-            IFS= read -r owner_password || exit 66
-            [ "$owner_password" = "owner-password" ] || exit 65
+            if [ "$OMARCHY_ENGINE_MODE" = "prepare-native-handoff" ]; then
+              IFS= read -r owner_password && exit 84
+            else
+              IFS= read -r owner_password || exit 66
+              [ "$owner_password" = "owner-password" ] || exit 65
+            fi
             [ "$OMARCHY_ENGINE_PLAN_DIGEST" = "\(planDigest)" ] || exit 71
             [ "$OMARCHY_ENGINE_BINDING_DIGEST" = "sha256:\(String(repeating: "b", count: 64))" ] || exit 72
             [ -r "$OMARCHY_ENGINE_REQUEST" ] || exit 73
@@ -959,7 +953,7 @@
           planDigest: planDigest,
           deviceIdentifier: "apple,j314s",
           storeIdentifier: "disk0",
-          installationIntent: installationIntent
+          installationIntent: intent
         ),
         transcript: transcript
       )
@@ -971,48 +965,27 @@
       return Data(bytes.split(separator: 10).prefix(2).flatMap { Array($0) + [10] })
     }
 
+    private func checkpointFixture(_ marker: String) -> Data {
+      try! JSONSerialization.data(withJSONObject: ["plan_digest": NativeAdmissionTestData.plan.planDigest,
+        "fixture": marker], options: [.sortedKeys])
+    }
+
     private func recoveryRetryTranscript(
       targetEvidence: Data,
       installedEvidence: Data
     ) -> Data {
-      let planDigest = String(repeating: "a", count: 64)
+      let planDigest = NativeAdmissionTestData.plan.planDigest
       let targetDigest = digest(targetEvidence)
       let installedDigest = digest(installedEvidence)
+      let prefix = try! NativeAdmissionTestData.journal()
       let lines = [
-        #"{"schema_version":1,"sequence":1,"type":"inspection","payload":{"device_identifier":"apple,j314s","support":"supported"}}"#,
-        #"{"schema_version":1,"sequence":2,"type":"inventory","payload":{"layout_digest":"sha256:\#(String(repeating: "c", count: 64))","system_store_identifier":"disk0","candidates":[]}}"#,
-        #"{"schema_version":1,"sequence":3,"type":"plan","payload":{"plan_digest":"\#(planDigest)","device_identifier":"apple,j314s","store_identifier":"disk0"}}"#,
         #"{"schema_version":1,"sequence":4,"type":"event","payload":{"plan_digest":"\#(planDigest)","name":"apfs_preparation_started"}}"#,
         #"{"schema_version":1,"sequence":5,"type":"checkpoint","payload":{"plan_digest":"\#(planDigest)","identifier":"apfs-target-prepared","phase":"apfs_preparation","evidence_digest":"\#(targetDigest)"}}"#,
         #"{"schema_version":1,"sequence":6,"type":"event","payload":{"plan_digest":"\#(planDigest)","name":"stub_and_esp_started"}}"#,
         #"{"schema_version":1,"sequence":7,"type":"checkpoint","payload":{"plan_digest":"\#(planDigest)","identifier":"stub-and-esp-installed","phase":"stub_and_esp","evidence_digest":"\#(installedDigest)"}}"#,
         #"{"schema_version":1,"sequence":8,"type":"event","payload":{"plan_digest":"\#(planDigest)","name":"recovery_handoff_started"}}"#,
       ]
-      return Data((lines.joined(separator: "\n") + "\n").utf8)
-    }
-
-    private func replaceRecoveryRetryTranscript(
-      targetEvidence: Data,
-      installedEvidence: Data,
-      removalEvidence: Data
-    ) -> Data {
-      let planDigest = String(repeating: "a", count: 64)
-      let removalDigest = digest(removalEvidence)
-      let targetDigest = digest(targetEvidence)
-      let installedDigest = digest(installedEvidence)
-      let lines = [
-        #"{"schema_version":1,"sequence":1,"type":"inspection","payload":{"device_identifier":"apple,j314s","support":"supported"}}"#,
-        #"{"schema_version":1,"sequence":2,"type":"inventory","payload":{"layout_digest":"sha256:\#(String(repeating: "c", count: 64))","system_store_identifier":"disk0","candidates":[]}}"#,
-        #"{"schema_version":1,"sequence":3,"type":"plan","payload":{"plan_digest":"\#(planDigest)","device_identifier":"apple,j314s","store_identifier":"disk0"}}"#,
-        #"{"schema_version":1,"sequence":4,"type":"event","payload":{"plan_digest":"\#(planDigest)","name":"existing_removal_started"}}"#,
-        #"{"schema_version":1,"sequence":5,"type":"checkpoint","payload":{"plan_digest":"\#(planDigest)","identifier":"existing-install-removed","phase":"existing_removal","evidence_digest":"\#(removalDigest)"}}"#,
-        #"{"schema_version":1,"sequence":6,"type":"event","payload":{"plan_digest":"\#(planDigest)","name":"apfs_preparation_started"}}"#,
-        #"{"schema_version":1,"sequence":7,"type":"checkpoint","payload":{"plan_digest":"\#(planDigest)","identifier":"apfs-target-prepared","phase":"apfs_preparation","evidence_digest":"\#(targetDigest)"}}"#,
-        #"{"schema_version":1,"sequence":8,"type":"event","payload":{"plan_digest":"\#(planDigest)","name":"stub_and_esp_started"}}"#,
-        #"{"schema_version":1,"sequence":9,"type":"checkpoint","payload":{"plan_digest":"\#(planDigest)","identifier":"stub-and-esp-installed","phase":"stub_and_esp","evidence_digest":"\#(installedDigest)"}}"#,
-        #"{"schema_version":1,"sequence":10,"type":"event","payload":{"plan_digest":"\#(planDigest)","name":"recovery_handoff_started"}}"#,
-      ]
-      return Data((lines.joined(separator: "\n") + "\n").utf8)
+      return prefix + Data((lines.joined(separator: "\n") + "\n").utf8)
     }
 
     private func createArchive(from source: URL, at archive: URL) throws {

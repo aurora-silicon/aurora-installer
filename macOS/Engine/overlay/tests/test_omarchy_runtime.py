@@ -125,6 +125,61 @@ class EngineRuntimeTests(unittest.TestCase):
             adapter,
         )
 
+    def test_native_handoff_mode_preserves_full_preflight_and_only_prepares_disk_stages(self):
+        environment = self._install_environment()
+        environment["OMARCHY_ENGINE_MODE"] = "prepare-native-handoff"
+        runtime = EngineRuntime.from_environment(environment)
+        runtime.inspect("j314sap", True)
+        adapter = Mock()
+        with patch("omarchy_runtime.omarchy_planner.collect_inventory", return_value=self.inventory), \
+             patch("omarchy_runtime.omarchy_execution.admit_execution", return_value=self.plan), \
+             patch("omarchy_runtime.omarchy_asahi.AsahiStage1Adapter", return_value=adapter), \
+             patch("omarchy_runtime.omarchy_stage1.prepare_native_handoff", return_value="native_handoff_ready") as prepare, \
+             patch("omarchy_runtime.omarchy_stage1.run_stage1") as legacy:
+            self.assertEqual(self._run_layout(runtime), "native_handoff_ready")
+        adapter.preflight.assert_called_once_with(self.plan)
+        prepare.assert_called_once_with(self.plan, runtime.journal, adapter)
+        legacy.assert_not_called()
+        self.assertIsNone(runtime.journal.completion_outcome)
+
+    def test_native_handoff_requires_the_complete_helper_environment(self):
+        environment = self._install_environment()
+        environment["OMARCHY_ENGINE_MODE"] = "prepare-native-handoff"
+        del environment["OMARCHY_ENGINE_BINDING_DIGEST"]
+        with self.assertRaisesRegex(EngineRuntimeError, "OMARCHY_ENGINE_BINDING_DIGEST"):
+            EngineRuntime.from_environment(environment)
+
+    def test_native_handoff_keeps_neo_native_firmware_admission_enabled(self):
+        self.plan = self._build_plan(self.inventory, device="apple,j700")
+        environment = self._install_environment()
+        environment["OMARCHY_ENGINE_MODE"] = "prepare-native-handoff"
+        runtime = EngineRuntime.from_environment(environment)
+        runtime.inspect("j700ap", True)
+        adapter = Mock()
+        with patch("omarchy_runtime.omarchy_planner.collect_inventory", return_value=self.inventory), \
+             patch("omarchy_runtime.omarchy_execution.admit_execution", return_value=self.plan), \
+             patch("omarchy_runtime.omarchy_asahi.AsahiStage1Adapter", return_value=adapter) as factory, \
+             patch("omarchy_runtime.omarchy_stage1.prepare_native_handoff", return_value="native_handoff_ready"):
+            self._run_layout(runtime)
+        self.assertIs(factory.call_args.kwargs["require_native_firmware"], True)
+        adapter.preflight.assert_called_once_with(self.plan)
+
+    def test_native_handoff_never_prepares_disks_when_preflight_fails(self):
+        environment = self._install_environment()
+        environment["OMARCHY_ENGINE_MODE"] = "prepare-native-handoff"
+        runtime = EngineRuntime.from_environment(environment)
+        runtime.inspect("j314sap", True)
+        adapter = Mock()
+        adapter.preflight.side_effect = ValueError("preflight refused")
+        with patch("omarchy_runtime.omarchy_planner.collect_inventory", return_value=self.inventory), \
+             patch("omarchy_runtime.omarchy_execution.admit_execution", return_value=self.plan), \
+             patch("omarchy_runtime.omarchy_asahi.AsahiStage1Adapter", return_value=adapter), \
+             patch("omarchy_runtime.omarchy_stage1.prepare_native_handoff") as prepare:
+            with self.assertRaisesRegex(ValueError, "preflight refused"):
+                self._run_layout(runtime)
+        prepare.assert_not_called()
+        self.assertEqual(len(runtime.journal.records), 3)
+
     def test_pre_mutation_resume_admits_against_fresh_safety_bounds(self):
         self._seed_plan(self.journal_path, self.inventory, self.plan)
         self._write_execution_inputs()
@@ -456,16 +511,16 @@ class EngineRuntimeTests(unittest.TestCase):
             part_align=1_048_576,
         )
 
-    def _build_plan(self, inventory):
-        scratch = self.root / "scratch.jsonl"
+    def _build_plan(self, inventory, device="apple,j314s"):
+        scratch = self.root / ("scratch-" + device + ".jsonl")
         journal = Journal(str(scratch))
-        journal.inspection("apple,j314s", "supported")
+        journal.inspection(device, "supported")
         journal.inventory(
             inventory["system_store_identifier"],
             inventory["candidates"],
         )
         digest = journal.plan(
-            device_identifier="apple,j314s",
+            device_identifier=device,
             layout_digest=journal.inventory_payload["layout_digest"],
             candidate_kind="free",
             source_identifier="disk0s3",

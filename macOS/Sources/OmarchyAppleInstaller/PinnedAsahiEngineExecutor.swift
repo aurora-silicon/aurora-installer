@@ -63,6 +63,7 @@
     private let restoreImageRequirement: String?
     private let verifyRestoreImage: @Sendable (URL, String) throws -> Void
     private let firmwarePreparer: any NativeFirmwarePreparing
+    private let nativeHandoff: any NativeRecoveryHandoffExecuting
     private let collectInstallAdmission: @Sendable () throws -> NativeInstallAdmissionFacts
     private let prepareRecoveryTemplate:
       @Sendable (ImportedEngineHandoffPackage) throws -> PreparedNativeRecoveryTemplate
@@ -77,6 +78,7 @@
       expectedFileOwnerID = { geteuid() }
       extractionOptions = []
       firmwarePreparer = NativeFirmwarePreparer()
+      nativeHandoff = NativeRecoveryHandoffExecutor()
       collectInstallAdmission = { try NativeInstallAdmissionFacts.live() }
       prepareRecoveryTemplate = { try NativeRecoveryTemplate.prepare(package: $0) }
     }
@@ -90,6 +92,7 @@
         try RestoreImageHelper.verify($0, requirement: $1)
       },
       firmwarePreparer: any NativeFirmwarePreparing = NativeFirmwarePreparer(),
+      nativeHandoff: any NativeRecoveryHandoffExecuting = NativeRecoveryHandoffExecutor(),
       collectInstallAdmission: @escaping @Sendable () throws -> NativeInstallAdmissionFacts = {
         try NativeInstallAdmissionFacts.live()
       },
@@ -103,6 +106,7 @@
       self.verifyRestoreImage = verifyRestoreImage
       self.extractionOptions = extractionOptions
       self.firmwarePreparer = firmwarePreparer
+      self.nativeHandoff = nativeHandoff
       self.collectInstallAdmission = collectInstallAdmission
       self.prepareRecoveryTemplate = prepareRecoveryTemplate
     }
@@ -116,6 +120,17 @@
         throw PinnedAsahiEngineExecutionError.privilegeRequired
       }
       let journal = try preparePersistentJournal(for: package)
+      let recovery: PreparedNativeRecoveryTemplate
+      do { recovery = try prepareRecoveryTemplate(package) } catch {
+        throw preparationFailure(
+          error, reason: .recoveryPreparation, operation: operation,
+          journal: journal, package: package, password: authorization.password)
+      }
+      defer { recovery.remove() }
+      if operation == .retryRecoveryAuthorization, package.installationIntent != .repair {
+        return try await finalizeNativeHandoff(package, journal: journal, authorization: authorization,
+          requirement: recovery.requirement, fullReadback: true)
+      }
       do {
         guard let restoreImageRequirement, let restoreImage = package.restoreImageURL else {
           throw PinnedAsahiEngineExecutionError.restoreImageUnavailable
@@ -126,16 +141,12 @@
           error, reason: .recoveryPreparation, operation: operation,
           journal: journal, package: package, password: authorization.password)
       }
-      let recovery: PreparedNativeRecoveryTemplate
-      do { recovery = try prepareRecoveryTemplate(package) } catch {
-        throw preparationFailure(
-          error, reason: .recoveryPreparation, operation: operation,
-          journal: journal, package: package, password: authorization.password)
-      }
-      defer { recovery.remove() }
+      let nativeFinalization = package.installationIntent != .repair
+      let hadDiskWrites = !journalProvesNoMutation(journal, identity: RecoveryRetryIdentity(package: package))
       var environment = installEnvironment(
         package: package, authorization: authorization, operation: operation)
       environment.merge(recovery.environment) { _, new in new }
+      if nativeFinalization { environment["OMARCHY_ENGINE_MODE"] = "prepare-native-handoff" }
       environment[RestoreImageHelper.pathEnvironmentVariable] = package.restoreImageURL!.path
       environment[RestoreImageHelper.requirementEnvironmentVariable] = restoreImageRequirement!
       if operation == .install {
@@ -160,12 +171,12 @@
         }
       }
       do {
-        return try run(
+        let result = try run(
           archive: package.engineURL,
           executionParent: package.packageURL.deletingLastPathComponent(),
           journal: journal,
           additionalEnvironment: environment,
-          standardInput: authorization.password + Data([10]),
+          standardInput: nativeFinalization ? nil : authorization.password + Data([10]),
           secrets: [authorization.password],
           retryIdentity: RecoveryRetryIdentity(package: package),
           beforeLaunch: {
@@ -191,6 +202,11 @@
             }
           }
         )
+        if nativeFinalization {
+          return try await finalizeNativeHandoff(package, journal: journal, authorization: authorization,
+            requirement: recovery.requirement, fullReadback: hadDiskWrites)
+        }
+        return result
       } catch PinnedAsahiEngineExecutionError.restoreImageUnsupported {
         throw preparationFailure(
           PinnedAsahiEngineExecutionError.restoreImageUnsupported,
@@ -201,6 +217,21 @@
           PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported,
           reason: .recoveryPreparation, operation: operation,
           journal: journal, package: package, password: authorization.password)
+      }
+    }
+
+    private func finalizeNativeHandoff(_ package: ImportedEngineHandoffPackage, journal: URL,
+      authorization: MachineOwnerAuthorization, requirement: String, fullReadback: Bool) async throws -> Data {
+      do {
+        return try await nativeHandoff.execute(package: package, journal: journal,
+          authorization: authorization, requirement: requirement, fullReadback: fullReadback)
+      } catch let error as PinnedAsahiEngineExecutionError { throw error }
+      catch {
+        throw PinnedAsahiEngineExecutionError.engineFailed(EngineFailureReport(
+          notice: EngineFailureNotice(reason: .recoveryPreparation, exitStatus: 1,
+            diskUnchanged: false, summary: "Native Recovery handoff did not complete."),
+          redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
+            Data(String(describing: error).utf8), truncated: false, secrets: [authorization.password])))
       }
     }
 
@@ -339,6 +370,8 @@
               as? [String: Any],
             values["schema"] as? Int == 1,
             values["nativeRecoveryInput"] as? String == "helper-template-v1",
+            additionalEnvironment["OMARCHY_ENGINE_MODE"] != "prepare-native-handoff"
+              || values["nativeHandoff"] as? String == "helper-finalize-v1",
             additionalEnvironment["OMARCHY_NATIVE_FIRMWARE_ROOT"] == nil
               || values["nativeFirmwareInput"] as? String == "helper-raw-v1"
           else { throw PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported }
@@ -512,28 +545,14 @@
       guard let transcript = try? readTranscript(journal) else {
         return false
       }
-      var evidence = [String: Data]()
-      for identifier in [
-        "apfs-target-prepared",
-        "stub-and-esp-installed",
-      ] {
-        guard
-          let value = try? readCheckpointEvidence(
-            journal: journal,
-            identifier: identifier
-          )
-        else {
-          return false
-        }
-        evidence[identifier] = value
-      }
-      return RecoveryAuthorizationRetryCheckpoint.isEligible(
-        transcript: transcript,
-        planDigest: identity.planDigest,
-        deviceIdentifier: identity.deviceIdentifier,
-        storeIdentifier: identity.storeIdentifier,
-        checkpointEvidence: evidence
-      )
+      guard let validated = try? AppleInstallerTrustCore().validateEngineTranscript(transcript),
+        let plan = validated.plan, ["free", "resize", "replace"].contains(plan.candidateKind),
+        let snapshot = try? NativeRecoveryJournalSnapshot.decode(transcript,
+          planDigest: identity.planDigest, deviceIdentifier: identity.deviceIdentifier,
+          storeIdentifier: identity.storeIdentifier,
+          intent: plan.candidateKind == "replace" ? .replace : .fresh,
+          evidence: { try readCheckpointEvidence(journal: journal, identifier: $0) }) else { return false }
+      return snapshot.state == .ready || snapshot.state == .started || snapshot.state == .prepared
     }
 
     private func readCheckpointEvidence(
@@ -907,7 +926,7 @@
     private func readTranscript(_ journal: URL) throws -> Data {
       let descriptor = Darwin.open(
         journal.path,
-        O_RDONLY | O_CLOEXEC | O_NOFOLLOW
+        O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
       )
       guard descriptor >= 0 else {
         throw PinnedAsahiEngineExecutionError.unsafeTranscript
@@ -918,6 +937,7 @@
       guard fstat(descriptor, &status) == 0,
         (status.st_mode & S_IFMT) == S_IFREG,
         status.st_mode & 0o077 == 0,
+        status.st_uid == expectedFileOwnerID(),
         status.st_size > 0,
         status.st_size <= Self.maximumTranscriptBytes
       else {

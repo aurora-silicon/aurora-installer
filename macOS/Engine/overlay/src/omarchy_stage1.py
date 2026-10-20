@@ -67,6 +67,15 @@ def stages_for(plan):
 
 def run_stage1(plan, journal, adapter):
     """Run each mutation once, or return an already completed outcome."""
+    return _run_stage1(plan, journal, adapter, native_handoff=False)
+
+
+def prepare_native_handoff(plan, journal, adapter):
+    """Keep full disk preparation, leaving startup authorization to the helper."""
+    return _run_stage1(plan, journal, adapter, native_handoff=True)
+
+
+def _run_stage1(plan, journal, adapter, *, native_handoff):
     completed = validate_stage1_resume(plan, journal)
     if completed is not None:
         return completed
@@ -81,7 +90,8 @@ def run_stage1(plan, journal, adapter):
     # explicit mode, so the standard umask is right for everything else.
     os.umask(0o022)
 
-    for stage in stages_for(plan):
+    stages = stages_for(plan)
+    for stage in (stages[:-1] if native_handoff else stages):
         if stage.checkpoint_identifier in journal.checkpoints:
             continue
 
@@ -103,6 +113,11 @@ def run_stage1(plan, journal, adapter):
             stage.checkpoint_phase,
             evidence,
         )
+
+    if native_handoff:
+        # This is an intermediate result, never an installation completion.
+        # The helper records its intent before changing startup selection.
+        return "native_handoff_ready"
 
     _require_all_checkpoints(plan, journal)
     journal.completion("awaiting_recovery")

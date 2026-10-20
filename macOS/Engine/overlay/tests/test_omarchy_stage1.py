@@ -16,6 +16,7 @@ from omarchy_stage1 import (  # noqa: E402
     AmbiguousMutationState,
     Stage1Error,
     retry_recovery_authorization,
+    prepare_native_handoff,
     run_stage1,
     validate_stage1_resume,
 )
@@ -85,6 +86,39 @@ class Stage1CoordinatorTests(unittest.TestCase):
             self.journal.completion_outcome,
             "awaiting_recovery",
         )
+
+    def test_native_preparation_stops_after_both_disk_checkpoints_without_authorization(self):
+        adapter = RecordingStage1Adapter()
+        self.assertEqual(prepare_native_handoff(self.plan, self.journal, adapter), "native_handoff_ready")
+        self.assertEqual(adapter.calls, ["prepare_target", "install_stub_and_esp"])
+        self.assertIsNone(self.journal.completion_outcome)
+        self.assertNotIn("recovery_handoff_started", self.journal.events)
+        self.assertEqual(len(self.journal.records), 7)
+        resumed = Journal(str(self.path))
+        retry = RecordingStage1Adapter()
+        self.assertEqual(prepare_native_handoff(self.plan, resumed, retry), "native_handoff_ready")
+        self.assertEqual(retry.calls, [])
+        self.assertEqual(len(resumed.records), 7)
+
+    def test_native_preparation_keeps_ambiguous_disk_intents_fail_closed(self):
+        with self.assertRaises(RuntimeError):
+            prepare_native_handoff(self.plan, self.journal,
+                                   RecordingStage1Adapter(failure="install_stub_and_esp"))
+        retry = RecordingStage1Adapter()
+        with self.assertRaises(AmbiguousMutationState):
+            prepare_native_handoff(self.plan, Journal(str(self.path)), retry)
+        self.assertEqual(retry.calls, [])
+
+    def test_native_preparation_preserves_pending_or_prepared_handoff_for_the_helper(self):
+        prepare_native_handoff(self.plan, self.journal, RecordingStage1Adapter())
+        self.journal.event("recovery_handoff_started")
+        for prepared in (False, True):
+            if prepared:
+                self.journal.checkpoint("recovery-handoff-prepared", "awaiting_recovery", b"evidence")
+            adapter = RecordingStage1Adapter()
+            self.assertEqual(prepare_native_handoff(self.plan, self.journal, adapter), "native_handoff_ready")
+            self.assertEqual(adapter.calls, [])
+            self.assertIsNone(self.journal.completion_outcome)
 
     def test_completed_stage1_retry_performs_no_mutation(self):
         first = RecordingStage1Adapter()
