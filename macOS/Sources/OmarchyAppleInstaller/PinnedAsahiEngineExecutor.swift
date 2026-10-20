@@ -314,6 +314,12 @@
             : try installationFinisher.preflight(
               package: package, stub: preparedStubFiles?.firmwarePlan,
               peripherals: preparedPeripherals)
+          if operation == .install, installationFinisher.requiresNativePath {
+            guard package.installationIntent == .fresh,
+              preparedAPFS != nil, preparedStubFiles != nil, preparedOSPartitions != nil,
+              preparedPayloadImages != nil, preparedESPFiles != nil, preparedFinishing != nil
+            else { throw NativeHandoffValidationError.invalidTarget }
+          }
           if resumesNativePreparation {
             guard preparedAPFS != nil, preparedStubFiles != nil, preparedOSPartitions != nil,
               preparedPayloadImages != nil, preparedESPFiles != nil
