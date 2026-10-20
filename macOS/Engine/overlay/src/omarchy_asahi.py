@@ -1202,6 +1202,15 @@ class OmarchyOSInstaller(osinstall.OSInstaller):
         return super().extract_tree(source, destination)
 
     def install_raw_image(self, image, info):
+        native = getattr(self, "native_image_receipts", None)
+        if native is not None:
+            receipt = native[image]
+            if (receipt["partition_uuid"] != info.uuid.lower()
+                    or receipt["partition_size_bytes"] != info.size
+                    or receipt["installed_bytes"] != self.pkg.getinfo(image).file_size):
+                raise AsahiAdapterError("native image target changed")
+            self.image_receipts[image] = dict(receipt, partition_identifier=info.name)
+            return
         self.image_receipts[image] = write_image(
             self.pkg, image, info,
             opener=self.image_opener, flush=self.image_flush,
@@ -1234,6 +1243,7 @@ class AsahiStage1Adapter:
         native_volume_evidence=None,
         native_file_evidence=None,
         native_partition_evidence=None,
+        native_image_evidence=None,
         expected_native_bootstrap=None,
     ):
         self.installer = installer
@@ -1261,6 +1271,7 @@ class AsahiStage1Adapter:
         self.native_volume_evidence = native_volume_evidence
         self.native_file_evidence = native_file_evidence
         self.native_partition_evidence = native_partition_evidence
+        self.native_image_evidence = native_image_evidence
         self.expected_native_bootstrap = expected_native_bootstrap
         self.prepared_native_peripherals = None
         self.native_camera_setfiles = None
@@ -1586,6 +1597,8 @@ class AsahiStage1Adapter:
             self.osins.partition_disk(self.target_part.name, os_size)
         else:
             self._consume_native_partitions(plan, os_size)
+        if self.native_image_evidence is not None:
+            self._consume_native_images()
 
         firmware_package = None
         if self.osins.needs_firmware:
@@ -1631,6 +1644,33 @@ class AsahiStage1Adapter:
                 os.path.join(target, "installer.log"),
             )
         return self._installed_evidence(plan)
+
+    def _consume_native_images(self):
+        try:
+            if (self.native_partition_evidence is None
+                    or set(self.native_image_evidence) != {"boot.img", "root.img"}):
+                raise ValueError("native image partition binding missing")
+            receipts = {}
+            for template, info in zip(self.template["partitions"], self.osins.part_info, strict=True):
+                image = template.get("image")
+                if not image:
+                    continue
+                receipt = json.loads(self.native_image_evidence[image])
+                if (not isinstance(receipt, dict) or set(receipt) != {
+                        "partition_identifier", "partition_uuid", "partition_size_bytes", "installed_bytes",
+                        "content_sha256", "verification"}
+                        or receipt["partition_uuid"] != info.uuid.lower()
+                        or receipt["partition_size_bytes"] != info.size
+                        or receipt["installed_bytes"] != self.osins.pkg.getinfo(image).file_size
+                        or receipt["verification"] != WRITE_VERIFICATION
+                        or re.fullmatch(r"[0-9a-f]{64}", receipt["content_sha256"]) is None):
+                    raise ValueError("native image identity changed")
+                receipts[image] = receipt
+            if set(receipts) != {"boot.img", "root.img"}:
+                raise ValueError("native images incomplete")
+            self.osins.native_image_receipts = receipts
+        except (ValueError, KeyError, TypeError, AttributeError) as error:
+            raise AsahiAdapterError("native payload images could not be verified") from error
 
     def _consume_native_partitions(self, plan, os_size):
         """Adopt only the exact helper-created layout; never partition twice."""

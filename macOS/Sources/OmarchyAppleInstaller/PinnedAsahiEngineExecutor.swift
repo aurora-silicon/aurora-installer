@@ -67,6 +67,7 @@
     private let apfsPreparer: any NativeAPFSPreparing
     private let stubFilesPreparer: any NativeStubFilesPreparing
     private let osPartitionsPreparer: any NativeOSPartitionsPreparing
+    private let payloadImagesPreparer: any NativePayloadImagesPreparing
     private let nativeHandoff: any NativeRecoveryHandoffExecuting
     private let collectInstallAdmission: @Sendable () throws -> NativeInstallAdmissionFacts
     private let validatePayload: @Sendable (ImportedEngineHandoffPackage) async throws -> Void
@@ -90,6 +91,7 @@
       apfsPreparer = NativeAPFSPreparer()
       stubFilesPreparer = NativeStubFilesPreparer()
       osPartitionsPreparer = NativeOSPartitionsPreparer()
+      payloadImagesPreparer = NativePayloadImagesPreparer()
       nativeHandoff = NativeRecoveryHandoffExecutor()
       collectInstallAdmission = { try NativeInstallAdmissionFacts.live() }
       validatePayload = { try await NativePayloadPreflight.check($0) }
@@ -112,6 +114,7 @@
       apfsPreparer: any NativeAPFSPreparing = NativeAPFSPreparer(),
       stubFilesPreparer: any NativeStubFilesPreparing = NativeStubFilesPreparer(),
       osPartitionsPreparer: any NativeOSPartitionsPreparing = NativeOSPartitionsPreparer(),
+      payloadImagesPreparer: any NativePayloadImagesPreparing = NativePayloadImagesPreparer(),
       nativeHandoff: any NativeRecoveryHandoffExecuting = NativeRecoveryHandoffExecutor(),
       collectInstallAdmission: @escaping @Sendable () throws -> NativeInstallAdmissionFacts = {
         try NativeInstallAdmissionFacts.live()
@@ -139,6 +142,7 @@
       self.apfsPreparer = apfsPreparer
       self.stubFilesPreparer = stubFilesPreparer
       self.osPartitionsPreparer = osPartitionsPreparer
+      self.payloadImagesPreparer = payloadImagesPreparer
       self.nativeHandoff = nativeHandoff
       self.collectInstallAdmission = collectInstallAdmission
       self.validatePayload = validatePayload
@@ -239,6 +243,7 @@
       let preparedAPFS: (any NativeAPFSExecuting)?
       let preparedStubFiles: (any NativeStubFilesExecuting)?
       let preparedOSPartitions: (any NativeOSPartitionsExecuting)?
+      let preparedPayloadImages: (any NativePayloadImagesExecuting)?
       do {
         preparedAPFS =
           operation == .install && nativeFinalization
@@ -247,6 +252,8 @@
           preparedAPFS == nil ? nil : try await stubFilesPreparer.preflight(package)
         preparedOSPartitions =
           preparedStubFiles == nil ? nil : try osPartitionsPreparer.preflight(package)
+        preparedPayloadImages = preparedOSPartitions == nil ? nil : try await payloadImagesPreparer.preflight(package)
+        if preparedPayloadImages != nil { environment["OMARCHY_NATIVE_PAYLOAD_IMAGES"] = "helper-images-v1" }
         if preparedStubFiles != nil { environment["OMARCHY_NATIVE_STUB_FILES"] = "helper-files-v1" }
         if preparedOSPartitions != nil {
           environment["OMARCHY_NATIVE_OS_PARTITIONS"] = "helper-partitions-v1"
@@ -288,6 +295,8 @@
                   sourceBootstrap: sourceBootstrap)
                 try preparedOSPartitions?.prepare(
                   journal: journal, authorization: authorization,
+                  sourceBootstrap: sourceBootstrap)
+                try await preparedPayloadImages?.prepare(journal: journal, authorization: authorization,
                   sourceBootstrap: sourceBootstrap)
               } else {
                 let bytes = try self.readAdmissionJournal(journal)
@@ -507,7 +516,9 @@
             additionalEnvironment["OMARCHY_NATIVE_STUB_FILES"] == nil
               || values["nativeStubFiles"] as? String == "helper-files-v1",
             additionalEnvironment["OMARCHY_NATIVE_OS_PARTITIONS"] == nil
-              || values["nativeOSPartitions"] as? String == "helper-partitions-v1"
+              || values["nativeOSPartitions"] as? String == "helper-partitions-v1",
+            additionalEnvironment["OMARCHY_NATIVE_PAYLOAD_IMAGES"] == nil
+              || values["nativePayloadImages"] as? String == "helper-images-v1"
           else { throw PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported }
         } catch {
           throw PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported

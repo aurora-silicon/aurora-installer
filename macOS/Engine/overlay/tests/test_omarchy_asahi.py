@@ -1036,6 +1036,46 @@ class AsahiStage1AdapterTests(unittest.TestCase):
                 with self.assertRaisesRegex(AsahiAdapterError, "native OS partitions"):
                     adapter._consume_native_partitions(self.plan, size)
 
+    def _native_image_adapter(self):
+        adapter, partitions, size = self._native_partition_adapter()
+        adapter._consume_native_partitions(self.plan, size)
+        adapter.template["partitions"][1]["image"] = "boot.img"
+        adapter.template["partitions"][2]["image"] = "root.img"
+        receipts = {}
+        for image, info in zip(("boot.img", "root.img"), adapter.osins.part_info[1:], strict=True):
+            receipts[image] = dict(partition_identifier=info.name, partition_uuid=info.uuid.lower(),
+                partition_size_bytes=info.size, installed_bytes=adapter.osins.pkg.getinfo(image).file_size,
+                content_sha256=hashlib.sha256(adapter.osins.pkg.read(image)).hexdigest(),
+                verification="source-sha256-write-flushed-v1")
+        adapter.native_image_evidence = {name: json.dumps(value).encode() for name, value in receipts.items()}
+        return adapter, receipts
+
+    def test_native_image_receipts_skip_all_python_raw_writes(self):
+        adapter, receipts = self._native_image_adapter()
+        adapter._consume_native_images()
+        with patch("omarchy_asahi.write_image", side_effect=AssertionError("raw image rewritten")) as write:
+            for image, info in zip(("boot.img", "root.img"), adapter.osins.part_info[1:], strict=True):
+                adapter.osins.install_raw_image(image, info)
+        write.assert_not_called()
+        self.assertEqual(adapter.osins.image_receipts, receipts)
+
+    def test_native_image_receipts_refuse_changed_identity_or_missing_completion(self):
+        for fault in ("uuid", "size", "length", "hash", "verification", "missing", "partition"):
+            with self.subTest(fault=fault):
+                adapter, receipts = self._native_image_adapter()
+                receipt = receipts["root.img"]
+                if fault == "uuid": receipt["partition_uuid"] = "changed"
+                elif fault == "size": receipt["partition_size_bytes"] -= 4096
+                elif fault == "length": receipt["installed_bytes"] -= 4096
+                elif fault == "hash": receipt["content_sha256"] = "changed"
+                elif fault == "verification": receipt["verification"] = "changed"
+                elif fault == "missing": del receipts["root.img"]
+                elif fault == "partition": adapter.native_partition_evidence = None
+                adapter.native_image_evidence = {name: json.dumps(value).encode() for name, value in receipts.items()}
+                with self.assertRaisesRegex(AsahiAdapterError, "native payload images"):
+                    adapter._consume_native_images()
+                self.assertIsNone(getattr(adapter.osins, "native_image_receipts", None))
+
     def test_native_files_are_verified_and_skip_python_population_before_partitioning(self):
         with tempfile.TemporaryDirectory() as root:
             adapter, receipt = self._native_files_adapter(root)
