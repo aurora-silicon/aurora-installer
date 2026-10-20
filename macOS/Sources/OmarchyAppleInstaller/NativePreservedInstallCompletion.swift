@@ -21,8 +21,10 @@
       boot: NativeRawImageReceipt, root: NativeRawImageReceipt,
       espFiles: [NativePreservedESPEntryReceipt], espDigest: String,
       installedStage1: NativeStubFileIdentity,
-      authorization: MachineOwnerAuthorization, bootstrap: NativeSourceBootstrap
+      authorization: MachineOwnerAuthorization, bootstrap: NativeSourceBootstrap,
+      installConf: InstallConf
     ) throws -> Data {
+      try journal.requireInstallConf(installConf)
       let saved = try journal.snapshot()
       let target = prepared.target
       let baseline = prepared.diskSnapshot
@@ -40,10 +42,15 @@
         root.partitionUUID == target.root.uuid.lowercased(),
         boot.partitionSizeBytes == target.boot.size,
         root.partitionSizeBytes == target.root.size,
-        espFiles.count == prepared.esp.entries.count,
-        zip(espFiles, prepared.esp.entries).allSatisfy({ pair in
+        espFiles.count == prepared.esp.entries.count + 1,
+        zip(espFiles.prefix(prepared.esp.entries.count), prepared.esp.entries).allSatisfy({ pair in
           pair.0.member == pair.1.member.name && pair.0.path == pair.1.path
         }),
+        espFiles.last?.member == "owner-install-conf",
+        espFiles.last?.path == InstallConf.relativePath,
+        espFiles.last?.installed == NativeStubFileIdentity(
+          bytes: installConf.serializedData.count,
+          sha256: NativeStubFileStore.hash(installConf.serializedData)),
         espDigest == calculatedESPDigest
       else { throw NativePreservedInstallError.changedLayout }
       try platform.disks.verifySourceOwner(package, authorization, bootstrap)

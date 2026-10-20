@@ -6,7 +6,7 @@
   protocol NativePreservedReinstallExecuting: Sendable {
     func execute(
       _ package: ImportedEngineHandoffPackage, journal: URL,
-      authorization: MachineOwnerAuthorization
+      authorization: MachineOwnerAuthorization, installConf: InstallConf
     ) async throws -> Data
   }
 
@@ -32,7 +32,7 @@
 
     func execute(
       _ package: ImportedEngineHandoffPackage, journal journalURL: URL,
-      authorization: MachineOwnerAuthorization
+      authorization: MachineOwnerAuthorization, installConf: InstallConf
     ) async throws -> Data {
       guard package.installationIntent == .reinstall else {
         throw NativePreservedInstallError.unavailable
@@ -100,6 +100,7 @@
         installedStage1: installedStage1, legacyStage1: legacy)
       let nativeJournal = try NativePreservedInstallJournal(
         url: journalURL, package: package, transcript: prepared.transcript, owner: owner)
+      try nativeJournal.bindInstallConf(installConf)
       let state = try nativeJournal.snapshot()
       let currentStage1 = try stage1Identity()
       guard currentStage1 == prepared.stage1 else { throw NativeBootChainError.invalidStage1 }
@@ -126,13 +127,15 @@
         let published = try await espWriter.prepare(
           journal: nativeJournal, espRoot: espURL, boot: images.boot, root: images.root,
           installedStage1: try stage1Identity(),
-          authorization: authorization, bootstrap: bootstrap)
+          authorization: authorization, bootstrap: bootstrap,
+          installConf: installConf)
         espFiles = published.files
         espDigest = published.digest
       } else {
         guard let receipt = state.receipt else { throw NativeRecoveryJournalError.invalidState }
-        espFiles = try prepared.esp.entries.map { entry in
-          guard let saved = try nativeJournal.espReceipt(entry.path) else {
+        let paths = prepared.esp.entries.map(\.path) + [InstallConf.relativePath]
+        espFiles = try paths.map { path in
+          guard let saved = try nativeJournal.espReceipt(path) else {
             throw NativeRecoveryJournalError.evidenceChanged
           }
           return saved
@@ -153,7 +156,8 @@
         boot: images.boot, root: images.root,
         espFiles: espFiles, espDigest: espDigest,
         installedStage1: try stage1Identity(),
-        authorization: authorization, bootstrap: bootstrap)
+        authorization: authorization, bootstrap: bootstrap,
+        installConf: installConf)
     }
   }
 #endif

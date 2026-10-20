@@ -59,6 +59,11 @@
           metadata: metadata, archive: archive, device: approved.deviceIdentifier,
           firmware: firmwareVersion, legacyStage1: legacyStage1)
       else { throw NativePreservedInstallError.unavailable }
+      let configurationPath = InstallConf.relativePath.precomposedStringWithCanonicalMapping
+        .lowercased()
+      guard !esp.entries.contains(where: {
+        $0.path.precomposedStringWithCanonicalMapping.lowercased() == configurationPath
+      }) else { throw NativeHandoffValidationError.unsafePath }
       let stage1 = try esp.admitPreservedStage1(installedStage1, espUUID: target.esp.uuid)
 
       let inspection = try AppleInstallerTrustCore().validateEngineTranscript(

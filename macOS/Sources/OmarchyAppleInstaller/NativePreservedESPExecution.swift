@@ -18,8 +18,10 @@
       journal: NativePreservedInstallJournal, espRoot: URL,
       boot: NativeRawImageReceipt, root: NativeRawImageReceipt,
       installedStage1: NativeStubFileIdentity,
-      authorization: MachineOwnerAuthorization, bootstrap: NativeSourceBootstrap
+      authorization: MachineOwnerAuthorization, bootstrap: NativeSourceBootstrap,
+      installConf: InstallConf
     ) async throws -> (files: [NativePreservedESPEntryReceipt], digest: String) {
+      try journal.requireInstallConf(installConf)
       let state = try journal.snapshot()
       let target = prepared.target
       let baseline = prepared.diskSnapshot
@@ -119,7 +121,74 @@
         receipts.append(receipt)
       }
       try verify()
+      try disks.verifySourceOwner(package, authorization, bootstrap)
+      receipts.append(
+        try await recordConfiguration(
+          installConf, journal: journal, store: store))
+      try verify()
       return (receipts, Self.digest(receipts, approved: approved, target: target))
+    }
+
+    private func recordConfiguration(
+      _ configuration: InstallConf, journal: NativePreservedInstallJournal,
+      store: NativeESPFileStore
+    ) async throws -> NativePreservedESPEntryReceipt {
+      let path = InstallConf.relativePath
+      let member = "owner-install-conf"
+      let bytes = configuration.serializedData
+      let installed = NativeStubFileIdentity(
+        bytes: bytes.count, sha256: NativeStubFileStore.hash(bytes))
+      let baseline: NativePreservedESPBaseline
+      if let existing = try journal.espBaseline(path) {
+        guard existing.member == member, existing.installed == installed else {
+          throw NativeRecoveryJournalError.evidenceChanged
+        }
+        baseline = existing
+      } else {
+        let previous: NativeStubFileIdentity?
+        if try store.tree.isAbsent(path) {
+          previous = nil
+        } else {
+          previous = try store.identity(path, maximum: 65_536)
+        }
+        baseline = NativePreservedESPBaseline(
+          member: member, path: path, previous: previous, installed: installed)
+        try journal.recordESPBaseline(baseline)
+      }
+      if let receipt = try journal.espReceipt(path) {
+        guard receipt.member == member, receipt.installed == installed,
+          try store.identity(path, maximum: bytes.count) == installed
+        else { throw NativeHandoffValidationError.changedContent }
+        if let backup = receipt.backup {
+          guard
+            try store.identity(backup.backupPath, maximum: backup.previous.bytes)
+              == backup.previous
+          else { throw NativeHandoffValidationError.changedContent }
+        } else {
+          guard try store.tree.isAbsent(store.replacementPaths(path).backup) else {
+            throw NativeHandoffValidationError.changedContent
+          }
+        }
+        return receipt
+      }
+      let backup: NativeESPFileStore.ReplacementReceipt?
+      if let previous = baseline.previous, previous != installed {
+        backup = try await store.replaceData(bytes, replacing: previous, at: path)
+      } else if baseline.previous == installed {
+        guard try store.tree.isAbsent(store.replacementPaths(path).backup),
+          try store.identity(path, maximum: bytes.count) == installed
+        else { throw NativeHandoffValidationError.changedContent }
+        backup = nil
+      } else {
+        guard try store.tree.isAbsent(store.replacementPaths(path).backup),
+          try await store.data(bytes, at: path) == installed
+        else { throw NativeHandoffValidationError.changedContent }
+        backup = nil
+      }
+      let receipt = NativePreservedESPEntryReceipt(
+        member: member, path: path, installed: installed, backup: backup)
+      try journal.recordESP(receipt)
+      return receipt
     }
 
     static func digest(

@@ -79,11 +79,21 @@
       _ bytes: Data, package: ImportedEngineHandoffPackage,
       evidence: (String) throws -> Data
     ) throws -> Self {
+      guard package.installationIntent == .reinstall else {
+        throw NativeRecoveryJournalError.invalidState
+      }
+      return try decode(
+        bytes, identity: InstallerJobPlanIdentity(package: package), evidence: evidence)
+    }
+
+    static func decode(
+      _ bytes: Data, identity: InstallerJobPlanIdentity,
+      evidence: (String) throws -> Data
+    ) throws -> Self {
       let records = try EngineTranscriptDecoder().decode(bytes)
       let validated = try AppleInstallerTrustCore().validateEngineTranscript(bytes)
-      guard package.installationIntent == .reinstall,
-        validated.support == .supported,
-        validated.deviceIdentifier == package.deviceIdentifier,
+      guard validated.support == .supported,
+        validated.deviceIdentifier == identity.deviceIdentifier,
         let plan = validated.plan, plan.candidateKind == "reinstall",
         let inventory = validated.inventory,
         inventory.candidates.filter({
@@ -92,8 +102,8 @@
         let targetIdentity = inventory.candidates.first(where: {
           $0.kind == "reinstall" && $0.sourceIdentifier == plan.sourceIdentifier
         })?.identityDigest,
-        plan.planDigest == package.planDigest,
-        plan.storeIdentifier == package.storeIdentifier,
+        plan.planDigest == identity.planDigest,
+        plan.storeIdentifier == identity.storeIdentifier,
         plan.requiredHumanSteps == ["authenticateMachineOwner"],
         (3...6).contains(records.count)
       else { throw NativeRecoveryJournalError.invalidState }
@@ -156,6 +166,31 @@
 
     func snapshot() throws -> NativePreservedInstallJournalSnapshot {
       try file.transaction { try current() }
+    }
+
+    /// Bind the owner-selected first-boot configuration before any target
+    /// write. An interrupted attempt may resume only with the same choice.
+    func bindInstallConf(_ configuration: InstallConf) throws {
+      try file.transaction {
+        let state = try current().state
+        let bytes = configuration.serializedData
+        if try file.containsEvidence("preserved-install-conf") {
+          guard try file.readEvidence("preserved-install-conf") == bytes else {
+            throw NativeRecoveryJournalError.evidenceChanged
+          }
+        } else {
+          guard state == .ready else { throw NativeRecoveryJournalError.invalidState }
+          try file.publishEvidence(bytes, identifier: "preserved-install-conf")
+        }
+      }
+    }
+
+    func requireInstallConf(_ configuration: InstallConf) throws {
+      try file.transaction {
+        _ = try current()
+        guard try file.readEvidence("preserved-install-conf") == configuration.serializedData
+        else { throw NativeRecoveryJournalError.evidenceChanged }
+      }
     }
 
     func begin() throws {

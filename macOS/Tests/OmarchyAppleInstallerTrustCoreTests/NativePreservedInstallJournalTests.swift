@@ -99,10 +99,13 @@
         deviceIdentifier: plan.deviceIdentifier, storeIdentifier: plan.storeIdentifier,
         installationIntent: .reinstall)
       let completed = receipt(plan)
+      let configuration = try InstallConf(encrypt: false, lane: "edge")
       do {
         let journal = try NativePreservedInstallJournal(
           url: journalURL, package: package, transcript: transcript, owner: geteuid())
         XCTAssertEqual(try journal.snapshot().state, .ready)
+        try journal.bindInstallConf(configuration)
+        try journal.requireInstallConf(configuration)
         try journal.begin()
         try journal.begin()
         XCTAssertEqual(try journal.snapshot().state, .started)
@@ -114,12 +117,26 @@
         XCTAssertEqual(try journal.snapshot().state, .complete)
         XCTAssertEqual(try journal.snapshot().receipt, .some(completed))
       }
-      let reopened = try NativePreservedInstallJournal(
-        url: journalURL, package: package, transcript: transcript, owner: geteuid())
-      XCTAssertEqual(try reopened.snapshot().state, .complete)
+      let executor = PinnedAsahiEngineExecutor(
+        effectiveUserID: { geteuid() }, expectedFileOwnerID: { geteuid() })
+      let identity = InstallerJobPlanIdentity(package: package)
+      XCTAssertTrue(executor.canRetryRecoveryAuthorization(identity, in: root))
+      XCTAssertTrue(executor.canResumeInterruptedRecoveryAuthorization(identity, in: root))
+      do {
+        let reopened = try NativePreservedInstallJournal(
+          url: journalURL, package: package, transcript: transcript, owner: geteuid())
+        XCTAssertEqual(try reopened.snapshot().state, .complete)
+        try reopened.bindInstallConf(configuration)
+        XCTAssertThrowsError(
+          try reopened.bindInstallConf(InstallConf(encrypt: true, lane: "edge")))
+        XCTAssertFalse(executor.canRetryRecoveryAuthorization(identity, in: root))
+      }
       let evidence = URL(fileURLWithPath: journalURL.path + ".preserved-install-written.evidence")
       try Data("changed".utf8).write(to: evidence)
-      XCTAssertThrowsError(try reopened.snapshot())
+      XCTAssertFalse(executor.canRetryRecoveryAuthorization(identity, in: root))
+      XCTAssertThrowsError(
+        try NativePreservedInstallJournal(
+          url: journalURL, package: package, transcript: transcript, owner: geteuid()))
     }
   }
 #endif

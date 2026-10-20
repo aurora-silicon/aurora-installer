@@ -36,6 +36,10 @@
         installationIntent: .reinstall)
       let journal = try NativePreservedInstallJournal(
         url: journalURL, package: package, transcript: transcript, owner: geteuid())
+      let configuration = try InstallConf(encrypt: false, lane: "edge")
+      try journal.bindInstallConf(configuration)
+      XCTAssertThrowsError(
+        try journal.bindInstallConf(InstallConf(encrypt: true, lane: "edge")))
       let stub = RemovalPartition(
         identifier: "disk0s3", uuid: UUID().uuidString, type: "Apple_APFS",
         offset: 4096, size: 1 << 20, name: "Aurora NixOS")
@@ -137,15 +141,22 @@
       for entry in prepared.esp.entries {
         _ = try await espStore.data(Data(("old " + entry.path).utf8), at: entry.path)
       }
+      _ = try await espStore.data(
+        try InstallConf(encrypt: true, lane: "stable").serializedData,
+        at: InstallConf.relativePath)
       let espWriter = NativePreservedESPExecution(
         package: package, approved: approved, prepared: prepared, disks: platform.disks,
         verifyMount: { _, _, _ in }, admitFilesystem: { _ in })
       let espFirst = try await espWriter.prepare(
         journal: journal, espRoot: espRoot, boot: first.boot, root: first.root,
         installedStage1: prepared.stage1,
-        authorization: authorization, bootstrap: bootstrap)
-      XCTAssertEqual(espFirst.files.count, prepared.esp.entries.count)
+        authorization: authorization, bootstrap: bootstrap,
+        installConf: configuration)
+      XCTAssertEqual(espFirst.files.count, prepared.esp.entries.count + 1)
       XCTAssertEqual(espFirst.digest.count, 64)
+      XCTAssertEqual(
+        try InstallConf.parse(espStore.tree.read(InstallConf.relativePath, maximum: 65_536)),
+        configuration)
       for entry in espFirst.files {
         XCTAssertEqual(try espStore.identity(entry.path), entry.installed)
         let backup = try XCTUnwrap(entry.backup)
@@ -154,7 +165,8 @@
       let espRepeated = try await espWriter.prepare(
         journal: journal, espRoot: espRoot, boot: first.boot, root: first.root,
         installedStage1: prepared.stage1,
-        authorization: authorization, bootstrap: bootstrap)
+        authorization: authorization, bootstrap: bootstrap,
+        installConf: configuration)
       XCTAssertEqual(espRepeated.digest, espFirst.digest)
       let firstESP = try XCTUnwrap(espFirst.files.first)
       let espEvidence =
@@ -164,7 +176,8 @@
       let espRecovered = try await espWriter.prepare(
         journal: journal, espRoot: espRoot, boot: first.boot, root: first.root,
         installedStage1: prepared.stage1,
-        authorization: authorization, bootstrap: bootstrap)
+        authorization: authorization, bootstrap: bootstrap,
+        installConf: configuration)
       XCTAssertEqual(espRecovered.digest, espFirst.digest)
       let selected = root.appendingPathComponent("startup-selected")
       var completion = NativePreservedInstallCompletion(
@@ -185,7 +198,8 @@
         _ = try await espWriter.prepare(
           journal: journal, espRoot: espRoot, boot: first.boot, root: first.root,
           installedStage1: prepared.stage1,
-          authorization: authorization, bootstrap: bootstrap)
+          authorization: authorization, bootstrap: bootstrap,
+          installConf: configuration)
         XCTFail("Changed ESP rollback file was adopted")
       } catch {}
       XCTAssertThrowsError(
@@ -193,7 +207,8 @@
           journal: journal, espRoot: espRoot, boot: first.boot, root: first.root,
           espFiles: espRecovered.files, espDigest: espRecovered.digest,
           installedStage1: prepared.stage1,
-          authorization: authorization, bootstrap: bootstrap))
+          authorization: authorization, bootstrap: bootstrap,
+          installConf: configuration))
       XCTAssertFalse(FileManager.default.fileExists(atPath: selected.path))
       try Data(("old " + firstESP.path).utf8).write(to: backupURL)
 
@@ -218,7 +233,8 @@
           journal: journal, espRoot: espRoot, boot: afterRoot.boot, root: afterRoot.root,
           espFiles: espRecovered.files, espDigest: espRecovered.digest,
           installedStage1: prepared.stage1,
-          authorization: authorization, bootstrap: bootstrap))
+          authorization: authorization, bootstrap: bootstrap,
+          installConf: configuration))
       XCTAssertFalse(FileManager.default.fileExists(atPath: selected.path))
 
       let sourceBoot = try await archive.read(bootMember, maximumBytes: bootMember.sizeBytes)
@@ -229,7 +245,19 @@
       let verifiedESP = try await espWriter.prepare(
         journal: journal, espRoot: espRoot, boot: verifiedImages.boot,
         root: verifiedImages.root, installedStage1: prepared.stage1,
-        authorization: authorization, bootstrap: bootstrap)
+        authorization: authorization, bootstrap: bootstrap,
+        installConf: configuration)
+      let configurationURL = espRoot.appendingPathComponent(InstallConf.relativePath)
+      try Data("changed choice".utf8).write(to: configurationURL)
+      XCTAssertThrowsError(
+        try completion.finish(
+          journal: journal, espRoot: espRoot, boot: verifiedImages.boot,
+          root: verifiedImages.root, espFiles: verifiedESP.files, espDigest: verifiedESP.digest,
+          installedStage1: prepared.stage1,
+          authorization: authorization, bootstrap: bootstrap,
+          installConf: configuration))
+      XCTAssertFalse(FileManager.default.fileExists(atPath: selected.path))
+      try configuration.serializedData.write(to: configurationURL)
       var refusedSelection = NativePreservedInstallCompletion(
         package: package, approved: approved, prepared: prepared,
         selectBoot: { _, _ in throw NativeHandoffValidationError.authorizationFailed },
@@ -242,14 +270,16 @@
           journal: journal, espRoot: espRoot, boot: verifiedImages.boot,
           root: verifiedImages.root, espFiles: verifiedESP.files, espDigest: verifiedESP.digest,
           installedStage1: prepared.stage1,
-          authorization: authorization, bootstrap: bootstrap))
+          authorization: authorization, bootstrap: bootstrap,
+          installConf: configuration))
       XCTAssertEqual(try journal.snapshot().state, .written)
       XCTAssertFalse(FileManager.default.fileExists(atPath: selected.path))
       let complete = try completion.finish(
         journal: journal, espRoot: espRoot, boot: verifiedImages.boot,
         root: verifiedImages.root, espFiles: verifiedESP.files, espDigest: verifiedESP.digest,
         installedStage1: prepared.stage1,
-        authorization: authorization, bootstrap: bootstrap)
+        authorization: authorization, bootstrap: bootstrap,
+        installConf: configuration)
       XCTAssertEqual(try journal.snapshot().state, .complete)
       XCTAssertEqual(
         try AppleInstallerTrustCore().validateEngineTranscript(complete).completion, .installed)
@@ -259,7 +289,8 @@
           journal: journal, espRoot: espRoot, boot: verifiedImages.boot,
           root: verifiedImages.root, espFiles: verifiedESP.files, espDigest: verifiedESP.digest,
           installedStage1: prepared.stage1,
-          authorization: authorization, bootstrap: bootstrap), complete)
+          authorization: authorization, bootstrap: bootstrap,
+          installConf: configuration), complete)
     }
   }
 #endif

@@ -171,17 +171,30 @@
       authorization: MachineOwnerAuthorization,
       operation: EngineHandoffOperation = .install
     ) async throws -> Data {
+      try await execute(
+        package, authorization: authorization, operation: operation, installConf: nil)
+    }
+
+    public func execute(
+      _ package: ImportedEngineHandoffPackage,
+      authorization: MachineOwnerAuthorization,
+      operation: EngineHandoffOperation,
+      installConf: InstallConf?
+    ) async throws -> Data {
       guard effectiveUserID() == 0 else {
         throw PinnedAsahiEngineExecutionError.privilegeRequired
       }
       let journal = try preparePersistentJournal(for: package)
       if package.installationIntent == .reinstall {
-        guard operation == .install else {
+        guard let installConf,
+          operation == .install || operation == .retryRecoveryAuthorization
+        else {
           throw PinnedAsahiEngineExecutionError.nativeReinstallUnavailable
         }
         do {
           return try await preservedReinstall.execute(
-            package, journal: journal, authorization: authorization)
+            package, journal: journal, authorization: authorization,
+            installConf: installConf)
         } catch let error as PinnedAsahiEngineExecutionError {
           throw error
         } catch {
@@ -777,7 +790,8 @@
           workingDirectory: directory, bindingDigest: identity.bindingDigest)
       else { return false }
       let retryIdentity = RecoveryRetryIdentity(identity: identity)
-      return nativeDiskPreparationRetryEligible(journal: journal, identity: retryIdentity)
+      return preservedRetryEligible(journal: journal, identity: identity)
+        || nativeDiskPreparationRetryEligible(journal: journal, identity: retryIdentity)
         || isRecoveryAuthorizationRetryEligible(journal: journal, identity: retryIdentity)
     }
 
@@ -786,6 +800,10 @@
     func canResumeInterruptedRecoveryAuthorization(
       _ identity: InstallerJobPlanIdentity, in directory: URL
     ) -> Bool {
+      if let journal = EngineJournalLocator.journalURL(
+        workingDirectory: directory, bindingDigest: identity.bindingDigest),
+        preservedRetryEligible(journal: journal, identity: identity)
+      { return true }
       guard
         let journal = EngineJournalLocator.journalURL(
           workingDirectory: directory, bindingDigest: identity.bindingDigest),
@@ -812,6 +830,34 @@
         flock(fd, LOCK_EX | LOCK_NB) == 0
       else { return false }
       defer { _ = flock(fd, LOCK_UN) }
+      return true
+    }
+
+    private func preservedRetryEligible(
+      journal: URL, identity: InstallerJobPlanIdentity
+    ) -> Bool {
+      guard let transcript = try? readTranscript(journal),
+        let snapshot = try? NativePreservedInstallJournalSnapshot.decode(
+          transcript, identity: identity,
+          evidence: { try readCheckpointEvidence(journal: journal, identifier: $0) }),
+        snapshot.state != .ready,
+        let configuration = try? readCheckpointEvidence(
+          journal: journal, identifier: "preserved-install-conf"),
+        let parsed = try? InstallConf.parse(configuration),
+        parsed.serializedData == configuration
+      else { return false }
+      let descriptor = Darwin.open(journal.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
+      guard descriptor >= 0 else { return false }
+      defer { Darwin.close(descriptor) }
+      var opened = stat()
+      var named = stat()
+      guard fstat(descriptor, &opened) == 0, lstat(journal.path, &named) == 0,
+        opened.st_mode & S_IFMT == S_IFREG, opened.st_uid == expectedFileOwnerID(),
+        opened.st_mode & 0o077 == 0, opened.st_nlink == 1,
+        opened.st_dev == named.st_dev, opened.st_ino == named.st_ino,
+        flock(descriptor, LOCK_EX | LOCK_NB) == 0
+      else { return false }
+      defer { _ = flock(descriptor, LOCK_UN) }
       return true
     }
 

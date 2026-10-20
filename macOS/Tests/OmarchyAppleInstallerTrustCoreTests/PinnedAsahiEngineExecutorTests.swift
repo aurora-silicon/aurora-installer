@@ -20,7 +20,7 @@
     private struct RefusingPreservedReinstall: NativePreservedReinstallExecuting {
       func execute(
         _ package: ImportedEngineHandoffPackage, journal: URL,
-        authorization: MachineOwnerAuthorization
+        authorization: MachineOwnerAuthorization, installConf: InstallConf
       ) async throws -> Data {
         throw PinnedAsahiEngineExecutionError.nativeReinstallUnavailable
       }
@@ -30,9 +30,9 @@
       let marker: URL
       func execute(
         _ package: ImportedEngineHandoffPackage, journal: URL,
-        authorization: MachineOwnerAuthorization
+        authorization: MachineOwnerAuthorization, installConf: InstallConf
       ) async throws -> Data {
-        try Data("native preserved".utf8).write(to: marker)
+        try installConf.serializedData.write(to: marker)
         return Data("native preserved transcript\n".utf8)
       }
     }
@@ -77,10 +77,12 @@
       let executor = fixtureExecutor(
         effectiveUserID: { 0 },
         preservedReinstall: MarkerPreservedReinstall(marker: marker))
+      let configuration = try InstallConf(encrypt: true, lane: "stable")
       let result = try await executor.execute(
-        fixture.package, authorization: try machineOwnerAuthorization())
+        fixture.package, authorization: try machineOwnerAuthorization(),
+        operation: .install, installConf: configuration)
       XCTAssertEqual(result, Data("native preserved transcript\n".utf8))
-      XCTAssertTrue(FileManager.default.fileExists(atPath: marker.path))
+      XCTAssertEqual(try Data(contentsOf: marker), configuration.serializedData)
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
     }
     private struct FirmwareMarker: NativeFirmwarePreparing {
