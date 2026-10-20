@@ -1,4 +1,4 @@
-name: Qualify native Recovery handoff component
+name: Qualify system Preboot handoff integration
 on:
   push:
     branches: [ci/native-recovery-review]
@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: 1c6358ad7d26ca7c5a2d857673c5c29bcc69226b
+          ref: e82c6c256a5b44fad8cf9786f8df0ca699c7b6c9
           path: source
           persist-credentials: false
       - name: Record immutable source and toolchain
@@ -44,7 +44,7 @@ jobs:
           xcrun swift-format format -i --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
           git diff --binary > "$RUNNER_TEMP/evidence/format.patch"
           xcrun swift-format lint --strict --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
-      - name: Check corrected native Recovery operations
+      - name: Check system Preboot and native Recovery operations
         run: |
           set -euo pipefail
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug \
@@ -68,6 +68,6 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: native-handoff-component-evidence
+          name: native-preboot-component-evidence
           path: ${{ runner.temp }}/evidence/
           retention-days: 14
