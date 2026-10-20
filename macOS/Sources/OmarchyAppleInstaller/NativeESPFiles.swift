@@ -131,7 +131,6 @@
   }
 
   struct NativeESPFilesPreparer: NativeESPFilesPreparing {
-    var allowLegacyStage1 = false
     var owner: uid_t = 0
     var environment: NativeHandoffEnvironment = .live
     var disks: NativeAPFSPlatform = .live
@@ -152,24 +151,11 @@
         policy: NativeInspectionPolicy.sealed())
       let archive = try await IPSWArchive.open(
         NativePayloadRangeReader(package.payloadURL, owner: owner))
-      let legacy: (@Sendable () throws -> Data)?
-      if allowLegacyStage1 {
-        let owner = owner
-        legacy = {
-          guard package.engineURL.deletingLastPathComponent().path == package.packageURL.path else {
-            throw NativeBootChainError.invalidStage1
-          }
-          return try NativeLegacyStage1.load(
-            archive: package.engineURL, expectedDigest: approved.engineDigest, owner: owner)
-        }
-      } else {
-        legacy = nil
-      }
       guard
         let plan = try await NativeESPPayloadPlan.make(
           metadata: metadata, archive: archive,
           device: package.deviceIdentifier,
-          firmware: firmware.version.components(separatedBy: " ")[0], legacyStage1: legacy)
+          firmware: firmware.version.components(separatedBy: " ")[0])
       else { return nil }
       return NativeESPFilesExecution(
         package: package, approved: approved, plan: plan,

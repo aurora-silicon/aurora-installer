@@ -98,7 +98,7 @@
       osPartitionsPreparer = NativeOSPartitionsPreparer()
       payloadImagesPreparer = NativePayloadImagesPreparer()
       let finishing = NativeInstallationFinisher()
-      espFilesPreparer = NativeESPFilesPreparer(allowLegacyStage1: finishing.enabled)
+      espFilesPreparer = NativeESPFilesPreparer()
       installationFinisher = finishing
       preservedReinstall = NativePreservedInstallCoordinator()
       nativeHandoff = NativeRecoveryHandoffExecutor()
