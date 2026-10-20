@@ -803,7 +803,9 @@
       if let journal = EngineJournalLocator.journalURL(
         workingDirectory: directory, bindingDigest: identity.bindingDigest),
         preservedRetryEligible(journal: journal, identity: identity)
-      { return true }
+      {
+        return true
+      }
       guard
         let journal = EngineJournalLocator.journalURL(
           workingDirectory: directory, bindingDigest: identity.bindingDigest),

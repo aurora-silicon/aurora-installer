@@ -30,6 +30,9 @@
       let baseline = prepared.diskSnapshot
       let calculatedESPDigest = NativePreservedESPExecution.digest(
         espFiles, approved: approved, target: target)
+      let configurationIdentity = NativeStubFileIdentity(
+        bytes: installConf.serializedData.count,
+        sha256: NativeStubFileStore.hash(installConf.serializedData))
       guard package.installationIntent == .reinstall, saved.plan == approved,
         saved.targetIdentity == target.identityDigest,
         saved.state == .started || saved.state == .written || saved.state == .complete,
@@ -48,9 +51,7 @@
         }),
         espFiles.last?.member == "owner-install-conf",
         espFiles.last?.path == InstallConf.relativePath,
-        espFiles.last?.installed == NativeStubFileIdentity(
-          bytes: installConf.serializedData.count,
-          sha256: NativeStubFileStore.hash(installConf.serializedData)),
+        espFiles.last?.installed == configurationIdentity,
         espDigest == calculatedESPDigest
       else { throw NativePreservedInstallError.changedLayout }
       try platform.disks.verifySourceOwner(package, authorization, bootstrap)

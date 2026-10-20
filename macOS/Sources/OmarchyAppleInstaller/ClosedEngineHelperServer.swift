@@ -23,8 +23,8 @@
     ) async throws -> Data
   }
 
-  public extension ImportedEngineHandoffExecuting {
-    func execute(
+  extension ImportedEngineHandoffExecuting {
+    public func execute(
       _ package: ImportedEngineHandoffPackage,
       authorization: MachineOwnerAuthorization,
       operation: EngineHandoffOperation,

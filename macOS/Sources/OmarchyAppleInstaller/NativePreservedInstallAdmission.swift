@@ -61,9 +61,11 @@
       else { throw NativePreservedInstallError.unavailable }
       let configurationPath = InstallConf.relativePath.precomposedStringWithCanonicalMapping
         .lowercased()
-      guard !esp.entries.contains(where: {
-        $0.path.precomposedStringWithCanonicalMapping.lowercased() == configurationPath
-      }) else { throw NativeHandoffValidationError.unsafePath }
+      let signedPaths = Set(
+        esp.entries.map { $0.path.precomposedStringWithCanonicalMapping.lowercased() })
+      guard !signedPaths.contains(configurationPath) else {
+        throw NativeHandoffValidationError.unsafePath
+      }
       let stage1 = try esp.admitPreservedStage1(installedStage1, espUUID: target.esp.uuid)
 
       let inspection = try AppleInstallerTrustCore().validateEngineTranscript(
