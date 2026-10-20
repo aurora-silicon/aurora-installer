@@ -200,14 +200,20 @@
     }
 
     func testLiveNestedDecoderWorkspaceIsNeverRetired() throws {
-      let directory = try root(); defer { try? FileManager.default.removeItem(at: directory) }
+      let directory = try root()
+      defer { try? FileManager.default.removeItem(at: directory) }
       let workspace = directory.appendingPathComponent(".omarchy-restore-Ab12Cd")
-      try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
-      let descriptor = open(workspace.appendingPathComponent(".lease").path, O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
+      try FileManager.default.createDirectory(
+        at: workspace, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+      let descriptor = open(
+        workspace.appendingPathComponent(".lease").path, O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC,
+        0o600)
       XCTAssertGreaterThanOrEqual(descriptor, 0)
       defer { close(descriptor) }
       XCTAssertEqual(flock(descriptor, LOCK_EX | LOCK_NB), 0)
-      XCTAssertThrowsError(try NativeStubDecoder.requireInactiveWorkspaces(directory, owner: geteuid())) {
+      XCTAssertThrowsError(
+        try NativeStubDecoder.requireInactiveWorkspaces(directory, owner: geteuid())
+      ) {
         XCTAssertEqual($0 as? NativeRecoveryJournalError, .busy)
       }
       XCTAssertTrue(FileManager.default.fileExists(atPath: workspace.path))
