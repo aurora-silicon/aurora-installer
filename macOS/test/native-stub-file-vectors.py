@@ -23,16 +23,32 @@ def vectors():
       'kernelcache.fixture':b'synthetic kernel component','excluded.img':b'excluded',
       'recovery.dmg':recovery}
     result=[]
-    for path in (None,'./Restore','../Escape','AEA'):
+    for path in (None,'./Restore','../Escape','AEA','links','escape-link','cycle-link','dangling-link','bad-member'):
         current=dict(files)
         if path=='AEA':current['recovery.dmg']=b'AEA1synthetic encrypted input'
-        current['usr/standalone/bootcaches.plist']=plistlib.dumps(dict(bless2={} if path in (None,'AEA') else dict(RestoreBundlePath=path)))
+        current['usr/standalone/bootcaches.plist']=plistlib.dumps(dict(bless2={} if path not in ('./Restore','../Escape') else dict(RestoreBundlePath=path)))
+        links={}
+        if path in ('links','escape-link','cycle-link','dangling-link'):
+            prefix='BootabilityBundle/Restore/Bootability/Demo.framework/'
+            current[prefix+'Versions/A/Demo']=b'synthetic framework executable'
+            current[prefix+'Versions/A/Resources/Info.plist']=b'synthetic resource'
+            links={prefix+'Demo':b'Versions/Current/Demo',prefix+'Resources':b'Versions/Current/Resources',prefix+'Versions/Current':b'A'}
+            if path=='escape-link':links[prefix+'Versions/Current']=b'../../../../Escape'
+            if path=='cycle-link':links[prefix+'Versions/Current']=b'Current'
+            if path=='dangling-link':links[prefix+'Versions/Current']=b'Missing'
+            current.update(links)
         output=io.BytesIO()
         with zipfile.ZipFile(output,'w',compression=zipfile.ZIP_STORED) as z:
             for name,data in sorted(current.items()):
-                member=zipfile.ZipInfo(name,(2020,1,1,0,0,0));member.compress_type=zipfile.ZIP_STORED;member.external_attr=0o100644<<16;z.writestr(member,data)
-        result.append(dict(name='fallback' if path is None else 'explicit' if path=='./Restore' else 'aea' if path=='AEA' else 'unsafe',
-          archive=base64.b64encode(output.getvalue()).decode(),success=path!='../Escape'))
+                member=zipfile.ZipInfo(name,(2020,1,1,0,0,0));member.compress_type=zipfile.ZIP_STORED;member.external_attr=(0o120755 if name in links else 0o100644)<<16;z.writestr(member,data)
+        encoded=output.getvalue()
+        if path=='bad-member':
+            encoded=bytearray(encoded)
+            name=b'PlatformSupport.plist';position=encoded.index(name)-30
+            encoded[position+8:position+10]=(99).to_bytes(2,'little')
+            encoded=bytes(encoded)
+        result.append(dict(name='fallback' if path is None else 'explicit' if path=='./Restore' else 'aea' if path=='AEA' else 'unsafe' if path=='../Escape' else path,
+          archive=base64.b64encode(encoded).decode(),success=path not in ('../Escape','escape-link','cycle-link','dangling-link','bad-member')))
     return dict(vectors=result,expectedManifest=base64.b64encode(plistlib.dumps(dict(BuildIdentities=[identity]))).decode(),
       expectedVersion=dict(version,ProductUserVisibleVersion=version['ProductUserVisibleVersion']+' (stub)'),
       recoveryBytes=len(recovery),recoverySHA256=hashlib.sha256(recovery).hexdigest())

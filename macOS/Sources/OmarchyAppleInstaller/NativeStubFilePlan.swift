@@ -18,6 +18,7 @@
     let restorePath: String
     let recoveryMember: IPSWArchiveMember
     let copies: [Copy]
+    let linkTargets: [String: String]
 
     init(
       archive: IPSWArchive, source: NativeFirmwareSelection, deviceClass: String,
@@ -146,7 +147,47 @@
           UInt64(recoveryMember.sizeBytes), { $0 + UInt64(members[$1.member]!.sizeBytes) }) <= 16
           << 30
       else { throw NativeStubFileError.invalidPlan }
+      // Admit every selected local record before disk preparation. Links are
+      // confined to the selected framework tree and are never extraction paths.
+      var links = [String: String]()
+      let selected = Set(copies.map(\.member) + [recoveryMember.name])
+      for name in selected.sorted() {
+        let member = members[name]!
+        if member.isSymbolicLink {
+          guard name.hasPrefix("BootabilityBundle/Restore/Bootability/"),
+            !selected.contains(where: { $0.hasPrefix(name + "/") })
+          else { throw NativeStubFileError.invalidPlan }
+          links[name] = try await archive.symbolicLinkTarget(member)
+        } else {
+          _ = try await archive.dataOffset(for: member)
+        }
+      }
+      for name in links.keys {
+        var target = name
+        var visited = Set<String>()
+        while true {
+          let components = target.split(separator: "/").map(String.init)
+          var replaced = false
+          for count in 1...components.count {
+            let prefix = components.prefix(count).joined(separator: "/")
+            if let link = links[prefix] {
+              guard visited.insert(prefix).inserted, visited.count <= 40 else {
+                throw NativeStubFileError.invalidPlan
+              }
+              target =
+                (Array(components.prefix(count - 1)) + link.split(separator: "/").map(String.init)
+                + Array(components.dropFirst(count))).joined(separator: "/")
+              replaced = true
+              break
+            }
+          }
+          if !replaced { break }
+        }
+        guard selected.contains(target) || selected.contains(where: { $0.hasPrefix(target + "/") })
+        else { throw NativeStubFileError.invalidPlan }
+      }
       self.copies = copies
+      self.linkTargets = links
     }
   }
 #endif

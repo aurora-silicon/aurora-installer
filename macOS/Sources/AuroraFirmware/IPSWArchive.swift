@@ -88,6 +88,7 @@ public struct IPSWArchiveMember: Equatable, Sendable {
   let flags: Int
   let mode: Int
   public let isDirectory: Bool
+  public var isSymbolicLink: Bool { mode & 0o170000 == 0o120000 }
 }
 
 /// Single-disk ZIP/ZIP64 metadata and bounded stored/deflate member reads.
@@ -216,11 +217,14 @@ public struct IPSWArchive: Sendable {
     }
   }
 
-  private func recordOffset(for member: IPSWArchiveMember) async throws -> Int {
+  private func recordOffset(for member: IPSWArchiveMember, symbolicLink: Bool = false) async throws
+    -> Int
+  {
     try require(
       records[member.localHeaderOffset] == member, "Member does not belong to this IPSW directory.")
     try require(
-      [0, member.isDirectory ? 0o040000 : 0o100000].contains(member.mode & 0o170000)
+      [0, symbolicLink ? 0o120000 : member.isDirectory ? 0o040000 : 0o100000].contains(
+        member.mode & 0o170000)
         && (!member.isDirectory || member.sizeBytes == 0)
         && (member.compressionMethod != 0 || member.compressedSize == member.sizeBytes)
         && member.flags & ~0x080e == 0 && [0, 8].contains(member.compressionMethod),
@@ -355,13 +359,40 @@ public struct IPSWArchive: Sendable {
     _ member: IPSWArchiveMember, maximumBytes: Int, maximumCompressedBytes: Int,
     expectedSHA256: String? = nil, consume: (Data) throws -> Void
   ) async throws -> String {
+    try await streamMember(
+      member, maximumBytes: maximumBytes,
+      maximumCompressedBytes: maximumCompressedBytes, expectedSHA256: expectedSHA256,
+      symbolicLink: false, consume: consume)
+  }
+
+  /// Read link metadata as bounded UTF-8 data. Regular extraction still rejects
+  /// links; the caller must admit the target graph before publishing any link.
+  public func symbolicLinkTarget(_ member: IPSWArchiveMember) async throws -> String {
+    try require(
+      member.isSymbolicLink && member.sizeBytes > 0 && member.sizeBytes <= 4096,
+      "Invalid restore link metadata.")
+    var bytes = Data()
+    _ = try await streamMember(
+      member, maximumBytes: 4096, maximumCompressedBytes: 65536,
+      expectedSHA256: nil, symbolicLink: true, consume: { bytes.append($0) })
+    guard let target = String(data: bytes, encoding: .utf8), safeRelative(target),
+      !target.contains("\0")
+    else { throw RestoreFailure("Unsafe restore link target.") }
+    return target
+  }
+
+  private func streamMember(
+    _ member: IPSWArchiveMember, maximumBytes: Int, maximumCompressedBytes: Int,
+    expectedSHA256: String?, symbolicLink: Bool, consume: (Data) throws -> Void
+  ) async throws -> String {
     try require(
       (0...(128 << 30)).contains(maximumBytes)
         && (0...(128 << 30)).contains(maximumCompressedBytes)
         && member.sizeBytes <= maximumBytes && member.compressedSize <= maximumCompressedBytes,
       "IPSW member exceeds its streaming budget.")
     if let expectedSHA256 { try require(validHash(expectedSHA256), "Invalid member digest.") }
-    let offset = try await dataOffset(for: member)
+    try require(!member.isDirectory, "A directory has no readable file body.")
+    let offset = try await recordOffset(for: member, symbolicLink: symbolicLink)
     var digest = SHA256()
     var checksum: uLong = 0
     var produced = 0

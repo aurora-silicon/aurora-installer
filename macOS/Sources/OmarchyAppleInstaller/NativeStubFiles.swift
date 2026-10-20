@@ -226,7 +226,7 @@
         ["Preboot", "Recovery"].contains(role) ? group + "/" + path : path
       }
       func copy(
-        _ role: String, _ path: String, dataName: String? = nil,
+        _ role: String, _ path: String, dataName: String? = nil, linkTarget: String? = nil,
         produce: (NativeStubFileStore, String) async throws -> NativeStubFileIdentity
       ) async throws {
         try Task.checkCancellation()
@@ -237,7 +237,15 @@
         if try file.containsEvidence(identifier) {
           saved = try JSONDecoder().decode(Installed.self, from: file.readEvidence(identifier))
           guard saved.role == role, saved.path == relative, saved.installerDataName == dataName,
-            try store.identity(relative) == saved.identity
+            try
+              (linkTarget.map { target in
+                guard try store.tree.relativeLinkTarget(relative) == target else {
+                  throw NativeStubFileError.changedFile
+                }
+                let bytes = Data(target.utf8)
+                return NativeStubFileIdentity(
+                  bytes: bytes.count, sha256: NativeStubFileStore.hash(bytes))
+              } ?? store.identity(relative)) == saved.identity
           else { throw NativeStubFileError.changedFile }
         } else {
           let identity = try await produce(store, relative)
@@ -256,7 +264,14 @@
         let topLevelRestore =
           operation.role == "Preboot" && operation.path.hasPrefix(plan.restorePath + "/")
           && !String(operation.path.dropFirst(plan.restorePath.count + 1)).contains("/")
-        if topLevelRestore {
+        if let target = plan.linkTargets[operation.member] {
+          try await copy(operation.role, operation.path, linkTarget: target) { store, path in
+            try store.tree.relativeLink(path, target: target)
+            let bytes = Data(target.utf8)
+            return NativeStubFileIdentity(
+              bytes: bytes.count, sha256: NativeStubFileStore.hash(bytes))
+          }
+        } else if topLevelRestore {
           try await restore(
             members[operation.member]!, role: operation.role, path: operation.path,
             compressed: false, dataName: operation.installerDataName)
@@ -412,11 +427,34 @@
       }
       let encoder = JSONEncoder()
       encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+      let linkPaths = Set(
+        plan.copies.filter { plan.linkTargets[$0.member] != nil }.map {
+          fullPath($0.role, $0.path)
+        })
+      let links = installed.filter { linkPaths.contains($0.path) }
+      // The compatibility consumer's file list is deliberately regular-only.
+      // Native-owned links retain separate protected evidence and are checked
+      // through the same per-entry receipts before each continuation.
+      if !links.isEmpty {
+        let targets = Dictionary(
+          uniqueKeysWithValues: plan.copies.compactMap { operation -> (String, String)? in
+            guard let target = plan.linkTargets[operation.member] else { return nil }
+            return (fullPath(operation.role, operation.path), target)
+          })
+        try file.publishEvidence(
+          JSONSerialization.data(
+            withJSONObject: [
+              "plan_digest": approved.planDigest, "group_uuid": group,
+              "binding_sha256": NativeStubFileStore.hash(binding), "targets": targets,
+              "links": try JSONSerialization.jsonObject(with: encoder.encode(links)),
+            ], options: [.sortedKeys, .withoutEscapingSlashes]), identifier: "native-stub-links")
+      }
       let receipt: [String: Any] = [
         "schema": 1, "plan_digest": approved.planDigest,
         "binding_sha256": NativeStubFileStore.hash(binding), "group_uuid": group,
         "source_url": plan.source.sourceURL.absoluteString, "firmware_version": plan.source.version,
-        "files": try JSONSerialization.jsonObject(with: encoder.encode(installed)),
+        "files": try JSONSerialization.jsonObject(
+          with: encoder.encode(installed.filter { !linkPaths.contains($0.path) })),
         "stub_info": info,
       ]
       try file.publishEvidence(

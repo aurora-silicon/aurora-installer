@@ -158,6 +158,38 @@
       }
     }
 
+    /// Publish only a relative, traversal-free target admitted by the restore
+    /// plan. Parents are pinned without following links, including on retries.
+    func relativeLink(_ path: String, target: String) throws {
+      guard protected, NativeHandoffEvidence.safeRelative(target) else {
+        throw NativeHandoffValidationError.unsafePath
+      }
+      try withParent(path, createParents: true) { parent, leaf in
+        if symlinkat(target, parent, leaf) != 0 && errno != EEXIST {
+          throw NativeHandoffValidationError.unsafePath
+        }
+        guard try relativeLinkTarget(parent: parent, leaf: leaf) == target, fsync(parent) == 0
+        else { throw NativeHandoffValidationError.unsafePath }
+      }
+    }
+
+    func relativeLinkTarget(_ path: String) throws -> String {
+      try withParent(path) { try relativeLinkTarget(parent: $0, leaf: $1) }
+    }
+
+    private func relativeLinkTarget(parent: Int32, leaf: String) throws -> String {
+      var info = stat()
+      var bytes = [UInt8](repeating: 0, count: 4097)
+      let count = readlinkat(parent, leaf, &bytes, bytes.count)
+      guard protected, fstatat(parent, leaf, &info, AT_SYMLINK_NOFOLLOW) == 0,
+        info.st_mode & S_IFMT == S_IFLNK, info.st_uid == owner, info.st_nlink == 1,
+        count > 0, count <= 4096,
+        let target = String(bytes: bytes.prefix(count), encoding: .utf8),
+        NativeHandoffEvidence.safeRelative(target)
+      else { throw NativeHandoffValidationError.unsafePath }
+      return target
+    }
+
     func prepareForAuthorization() throws {
       try moveIfNeeded(
         active: "System/Library/CoreServices/SystemVersion.plist",

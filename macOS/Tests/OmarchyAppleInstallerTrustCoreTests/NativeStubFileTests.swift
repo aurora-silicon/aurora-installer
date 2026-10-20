@@ -80,6 +80,122 @@
           })
       }
     }
+    func testFrameworkLinksAreAdmittedBeforeWritesAndResumeWithoutFollowingThem() async throws {
+      let fixture = try ExecutionFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.directory) }
+      let vector = try XCTUnwrap(vectors().vectors.first { $0.name == "links" })
+      let source = try await plan(vector)
+      XCTAssertEqual(source.linkTargets.count, 3)
+      for member in source.archive.members where member.isSymbolicLink {
+        do {
+          _ = try await source.archive.read(member, maximumBytes: 4096)
+          XCTFail("Generic extraction followed a link")
+        } catch {}
+      }
+      let execution = NativeStubFilesExecution(
+        package: fixture.package, approved: fixture.approved,
+        plan: source, owner: geteuid(), platform: fixture.platform, cache: nil)
+      try await execution.prepare(
+        journal: fixture.journal, authorization: fixture.authorization,
+        sourceBootstrap: fixture.bootstrap)
+      let receipt =
+        try JSONSerialization.jsonObject(
+          with: Data(
+            contentsOf: URL(
+              fileURLWithPath:
+                fixture.journal.path + ".native-stub-files.evidence"))) as! [String: Any]
+      let entries = receipt["files"] as! [[String: Any]]
+      XCTAssertFalse(entries.contains { ($0["path"] as! String).hasSuffix("Demo.framework/Demo") })
+      let linkReceipt =
+        try JSONSerialization.jsonObject(
+          with: Data(
+            contentsOf: URL(
+              fileURLWithPath:
+                fixture.journal.path + ".native-stub-links.evidence"))) as! [String: Any]
+      XCTAssertEqual((linkReceipt["targets"] as! [String: String]).count, 3)
+      XCTAssertEqual(linkReceipt["plan_digest"] as? String, fixture.approved.planDigest)
+      let link = fixture.mounts.appendingPathComponent(
+        "disk8s3/"
+          + (fixture.snapshot.containers.first {
+            $0.volumes.contains { $0.identifier == "disk8s3" }
+          }!.volumes.first { $0.roles == ["System"] }!.group!)
+          + "/Restore/Bootability/Demo.framework/Demo")
+      XCTAssertEqual(
+        try FileManager.default.destinationOfSymbolicLink(atPath: link.path),
+        "Versions/Current/Demo")
+      XCTAssertEqual(try Data(contentsOf: link), Data("synthetic framework executable".utf8))
+      try await execution.prepare(
+        journal: fixture.journal, authorization: fixture.authorization,
+        sourceBootstrap: fixture.bootstrap)
+      try FileManager.default.removeItem(at: link)
+      try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "/tmp")
+      do {
+        try await execution.prepare(
+          journal: fixture.journal, authorization: fixture.authorization,
+          sourceBootstrap: fixture.bootstrap)
+        XCTFail("Changed link was adopted")
+      } catch {}
+    }
+
+    func testOptInLiveRestorePlanAdmitsEverySelectedRecordWithoutDiskWrites() async throws {
+      guard ProcessInfo.processInfo.environment["AURORA_LIVE_STUB_PLAN"] == "1" else {
+        throw XCTSkip("Explicit live restore-plan probe only")
+      }
+      let raw = try XCTUnwrap(ProcessInfo.processInfo.environment["AURORA_LIVE_STUB_URL"])
+      let url = try XCTUnwrap(URL(string: raw))
+      let reader = try await IPSWHTTPRangeReader.discover(url: url)
+      let archive = try await IPSWArchive.open(reader)
+      let facts = try NativeFirmwareSelection.Facts.live()
+      let result = try await NativeStubFilePlan(
+        archive: archive,
+        source: NativeFirmwareSelection(
+          version: "26.6.2", sourceURL: url, stubBytes: 6_000_000_000),
+        deviceClass: "j700ap", boardID: NativeStubFilePlatform.live.boardID(),
+        chipID: facts.hardware.chipID)
+      XCTAssertGreaterThan(result.copies.count, 5)
+      XCTAssertEqual(result.linkTargets.count, 3)
+      print(
+        "Live restore plan admitted: \(result.copies.count) files, \(result.linkTargets.count) links"
+      )
+    }
+
+    func testNativePreparationRetryRequiresExactCompletedAPFSCheckpointAndOwnerEvidence() throws {
+      let fixture = try ExecutionFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.directory) }
+      let source = try JSONSerialization.data(
+        withJSONObject: [
+          "plan_digest": fixture.approved.planDigest,
+          "bootstrap": fixture.bootstrap.configuration,
+        ], options: [.sortedKeys])
+      try fixture.writeEvidence(source, name: "native-source-owner")
+      let bytes = try Data(contentsOf: fixture.journal)
+      func eligible(_ data: Data, changed: String? = nil) -> Bool {
+        PinnedAsahiEngineExecutor.nativeDiskPreparationRetryEligible(
+          transcript: data,
+          planDigest: fixture.approved.planDigest,
+          deviceIdentifier: fixture.package.deviceIdentifier,
+          storeIdentifier: fixture.package.storeIdentifier,
+          evidence: { identifier in
+            if changed == identifier { return Data("changed".utf8) }
+            return try Data(
+              contentsOf: URL(
+                fileURLWithPath: fixture.journal.path + "." + identifier + ".evidence"))
+          })
+      }
+      XCTAssertTrue(eligible(bytes))
+      for identifier in ["apfs-target-prepared", "native-stub-volumes", "native-source-owner"] {
+        XCTAssertFalse(eligible(bytes, changed: identifier))
+      }
+      let ambiguous = Data(bytes.split(separator: 10).prefix(4).flatMap { Array($0) + [10] })
+      XCTAssertFalse(eligible(ambiguous))
+      XCTAssertFalse(
+        PinnedAsahiEngineExecutor.nativeDiskPreparationRetryEligible(
+          transcript: bytes,
+          planDigest: String(repeating: "0", count: 64),
+          deviceIdentifier: fixture.package.deviceIdentifier,
+          storeIdentifier: fixture.package.storeIdentifier, evidence: { _ in source }))
+    }
+
     func testNativeResourceForkCompressionRoundTripsThroughTheFilesystem() async throws {
       let fixture = try vectors()
       let source = try await plan(XCTUnwrap(fixture.vectors.first))

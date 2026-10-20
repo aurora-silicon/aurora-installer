@@ -1,5 +1,6 @@
 #if os(macOS)
   import CryptoKit
+  import AuroraFirmware
   import Darwin
   import Foundation
 
@@ -167,6 +168,11 @@
         throw PinnedAsahiEngineExecutionError.privilegeRequired
       }
       let journal = try preparePersistentJournal(for: package)
+      let resumesNativePreparation =
+        operation == .retryRecoveryAuthorization
+        && nativeDiskPreparationRetryEligible(
+          journal: journal, identity: RecoveryRetryIdentity(package: package))
+      let operation: EngineHandoffOperation = resumesNativePreparation ? .install : operation
       let recovery: PreparedNativeRecoveryTemplate
       do { recovery = try prepareRecoveryTemplate(package) } catch {
         throw preparationFailure(
@@ -272,6 +278,13 @@
             : try installationFinisher.preflight(
               package: package, stub: preparedStubFiles?.firmwarePlan,
               peripherals: preparedPeripherals)
+          if resumesNativePreparation {
+            guard preparedAPFS != nil, preparedStubFiles != nil, preparedOSPartitions != nil,
+              preparedPayloadImages != nil, preparedESPFiles != nil
+            else {
+              throw NativeInstallAdmissionError.invalidJournal
+            }
+          }
           if preparedESPFiles != nil { environment["OMARCHY_NATIVE_ESP_FILES"] = "helper-esp-v1" }
           if preparedPayloadImages != nil {
             environment["OMARCHY_NATIVE_PAYLOAD_IMAGES"] = "helper-images-v1"
@@ -330,12 +343,16 @@
             throw PinnedAsahiEngineExecutionError.engineFailed(
               EngineFailureReport(
                 notice: EngineFailureNotice(
-                  reason: error as? NativeInstallAdmissionError == .invalidJournal
-                    ? .planIntegrity : .diskLayoutChanged,
+                  reason: error is RestoreFailure
+                    ? .recoveryPreparation
+                    : error as? NativeInstallAdmissionError == .invalidJournal
+                      ? .planIntegrity : .diskLayoutChanged,
                   exitStatus: 1,
                   diskUnchanged: self.journalProvesNoMutation(
                     journal, identity: RecoveryRetryIdentity(package: package)),
-                  summary: "The current disk could not be admitted for a fresh installation."),
+                  summary: error is RestoreFailure
+                    ? "The Recovery archive could not be prepared."
+                    : "The current disk could not be admitted for a fresh installation."),
                 redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
                   Data(String(describing: error).utf8), truncated: false,
                   secrets: [authorization.password])))
@@ -729,8 +746,58 @@
         let journal = EngineJournalLocator.journalURL(
           workingDirectory: directory, bindingDigest: identity.bindingDigest)
       else { return false }
-      return isRecoveryAuthorizationRetryEligible(
-        journal: journal, identity: RecoveryRetryIdentity(identity: identity))
+      let retryIdentity = RecoveryRetryIdentity(identity: identity)
+      return nativeDiskPreparationRetryEligible(journal: journal, identity: retryIdentity)
+        || isRecoveryAuthorizationRetryEligible(journal: journal, identity: retryIdentity)
+    }
+
+    private func nativeDiskPreparationRetryEligible(journal: URL, identity: RecoveryRetryIdentity)
+      -> Bool
+    {
+      guard let transcript = try? readTranscript(journal) else { return false }
+      return Self.nativeDiskPreparationRetryEligible(
+        transcript: transcript,
+        planDigest: identity.planDigest, deviceIdentifier: identity.deviceIdentifier,
+        storeIdentifier: identity.storeIdentifier,
+        evidence: { try readCheckpointEvidence(journal: journal, identifier: $0) })
+    }
+
+    /// An intact APFS checkpoint can continue the original native operation.
+    /// A start intent without that checkpoint is never eligible. Actual replay
+    /// rechecks the owner, geometry, volumes and every existing file receipt.
+    static func nativeDiskPreparationRetryEligible(
+      transcript: Data, planDigest: String,
+      deviceIdentifier: String, storeIdentifier: String, evidence: (String) throws -> Data
+    ) -> Bool {
+      do {
+        let records = try EngineTranscriptDecoder().decode(transcript)
+        let validated = try AppleInstallerTrustCore().validateEngineTranscript(transcript)
+        guard records.count == 5, validated.support == .supported,
+          validated.deviceIdentifier == deviceIdentifier,
+          let plan = validated.plan, plan.planDigest == planDigest,
+          plan.deviceIdentifier == deviceIdentifier, plan.storeIdentifier == storeIdentifier,
+          ["free", "resize"].contains(plan.candidateKind),
+          case .event(let event) = records[3].message, event.name == "apfs_preparation_started",
+          case .checkpoint(let checkpoint) = records[4].message,
+          checkpoint.identifier == "apfs-target-prepared", checkpoint.phase == "apfs_preparation"
+        else { return false }
+        let bytes = try evidence(checkpoint.identifier)
+        guard SHA256Digest(hashing: bytes).rawValue == checkpoint.evidenceDigest else {
+          return false
+        }
+        let target = try NativeAPFSTargetEvidence.read(bytes)
+        let volumes = try NativeStubVolumes.read(evidence(NativeStubVolumes.evidenceIdentifier))
+        let source =
+          try JSONSerialization.jsonObject(with: evidence("native-source-owner")) as? [String: Any]
+        guard target.planDigest == planDigest, target.offsetBytes == plan.offsetBytes,
+          target.sizeBytes > 0, target.sizeBytes <= plan.lengthBytes,
+          volumes.planDigest == planDigest, volumes.partitionUUID == target.uuid,
+          source?["plan_digest"] as? String == planDigest,
+          let bootstrap = source?["bootstrap"] as? [String: Any]
+        else { return false }
+        _ = try NativeSourceBootstrap(bootstrap)
+        return true
+      } catch { return false }
     }
 
     private func isRecoveryAuthorizationRetryEligible(

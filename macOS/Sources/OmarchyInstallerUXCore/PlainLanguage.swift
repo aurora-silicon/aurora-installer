@@ -142,11 +142,11 @@
     // MARK: Confirmation dialogs (preserved verbatim)
 
     public static let recoveryRetryConfirmationTitle =
-      "Retry the Recovery authorization step?"
+      "Continue the interrupted installation?"
     public static let recoveryRetryConfirmationBody =
-      "Before retrying Apple’s startup authorization, the installer rechecks the approved plan, the installation files, the disk location, and the last completed step. The retry can’t resize the disk, change partitions, or rewrite the installed system."
+      "The installer rechecks the original plan, disk location, saved files and last completed step. It continues in the space you already approved. macOS won’t be resized again."
     public static let recoveryRetryConfirmationAction =
-      "Retry Recovery authorization"
+      "Continue installation"
     public static let cancel = "Cancel"
 
     // MARK: Screen D — Install
