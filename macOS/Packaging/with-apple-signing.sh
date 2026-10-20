@@ -8,6 +8,9 @@ fail() { echo "apple-signing: $*" >&2; exit 1; }
 : "${RUNNER_TEMP:?}" "${APPLE_CERTIFICATE_P12_BASE64:?}" "${APPLE_CERTIFICATE_PASSWORD:?}"
 [[ ${APPLE_TEAM_ID:-} =~ ^[A-Z0-9]{10}$ ]] || fail 'invalid team identifier'
 [[ ${APPLE_SIGNING_IDENTITY:-} =~ ^[A-Fa-f0-9]{40}$ ]] || fail 'invalid certificate fingerprint'
+keychain_timeout=${AURORA_SIGNING_KEYCHAIN_TIMEOUT:-1200}
+[[ $keychain_timeout =~ ^[1-9][0-9]{0,3}$ ]] && (( keychain_timeout <= 7200 )) \
+  || fail 'invalid signing keychain timeout'
 umask 077
 original_search_list=$(security list-keychains -d user) || fail 'cannot read the keychain search list'
 previous=()
@@ -52,7 +55,7 @@ keychain_password=$(openssl rand -hex 32)
 printf '::add-mask::%s\n' "$keychain_password"
 printf '%s' "$APPLE_CERTIFICATE_P12_BASE64" | base64 --decode > "$scratch/signing.p12"
 security create-keychain -p "$keychain_password" "$keychain"
-security set-keychain-settings -lut 1200 "$keychain"
+security set-keychain-settings -lut "$keychain_timeout" "$keychain"
 security unlock-keychain -p "$keychain_password" "$keychain"
 security import "$scratch/signing.p12" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" \
   -t cert -f pkcs12 -T /usr/bin/codesign -T /usr/bin/security >/dev/null

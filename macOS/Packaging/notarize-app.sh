@@ -70,9 +70,11 @@ trap 'rm -rf "$archive_root"' EXIT
 archive_path="$archive_root/$INSTALLER_FILE_STEM.zip"
 
 ditto -c -k --keepParent "$app_path" "$archive_path"
-xcrun notarytool submit "$archive_path" \
-  --keychain-profile "$notary_profile" \
-  --wait
+notary_arguments=(--keychain-profile "$notary_profile")
+if [[ -n ${OMARCHY_NOTARY_KEYCHAIN:-} ]]; then
+  notary_arguments+=(--keychain "$OMARCHY_NOTARY_KEYCHAIN")
+fi
+xcrun notarytool submit "$archive_path" "${notary_arguments[@]}" --wait
 xcrun stapler staple "$app_path"
 xcrun stapler validate "$app_path"
 spctl --assess --type execute --verbose=2 "$app_path"

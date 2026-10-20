@@ -1,0 +1,158 @@
+name: Draft native installer DMG
+on:
+  workflow_dispatch:
+    inputs:
+      profiles-revision:
+        description: Immutable aurora-distributions commit with matching signed catalogs
+        required: true
+      version:
+        description: Installer marketing version
+        default: '2.2.0'
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: native-installer-dmg-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    if: github.repository == 'aurora-silicon/aurora-installer'
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+      XCODEBUILDMCP_SENTRY_DISABLED: 'true'
+      AURORA_SIGNING_KEYCHAIN_TIMEOUT: '5400'
+    defaults:
+      run:
+        shell: bash
+        working-directory: macOS
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Validate immutable inputs
+        env:
+          PROFILES_REVISION: ${{ inputs.profiles-revision }}
+          APP_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ $PROFILES_REVISION =~ ^[0-9a-f]{40}$ ]]
+          [[ $APP_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ $(uname -m) == arm64 ]]
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: aurora-silicon/aurora-distributions
+          ref: ${{ inputs.profiles-revision }}
+          path: delivery
+          sparse-checkout: site/installer/Profiles
+          persist-credentials: false
+      - name: Require catalogs paired with this execution contract
+        run: |
+          set -euo pipefail
+          python3 - "$GITHUB_WORKSPACE/delivery/site/installer/Profiles" <<'PY'
+          import json,sys
+          from pathlib import Path
+          lock=json.loads(Path('Engine/source-lock.json').read_text())
+          pin=lock['validation_artifact']
+          profiles=Path(sys.argv[1])
+          expected={f'{d}-{s}' for d in ('fedora','arch','nixos') for s in ('kde','gnome','minimal')}
+          assert {p.name for p in profiles.iterdir()} == expected
+          for profile in profiles.iterdir():
+              catalog=json.loads((profile/'catalog.json').read_text())
+              enabled=[m for m in catalog['models'] if m['status']=='enabled']
+              assert enabled, profile.name
+              for model in enabled:
+                  assert model['engineVersion']==lock['downstream_overlay']['version'], profile.name
+                  assert model['engineDigest']=='sha256:'+pin['sha256'], profile.name
+                  assert model['engineArtifact']['fileName']==pin['filename'], profile.name
+                  assert model['engineArtifact']['sizeBytes']==pin['size_bytes'], profile.name
+          PY
+      - name: Install the pinned native build driver
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tools" "$RUNNER_TEMP/evidence" "$RUNNER_TEMP/download"
+          if [[ ! -x /opt/homebrew/opt/openssl@3/bin/openssl ]]; then brew install openssl@3; fi
+          echo /opt/homebrew/opt/openssl@3/bin >> "$GITHUB_PATH"
+          { git rev-parse HEAD; sw_vers; uname -m; xcodebuild -version; xcrun swift --version; } > "$RUNNER_TEMP/evidence/toolchain.txt"
+          cd "$RUNNER_TEMP/tools"
+          curl --fail --location --silent --show-error --retry 3 \
+            https://github.com/getsentry/XcodeBuildMCP/releases/download/v2.7.0/xcodebuildmcp-2.7.0-darwin-arm64.tar.gz -o tool.tar.gz
+          echo 'bd724a2c0e6ffe027b3f46257e66d626149a64cd045f4867124bd683b3cf081a  tool.tar.gz' | shasum -a 256 -c -
+          tar -xzf tool.tar.gz
+          rm tool.tar.gz
+          echo "$PWD/xcodebuildmcp-2.7.0-darwin-arm64/bin" >> "$GITHUB_PATH"
+      - name: Qualify the immutable native candidate
+        run: |
+          set -euo pipefail
+          bash test/all 2>&1 | tee "$RUNNER_TEMP/evidence/portable.log"
+          xcrun swift-format lint --strict --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
+          xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
+          xcodebuildmcp swift-package test --package-path "$PWD" --configuration release 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
+          xcodebuildmcp swift-package build --package-path "$PWD" --configuration release 2>&1 | tee "$RUNNER_TEMP/evidence/build.log"
+          bash Recovery/build-recovery.sh "$RUNNER_TEMP/recovery-template" 2>&1 | tee "$RUNNER_TEMP/evidence/recovery.log"
+      - name: Sign, notarize and package the tiny application
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          OMARCHY_APP_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/package.sh" <<'PACKAGE'
+          #!/bin/bash
+          set -euo pipefail
+          source Packaging/identity.conf
+          python3 scripts/prepare-distribution-release.py \
+            --profiles "$GITHUB_WORKSPACE/delivery/site/installer/Profiles" \
+            --output "$RUNNER_TEMP/release" --sealed --signing-team "$OMARCHY_TEAM_ID"
+          export OMARCHY_APP_BUILD_NUMBER=$(date -u +%y%m%d%H%M)
+          export OMARCHY_RECOVERY_TEMPLATE="$RUNNER_TEMP/recovery-template/$INSTALLER_APP_NAME.app"
+          bash Packaging/build-app.sh "$RUNNER_TEMP/release" "$RUNNER_TEMP/application"
+          app="$RUNNER_TEMP/application/$INSTALLER_APP_NAME.app"
+          bash Packaging/notarize-app.sh "$app"
+          bash Packaging/make-download-dmg.sh "$app" "$RUNNER_TEMP/download/Aurora-Installer-$OMARCHY_APP_VERSION.dmg"
+          cp "$RUNNER_TEMP/release/profile-manifest.json" "$RUNNER_TEMP/evidence/"
+          shasum -a 256 "$RUNNER_TEMP/download/"*.dmg > "$RUNNER_TEMP/evidence/dmg.sha256"
+          PACKAGE
+          bash Packaging/with-apple-signing.sh bash Packaging/with-apple-notary.sh bash "$RUNNER_TEMP/package.sh" \
+            2>&1 | tee "$RUNNER_TEMP/evidence/packaging.log"
+          [[ -z $(find "$RUNNER_TEMP" -maxdepth 1 -type d \( -name 'aurora-signing.*' -o -name 'aurora-notary.*' \) -print) ]]
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: native-dmg-evidence
+          path: ${{ runner.temp }}/evidence/
+          retention-days: 14
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: notarized-installer-dmg
+          path: ${{ runner.temp }}/download/*.dmg
+          if-no-files-found: error
+          retention-days: 14
+  draft:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: notarized-installer-dmg
+          path: download
+      - name: Attach the notarized DMG to a draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROFILES_REVISION: ${{ inputs.profiles-revision }}
+          APP_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'Native installer %s.\n\nSource: `%s`\nProfiles: `%s`\nBuild evidence: %s/%s/actions/runs/%s\n\nSigned and notarized DMG. Physical installation and hardware qualification remain separate release requirements.\n' \
+            "$APP_VERSION" "$GITHUB_SHA" "$PROFILES_REVISION" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > notes.md
+          gh release create "native-draft-$GITHUB_RUN_ID" download/*.dmg --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --draft --prerelease --title "Aurora Installer $APP_VERSION" --notes-file notes.md
