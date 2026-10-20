@@ -3,6 +3,7 @@ import SwiftUI
 /// A compact masthead, an adaptable content column and a persistent action footer.
 struct InstallerPageLayout<Header: View, Content: View, Actions: View>: View {
   var showsFooter = true
+  var contentAlignment: Alignment = .center
   @ViewBuilder let header: () -> Header
   @ViewBuilder let content: () -> Content
   @ViewBuilder let actions: () -> Actions
@@ -19,7 +20,7 @@ struct InstallerPageLayout<Header: View, Content: View, Actions: View>: View {
         .padding(.horizontal, 40)
         .padding(.vertical, 20)
         .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: contentAlignment)
       if showsFooter {
         actions()
           .frame(maxWidth: .infinity, minHeight: OmarchyTheme.buttonHeight)

@@ -127,12 +127,21 @@ struct OnePageInstallerView: View {
   }
 
   private var installerPage: some View {
-    InstallerPageLayout(showsFooter: session.phase != .inspecting) {
+    InstallerPageLayout(
+      showsFooter: session.phase != .inspecting, contentAlignment: pageContentAlignment
+    ) {
       header
     } content: {
       VStack(alignment: .leading, spacing: 16) { stage }
     } actions: {
       HStack(spacing: 16) { actions }
+    }
+  }
+
+  private var pageContentAlignment: Alignment {
+    switch session.phase {
+    case .planReview, .awaitingInstall: .top
+    default: .center
     }
   }
 
@@ -296,7 +305,7 @@ struct OnePageInstallerView: View {
           session.presentInstallCredentials()
         }
       }
-      .omarchyPrimaryButton()
+      .nativeInstallButton()
       .disabled(
         !acknowledged || session.isBusy || session.isEditingSize || session.planNeedsCheck
           || session.prefetchState != .verified
@@ -308,7 +317,7 @@ struct OnePageInstallerView: View {
         .omarchySecondaryButton()
         .disabled(!session.canEditPlan)
       Button(PlainLanguage.planInstall) { session.presentInstallCredentials() }
-        .omarchyPrimaryButton()
+        .nativeInstallButton()
         .disabled(!session.canStartInstallation)
         .keyboardShortcut(.defaultAction)
 
@@ -413,30 +422,16 @@ struct OnePageInstallerView: View {
     }
   }
 
-  /// The tick and its text. Both are inert while a re-plan runs so a tick
-  /// cannot land between the drag and the new plan.
   private func acknowledgement(_ acknowledged: Bool, resizesMacOS: Bool) -> some View {
-    let text = PlainLanguage.planAcknowledgement(resizesMacOS: resizesMacOS)
-    return HStack(alignment: .center, spacing: 12) {
-      Toggle(
-        "",
-        isOn: Binding(get: { acknowledged }, set: { session.setAcknowledged($0) })
-      )
-      .labelsHidden()
-      .toggleStyle(.checkbox)
-      .controlSize(.large)
-      .tint(OmarchyTheme.accent)
-      .accessibilityLabel(text)
-      Text(text)
-        .font(OmarchyTheme.heading)
-        .foregroundStyle(OmarchyTheme.accent)
-        .fixedSize(horizontal: false, vertical: true)
-        .onTapGesture { session.setAcknowledged(!acknowledged) }
-      Spacer(minLength: 0)
-    }
+    Toggle(
+      PlainLanguage.planAcknowledgement(resizesMacOS: resizesMacOS),
+      isOn: Binding(get: { acknowledged }, set: { session.setAcknowledged($0) })
+    )
+    .toggleStyle(.checkbox)
+    .controlSize(.regular)
+    .font(OmarchyTheme.body)
+    .tint(.gray)
     .disabled(session.isBusy || session.isEditingSize || session.planNeedsCheck)
-    .padding(.horizontal, 4)
-    .padding(.top, 4)
   }
 
   private var helperNote: some View {
@@ -591,15 +586,15 @@ struct EncryptDiskToggle: View {
         )
       )
       .toggleStyle(.checkbox)
-      .controlSize(.large)
-      .tint(OmarchyTheme.accent)
+      .controlSize(.regular)
+      .font(OmarchyTheme.body)
+      .tint(.gray)
       .disabled(!enabled)
       // One help paragraph: the password, and that nothing else unlocks the disk.
       Text(PlainLanguage.encryptLinuxDiskPassword + " " + PlainLanguage.encryptLinuxDiskNoRecovery)
         .omarchyHelpText()
+        .padding(.leading, 20)
     }
-    .padding(.horizontal, 4)
-    .padding(.top, 4)
   }
 }
 
@@ -714,10 +709,10 @@ struct DiskSplitPanel: View {
   private func capacity(_ title: String, bytes: UInt64, highlighted: Bool) -> some View {
     VStack(alignment: highlighted ? .trailing : .leading, spacing: 5) {
       Text(title).font(OmarchyTheme.detail).foregroundStyle(.secondary)
-      HStack(alignment: .firstTextBaseline, spacing: 9) {
+      HStack(alignment: .center, spacing: 9) {
         if highlighted && editable {
           Button(action: beginSizeEdit) {
-            Image(systemName: "pencil").font(.system(size: 15, weight: .medium))
+            Image(systemName: "pencil").font(.system(size: 18, weight: .medium))
               .frame(width: 28, height: 28)
           }
           .buttonStyle(.plain).foregroundStyle(.secondary)
