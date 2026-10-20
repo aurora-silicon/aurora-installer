@@ -8,19 +8,19 @@
     func testInspectionIdentityIsPinnedToTheReproducedRuntime() {
       XCTAssertEqual(
         ValidationEngineArtifactLocator.version,
-        "v0.9.2-aurora.9"
+        "v0.9.2-aurora.10"
       )
       XCTAssertEqual(
         ValidationEngineArtifactLocator.fileName,
-        "installer-v0.9.2-aurora.9.tar.gz"
+        "installer-v0.9.2-aurora.10.tar.gz"
       )
       XCTAssertEqual(
         ValidationEngineArtifactLocator.expectedDigest,
-        "sha256:86353904d101ef32f3cc607584a38442a948d2111c4514df32778d0afe456b47"
+        "sha256:1bbb77c98194069a5f588f14cdd2abb22ea00808c3ae262458cb7d2bab31d02e"
       )
       XCTAssertEqual(
         ValidationEngineArtifactLocator.expectedSizeBytes,
-        17_893_732
+        17_894_465
       )
     }
 

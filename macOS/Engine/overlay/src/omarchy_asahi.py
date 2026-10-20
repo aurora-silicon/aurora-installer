@@ -1233,6 +1233,7 @@ class AsahiStage1Adapter:
         native_target_evidence=None,
         native_volume_evidence=None,
         native_file_evidence=None,
+        native_partition_evidence=None,
         expected_native_bootstrap=None,
     ):
         self.installer = installer
@@ -1259,6 +1260,7 @@ class AsahiStage1Adapter:
         self.native_target_evidence = native_target_evidence
         self.native_volume_evidence = native_volume_evidence
         self.native_file_evidence = native_file_evidence
+        self.native_partition_evidence = native_partition_evidence
         self.expected_native_bootstrap = expected_native_bootstrap
         self.prepared_native_peripherals = None
         self.native_camera_setfiles = None
@@ -1580,7 +1582,10 @@ class AsahiStage1Adapter:
         else:
             self._consume_native_stub_files(plan)
         os_size = plan.length_bytes - self.stub_size
-        self.osins.partition_disk(self.target_part.name, os_size)
+        if self.native_partition_evidence is None:
+            self.osins.partition_disk(self.target_part.name, os_size)
+        else:
+            self._consume_native_partitions(plan, os_size)
 
         firmware_package = None
         if self.osins.needs_firmware:
@@ -1626,6 +1631,52 @@ class AsahiStage1Adapter:
                 os.path.join(target, "installer.log"),
             )
         return self._installed_evidence(plan)
+
+    def _consume_native_partitions(self, plan, os_size):
+        """Adopt only the exact helper-created layout; never partition twice."""
+        try:
+            receipt = json.loads(self.native_partition_evidence)
+            if (not isinstance(receipt, dict) or set(receipt) != {"plan", "stubUUID", "layout", "partitions"}
+                    or receipt["plan"] != plan.plan_digest
+                    or receipt["stubUUID"].lower() != self.target_part.uuid.lower()
+                    or set(receipt["layout"]) != {"parts"}):
+                raise ValueError("native partition binding changed")
+            rows = receipt["partitions"]
+            layouts = receipt["layout"]["parts"]
+            if len(rows) != len(self.template["partitions"]) or len(layouts) != len(rows):
+                raise ValueError("native partition count changed")
+            self._refresh_parts()
+            physical = sorted((part for part in self.installer.parts if not part.free
+                               and self.target_part.offset + self.target_part.size <= part.offset
+                               < plan.offset_bytes + plan.length_bytes), key=lambda part: part.offset)
+            if len(physical) != len(rows):
+                raise ValueError("native partition layout changed")
+            expansion = os_size - self.osins.min_size
+            offset = self.target_part.offset + self.target_part.size
+            for row, layout, template, live in zip(rows, layouts, self.template["partitions"], physical, strict=True):
+                size = self.osins.align(osinstall.psize(template["size"]))
+                if template.get("expand", False):
+                    size += expansion
+                if (not isinstance(row, dict)
+                        or set(row) != {"identifier", "uuid", "type", "offset", "size", "name"}
+                        or row["uuid"].lower() != live.uuid.lower()
+                        or row["identifier"] != live.name
+                        or row["offset"] != offset or row["offset"] != live.offset
+                        or row["size"] != size or row["size"] != live.size
+                        or row["type"] != ("EFI" if template["type"] == "EFI" else "Linux Filesystem")
+                        or row["type"] != live.type
+                        or layout.get("name") != template["name"] or layout.get("type") != template["type"]
+                        or layout.get("bytes") != size):
+                    raise ValueError("native partition identity changed")
+                offset += size
+            if offset != plan.offset_bytes + plan.length_bytes:
+                raise ValueError("native partitions exceed approved extent")
+            self.osins.part_info = physical
+            self.osins.efi_part = next(part for template, part in zip(self.template["partitions"], physical, strict=True)
+                                      if template["type"] == "EFI")
+            self.osins.install_size = os_size
+        except (ValueError, KeyError, TypeError, AttributeError, StopIteration) as error:
+            raise AsahiAdapterError("native OS partitions could not be verified") from error
 
     def validate_installed_checkpoint(
         self,

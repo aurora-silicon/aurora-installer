@@ -986,6 +986,56 @@ class AsahiStage1AdapterTests(unittest.TestCase):
         adapter.native_file_evidence = json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode()
         return adapter, receipt
 
+    def _native_partition_adapter(self):
+        adapter, target = self._native_volume_adapter()
+        adapter.target_part = target
+        templates = [dict(name="EFI", type="EFI", size="8388608B"),
+                     dict(name="Boot", type="Linux", size="16777216B"),
+                     dict(name="Root", type="Linux", size="33554432B", expand=True)]
+        adapter.template["partitions"] = templates
+        adapter.osins.align = lambda value: (value + 1048575) // 1048576 * 1048576
+        adapter.osins.min_size = 56 * 1024**2
+        os_size = self.plan.length_bytes - adapter.stub_size
+        sizes = [8 * 1024**2, 16 * 1024**2, os_size - 24 * 1024**2]
+        offset = target.offset + target.size
+        rows, layouts, physical = [], [], []
+        for index, (template, size) in enumerate(zip(templates, sizes, strict=True)):
+            identifier, uuid = f"disk0s{index + 9}", f"00000000-0000-0000-0000-{index + 9:012d}"
+            kind = "EFI" if index == 0 else "Linux Filesystem"
+            rows.append(dict(identifier=identifier, uuid=uuid, type=kind, offset=offset, size=size, name=""))
+            layouts.append(dict(name=template["name"], type=template["type"], bytes=size))
+            physical.append(FakePart(identifier, offset=offset, size=size, free=False, part_type=kind, uuid=uuid))
+            offset += size
+        adapter.installer.dutil.partition_rounds = [[target, *physical]]
+        adapter.installer.dutil.round = 0
+        receipt = dict(plan=self.plan.plan_digest, stubUUID=target.uuid, layout=dict(parts=layouts), partitions=rows)
+        adapter.native_partition_evidence = json.dumps(receipt).encode()
+        return adapter, receipt, os_size
+
+    def test_native_partition_receipt_adopts_the_live_layout_without_repartitioning(self):
+        adapter, receipt, size = self._native_partition_adapter()
+        with patch.object(adapter.osins, "partition_disk") as partition:
+            adapter._consume_native_partitions(self.plan, size)
+        partition.assert_not_called()
+        self.assertEqual([part.name for part in adapter.osins.part_info], [row["identifier"] for row in receipt["partitions"]])
+        self.assertEqual(adapter.osins.efi_part.uuid, receipt["partitions"][0]["uuid"])
+        self.assertEqual(adapter.osins.install_size, size)
+
+    def test_native_partition_receipt_refuses_changed_identity_geometry_or_metadata(self):
+        for fault in ("plan", "stub", "uuid", "offset", "size", "layout", "foreign", "type", "shape"):
+            with self.subTest(fault=fault):
+                adapter, receipt, size = self._native_partition_adapter()
+                if fault == "plan": receipt["plan"] = "changed"
+                elif fault == "stub": receipt["stubUUID"] = "changed"
+                elif fault in ("uuid", "offset", "size", "type"): receipt["partitions"][0][fault] = "changed"
+                elif fault == "layout": receipt["layout"]["parts"][0]["bytes"] += 4096
+                elif fault == "shape": receipt["partitions"][0]["extra"] = True
+                elif fault == "foreign": adapter.installer.dutil.partition_rounds[0].append(
+                    FakePart("disk0s99", offset=receipt["partitions"][0]["offset"], size=4096, free=False))
+                adapter.native_partition_evidence = json.dumps(receipt).encode()
+                with self.assertRaisesRegex(AsahiAdapterError, "native OS partitions"):
+                    adapter._consume_native_partitions(self.plan, size)
+
     def test_native_files_are_verified_and_skip_python_population_before_partitioning(self):
         with tempfile.TemporaryDirectory() as root:
             adapter, receipt = self._native_files_adapter(root)

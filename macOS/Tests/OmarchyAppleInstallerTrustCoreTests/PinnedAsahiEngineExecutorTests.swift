@@ -61,6 +61,16 @@
       }
     }
 
+    private struct NativePartitionsFixture: NativeOSPartitionsPreparing, NativeOSPartitionsExecuting {
+      var marker: URL? = nil
+      var files: URL? = nil
+      func preflight(_ package: ImportedEngineHandoffPackage) throws -> any NativeOSPartitionsExecuting { self }
+      func prepare(journal: URL, authorization: MachineOwnerAuthorization, sourceBootstrap: NativeSourceBootstrap) throws {
+        if let files { guard FileManager.default.fileExists(atPath: files.path) else { throw NativeOSPartitionError.changedLayout } }
+        if let marker { try Data("partitions prepared".utf8).write(to: marker) }
+      }
+    }
+
     private struct NoNativeStubFilesFixture: NativeStubFilesPreparing {
       func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (
         any NativeStubFilesExecuting
@@ -159,6 +169,27 @@
           ) { _ in }
           XCTAssertFalse(FileManager.default.fileExists(atPath: apfs.path))
           XCTAssertFalse(FileManager.default.fileExists(atPath: files.path))
+        }
+      }
+    }
+
+    func testNativePartitionCapabilityPrecedesMutationAndPartitionsFollowFiles() async throws {
+      for supported in [false, true] {
+        let fixture = try makeFixture(supportsNativePartitions: supported, expectNativeAPFS: true, expectNativeFiles: true)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let apfs = fixture.root.appendingPathComponent("apfs")
+        let files = fixture.root.appendingPathComponent("files")
+        let partitions = fixture.root.appendingPathComponent("partitions")
+        let executor = fixtureExecutor(effectiveUserID: { 0 }, apfsPreparer: NativeAPFSFixture(marker: apfs),
+          stubFilesPreparer: NativeFilesFixture(marker: files, apfs: apfs),
+          osPartitionsPreparer: NativePartitionsFixture(marker: partitions, files: files))
+        if supported {
+          _ = try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
+          XCTAssertTrue(FileManager.default.fileExists(atPath: partitions.path))
+        } else {
+          await assertThrowsErrorAsync(try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())) { _ in }
+          XCTAssertFalse(FileManager.default.fileExists(atPath: apfs.path))
+          XCTAssertFalse(FileManager.default.fileExists(atPath: partitions.path))
         }
       }
     }
@@ -981,6 +1012,7 @@
       peripheralPreparer: any NativePeripheralPreparing = NativeNeoPeripheralPreparer(),
       apfsPreparer: any NativeAPFSPreparing = NoNativeAPFSFixture(),
       stubFilesPreparer: any NativeStubFilesPreparing = NoNativeStubFilesFixture(),
+      osPartitionsPreparer: any NativeOSPartitionsPreparing = NativePartitionsFixture(),
       collectInstallAdmission: @escaping @Sendable () throws -> NativeInstallAdmissionFacts = {
         NativeAdmissionTestData.facts()
       },
@@ -1002,6 +1034,7 @@
         firmwarePreparer: firmwarePreparer,
         peripheralPreparer: peripheralPreparer,
         apfsPreparer: apfsPreparer, stubFilesPreparer: stubFilesPreparer,
+        osPartitionsPreparer: osPartitionsPreparer,
         nativeHandoff: FixtureNativeHandoff(),
         collectInstallAdmission: collectInstallAdmission,
         validatePayload: { _ in
@@ -1046,6 +1079,7 @@
       supportsNativePeripherals: Bool = true,
       supportsNativeAPFS: Bool = true,
       supportsNativeFiles: Bool = true,
+      supportsNativePartitions: Bool = true,
       expectNativeAPFS: Bool = false,
       expectNativeFiles: Bool = false,
       missingBackendInterpreter: Bool = false,
@@ -1089,8 +1123,9 @@
         supportsNativeAPFS
         ? ",\"nativeAPFSInput\":\"helper-target-v1\",\"nativeStubInput\":\"helper-volumes-v1\"" : ""
       let filesCapability = supportsNativeFiles ? ",\"nativeStubFiles\":\"helper-files-v1\"" : ""
+      let partitionsCapability = supportsNativePartitions ? ",\"nativeOSPartitions\":\"helper-partitions-v1\"" : ""
       try Data(
-        #"{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1"\#(apfsCapability)\#(filesCapability)\#(peripheralCapability)\#(handoffCapability)\#(capability)}"#
+        #"{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1"\#(apfsCapability)\#(filesCapability)\#(partitionsCapability)\#(peripheralCapability)\#(handoffCapability)\#(capability)}"#
           .utf8
       ).write(to: bundleSource.appendingPathComponent("engine-capabilities.json"))
       let main = bundleSource.appendingPathComponent("main.py")

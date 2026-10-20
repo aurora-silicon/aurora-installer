@@ -196,6 +196,47 @@ class EngineRuntimeTests(unittest.TestCase):
         self.assertEqual(factory.call_args.kwargs["native_target_evidence"], evidence)
         self.assertEqual(factory.call_args.kwargs["expected_native_bootstrap"], bootstrap)
 
+    def test_native_partition_flag_survives_environment_admission_and_reaches_the_consumer(self):
+        self._seed_plan(self.journal_path, self.inventory, self.plan)
+        environment = self._install_environment()
+        environment.update(OMARCHY_ENGINE_MODE="prepare-native-handoff",
+                           OMARCHY_NATIVE_APFS_TARGET="helper-target-v1",
+                           OMARCHY_NATIVE_STUB_VOLUMES="helper-volumes-v1",
+                           OMARCHY_NATIVE_STUB_FILES="helper-files-v1",
+                           OMARCHY_NATIVE_OS_PARTITIONS="helper-partitions-v1",
+                           OMARCHY_NATIVE_SOURCE_BOOTSTRAP=json.dumps(dict(mode="source-volume-owner",
+                               sourceSystemUUID="system", sourceGroupUUID="group", ownerUUIDs=["owner"])))
+        runtime = EngineRuntime.from_environment(environment)
+        self.assertEqual(runtime.values["OMARCHY_NATIVE_OS_PARTITIONS"], "helper-partitions-v1")
+        runtime.journal.event("apfs_preparation_started")
+        runtime.journal.checkpoint("apfs-target-prepared", "apfs_preparation", b'{"native":"target"}')
+        binding = b"synthetic protected file binding"
+        import hashlib
+        files = json.dumps(dict(binding_sha256=hashlib.sha256(binding).hexdigest())).encode()
+        partitions = b'{"native":"partitions"}'
+        for name, content in (("native-stub-volumes", b"volumes"), ("native-stub-files", files),
+                              ("native-stub-file-binding", binding), ("native-os-partitions", partitions)):
+            runtime.journal._store_checkpoint_evidence(name, content)
+        runtime.inspect("j314sap", True)
+        with patch("omarchy_runtime.omarchy_planner.collect_inventory", return_value=self.inventory), \
+             patch("omarchy_runtime.omarchy_execution.admit_execution", return_value=self.plan), \
+             patch("omarchy_runtime.omarchy_asahi.AsahiStage1Adapter", return_value=Mock()) as factory, \
+             patch("omarchy_runtime.omarchy_stage1.prepare_native_handoff", return_value="native_handoff_ready"):
+            self._run_layout(runtime)
+        self.assertEqual(factory.call_args.kwargs["native_partition_evidence"], partitions)
+
+    def test_native_partition_flag_without_native_files_stops_before_consumer_creation(self):
+        environment = self._install_environment()
+        environment["OMARCHY_NATIVE_OS_PARTITIONS"] = "helper-partitions-v1"
+        runtime = EngineRuntime.from_environment(environment)
+        runtime.inspect("j314sap", True)
+        with patch("omarchy_runtime.omarchy_planner.collect_inventory", return_value=self.inventory), \
+             patch("omarchy_runtime.omarchy_execution.admit_execution", return_value=self.plan), \
+             patch("omarchy_runtime.omarchy_asahi.AsahiStage1Adapter") as factory:
+            with self.assertRaisesRegex(EngineRuntimeError, "require native file preparation"):
+                self._run_layout(runtime)
+        factory.assert_not_called()
+
     def test_native_handoff_keeps_neo_native_firmware_admission_enabled(self):
         self.plan = self._build_plan(self.inventory, device="apple,j700")
         environment = self._install_environment()

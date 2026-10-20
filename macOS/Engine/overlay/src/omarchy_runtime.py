@@ -35,6 +35,7 @@ ENVIRONMENT_KEYS = {
     "OMARCHY_NATIVE_APFS_TARGET",
     "OMARCHY_NATIVE_STUB_VOLUMES",
     "OMARCHY_NATIVE_STUB_FILES",
+    "OMARCHY_NATIVE_OS_PARTITIONS",
     "OMARCHY_NATIVE_SOURCE_BOOTSTRAP",
     "DISTRO",
     "DISTRO_DOCS",
@@ -53,6 +54,7 @@ OPTIONAL_INSTALL_KEYS = {
     "OMARCHY_NATIVE_APFS_TARGET",
     "OMARCHY_NATIVE_STUB_VOLUMES",
     "OMARCHY_NATIVE_STUB_FILES",
+    "OMARCHY_NATIVE_OS_PARTITIONS",
     "OMARCHY_NATIVE_SOURCE_BOOTSTRAP",
 }
 
@@ -316,6 +318,11 @@ class EngineRuntime:
             binding = self.journal._read_checkpoint_evidence("native-stub-file-binding")
             if hashlib.sha256(binding).hexdigest() != json.loads(native_files).get("binding_sha256"):
                 raise EngineRuntimeError("native stub file binding changed")
+        native_partitions = None
+        if "OMARCHY_NATIVE_OS_PARTITIONS" in self.values:
+            if self.values["OMARCHY_NATIVE_OS_PARTITIONS"] != "helper-partitions-v1" or native_files is None:
+                raise EngineRuntimeError("native OS partitions require native file preparation")
+            native_partitions = self.journal._read_checkpoint_evidence("native-os-partitions")
         adapter = omarchy_asahi.AsahiStage1Adapter(
             installer=installer,
             metadata_path=self.values["OMARCHY_ENGINE_METADATA"],
@@ -334,6 +341,7 @@ class EngineRuntime:
             native_target_evidence=native_target,
             native_volume_evidence=native_volumes,
             native_file_evidence=native_files,
+            native_partition_evidence=native_partitions,
             expected_native_bootstrap=native_bootstrap,
             full_readback=os.environ.get("OMARCHY_FULL_READBACK") == "1",
         )
