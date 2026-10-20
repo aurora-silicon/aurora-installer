@@ -5,11 +5,14 @@
   import IOKit
 
   protocol NativeStubFilesExecuting: Sendable {
-    func prepare(journal: URL, authorization: MachineOwnerAuthorization,
+    func prepare(
+      journal: URL, authorization: MachineOwnerAuthorization,
       sourceBootstrap: NativeSourceBootstrap) async throws
   }
   protocol NativeStubFilesPreparing: Sendable {
-    func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (any NativeStubFilesExecuting)?
+    func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (
+      any NativeStubFilesExecuting
+    )?
   }
 
   struct NativeStubFilePlatform: Sendable {
@@ -20,35 +23,54 @@
     var decode: @Sendable (URL, String, URL, URL, FileHandle) async throws -> Void
 
     static var live: Self {
-      Self(environment: .live, boardID: {
-        let entry = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/chosen")
-        guard entry != 0 else { throw NativeStubFileError.invalidPlan }
-        defer { IOObjectRelease(entry) }
-        guard let bytes = IORegistryEntryCreateCFProperty(entry, "board-id" as CFString,
-          kCFAllocatorDefault, 0)?.takeRetainedValue() as? Data, [4, 8].contains(bytes.count)
-        else { throw NativeStubFileError.invalidPlan }
-        return bytes.enumerated().reduce(UInt64(0)) { $0 | UInt64($1.element) << (8 * $1.offset) }
-      }, configureSystem: { root in
-        var flags = Data(repeating: 0, count: 32)
-        flags[8] = 4
-        let descriptor = open(root.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
-        guard descriptor >= 0 else { throw NativeStubFileError.unsafeFile }
-        defer { close(descriptor) }
-        guard flags.withUnsafeBytes({ fsetxattr(descriptor, "com.apple.FinderInfo", $0.baseAddress, flags.count, 0, 0) }) == 0
-        else { throw NativeStubFileError.writeFailed }
-        var command: Int32 = 1
-        guard fsctl(root.path, 0xc0044a57, &command, 0) == 0 else { throw NativeStubFileError.writeFailed }
-      }, protectAdmin: { url in
-        let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
-        guard descriptor >= 0 else { throw NativeStubFileError.unsafeFile }
-        defer { close(descriptor) }
-        guard fchflags(descriptor, UInt32(SF_IMMUTABLE)) == 0 else { throw NativeStubFileError.writeFailed }
-      }, decode: { input, digest, output, executable, lease in
-        let task = Task.detached {
-          try NativeStubDecoder.run(executable: executable, input: input, digest: digest, output: output, lease: lease)
-        }
-        try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
-      })
+      Self(
+        environment: .live,
+        boardID: {
+          let entry = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/chosen")
+          guard entry != 0 else { throw NativeStubFileError.invalidPlan }
+          defer { IOObjectRelease(entry) }
+          guard
+            let bytes = IORegistryEntryCreateCFProperty(
+              entry, "board-id" as CFString,
+              kCFAllocatorDefault, 0)?.takeRetainedValue() as? Data, [4, 8].contains(bytes.count)
+          else { throw NativeStubFileError.invalidPlan }
+          return bytes.enumerated().reduce(UInt64(0)) { $0 | UInt64($1.element) << (8 * $1.offset) }
+        },
+        configureSystem: { root in
+          var flags = Data(repeating: 0, count: 32)
+          flags[8] = 4
+          let descriptor = open(root.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+          guard descriptor >= 0 else { throw NativeStubFileError.unsafeFile }
+          defer { close(descriptor) }
+          guard
+            flags.withUnsafeBytes({
+              fsetxattr(descriptor, "com.apple.FinderInfo", $0.baseAddress, flags.count, 0, 0)
+            }) == 0
+          else { throw NativeStubFileError.writeFailed }
+          var command: Int32 = 1
+          guard fsctl(root.path, 0xc004_4a57, &command, 0) == 0 else {
+            throw NativeStubFileError.writeFailed
+          }
+        },
+        protectAdmin: { url in
+          let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+          guard descriptor >= 0 else { throw NativeStubFileError.unsafeFile }
+          defer { close(descriptor) }
+          guard fchflags(descriptor, UInt32(SF_IMMUTABLE)) == 0 else {
+            throw NativeStubFileError.writeFailed
+          }
+        },
+        decode: { input, digest, output, executable, lease in
+          let task = Task.detached {
+            try NativeStubDecoder.run(
+              executable: executable, input: input, digest: digest, output: output, lease: lease)
+          }
+          try await withTaskCancellationHandler {
+            try await task.value
+          } onCancel: {
+            task.cancel()
+          }
+        })
     }
   }
 
@@ -57,7 +79,8 @@
     let platform: NativeStubFilePlatform
     let facts: @Sendable () throws -> NativeFirmwareSelection.Facts
 
-    init(owner: uid_t = 0, platform: NativeStubFilePlatform = .live,
+    init(
+      owner: uid_t = 0, platform: NativeStubFilePlatform = .live,
       facts: @escaping @Sendable () throws -> NativeFirmwareSelection.Facts = { try .live() }
     ) {
       self.owner = owner
@@ -65,29 +88,41 @@
       self.facts = facts
     }
 
-    func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (any NativeStubFilesExecuting)? {
+    func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (
+      any NativeStubFilesExecuting
+    )? {
       guard package.installationIntent == .fresh else { return nil }
       let approved = try EngineHandoffPackageImporter().executionPlan(package, owner: owner)
       let files = try NativeHandoffFileTree(package.packageURL, protected: true, owner: owner)
       let metadata = try files.read(package.metadataURL.lastPathComponent, maximum: 65536)
-      guard SHA256Digest(hashing: metadata).rawValue == approved.metadataDigest else { throw NativeStubFileError.invalidPlan }
+      guard SHA256Digest(hashing: metadata).rawValue == approved.metadataDigest else {
+        throw NativeStubFileError.invalidPlan
+      }
       let facts = try facts()
-      let firmware = try NativeFirmwareSelection.choose(deviceIdentifier: package.deviceIdentifier,
-        facts: facts, metadata: NativeInstallationMetadata(data: metadata), policy: NativeInspectionPolicy.sealed())
+      let firmware = try NativeFirmwareSelection.choose(
+        deviceIdentifier: package.deviceIdentifier,
+        facts: facts, metadata: NativeInstallationMetadata(data: metadata),
+        policy: NativeInspectionPolicy.sealed())
       // OTA patch streams keep their existing path until their native decoder
       // is qualified. Never interpret an update archive as a restore IPSW.
       guard firmware.sourceURL.path.lowercased().hasSuffix(".ipsw") else { return nil }
       let source = try await IPSWHTTPRangeReader.discover(url: firmware.sourceURL)
       let cache = package.packageURL.deletingLastPathComponent()
         .appendingPathComponent("native-stub-cache-" + approved.planDigest)
-      let identity = try JSONSerialization.data(withJSONObject: ["plan": approved.planDigest,
-        "url": firmware.sourceURL.absoluteString, "bytes": source.sizeBytes], options: [.sortedKeys])
-      let reader = try NativeStubRestoreCache(source: source, root: cache, owner: owner, identity: identity)
+      let identity = try JSONSerialization.data(
+        withJSONObject: [
+          "plan": approved.planDigest,
+          "url": firmware.sourceURL.absoluteString, "bytes": source.sizeBytes,
+        ], options: [.sortedKeys])
+      let reader = try NativeStubRestoreCache(
+        source: source, root: cache, owner: owner, identity: identity)
       let archive = try await IPSWArchive.open(reader)
-      let plan = try await NativeStubFilePlan(archive: archive, source: firmware,
+      let plan = try await NativeStubFilePlan(
+        archive: archive, source: firmware,
         deviceClass: String(package.deviceIdentifier.dropFirst(6)) + "ap",
         boardID: platform.boardID(), chipID: facts.hardware.chipID)
-      return NativeStubFilesExecution(package: package, approved: approved,
+      return NativeStubFilesExecution(
+        package: package, approved: approved,
         plan: plan, owner: owner, platform: platform, cache: reader)
     }
   }
@@ -106,7 +141,8 @@
     let platform: NativeStubFilePlatform
     let cache: NativeStubRestoreCache?
 
-    func prepare(journal: URL, authorization: MachineOwnerAuthorization,
+    func prepare(
+      journal: URL, authorization: MachineOwnerAuthorization,
       sourceBootstrap: NativeSourceBootstrap
     ) async throws {
       let file = try NativeInstallJournalFile(url: journal, package: package, owner: owner)
@@ -114,12 +150,15 @@
       guard transcript.plan == approved else { throw NativeStubFileError.invalidPlan }
       // Later stages legitimately rename the version marker and finalize the
       // Recovery launch files. Their existing checkpoint validator owns retry.
-      if transcript.checkpoints.contains(where: { $0.identifier == "stub-and-esp-installed" }) { return }
+      if transcript.checkpoints.contains(where: { $0.identifier == "stub-and-esp-installed" }) {
+        return
+      }
       guard transcript.checkpoints.map(\.identifier) == ["apfs-target-prepared"],
         try file.readJournal().split(separator: 10).count == 5
       else { throw NativeStubFileError.invalidPlan }
       let targetBytes = try file.readEvidence("apfs-target-prepared")
-      guard transcript.checkpoints[0].evidenceDigest == SHA256Digest(hashing: targetBytes).rawValue else {
+      guard transcript.checkpoints[0].evidenceDigest == SHA256Digest(hashing: targetBytes).rawValue
+      else {
         throw NativeStubFileError.invalidPlan
       }
       let target = try NativeAPFSTargetEvidence.read(targetBytes)
@@ -127,14 +166,17 @@
       guard target.planDigest == approved.planDigest, target.offsetBytes == approved.offsetBytes,
         target.sizeBytes <= approved.lengthBytes, snapshot.disk == approved.storeIdentifier,
         let partition = snapshot.partitions.first(where: {
-          $0.uuid == target.uuid && $0.identifier == target.partitionIdentifier && $0.offset == target.offsetBytes
+          $0.uuid == target.uuid && $0.identifier == target.partitionIdentifier
+            && $0.offset == target.offsetBytes
             && $0.size == target.sizeBytes && $0.type == "Apple_APFS"
         })
       else { throw NativeStubFileError.invalidPlan }
-      let volumes = try NativeStubVolumes.read(file.readEvidence(NativeStubVolumes.evidenceIdentifier))
+      let volumes = try NativeStubVolumes.read(
+        file.readEvidence(NativeStubVolumes.evidenceIdentifier))
       try volumes.validate(plan: approved.planDigest, target: partition, snapshot: snapshot)
-      guard try NativeSourceOwnerAdmission(environment: platform.environment).check(
-        package: package, authorization: authorization) == sourceBootstrap,
+      guard
+        try NativeSourceOwnerAdmission(environment: platform.environment).check(
+          package: package, authorization: authorization) == sourceBootstrap,
         try platform.environment.snapshot() == snapshot
       else { throw NativeHandoffValidationError.invalidOwner }
       let mounts = NativeHandoffMounts(platform.environment)
@@ -145,21 +187,31 @@
       for role in ["System", "Data", "Preboot", "Recovery"] {
         let volume = liveVolumes.first { $0.roles == [role] }!
         let root = try mounts.mounted(volume.identifier, uuid: volume.uuid, writable: true)
-        let tree = try NativeHandoffFileTree(root, protected: true, owner: owner,
-          volumeRoot: true, volumeDevice: volume.identifier, verifyMount: platform.environment.verifyMount)
+        let tree = try NativeHandoffFileTree(
+          root, protected: true, owner: owner,
+          volumeRoot: true, volumeDevice: volume.identifier,
+          verifyMount: platform.environment.verifyMount)
         roots[role] = root
         stores[role] = NativeStubFileStore(tree: tree, owner: owner, namespace: approved.planDigest)
       }
       let sourceNames = Set(plan.copies.map(\.member) + [plan.recoveryMember.name])
-      let sourceMembers = plan.archive.members.filter { sourceNames.contains($0.name) }.sorted { $0.name < $1.name }
-        .map { ["name": $0.name, "bytes": $0.sizeBytes, "compressed": $0.compressedSize, "crc32": $0.crc32] as [String: Any] }
-      let binding = try JSONSerialization.data(withJSONObject: [
-        "plan": approved.planDigest, "partition": target.uuid, "container": volumes.containerUUID,
-        "group": group, "source": plan.source.sourceURL.absoluteString,
-        "manifest": NativeStubFileStore.hash(plan.manifest), "firmware": plan.source.version,
-        "members": sourceMembers,
-        "bootstrap": sourceBootstrap.configuration,
-      ], options: [.sortedKeys, .withoutEscapingSlashes])
+      let sourceMembers = plan.archive.members.filter { sourceNames.contains($0.name) }.sorted {
+        $0.name < $1.name
+      }
+      .map {
+        [
+          "name": $0.name, "bytes": $0.sizeBytes, "compressed": $0.compressedSize,
+          "crc32": $0.crc32,
+        ] as [String: Any]
+      }
+      let binding = try JSONSerialization.data(
+        withJSONObject: [
+          "plan": approved.planDigest, "partition": target.uuid, "container": volumes.containerUUID,
+          "group": group, "source": plan.source.sourceURL.absoluteString,
+          "manifest": NativeStubFileStore.hash(plan.manifest), "firmware": plan.source.version,
+          "members": sourceMembers,
+          "bootstrap": sourceBootstrap.configuration,
+        ], options: [.sortedKeys, .withoutEscapingSlashes])
       try file.publishEvidence(binding, identifier: "native-stub-file-binding")
       let members = Dictionary(uniqueKeysWithValues: plan.archive.members.map { ($0.name, $0) })
       var installed = [Installed]()
@@ -167,7 +219,8 @@
       func fullPath(_ role: String, _ path: String) -> String {
         ["Preboot", "Recovery"].contains(role) ? group + "/" + path : path
       }
-      func copy(_ role: String, _ path: String, dataName: String? = nil,
+      func copy(
+        _ role: String, _ path: String, dataName: String? = nil,
         produce: (NativeStubFileStore, String) async throws -> NativeStubFileIdentity
       ) async throws {
         try Task.checkCancellation()
@@ -182,8 +235,10 @@
           else { throw NativeStubFileError.changedFile }
         } else {
           let identity = try await produce(store, relative)
-          saved = Installed(role: role, path: relative, installerDataName: dataName, identity: identity)
-          let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+          saved = Installed(
+            role: role, path: relative, installerDataName: dataName, identity: identity)
+          let encoder = JSONEncoder()
+          encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
           try file.publishEvidence(encoder.encode(saved), identifier: identifier)
         }
         installed.append(saved)
@@ -192,59 +247,96 @@
       try stores["Data"]!.tree.createDirectory("private/var/db/dslocal")
       try stores["System"]!.tree.createDirectory("Finish Installation.app/Contents/Resources")
       for operation in plan.copies {
-        let topLevelRestore = operation.role == "Preboot" && operation.path.hasPrefix(plan.restorePath + "/")
+        let topLevelRestore =
+          operation.role == "Preboot" && operation.path.hasPrefix(plan.restorePath + "/")
           && !String(operation.path.dropFirst(plan.restorePath.count + 1)).contains("/")
         if topLevelRestore {
-          try await restore(members[operation.member]!, role: operation.role, path: operation.path,
+          try await restore(
+            members[operation.member]!, role: operation.role, path: operation.path,
             compressed: false, dataName: operation.installerDataName)
         } else {
-          try await copy(operation.role, operation.path, dataName: operation.installerDataName) { store, path in
+          try await copy(operation.role, operation.path, dataName: operation.installerDataName) {
+            store, path in
             try await store.member(members[operation.member]!, archive: plan.archive, at: path)
           }
         }
       }
-      try await copy("Preboot", plan.restorePath + "/BuildManifest.plist", dataName: "BuildManifest.plist") {
+      try await copy(
+        "Preboot", plan.restorePath + "/BuildManifest.plist", dataName: "BuildManifest.plist"
+      ) {
         try await $0.data(plan.manifest, at: $1)
       }
-      guard let sourceContainer = snapshot.containers.first(where: { $0.uuid == snapshot.macOSContainerUUID }),
-        sourceContainer.volumes.contains(where: { $0.uuid == sourceBootstrap.systemUUID && $0.group == sourceBootstrap.groupUUID }),
+      guard
+        let sourceContainer = snapshot.containers.first(where: {
+          $0.uuid == snapshot.macOSContainerUUID
+        }),
+        sourceContainer.volumes.contains(where: {
+          $0.uuid == sourceBootstrap.systemUUID && $0.group == sourceBootstrap.groupUUID
+        }),
         sourceContainer.volumes.filter({ $0.roles == ["Preboot"] }).count == 1,
         let sourcePreboot = sourceContainer.volumes.first(where: { $0.roles == ["Preboot"] })
       else { throw NativeHandoffValidationError.invalidOwner }
-      let source = try mounts.mounted(sourcePreboot.identifier,
+      let source = try mounts.mounted(
+        sourcePreboot.identifier,
         uuid: sourcePreboot.uuid, sourcePreboot: true)
-      let sourceTree = try NativeHandoffFileTree(source, protected: true, owner: owner,
-        volumeRoot: true, volumeDevice: sourcePreboot.identifier, verifyMount: platform.environment.verifyMount)
-      let admin = try sourceTree.read(sourceBootstrap.groupUUID + "/var/db/AdminUserRecoveryInfo.plist", maximum: 1 << 20)
-      guard let users = try PropertyListSerialization.propertyList(from: admin, format: nil) as? [String: [String: Any]],
-        (users[authorization.username]?["GeneratedUID"] as? String).flatMap(UUID.init(uuidString:))?.uuidString
+      let sourceTree = try NativeHandoffFileTree(
+        source, protected: true, owner: owner,
+        volumeRoot: true, volumeDevice: sourcePreboot.identifier,
+        verifyMount: platform.environment.verifyMount)
+      let admin = try sourceTree.read(
+        sourceBootstrap.groupUUID + "/var/db/AdminUserRecoveryInfo.plist", maximum: 1 << 20)
+      guard
+        let users = try PropertyListSerialization.propertyList(from: admin, format: nil)
+          as? [String: [String: Any]],
+        (users[authorization.username]?["GeneratedUID"] as? String).flatMap(UUID.init(uuidString:))?
+          .uuidString
           == sourceBootstrap.ownerUUID
       else { throw NativeHandoffValidationError.invalidOwner }
-      try await copy("Preboot", "var/db/AdminUserRecoveryInfo.plist", dataName: "AdminUserRecoveryInfo.plist") {
+      try await copy(
+        "Preboot", "var/db/AdminUserRecoveryInfo.plist", dataName: "AdminUserRecoveryInfo.plist"
+      ) {
         try await $0.data(admin, at: $1, mode: 0o600)
       }
-      try platform.protectAdmin(roots["Preboot"]!.appendingPathComponent(group + "/var/db/AdminUserRecoveryInfo.plist"))
-      try stores["System"]!.tree.link(plan.restorePath,
+      try platform.protectAdmin(
+        roots["Preboot"]!.appendingPathComponent(group + "/var/db/AdminUserRecoveryInfo.plist"))
+      try stores["System"]!.tree.link(
+        plan.restorePath,
         destination: roots["Preboot"]!.appendingPathComponent(group + "/" + plan.restorePath).path,
         admittedRoot: roots["Preboot"]!)
 
-      func restore(_ member: IPSWArchiveMember, role: String, path: String, compressed: Bool,
+      func restore(
+        _ member: IPSWArchiveMember, role: String, path: String, compressed: Bool,
         dataName: String? = nil
       ) async throws {
         let prefix = try await plan.archive.readPrefix(member, maximumBytes: 4)
         if prefix != Data("AEA1".utf8) {
-          try await copy(role, path, dataName: dataName) { try await $0.member(member, archive: plan.archive, at: $1, compressed: compressed) }
+          try await copy(role, path, dataName: dataName) {
+            try await $0.member(member, archive: plan.archive, at: $1, compressed: compressed)
+          }
           return
         }
         let directory = package.packageURL.deletingLastPathComponent()
           .appendingPathComponent("native-stub-decode-" + approved.planDigest)
-        if mkdir(directory.path, 0o700) != 0 && errno != EEXIST { throw NativeStubFileError.unsafeFile }
+        if mkdir(directory.path, 0o700) != 0 && errno != EEXIST {
+          throw NativeStubFileError.unsafeFile
+        }
         let tree = try NativeHandoffFileTree(directory, protected: true, owner: owner)
         var directoryInfo = stat()
-        guard lstat(directory.path, &directoryInfo) == 0, directoryInfo.st_mode & 0o077 == 0 else { throw NativeStubFileError.unsafeFile }
+        guard lstat(directory.path, &directoryInfo) == 0, directoryInfo.st_mode & 0o077 == 0 else {
+          throw NativeStubFileError.unsafeFile
+        }
+        try NativeStubDecoder.requireInactiveWorkspaces(directory, owner: owner)
         let staging = NativeStubFileStore(tree: tree, owner: owner, namespace: approved.planDigest)
-        let input = directory.appendingPathComponent("input.aea"), output = directory.appendingPathComponent("output.dmg")
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let input = directory.appendingPathComponent("input.aea")
+        let output = directory.appendingPathComponent("output.dmg")
+        defer {
+          do {
+            try NativeStubDecoder.requireInactiveWorkspaces(directory, owner: owner)
+            try FileManager.default.removeItem(at: directory)
+          } catch {
+            // Keep a live decoder's private workspace and inputs.
+          }
+        }
         if try !tree.isAbsent("output.dmg") {
           let descriptor = try tree.fileDescriptor("output.dmg")
           defer { close(descriptor) }
@@ -254,11 +346,15 @@
           else { throw NativeStubFileError.unsafeFile }
           try FileManager.default.removeItem(at: output)
         }
-        let identity = try await staging.member(member, archive: plan.archive, at: "input.aea", mode: 0o600)
-        guard let executable = package.restoreImageURL else { throw NativeStubFileError.invalidImage }
+        let identity = try await staging.member(
+          member, archive: plan.archive, at: "input.aea", mode: 0o600)
+        guard let executable = package.restoreImageURL else {
+          throw NativeStubFileError.invalidImage
+        }
         var space = statfs()
         guard statfs(directory.path, &space) == 0,
-          UInt64(space.f_bavail) * UInt64(space.f_bsize) >= (10 << 30) + UInt64(member.sizeBytes) + (8 << 30)
+          UInt64(space.f_bavail) * UInt64(space.f_bsize) >= (10 << 30) + UInt64(member.sizeBytes)
+            + (8 << 30)
         else { throw NativeStubFileError.insufficientSpace }
         let lease = try file.leaseForChild()
         defer { try? lease.close() }
@@ -267,40 +363,60 @@
           let descriptor = open(output.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
           guard descriptor >= 0 else { throw NativeStubFileError.invalidImage }
           defer { close(descriptor) }
-          var info = stat(); var trailer = [UInt8](repeating: 0, count: 4)
+          var info = stat()
+          var trailer = [UInt8](repeating: 0, count: 4)
           guard fstat(descriptor, &info) == 0, info.st_size >= 512,
             pread(descriptor, &trailer, 4, info.st_size - 512) == 4, trailer == Array("koly".utf8)
           else { throw NativeStubFileError.invalidImage }
         }
-        try await copy(role, path, dataName: dataName) { try await $0.local(output, at: $1, compressed: compressed) }
+        try await copy(role, path, dataName: dataName) {
+          try await $0.local(output, at: $1, compressed: compressed)
+        }
       }
-      try await restore(plan.recoveryMember, role: "Recovery", path: "usr/standalone/firmware/arm64eBaseSystem.dmg", compressed: true)
-      try await copy("System", "System/Library/CoreServices/SystemVersion.plist", dataName: "SystemVersion.plist") {
+      try await restore(
+        plan.recoveryMember, role: "Recovery", path: "usr/standalone/firmware/arm64eBaseSystem.dmg",
+        compressed: true)
+      try await copy(
+        "System", "System/Library/CoreServices/SystemVersion.plist", dataName: "SystemVersion.plist"
+      ) {
         try await $0.data(plan.systemVersion, at: $1)
       }
-      let launcher = "#!/bin/sh\nset -eu\nresources=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\n"
+      let launcher =
+        "#!/bin/sh\nset -eu\nresources=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\n"
         + "exec \"$resources/../../../\(InstallerProductIdentity.recoveryAppBundleName)/Contents/MacOS/OmarchyRecovery\" \"$@\"\n"
       try await copy("System", "Finish Installation.app/Contents/Resources/step2.sh") {
         try await $0.data(Data(launcher.utf8), at: $1, mode: 0o755)
       }
-      let marker = try PropertyListSerialization.data(fromPropertyList: ["AppName": InstallerProductIdentity.recoveryAppBundleName,
-        "ProductBuildVersion": "00A191", "ProductVersion": "12.1"],
+      let marker = try PropertyListSerialization.data(
+        fromPropertyList: [
+          "AppName": InstallerProductIdentity.recoveryAppBundleName,
+          "ProductBuildVersion": "00A191", "ProductVersion": "12.1",
+        ],
         format: .xml, options: 0)
       try await copy("System", ".IAPhysicalMedia") { try await $0.data(marker, at: $1) }
       try platform.configureSystem(roots["System"]!)
-      guard let metadata = try JSONSerialization.jsonObject(with: plan.stubInfo) as? [String: Any] else { throw NativeStubFileError.invalidPlan }
+      guard let metadata = try JSONSerialization.jsonObject(with: plan.stubInfo) as? [String: Any]
+      else { throw NativeStubFileError.invalidPlan }
       var info = metadata
       info["vgid"] = group
       info["admin_users"] = try users.mapValues { value -> [String: Any] in
-        guard let uid = value["GeneratedUID"], let name = value["RealName"] else { throw NativeHandoffValidationError.invalidOwner }
+        guard let uid = value["GeneratedUID"], let name = value["RealName"] else {
+          throw NativeHandoffValidationError.invalidOwner
+        }
         return ["uid": uid, "real_name": name]
       }
-      let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-      let receipt: [String: Any] = ["schema": 1, "plan_digest": approved.planDigest,
+      let encoder = JSONEncoder()
+      encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+      let receipt: [String: Any] = [
+        "schema": 1, "plan_digest": approved.planDigest,
         "binding_sha256": NativeStubFileStore.hash(binding), "group_uuid": group,
         "source_url": plan.source.sourceURL.absoluteString, "firmware_version": plan.source.version,
-        "files": try JSONSerialization.jsonObject(with: encoder.encode(installed)), "stub_info": info]
-      try file.publishEvidence(JSONSerialization.data(withJSONObject: receipt, options: [.sortedKeys, .withoutEscapingSlashes]),
+        "files": try JSONSerialization.jsonObject(with: encoder.encode(installed)),
+        "stub_info": info,
+      ]
+      try file.publishEvidence(
+        JSONSerialization.data(
+          withJSONObject: receipt, options: [.sortedKeys, .withoutEscapingSlashes]),
         identifier: "native-stub-files")
       try await cache?.retire()
     }

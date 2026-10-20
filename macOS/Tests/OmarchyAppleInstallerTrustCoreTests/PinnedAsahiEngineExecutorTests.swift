@@ -62,7 +62,9 @@
     }
 
     private struct NoNativeStubFilesFixture: NativeStubFilesPreparing {
-      func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (any NativeStubFilesExecuting)? { nil }
+      func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (
+        any NativeStubFilesExecuting
+      )? { nil }
     }
 
     private struct NoNativeAPFSFixture: NativeAPFSPreparing {
@@ -122,29 +124,39 @@
     private struct NativeFilesFixture: NativeStubFilesPreparing, NativeStubFilesExecuting {
       let marker: URL
       let apfs: URL
-      func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (any NativeStubFilesExecuting)? { self }
-      func prepare(journal: URL, authorization: MachineOwnerAuthorization,
+      func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (
+        any NativeStubFilesExecuting
+      )? { self }
+      func prepare(
+        journal: URL, authorization: MachineOwnerAuthorization,
         sourceBootstrap: NativeSourceBootstrap
       ) async throws {
-        guard FileManager.default.fileExists(atPath: apfs.path) else { throw NativeStubFileError.invalidPlan }
+        guard FileManager.default.fileExists(atPath: apfs.path) else {
+          throw NativeStubFileError.invalidPlan
+        }
         try Data("files prepared".utf8).write(to: marker)
       }
     }
 
     func testNativeFileCapabilityIsAdmittedBeforeAnyMutationAndFilesFollowAPFS() async throws {
       for supported in [false, true] {
-        let fixture = try makeFixture(supportsNativeFiles: supported, expectNativeAPFS: true, expectNativeFiles: true)
+        let fixture = try makeFixture(
+          supportsNativeFiles: supported, expectNativeAPFS: true, expectNativeFiles: true)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let apfs = fixture.root.appendingPathComponent("apfs")
         let files = fixture.root.appendingPathComponent("files")
-        let executor = fixtureExecutor(effectiveUserID: { 0 },
+        let executor = fixtureExecutor(
+          effectiveUserID: { 0 },
           apfsPreparer: NativeAPFSFixture(marker: apfs),
           stubFilesPreparer: NativeFilesFixture(marker: files, apfs: apfs))
         if supported {
-          _ = try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
+          _ = try await executor.execute(
+            fixture.package, authorization: machineOwnerAuthorization())
           XCTAssertTrue(FileManager.default.fileExists(atPath: files.path))
         } else {
-          await assertThrowsErrorAsync(try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())) { _ in }
+          await assertThrowsErrorAsync(
+            try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
+          ) { _ in }
           XCTAssertFalse(FileManager.default.fileExists(atPath: apfs.path))
           XCTAssertFalse(FileManager.default.fileExists(atPath: files.path))
         }

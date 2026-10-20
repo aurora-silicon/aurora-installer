@@ -30,11 +30,14 @@
       }
     }
 
-    func member(_ member: IPSWArchiveMember, archive: IPSWArchive, at path: String,
+    func member(
+      _ member: IPSWArchiveMember, archive: IPSWArchive, at path: String,
       compressed: Bool = false, mode: mode_t = 0o644
     ) async throws -> NativeStubFileIdentity {
-      try await publish(path, bytes: member.sizeBytes, mode: mode, compressed: compressed) { writer in
-        let hash = try await archive.stream(member, maximumBytes: 8 << 30,
+      try await publish(path, bytes: member.sizeBytes, mode: mode, compressed: compressed) {
+        writer in
+        let hash = try await archive.stream(
+          member, maximumBytes: 8 << 30,
           maximumCompressedBytes: 8 << 30, consume: writer.append)
         return NativeStubFileIdentity(bytes: member.sizeBytes, sha256: hash)
       }
@@ -48,9 +51,11 @@
       defer { close(descriptor) }
       var info = stat()
       guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
-        info.st_uid == owner, info.st_mode & 0o022 == 0, info.st_nlink == 1, info.st_size > 0, info.st_size <= 8 << 30
+        info.st_uid == owner, info.st_mode & 0o022 == 0, info.st_nlink == 1, info.st_size > 0,
+        info.st_size <= 8 << 30
       else { throw NativeStubFileError.unsafeFile }
-      return try await publish(path, bytes: Int(info.st_size), mode: 0o644, compressed: compressed) { writer in
+      return try await publish(path, bytes: Int(info.st_size), mode: 0o644, compressed: compressed)
+      { writer in
         var hash = SHA256()
         let input = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
         var remaining = Int(info.st_size)
@@ -89,14 +94,18 @@
         guard stale.st_mode & S_IFMT == S_IFREG, stale.st_uid == owner, stale.st_mode & 0o022 == 0,
           stale.st_nlink == 1, unlinkat(parent, temporary, 0) == 0
         else { throw NativeStubFileError.unsafeFile }
-      } else if errno != ENOENT { throw NativeStubFileError.unsafeFile }
-      let descriptor = openat(parent, temporary, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+      } else if errno != ENOENT {
+        throw NativeStubFileError.unsafeFile
+      }
+      let descriptor = openat(
+        parent, temporary, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
       guard descriptor >= 0 else { throw NativeStubFileError.writeFailed }
       defer {
         close(descriptor)
         unlinkat(parent, temporary, 0)
       }
-      let writer = try NativeStubStreamWriter(descriptor: descriptor, bytes: bytes, compressed: compressed)
+      let writer = try NativeStubStreamWriter(
+        descriptor: descriptor, bytes: bytes, compressed: compressed)
       let expected = try await produce(writer)
       try writer.finish()
       guard expected.bytes == bytes, fchmod(descriptor, mode) == 0, fsync(descriptor) == 0,
@@ -116,7 +125,9 @@
       return expected
     }
 
-    static func identity(_ descriptor: Int32, owner: uid_t, maximum: Int) throws -> NativeStubFileIdentity {
+    static func identity(_ descriptor: Int32, owner: uid_t, maximum: Int) throws
+      -> NativeStubFileIdentity
+    {
       var info = stat()
       guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
         info.st_uid == owner, info.st_mode & 0o022 == 0, info.st_nlink == 1,
@@ -128,7 +139,9 @@
         try Task.checkCancellation()
         var bytes = Data(count: min(4 << 20, Int(info.st_size) - offset))
         let count = bytes.count
-        let got = bytes.withUnsafeMutableBytes { pread(descriptor, $0.baseAddress, count, off_t(offset)) }
+        let got = bytes.withUnsafeMutableBytes {
+          pread(descriptor, $0.baseAddress, count, off_t(offset))
+        }
         if got < 0 && errno == EINTR { continue }
         guard got > 0 else { throw NativeStubFileError.changedFile }
         hash.update(data: bytes.prefix(got))
@@ -169,13 +182,19 @@
       if compressed {
         var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
         guard fcntl(descriptor, F_GETPATH, &path) == 0 else { throw NativeStubFileError.unsafeFile }
-        resource = open(String(cString: path) + "/..namedfork/rsrc", O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0o600)
-        var original = stat(), fork = stat()
+        resource = open(
+          String(cString: path) + "/..namedfork/rsrc", O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW,
+          0o600)
+        var original = stat()
+        var fork = stat()
         guard resource >= 0, fstat(descriptor, &original) == 0, fstat(resource, &fork) == 0,
           original.st_ino == fork.st_ino, original.st_dev == fork.st_dev,
           ftruncate(resource, off_t(position)) == 0
         else {
-          if resource >= 0 { close(resource); resource = -1 }
+          if resource >= 0 {
+            close(resource)
+            resource = -1
+          }
           throw NativeStubFileError.unsafeFile
         }
       }
@@ -206,7 +225,10 @@
       guard position <= UInt32.max else { throw NativeStubFileError.writeFailed }
       offsets.append(UInt32(position))
       var index = Data()
-      for value in offsets { var little = value.littleEndian; index.append(withUnsafeBytes(of: &little) { Data($0) }) }
+      for value in offsets {
+        var little = value.littleEndian
+        index.append(withUnsafeBytes(of: &little) { Data($0) })
+      }
       try Self.write(resource, bytes: index, offset: 0)
       guard fsync(resource) == 0 else { throw NativeStubFileError.writeFailed }
       close(resource)
@@ -227,11 +249,14 @@
       let capacity = output.count
       let count = output.withUnsafeMutableBytes { target in
         input.withUnsafeBytes { source in
-          compression_encode_buffer(target.bindMemory(to: UInt8.self).baseAddress!, capacity,
+          compression_encode_buffer(
+            target.bindMemory(to: UInt8.self).baseAddress!, capacity,
             source.bindMemory(to: UInt8.self).baseAddress!, input.count, nil, COMPRESSION_LZFSE)
         }
       }
-      guard count > 0, position <= Int(UInt32.max) - count else { throw NativeStubFileError.writeFailed }
+      guard count > 0, position <= Int(UInt32.max) - count else {
+        throw NativeStubFileError.writeFailed
+      }
       offsets.append(UInt32(position))
       try Self.write(resource, bytes: Data(output.prefix(count)), offset: position)
       position += count
@@ -242,7 +267,8 @@
       try bytes.withUnsafeBytes { buffer in
         var cursor = 0
         while cursor < bytes.count {
-          let count = pwrite(descriptor, buffer.baseAddress!.advanced(by: cursor), bytes.count - cursor,
+          let count = pwrite(
+            descriptor, buffer.baseAddress!.advanced(by: cursor), bytes.count - cursor,
             off_t(offset + cursor))
           if count < 0 && errno == EINTR { continue }
           guard count > 0 else { throw NativeStubFileError.writeFailed }

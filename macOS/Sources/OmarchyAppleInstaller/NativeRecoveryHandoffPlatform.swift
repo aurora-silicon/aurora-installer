@@ -74,8 +74,10 @@
         throw NativeHandoffValidationError.invalidTarget
       }
       if (info["MountPoint"] as? String)?.isEmpty != false {
-        _ = try environment.command("/usr/sbin/diskutil", writable
-          ? ["mount", identifier] : ["mount", "readOnly", identifier])
+        _ = try environment.command(
+          "/usr/sbin/diskutil",
+          writable
+            ? ["mount", identifier] : ["mount", "readOnly", identifier])
         owned.append(identifier)
         info = try environment.disk(identifier)
       }
@@ -88,7 +90,8 @@
         throw NativeHandoffValidationError.invalidTarget
       }
       if writable {
-        guard info["WritableVolume"] as? Bool == true || info["ReadOnlyVolume"] as? Bool == false else {
+        guard info["WritableVolume"] as? Bool == true || info["ReadOnlyVolume"] as? Bool == false
+        else {
           throw NativeHandoffValidationError.invalidTarget
         }
       }

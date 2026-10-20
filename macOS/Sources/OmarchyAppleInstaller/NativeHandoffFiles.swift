@@ -124,14 +124,17 @@
     }
 
     func link(_ path: String, destination: String, admittedRoot: URL) throws {
-      guard protected, destination.hasPrefix(admittedRoot.path + "/") else { throw NativeHandoffValidationError.unsafePath }
+      guard protected, destination.hasPrefix(admittedRoot.path + "/") else {
+        throw NativeHandoffValidationError.unsafePath
+      }
       try withParent(path, createParents: true) { parent, leaf in
         if symlinkat(destination, parent, leaf) != 0 {
           guard errno == EEXIST else { throw NativeHandoffValidationError.unsafePath }
           var bytes = [CChar](repeating: 0, count: Int(MAXPATHLEN))
           let length = readlinkat(parent, leaf, &bytes, bytes.count)
           guard length == destination.utf8.count,
-            String(decoding: bytes.prefix(length).map { UInt8(bitPattern: $0) }, as: UTF8.self) == destination
+            String(decoding: bytes.prefix(length).map { UInt8(bitPattern: $0) }, as: UTF8.self)
+              == destination
           else { throw NativeHandoffValidationError.unsafePath }
         }
         guard fsync(parent) == 0 else { throw NativeHandoffValidationError.unsafePath }

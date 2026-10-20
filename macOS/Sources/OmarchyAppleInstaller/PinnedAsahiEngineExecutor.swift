@@ -238,7 +238,8 @@
         preparedAPFS =
           operation == .install && nativeFinalization
           ? try await apfsPreparer.preflight(package) : nil
-        preparedStubFiles = preparedAPFS == nil ? nil : try await stubFilesPreparer.preflight(package)
+        preparedStubFiles =
+          preparedAPFS == nil ? nil : try await stubFilesPreparer.preflight(package)
         if preparedStubFiles != nil { environment["OMARCHY_NATIVE_STUB_FILES"] = "helper-files-v1" }
         if preparedAPFS != nil {
           guard let sourceBootstrap else { throw NativeHandoffValidationError.invalidOwner }
@@ -272,7 +273,8 @@
                 guard let sourceBootstrap else { throw NativeHandoffValidationError.invalidOwner }
                 try preparedAPFS.prepareTarget(
                   journal: journal, authorization: authorization, sourceBootstrap: sourceBootstrap)
-                try await preparedStubFiles?.prepare(journal: journal, authorization: authorization,
+                try await preparedStubFiles?.prepare(
+                  journal: journal, authorization: authorization,
                   sourceBootstrap: sourceBootstrap)
               } else {
                 let bytes = try self.readAdmissionJournal(journal)

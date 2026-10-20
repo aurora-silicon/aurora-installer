@@ -23,10 +23,14 @@
       if mkdir(root.path, 0o700) != 0 && errno != EEXIST { throw NativeStubFileError.unsafeFile }
       tree = try NativeHandoffFileTree(root, protected: true, owner: owner)
       var info = stat()
-      guard lstat(root.path, &info) == 0, info.st_mode & 0o077 == 0 else { throw NativeStubFileError.unsafeFile }
+      guard lstat(root.path, &info) == 0, info.st_mode & 0o077 == 0 else {
+        throw NativeStubFileError.unsafeFile
+      }
       let marker = root.appendingPathComponent("identity.json")
       if FileManager.default.fileExists(atPath: marker.path) {
-        guard try tree.read("identity.json", maximum: 65536) == identity else { throw NativeStubFileError.invalidPlan }
+        guard try tree.read("identity.json", maximum: 65536) == identity else {
+          throw NativeStubFileError.invalidPlan
+        }
       } else {
         try identity.write(to: marker, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: marker.path)
@@ -59,15 +63,20 @@
       defer { pending.removeValue(forKey: name) }
       return try await withTaskCancellationHandler {
         try await task.value
-      } onCancel: { task.cancel() }
+      } onCancel: {
+        task.cancel()
+      }
     }
 
     private func fetch(offset: Int, count: Int, name: String) async throws -> Data {
       if try !tree.isAbsent(name + ".json") {
-        let record = try JSONDecoder().decode(NativeStubFileIdentity.self,
+        let record = try JSONDecoder().decode(
+          NativeStubFileIdentity.self,
           from: tree.read(name + ".json", maximum: 4096))
         let bytes = try tree.read(name + ".bin", maximum: 8 << 20)
-        guard record.bytes == count, bytes.count == count, NativeStubFileStore.hash(bytes) == record.sha256 else {
+        guard record.bytes == count, bytes.count == count,
+          NativeStubFileStore.hash(bytes) == record.sha256
+        else {
           throw NativeStubFileError.changedFile
         }
         return bytes

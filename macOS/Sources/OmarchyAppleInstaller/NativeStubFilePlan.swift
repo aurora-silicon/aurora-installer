@@ -19,7 +19,8 @@
     let recoveryMember: IPSWArchiveMember
     let copies: [Copy]
 
-    init(archive: IPSWArchive, source: NativeFirmwareSelection, deviceClass: String,
+    init(
+      archive: IPSWArchive, source: NativeFirmwareSelection, deviceClass: String,
       boardID: UInt64, chipID: UInt64
     ) async throws {
       self.archive = archive
@@ -31,7 +32,9 @@
         return try await archive.read(member, maximumBytes: 32 << 20)
       }
       func plist(_ data: Data) throws -> [String: Any] {
-        guard let object = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        guard
+          let object = try PropertyListSerialization.propertyList(from: data, format: nil)
+            as? [String: Any]
         else { throw NativeStubFileError.invalidPlan }
         return object
       }
@@ -69,22 +72,30 @@
       self.restorePath = restore
       self.recoveryMember = recoveryMember
       document["BuildIdentities"] = [identity]
-      manifest = try PropertyListSerialization.data(fromPropertyList: document, format: .xml, options: 0)
+      manifest = try PropertyListSerialization.data(
+        fromPropertyList: document, format: .xml, options: 0)
       version["ProductUserVisibleVersion"] = visible + " (stub)"
-      systemVersion = try PropertyListSerialization.data(fromPropertyList: version, format: .xml, options: 0)
+      systemVersion = try PropertyListSerialization.data(
+        fromPropertyList: version, format: .xml, options: 0)
       let summary: [String: Any] = [
         "system_version": version,
-        "manifest_info": ["build_number": buildNumber,
+        "manifest_info": [
+          "build_number": buildNumber,
           "variant": "macOS Customer", "device_class": deviceClass,
-          "board_id": board, "chip_id": chip],
+          "board_id": board, "chip_id": chip,
+        ],
       ]
-      guard JSONSerialization.isValidJSONObject(summary) else { throw NativeStubFileError.invalidPlan }
-      stubInfo = try JSONSerialization.data(withJSONObject: summary, options: [.sortedKeys, .withoutEscapingSlashes])
+      guard JSONSerialization.isValidJSONObject(summary) else {
+        throw NativeStubFileError.invalidPlan
+      }
+      stubInfo = try JSONSerialization.data(
+        withJSONObject: summary, options: [.sortedKeys, .withoutEscapingSlashes])
 
       var copies = [Copy]()
       func add(_ member: String, _ role: String, _ path: String, data: String? = nil) throws {
         guard NativeHandoffEvidence.safeRelative(member), NativeHandoffEvidence.safeRelative(path),
-          let entry = members[member], !entry.isDirectory, entry.sizeBytes > 0, entry.sizeBytes <= 8 << 30
+          let entry = members[member], !entry.isDirectory, entry.sizeBytes > 0,
+          entry.sizeBytes <= 8 << 30
         else { throw NativeStubFileError.invalidPlan }
         if let existing = copies.first(where: { $0.role == role && $0.path == path }) {
           guard existing.member == member else { throw NativeStubFileError.invalidPlan }
@@ -93,32 +104,47 @@
         copies.append(Copy(member: member, role: role, path: path, installerDataName: data))
       }
       try add("usr/standalone/bootcaches.plist", "System", "usr/standalone/bootcaches.plist")
-      try add("PlatformSupport.plist", "System", "System/Library/CoreServices/PlatformSupport.plist")
-      for name in ["SystemVersion.plist", "RestoreVersion.plist", "usr/standalone/bootcaches.plist"] {
-        try add(name, "Preboot", restore + "/" + name,
+      try add(
+        "PlatformSupport.plist", "System", "System/Library/CoreServices/PlatformSupport.plist")
+      for name in [
+        "SystemVersion.plist", "RestoreVersion.plist", "usr/standalone/bootcaches.plist",
+      ] {
+        try add(
+          name, "Preboot", restore + "/" + name,
           data: name == "RestoreVersion.plist" ? name : nil)
       }
       func tree(_ prefix: String, at destination: String) throws {
         let files = archive.members.filter { $0.name.hasPrefix(prefix + "/") && !$0.isDirectory }
         guard !files.isEmpty else { throw NativeStubFileError.invalidPlan }
         for file in files.sorted(by: { $0.name < $1.name }) {
-          try add(file.name, "Preboot", destination + "/" + String(file.name.dropFirst(prefix.count + 1)))
+          try add(
+            file.name, "Preboot", destination + "/" + String(file.name.dropFirst(prefix.count + 1)))
         }
       }
       try tree("BootabilityBundle/Restore/Bootability", at: restore + "/Bootability")
-      try add("BootabilityBundle/Restore/Firmware/Bootability.dmg.trustcache", "Preboot",
+      try add(
+        "BootabilityBundle/Restore/Firmware/Bootability.dmg.trustcache", "Preboot",
         restore + "/Bootability/Bootability.trustcache")
       try tree("Firmware/Manifests/restore/macOS Customer", at: restore)
-      let excluded: Set<String> = ["BaseSystem", "OS", "Ap,SystemVolumeCanonicalMetadata", "RestoreRamDisk", "RestoreTrustCache"]
-      for key in components.keys.sorted() where !excluded.contains(key) && !key.hasPrefix("Cryptex") {
-        guard let value = components[key]?["Info"] as? [String: Any], let path = value["Path"] as? String else {
+      let excluded: Set<String> = [
+        "BaseSystem", "OS", "Ap,SystemVolumeCanonicalMetadata", "RestoreRamDisk",
+        "RestoreTrustCache",
+      ]
+      for key in components.keys.sorted() where !excluded.contains(key) && !key.hasPrefix("Cryptex")
+      {
+        guard let value = components[key]?["Info"] as? [String: Any],
+          let path = value["Path"] as? String
+        else {
           throw NativeStubFileError.invalidPlan
         }
-        try add(path, "Preboot", restore + "/" + path,
+        try add(
+          path, "Preboot", restore + "/" + path,
           data: path.hasPrefix("kernelcache.") ? URL(fileURLWithPath: path).lastPathComponent : nil)
       }
       guard copies.count <= 10000,
-        copies.reduce(UInt64(recoveryMember.sizeBytes), { $0 + UInt64(members[$1.member]!.sizeBytes) }) <= 16 << 30
+        copies.reduce(
+          UInt64(recoveryMember.sizeBytes), { $0 + UInt64(members[$1.member]!.sizeBytes) }) <= 16
+          << 30
       else { throw NativeStubFileError.invalidPlan }
       self.copies = copies
     }

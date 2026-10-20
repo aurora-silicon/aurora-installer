@@ -112,7 +112,8 @@
 
     func containsEvidence(_ identifier: String) throws -> Bool {
       var info = stat()
-      if fstatat(directory, name + "." + identifier + ".evidence", &info, AT_SYMLINK_NOFOLLOW) == 0 {
+      if fstatat(directory, name + "." + identifier + ".evidence", &info, AT_SYMLINK_NOFOLLOW) == 0
+      {
         guard safe(info, maximum: 1 << 20) else { throw NativeRecoveryJournalError.evidenceChanged }
         return true
       }
