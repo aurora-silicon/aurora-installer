@@ -1,4 +1,4 @@
-name: Qualify native payload admission
+name: Qualify native payload candidate
 on:
   push:
     branches: [ci/native-recovery-review]
@@ -7,6 +7,34 @@ on:
 permissions:
   contents: read
 jobs:
+  portable:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+        working-directory: source/macOS
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: 33b85a5bca2b75bd85ec887a4251276e28a6e9a7
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - name: Qualify portable contracts
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          { git rev-parse HEAD; python3 --version; bash --version; } > "$RUNNER_TEMP/evidence/toolchain.txt"
+          bash test/all 2>&1 | tee "$RUNNER_TEMP/evidence/portable.log"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: native-payload-candidate-portable-evidence
+          path: ${{ runner.temp }}/evidence/
+          retention-days: 14
   native:
     runs-on: macos-26
     timeout-minutes: 35
@@ -20,7 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: b147b2cb0cb95b1e5ace466f4964a861455622b4
+          ref: 33b85a5bca2b75bd85ec887a4251276e28a6e9a7
           path: source
           persist-credentials: false
       - name: Record immutable source and toolchain
@@ -38,24 +66,23 @@ jobs:
           echo 'bd724a2c0e6ffe027b3f46257e66d626149a64cd045f4867124bd683b3cf081a  tool.tar.gz' | shasum -a 256 -c -
           tar -xzf tool.tar.gz
           echo "$PWD/xcodebuildmcp-2.7.0-darwin-arm64/bin" >> "$GITHUB_PATH"
-      - name: Format the focused candidate with Xcode
+      - name: Require exact Xcode formatting
         run: |
           set -euo pipefail
           xcrun swift-format format -i --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
           git diff --binary > "$RUNNER_TEMP/evidence/format.patch"
           xcrun swift-format lint --strict --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
-      - name: Check payload and bounded prefix operations
+          [[ ! -s "$RUNNER_TEMP/evidence/format.patch" ]]
+      - name: Check complete prefix regressions
         run: |
           set -euo pipefail
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug \
-            --filter 'IPSWArchiveTests|NativePayloadPreflightTests|PinnedAsahiEngineExecutorTests|NativeRecoveryHandoffTests' 2>&1 | tee "$RUNNER_TEMP/evidence/native-payload.log"
-      - name: Qualify the payload admission component
+            --filter IPSWArchiveTests 2>&1 | tee "$RUNNER_TEMP/evidence/prefix.log"
+      - name: Qualify all Swift tests
         run: |
           set -euo pipefail
-          xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug \
-            --filter 'AuroraFirmwareTests|NativePayloadPreflightTests|NativeRecoveryHandoffTests|NativeInstallAdmissionTests|NativeInstallerInspectorTests|ValidationEngineArtifactTests|PinnedAsahiEngineExecutorTests|InstallerJobTests|ClosedEngineHelperServerTests|InstallerSessionTests|RecoveryAccountTests|EngineHandoffPackageImporterTests|EngineContractTests' 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
-          xcodebuildmcp swift-package test --package-path "$PWD" --configuration release \
-            --filter 'AuroraFirmwareTests|NativePayloadPreflightTests|NativeRecoveryHandoffTests|NativeInstallAdmissionTests|NativeInstallerInspectorTests|ValidationEngineArtifactTests|PinnedAsahiEngineExecutorTests|InstallerJobTests|ClosedEngineHelperServerTests|InstallerSessionTests|RecoveryAccountTests|EngineHandoffPackageImporterTests|EngineContractTests' 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
+          xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
+          xcodebuildmcp swift-package test --package-path "$PWD" --configuration release 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
       - name: Retain the native driver logs
         if: always()
         run: |
@@ -68,6 +95,6 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: native-payload-component-evidence
+          name: native-payload-candidate-native-evidence
           path: ${{ runner.temp }}/evidence/
           retention-days: 14
