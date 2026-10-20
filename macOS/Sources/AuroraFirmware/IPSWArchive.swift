@@ -367,7 +367,8 @@ public struct IPSWArchive: Sendable {
     var produced = 0
     func emit(_ bytes: Data) throws {
       try Task.checkCancellation()
-      try require(bytes.count <= member.sizeBytes - produced, "IPSW output exceeds its declared size.")
+      try require(
+        bytes.count <= member.sizeBytes - produced, "IPSW output exceeds its declared size.")
       digest.update(data: bytes)
       checksum = bytes.withUnsafeBytes {
         zlib.crc32(checksum, $0.bindMemory(to: Bytef.self).baseAddress, uInt(bytes.count))
@@ -386,7 +387,8 @@ public struct IPSWArchive: Sendable {
     } else {
       var inflater = z_stream()
       try require(
-        inflateInit2_(&inflater, -MAX_WBITS, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK,
+        inflateInit2_(&inflater, -MAX_WBITS, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
+          == Z_OK,
         "Cannot initialize IPSW streaming decoder.")
       defer { inflateEnd(&inflater) }
       var input = Data()
@@ -432,7 +434,8 @@ public struct IPSWArchive: Sendable {
       }
     }
     try Task.checkCancellation()
-    try require(produced == member.sizeBytes && UInt32(checksum) == member.crc32,
+    try require(
+      produced == member.sizeBytes && UInt32(checksum) == member.crc32,
       "IPSW member length or CRC mismatch.")
     let hash = digest.finalize().map { String(format: "%02x", $0) }.joined()
     if let expectedSHA256 { try require(hash == expectedSHA256, "IPSW member digest mismatch.") }

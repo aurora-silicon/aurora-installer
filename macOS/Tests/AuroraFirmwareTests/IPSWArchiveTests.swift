@@ -119,7 +119,8 @@ final class IPSWArchiveTests: XCTestCase, @unchecked Sendable {
     let expected = "3b6a07d0d404fab4e23b6d34bc6696a6a312dd92821332385e5af7c01c421351"
     let digest = try await archive.stream(
       member, maximumBytes: 64 << 20, maximumCompressedBytes: 1 << 20,
-      expectedSHA256: expected, consume: {
+      expectedSHA256: expected,
+      consume: {
         count += $0.count
         largest = max(largest, $0.count)
         XCTAssertTrue($0.allSatisfy { $0 == 0 })
