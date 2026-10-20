@@ -565,12 +565,12 @@
 
       if retryRecoveryAvailable {
         return FailureDisplay(
-          headline: "Recovery authorization didn’t complete",
+          headline: "Installation paused",
           plainDetail:
-            "Disk preparation and file installation were verified. Retry the Recovery authorization step.",
+            "The last verified step is saved. Aurora will check the disk and installed files before continuing.",
           technicalDetail: technical,
           remedy:
-            "Enter the authorized macOS account password again. Only the Recovery authorization step will be retried.",
+            "Enter the authorized macOS account password to continue the installation.",
           retryRecoveryAvailable: true
         )
       }

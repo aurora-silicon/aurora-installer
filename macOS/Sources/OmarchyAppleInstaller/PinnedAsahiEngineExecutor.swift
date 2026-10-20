@@ -343,16 +343,20 @@
             throw PinnedAsahiEngineExecutionError.engineFailed(
               EngineFailureReport(
                 notice: EngineFailureNotice(
-                  reason: error is RestoreFailure
-                    ? .recoveryPreparation
-                    : error as? NativeInstallAdmissionError == .invalidJournal
-                      ? .planIntegrity : .diskLayoutChanged,
+                  reason: error is NativeRawImageError
+                    ? .unclassified
+                    : error is RestoreFailure
+                      ? .recoveryPreparation
+                      : error as? NativeInstallAdmissionError == .invalidJournal
+                        ? .planIntegrity : .diskLayoutChanged,
                   exitStatus: 1,
                   diskUnchanged: self.journalProvesNoMutation(
                     journal, identity: RecoveryRetryIdentity(package: package)),
-                  summary: error is RestoreFailure
-                    ? "The Recovery archive could not be prepared."
-                    : "The current disk could not be admitted for a fresh installation."),
+                  summary: error is NativeRawImageError
+                    ? "The Linux image could not be written."
+                    : error is RestoreFailure
+                      ? "The Recovery archive could not be prepared."
+                      : "The current disk could not be admitted for a fresh installation."),
                 redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
                   Data(String(describing: error).utf8), truncated: false,
                   secrets: [authorization.password])))

@@ -257,7 +257,8 @@ struct OnePageInstallerView: View {
         detail: failure.plainDetail,
         remedy: failure.remedy,
         technical: failure.technicalDetail,
-        isError: true
+        isError: true,
+        retryAvailable: failure.retryRecoveryAvailable
       )
     }
   }
@@ -370,7 +371,8 @@ struct OnePageInstallerView: View {
   // MARK: Pieces
 
   private func messagePanel(
-    headline: String, detail: String, remedy: String?, technical: String?, isError: Bool
+    headline: String, detail: String, remedy: String?, technical: String?, isError: Bool,
+    retryAvailable: Bool = false
   ) -> some View {
     VStack(alignment: .leading, spacing: 10) {
       VStack(alignment: .leading, spacing: 8) {
@@ -391,7 +393,7 @@ struct OnePageInstallerView: View {
         if let technical {
           InstallerDetailsButton(title: "Technical details", text: technical).padding(.top, 4)
         }
-        if session.hasExecutionStarted {
+        if session.hasExecutionStarted && !retryAvailable {
           Text(
             "This installation can’t be started again yet. Review the installation record below, and keep this Mac plugged in."
           )

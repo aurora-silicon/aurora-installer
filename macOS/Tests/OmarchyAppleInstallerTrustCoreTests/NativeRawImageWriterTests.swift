@@ -61,6 +61,8 @@
             self.writes += 1
             if self.rejectWrite { throw NativeRawImageError.writeFailed }
             XCTAssertLessThanOrEqual(bytes.count, 4 << 20)
+            XCTAssertEqual(bytes.count % 4096, 0)
+            XCTAssertEqual(offset % 4096, 0)
             try NativeRawImagePlatform.write(fd, bytes, offset)
           },
           flush: { fd in
@@ -69,6 +71,30 @@
             guard fsync(fd) == 0 else { throw NativeRawImageError.flushFailed }
           })
       }
+    }
+
+    func testUnalignedDecoderCallbacksProduceOnlyCompleteRawBlocks() throws {
+      let total = (1 << 20) + 4096
+      var written = Data()
+      var calls = [(UInt64, Int)]()
+      var sink = NativeRawImageWriter.AlignedSink(expected: UInt64(total)) { bytes, offset in
+        XCTAssertEqual(offset % 4096, 0)
+        XCTAssertEqual(bytes.count % 4096, 0)
+        XCTAssertLessThanOrEqual(bytes.count, 4 << 20)
+        calls.append((offset, bytes.count))
+        written.append(bytes)
+      }
+      try sink.append(Data(repeating: 0x11, count: (1 << 20) - 1))
+      XCTAssertTrue(calls.isEmpty)
+      try sink.append(Data([0x22]))
+      XCTAssertEqual(calls.count, 1)
+      try sink.append(Data(repeating: 0x33, count: 4095))
+      try sink.append(Data([0x44]))
+      try sink.finish()
+      XCTAssertEqual(calls.map { $0.1 }, [1 << 20, 4096])
+      XCTAssertEqual(written.count, total)
+      XCTAssertEqual(written[(1 << 20) - 1], 0x22)
+      XCTAssertEqual(written[total - 1], 0x44)
     }
 
     func testStreamingWritesOnlyTheImagePrefixAndReturnsTheFlushedSourceIdentity() async throws {

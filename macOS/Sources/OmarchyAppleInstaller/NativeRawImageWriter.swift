@@ -92,6 +92,43 @@
   }
 
   enum NativeRawImageWriter {
+    /// Deflate can end a callback between device blocks. Keep only the trailing
+    /// partial block and submit complete 4 KiB blocks to the raw partition.
+    struct AlignedSink {
+      let expected: UInt64
+      let write: (Data, UInt64) throws -> Void
+      private(set) var received: UInt64 = 0
+      private(set) var copied: UInt64 = 0
+      private var pending = Data()
+
+      mutating func append(_ bytes: Data) throws {
+        guard !bytes.isEmpty, bytes.count <= 4 << 20,
+          UInt64(bytes.count) <= expected - received
+        else { throw NativeRawImageError.invalidImage }
+        received += UInt64(bytes.count)
+        pending.append(bytes)
+        try drain(force: false)
+      }
+
+      mutating func finish() throws {
+        guard received == expected, pending.count % 4096 == 0 else {
+          throw NativeRawImageError.invalidImage
+        }
+        try drain(force: true)
+        guard copied == expected, pending.isEmpty else { throw NativeRawImageError.invalidImage }
+      }
+
+      private mutating func drain(force: Bool) throws {
+        while pending.count >= (force ? 4096 : 1 << 20) {
+          let count = min(4 << 20, pending.count - pending.count % 4096)
+          guard count > 0 else { break }
+          try write(Data(pending.prefix(count)), copied)
+          copied += UInt64(count)
+          pending.removeFirst(count)
+        }
+      }
+    }
+
     /// Archive CRC, output length and SHA-256 are completed before a successful
     /// device-cache flush can produce a receipt. No extracted image is retained.
     static func write(
@@ -112,25 +149,23 @@
       let descriptor = try platform.openTarget(partition)
       defer { close(descriptor) }
       try verify(partition)
-      var copied: UInt64 = 0
+      var sink = AlignedSink(expected: UInt64(member.sizeBytes)) { bytes, offset in
+        try platform.writeChunk(descriptor, bytes, offset)
+      }
       let digest = try await archive.stream(
         member, maximumBytes: member.sizeBytes,
         maximumCompressedBytes: member.compressedSize
       ) { bytes in
-        guard !bytes.isEmpty, bytes.count <= 4 << 20,
-          UInt64(bytes.count) <= UInt64(member.sizeBytes) - copied
-        else { throw NativeRawImageError.invalidImage }
-        try platform.writeChunk(descriptor, bytes, copied)
-        copied += UInt64(bytes.count)
+        try sink.append(bytes)
       }
-      guard copied == UInt64(member.sizeBytes) else { throw NativeRawImageError.invalidImage }
+      try sink.finish()
       try Task.checkCancellation()
       try platform.flush(descriptor)
       try verify(partition)
       return NativeRawImageReceipt(
         partitionIdentifier: partition.identifier,
         partitionUUID: partition.uuid.lowercased(), partitionSizeBytes: partition.size,
-        installedBytes: copied, contentSHA256: digest,
+        installedBytes: sink.copied, contentSHA256: digest,
         verification: "source-sha256-write-flushed-v1")
     }
   }

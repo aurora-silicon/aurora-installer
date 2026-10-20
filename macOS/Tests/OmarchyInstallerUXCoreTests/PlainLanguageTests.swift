@@ -465,7 +465,7 @@
       )
 
       XCTAssertTrue(failure.retryRecoveryAvailable)
-      XCTAssertEqual(failure.headline, "Recovery authorization didn’t complete")
+      XCTAssertEqual(failure.headline, "Installation paused")
       XCTAssertNotNil(failure.remedy)
       XCTAssertNotNil(failure.technicalDetail)
     }
