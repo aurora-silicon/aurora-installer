@@ -236,6 +236,7 @@
         if preparedAPFS != nil {
           guard let sourceBootstrap else { throw NativeHandoffValidationError.invalidOwner }
           environment["OMARCHY_NATIVE_APFS_TARGET"] = "helper-target-v1"
+          environment["OMARCHY_NATIVE_STUB_VOLUMES"] = "helper-volumes-v1"
           environment["OMARCHY_NATIVE_SOURCE_BOOTSTRAP"] = String(
             decoding:
               try JSONSerialization.data(
@@ -476,7 +477,9 @@
             additionalEnvironment["OMARCHY_NATIVE_PERIPHERALS"] == nil
               || values["nativePeripheralInput"] as? String == "helper-converted-v1",
             additionalEnvironment["OMARCHY_NATIVE_APFS_TARGET"] == nil
-              || values["nativeAPFSInput"] as? String == "helper-target-v1"
+              || values["nativeAPFSInput"] as? String == "helper-target-v1",
+            additionalEnvironment["OMARCHY_NATIVE_STUB_VOLUMES"] == nil
+              || values["nativeStubInput"] as? String == "helper-volumes-v1"
           else { throw PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported }
         } catch {
           throw PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported

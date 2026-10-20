@@ -1231,6 +1231,7 @@ class AsahiStage1Adapter:
         native_recipe_sha256=None,
         require_native_peripherals=False,
         native_target_evidence=None,
+        native_volume_evidence=None,
         expected_native_bootstrap=None,
     ):
         self.installer = installer
@@ -1255,6 +1256,7 @@ class AsahiStage1Adapter:
         self.native_recipe_sha256 = native_recipe_sha256
         self.require_native_peripherals = require_native_peripherals
         self.native_target_evidence = native_target_evidence
+        self.native_volume_evidence = native_volume_evidence
         self.expected_native_bootstrap = expected_native_bootstrap
         self.prepared_native_peripherals = None
         self.native_camera_setfiles = None
@@ -1416,6 +1418,8 @@ class AsahiStage1Adapter:
         self.installer.osins = self.osins
         if self.native_target_evidence is not None:
             self._validate_native_target(plan)
+        if self.native_volume_evidence is not None:
+            self._validate_native_volumes(plan)
         self.preflight_complete = True
 
     def remove_existing_install(self, plan):
@@ -1560,8 +1564,14 @@ class AsahiStage1Adapter:
             self.target_part = self._find_prepared_target(plan)
             self.installer.part = self.target_part
 
-        self.installer.ins.prepare_volume(self.target_part)
+        if self.native_volume_evidence is None:
+            self.installer.ins.prepare_volume(self.target_part)
+        else:
+            self._validate_native_volumes(plan)
+            self.installer.ins.part = self.target_part
         self.installer.ins.check_volume()
+        if self.native_volume_evidence is not None:
+            self._validate_native_volume_group()
         self.installer.ins.install_files(self.installer.cur_os)
         os_size = plan.length_bytes - self.stub_size
         self.osins.partition_disk(self.target_part.name, os_size)
@@ -1878,6 +1888,79 @@ class AsahiStage1Adapter:
             raise AsahiAdapterError("native APFS target identity changed")
         self.target_part = matches[0]
         self.installer.part = self.target_part
+
+    def _validate_native_volumes(self, plan):
+        if self.native_target_evidence is None:
+            raise AsahiAdapterError("native stub volumes require a native target")
+        try:
+            receipt = json.loads(self.native_volume_evidence)
+            if (not isinstance(receipt, dict)
+                    or set(receipt) != {"planDigest", "partitionUUID", "containerUUID", "label", "volumes"}
+                    or json.dumps(receipt, sort_keys=True, separators=(",", ":"),
+                                  ensure_ascii=False).encode() != self.native_volume_evidence
+                    or receipt["planDigest"] != plan.plan_digest
+                    or receipt["partitionUUID"] != self.target_part.uuid
+                    or receipt["label"] != self.osins.name):
+                raise ValueError("invalid receipt")
+            container = self.target_part.container
+            if container["APFSContainerUUID"] != receipt["containerUUID"]:
+                raise ValueError("changed container")
+            expected = receipt["volumes"]
+            observed = container["Volumes"]
+            if not isinstance(expected, list) or not 4 <= len(expected) <= 5 or len(observed) != len(expected):
+                raise ValueError("changed volume count")
+            by_uuid = {}
+            for item in observed:
+                uuid = item["APFSVolumeUUID"]
+                if uuid in by_uuid:
+                    raise ValueError("duplicate volume")
+                by_uuid[uuid] = item
+            roles = {}
+            for item in expected:
+                keys = {"uuid", "name", "roles", "identifier"}
+                if (not isinstance(item, dict) or set(item) not in (keys, keys | {"group"})
+                        or not re.fullmatch(r"[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}", item["uuid"])
+                        or PARTITION_PATTERN.fullmatch(item["identifier"]) is None
+                        or item["roles"] not in (["System"], ["Data"], ["Preboot"], ["Recovery"], ["VM"])):
+                    raise ValueError("invalid volume")
+                role = item["roles"][0]
+                if role in roles:
+                    raise ValueError("duplicate role")
+                live = by_uuid.pop(item["uuid"])
+                if (live["Name"] != item["name"] or live["Roles"] != item["roles"]
+                        or PARTITION_PATTERN.fullmatch(live["DeviceIdentifier"]) is None):
+                    raise ValueError("changed volume")
+                roles[role] = (item, live)
+            if by_uuid or not {"System", "Data", "Preboot", "Recovery"} <= set(roles):
+                raise ValueError("incomplete group")
+            group = roles["System"][0]["group"]
+            if (not re.fullmatch(r"[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}", group)
+                    or group == "00000000-0000-0000-0000-000000000000"
+                    or roles["Data"][0]["group"] != group
+                    or roles["System"][0]["name"] != receipt["label"]
+                    or roles["Data"][0]["name"] != receipt["label"] + " - Data"
+                    or any(item.get("group") is not None for role, (item, _) in roles.items()
+                           if role not in ("System", "Data"))):
+                raise ValueError("changed group")
+            groups = container["VolumeGroups"]
+            if (len(groups) != 1 or groups[0]["APFSVolumeGroupUUID"] != group
+                    or sorted((item["Role"], item["DeviceIdentifier"]) for item in groups[0]["Volumes"])
+                    != sorted((role, roles[role][1]["DeviceIdentifier"]) for role in ("System", "Data"))):
+                raise ValueError("changed group members")
+        except (ValueError, TypeError, KeyError, AttributeError) as error:
+            raise AsahiAdapterError("native stub volume identity changed") from error
+        self.native_volume_roles = roles
+        self.installer.ins.label = receipt["label"]
+
+    def _validate_native_volume_group(self):
+        roles = self.native_volume_roles
+        osi = self.installer.ins.osi
+        if (osi.vgid != roles["System"][0]["group"]
+                or osi.sys_volume != roles["System"][1]["DeviceIdentifier"]
+                or osi.data_volume != roles["Data"][1]["DeviceIdentifier"]
+                or osi.preboot_vgid != roles["Preboot"][0]["uuid"]
+                or osi.rec_vgid != roles["Recovery"][0]["uuid"]):
+            raise AsahiAdapterError("native stub volume discovery changed")
 
     def _target_evidence(self, plan):
         return json.dumps(

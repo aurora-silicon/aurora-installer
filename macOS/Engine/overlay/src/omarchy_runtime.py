@@ -32,6 +32,7 @@ ENVIRONMENT_KEYS = {
     "OMARCHY_NATIVE_PERIPHERALS",
     "OMARCHY_NATIVE_FIRMWARE_RECIPE",
     "OMARCHY_NATIVE_APFS_TARGET",
+    "OMARCHY_NATIVE_STUB_VOLUMES",
     "OMARCHY_NATIVE_SOURCE_BOOTSTRAP",
     "DISTRO",
     "DISTRO_DOCS",
@@ -48,6 +49,7 @@ OPTIONAL_INSTALL_KEYS = {
     "OMARCHY_NATIVE_PERIPHERALS",
     "OMARCHY_NATIVE_FIRMWARE_RECIPE",
     "OMARCHY_NATIVE_APFS_TARGET",
+    "OMARCHY_NATIVE_STUB_VOLUMES",
     "OMARCHY_NATIVE_SOURCE_BOOTSTRAP",
 }
 
@@ -297,6 +299,12 @@ class EngineRuntime:
                     raise ValueError("invalid source bootstrap")
             except ValueError as error:
                 raise EngineRuntimeError("native source bootstrap is required") from error
+        native_volumes = None
+        if "OMARCHY_NATIVE_STUB_VOLUMES" in self.values:
+            if (self.values["OMARCHY_NATIVE_STUB_VOLUMES"] != "helper-volumes-v1"
+                    or native_target is None):
+                raise EngineRuntimeError("native stub volumes require native APFS preparation")
+            native_volumes = self.journal._read_checkpoint_evidence("native-stub-volumes")
         adapter = omarchy_asahi.AsahiStage1Adapter(
             installer=installer,
             metadata_path=self.values["OMARCHY_ENGINE_METADATA"],
@@ -313,6 +321,7 @@ class EngineRuntime:
             native_recipe_sha256=self.values.get("OMARCHY_NATIVE_FIRMWARE_RECIPE"),
             require_native_peripherals=self.mode in ("install", "prepare-native-handoff") and self.device_identifier == "apple,j700",
             native_target_evidence=native_target,
+            native_volume_evidence=native_volumes,
             expected_native_bootstrap=native_bootstrap,
             full_readback=os.environ.get("OMARCHY_FULL_READBACK") == "1",
         )

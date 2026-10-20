@@ -22,6 +22,7 @@
       @Sendable (ImportedEngineHandoffPackage, MachineOwnerAuthorization, NativeSourceBootstrap)
         throws -> Void
     var command: @Sendable ([String]) throws -> Void
+    var containerReference: @Sendable (RemovalPartition, RemovalContainer) throws -> String
 
     static var live: Self {
       let disks = NativeDiskCollector().disks
@@ -55,6 +56,23 @@
         },
         command: { arguments in
           _ = try MacRemovalDiskOperator.systemRun("/usr/sbin/diskutil", arguments)
+        }, containerReference: { part, container in
+          guard
+            let listing = try PropertyListSerialization.propertyList(
+              from: disks.commands(["apfs", "list", "-plist"]), format: nil) as? [String: Any],
+            let containers = listing["Containers"] as? [[String: Any]]
+          else { throw NativeStubVolumeError.changedContainer }
+          let matching = containers.filter {
+            ($0["APFSContainerUUID"] as? String).flatMap(UUID.init(uuidString:))?.uuidString
+              == container.uuid
+          }
+          guard matching.count == 1, let value = matching.first,
+            let stores = value["PhysicalStores"] as? [[String: Any]], stores.count == 1,
+            stores[0]["DeviceIdentifier"] as? String == part.identifier,
+            let reference = value["ContainerReference"] as? String,
+            reference.range(of: #"^disk[0-9]+$"#, options: .regularExpression) != nil
+          else { throw NativeStubVolumeError.changedContainer }
+          return reference
         })
     }
 
@@ -255,6 +273,9 @@
         let after = try platform.snapshot()
         let target = try createdTarget(before: available, after: after, label: label)
         try platform.verifyPartition(target, after.disk)
+        let volumes = try NativeStubVolumes.prepare(
+          plan: approved.planDigest, target: target, label: label, snapshot: after, platform: platform)
+        try file.publishEvidence(volumes.bytes, identifier: NativeStubVolumes.evidenceIdentifier)
         let evidence = try NativeAPFSTargetEvidence(plan: approved.planDigest, partition: target)
           .bytes
         try file.publishEvidence(evidence, identifier: "apfs-target-prepared")
@@ -370,6 +391,8 @@
         matching.count == 1
       else { throw NativeAPFSError.changedTarget }
       try platform.verifyPartition(matching[0], snapshot.disk)
+      let volumes = try NativeStubVolumes.read(file.readEvidence(NativeStubVolumes.evidenceIdentifier))
+      try volumes.validate(plan: approved.planDigest, target: matching[0], snapshot: snapshot)
     }
   }
 #endif

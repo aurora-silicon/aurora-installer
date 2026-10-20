@@ -278,7 +278,7 @@
             "version": "14.8.3"
           }
         ],
-        "runtimeVersion": "v0.9.2-aurora.7",
+        "runtimeVersion": "v0.9.2-aurora.8",
         "sourceSHA256": "17d0e11464af7996f45f83f0f535a0cc4e8d8c877a05775d3e1834aa38f16ad8"
       }
       """#

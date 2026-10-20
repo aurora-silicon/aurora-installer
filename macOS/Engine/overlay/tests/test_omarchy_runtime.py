@@ -162,6 +162,19 @@ class EngineRuntimeTests(unittest.TestCase):
                 self._run_layout(runtime)
         adapter.assert_not_called()
 
+    def test_native_volumes_require_the_native_target_contract(self):
+        environment = self._install_environment()
+        environment["OMARCHY_ENGINE_MODE"] = "prepare-native-handoff"
+        environment["OMARCHY_NATIVE_STUB_VOLUMES"] = "helper-volumes-v1"
+        runtime = EngineRuntime.from_environment(environment)
+        runtime.inspect("j314sap", True)
+        with patch("omarchy_runtime.omarchy_planner.collect_inventory", return_value=self.inventory), \
+             patch("omarchy_runtime.omarchy_execution.admit_execution", return_value=self.plan), \
+             patch("omarchy_runtime.omarchy_asahi.AsahiStage1Adapter") as adapter:
+            with self.assertRaisesRegex(EngineRuntimeError, "require native APFS"):
+                self._run_layout(runtime)
+        adapter.assert_not_called()
+
     def test_native_target_checkpoint_is_passed_to_the_consumer(self):
         self._seed_plan(self.journal_path, self.inventory, self.plan)
         environment = self._install_environment()

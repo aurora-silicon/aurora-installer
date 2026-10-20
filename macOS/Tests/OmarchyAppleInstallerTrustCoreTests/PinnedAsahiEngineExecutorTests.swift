@@ -1034,7 +1034,7 @@
         supportsNativeHandoff ? ",\"nativeHandoff\":\"helper-finalize-v1\"" : ""
       let peripheralCapability =
         supportsNativePeripherals ? ",\"nativePeripheralInput\":\"helper-converted-v1\"" : ""
-      let apfsCapability = supportsNativeAPFS ? ",\"nativeAPFSInput\":\"helper-target-v1\"" : ""
+      let apfsCapability = supportsNativeAPFS ? ",\"nativeAPFSInput\":\"helper-target-v1\",\"nativeStubInput\":\"helper-volumes-v1\"" : ""
       try Data(
         #"{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1"\#(apfsCapability)\#(peripheralCapability)\#(handoffCapability)\#(capability)}"#
           .utf8

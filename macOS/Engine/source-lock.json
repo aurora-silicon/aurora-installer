@@ -141,7 +141,7 @@
     }
   },
   "downstream_overlay": {
-    "version": "v0.9.2-aurora.7",
+    "version": "v0.9.2-aurora.8",
     "capability": "candidate_bound_full_os_stage_one_authenticated_recovery",
     "engine_modes": [
       "inspect",
@@ -171,7 +171,7 @@
       {
         "path": "overlay/src/omarchy_asahi.py",
         "destination": "src/omarchy_asahi.py",
-        "sha256": "2c7c629874c315d56c316d197b8d65d31bd82728fc73e330f26644910b1050a7"
+        "sha256": "6d90c7d856d1260c739738507f538347356105edd9bdd4e808866ff7acf5a06f"
       },
       {
         "path": "overlay/src/omarchy_contract.py",
@@ -196,7 +196,7 @@
       {
         "path": "overlay/src/omarchy_runtime.py",
         "destination": "src/omarchy_runtime.py",
-        "sha256": "6e37a8622c49cad4b7da66a9f253adce29c7d7b26b6aa6fcd151b7c6de843229"
+        "sha256": "5478d9f4b5ffe0f146f1cf8ea2481fcb80218caf84ce449d01b904e4eedb27a9"
       },
       {
         "path": "overlay/src/omarchy_stage1.py",
@@ -206,7 +206,7 @@
       {
         "path": "overlay/tests/test_omarchy_asahi.py",
         "destination": "tests/test_omarchy_asahi.py",
-        "sha256": "194d6ca29c7bf5779c33e44f113ef325b01908f4d5229f3c619493bfd6b75ce5"
+        "sha256": "ec8788f9c41d534f2b98ff4f46d64c65f16411b0d37691aae14372c7482356f6"
       },
       {
         "path": "overlay/tests/test_omarchy_contract.py",
@@ -236,7 +236,7 @@
       {
         "path": "overlay/tests/test_omarchy_runtime.py",
         "destination": "tests/test_omarchy_runtime.py",
-        "sha256": "164f30fd62fa79eee9833b877764458b21af754142b33adb8e14549c2319c672"
+        "sha256": "7bb9daa52178da2628353ad0a27f7335c9c173e85d87e4a2af849cee379d4f5d"
       },
       {
         "path": "overlay/tests/test_omarchy_stage1.py",
@@ -350,7 +350,7 @@
     },
     {
       "path": "rebuild-python-overlay.py",
-      "sha256": "d48c9328df779801ce776ccebcc78bfd6fc45b11407f875c905ee9962fc51b4f"
+      "sha256": "fe7f8937284105bd68929f6043aab163dadbf9c7efc0cac95e1f2f261c8bb663"
     },
     {
       "path": "RestoreImage/LICENSE",
@@ -474,9 +474,9 @@
     }
   ],
   "validation_artifact": {
-    "filename": "installer-v0.9.2-aurora.7.tar.gz",
-    "size_bytes": 17891296,
-    "sha256": "ed3ad1257f5a2b8c6fd1d542d3f6e91e0a5112405f51ceb606a2666d38347288",
+    "filename": "installer-v0.9.2-aurora.8.tar.gz",
+    "size_bytes": 17892385,
+    "sha256": "582d365b8bc3b8fdbe6bea8e544cdff7735520047e01c0b310cf0f2d963f7a38",
     "reproducibility_scope": "two-identical-python-overlay-repacks-authenticated-base",
     "signature": "absent",
     "metadata_sha256": "2e6181ce6b6e17c11039e04bfadade8d10ae0e11889885ad8c9960b68f179a5d"

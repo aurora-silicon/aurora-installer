@@ -883,6 +883,84 @@ class AsahiStage1AdapterTests(unittest.TestCase):
         self.assertEqual(adapter.installer.dutil.resize_calls, [])
         self.assertEqual(adapter.installer.dutil.add_calls, [])
 
+    def _native_volume_adapter(self):
+        adapter, target = self._native_target_adapter()
+        adapter.preflight(self.plan)
+        group = "00000000-0000-0000-0000-000000000900"
+        volumes = []
+        for index, role in enumerate(("Data", "System", "Preboot", "Recovery")):
+            volumes.append(dict(uuid=f"00000000-0000-0000-0000-{index + 1:012d}",
+                                identifier=f"disk8s{index + 1}", roles=[role],
+                                name=("Omarchy - Data" if role == "Data" else
+                                      "Omarchy" if role == "System" else role),
+                                **({"group": group} if role in ("Data", "System") else {})))
+        target.container = dict(APFSContainerUUID="00000000-0000-0000-0000-000000000123",
+                                Volumes=[dict(APFSVolumeUUID=item["uuid"], Name=item["name"],
+                                              Roles=item["roles"], DeviceIdentifier=item["identifier"])
+                                         for item in volumes],
+                                VolumeGroups=[dict(APFSVolumeGroupUUID=group, Volumes=[
+                                    dict(Role=role, DeviceIdentifier=volumes[index]["identifier"])
+                                    for index, role in enumerate(("Data", "System"))])])
+        receipt = dict(planDigest=self.plan.plan_digest, partitionUUID=target.uuid,
+                       containerUUID=target.container["APFSContainerUUID"], label="Omarchy", volumes=volumes)
+        adapter.native_volume_evidence = json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode()
+        adapter.installer.ins.osi.vgid = group
+        adapter.installer.ins.osi.sys_volume = "disk8s2"
+        adapter.installer.ins.osi.data_volume = "disk8s1"
+        adapter.installer.ins.osi.preboot_vgid = volumes[2]["uuid"]
+        adapter.installer.ins.osi.rec_vgid = volumes[3]["uuid"]
+        return adapter, target
+
+    def test_native_volumes_continue_at_file_population_without_recreating_any_volume(self):
+        adapter, target = self._native_volume_adapter()
+        with patch.object(adapter.installer.ins, "prepare_volume") as prepare, \
+             patch.object(adapter.installer.ins, "install_files", side_effect=RuntimeError("files gate")) as files:
+            with self.assertRaisesRegex(RuntimeError, "files gate"):
+                adapter.install_stub_and_esp(self.plan)
+        prepare.assert_not_called()
+        files.assert_called_once_with(adapter.installer.cur_os)
+        self.assertIs(adapter.installer.ins.part, target)
+        self.assertEqual(adapter.installer.dutil.add_calls, [])
+
+    def test_native_volume_identity_changes_are_rejected_before_file_population(self):
+        for fault in ("container", "name", "role", "uuid", "group", "member", "duplicate", "discovery"):
+            with self.subTest(fault=fault):
+                adapter, target = self._native_volume_adapter()
+                container = target.container
+                if fault == "container":
+                    container["APFSContainerUUID"] = "changed"
+                elif fault in ("name", "role", "uuid"):
+                    key = {"name": "Name", "role": "Roles", "uuid": "APFSVolumeUUID"}[fault]
+                    container["Volumes"][0][key] = "changed"
+                elif fault == "group":
+                    container["VolumeGroups"][0]["APFSVolumeGroupUUID"] = "changed"
+                elif fault == "member":
+                    container["VolumeGroups"][0]["Volumes"][0]["DeviceIdentifier"] = "disk99s1"
+                elif fault == "duplicate":
+                    container["Volumes"].append(container["Volumes"][0])
+                elif fault == "discovery":
+                    adapter.installer.ins.osi.data_volume = "disk99s1"
+                with patch.object(adapter.installer.ins, "prepare_volume") as prepare, \
+                     patch.object(adapter.installer.ins, "install_files") as files:
+                    with self.assertRaisesRegex(AsahiAdapterError, "native stub volume"):
+                        adapter.install_stub_and_esp(self.plan)
+                prepare.assert_not_called()
+                files.assert_not_called()
+
+    def test_native_volume_continuation_resolves_renumbered_volumes_by_uuid(self):
+        adapter, target = self._native_volume_adapter()
+        for index, volume in enumerate(target.container["Volumes"]):
+            volume["DeviceIdentifier"] = f"disk99s{index + 1}"
+        for index, volume in enumerate(target.container["VolumeGroups"][0]["Volumes"]):
+            volume["DeviceIdentifier"] = f"disk99s{index + 1}"
+        adapter.installer.ins.osi.data_volume = "disk99s1"
+        adapter.installer.ins.osi.sys_volume = "disk99s2"
+        with patch.object(adapter.installer.ins, "prepare_volume") as prepare, \
+             patch.object(adapter.installer.ins, "install_files", side_effect=RuntimeError("files gate")):
+            with self.assertRaisesRegex(RuntimeError, "files gate"):
+                adapter.install_stub_and_esp(self.plan)
+        prepare.assert_not_called()
+
     def test_native_apfs_identity_is_reread_before_any_stub_write(self):
         for field, value in [("uuid", "11111111-2222-3333-4444-555555555555"), ("name", "disk0s9"),
                              ("offset", self.plan.offset_bytes + 4096), ("size", 2 * GIB + 4096),
