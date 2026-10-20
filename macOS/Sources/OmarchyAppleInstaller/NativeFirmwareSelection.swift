@@ -44,7 +44,8 @@
         !boot.isEmpty, !macOS.isEmpty, !recovery.isEmpty
       else { throw NativeFirmwareSelectionError.unavailableVersion }
       let target = try metadata.target()
-      let minimum = try NativeInspectionPolicy.Version.atLeast(chip, device.minimum)
+      let minimum =
+        try NativeInspectionPolicy.Version.atLeast(chip, device.minimum)
         ? chip : device.minimum
       var selected: NativeInspectionPolicy.Firmware?
       // Preserve source order: the backend chooses the last compatible entry,

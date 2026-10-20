@@ -58,8 +58,10 @@
     }
 
     private func fixture() throws -> Fixture {
-      let url = try XCTUnwrap(Bundle.module.url(
-        forResource: "native-firmware-selection-vectors", withExtension: "json", subdirectory: "Fixtures"))
+      let url = try XCTUnwrap(
+        Bundle.module.url(
+          forResource: "native-firmware-selection-vectors", withExtension: "json",
+          subdirectory: "Fixtures"))
       return try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
     }
 
@@ -69,7 +71,8 @@
       XCTAssertEqual(fixture.firmware.count, 144)
       for vector in fixture.firmware {
         let metadata = try NativeInstallationMetadata(data: Data(vector.metadata.utf8))
-        let facts = NativeFirmwareSelection.Facts(deviceIdentifier: vector.device, hardware: vector.hardware)
+        let facts = NativeFirmwareSelection.Facts(
+          deviceIdentifier: vector.device, hardware: vector.hardware)
         if let expected = vector.expected {
           let selected = try NativeFirmwareSelection.choose(
             deviceIdentifier: vector.device, facts: facts, metadata: metadata, policy: policy)
@@ -77,8 +80,10 @@
           XCTAssertEqual(selected.sourceURL, expected.sourceURL, vector.name)
           XCTAssertEqual(selected.stubBytes, expected.stubBytes, vector.name)
         } else {
-          XCTAssertThrowsError(try NativeFirmwareSelection.choose(
-            deviceIdentifier: vector.device, facts: facts, metadata: metadata, policy: policy), vector.name)
+          XCTAssertThrowsError(
+            try NativeFirmwareSelection.choose(
+              deviceIdentifier: vector.device, facts: facts, metadata: metadata, policy: policy),
+            vector.name)
         }
       }
     }
@@ -87,8 +92,9 @@
       let fixture = try fixture()
       XCTAssertEqual(fixture.boot.count, 56)
       for vector in fixture.boot {
-        let archive = try await IPSWArchive.open(BootFixtureSource(
-          bytes: try XCTUnwrap(fixture.archives[vector.archive])))
+        let archive = try await IPSWArchive.open(
+          BootFixtureSource(
+            bytes: try XCTUnwrap(fixture.archives[vector.archive])))
         do {
           let selected = try await NativeBootChain.admit(
             metadata: Data(vector.metadata.utf8), archive: archive,
@@ -113,51 +119,75 @@
         XCTAssertEqual(SHA256Digest(hashing: filled).rawValue, "sha256:" + vector.sha256)
       }
       let magic = Data("AURORA-S1-CFG01\0".utf8)
-      for image in [Data(), Data(fixture.stage1.dropLast()), fixture.stage1 + magic,
-                    fixture.stage1 + fixture.stage1] {
-        XCTAssertThrowsError(try NativeBootChain.fillStage1(
-          image, uuid: "12345678-1234-1234-1234-123456789abc", path: "m1n1/boot.bin", windowMilliseconds: 0))
+      for image in [
+        Data(), Data(fixture.stage1.dropLast()), fixture.stage1 + magic,
+        fixture.stage1 + fixture.stage1,
+      ] {
+        XCTAssertThrowsError(
+          try NativeBootChain.fillStage1(
+            image, uuid: "12345678-1234-1234-1234-123456789abc", path: "m1n1/boot.bin",
+            windowMilliseconds: 0))
       }
-      for path in ["../boot.bin", "/boot.bin", "m1n1//boot.bin", "m1n1/./boot.bin",
-                   "m1n1/boot;bin", "m1n1/é.bin", String(repeating: "a", count: 191)] {
-        XCTAssertThrowsError(try NativeBootChain.fillStage1(
-          fixture.stage1, uuid: "12345678-1234-1234-1234-123456789abc", path: path, windowMilliseconds: 0))
+      for path in [
+        "../boot.bin", "/boot.bin", "m1n1//boot.bin", "m1n1/./boot.bin",
+        "m1n1/boot;bin", "m1n1/é.bin", String(repeating: "a", count: 191),
+      ] {
+        XCTAssertThrowsError(
+          try NativeBootChain.fillStage1(
+            fixture.stage1, uuid: "12345678-1234-1234-1234-123456789abc", path: path,
+            windowMilliseconds: 0))
       }
-      XCTAssertThrowsError(try NativeBootChain.fillStage1(
-        fixture.stage1, uuid: "12345678-1234-1234-1234-123456789ABC", path: "m1n1/boot.bin", windowMilliseconds: 0))
-      XCTAssertThrowsError(try NativeBootChain.fillStage1(
-        fixture.stage1, uuid: "12345678-1234-1234-1234-123456789abc", path: "m1n1/boot.bin", windowMilliseconds: 100000))
+      XCTAssertThrowsError(
+        try NativeBootChain.fillStage1(
+          fixture.stage1, uuid: "12345678-1234-1234-1234-123456789ABC", path: "m1n1/boot.bin",
+          windowMilliseconds: 0))
+      XCTAssertThrowsError(
+        try NativeBootChain.fillStage1(
+          fixture.stage1, uuid: "12345678-1234-1234-1234-123456789abc", path: "m1n1/boot.bin",
+          windowMilliseconds: 100000))
       var version = fixture.stage1
       let offset = try XCTUnwrap(version.range(of: magic)).upperBound
       version[offset] = 2
-      XCTAssertThrowsError(try NativeBootChain.fillStage1(
-        version, uuid: "12345678-1234-1234-1234-123456789abc", path: "m1n1/boot.bin", windowMilliseconds: 0))
+      XCTAssertThrowsError(
+        try NativeBootChain.fillStage1(
+          version, uuid: "12345678-1234-1234-1234-123456789abc", path: "m1n1/boot.bin",
+          windowMilliseconds: 0))
     }
 
     func testChangedDeviceAndUntrustedRestoreURLsFailClosed() throws {
       let vector = try XCTUnwrap(fixture().firmware.first { $0.name == "j700-2-current" })
       let metadata = try NativeInstallationMetadata(data: Data(vector.metadata.utf8))
-      let facts = NativeFirmwareSelection.Facts(deviceIdentifier: "apple,j700", hardware: vector.hardware)
+      let facts = NativeFirmwareSelection.Facts(
+        deviceIdentifier: "apple,j700", hardware: vector.hardware)
       let policy = try NativeInspectionPolicy.sealed()
-      XCTAssertThrowsError(try NativeFirmwareSelection.choose(
-        deviceIdentifier: "apple,j613", facts: facts, metadata: metadata, policy: policy))
-      for source in ["http://updates.cdn-apple.com/image.ipsw", "https://example.org/image.ipsw",
-                     "https://updates.cdn-apple.com/image.ipsw?token=x",
-                     "https://user@updates.cdn-apple.com/image.ipsw"] {
-        var object = try JSONSerialization.jsonObject(with: Data(NativeInspectionPolicySource.json.utf8)) as! [String: Any]
+      XCTAssertThrowsError(
+        try NativeFirmwareSelection.choose(
+          deviceIdentifier: "apple,j613", facts: facts, metadata: metadata, policy: policy))
+      for source in [
+        "http://updates.cdn-apple.com/image.ipsw", "https://example.org/image.ipsw",
+        "https://updates.cdn-apple.com/image.ipsw?token=x",
+        "https://user@updates.cdn-apple.com/image.ipsw",
+      ] {
+        var object =
+          try JSONSerialization.jsonObject(with: Data(NativeInspectionPolicySource.json.utf8))
+          as! [String: Any]
         var entries = object["firmware"] as! [[String: Any]]
         entries[0]["sourceURL"] = source
         object["firmware"] = entries
-        let changed = try JSONDecoder().decode(NativeInspectionPolicy.self, from: JSONSerialization.data(withJSONObject: object))
-        XCTAssertThrowsError(try NativeFirmwareSelection.choose(
-          deviceIdentifier: "apple,j700", facts: facts, metadata: metadata, policy: changed))
+        let changed = try JSONDecoder().decode(
+          NativeInspectionPolicy.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertThrowsError(
+          try NativeFirmwareSelection.choose(
+            deviceIdentifier: "apple,j700", facts: facts, metadata: metadata, policy: changed))
       }
     }
 
     func testProductionPreflightChecksFirmwareAndBootObjectsInTheImportedPackage() async throws {
       let fixture = try fixture()
-      let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+      let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+        UUID().uuidString)
+      try FileManager.default.createDirectory(
+        at: directory, withIntermediateDirectories: false,
         attributes: [.posixPermissions: 0o700])
       defer { try? FileManager.default.removeItem(at: directory) }
       let metadata = directory.appendingPathComponent("metadata.json")
@@ -166,30 +196,42 @@
       try fixture.completeArchive.write(to: payload)
       let package = ImportedEngineHandoffPackage(
         packageURL: directory, manifestURL: directory.appendingPathComponent("manifest.json"),
-        requestURL: directory.appendingPathComponent("request.json"), identityURL: directory.appendingPathComponent("identity.json"),
-        engineURL: directory.appendingPathComponent("engine.tar.gz"), metadataURL: metadata, payloadURL: payload,
-        bindingDigest: "sha256:" + String(repeating: "a", count: 64), planDigest: "sha256:" + String(repeating: "b", count: 64),
+        requestURL: directory.appendingPathComponent("request.json"),
+        identityURL: directory.appendingPathComponent("identity.json"),
+        engineURL: directory.appendingPathComponent("engine.tar.gz"), metadataURL: metadata,
+        payloadURL: payload,
+        bindingDigest: "sha256:" + String(repeating: "a", count: 64),
+        planDigest: "sha256:" + String(repeating: "b", count: 64),
         deviceIdentifier: "apple,j700", storeIdentifier: "disk0")
-      let hardware = NativeInspectionHardware(chipID: 0x8140, bootVersion: "mBoot-18000.161.10",
+      let hardware = NativeInspectionHardware(
+        chipID: 0x8140, bootVersion: "mBoot-18000.161.10",
         macOSVersion: "26.6.2", recoveryVersion: "25.7.83.0.0,0")
-      try await NativePayloadPreflight.check(package, owner: geteuid(), firmwareFacts: {
-        NativeFirmwareSelection.Facts(deviceIdentifier: "apple,j700", hardware: hardware)
-      })
-      do {
-        try await NativePayloadPreflight.check(package, owner: geteuid(), firmwareFacts: {
-          NativeFirmwareSelection.Facts(deviceIdentifier: "apple,j613", hardware: hardware)
+      try await NativePayloadPreflight.check(
+        package, owner: geteuid(),
+        firmwareFacts: {
+          NativeFirmwareSelection.Facts(deviceIdentifier: "apple,j700", hardware: hardware)
         })
+      do {
+        try await NativePayloadPreflight.check(
+          package, owner: geteuid(),
+          firmwareFacts: {
+            NativeFirmwareSelection.Facts(deviceIdentifier: "apple,j613", hardware: hardware)
+          })
         XCTFail("Changed host admitted by production preflight")
       } catch NativeFirmwareSelectionError.deviceChanged {}
-      var changed = try JSONSerialization.jsonObject(with: Data(fixture.completeMetadata.utf8)) as! [String: Any]
+      var changed =
+        try JSONSerialization.jsonObject(with: Data(fixture.completeMetadata.utf8))
+        as! [String: Any]
       var templates = changed["os_list"] as! [[String: Any]]
       templates[0]["allowed_device_classes"] = ["j613ap"]
       changed["os_list"] = templates
       try JSONSerialization.data(withJSONObject: changed).write(to: metadata)
       do {
-        try await NativePayloadPreflight.check(package, owner: geteuid(), firmwareFacts: {
-          NativeFirmwareSelection.Facts(deviceIdentifier: "apple,j700", hardware: hardware)
-        })
+        try await NativePayloadPreflight.check(
+          package, owner: geteuid(),
+          firmwareFacts: {
+            NativeFirmwareSelection.Facts(deviceIdentifier: "apple,j700", hardware: hardware)
+          })
         XCTFail("Excluded host admitted by production preflight")
       } catch NativeBootChainError.unsupportedBoard {}
       XCTAssertEqual(try Data(contentsOf: payload), fixture.completeArchive)

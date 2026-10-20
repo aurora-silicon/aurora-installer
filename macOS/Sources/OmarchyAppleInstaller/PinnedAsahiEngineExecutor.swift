@@ -151,10 +151,14 @@
       let nativeFinalization = package.installationIntent != .repair
       if operation == .install, nativeFinalization {
         do { try await validatePayload(package) } catch {
+          let firmwareFailure = error is NativeFirmwareSelectionError
           throw preparationFailure(
-            error, reason: .planIntegrity, operation: operation, journal: journal,
+            error, reason: firmwareFailure ? .firmwarePreparation : .planIntegrity,
+            operation: operation, journal: journal,
             package: package, password: authorization.password,
-            summary: "The installation images could not be verified.")
+            summary: firmwareFailure
+              ? "Compatible boot firmware could not be selected."
+              : "The installation images could not be verified.")
         }
       }
       let hadDiskWrites = !journalProvesNoMutation(

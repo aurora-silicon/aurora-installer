@@ -32,7 +32,8 @@
         metadata: metadata, payloadName: package.payloadURL.lastPathComponent, archive: archive)
       let firmware = try NativeFirmwareSelection.choose(
         deviceIdentifier: package.deviceIdentifier, facts: firmwareFacts(),
-        metadata: NativeInstallationMetadata(data: metadata), policy: NativeInspectionPolicy.sealed())
+        metadata: NativeInstallationMetadata(data: metadata),
+        policy: NativeInspectionPolicy.sealed())
       _ = try await NativeBootChain.admit(
         metadata: metadata, archive: archive, deviceIdentifier: package.deviceIdentifier,
         firmware: firmware.version.components(separatedBy: " ")[0])

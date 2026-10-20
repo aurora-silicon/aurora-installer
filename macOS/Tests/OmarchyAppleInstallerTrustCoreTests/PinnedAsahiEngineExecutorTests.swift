@@ -738,6 +738,25 @@
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
     }
 
+    func testIncompatibleBootFirmwareHasAFirmwarePreparationFailureBeforeLaunch() async throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let executor = fixtureExecutor(
+        effectiveUserID: { 0 }, firmwarePreparer: FailedFirmware(), rejectFirmwareSelection: true)
+      await assertThrowsErrorAsync(
+        try await executor.execute(fixture.package, authorization: try machineOwnerAuthorization())
+      ) {
+        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+          XCTFail("Expected typed firmware preflight failure")
+          return
+        }
+        XCTAssertEqual(report.notice.reason, .firmwarePreparation)
+        XCTAssertTrue(report.notice.diskUnchanged)
+        XCTAssertEqual(report.notice.summary, "Compatible boot firmware could not be selected.")
+      }
+      XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
+
     func testRecoveryPreparationFailureNeverClaimsAnInstalledRetryWasUnchanged() async throws {
       for operation in [EngineHandoffOperation.install, .retryRecoveryAuthorization] {
         let fixture = try makeFixture()
@@ -771,7 +790,8 @@
       restoreImageRequirement: String? = RestoreImageHelper.adHocRequirement(
         codeHash: String(repeating: "a", count: 40)),
       rejectDecoder: Bool = false,
-      rejectPayload: Bool = false
+      rejectPayload: Bool = false,
+      rejectFirmwareSelection: Bool = false
     ) -> PinnedAsahiEngineExecutor {
       PinnedAsahiEngineExecutor(
         effectiveUserID: effectiveUserID, expectedFileOwnerID: expectedFileOwnerID,
@@ -784,6 +804,7 @@
         nativeHandoff: FixtureNativeHandoff(),
         collectInstallAdmission: collectInstallAdmission,
         validatePayload: { _ in
+          if rejectFirmwareSelection { throw NativeFirmwareSelectionError.noCompatibleFirmware }
           if rejectPayload { throw NativePayloadPreflightError.invalidFilesystem }
         },
         prepareRecoveryTemplate: { package in

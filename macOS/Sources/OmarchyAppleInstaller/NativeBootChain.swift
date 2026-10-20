@@ -37,9 +37,10 @@
           }
         }
       }
-      let members = Dictionary(uniqueKeysWithValues: archive.members.filter { !$0.isDirectory }.map {
-        ($0.name, $0)
-      })
+      let members = Dictionary(
+        uniqueKeysWithValues: archive.members.filter { !$0.isDirectory }.map {
+          ($0.name, $0)
+        })
       let qualified = try qualifiedFirmware(template: template, board: board)
       let common = members["esp/aurora/stage1.bin"] != nil && qualified.contains(firmware)
       var stage1: String?
@@ -85,9 +86,10 @@
     ) throws -> Data {
       let magic = Data("AURORA-S1-CFG01\0".utf8)
       let blockBytes = magic.count + 240 + 4
-      guard uuid.range(
-        of: #"\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z"#,
-        options: .regularExpression) != nil,
+      guard
+        uuid.range(
+          of: #"\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z"#,
+          options: .regularExpression) != nil,
         NativeHandoffEvidence.safeRelative(path),
         path.utf8.allSatisfy({ $0 >= 0x20 && $0 < 0x7f && $0 != 0x3b }),
         path.utf8.count + 1 < 192, windowMilliseconds <= 99999,
@@ -101,7 +103,8 @@
         throw NativeBootChainError.invalidStage1
       }
       var body = Data([1, 0, 0, 0])
-      body.append(contentsOf: (0..<4).map { UInt8(truncatingIfNeeded: windowMilliseconds >> ($0 * 8)) })
+      body.append(
+        contentsOf: (0..<4).map { UInt8(truncatingIfNeeded: windowMilliseconds >> ($0 * 8)) })
       body.append(Data(uuid.utf8))
       body.append(Data(repeating: 0, count: 4))
       let encoded = Data((";" + path).utf8)
@@ -137,9 +140,14 @@
           layout[member] = "m1n1/boot.bin"
         } else if (member == "esp/aurora/stage1.bin" && !common)
           || member == "esp/m1n1/boot-j700.bin"
-          || (common && ["esp/aurora/stage1-j700.bin", "esp/aurora/stage1-j613.bin"].contains(member))
+          || (common
+            && ["esp/aurora/stage1-j700.bin", "esp/aurora/stage1-j613.bin"].contains(member))
           || (own != nil && member == "esp/m1n1/boot.bin")
-        { continue } else { layout[member] = String(member.dropFirst(4)) }
+        {
+          continue
+        } else {
+          layout[member] = String(member.dropFirst(4))
+        }
       }
       guard !layout.isEmpty, Set(layout.values).count == layout.count else {
         throw NativeHandoffValidationError.changedContent
