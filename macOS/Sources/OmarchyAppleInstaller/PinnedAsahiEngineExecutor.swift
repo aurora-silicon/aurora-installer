@@ -252,8 +252,11 @@
           preparedAPFS == nil ? nil : try await stubFilesPreparer.preflight(package)
         preparedOSPartitions =
           preparedStubFiles == nil ? nil : try osPartitionsPreparer.preflight(package)
-        preparedPayloadImages = preparedOSPartitions == nil ? nil : try await payloadImagesPreparer.preflight(package)
-        if preparedPayloadImages != nil { environment["OMARCHY_NATIVE_PAYLOAD_IMAGES"] = "helper-images-v1" }
+        preparedPayloadImages =
+          preparedOSPartitions == nil ? nil : try await payloadImagesPreparer.preflight(package)
+        if preparedPayloadImages != nil {
+          environment["OMARCHY_NATIVE_PAYLOAD_IMAGES"] = "helper-images-v1"
+        }
         if preparedStubFiles != nil { environment["OMARCHY_NATIVE_STUB_FILES"] = "helper-files-v1" }
         if preparedOSPartitions != nil {
           environment["OMARCHY_NATIVE_OS_PARTITIONS"] = "helper-partitions-v1"
@@ -296,7 +299,8 @@
                 try preparedOSPartitions?.prepare(
                   journal: journal, authorization: authorization,
                   sourceBootstrap: sourceBootstrap)
-                try await preparedPayloadImages?.prepare(journal: journal, authorization: authorization,
+                try await preparedPayloadImages?.prepare(
+                  journal: journal, authorization: authorization,
                   sourceBootstrap: sourceBootstrap)
               } else {
                 let bytes = try self.readAdmissionJournal(journal)

@@ -4,11 +4,13 @@
   import Foundation
 
   protocol NativePayloadImagesExecuting: Sendable {
-    func prepare(journal: URL, authorization: MachineOwnerAuthorization,
+    func prepare(
+      journal: URL, authorization: MachineOwnerAuthorization,
       sourceBootstrap: NativeSourceBootstrap) async throws
   }
   protocol NativePayloadImagesPreparing: Sendable {
-    func preflight(_ package: ImportedEngineHandoffPackage) async throws -> any NativePayloadImagesExecuting
+    func preflight(_ package: ImportedEngineHandoffPackage) async throws
+      -> any NativePayloadImagesExecuting
   }
 
   struct NativePayloadImagePlatform: Sendable {
@@ -20,9 +22,12 @@
   struct NativePayloadImagesPreparer: NativePayloadImagesPreparing {
     var owner: uid_t = 0
     var platform = NativePayloadImagePlatform()
-    func preflight(_ package: ImportedEngineHandoffPackage) async throws -> any NativePayloadImagesExecuting {
+    func preflight(_ package: ImportedEngineHandoffPackage) async throws
+      -> any NativePayloadImagesExecuting
+    {
       let approved = try EngineHandoffPackageImporter().executionPlan(package, owner: owner)
-      let archive = try await IPSWArchive.open(NativePayloadRangeReader(package.payloadURL, owner: owner))
+      let archive = try await IPSWArchive.open(
+        NativePayloadRangeReader(package.payloadURL, owner: owner))
       let names = ["boot.img", "root.img"]
       let members = try names.map { name in
         let found = archive.members.filter { $0.name == name && !$0.isDirectory }
@@ -31,7 +36,8 @@
         }
         return found[0]
       }
-      return NativePayloadImagesExecution(package: package, approved: approved,
+      return NativePayloadImagesExecution(
+        package: package, approved: approved,
         archive: archive, members: members, owner: owner, platform: platform)
     }
   }
@@ -44,16 +50,22 @@
     let owner: uid_t
     let platform: NativePayloadImagePlatform
 
-    func prepare(journal: URL, authorization: MachineOwnerAuthorization,
-      sourceBootstrap: NativeSourceBootstrap) async throws {
+    func prepare(
+      journal: URL, authorization: MachineOwnerAuthorization,
+      sourceBootstrap: NativeSourceBootstrap
+    ) async throws {
       let file = try NativeInstallJournalFile(url: journal, package: package, owner: owner)
       let transcript = try AppleInstallerTrustCore().validateEngineTranscript(file.readJournal())
       guard transcript.plan == approved else { throw NativeOSPartitionError.changedLayout }
-      if transcript.checkpoints.contains(where: { $0.identifier == "stub-and-esp-installed" }) { return }
+      if transcript.checkpoints.contains(where: { $0.identifier == "stub-and-esp-installed" }) {
+        return
+      }
       guard transcript.checkpoints.map(\.identifier) == ["apfs-target-prepared"],
-        try file.readJournal().split(separator: 10).count == 5, members.map(\.name) == ["boot.img", "root.img"]
+        try file.readJournal().split(separator: 10).count == 5,
+        members.map(\.name) == ["boot.img", "root.img"]
       else { throw NativeOSPartitionError.changedLayout }
-      let receipt = try JSONDecoder().decode(NativeOSPartitionsExecution.Receipt.self,
+      let receipt = try JSONDecoder().decode(
+        NativeOSPartitionsExecution.Receipt.self,
         from: file.readEvidence("native-os-partitions"))
       let baseline = try platform.disks.snapshot()
       _ = try NativeDiskInventory.extents(baseline)
@@ -76,25 +88,33 @@
       guard offset == end else { throw NativeOSPartitionError.changedLayout }
       try platform.disks.verifySourceOwner(package, authorization, sourceBootstrap)
       let verify: @Sendable (RemovalPartition) throws -> Void = { partition in
-        guard try self.platform.disks.snapshot() == baseline else { throw NativeOSPartitionError.changedLayout }
+        guard try self.platform.disks.snapshot() == baseline else {
+          throw NativeOSPartitionError.changedLayout
+        }
         try self.platform.disks.verifyPartition(partition, baseline.disk)
       }
       for (member, partition) in zip(members, liveParts.dropFirst()) {
         let name = "native-image-" + String(member.name.dropLast(4))
         let identity: NativeRawImageReceipt
         if try file.containsEvidence(name) {
-          identity = try JSONDecoder().decode(NativeRawImageReceipt.self, from: file.readEvidence(name))
+          identity = try JSONDecoder().decode(
+            NativeRawImageReceipt.self, from: file.readEvidence(name))
           guard identity.partitionUUID == partition.uuid.lowercased(),
-            identity.partitionSizeBytes == partition.size, identity.installedBytes == UInt64(member.sizeBytes),
+            identity.partitionSizeBytes == partition.size,
+            identity.installedBytes == UInt64(member.sizeBytes),
             identity.verification == "source-sha256-write-flushed-v1"
           else { throw NativeRawImageError.invalidTarget }
           try verify(partition)
-          guard try platform.digest(partition.identifier, identity.installedBytes) == identity.contentSHA256 else {
+          guard
+            try platform.digest(partition.identifier, identity.installedBytes)
+              == identity.contentSHA256
+          else {
             throw NativeHandoffValidationError.changedContent
           }
           try verify(partition)
         } else {
-          identity = try await NativeRawImageWriter.write(archive: archive, member: member,
+          identity = try await NativeRawImageWriter.write(
+            archive: archive, member: member,
             partition: partition, platform: platform.writer, verify: verify)
           try file.publishEvidence(encode(identity), identifier: name)
         }

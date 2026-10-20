@@ -16,9 +16,12 @@
       }
     }
     static func source() throws -> Data {
-      let path = try XCTUnwrap(Bundle.module.url(forResource: "native-payload-vectors",
-        withExtension: "json", subdirectory: "Fixtures"))
-      let document = try JSONSerialization.jsonObject(with: Data(contentsOf: path)) as! [String: Any]
+      let path = try XCTUnwrap(
+        Bundle.module.url(
+          forResource: "native-payload-vectors",
+          withExtension: "json", subdirectory: "Fixtures"))
+      let document =
+        try JSONSerialization.jsonObject(with: Data(contentsOf: path)) as! [String: Any]
       let archives = document["archives"] as! [String: String]
       return try XCTUnwrap(Data(base64Encoded: XCTUnwrap(archives["btrfs"])))
     }
@@ -34,32 +37,37 @@
       init(capacity: UInt64) throws {
         self.capacity = capacity
         directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+        try FileManager.default.createDirectory(
+          at: directory, withIntermediateDirectories: false,
           attributes: [.posixPermissions: 0o700])
         url = directory.appendingPathComponent("disposable-image-target")
         try Data(repeating: 0xcc, count: Int(capacity)).write(to: url)
       }
       deinit { try? FileManager.default.removeItem(at: directory) }
       var partition: RemovalPartition {
-        RemovalPartition(identifier: "disk0s9", uuid: "00000000-0000-0000-0000-000000000009",
+        RemovalPartition(
+          identifier: "disk0s9", uuid: "00000000-0000-0000-0000-000000000009",
           type: "Linux Filesystem", offset: 4 << 20, size: capacity, name: "")
       }
       var platform: NativeRawImagePlatform {
-        NativeRawImagePlatform(openTarget: { _ in
-          self.opened += 1
-          let fd = open(self.url.path, O_RDWR | O_NOFOLLOW | O_CLOEXEC)
-          guard fd >= 0 else { throw NativeRawImageError.invalidTarget }
-          return fd
-        }, writeChunk: { fd, bytes, offset in
-          self.writes += 1
-          if self.rejectWrite { throw NativeRawImageError.writeFailed }
-          XCTAssertLessThanOrEqual(bytes.count, 4 << 20)
-          try NativeRawImagePlatform.write(fd, bytes, offset)
-        }, flush: { fd in
-          self.flushed += 1
-          if self.rejectFlush { throw NativeRawImageError.flushFailed }
-          guard fsync(fd) == 0 else { throw NativeRawImageError.flushFailed }
-        })
+        NativeRawImagePlatform(
+          openTarget: { _ in
+            self.opened += 1
+            let fd = open(self.url.path, O_RDWR | O_NOFOLLOW | O_CLOEXEC)
+            guard fd >= 0 else { throw NativeRawImageError.invalidTarget }
+            return fd
+          },
+          writeChunk: { fd, bytes, offset in
+            self.writes += 1
+            if self.rejectWrite { throw NativeRawImageError.writeFailed }
+            XCTAssertLessThanOrEqual(bytes.count, 4 << 20)
+            try NativeRawImagePlatform.write(fd, bytes, offset)
+          },
+          flush: { fd in
+            self.flushed += 1
+            if self.rejectFlush { throw NativeRawImageError.flushFailed }
+            guard fsync(fd) == 0 else { throw NativeRawImageError.flushFailed }
+          })
       }
     }
 
@@ -68,13 +76,16 @@
       for name in ["boot.img", "root.img"] {
         let member = try XCTUnwrap(archive.members.first { $0.name == name })
         let target = try Target(capacity: UInt64(member.sizeBytes + 4096))
-        let receipt = try await NativeRawImageWriter.write(archive: archive, member: member,
+        let receipt = try await NativeRawImageWriter.write(
+          archive: archive, member: member,
           partition: target.partition, platform: target.platform, verify: { _ in })
         let expected = try await archive.read(member, maximumBytes: member.sizeBytes)
         let written = try Data(contentsOf: target.url)
         XCTAssertEqual(written.prefix(member.sizeBytes), expected)
         XCTAssertEqual(written.suffix(4096), Data(repeating: 0xcc, count: 4096))
-        XCTAssertEqual(receipt.contentSHA256, SHA256.hash(data: expected).map { String(format: "%02x", $0) }.joined())
+        XCTAssertEqual(
+          receipt.contentSHA256,
+          SHA256.hash(data: expected).map { String(format: "%02x", $0) }.joined())
         XCTAssertEqual(receipt.installedBytes, UInt64(member.sizeBytes))
         XCTAssertEqual(receipt.partitionUUID, target.partition.uuid.lowercased())
         XCTAssertEqual(receipt.verification, "source-sha256-write-flushed-v1")
@@ -87,9 +98,11 @@
       let member = try XCTUnwrap(archive.members.first { $0.name == "root.img" })
       let target = try Target(capacity: UInt64(member.sizeBytes + 4096))
       let original = target.partition
-      let expanded = RemovalPartition(identifier: original.identifier, uuid: original.uuid,
+      let expanded = RemovalPartition(
+        identifier: original.identifier, uuid: original.uuid,
         type: original.type, offset: original.offset, size: 200 << 30, name: original.name)
-      let receipt = try await NativeRawImageWriter.write(archive: archive, member: member,
+      let receipt = try await NativeRawImageWriter.write(
+        archive: archive, member: member,
         partition: expanded, platform: target.platform, verify: { _ in })
       XCTAssertEqual(receipt.partitionSizeBytes, 200 << 30)
       XCTAssertEqual(receipt.installedBytes, UInt64(member.sizeBytes))
@@ -101,14 +114,16 @@
       let member = try XCTUnwrap(archive.members.first { $0.name == "root.img" })
       let tooSmall = try Target(capacity: UInt64(member.sizeBytes - 4096))
       do {
-        _ = try await NativeRawImageWriter.write(archive: archive, member: member,
+        _ = try await NativeRawImageWriter.write(
+          archive: archive, member: member,
           partition: tooSmall.partition, platform: tooSmall.platform, verify: { _ in })
         XCTFail("Undersized partition admitted")
       } catch {}
       XCTAssertEqual(tooSmall.opened, 0)
       let changed = try Target(capacity: UInt64(member.sizeBytes))
       do {
-        _ = try await NativeRawImageWriter.write(archive: archive, member: member,
+        _ = try await NativeRawImageWriter.write(
+          archive: archive, member: member,
           partition: changed.partition, platform: changed.platform,
           verify: { _ in throw NativeOSPartitionError.changedLayout })
         XCTFail("Changed identity admitted")
@@ -124,7 +139,8 @@
         target.rejectFlush = flush
         target.rejectWrite = !flush
         do {
-          _ = try await NativeRawImageWriter.write(archive: archive, member: member,
+          _ = try await NativeRawImageWriter.write(
+            archive: archive, member: member,
             partition: target.partition, platform: target.platform, verify: { _ in })
           XCTFail("Failed device operation returned a receipt")
         } catch {}
@@ -144,7 +160,8 @@
       let corrupt = try XCTUnwrap(archive.members.first { $0.name == "root.img" })
       let target = try Target(capacity: UInt64(corrupt.sizeBytes))
       do {
-        _ = try await NativeRawImageWriter.write(archive: archive, member: corrupt,
+        _ = try await NativeRawImageWriter.write(
+          archive: archive, member: corrupt,
           partition: target.partition, platform: target.platform, verify: { _ in })
         XCTFail("Corrupt source returned a receipt")
       } catch {}
