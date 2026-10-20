@@ -115,7 +115,7 @@
       )
     }
 
-    private static func bytes(_ string: String) throws -> UInt64 {
+    static func bytes(_ string: String) throws -> UInt64 {
       var value = string.uppercased().replacingOccurrences(of: " ", with: "")
       var base: Double = 1000
       if value.hasSuffix("IB") {

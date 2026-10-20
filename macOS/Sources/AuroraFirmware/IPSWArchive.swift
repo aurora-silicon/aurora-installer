@@ -55,7 +55,7 @@ public struct IPSWArchiveMember: Equatable, Sendable {
   public let crc32: UInt32
   let flags: Int
   let mode: Int
-  let isDirectory: Bool
+  public let isDirectory: Bool
 }
 
 /// Single-disk ZIP/ZIP64 metadata and bounded stored/deflate member reads.
@@ -64,6 +64,8 @@ public struct IPSWArchive: Sendable {
   public let members: [IPSWArchiveMember]
   private let source: any FirmwareRangeReading
   private let directoryOffset: Int
+  private let records: [Int: IPSWArchiveMember]
+  private let recordEnds: [Int: Int]
 
   public static func open(_ source: any FirmwareRangeReading) async throws -> Self {
     try require(source.sizeBytes >= 22 && source.sizeBytes <= 128 << 30, "Invalid IPSW size.")
@@ -158,15 +160,37 @@ public struct IPSWArchive: Sendable {
       cursor += 46 + nameSize + extraSize + commentSize
     }
     try require(cursor == central.count, "Unexpected data in the IPSW central directory.")
-    return Self(members: members, source: source, directoryOffset: offset)
+    let ordered = members.map(\.localHeaderOffset).sorted()
+    let ends = Dictionary(uniqueKeysWithValues: zip(ordered, Array(ordered.dropFirst()) + [offset]))
+    return Self(
+      members: members, source: source, directoryOffset: offset,
+      records: Dictionary(uniqueKeysWithValues: members.map { ($0.localHeaderOffset, $0) }),
+      recordEnds: ends)
   }
 
   /// Resolve a large stored image without downloading its body. Authenticated
   /// AEA decoding can then request only its admitted segment ranges.
   public func dataOffset(for member: IPSWArchiveMember) async throws -> Int {
-    try require(members.contains(member), "Member does not belong to this IPSW directory.")
+    try require(!member.isDirectory, "A directory has no readable file body.")
+    return try await recordOffset(for: member)
+  }
+
+  /// Admit every local record, including unused files, before a payload can
+  /// influence disk preparation. Bodies remain subject to their own read budget.
+  public func validateEntries() async throws {
+    for member in members {
+      try Task.checkCancellation()
+      _ = try await recordOffset(for: member)
+    }
+  }
+
+  private func recordOffset(for member: IPSWArchiveMember) async throws -> Int {
     try require(
-      !member.isDirectory && [0, 0o100000].contains(member.mode & 0o170000)
+      records[member.localHeaderOffset] == member, "Member does not belong to this IPSW directory.")
+    try require(
+      [0, member.isDirectory ? 0o040000 : 0o100000].contains(member.mode & 0o170000)
+        && (!member.isDirectory || member.sizeBytes == 0)
+        && (member.compressionMethod != 0 || member.compressedSize == member.sizeBytes)
         && member.flags & ~0x080e == 0 && [0, 8].contains(member.compressionMethod),
       "Unsupported IPSW member type, encryption or compression.")
     let header = try await Self.exact(source, offset: member.localHeaderOffset, count: 30)
@@ -198,12 +222,82 @@ public struct IPSWArchive: Sendable {
         "IPSW data-descriptor header disagrees with directory.")
     }
     let dataOffset = start + nameSize + extraSize
-    let nextHeader =
-      members.lazy.map(\.localHeaderOffset).filter { $0 > member.localHeaderOffset }.min()
-      ?? directoryOffset
+    let nextHeader = recordEnds[member.localHeaderOffset]!
     try require(
       dataOffset <= nextHeader - member.compressedSize, "IPSW member data overlaps another record.")
     return dataOffset
+  }
+
+  /// Read only a small decompressed header of a large image. A partial read
+  /// cannot authenticate the rest of a member: the caller must first admit the
+  /// archive's signed digest. Complete small members also receive CRC/end checks.
+  /// Both output and compressed input have independent, hard limits.
+  public func readPrefix(
+    _ member: IPSWArchiveMember, maximumBytes: Int,
+    maximumCompressedBytes: Int = 8 << 20
+  ) async throws -> Data {
+    try require(
+      maximumBytes > 0 && maximumBytes <= 1 << 20
+        && maximumCompressedBytes > 0 && maximumCompressedBytes <= 8 << 20,
+      "Invalid archive prefix budget.")
+    let offset = try await dataOffset(for: member)
+    let count = min(maximumBytes, member.sizeBytes)
+    if member.compressionMethod == 0 {
+      try require(member.compressedSize == member.sizeBytes, "Stored IPSW member size mismatch.")
+      try require(count <= maximumCompressedBytes, "Archive prefix exceeds its input budget.")
+      let bytes = count == 0 ? Data() : try await Self.exact(source, offset: offset, count: count)
+      if count == member.sizeBytes { try Self.verifyCRC(bytes, member: member) }
+      return bytes
+    }
+    var stream = z_stream()
+    try require(
+      inflateInit2_(&stream, -MAX_WBITS, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK,
+      "Cannot initialize archive prefix decoder.")
+    defer { inflateEnd(&stream) }
+    // One extra byte detects an understated size when this is a complete read.
+    let complete = count == member.sizeBytes
+    var output = Data(count: count + (complete ? 1 : 0))
+    var input = Data()
+    var cursor = 0
+    var fetched = 0
+    while true {
+      try Task.checkCancellation()
+      if cursor == input.count {
+        let next = min(65536, member.compressedSize - fetched, maximumCompressedBytes - fetched)
+        try require(next > 0, "Archive prefix is truncated or exceeds its input budget.")
+        input = try await Self.exact(source, offset: offset + fetched, count: next)
+        cursor = 0
+        fetched += next
+      }
+      let previousIn = Int(stream.total_in)
+      let previousOut = Int(stream.total_out)
+      let capacity = output.count - previousOut
+      let inputCount = input.count - cursor
+      let status = output.withUnsafeMutableBytes { target in
+        input.withUnsafeBytes { bytes in
+          stream.next_in = UnsafeMutablePointer(
+            mutating: bytes.bindMemory(to: Bytef.self).baseAddress!.advanced(by: cursor))
+          stream.avail_in = uInt(inputCount)
+          stream.next_out = target.bindMemory(to: Bytef.self).baseAddress!.advanced(by: previousOut)
+          stream.avail_out = uInt(capacity)
+          return inflate(&stream, Z_NO_FLUSH)
+        }
+      }
+      cursor += Int(stream.total_in) - previousIn
+      try require(
+        (status == Z_OK || status == Z_STREAM_END) && stream.total_out <= member.sizeBytes
+          && (Int(stream.total_in) > previousIn || Int(stream.total_out) > previousOut),
+        "Invalid archive prefix deflate stream.")
+      if status == Z_STREAM_END {
+        try require(
+          stream.total_in == member.compressedSize && stream.total_out == member.sizeBytes,
+          "Archive member end disagrees with its directory.")
+        let bytes = Data(output.prefix(Int(stream.total_out)))
+        try Self.verifyCRC(bytes, member: member)
+        return bytes
+      }
+      if !complete && stream.total_out == count { return Data(output.prefix(count)) }
+    }
   }
 
   public func read(
@@ -229,14 +323,18 @@ public struct IPSWArchive: Sendable {
     } else {
       bytes = try Self.inflateRaw(compressed, expected: member.sizeBytes)
     }
-    let checksum = bytes.withUnsafeBytes {
-      zlib.crc32(0, $0.bindMemory(to: Bytef.self).baseAddress, uInt(bytes.count))
-    }
-    try require(UInt32(checksum) == member.crc32, "IPSW member CRC mismatch.")
+    try Self.verifyCRC(bytes, member: member)
     if let expectedSHA256 {
       try require(bytes.sha256 == expectedSHA256, "IPSW member digest mismatch.")
     }
     return bytes
+  }
+
+  private static func verifyCRC(_ bytes: Data, member: IPSWArchiveMember) throws {
+    let checksum = bytes.withUnsafeBytes {
+      zlib.crc32(0, $0.bindMemory(to: Bytef.self).baseAddress, uInt(bytes.count))
+    }
+    try require(UInt32(checksum) == member.crc32, "IPSW member CRC mismatch.")
   }
 
   private static func exact(_ source: any FirmwareRangeReading, offset: Int, count: Int)

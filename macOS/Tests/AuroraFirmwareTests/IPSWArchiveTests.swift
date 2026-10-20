@@ -174,4 +174,96 @@ final class IPSWArchiveTests: XCTestCase, @unchecked Sendable {
         url: XCTUnwrap(URL(string: "https://updates.cdn-apple.com/image.ipsw")), sizeBytes: Int.max)
     )
   }
+
+  private func largeBytes() throws -> Data {
+    struct Large: Decodable { let archive: Data }
+    let url = try XCTUnwrap(Bundle.module.url(
+      forResource: "zip-prefix", withExtension: "json", subdirectory: "Fixtures"))
+    return try JSONDecoder().decode(Large.self, from: Data(contentsOf: url)).archive
+  }
+
+  func testPrefixesInteroperateAndCompleteReadsStillCheckCRCAndEnd() async throws {
+    for record in try fixture().archives {
+      let archive = try await IPSWArchive.open(ZIPSource(
+        data: try XCTUnwrap(Data(base64Encoded: record.data))))
+      let member = try XCTUnwrap(archive.members.first)
+      let prefix = try await archive.readPrefix(member, maximumBytes: 5)
+      XCTAssertEqual(prefix, Data("<plis".utf8), record.name)
+      let complete = try await archive.readPrefix(member, maximumBytes: 1024)
+      XCTAssertEqual(complete, Data("<plist>synthetic</plist>".utf8), record.name)
+    }
+    for type in ["stored", "deflate"] {
+      var changed = try bytes(type)
+      let cd = try central(changed)
+      let crc = try changed.little(cd + 16, 4) ^ 1
+      set(&changed, at: 14, value: crc, width: 4)
+      set(&changed, at: cd + 16, value: crc, width: 4)
+      let archive = try await IPSWArchive.open(ZIPSource(data: changed))
+      do {
+        _ = try await archive.readPrefix(try XCTUnwrap(archive.members.first), maximumBytes: 1024)
+        XCTFail("Complete prefix ignored its CRC")
+      } catch is RestoreFailure {}
+    }
+  }
+
+  func testLargeDeflatedImagePrefixHasBoundedInputAndOutput() async throws {
+    let source = ZIPSource(data: try largeBytes())
+    let archive = try await IPSWArchive.open(source)
+    let member = try XCTUnwrap(archive.members.first)
+    XCTAssertEqual(member.sizeBytes, 64 << 20)
+    let before = await source.transferred()
+    let header = try await archive.readPrefix(member, maximumBytes: 0x11000)
+    XCTAssertEqual(header, Data(repeating: 0, count: 0x11000))
+    let after = await source.transferred()
+    XCTAssertLessThanOrEqual(after - before, 65536 + 256)
+    for (output, input) in [(0, 1024), ((1 << 20) + 1, 1024), (0x11000, 1), (1024, 0)] {
+      do {
+        _ = try await archive.readPrefix(member, maximumBytes: output, maximumCompressedBytes: input)
+        XCTFail("Invalid or exhausted prefix budget admitted")
+      } catch is RestoreFailure {}
+    }
+  }
+
+  func testSparseMultiGiBStoredImageDoesNotReadItsBody() async throws {
+    let original = try largeBytes()
+    let cd = try central(original)
+    let size = 2 << 30
+    let start = 30 + "large.img".utf8.count
+    var header = Data(original.prefix(start))
+    set(&header, at: 8, value: 0, width: 2)
+    set(&header, at: 18, value: size, width: 4)
+    set(&header, at: 22, value: size, width: 4)
+    var tail = Data(original.suffix(from: cd))
+    set(&tail, at: 10, value: 0, width: 2)
+    set(&tail, at: 20, value: size, width: 4)
+    set(&tail, at: 24, value: size, width: 4)
+    set(&tail, at: tail.count - 22 + 16, value: start + size, width: 4)
+    let source = ZIPSource(
+      size: start + size + tail.count, spans: [(0, header), (start + size, tail)])
+    let archive = try await IPSWArchive.open(source)
+    let member = try XCTUnwrap(archive.members.first)
+    let prefix = try await archive.readPrefix(member, maximumBytes: 0x11000)
+    XCTAssertEqual(prefix, Data(repeating: 0, count: 0x11000))
+    let transferred = await source.transferred()
+    XCTAssertLessThan(transferred, 150_000)
+  }
+
+  func testWholeDirectoryAdmissionRejectsUnusedUnsafeLocalRecords() async throws {
+    for change in [0, 1, 2] {
+      var data = try bytes()
+      let cd = try central(data)
+      switch change {
+      case 0: set(&data, at: cd + 38, value: 0o120777 << 16, width: 4)
+      case 1: data[30] ^= 1
+      default:
+        set(&data, at: 6, value: 1, width: 2)
+        set(&data, at: cd + 8, value: 1, width: 2)
+      }
+      let archive = try await IPSWArchive.open(ZIPSource(data: data))
+      do {
+        try await archive.validateEntries()
+        XCTFail("Unsafe local record was admitted")
+      } catch is RestoreFailure {}
+    }
+  }
 }

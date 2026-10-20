@@ -711,11 +711,31 @@
     func testRecoveryAuthorizationRetryDoesNotRepeatNativeFirmwareDownloads() async throws {
       let fixture = try makeFixture(expectedInstallMode: "retry-recovery-authorization")
       defer { try? FileManager.default.removeItem(at: fixture.root) }
-      let executor = fixtureExecutor(effectiveUserID: { 0 }, firmwarePreparer: FailedFirmware())
+      let executor = fixtureExecutor(
+        effectiveUserID: { 0 }, firmwarePreparer: FailedFirmware(), rejectPayload: true)
       let result = try await executor.execute(
         fixture.package,
         authorization: try machineOwnerAuthorization(), operation: .retryRecoveryAuthorization)
       XCTAssertEqual(result, fixture.transcript)
+    }
+
+    func testPayloadPreflightFailureStopsBeforeFirmwareAndBackendExecution() async throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let executor = fixtureExecutor(
+        effectiveUserID: { 0 }, firmwarePreparer: FailedFirmware(), rejectPayload: true)
+      await assertThrowsErrorAsync(
+        try await executor.execute(fixture.package, authorization: try machineOwnerAuthorization())
+      ) {
+        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+          XCTFail("Expected typed payload preflight failure")
+          return
+        }
+        XCTAssertEqual(report.notice.reason, .planIntegrity)
+        XCTAssertTrue(report.notice.diskUnchanged)
+        XCTAssertEqual(report.notice.summary, "The installation images could not be verified.")
+      }
+      XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
     }
 
     func testRecoveryPreparationFailureNeverClaimsAnInstalledRetryWasUnchanged() async throws {
@@ -750,7 +770,8 @@
       rejectRecovery: Bool = false,
       restoreImageRequirement: String? = RestoreImageHelper.adHocRequirement(
         codeHash: String(repeating: "a", count: 40)),
-      rejectDecoder: Bool = false
+      rejectDecoder: Bool = false,
+      rejectPayload: Bool = false
     ) -> PinnedAsahiEngineExecutor {
       PinnedAsahiEngineExecutor(
         effectiveUserID: effectiveUserID, expectedFileOwnerID: expectedFileOwnerID,
@@ -762,6 +783,9 @@
         firmwarePreparer: firmwarePreparer,
         nativeHandoff: FixtureNativeHandoff(),
         collectInstallAdmission: collectInstallAdmission,
+        validatePayload: { _ in
+          if rejectPayload { throw NativePayloadPreflightError.invalidFilesystem }
+        },
         prepareRecoveryTemplate: { package in
           if rejectRecovery { throw NativeRecoveryTemplateError.unavailable }
           let directory = package.packageURL.deletingLastPathComponent().appendingPathComponent(

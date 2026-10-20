@@ -65,6 +65,7 @@
     private let firmwarePreparer: any NativeFirmwarePreparing
     private let nativeHandoff: any NativeRecoveryHandoffExecuting
     private let collectInstallAdmission: @Sendable () throws -> NativeInstallAdmissionFacts
+    private let validatePayload: @Sendable (ImportedEngineHandoffPackage) async throws -> Void
     private let prepareRecoveryTemplate:
       @Sendable (ImportedEngineHandoffPackage) throws -> PreparedNativeRecoveryTemplate
 
@@ -80,6 +81,7 @@
       firmwarePreparer = NativeFirmwarePreparer()
       nativeHandoff = NativeRecoveryHandoffExecutor()
       collectInstallAdmission = { try NativeInstallAdmissionFacts.live() }
+      validatePayload = { try await NativePayloadPreflight.check($0) }
       prepareRecoveryTemplate = { try NativeRecoveryTemplate.prepare(package: $0) }
     }
 
@@ -96,6 +98,9 @@
       collectInstallAdmission: @escaping @Sendable () throws -> NativeInstallAdmissionFacts = {
         try NativeInstallAdmissionFacts.live()
       },
+      validatePayload: @escaping @Sendable (ImportedEngineHandoffPackage) async throws -> Void = {
+        try await NativePayloadPreflight.check($0)
+      },
       prepareRecoveryTemplate:
         @escaping @Sendable (ImportedEngineHandoffPackage) throws -> PreparedNativeRecoveryTemplate =
         { try NativeRecoveryTemplate.prepare(package: $0) }
@@ -108,6 +113,7 @@
       self.firmwarePreparer = firmwarePreparer
       self.nativeHandoff = nativeHandoff
       self.collectInstallAdmission = collectInstallAdmission
+      self.validatePayload = validatePayload
       self.prepareRecoveryTemplate = prepareRecoveryTemplate
     }
 
@@ -143,6 +149,14 @@
           journal: journal, package: package, password: authorization.password)
       }
       let nativeFinalization = package.installationIntent != .repair
+      if operation == .install, nativeFinalization {
+        do { try await validatePayload(package) } catch {
+          throw preparationFailure(
+            error, reason: .planIntegrity, operation: operation, journal: journal,
+            package: package, password: authorization.password,
+            summary: "The installation images could not be verified.")
+        }
+      }
       let hadDiskWrites = !journalProvesNoMutation(
         journal, identity: RecoveryRetryIdentity(package: package))
       var environment = installEnvironment(
@@ -245,7 +259,8 @@
 
     private func preparationFailure(
       _ error: any Error, reason: EngineFailureReason, operation: EngineHandoffOperation,
-      journal: URL, package: ImportedEngineHandoffPackage, password: Data
+      journal: URL, package: ImportedEngineHandoffPackage, password: Data,
+      summary: String = "Native Recovery resources could not be verified."
     ) -> PinnedAsahiEngineExecutionError {
       .engineFailed(
         EngineFailureReport(
@@ -253,7 +268,7 @@
             reason: reason, exitStatus: 1,
             diskUnchanged: operation == .install
               && journalProvesNoMutation(journal, identity: RecoveryRetryIdentity(package: package)),
-            summary: "Native Recovery resources could not be verified."),
+            summary: summary),
           redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
             Data(String(describing: error).utf8), truncated: false, secrets: [password])))
     }

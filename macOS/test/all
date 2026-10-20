@@ -37,6 +37,7 @@ python3 Packaging/read-validation-engine.py >/dev/null
 python3 test/native-plan-vectors.py
 python3 test/native-inspection-vectors.py
 python3 test/native-handoff-vectors.py
+python3 test/native-payload-vectors.py
 
 python3 -m unittest discover -s Engine/tests -p 'test_*.py'
 python3 -m unittest discover -s Engine/overlay/tests -p 'test_*.py'
