@@ -43,15 +43,15 @@ struct InstallerMasthead: View {
       }
       Spacer(minLength: 16)
       HStack(spacing: Self.markSpacing) {
-        Image(systemName: device.symbol).font(.system(size: 23, weight: .regular))
-          .frame(width: 30, height: 30)
-          .accessibilityHidden(true)
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .trailing, spacing: 2) {
           Text(device.name).font(.system(size: 12, weight: .medium))
           if let chip = device.chip {
             Text(chip).font(.system(size: 11)).foregroundStyle(.secondary)
           }
         }
+        Image(systemName: device.symbol).font(.system(size: 23, weight: .regular))
+          .frame(width: 30, height: 30)
+          .accessibilityHidden(true)
       }
       .lineLimit(1)
       .fixedSize(horizontal: true, vertical: false)
