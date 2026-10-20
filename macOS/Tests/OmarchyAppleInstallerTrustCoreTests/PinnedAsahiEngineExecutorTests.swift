@@ -61,6 +61,10 @@
       }
     }
 
+    private struct NoNativeStubFilesFixture: NativeStubFilesPreparing {
+      func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (any NativeStubFilesExecuting)? { nil }
+    }
+
     private struct NoNativeAPFSFixture: NativeAPFSPreparing {
       func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (
         any NativeAPFSExecuting
@@ -113,6 +117,38 @@
         NativeAdmissionTestData.evidence)
       XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.package.metadataURL.path))
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
+
+    private struct NativeFilesFixture: NativeStubFilesPreparing, NativeStubFilesExecuting {
+      let marker: URL
+      let apfs: URL
+      func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (any NativeStubFilesExecuting)? { self }
+      func prepare(journal: URL, authorization: MachineOwnerAuthorization,
+        sourceBootstrap: NativeSourceBootstrap
+      ) async throws {
+        guard FileManager.default.fileExists(atPath: apfs.path) else { throw NativeStubFileError.invalidPlan }
+        try Data("files prepared".utf8).write(to: marker)
+      }
+    }
+
+    func testNativeFileCapabilityIsAdmittedBeforeAnyMutationAndFilesFollowAPFS() async throws {
+      for supported in [false, true] {
+        let fixture = try makeFixture(supportsNativeFiles: supported, expectNativeAPFS: true, expectNativeFiles: true)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let apfs = fixture.root.appendingPathComponent("apfs")
+        let files = fixture.root.appendingPathComponent("files")
+        let executor = fixtureExecutor(effectiveUserID: { 0 },
+          apfsPreparer: NativeAPFSFixture(marker: apfs),
+          stubFilesPreparer: NativeFilesFixture(marker: files, apfs: apfs))
+        if supported {
+          _ = try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
+          XCTAssertTrue(FileManager.default.fileExists(atPath: files.path))
+        } else {
+          await assertThrowsErrorAsync(try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())) { _ in }
+          XCTAssertFalse(FileManager.default.fileExists(atPath: apfs.path))
+          XCTAssertFalse(FileManager.default.fileExists(atPath: files.path))
+        }
+      }
     }
 
     func testNativeAPFSCapabilityIsAdmittedBeforePreparationAndPassedToContinuation() async throws {
@@ -932,6 +968,7 @@
       firmwarePreparer: any NativeFirmwarePreparing = NativeFirmwarePreparer(),
       peripheralPreparer: any NativePeripheralPreparing = NativeNeoPeripheralPreparer(),
       apfsPreparer: any NativeAPFSPreparing = NoNativeAPFSFixture(),
+      stubFilesPreparer: any NativeStubFilesPreparing = NoNativeStubFilesFixture(),
       collectInstallAdmission: @escaping @Sendable () throws -> NativeInstallAdmissionFacts = {
         NativeAdmissionTestData.facts()
       },
@@ -952,7 +989,7 @@
         },
         firmwarePreparer: firmwarePreparer,
         peripheralPreparer: peripheralPreparer,
-        apfsPreparer: apfsPreparer,
+        apfsPreparer: apfsPreparer, stubFilesPreparer: stubFilesPreparer,
         nativeHandoff: FixtureNativeHandoff(),
         collectInstallAdmission: collectInstallAdmission,
         validatePayload: { _ in
@@ -996,7 +1033,9 @@
       supportsNativeHandoff: Bool = true,
       supportsNativePeripherals: Bool = true,
       supportsNativeAPFS: Bool = true,
+      supportsNativeFiles: Bool = true,
       expectNativeAPFS: Bool = false,
+      expectNativeFiles: Bool = false,
       missingBackendInterpreter: Bool = false,
       installationIntent: ImportedInstallationIntent? = nil,
       planDigest: String = NativeAdmissionTestData.plan.planDigest
@@ -1037,8 +1076,9 @@
       let apfsCapability =
         supportsNativeAPFS
         ? ",\"nativeAPFSInput\":\"helper-target-v1\",\"nativeStubInput\":\"helper-volumes-v1\"" : ""
+      let filesCapability = supportsNativeFiles ? ",\"nativeStubFiles\":\"helper-files-v1\"" : ""
       try Data(
-        #"{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1"\#(apfsCapability)\#(peripheralCapability)\#(handoffCapability)\#(capability)}"#
+        #"{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1"\#(apfsCapability)\#(filesCapability)\#(peripheralCapability)\#(handoffCapability)\#(capability)}"#
           .utf8
       ).write(to: bundleSource.appendingPathComponent("engine-capabilities.json"))
       let main = bundleSource.appendingPathComponent("main.py")
@@ -1106,6 +1146,7 @@
             [ -r "$OMARCHY_ENGINE_METADATA" ] || exit 75
             [ -r "$OMARCHY_ENGINE_PAYLOAD" ] || exit 76
             \(expectNativeAPFS ? "[ \"$OMARCHY_NATIVE_APFS_TARGET\" = \"helper-target-v1\" ] || exit 85" : "")
+            \(expectNativeFiles ? "[ \"$OMARCHY_NATIVE_STUB_FILES\" = \"helper-files-v1\" ] || exit 86" : "")
             \(repairManifest == nil ? "" : "[ -r \"$OMARCHY_ENGINE_REPAIR_MANIFEST\" ] || exit 82")
             ;;
           *) exit 70 ;;

@@ -3,6 +3,7 @@
 
 import os
 import json
+import hashlib
 
 import omarchy_asahi
 import omarchy_contract
@@ -33,6 +34,7 @@ ENVIRONMENT_KEYS = {
     "OMARCHY_NATIVE_FIRMWARE_RECIPE",
     "OMARCHY_NATIVE_APFS_TARGET",
     "OMARCHY_NATIVE_STUB_VOLUMES",
+    "OMARCHY_NATIVE_STUB_FILES",
     "OMARCHY_NATIVE_SOURCE_BOOTSTRAP",
     "DISTRO",
     "DISTRO_DOCS",
@@ -50,6 +52,7 @@ OPTIONAL_INSTALL_KEYS = {
     "OMARCHY_NATIVE_FIRMWARE_RECIPE",
     "OMARCHY_NATIVE_APFS_TARGET",
     "OMARCHY_NATIVE_STUB_VOLUMES",
+    "OMARCHY_NATIVE_STUB_FILES",
     "OMARCHY_NATIVE_SOURCE_BOOTSTRAP",
 }
 
@@ -305,6 +308,14 @@ class EngineRuntime:
                     or native_target is None):
                 raise EngineRuntimeError("native stub volumes require native APFS preparation")
             native_volumes = self.journal._read_checkpoint_evidence("native-stub-volumes")
+        native_files = None
+        if "OMARCHY_NATIVE_STUB_FILES" in self.values:
+            if self.values["OMARCHY_NATIVE_STUB_FILES"] != "helper-files-v1" or native_volumes is None:
+                raise EngineRuntimeError("native stub files require native volume preparation")
+            native_files = self.journal._read_checkpoint_evidence("native-stub-files")
+            binding = self.journal._read_checkpoint_evidence("native-stub-file-binding")
+            if hashlib.sha256(binding).hexdigest() != json.loads(native_files).get("binding_sha256"):
+                raise EngineRuntimeError("native stub file binding changed")
         adapter = omarchy_asahi.AsahiStage1Adapter(
             installer=installer,
             metadata_path=self.values["OMARCHY_ENGINE_METADATA"],
@@ -322,6 +333,7 @@ class EngineRuntime:
             require_native_peripherals=self.mode in ("install", "prepare-native-handoff") and self.device_identifier == "apple,j700",
             native_target_evidence=native_target,
             native_volume_evidence=native_volumes,
+            native_file_evidence=native_files,
             expected_native_bootstrap=native_bootstrap,
             full_readback=os.environ.get("OMARCHY_FULL_READBACK") == "1",
         )

@@ -18,7 +18,7 @@ import sys
 import tempfile
 import zipfile
 import zlib
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 import asahi_firmware
 import osinstall
@@ -1232,6 +1232,7 @@ class AsahiStage1Adapter:
         require_native_peripherals=False,
         native_target_evidence=None,
         native_volume_evidence=None,
+        native_file_evidence=None,
         expected_native_bootstrap=None,
     ):
         self.installer = installer
@@ -1257,6 +1258,7 @@ class AsahiStage1Adapter:
         self.require_native_peripherals = require_native_peripherals
         self.native_target_evidence = native_target_evidence
         self.native_volume_evidence = native_volume_evidence
+        self.native_file_evidence = native_file_evidence
         self.expected_native_bootstrap = expected_native_bootstrap
         self.prepared_native_peripherals = None
         self.native_camera_setfiles = None
@@ -1402,6 +1404,7 @@ class AsahiStage1Adapter:
         self.installer.ins.native_als_calibration = self.native_als_calibration
         self.installer.ins.neo_regulatory_policies = neo_policies
         self.installer.ins.load_ipsw(ipsw)
+        self.restore_source_url = getattr(ipsw, "url", None)
         self.os_firmware = ipsw.version.split(maxsplit=1)[0]
         esp_members = self._esp_members()
         self.common_stage1 = COMMON_STAGE1.member in esp_members and common_stage1_allowed(
@@ -1572,7 +1575,10 @@ class AsahiStage1Adapter:
         self.installer.ins.check_volume()
         if self.native_volume_evidence is not None:
             self._validate_native_volume_group()
-        self.installer.ins.install_files(self.installer.cur_os)
+        if self.native_file_evidence is None:
+            self.installer.ins.install_files(self.installer.cur_os)
+        else:
+            self._consume_native_stub_files(plan)
         os_size = plan.length_bytes - self.stub_size
         self.osins.partition_disk(self.target_part.name, os_size)
 
@@ -1961,6 +1967,86 @@ class AsahiStage1Adapter:
                 or osi.preboot_vgid != roles["Preboot"][0]["uuid"]
                 or osi.rec_vgid != roles["Recovery"][0]["uuid"]):
             raise AsahiAdapterError("native stub volume discovery changed")
+
+    def _consume_native_stub_files(self, plan):
+        if self.native_volume_evidence is None:
+            raise AsahiAdapterError("native stub files have no admitted volumes")
+        try:
+            receipt = json.loads(self.native_file_evidence)
+            keys = {"schema", "plan_digest", "binding_sha256", "group_uuid", "source_url",
+                    "firmware_version", "files", "stub_info"}
+            if (not isinstance(receipt, dict) or set(receipt) != keys or receipt["schema"] != 1
+                    or receipt["plan_digest"] != plan.plan_digest
+                    or receipt["group_uuid"] != self.installer.ins.osi.vgid
+                    or receipt["source_url"] != self.restore_source_url
+                    or receipt["firmware_version"] != self.os_firmware
+                    or re.fullmatch(r"[0-9a-f]{64}", receipt["binding_sha256"]) is None
+                    or not isinstance(receipt["files"], list) or not 5 <= len(receipt["files"]) <= 10000):
+                raise ValueError("invalid file receipt")
+            self.installer.ins.load_identity()
+            osi = self.installer.ins.osi
+            roots = {"System": osi.system, "Preboot": osi.preboot, "Recovery": osi.recovery}
+            observed = set()
+            installer_data = []
+            for item in receipt["files"]:
+                if (not isinstance(item, dict) or set(item) not in (
+                        {"role", "path", "identity"}, {"role", "path", "identity", "installerDataName"})
+                        or item["role"] not in roots or not isinstance(item["path"], str)
+                        or not item["path"] or item["path"].startswith("/")
+                        or any(c in item["path"] for c in "\\\0\r\n")
+                        or any(c in ("", ".", "..") for c in item["path"].split("/"))):
+                    raise ValueError("unsafe installed path")
+                identity = item["identity"]
+                if (not isinstance(identity, dict) or set(identity) != {"bytes", "sha256"}
+                        or type(identity["bytes"]) is not int or not 0 <= identity["bytes"] <= 8 << 30
+                        or re.fullmatch(r"[0-9a-f]{64}", identity["sha256"]) is None):
+                    raise ValueError("invalid installed identity")
+                key = (item["role"], item["path"])
+                if key in observed:
+                    raise ValueError("duplicate installed path")
+                observed.add(key)
+                if item["role"] != "System" and not item["path"].startswith(osi.vgid + "/"):
+                    raise ValueError("foreign installed volume group")
+                root = roots[item["role"]]
+                descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+                try:
+                    components = item["path"].split("/")
+                    for component in components[:-1]:
+                        following = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                            dir_fd=descriptor)
+                        os.close(descriptor)
+                        descriptor = following
+                    fd = os.open(components[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK,
+                                 dir_fd=descriptor)
+                    with os.fdopen(fd, "rb") as stream:
+                        info = os.fstat(stream.fileno())
+                        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                                or info.st_mode & 0o022 or info.st_nlink != 1 or info.st_size != identity["bytes"]
+                                or hashlib.file_digest(stream, "sha256").hexdigest() != identity["sha256"]):
+                            raise ValueError("installed file changed")
+                finally:
+                    os.close(descriptor)
+                name = item.get("installerDataName")
+                if name is not None:
+                    if (not isinstance(name, str) or os.path.basename(name) != name
+                            or name not in ("BuildManifest.plist", "RestoreVersion.plist", "SystemVersion.plist",
+                                            "AdminUserRecoveryInfo.plist") and not name.startswith("kernelcache.")):
+                        raise ValueError("unexpected installer data")
+                    installer_data.append((os.path.join(root, item["path"]), name))
+            required = {("System", "System/Library/CoreServices/SystemVersion.plist"),
+                        ("System", ".IAPhysicalMedia"),
+                        ("Recovery", osi.vgid + "/usr/standalone/firmware/arm64eBaseSystem.dmg")}
+            if not required <= observed:
+                raise ValueError("incomplete native stub")
+            data = receipt["stub_info"]
+            if (not isinstance(data, dict) or set(data) != {"vgid", "system_version", "manifest_info", "admin_users"}
+                    or data["vgid"] != osi.vgid
+                    or plistlib.loads(Path(self.installer.ins.sv_path).read_bytes()) != data["system_version"]):
+                raise ValueError("native stub metadata changed")
+            self.installer.ins.stub_info = data
+            self.installer.ins.copy_idata = installer_data
+        except (OSError, ValueError, TypeError, KeyError, AttributeError, plistlib.InvalidFileException) as error:
+            raise AsahiAdapterError("native stub files could not be verified") from error
 
     def _target_evidence(self, plan):
         return json.dumps(

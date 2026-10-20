@@ -143,7 +143,7 @@ def rebuild(checkout, base, output):
         if MACHO.is_macho((root / item['path']).read_bytes()):
             raise ValueError('the engine overlay carries native code: ' + item['path'])
     # The name is the lock's; Engine/engine_pin.py chooses it.
-    overlay['engine-capabilities.json'] = b'{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1","nativePeripheralInput":"helper-converted-v1","nativeAPFSInput":"helper-target-v1","nativeStubInput":"helper-volumes-v1","signedHelperInput":"helper-executable-v1","nativeHandoff":"helper-finalize-v1"}\n'
+    overlay['engine-capabilities.json'] = b'{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1","nativePeripheralInput":"helper-converted-v1","nativeAPFSInput":"helper-target-v1","nativeStubInput":"helper-volumes-v1","nativeStubFiles":"helper-files-v1","signedHelperInput":"helper-executable-v1","nativeHandoff":"helper-finalize-v1"}\n'
     overlay['version.tag'] = (lock['downstream_overlay']['version'] + '\n').encode()
     with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as archive:
         # The engine carries its own installer metadata; the per-payload copy in the repository is a different file.

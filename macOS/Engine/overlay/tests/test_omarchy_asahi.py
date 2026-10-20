@@ -961,6 +961,60 @@ class AsahiStage1AdapterTests(unittest.TestCase):
                 adapter.install_stub_and_esp(self.plan)
         prepare.assert_not_called()
 
+    def _native_files_adapter(self, root):
+        adapter, target = self._native_volume_adapter()
+        osi = adapter.installer.ins.osi
+        for role, attribute in (("System", "system"), ("Preboot", "preboot"), ("Recovery", "recovery")):
+            path = Path(root, role); path.mkdir(); setattr(osi, attribute, str(path))
+        version = dict(ProductVersion=adapter.os_firmware, ProductUserVisibleVersion=adapter.os_firmware + " (stub)")
+        files = [("System", "System/Library/CoreServices/SystemVersion.plist", plistlib.dumps(version), "SystemVersion.plist"),
+                 ("System", ".IAPhysicalMedia", plistlib.dumps(dict(AppName="Aurora Installer.app")), None),
+                 ("System", "usr/standalone/bootcaches.plist", b"metadata", None),
+                 ("Preboot", osi.vgid + "/Restore/BuildManifest.plist", b"manifest", "BuildManifest.plist"),
+                 ("Recovery", osi.vgid + "/usr/standalone/firmware/arm64eBaseSystem.dmg", b"synthetic-image", None)]
+        entries = []
+        for role, name, data, idata in files:
+            path = Path(getattr(osi, role.lower()), name); path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(data)
+            entry = dict(role=role, path=name, identity=dict(bytes=len(data), sha256=hashlib.sha256(data).hexdigest()))
+            if idata is not None: entry["installerDataName"] = idata
+            entries.append(entry)
+        adapter.installer.ins.sv_path = str(Path(osi.system, files[0][1]))
+        adapter.restore_source_url = "https://updates.cdn-apple.com/test.ipsw"
+        receipt = dict(schema=1, plan_digest=self.plan.plan_digest, binding_sha256="a" * 64,
+                       group_uuid=osi.vgid, source_url=adapter.restore_source_url, firmware_version=adapter.os_firmware,
+                       files=entries, stub_info=dict(vgid=osi.vgid, system_version=version, manifest_info={}, admin_users={}))
+        adapter.native_file_evidence = json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode()
+        return adapter, receipt
+
+    def test_native_files_are_verified_and_skip_python_population_before_partitioning(self):
+        with tempfile.TemporaryDirectory() as root:
+            adapter, receipt = self._native_files_adapter(root)
+            with patch.object(adapter.installer.ins, "install_files") as populate, \
+                 patch.object(adapter.osins, "partition_disk", side_effect=RuntimeError("partition gate")) as partition:
+                with self.assertRaisesRegex(RuntimeError, "partition gate"):
+                    adapter.install_stub_and_esp(self.plan)
+            populate.assert_not_called()
+            partition.assert_called_once()
+            self.assertEqual(adapter.installer.ins.stub_info, receipt["stub_info"])
+            self.assertEqual(len(adapter.installer.ins.copy_idata), 2)
+
+    def test_native_files_refuse_corruption_or_unsafe_paths_before_partitioning(self):
+        for fault in ("contents", "group", "source", "path", "duplicate", "firmware"):
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as root:
+                adapter, receipt = self._native_files_adapter(root)
+                if fault == "contents": Path(adapter.installer.ins.sv_path).write_bytes(b"changed")
+                elif fault == "group": receipt["group_uuid"] = "other"
+                elif fault == "source": receipt["source_url"] = "https://example.org/other"
+                elif fault == "path": receipt["files"][0]["path"] = "../escape"
+                elif fault == "duplicate": receipt["files"].append(receipt["files"][0])
+                elif fault == "firmware": receipt["firmware_version"] = "0"
+                adapter.native_file_evidence = json.dumps(receipt).encode()
+                with patch.object(adapter.installer.ins, "install_files") as populate, \
+                     patch.object(adapter.osins, "partition_disk") as partition:
+                    with self.assertRaisesRegex(AsahiAdapterError, "native stub files"):
+                        adapter.install_stub_and_esp(self.plan)
+                populate.assert_not_called(); partition.assert_not_called()
+
     def test_native_apfs_identity_is_reread_before_any_stub_write(self):
         for field, value in [("uuid", "11111111-2222-3333-4444-555555555555"), ("name", "disk0s9"),
                              ("offset", self.plan.offset_bytes + 4096), ("size", 2 * GIB + 4096),

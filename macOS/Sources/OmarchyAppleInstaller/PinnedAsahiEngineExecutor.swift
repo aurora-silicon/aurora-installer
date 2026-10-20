@@ -65,6 +65,7 @@
     private let firmwarePreparer: any NativeFirmwarePreparing
     private let peripheralPreparer: any NativePeripheralPreparing
     private let apfsPreparer: any NativeAPFSPreparing
+    private let stubFilesPreparer: any NativeStubFilesPreparing
     private let nativeHandoff: any NativeRecoveryHandoffExecuting
     private let collectInstallAdmission: @Sendable () throws -> NativeInstallAdmissionFacts
     private let validatePayload: @Sendable (ImportedEngineHandoffPackage) async throws -> Void
@@ -86,6 +87,7 @@
       firmwarePreparer = NativeFirmwarePreparer()
       peripheralPreparer = NativeNeoPeripheralPreparer()
       apfsPreparer = NativeAPFSPreparer()
+      stubFilesPreparer = NativeStubFilesPreparer()
       nativeHandoff = NativeRecoveryHandoffExecutor()
       collectInstallAdmission = { try NativeInstallAdmissionFacts.live() }
       validatePayload = { try await NativePayloadPreflight.check($0) }
@@ -106,6 +108,7 @@
       firmwarePreparer: any NativeFirmwarePreparing = NativeFirmwarePreparer(),
       peripheralPreparer: any NativePeripheralPreparing = NativeNeoPeripheralPreparer(),
       apfsPreparer: any NativeAPFSPreparing = NativeAPFSPreparer(),
+      stubFilesPreparer: any NativeStubFilesPreparing = NativeStubFilesPreparer(),
       nativeHandoff: any NativeRecoveryHandoffExecuting = NativeRecoveryHandoffExecutor(),
       collectInstallAdmission: @escaping @Sendable () throws -> NativeInstallAdmissionFacts = {
         try NativeInstallAdmissionFacts.live()
@@ -131,6 +134,7 @@
       self.firmwarePreparer = firmwarePreparer
       self.peripheralPreparer = peripheralPreparer
       self.apfsPreparer = apfsPreparer
+      self.stubFilesPreparer = stubFilesPreparer
       self.nativeHandoff = nativeHandoff
       self.collectInstallAdmission = collectInstallAdmission
       self.validatePayload = validatePayload
@@ -229,10 +233,13 @@
         }
       }
       let preparedAPFS: (any NativeAPFSExecuting)?
+      let preparedStubFiles: (any NativeStubFilesExecuting)?
       do {
         preparedAPFS =
           operation == .install && nativeFinalization
           ? try await apfsPreparer.preflight(package) : nil
+        preparedStubFiles = preparedAPFS == nil ? nil : try await stubFilesPreparer.preflight(package)
+        if preparedStubFiles != nil { environment["OMARCHY_NATIVE_STUB_FILES"] = "helper-files-v1" }
         if preparedAPFS != nil {
           guard let sourceBootstrap else { throw NativeHandoffValidationError.invalidOwner }
           environment["OMARCHY_NATIVE_APFS_TARGET"] = "helper-target-v1"
@@ -250,7 +257,7 @@
           summary: "Native disk preparation could not be verified.")
       }
       do {
-        let result = try run(
+        let result = try await run(
           archive: package.engineURL,
           executionParent: package.packageURL.deletingLastPathComponent(),
           journal: journal,
@@ -265,6 +272,8 @@
                 guard let sourceBootstrap else { throw NativeHandoffValidationError.invalidOwner }
                 try preparedAPFS.prepareTarget(
                   journal: journal, authorization: authorization, sourceBootstrap: sourceBootstrap)
+                try await preparedStubFiles?.prepare(journal: journal, authorization: authorization,
+                  sourceBootstrap: sourceBootstrap)
               } else {
                 let bytes = try self.readAdmissionJournal(journal)
                 try NativeInstallAdmission.check(
@@ -356,7 +365,7 @@
       in scratchDirectory: URL
     ) async throws -> Data {
       try validateJournalDirectory(scratchDirectory)
-      return try run(
+      return try await run(
         archive: archive.fileURL,
         expectedDigest: archive.expectedDigest,
         expectedSizeBytes: archive.expectedSizeBytes,
@@ -392,7 +401,7 @@
       let identityURL = inputDirectory.appendingPathComponent("identity.json")
       try writePrivateJSON(request, to: requestURL)
       try writePrivateJSON(identity, to: identityURL)
-      return try run(
+      return try await run(
         archive: archive.fileURL,
         expectedDigest: archive.expectedDigest,
         expectedSizeBytes: archive.expectedSizeBytes,
@@ -420,8 +429,8 @@
       standardInput: Data? = nil,
       secrets: [Data] = [],
       retryIdentity: RecoveryRetryIdentity? = nil,
-      beforeLaunch: (() throws -> Void)? = nil
-    ) throws -> Data {
+      beforeLaunch: (() async throws -> Void)? = nil
+    ) async throws -> Data {
       try validateArchive(
         archive,
         expectedDigest: expectedDigest,
@@ -479,7 +488,9 @@
             additionalEnvironment["OMARCHY_NATIVE_APFS_TARGET"] == nil
               || values["nativeAPFSInput"] as? String == "helper-target-v1",
             additionalEnvironment["OMARCHY_NATIVE_STUB_VOLUMES"] == nil
-              || values["nativeStubInput"] as? String == "helper-volumes-v1"
+              || values["nativeStubInput"] as? String == "helper-volumes-v1",
+            additionalEnvironment["OMARCHY_NATIVE_STUB_FILES"] == nil
+              || values["nativeStubFiles"] as? String == "helper-files-v1"
           else { throw PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported }
         } catch {
           throw PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported
@@ -518,7 +529,7 @@
       }
       // Every exit from here, including a failed stdin write, stops the reader.
       defer { errorCollector.cancel() }
-      try beforeLaunch?()
+      try await beforeLaunch?()
       do {
         try process.run()
         if let standardInput, let inputPipe {

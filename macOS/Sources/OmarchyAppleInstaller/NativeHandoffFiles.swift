@@ -101,6 +101,43 @@
       }
     }
 
+    /// The caller owns the returned descriptor across an asynchronous write.
+    func writableParent(_ path: String) throws -> (Int32, String) {
+      try withParent(path, createParents: true) { parent, leaf in
+        let descriptor = dup(parent)
+        guard descriptor >= 0 else { throw NativeHandoffValidationError.unsafePath }
+        return (descriptor, leaf)
+      }
+    }
+
+    func createDirectory(_ path: String) throws {
+      let (parent, _) = try writableParent(path + "/.directory-check")
+      defer { close(parent) }
+    }
+
+    func fileDescriptor(_ path: String) throws -> Int32 {
+      try withParent(path) { parent, leaf in
+        let descriptor = openat(parent, leaf, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
+        guard descriptor >= 0 else { throw NativeHandoffValidationError.unsafePath }
+        return descriptor
+      }
+    }
+
+    func link(_ path: String, destination: String, admittedRoot: URL) throws {
+      guard protected, destination.hasPrefix(admittedRoot.path + "/") else { throw NativeHandoffValidationError.unsafePath }
+      try withParent(path, createParents: true) { parent, leaf in
+        if symlinkat(destination, parent, leaf) != 0 {
+          guard errno == EEXIST else { throw NativeHandoffValidationError.unsafePath }
+          var bytes = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+          let length = readlinkat(parent, leaf, &bytes, bytes.count)
+          guard length == destination.utf8.count,
+            String(decoding: bytes.prefix(length).map { UInt8(bitPattern: $0) }, as: UTF8.self) == destination
+          else { throw NativeHandoffValidationError.unsafePath }
+        }
+        guard fsync(parent) == 0 else { throw NativeHandoffValidationError.unsafePath }
+      }
+    }
+
     func prepareForAuthorization() throws {
       try moveIfNeeded(
         active: "System/Library/CoreServices/SystemVersion.plist",
@@ -151,7 +188,7 @@
     }
 
     private func withParent<T>(
-      _ path: String, missingParent: Bool = false,
+      _ path: String, missingParent: Bool = false, createParents: Bool = false,
       _ body: (Int32, String) throws -> T
     ) throws -> T {
       guard NativeHandoffEvidence.safeRelative(path) else {
@@ -162,7 +199,17 @@
       guard current >= 0 else { throw NativeHandoffValidationError.unsafePath }
       defer { close(current) }
       for component in parts.dropLast() {
-        let next = openat(current, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        var next = openat(current, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        if next < 0, createParents, errno == ENOENT {
+          guard mkdirat(current, component, 0o755) == 0 else {
+            throw NativeHandoffValidationError.unsafePath
+          }
+          next = openat(current, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+          guard next >= 0, fchmod(next, 0o755) == 0, fsync(current) == 0 else {
+            if next >= 0 { close(next) }
+            throw NativeHandoffValidationError.unsafePath
+          }
+        }
         if next < 0, missingParent, errno == ENOENT { return try body(-1, parts.last!) }
         guard next >= 0 else { throw NativeHandoffValidationError.unsafePath }
         var info = stat()
