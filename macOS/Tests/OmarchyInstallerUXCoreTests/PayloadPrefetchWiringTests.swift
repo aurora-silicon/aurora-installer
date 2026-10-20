@@ -12,7 +12,8 @@
         encoding: .utf8)
       let preparation = try XCTUnwrap(source.range(of: "func preparePlan("))
       let body = source[preparation.upperBound...]
-      let begin = try XCTUnwrap(body.range(of: "beginPayloadPrefetch(release.assets.payload)"))
+      let begin = try XCTUnwrap(
+        body.range(of: "beginPayloadPrefetch(release.assets.payload, generation:"))
       let inspection = try XCTUnwrap(
         body.range(of: #"inspector\.inspect\(\s*host:"#, options: .regularExpression))
       let store = try XCTUnwrap(
@@ -24,7 +25,7 @@
       XCTAssertLessThan(sample.lowerBound, inspection.lowerBound)
       let reserve = try XCTUnwrap(
         body.range(of: "let planningReserve = release.assets.planningReserveBytes"))
-      let freshProbe = try XCTUnwrap(body.range(of: "try self.inspectHost()"))
+      let freshProbe = try XCTUnwrap(body.range(of: "let freshHost = try await inspectCurrentHost()"))
       XCTAssertLessThan(sample.lowerBound, reserve.lowerBound)
       XCTAssertLessThan(reserve.lowerBound, freshProbe.lowerBound)
       XCTAssertLessThan(freshProbe.lowerBound, inspection.lowerBound)
