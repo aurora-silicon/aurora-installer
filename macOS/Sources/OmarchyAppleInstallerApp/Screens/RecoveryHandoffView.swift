@@ -74,11 +74,13 @@ struct RecoveryHandoffView: View {
     .sheet(isPresented: $showingDetails) {
       VStack(alignment: .leading, spacing: 16) {
         Text("Shutdown details").font(.headline)
-        ScrollView {
-          Text(failure ?? "").textSelection(.enabled).frame(
-            maxWidth: .infinity, alignment: .leading)
-        }
+        Text(failure ?? "").textSelection(.enabled).lineLimit(10).truncationMode(.middle)
+          .frame(maxWidth: .infinity, alignment: .leading)
         HStack {
+          Button("Copy details") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(failure ?? "", forType: .string)
+          }
           Spacer()
           Button("Done") { showingDetails = false }
         }

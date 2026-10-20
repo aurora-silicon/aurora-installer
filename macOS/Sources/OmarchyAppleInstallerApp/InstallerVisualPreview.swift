@@ -34,6 +34,8 @@
           AuroraWelcomeView(
             selection: .constant(AuroraInstallationSelection()), device: .simulation, onContinue: {}
           )
+        } else if screen == "recovery" {
+          RecoveryHandoffView(volumeName: "Aurora Fedora Remix", device: .simulation)
         } else {
           InstallerPageLayout(showsFooter: screen != "loading") {
             InstallerMasthead(distribution: .fedora, device: .simulation)
@@ -59,11 +61,12 @@
 
     @ViewBuilder private var stage: some View {
       switch screen {
-      case "allocation", "allocation-free", "allocation-other", "allocation-checking":
+      case "allocation", "allocation-free", "allocation-other", "allocation-checking", "allocation-editing":
         DiskSplitPanel(
           plan: plan, editable: true, isBusy: screen == "allocation-checking",
           pendingAllocationBytes: screen == "allocation-checking" ? 160_000_000_000 : nil,
-          onSizeChosen: { allocation = $0 })
+          onSizeChosen: { allocation = $0 },
+          opensSizePromptForPreview: screen == "allocation-editing")
         EncryptDiskToggle(isOn: true, enabled: true, onChange: { _ in })
         Toggle(
           PlainLanguage.planAcknowledgement(resizesMacOS: plan.allocationSource != .freeExtent),

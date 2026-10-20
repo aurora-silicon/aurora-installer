@@ -91,7 +91,8 @@
       }
 
       private func host(
-        _ scenario: RemovalPreviewScenario, cap: CGFloat, showsAccountFields: Bool = false
+        _ scenario: RemovalPreviewScenario, cap: CGFloat, showsAccountFields: Bool = false,
+        page: Int? = nil
       ) -> Hosted {
         let hosted = Hosted()
         hosted.window.isReleasedWhenClosed = false
@@ -99,7 +100,8 @@
         let view = NSHostingView(
           rootView: OmarchyRemovalSheet(
             previewScenario: scenario, heightCap: cap, showsAccountFields: showsAccountFields,
-            onControlFrame: { [weak hosted] id, frame in hosted?.controls[id] = frame }
+            onControlFrame: { [weak hosted] id, frame in hosted?.controls[id] = frame },
+            reviewConfirmation: page == nil, previewPage: page
           )
           .environment(\.colorScheme, .light))
         hosted.view = view
@@ -172,16 +174,33 @@
         }
       }
 
-      func testFourDeletionPlanScrollsWhenTheCapIsShorterThanItsContent() throws {
+      func testEveryRemovalReviewPageFitsWithoutAScrollViewBeforeConfirmation() throws {
         for showsAccountFields in [false, true] {
-          let uncapped = host(
-            .success, cap: .greatestFiniteMagnitude, showsAccountFields: showsAccountFields)
-          uncapped.window.close()
-          let cap = (uncapped.size.height - 160).rounded(.down)
-          let size = try assertFits(
-            .success, cap: cap, name: "scrolled", showsAccountFields: showsAccountFields)
-          XCTAssertGreaterThan(size.height, cap - 1, "accountFields=\(showsAccountFields)")
+          let ticket = try XCTUnwrap(RemovalPreviewScenario.success.previewTicket.0)
+          let pages = RemovalReviewPage.pages(for: ticket)
+          XCTAssertEqual(pages.first, .overview)
+          XCTAssertEqual(pages.last, .confirmation)
+          XCTAssertEqual(pages.filter { if case .deleted = $0 { true } else { false } }.count, ticket.deletions.count)
+          XCTAssertEqual(pages.filter { if case .kept = $0 { true } else { false } }.count, ticket.kept.count)
+          XCTAssertEqual(pages.filter { if case .note = $0 { true } else { false } }.count, ticket.notes.count)
+          for page in pages.indices {
+            let hosted = host(.success, cap: 580, showsAccountFields: showsAccountFields, page: page)
+            defer { hosted.window.close() }
+            XCTAssertLessThanOrEqual(hosted.size.height, 580)
+            XCTAssertFalse(hasScrollView(try XCTUnwrap(hosted.view)))
+            if page < pages.count - 1 {
+              XCTAssertNil(hosted.controls["remove-omarchy"])
+              XCTAssertNil(hosted.controls["removal-confirmation"])
+            } else {
+              XCTAssertNotNil(hosted.controls["remove-omarchy"])
+              XCTAssertNotNil(hosted.controls["removal-confirmation"])
+            }
+          }
         }
+      }
+
+      private func hasScrollView(_ view: NSView) -> Bool {
+        view is NSScrollView || view.subviews.contains(where: hasScrollView)
       }
 
       func testSheetCapsItselfBelowItsParentWindow() throws {
@@ -212,11 +231,12 @@
         let deadline = Date().addingTimeInterval(3)
         while Date() < deadline {
           RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-          if abs(view.fittingSize.height - expected) <= 1 { break }
+          if view.fittingSize.height > 200 && view.fittingSize.height <= expected { break }
         }
         XCTAssertIdentical(sheet.sheetParent, parent)
         XCTAssertLessThanOrEqual(view.fittingSize.height, expected)
-        XCTAssertGreaterThan(view.fittingSize.height, expected - 1)
+        XCTAssertGreaterThan(view.fittingSize.height, 200)
+        XCTAssertFalse(hasScrollView(view))
         XCTAssertGreaterThanOrEqual(sheet.frame.minY, visible.minY)
         XCTAssertLessThanOrEqual(sheet.frame.maxY, parent.frame.maxY)
       }

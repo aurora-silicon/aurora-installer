@@ -378,35 +378,18 @@ struct OnePageInstallerView: View {
             .padding(.top, 2)
         }
         if let technical {
-          DisclosureGroup("Technical details") {
-            TechnicalDetailText(text: technical)
-            Button("Copy error details") {
-              NSPasteboard.general.clearContents()
-              NSPasteboard.general.setString(technical, forType: .string)
-            }
-          }.padding(.top, 4)
+          InstallerDetailsButton(title: "Technical details", text: technical).padding(.top, 4)
         }
         if session.hasExecutionStarted {
           Text(
             "This installation can’t be started again yet. Review the installation record below, and keep this Mac plugged in."
           )
           .font(OmarchyTheme.body)
-          DisclosureGroup("Last verified steps") {
-            if session.journal.feed.isEmpty {
-              Text(
-                "No completed disk step was confirmed. Disk changes may still have started."
-              )
-            }
-            Button("Copy installation record") {
-              let record = ([headline, detail, technical ?? ""] + session.journal.feed.map(\.text))
-                .joined(separator: "\n")
-              NSPasteboard.general.clearContents()
-              NSPasteboard.general.setString(record, forType: .string)
-            }
-            ForEach(session.journal.feed) { line in
-              Text(line.text).font(OmarchyTheme.technical).textSelection(.enabled)
-            }
-          }
+          InstallerDetailsButton(
+            title: "Last verified steps",
+            text: ([headline, detail, technical ?? ""] + (session.journal.feed.isEmpty
+              ? ["No completed disk step was confirmed. Disk changes may still have started."]
+              : session.journal.feed.map(\.text))).joined(separator: "\n"))
         }
       }
       .padding(.vertical, 2)
@@ -673,127 +656,33 @@ struct DiskSplitPanel: View {
   var pendingAllocationBytes: UInt64? = nil
   let onSizeChosen: (UInt64) -> Void
   var onEditingChange: (Bool) -> Void = { _ in }
+  #if DEBUG
+    var opensSizePromptForPreview = false
+  #endif
 
   @State private var exploredOmarchyGB: Double?
   @State private var sizeInput = DiskSizeInput()
-  @FocusState private var sizeFocused: Bool
+  @State private var showsSizePrompt = false
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Panel {
-        VStack(alignment: .leading, spacing: 10) {
-          Text("Choose your space").font(.system(size: 22, weight: .semibold))
-          Text(
-            plan.allocationSource == .freeExtent
-              ? "Choose how much of the available free space Aurora will use."
-              : "Set aside space for Aurora. Drag the divider or enter a size below."
-          )
-          .font(OmarchyTheme.body).foregroundStyle(.secondary)
-          .fixedSize(horizontal: false, vertical: true)
-          HStack(alignment: .top) {
-            capacity(
-              "macOS", bytes: plan.macOSBytes(for: displayedOmarchyBytes), highlighted: false)
-            Spacer()
-            capacity("Aurora", bytes: displayedOmarchyBytes, highlighted: true)
-          }
-          .padding(.top, 10)
-          .padding(.bottom, 4)
-          DiskBar(
-            macOSBytes: plan.macOSBytes(for: displayedOmarchyBytes),
-            omarchyBytes: displayedOmarchyBytes,
-            unallocatedBytes: plan.unallocatedBytes(for: displayedOmarchyBytes),
-            otherAllocatedBytes: plan.otherAllocatedBytes(for: displayedOmarchyBytes),
-            macOSSpaceCaution: plan.macOSSpaceCaution(for: displayedOmarchyBytes),
-            onAdjustOmarchyFraction: editable ? { adjust($0) } : nil,
-            onCommitOmarchyFraction: editable ? { commit($0) } : nil,
-            isFrozen: sizeInput.isEditing
-          )
-          .transaction { $0.animation = nil }
-          HStack {
-            Text(plan.targetDescription)
-            Spacer()
-            Text(storageRemainderDescription)
-          }
-          .font(OmarchyTheme.detail).foregroundStyle(.secondary)
-          if editable {
-            VStack(alignment: .leading, spacing: 6) {
-              HStack(spacing: 8) {
-                Text("Space for Aurora").font(OmarchyTheme.body)
-                TextField(
-                  "Size",
-                  text: Binding(
-                    get: {
-                      sizeInput.isEditing ? sizeInput.text : sizeInput.display(displayedOmarchyBytes)
-                    },
-                    set: { value in
-                      guard sizeInput.isEditing || value != sizeInput.display(displayedOmarchyBytes)
-                      else { return }
-                      beginSizeEdit()
-                      sizeInput.text = value
-                    }
-                  )
-                )
-                .textFieldStyle(.roundedBorder)
-                .font(OmarchyTheme.control)
-                .frame(width: 88, height: 30)
-                .focused($sizeFocused)
-                .onTapGesture {
-                  beginSizeEdit()
-                  sizeFocused = true
-                }
-                .accessibilityLabel("Aurora size in gigabytes")
-                .onSubmit(applySize)
-                .onExitCommand(perform: cancelSize)
-                Text("GB").font(OmarchyTheme.detail)
-                if sizeInput.isEditing {
-                  Button(action: applySize) {
-                    Image(systemName: "checkmark")
-                      .font(OmarchyTheme.control)
-                      .frame(width: 28, height: 28)
-                  }
-                  .buttonStyle(SizeEditButtonStyle(tint: OmarchyTheme.success))
-                  .accessibilityLabel("Apply size")
-                  .help("Apply size (Return)")
-                  .disabled(sizeInput.requestedBytes == nil)
-                  Button(action: cancelSize) {
-                    Image(systemName: "xmark")
-                      .font(OmarchyTheme.control)
-                      .frame(width: 28, height: 28)
-                  }
-                  .buttonStyle(SizeEditButtonStyle(tint: OmarchyTheme.danger))
-                  .accessibilityLabel("Cancel size edit")
-                  .help("Cancel size edit (Escape)")
-                }
-                Spacer(minLength: 0)
-                if !sizeInput.isEditing {
-                  Button("Use maximum") { onSizeChosen(plan.maximumBytes) }
-                    .buttonStyle(.link)
-                    .disabled(displayedOmarchyBytes == plan.maximumBytes)
-                }
-              }
-              Text(
-                "From \(PlainLanguage.bytes(plan.minimumBytes)) to \(PlainLanguage.bytes(plan.maximumBytes))"
-              )
-              .font(OmarchyTheme.detail).foregroundStyle(.secondary)
-              if let message = sizeInput.validationMessage {
-                Text(message).font(OmarchyTheme.detail).foregroundStyle(OmarchyTheme.danger)
-              }
-            }
-
-          }
-          if plan.allocationSource == .freeExtent {
-            Text(
-              "\(PlainLanguage.bytes(plan.unallocatedBytes(for: displayedOmarchyBytes))) remains unallocated. macOS keeps its current size."
-            )
-            .omarchyHelpText()
-          } else if plan.allocationSource == .otherContainerResize {
-            Text(
-              "macOS keeps its current size. Aurora uses space from the selected APFS container."
-            )
-            .omarchyHelpText()
-          }
-        }
+    VStack(alignment: .leading, spacing: 20) {
+      Text("Choose your space").font(.system(size: 22, weight: .semibold))
+      HStack(alignment: .top) {
+        capacity("macOS", bytes: plan.macOSBytes(for: displayedOmarchyBytes), highlighted: false)
+        Spacer()
+        capacity("Aurora", bytes: displayedOmarchyBytes, highlighted: true)
       }
+      DiskBar(
+        macOSBytes: plan.macOSBytes(for: displayedOmarchyBytes),
+        omarchyBytes: displayedOmarchyBytes,
+        unallocatedBytes: plan.unallocatedBytes(for: displayedOmarchyBytes),
+        otherAllocatedBytes: plan.otherAllocatedBytes(for: displayedOmarchyBytes),
+        macOSSpaceCaution: plan.macOSSpaceCaution(for: displayedOmarchyBytes),
+        onAdjustOmarchyFraction: editable ? { adjust($0) } : nil,
+        onCommitOmarchyFraction: editable ? { commit($0) } : nil,
+        isFrozen: sizeInput.isEditing
+      )
+      .transaction { $0.animation = nil }
       if isBusy {
         Text("Checking available space…")
           .font(OmarchyTheme.detail).foregroundStyle(.secondary)
@@ -802,33 +691,43 @@ struct DiskSplitPanel: View {
         Text(caution).font(OmarchyTheme.body).foregroundStyle(OmarchyTheme.caution)
       }
     }
-    .onChange(of: plan.omarchyBytes) { _, _ in
-      exploredOmarchyGB = nil
+    .sheet(isPresented: $showsSizePrompt, onDismiss: {
+      if sizeInput.isEditing { cancelSize() }
+    }) {
+      DiskSizePrompt(
+        input: $sizeInput, minimumBytes: plan.minimumBytes, maximumBytes: plan.maximumBytes,
+        onApply: applySize, onCancel: cancelSize)
+    }
+    .onChange(of: plan.omarchyBytes) { _, _ in exploredOmarchyGB = nil }
+    .onAppear {
+      #if DEBUG
+        if opensSizePromptForPreview { beginSizeEdit() }
+      #endif
     }
   }
 
   private func capacity(_ title: String, bytes: UInt64, highlighted: Bool) -> some View {
     VStack(alignment: highlighted ? .trailing : .leading, spacing: 5) {
       Text(title).font(OmarchyTheme.detail).foregroundStyle(.secondary)
-      Text(PlainLanguage.bytes(bytes)).font(.system(size: 28, weight: .medium, design: .rounded))
-        .monospacedDigit().foregroundStyle(highlighted ? OmarchyTheme.accent : OmarchyTheme.text)
+      HStack(alignment: .firstTextBaseline, spacing: 9) {
+        if highlighted && editable {
+          Button(action: beginSizeEdit) {
+            Image(systemName: "pencil").font(.system(size: 15, weight: .medium))
+              .frame(width: 28, height: 28)
+          }
+          .buttonStyle(.plain).foregroundStyle(.secondary)
+          .accessibilityLabel("Edit Aurora size")
+          .help("Edit Aurora size")
+        }
+        Text(PlainLanguage.bytes(bytes)).font(.system(size: 28, weight: .medium, design: .rounded))
+          .monospacedDigit().foregroundStyle(highlighted ? OmarchyTheme.accent : OmarchyTheme.text)
+      }
     }
   }
 
   private var displayedOmarchyBytes: UInt64 {
-    guard let exploredOmarchyGB else {
-      return pendingAllocationBytes ?? plan.omarchyBytes
-    }
+    guard let exploredOmarchyGB else { return pendingAllocationBytes ?? plan.omarchyBytes }
     return UInt64(exploredOmarchyGB * 1_000_000_000)
-  }
-
-  private var storageRemainderDescription: String {
-    var parts: [String] = []
-    let other = plan.otherAllocatedBytes(for: displayedOmarchyBytes)
-    let free = plan.unallocatedBytes(for: displayedOmarchyBytes)
-    if other > 0 { parts.append("Other storage \(PlainLanguage.bytes(other))") }
-    if free > 0 { parts.append("Free \(PlainLanguage.bytes(free))") }
-    return parts.joined(separator: " · ")
   }
 
   private func beginSizeEdit() {
@@ -836,18 +735,19 @@ struct DiskSplitPanel: View {
     sizeInput.begin(
       bytes: displayedOmarchyBytes, minimum: plan.minimumBytes, maximum: plan.maximumBytes)
     onEditingChange(true)
+    showsSizePrompt = true
   }
 
   private func applySize() {
     guard let chosen = sizeInput.apply() else { return }
-    sizeFocused = false
+    showsSizePrompt = false
     onEditingChange(false)
     if chosen != plan.omarchyBytes || pendingAllocationBytes != nil { onSizeChosen(chosen) }
   }
 
   private func cancelSize() {
     sizeInput.cancel()
-    sizeFocused = false
+    showsSizePrompt = false
     onEditingChange(false)
   }
 
@@ -868,6 +768,42 @@ struct DiskSplitPanel: View {
     } else {
       exploredOmarchyGB = nil
     }
+  }
+}
+
+struct DiskSizePrompt: View {
+  @Binding var input: DiskSizeInput
+  let minimumBytes: UInt64
+  let maximumBytes: UInt64
+  let onApply: () -> Void
+  let onCancel: () -> Void
+  @FocusState private var focused: Bool
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      Text("Space for Aurora").font(.system(size: 18, weight: .semibold))
+      HStack(spacing: 8) {
+        TextField("Size", text: $input.text)
+          .textFieldStyle(.roundedBorder).font(OmarchyTheme.control)
+          .frame(width: 110).focused($focused).autocorrectionDisabled()
+          .accessibilityLabel("Aurora size in gigabytes")
+          .onSubmit { if input.requestedBytes != nil { onApply() } }
+        Text("GB").font(OmarchyTheme.body).foregroundStyle(.secondary)
+      }
+      Text(input.validationMessage ?? "From \(PlainLanguage.bytes(minimumBytes)) to \(PlainLanguage.bytes(maximumBytes))")
+        .font(OmarchyTheme.detail)
+        .foregroundStyle(input.validationMessage == nil ? OmarchyTheme.secondaryText : OmarchyTheme.danger)
+        .fixedSize(horizontal: false, vertical: true)
+      HStack(spacing: 12) {
+        Spacer()
+        Button("Cancel", action: onCancel).omarchySecondaryButton().keyboardShortcut(.cancelAction)
+        Button("Apply", action: onApply).omarchyPrimaryButton()
+          .disabled(input.requestedBytes == nil).keyboardShortcut(.defaultAction)
+      }
+    }
+    .padding(24).frame(width: 330)
+    .foregroundStyle(OmarchyTheme.text).background(OmarchyTheme.window)
+    .task { focused = true }
   }
 }
 
@@ -913,12 +849,9 @@ struct InstallPanel: View {
           }
           .font(OmarchyTheme.detail).foregroundStyle(.secondary)
         }
-        DisclosureGroup("View activity") {
-          ForEach(progress.feed) { line in
-            Text(line.text).font(OmarchyTheme.technical).textSelection(.enabled)
-          }
-        }
-        .font(OmarchyTheme.detail)
+        InstallerDetailsButton(
+          title: "View activity",
+          text: progress.feed.isEmpty ? "No activity recorded yet." : progress.feed.map(\.text).joined(separator: "\n"))
         if progress.degraded {
           Text(PlainLanguage.installDegraded).omarchyHelpText()
         }

@@ -14,17 +14,12 @@ struct InstallerPageLayout<Header: View, Content: View, Actions: View>: View {
         .padding(.horizontal, 40)
         .padding(.top, 20)
         .padding(.bottom, 16)
-      GeometryReader { viewport in
-        ScrollView {
-          content()
-            .frame(maxWidth: 640)
-            .padding(.horizontal, 40)
-            .padding(.vertical, 20)
-            .frame(minHeight: viewport.size.height, alignment: .center)
-            .frame(maxWidth: .infinity)
-        }
-      }
-      .frame(maxHeight: .infinity)
+      content()
+        .frame(maxWidth: 640)
+        .padding(.horizontal, 40)
+        .padding(.vertical, 20)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
       if showsFooter {
         actions()
           .frame(maxWidth: .infinity, minHeight: OmarchyTheme.buttonHeight)

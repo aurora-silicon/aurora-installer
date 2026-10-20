@@ -24,8 +24,7 @@ struct OmarchyRemovalSheet: View {
   @State private var needsAccountFirst = false
   /// The person switched the helper off; the account first turns it back on.
   @State private var reenablingHelper = false
-  @State private var contentHeight: CGFloat = 0
-  @State private var footerHeight: CGFloat = 0
+  @State private var reviewPage = 0
   @State private var measuredHeightCap: CGFloat?
   private var fixedHeightCap: CGFloat?
   private var preloaded = false
@@ -58,7 +57,8 @@ struct OmarchyRemovalSheet: View {
     init(
       previewScenario: RemovalPreviewScenario, heightCap: CGFloat?,
       showsAccountFields: Bool = false,
-      onControlFrame: ((String, CGRect) -> Void)? = nil
+      onControlFrame: ((String, CGRect) -> Void)? = nil, reviewConfirmation: Bool = false,
+      previewPage: Int? = nil
     ) {
       self.init(
         isSimulation: !showsAccountFields, onBusyChanged: { _ in }, onClose: {},
@@ -70,36 +70,25 @@ struct OmarchyRemovalSheet: View {
       fixedHeightCap = heightCap
       preloaded = true
       self.onControlFrame = onControlFrame
+      if reviewConfirmation, let ticket {
+        _reviewPage = State(initialValue: RemovalReviewPage.pages(for: ticket).count - 1)
+      } else if let previewPage, let ticket {
+        _reviewPage = State(initialValue: min(max(0, previewPage), RemovalReviewPage.pages(for: ticket).count - 1))
+      }
     }
   #endif
 
   private var canRemove: Bool {
-    ticket != nil && !busy && !submitted && phrase == ticket?.confirmation
+    ticket != nil && isConfirmationPage && !busy && !submitted && phrase == ticket?.confirmation
       && (isSimulation || (!username.isEmpty && !password.isEmpty))
   }
 
   var body: some View {
     VStack(spacing: 0) {
-      ScrollView(.vertical) {
-        scrollingContent
-          .onGeometryChange(for: CGFloat.self) {
-            $0.size.height
-          } action: {
-            contentHeight = $0
-          }
-      }
-      .contentMargins(.bottom, bodyScrolls ? 18 : 0, for: .scrollContent)
-      .frame(height: bodyHeight)
-      .scrollBounceBehavior(.basedOnSize)
+      reviewContent
       footer
-        .onGeometryChange(for: CGFloat.self) {
-          $0.size.height
-        } action: {
-          footerHeight = $0
-        }
-        .overlay(alignment: .top) { if bodyScrolls { Divider() } }
     }
-    .frame(width: 520)
+    .frame(width: 600)
     .coordinateSpace(.named(RemovalSheetLayout.coordinateSpace))
     .omarchyTypography()
     .foregroundStyle(OmarchyTheme.text)
@@ -127,74 +116,50 @@ struct OmarchyRemovalSheet: View {
     fixedHeightCap ?? measuredHeightCap ?? RemovalSheetLayout.fallbackHeightCap()
   }
 
-  private var bodyHeight: CGFloat {
-    RemovalSheetLayout.bodyHeight(
-      content: contentHeight, footer: footerHeight, cap: heightCap)
+  private var pages: [RemovalReviewPage] {
+    ticket.map(RemovalReviewPage.pages(for:)) ?? []
   }
 
-  private var bodyScrolls: Bool { contentHeight > bodyHeight + 0.5 }
+  private var currentPage: RemovalReviewPage? {
+    pages.indices.contains(reviewPage) ? pages[reviewPage] : nil
+  }
 
-  private var scrollingContent: some View {
-    VStack(alignment: .leading, spacing: 18) {
-      Text(heading)
-        .font(OmarchyTheme.title)
-        .foregroundStyle(OmarchyTheme.accent)
+  private var isConfirmationPage: Bool { currentPage == .confirmation }
 
-      if reenablingHelper && needsAccountFirst && !busy {
-        // The same caution callout as the authorize sheet, so a switched-off
-        // helper is not mistaken for the ordinary first-time account step.
-        HStack(alignment: .top, spacing: 8) {
-          Image(systemName: "switch.2")
-          Text(message)
-        }
-        .font(OmarchyTheme.body)
-        .foregroundStyle(OmarchyTheme.caution)
-        .fixedSize(horizontal: false, vertical: true)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("removal-message")
-      } else {
-        Text(message)
-          .font(OmarchyTheme.body)
-          .fixedSize(horizontal: false, vertical: true)
-          .accessibilityIdentifier("removal-message")
-      }
-      if let ticket, !submitted {
-        VStack(alignment: .leading, spacing: 10) {
-          if let step = ticket.startupDisk {
-            VStack(alignment: .leading, spacing: 6) {
-              Text("First").foregroundStyle(OmarchyTheme.secondaryText)
-              VStack(alignment: .leading, spacing: 1) {
-                Text(step.title)
-                Text(step.detail)
-                  .font(OmarchyTheme.detail)
-                  .foregroundStyle(OmarchyTheme.secondaryText)
-              }
-              .accessibilityElement(children: .combine)
-              .accessibilityIdentifier("removal-startup-disk")
-            }
-            .font(OmarchyTheme.body)
-          }
-          if !ticket.deletions.isEmpty {
-            planSection("Deleted", items: ticket.deletions)
-          }
+  private var reviewContent: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      Text(heading).font(OmarchyTheme.title)
+      if let ticket, !submitted, let page = currentPage {
+        Text("Review \(reviewPage + 1) of \(pages.count)")
+          .font(OmarchyTheme.detail).foregroundStyle(.secondary)
+        switch page {
+        case .overview:
+          Text(message).font(OmarchyTheme.body).fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("removal-message")
           summaryRow("Space returned to macOS", value: PlainLanguage.bytes(ticket.reclaimBytes))
           summaryRow("macOS after removal", value: PlainLanguage.bytes(ticket.macOSBytesAfter))
-          planSection("Stays as it is", items: ticket.kept)
-        }
-        .padding(14)
-        .background(OmarchyTheme.card, in: RoundedRectangle(cornerRadius: 8))
-        ForEach(ticket.notes, id: \.self) { note in
-          Text(note)
-            .font(OmarchyTheme.body)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-        Text(
-          ticket.kind == .freeSpace
+        case .startup:
+          if let step = ticket.startupDisk {
+            VStack(alignment: .leading, spacing: 8) {
+              Text(step.title).font(OmarchyTheme.heading)
+              Text(step.detail).font(OmarchyTheme.body).fixedSize(horizontal: false, vertical: true)
+            }.accessibilityIdentifier("removal-startup-disk")
+          }
+        case .deleted(let index):
+          planSection("Deleted", items: [ticket.deletions[index]])
+        case .kept(let index):
+          planSection("Stays as it is", items: [ticket.kept[index]])
+        case .note(let index):
+          Text(ticket.notes[index]).font(OmarchyTheme.body).fixedSize(horizontal: false, vertical: true)
+        case .confirmation:
+          Text(ticket.kind == .freeSpace
             ? "Your macOS files stay as they are. This can’t be undone."
-            : "Your macOS files stay as they are. Everything in the deleted partitions is lost. Removal can’t be undone."
-        )
-        .font(OmarchyTheme.body)
-        .fixedSize(horizontal: false, vertical: true)
+            : "Your macOS files stay as they are. Everything in the deleted partitions is lost. Removal can’t be undone.")
+            .font(OmarchyTheme.body).fixedSize(horizontal: false, vertical: true)
+        }
+      } else {
+        Text(message).font(OmarchyTheme.body).fixedSize(horizontal: false, vertical: true)
+          .accessibilityIdentifier("removal-message")
       }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
@@ -206,7 +171,7 @@ struct OmarchyRemovalSheet: View {
       if needsAccountFirst && ticket == nil && !isSimulation {
         accountFields
       }
-      if let ticket, !submitted {
+      if let ticket, !submitted, isConfirmationPage {
         VStack(alignment: .leading, spacing: 7) {
           Text("Type this to confirm:")
             .foregroundStyle(OmarchyTheme.secondaryText)
@@ -255,7 +220,14 @@ struct OmarchyRemovalSheet: View {
             .keyboardShortcut(.defaultAction)
             .disabled(busy || username.isEmpty || password.isEmpty)
         }
-        if let ticket, !submitted {
+        if ticket != nil, !submitted, reviewPage > 0 {
+          Button("Back") { reviewPage -= 1 }.omarchySecondaryButton().disabled(busy)
+        }
+        if ticket != nil, !submitted, !isConfirmationPage {
+          Button("Continue") { reviewPage = min(reviewPage + 1, pages.count - 1) }
+            .omarchyPrimaryButton().disabled(busy).keyboardShortcut(.defaultAction)
+        }
+        if let ticket, !submitted, isConfirmationPage {
           Button(ticket.kind == .freeSpace ? "Return Space" : "Remove Aurora", role: .destructive) {
             Task { await remove() }
           }
@@ -336,6 +308,7 @@ struct OmarchyRemovalSheet: View {
     busy = true
     defer { busy = false }
     ticket = nil
+    reviewPage = 0
     phrase = ""
     if !keepingAccount { password = "" }
     submitted = false
@@ -492,6 +465,22 @@ struct OmarchyRemovalSheet: View {
     onRequiresReview()
     message =
       "The connection to the removal service was lost. Removal may still be running. Don’t restart removal or turn off this Mac. Check the removal record before continuing."
+  }
+}
+
+/// Every deletion, retained item and note is reviewed before confirmation.
+/// Paging keeps the sheet finite without hiding destructive scope in a scroll.
+enum RemovalReviewPage: Equatable {
+  case overview, startup, deleted(Int), kept(Int), note(Int), confirmation
+
+  static func pages(for ticket: OmarchyRemovalTicket) -> [Self] {
+    var result: [Self] = [.overview]
+    if ticket.startupDisk != nil { result.append(.startup) }
+    result += ticket.deletions.indices.map(Self.deleted)
+    result += ticket.kept.indices.map(Self.kept)
+    result += ticket.notes.indices.map(Self.note)
+    result.append(.confirmation)
+    return result
   }
 }
 

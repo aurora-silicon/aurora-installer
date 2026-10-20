@@ -69,7 +69,8 @@ private final class InstallerApplicationDelegate: NSObject, NSApplicationDelegat
     DispatchQueue.main.async {
       for window in NSApp.windows where window.sheetParent == nil {
         if Bundle.main.object(forInfoDictionaryKey: "AuroraPreviewOnly") as? Bool == true {
-          window.setContentSize(NSSize(width: 840, height: 680))
+          let compact = CommandLine.arguments.contains("--preview-compact")
+          window.setContentSize(NSSize(width: 840, height: compact ? 580 : 680))
           window.center()
         }
         for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
