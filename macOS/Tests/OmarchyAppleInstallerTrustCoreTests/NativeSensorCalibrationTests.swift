@@ -21,7 +21,8 @@
       let image = der(
         0x30, text("IMG4") + payload + der(0xa0, der(0x30, text("IM4M") + der(2, Data([0])))))
       return der(
-        0x30, text("comb") + der(0x30, text("fdrd") + der(4, image))
+        0x30,
+        text("comb") + der(0x30, text("fdrd") + der(4, image))
           + der(0x30, text("secb") + der(4, Data("synthetic trust bundle".utf8))))
     }
 
