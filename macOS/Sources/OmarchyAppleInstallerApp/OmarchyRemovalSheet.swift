@@ -188,12 +188,19 @@ struct OmarchyRemovalSheet: View {
           Text(ticket.confirmation)
             .font(OmarchyTheme.heading)
             .textSelection(.enabled)
-          TextField("Confirmation phrase", text: Binding(
-            get: { phrase }, set: { phrase = $0; actionError = nil }))
-            .textFieldStyle(.roundedBorder)
-            .autocorrectionDisabled()
-            .accessibilityIdentifier("removal-confirmation")
-            .reportsFrame("removal-confirmation", to: onControlFrame)
+          TextField(
+            "Confirmation phrase",
+            text: Binding(
+              get: { phrase },
+              set: {
+                phrase = $0
+                actionError = nil
+              })
+          )
+          .textFieldStyle(.roundedBorder)
+          .autocorrectionDisabled()
+          .accessibilityIdentifier("removal-confirmation")
+          .reportsFrame("removal-confirmation", to: onControlFrame)
         }
         .font(OmarchyTheme.body)
         if !isSimulation {
@@ -268,16 +275,30 @@ struct OmarchyRemovalSheet: View {
   private var accountFields: some View {
     VStack(alignment: .leading, spacing: 7) {
       Text("macOS administrator account").foregroundStyle(OmarchyTheme.secondaryText)
-      TextField("Account name", text: Binding(
-        get: { username }, set: { username = $0; actionError = nil }))
-        .textFieldStyle(.roundedBorder)
-        .textContentType(.username)
-        .autocorrectionDisabled()
-      SecureField("macOS password", text: Binding(
-        get: { password }, set: { password = $0; actionError = nil }))
-        .textFieldStyle(.roundedBorder)
-        .textContentType(.password)
-        .privacySensitive()
+      TextField(
+        "Account name",
+        text: Binding(
+          get: { username },
+          set: {
+            username = $0
+            actionError = nil
+          })
+      )
+      .textFieldStyle(.roundedBorder)
+      .textContentType(.username)
+      .autocorrectionDisabled()
+      SecureField(
+        "macOS password",
+        text: Binding(
+          get: { password },
+          set: {
+            password = $0
+            actionError = nil
+          })
+      )
+      .textFieldStyle(.roundedBorder)
+      .textContentType(.password)
+      .privacySensitive()
     }
     .font(OmarchyTheme.body)
   }
