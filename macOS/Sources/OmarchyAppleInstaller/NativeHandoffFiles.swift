@@ -342,17 +342,30 @@
       guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFCHR else {
         throw NativeHandoffValidationError.changedContent
       }
-      let file = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
+      return try digest(descriptor: fd, bytes: bytes)
+    }
+
+    /// Read the complete image into one reusable aligned buffer. A synchronous
+    /// raw-device read must not retain every chunk until the XPC call returns.
+    static func digest(descriptor: Int32, bytes: UInt64) throws -> String {
+      guard bytes > 0, bytes <= 128 << 30 else {
+        throw NativeHandoffValidationError.changedContent
+      }
+      let chunkSize = 4 << 20
+      let scratch = UnsafeMutableRawPointer.allocate(byteCount: chunkSize, alignment: 4096)
+      defer { scratch.deallocate() }
       var digest = SHA256()
-      var remaining = bytes
-      while remaining > 0 {
+      var offset: UInt64 = 0
+      while offset < bytes {
         try Task.checkCancellation()
-        let chunk = try file.read(upToCount: Int(min(remaining, 4 << 20))) ?? Data()
-        guard !chunk.isEmpty, chunk.count <= remaining else {
+        let requested = Int(min(bytes - offset, UInt64(chunkSize)))
+        let count = pread(descriptor, scratch, requested, off_t(offset))
+        if count < 0 && errno == EINTR { continue }
+        guard count > 0, count <= requested else {
           throw NativeHandoffValidationError.changedContent
         }
-        digest.update(data: chunk)
-        remaining -= UInt64(chunk.count)
+        digest.update(bufferPointer: UnsafeRawBufferPointer(start: scratch, count: count))
+        offset += UInt64(count)
       }
       return digest.finalize().map { String(format: "%02x", $0) }.joined()
     }

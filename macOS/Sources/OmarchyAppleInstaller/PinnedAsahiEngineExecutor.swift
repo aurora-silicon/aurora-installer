@@ -755,6 +755,40 @@
         || isRecoveryAuthorizationRetryEligible(journal: journal, identity: retryIdentity)
     }
 
+    /// A helper lost during Recovery can resume only after both disk stages
+    /// have durable checkpoints and no prior child retains the journal lease.
+    func canResumeInterruptedRecoveryAuthorization(
+      _ identity: InstallerJobPlanIdentity, in directory: URL
+    ) -> Bool {
+      guard
+        let journal = EngineJournalLocator.journalURL(
+          workingDirectory: directory, bindingDigest: identity.bindingDigest),
+        let transcript = try? readTranscript(journal),
+        let validated = try? AppleInstallerTrustCore().validateEngineTranscript(transcript),
+        let plan = validated.plan,
+        let snapshot = try? NativeRecoveryJournalSnapshot.decode(
+          transcript, planDigest: identity.planDigest,
+          deviceIdentifier: identity.deviceIdentifier,
+          storeIdentifier: identity.storeIdentifier,
+          intent: plan.candidateKind == "replace" ? .replace : .fresh,
+          evidence: { try readCheckpointEvidence(journal: journal, identifier: $0) }),
+        snapshot.state == .started
+      else { return false }
+      let fd = Darwin.open(journal.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
+      guard fd >= 0 else { return false }
+      defer { Darwin.close(fd) }
+      var opened = stat()
+      var named = stat()
+      guard fstat(fd, &opened) == 0, lstat(journal.path, &named) == 0,
+        opened.st_mode & S_IFMT == S_IFREG, opened.st_uid == expectedFileOwnerID(),
+        opened.st_mode & 0o077 == 0, opened.st_nlink == 1,
+        opened.st_dev == named.st_dev, opened.st_ino == named.st_ino,
+        flock(fd, LOCK_EX | LOCK_NB) == 0
+      else { return false }
+      defer { _ = flock(fd, LOCK_UN) }
+      return true
+    }
+
     private func nativeDiskPreparationRetryEligible(journal: URL, identity: RecoveryRetryIdentity)
       -> Bool
     {

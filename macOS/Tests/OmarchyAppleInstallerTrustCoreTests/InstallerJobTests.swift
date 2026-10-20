@@ -177,6 +177,57 @@
       }
     }
 
+    func testOnlyVerifiedInterruptedRecoveryCanReuseItsExistingWorkHold() throws {
+      for eligible in [false, true] {
+        let root = try workspace()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = InstallerJobRegistry(workingDirectory: root, work: HelperWorkState())
+        let request = try self.request()
+        XCTAssertTrue(try first.begin(request, initiatingUID: 501))
+        let packageURL = root.appendingPathComponent(
+          "imported-handoff-" + UUID().uuidString.lowercased())
+        try FileManager.default.createDirectory(
+          at: packageURL, withIntermediateDirectories: false,
+          attributes: [.posixPermissions: 0o700])
+        let package = ImportedEngineHandoffPackage(
+          packageURL: packageURL, manifestURL: packageURL,
+          requestURL: packageURL, identityURL: packageURL, engineURL: packageURL,
+          metadataURL: packageURL, payloadURL: packageURL,
+          bindingDigest: request.ticket.bindingDigest,
+          planDigest: String(repeating: "a", count: 64),
+          deviceIdentifier: "apple,j314s", storeIdentifier: "disk0")
+        try first.admitted(request.ticket.identifier, package: package)
+        let work = HelperWorkState()
+        let restored = InstallerJobRegistry(
+          workingDirectory: root, work: work, retryEligibility: { _ in true },
+          interruptedRetryEligibility: { _ in eligible })
+        let status = try restored.status(
+          InstallerJobStatusRequest(ticket: request.ticket, journalOffset: 0), initiatingUID: 501)
+        XCTAssertEqual(status.phase, .interrupted)
+        XCTAssertEqual(status.recoveryRetryAvailable, eligible)
+        XCTAssertFalse(work.beginReplacement(token: "replacement"))
+        let retry = InstallerJobRecoveryRequest(ticket: request.ticket, attempt: UUID())
+        if eligible {
+          XCTAssertTrue(try restored.beginRecoveryRetry(retry, initiatingUID: 501))
+          XCTAssertEqual(
+            try restored.recoveryContext(request.ticket.identifier).packageName,
+            packageURL.lastPathComponent)
+          XCTAssertFalse(work.beginReplacement(token: "replacement"))
+          let failure = PinnedAsahiEngineExecutionError.engineFailed(
+            EngineFailureReport(
+              notice: EngineFailureNotice(
+                reason: .recoveryPreparation, exitStatus: 1,
+                diskUnchanged: false, summary: "Recovery stopped"),
+              redactedStandardErrorTail: ""))
+          _ = restored.finish(request.ticket.identifier, result: .failure(failure))
+          XCTAssertTrue(work.beginReplacement(token: "replacement"))
+        } else {
+          XCTAssertThrowsError(try restored.beginRecoveryRetry(retry, initiatingUID: 501))
+          XCTAssertFalse(work.beginReplacement(token: "replacement"))
+        }
+      }
+    }
+
     func testRejectedCredentialsCannotExhaustTheJobHistory() throws {
       let root = try workspace()
       let jobs = InstallerJobRegistry(workingDirectory: root, work: HelperWorkState())

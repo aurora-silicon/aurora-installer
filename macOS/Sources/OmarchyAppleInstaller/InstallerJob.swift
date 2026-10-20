@@ -320,6 +320,7 @@
     private let workingDirectory: URL
     private let work: HelperWorkState
     private let retryEligibility: @Sendable (InstallerJobPlanIdentity) -> Bool
+    private let interruptedRetryEligibility: @Sendable (InstallerJobPlanIdentity) -> Bool
     private var records = [UUID: InstallerJobRecord]()
     private var loaded = false
     private var loadError: (any Error)?
@@ -328,7 +329,8 @@
 
     init(
       workingDirectory: URL, work: HelperWorkState,
-      retryEligibility: (@Sendable (InstallerJobPlanIdentity) -> Bool)? = nil
+      retryEligibility: (@Sendable (InstallerJobPlanIdentity) -> Bool)? = nil,
+      interruptedRetryEligibility: (@Sendable (InstallerJobPlanIdentity) -> Bool)? = nil
     ) {
       self.workingDirectory = workingDirectory
       directory = workingDirectory.appendingPathComponent("installation-jobs", isDirectory: true)
@@ -336,6 +338,11 @@
       self.retryEligibility =
         retryEligibility ?? { identity in
           PinnedAsahiEngineExecutor().canRetryRecoveryAuthorization(identity, in: workingDirectory)
+        }
+      self.interruptedRetryEligibility =
+        interruptedRetryEligibility ?? { identity in
+          PinnedAsahiEngineExecutor().canResumeInterruptedRecoveryAuthorization(
+            identity, in: workingDirectory)
         }
       do { try load() } catch {
         loadError = error
@@ -485,7 +492,8 @@
         guard (record.recoveryAttempts?.count ?? 0) < 256 else {
           throw InstallerJobError.historyFull
         }
-        try work.beginJob()
+        let retainsInterruptedHold = record.phase == .interrupted
+        if !retainsInterruptedHold { try work.beginJob() }
         record.recoveryAttempt = request.attempt
         record.recoveryAttempts = (record.recoveryAttempts ?? []) + [request.attempt]
         record.phase = .preparing
@@ -497,7 +505,7 @@
           records[record.identifier] = record
           return true
         } catch {
-          work.endJob()
+          if !retainsInterruptedHold { work.endJob() }
           throw error
         }
       }
@@ -517,7 +525,9 @@
     func canRetryNow(_ identity: InstallerJobPlanIdentity) -> Bool { retryEligibility(identity) }
 
     private func retryAvailable(_ record: InstallerJobRecord) -> Bool {
-      guard record.phase == .failed, record.retainedPackageName != nil, let identity = record.plan,
+      guard record.retainedPackageName != nil, let identity = record.plan else { return false }
+      if record.phase == .interrupted { return interruptedRetryEligibility(identity) }
+      guard record.phase == .failed,
         record.failure?.code == "recovery"
           || (record.failure?.code == "engine" && record.failure?.diskUnchanged == false)
           || (record.recoveryAttempt != nil && record.failure?.code == "credentials")
