@@ -126,6 +126,55 @@
       XCTAssertEqual(bootFile.opened, 1)
       XCTAssertEqual(rootFile.opened, 1)
 
+      let espRoot = root.appendingPathComponent("esp")
+      try FileManager.default.createDirectory(
+        at: espRoot, withIntermediateDirectories: false,
+        attributes: [.posixPermissions: 0o700])
+      let espStore = try NativeESPFileStore(
+        root: espRoot, volumeDevice: esp.identifier,
+        namespace: approved.planDigest + "-preserve",
+        verifyMount: { _, _, _ in }, admitFilesystem: { _ in })
+      for entry in prepared.esp.entries {
+        _ = try await espStore.data(Data(("old " + entry.path).utf8), at: entry.path)
+      }
+      let espWriter = NativePreservedESPExecution(
+        package: package, approved: approved, prepared: prepared, disks: platform.disks,
+        verifyMount: { _, _, _ in }, admitFilesystem: { _ in })
+      let espFirst = try await espWriter.prepare(
+        journal: journal, espRoot: espRoot, boot: first.boot, root: first.root,
+        installedStage1: prepared.stage1,
+        authorization: authorization, bootstrap: bootstrap)
+      XCTAssertEqual(espFirst.files.count, prepared.esp.entries.count)
+      XCTAssertEqual(espFirst.digest.count, 64)
+      for entry in espFirst.files {
+        XCTAssertEqual(try espStore.identity(entry.path), entry.installed)
+        let backup = try XCTUnwrap(entry.backup)
+        XCTAssertEqual(try espStore.identity(backup.backupPath), backup.previous)
+      }
+      let espRepeated = try await espWriter.prepare(
+        journal: journal, espRoot: espRoot, boot: first.boot, root: first.root,
+        installedStage1: prepared.stage1,
+        authorization: authorization, bootstrap: bootstrap)
+      XCTAssertEqual(espRepeated.digest, espFirst.digest)
+      let firstESP = try XCTUnwrap(espFirst.files.first)
+      let espEvidence = journalURL.path + ".preserved-esp-new-"
+        + NativeStubFileStore.hash(Data(firstESP.path.utf8)) + ".evidence"
+      try FileManager.default.removeItem(at: URL(fileURLWithPath: espEvidence))
+      let espRecovered = try await espWriter.prepare(
+        journal: journal, espRoot: espRoot, boot: first.boot, root: first.root,
+        installedStage1: prepared.stage1,
+        authorization: authorization, bootstrap: bootstrap)
+      XCTAssertEqual(espRecovered.digest, espFirst.digest)
+      let oldName = try XCTUnwrap(firstESP.backup).backupPath
+      try Data("changed rollback".utf8).write(to: espRoot.appendingPathComponent(oldName))
+      do {
+        _ = try await espWriter.prepare(
+          journal: journal, espRoot: espRoot, boot: first.boot, root: first.root,
+          installedStage1: prepared.stage1,
+          authorization: authorization, bootstrap: bootstrap)
+        XCTFail("Changed ESP rollback file was adopted")
+      } catch {}
+
       try FileManager.default.removeItem(
         at: URL(fileURLWithPath: journalURL.path + ".preserved-image-root.evidence"))
       _ = try await writer.prepare(

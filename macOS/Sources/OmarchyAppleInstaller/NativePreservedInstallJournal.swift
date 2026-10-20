@@ -29,6 +29,45 @@
     }
   }
 
+  struct NativePreservedESPBaseline: Codable, Equatable, Sendable {
+    let member: String
+    let path: String
+    let previous: NativeStubFileIdentity?
+    let installed: NativeStubFileIdentity
+
+    func validate() throws {
+      guard NativeESPPayloadPlan.safeFATPath(path), !member.isEmpty,
+        installed.bytes > 0, installed.bytes <= 64 << 20,
+        SHA256Digest(hexadecimal: installed.sha256) != nil,
+        previous.map({
+          $0.bytes > 0 && $0.bytes <= 64 << 20
+            && SHA256Digest(hexadecimal: $0.sha256) != nil
+        }) ?? true
+      else { throw NativeRecoveryJournalError.invalidState }
+    }
+  }
+
+  struct NativePreservedESPEntryReceipt: Codable, Equatable, Sendable {
+    let member: String
+    let path: String
+    let installed: NativeStubFileIdentity
+    let backup: NativeESPFileStore.ReplacementReceipt?
+
+    func validate(baseline: NativePreservedESPBaseline) throws {
+      try baseline.validate()
+      guard member == baseline.member, path == baseline.path,
+        installed == baseline.installed
+      else { throw NativeRecoveryJournalError.invalidState }
+      if let previous = baseline.previous, previous != installed {
+        guard let backup, backup.path == path,
+          backup.previous == previous, backup.installed == installed
+        else { throw NativeRecoveryJournalError.invalidState }
+      } else if backup != nil {
+        throw NativeRecoveryJournalError.invalidState
+      }
+    }
+  }
+
   struct NativePreservedInstallJournalSnapshot: Sendable {
     let transcript: Data
     let plan: ValidatedEnginePlan
@@ -157,6 +196,70 @@
       }
     }
 
+    func espBaseline(_ path: String) throws -> NativePreservedESPBaseline? {
+      guard NativeESPPayloadPlan.safeFATPath(path) else {
+        throw NativeRecoveryJournalError.invalidState
+      }
+      return try file.transaction {
+        let before = try current()
+        guard before.state != .ready else { throw NativeRecoveryJournalError.invalidState }
+        let identifier = Self.espIdentifier("preserved-esp-old-", path: path)
+        guard try file.containsEvidence(identifier) else { return nil }
+        let baseline = try JSONDecoder().decode(
+          NativePreservedESPBaseline.self, from: file.readEvidence(identifier))
+        try baseline.validate()
+        guard baseline.path == path else { throw NativeRecoveryJournalError.evidenceChanged }
+        return baseline
+      }
+    }
+
+    func recordESPBaseline(_ baseline: NativePreservedESPBaseline) throws {
+      try baseline.validate()
+      try file.transaction {
+        guard try current().state == .started else {
+          throw NativeRecoveryJournalError.invalidState
+        }
+        try file.publishEvidence(
+          Self.encode(baseline),
+          identifier: Self.espIdentifier("preserved-esp-old-", path: baseline.path))
+      }
+    }
+
+    func espReceipt(_ path: String) throws -> NativePreservedESPEntryReceipt? {
+      guard NativeESPPayloadPlan.safeFATPath(path) else {
+        throw NativeRecoveryJournalError.invalidState
+      }
+      return try file.transaction {
+        guard try current().state != .ready else {
+          throw NativeRecoveryJournalError.invalidState
+        }
+        let identifier = Self.espIdentifier("preserved-esp-new-", path: path)
+        guard try file.containsEvidence(identifier) else { return nil }
+        let baselineID = Self.espIdentifier("preserved-esp-old-", path: path)
+        let baseline = try JSONDecoder().decode(
+          NativePreservedESPBaseline.self, from: file.readEvidence(baselineID))
+        let receipt = try JSONDecoder().decode(
+          NativePreservedESPEntryReceipt.self, from: file.readEvidence(identifier))
+        try receipt.validate(baseline: baseline)
+        return receipt
+      }
+    }
+
+    func recordESP(_ receipt: NativePreservedESPEntryReceipt) throws {
+      try file.transaction {
+        guard try current().state == .started else {
+          throw NativeRecoveryJournalError.invalidState
+        }
+        let baselineID = Self.espIdentifier("preserved-esp-old-", path: receipt.path)
+        let baseline = try JSONDecoder().decode(
+          NativePreservedESPBaseline.self, from: file.readEvidence(baselineID))
+        try receipt.validate(baseline: baseline)
+        try file.publishEvidence(
+          Self.encode(receipt),
+          identifier: Self.espIdentifier("preserved-esp-new-", path: receipt.path))
+      }
+    }
+
     func recordWritten(_ receipt: NativePreservedInstallReceipt) throws {
       try file.transaction {
         let before = try current()
@@ -204,6 +307,10 @@
       let encoder = JSONEncoder()
       encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
       return try encoder.encode(receipt)
+    }
+
+    private static func espIdentifier(_ prefix: String, path: String) -> String {
+      prefix + NativeStubFileStore.hash(Data(path.utf8))
     }
   }
 #endif
