@@ -268,7 +268,7 @@
         notes.append(
           "macOS takes all the unallocated space directly after it, whatever put it there.")
       }
-      let kept = [
+      var kept = [
         OmarchyRemovalItem(
           title: "macOS “\(macOSName)”",
           detail: "\(macOS.identifier) · grows to \(RemovalText.size(targetMacOSBytes))",
@@ -279,6 +279,20 @@
           title: "Apple Recovery", detail: parts[parts.count - 1].identifier,
           bytes: parts[parts.count - 1].size),
       ]
+      for part in parts
+      where part.type == "Apple_APFS" && part.uuid != macOS.uuid
+        && !members.contains(where: { $0.uuid == part.uuid })
+      {
+        let name =
+          snapshot.containers.first { $0.storeUUID == part.uuid }?.volumes
+          .first { $0.roles == ["System"] }?.name ?? part.name
+        kept.append(
+          OmarchyRemovalItem(
+            title: "Separate startup container “\(name)”", detail: part.identifier, bytes: part.size
+          ))
+        notes.append(
+          "The separate startup container “\(name)” is kept. macOS grows only up to it.")
+      }
       return OmarchyRemovalTicket(
         id: id, kind: kind, reclaimBytes: reclaimBytes, macOSBytesAfter: targetMacOSBytes,
         deletions: deletions, kept: kept, notes: notes,

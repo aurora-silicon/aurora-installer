@@ -130,21 +130,12 @@ struct OnePageInstallerView: View {
   }
 
   private var installerPage: some View {
-    InstallerPageLayout(
-      showsFooter: session.phase != .inspecting, contentAlignment: pageContentAlignment
-    ) {
+    InstallerPageLayout(showsFooter: session.phase != .inspecting) {
       header
     } content: {
       VStack(alignment: .leading, spacing: 16) { stage }
     } actions: {
       HStack(spacing: 16) { actions }
-    }
-  }
-
-  private var pageContentAlignment: Alignment {
-    switch session.phase {
-    case .planReview, .awaitingInstall: .top
-    default: .center
     }
   }
 
@@ -288,7 +279,7 @@ struct OnePageInstallerView: View {
         .keyboardShortcut(.defaultAction)
 
     case .existingInstallRefused:
-      Button("Wipe Linux…", role: .destructive, action: onRemoveLinux)
+      Button("Erase Linux…", role: .destructive, action: onRemoveLinux)
         .omarchySecondaryButton()
         .disabled(session.isBusy)
 
@@ -567,7 +558,7 @@ struct ExistingInstallationContent: View {
     VStack(alignment: .leading, spacing: 12) {
       Text(PlainLanguage.existingInstallHeadline)
         .font(OmarchyTheme.heading)
-      Text("Wipe Linux to remove the installation and return its space to macOS.")
+      Text("Erase Linux to remove the installation and return its space to macOS.")
         .font(OmarchyTheme.body)
         .foregroundStyle(OmarchyTheme.secondaryText)
         .fixedSize(horizontal: false, vertical: true)

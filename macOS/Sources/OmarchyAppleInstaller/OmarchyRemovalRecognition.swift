@@ -57,22 +57,38 @@
       if !others.isEmpty { throw refuse(RemovalText.otherSystem(others, snapshot)) }
       let foreign = zip(middle, kinds).filter { $0.1 == .foreign }.map(\.0)
       if !foreign.isEmpty { throw refuse(RemovalText.foreign(foreign, snapshot)) }
-      let stubs = zip(middle, kinds).filter { $0.1 == .stub }.map(\.0)
+      // A standalone startup container after the installation is independent:
+      // preserve it, and never grow macOS across its physical store. A second
+      // installation with its own ESP still fails the single-installation check.
+      if kinds.allSatisfy({ $0 == .stub }),
+        let first = middle.first, first.offset - macOS.end >= minimumFreeSpace
+      {
+        return .freeSpace(macOS: macOS, target: first.offset - macOS.offset)
+      }
+      let boundary = kinds.dropFirst().firstIndex(of: .stub) ?? middle.count
+      let preservedTail = boundary < middle.count && kinds[boundary...].allSatisfy { $0 == .stub }
+      let installationParts = preservedTail ? Array(middle[..<boundary]) : middle
+      let installationKinds = preservedTail ? Array(kinds[..<boundary]) : kinds
+      let growthEnd = preservedTail ? middle[boundary].offset : recovery.offset
+      let stubs = zip(installationParts, installationKinds).filter { $0.1 == .stub }.map(\.0)
       if stubs.count > 1 { throw refuse(RemovalText.several(stubs, snapshot)) }
       if stubs.isEmpty { throw refuse(RemovalText.partial(middle, snapshot)) }
-      guard middle.count >= 2, middle.count <= 4, kinds[0] == .stub, kinds[1] == .esp,
-        kinds.dropFirst(2).allSatisfy({ $0 == .linux }),
-        middle[1].size <= maximumESP,
-        zip(middle, middle.dropFirst()).allSatisfy({ $1.offset - $0.end < memberGap })
+      guard installationParts.count >= 2, installationParts.count <= 4,
+        installationKinds[0] == .stub, installationKinds[1] == .esp,
+        installationKinds.dropFirst(2).allSatisfy({ $0 == .linux }),
+        installationParts[1].size <= maximumESP,
+        zip(installationParts, installationParts.dropFirst()).allSatisfy({
+          $1.offset - $0.end < memberGap
+        })
       else { throw refuse(RemovalText.shape(middle, snapshot)) }
-      let stub = middle[0]
+      let stub = installationParts[0]
       let container = snapshot.containers.first { $0.storeUUID == stub.uuid }!
       let system = container.volumes.first { $0.roles == ["System"] }!
       return .installation(
         RemovalInstallation(
-          name: system.name, stub: stub, system: system, esp: middle[1],
-          linux: Array(middle.dropFirst(2))),
-        macOS: macOS, target: target)
+          name: system.name, stub: stub, system: system, esp: installationParts[1],
+          linux: Array(installationParts.dropFirst(2))),
+        macOS: macOS, target: growthEnd - macOS.offset)
     }
 
     enum Kind: Equatable { case stub, esp, linux, otherSystem, foreign }

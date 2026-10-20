@@ -3,7 +3,7 @@ import SwiftUI
 /// A compact masthead, an adaptable content column and a persistent action footer.
 struct InstallerPageLayout<Header: View, Content: View, Actions: View>: View {
   var showsFooter = true
-  var contentAlignment: Alignment = .center
+  var contentAlignment: Alignment = .top
   @ViewBuilder let header: () -> Header
   @ViewBuilder let content: () -> Content
   @ViewBuilder let actions: () -> Actions

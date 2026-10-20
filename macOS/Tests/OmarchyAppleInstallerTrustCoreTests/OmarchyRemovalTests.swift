@@ -28,6 +28,78 @@
         [F.convergedInstall.stub, F.convergedInstall.esp] + F.convergedInstall.linux)
     }
 
+    func testNeoWipeKeepsIndependentProxyAndStopsGrowthAtItsBoundary() throws {
+      let disk = FakeRemovalDisk(F.neoWithPreservedProxy())
+      let original = disk.state
+      let proxy = try XCTUnwrap(original.partitions.first { $0.uuid == F.proxyStore })
+      let proxyContainer = original.containers.first { $0.storeUUID == F.proxyStore }
+      let plan = try OmarchyRemovalPlan(disks: disk)
+      XCTAssertEqual(
+        plan.members.map(\.uuid),
+        [F.convergedInstall.stub, F.convergedInstall.esp] + F.convergedInstall.linux)
+      XCTAssertEqual(plan.macOS.offset + plan.targetMacOSBytes, proxy.offset)
+      let ticket = plan.ticket(id: UUID())
+      XCTAssertEqual(ticket.kept.last?.title, "Separate startup container “Aura Proxy”")
+      XCTAssertEqual(ticket.kept.last?.detail, proxy.identifier)
+      XCTAssertEqual(ticket.deletions.count, 4)
+      XCTAssertEqual(
+        ticket.notes,
+        [
+          "The separate startup container “Aura Proxy” is kept. macOS grows only up to it."
+        ])
+      try OmarchyRemovalExecutor(disks: disk).execute(plan) { _ in }
+      XCTAssertEqual(
+        disk.operations,
+        [
+          "container:\(F.convergedInstall.stub)", "erase:\(F.convergedInstall.esp)",
+          "erase:\(F.convergedInstall.linux[0])", "erase:\(F.convergedInstall.linux[1])",
+          "grow:\(F.mac)",
+        ])
+      XCTAssertEqual(disk.state.partitions.map(\.uuid), [F.isc, F.mac, F.proxyStore, F.recovery])
+      XCTAssertEqual(disk.state.partitions.first { $0.uuid == F.proxyStore }, proxy)
+      XCTAssertEqual(disk.state.containers.first { $0.storeUUID == F.proxyStore }, proxyContainer)
+      XCTAssertEqual(disk.state.partitions[1].end, proxy.offset)
+    }
+
+    func testChangedPreservedProxyStopsBeforeAnyDeletion() throws {
+      let disk = FakeRemovalDisk(F.neoWithPreservedProxy())
+      let plan = try OmarchyRemovalPlan(disks: disk)
+      let index = try XCTUnwrap(disk.state.partitions.firstIndex { $0.uuid == F.proxyStore })
+      disk.state.partitions[index].size += 4096
+      XCTAssertThrowsError(try OmarchyRemovalExecutor(disks: disk).execute(plan) { _ in })
+      XCTAssertTrue(disk.operations.isEmpty)
+    }
+
+    func testPreservedProxyDoesNotRelaxPrimaryInstallationEvidence() throws {
+      let disk = FakeRemovalDisk(F.neoWithPreservedProxy())
+      disk.files!.stubBootObject = Self.auroraStage1(esp: F.id(77).lowercased())
+      XCTAssertThrowsError(try OmarchyRemovalPlan(disks: disk))
+      disk.files = F.files(for: F.convergedInstall, in: disk.state)
+      disk.files!.installerLog!.append(
+        Data(
+          "\nNew partition: Partition(name='Proxy', offset=1, size=1, free=False, type='Apple_APFS', uuid='\(F.proxyStore)')"
+            .utf8))
+      XCTAssertThrowsError(try OmarchyRemovalPlan(disks: disk))
+      XCTAssertTrue(disk.operations.isEmpty)
+    }
+
+    func testReturningFreeSpaceAfterWipeStillPreservesProxy() throws {
+      let disk = FakeRemovalDisk(F.neoWithPreservedProxy())
+      let members = Set(
+        [F.convergedInstall.stub, F.convergedInstall.esp] + F.convergedInstall.linux)
+      disk.state.partitions.removeAll { members.contains($0.uuid) }
+      disk.state.containers.removeAll { members.contains($0.storeUUID) }
+      let proxy = try XCTUnwrap(disk.state.partitions.first { $0.uuid == F.proxyStore })
+      let plan = try OmarchyRemovalPlan(disks: disk)
+      XCTAssertEqual(plan.kind, .freeSpace)
+      XCTAssertTrue(plan.members.isEmpty)
+      XCTAssertEqual(plan.macOS.offset + plan.targetMacOSBytes, proxy.offset)
+      try OmarchyRemovalExecutor(disks: disk).execute(plan) { _ in }
+      XCTAssertEqual(disk.operations, ["grow:\(F.mac)"])
+      XCTAssertEqual(disk.state.partitions[1].end, proxy.offset)
+      XCTAssertEqual(disk.state.partitions.first { $0.uuid == F.proxyStore }, proxy)
+    }
+
     func testANeoStubBootingAurorasJ700Stage1IsRecognised() throws {
       let disk = FakeRemovalDisk(F.neoMacos26(), install: F.convergedInstall)
       disk.files!.stubBootObject = Self.auroraStage1(esp: F.convergedInstall.esp.lowercased())

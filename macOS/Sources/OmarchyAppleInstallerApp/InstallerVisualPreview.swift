@@ -37,10 +37,7 @@
         } else if screen == "recovery" {
           RecoveryHandoffView(volumeName: "Aurora Fedora Remix", device: .simulation)
         } else {
-          InstallerPageLayout(
-            showsFooter: screen != "loading",
-            contentAlignment: screen.hasPrefix("allocation") ? .top : .center
-          ) {
+          InstallerPageLayout(showsFooter: screen != "loading") {
             InstallerMasthead(distribution: .fedora, device: .simulation)
           } content: {
             VStack(alignment: .leading, spacing: 16) {
@@ -48,7 +45,7 @@
             }
           } actions: {
             if screen == "existing" {
-              Button("Wipe Linux…", role: .destructive, action: {}).omarchySecondaryButton()
+              Button("Erase Linux…", role: .destructive, action: {}).omarchySecondaryButton()
             } else if screen.hasPrefix("allocation") {
               HStack(spacing: 16) {
                 if screen == "allocation-checking" {

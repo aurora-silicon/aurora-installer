@@ -139,6 +139,24 @@
         ], installs: [convergedInstall])
     }
 
+    static let proxyStore = id(98)
+
+    /// Neo's primary Linux installation followed by an independent USB proxy.
+    static func neoWithPreservedProxy() -> RemovalSnapshot {
+      snapshot(
+        macOSSize: 122_500_000_000,
+        [
+          .part(convergedInstall.stub, "Apple_APFS", 5_999_951_872),
+          .part(convergedInstall.esp, "EFI", 524_288_000, name: "EFI - OMARC"),
+          .part(convergedInstall.linux[0], "Linux Filesystem", 2_147_483_648),
+          .part(convergedInstall.linux[1], "Linux Filesystem", 107_900_000_000),
+          .part(proxyStore, "Apple_APFS", 6_000_001_024),
+        ],
+        extraContainers: [
+          stubContainer(proxyStore, name: "Aura Proxy", group: id(99), disk: 8, uuid: id(898))
+        ], installs: [convergedInstall])
+    }
+
     static let alarmInstall = Install(
       name: "Asahi Alarm Minimal", stub: id(3), esp: id(4), linux: [id(5)], group: id(600))
 
