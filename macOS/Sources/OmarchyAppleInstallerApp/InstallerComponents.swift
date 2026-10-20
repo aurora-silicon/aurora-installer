@@ -290,13 +290,13 @@ struct TechnicalDetailText: View {
 }
 
 extension View {
-  func omarchyPrimaryButton() -> some View {
-    buttonStyle(.plain).font(.system(size: 15, weight: .medium)).controlSize(.large)
-      .padding(.horizontal, 18).padding(.vertical, 9).contentShape(Rectangle())
-  }
-  func nativeInstallButton() -> some View {
-    buttonStyle(.bordered).controlSize(.large).tint(.gray)
-      .font(.system(size: 15, weight: .medium))
+  @ViewBuilder func omarchyPrimaryButton() -> some View {
+    let button = controlSize(.large).tint(.gray).font(.system(size: 15, weight: .medium))
+    if #available(macOS 26.0, *) {
+      button.buttonStyle(.glass)
+    } else {
+      button.buttonStyle(.bordered)
+    }
   }
   func omarchySecondaryButton() -> some View { buttonStyle(.bordered).controlSize(.large) }
   func omarchyDangerButton() -> some View { buttonStyle(.bordered).tint(.red).controlSize(.large) }

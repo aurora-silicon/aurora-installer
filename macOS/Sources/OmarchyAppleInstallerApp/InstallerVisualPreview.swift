@@ -52,7 +52,7 @@
                 if screen == "allocation-checking" {
                   Button("Cancel check", action: {}).omarchySecondaryButton()
                 }
-                Button("Install Aurora", action: {}).nativeInstallButton()
+                Button("Install Aurora", action: {}).omarchyPrimaryButton()
                   .disabled(screen != "allocation-ready").keyboardShortcut(.defaultAction)
               }
             } else {

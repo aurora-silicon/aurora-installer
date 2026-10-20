@@ -305,7 +305,7 @@ struct OnePageInstallerView: View {
           session.presentInstallCredentials()
         }
       }
-      .nativeInstallButton()
+      .omarchyPrimaryButton()
       .disabled(
         !acknowledged || session.isBusy || session.isEditingSize || session.planNeedsCheck
           || session.prefetchState != .verified
@@ -317,7 +317,7 @@ struct OnePageInstallerView: View {
         .omarchySecondaryButton()
         .disabled(!session.canEditPlan)
       Button(PlainLanguage.planInstall) { session.presentInstallCredentials() }
-        .nativeInstallButton()
+        .omarchyPrimaryButton()
         .disabled(!session.canStartInstallation)
         .keyboardShortcut(.defaultAction)
 

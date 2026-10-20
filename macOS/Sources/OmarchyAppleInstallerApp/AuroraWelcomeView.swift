@@ -12,7 +12,9 @@ struct AuroraWelcomeView: View {
     VStack(spacing: 0) {
       InstallerMasthead(device: device).padding(.horizontal, 38).padding(.top, 20)
       Text("Choose your distribution and desktop.")
-        .font(.system(size: 20, weight: .medium)).padding(.top, 28)
+        .font(.system(size: 20, weight: .medium))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 38).padding(.top, 28)
       VStack(alignment: .leading, spacing: 10) {
         sectionTitle("Distribution")
         LazyVGrid(columns: columns, spacing: 18) {
