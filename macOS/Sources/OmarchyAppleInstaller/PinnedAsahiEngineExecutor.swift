@@ -69,7 +69,8 @@
     private let collectInstallAdmission: @Sendable () throws -> NativeInstallAdmissionFacts
     private let validatePayload: @Sendable (ImportedEngineHandoffPackage) async throws -> Void
     private let validateSourceOwner:
-      @Sendable (ImportedEngineHandoffPackage, MachineOwnerAuthorization) throws -> NativeSourceBootstrap
+      @Sendable (ImportedEngineHandoffPackage, MachineOwnerAuthorization) throws ->
+        NativeSourceBootstrap
     private let prepareRecoveryTemplate:
       @Sendable (ImportedEngineHandoffPackage) throws -> PreparedNativeRecoveryTemplate
 
@@ -113,7 +114,8 @@
         try await NativePayloadPreflight.check($0)
       },
       validateSourceOwner:
-        @escaping @Sendable (ImportedEngineHandoffPackage, MachineOwnerAuthorization) throws -> NativeSourceBootstrap =
+        @escaping @Sendable (ImportedEngineHandoffPackage, MachineOwnerAuthorization) throws ->
+        NativeSourceBootstrap =
         {
           try NativeSourceOwnerAdmission().check(package: $0, authorization: $1)
         },
@@ -186,7 +188,9 @@
               ? "Compatible boot firmware could not be selected."
               : "The installation images could not be verified.")
         }
-      } else { sourceBootstrap = nil }
+      } else {
+        sourceBootstrap = nil
+      }
       let hadDiskWrites = !journalProvesNoMutation(
         journal, identity: RecoveryRetryIdentity(package: package))
       var environment = installEnvironment(
@@ -226,17 +230,21 @@
       }
       let preparedAPFS: (any NativeAPFSExecuting)?
       do {
-        preparedAPFS = operation == .install && nativeFinalization
+        preparedAPFS =
+          operation == .install && nativeFinalization
           ? try await apfsPreparer.preflight(package) : nil
         if preparedAPFS != nil {
           guard let sourceBootstrap else { throw NativeHandoffValidationError.invalidOwner }
           environment["OMARCHY_NATIVE_APFS_TARGET"] = "helper-target-v1"
-          environment["OMARCHY_NATIVE_SOURCE_BOOTSTRAP"] = String(decoding:
-            try JSONSerialization.data(withJSONObject: sourceBootstrap.configuration,
-              options: [.sortedKeys, .withoutEscapingSlashes]), as: UTF8.self)
+          environment["OMARCHY_NATIVE_SOURCE_BOOTSTRAP"] = String(
+            decoding:
+              try JSONSerialization.data(
+                withJSONObject: sourceBootstrap.configuration,
+                options: [.sortedKeys, .withoutEscapingSlashes]), as: UTF8.self)
         }
       } catch {
-        throw preparationFailure(error, reason: .planIntegrity, operation: operation,
+        throw preparationFailure(
+          error, reason: .planIntegrity, operation: operation,
           journal: journal, package: package, password: authorization.password,
           summary: "Native disk preparation could not be verified.")
       }
@@ -254,12 +262,15 @@
             do {
               if let preparedAPFS {
                 guard let sourceBootstrap else { throw NativeHandoffValidationError.invalidOwner }
-                try preparedAPFS.prepareTarget(journal: journal, authorization: authorization, sourceBootstrap: sourceBootstrap)
+                try preparedAPFS.prepareTarget(
+                  journal: journal, authorization: authorization, sourceBootstrap: sourceBootstrap)
               } else {
                 let bytes = try self.readAdmissionJournal(journal)
                 try NativeInstallAdmission.check(
                   package: package, journal: bytes, collect: self.collectInstallAdmission,
-                  readEvidence: { try self.readCheckpointEvidence(journal: journal, identifier: $0) })
+                  readEvidence: {
+                    try self.readCheckpointEvidence(journal: journal, identifier: $0)
+                  })
               }
             } catch {
               throw PinnedAsahiEngineExecutionError.engineFailed(
@@ -284,9 +295,11 @@
         }
         return result
       } catch PinnedAsahiEngineExecutionError.launchFailed where preparedAPFS != nil {
-        throw preparationFailure(PinnedAsahiEngineExecutionError.launchFailed,
+        throw preparationFailure(
+          PinnedAsahiEngineExecutionError.launchFailed,
           reason: .unclassified, operation: operation, journal: journal, package: package,
-          password: authorization.password, summary: "The installation backend could not be started.")
+          password: authorization.password,
+          summary: "The installation backend could not be started.")
       } catch PinnedAsahiEngineExecutionError.restoreImageUnsupported {
         throw preparationFailure(
           PinnedAsahiEngineExecutionError.restoreImageUnsupported,

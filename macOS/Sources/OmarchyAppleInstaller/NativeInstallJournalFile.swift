@@ -84,7 +84,8 @@
 
     private func safe(_ info: stat, maximum: Int64, allowEmpty: Bool = false) -> Bool {
       info.st_uid == owner && info.st_mode & S_IFMT == S_IFREG && info.st_mode & 0o077 == 0
-        && info.st_nlink == 1 && info.st_size >= 0 && (allowEmpty || info.st_size > 0) && info.st_size <= maximum
+        && info.st_nlink == 1 && info.st_size >= 0 && (allowEmpty || info.st_size > 0)
+        && info.st_size <= maximum
     }
 
     func readEvidence(_ identifier: String) throws -> Data {

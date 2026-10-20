@@ -135,9 +135,11 @@
           throw NativeRecoveryJournalError.invalidState
         }
         if before.state == .ready {
-          try file.append(type: "event", payload: [
-            "plan_digest": package.planDigest, "name": "recovery_handoff_started",
-          ], before: before.transcript)
+          try file.append(
+            type: "event",
+            payload: [
+              "plan_digest": package.planDigest, "name": "recovery_handoff_started",
+            ], before: before.transcript)
         }
       }
     }
@@ -148,11 +150,13 @@
         guard before.state == .started else { throw NativeRecoveryJournalError.invalidState }
         let bytes = NativeRecoveryJournalSnapshot.handoffEvidence(package.planDigest)
         try file.publishEvidence(bytes, identifier: "recovery-handoff-prepared")
-        try file.append(type: "checkpoint", payload: [
-          "plan_digest": package.planDigest,
-          "identifier": "recovery-handoff-prepared", "phase": "awaiting_recovery",
-          "evidence_digest": SHA256Digest(hashing: bytes).rawValue,
-        ], before: before.transcript)
+        try file.append(
+          type: "checkpoint",
+          payload: [
+            "plan_digest": package.planDigest,
+            "identifier": "recovery-handoff-prepared", "phase": "awaiting_recovery",
+            "evidence_digest": SHA256Digest(hashing: bytes).rawValue,
+          ], before: before.transcript)
       }
     }
 
@@ -163,9 +167,11 @@
           throw NativeRecoveryJournalError.invalidState
         }
         if before.state == .prepared {
-          try file.append(type: "completion", payload: [
-            "plan_digest": package.planDigest, "outcome": "awaiting_recovery",
-          ], before: before.transcript)
+          try file.append(
+            type: "completion",
+            payload: [
+              "plan_digest": package.planDigest, "outcome": "awaiting_recovery",
+            ], before: before.transcript)
         }
         return try current().transcript
       }

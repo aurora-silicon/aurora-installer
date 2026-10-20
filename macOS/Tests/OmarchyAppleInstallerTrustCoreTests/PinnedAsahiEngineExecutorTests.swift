@@ -62,38 +62,55 @@
     }
 
     private struct NoNativeAPFSFixture: NativeAPFSPreparing {
-      func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (any NativeAPFSExecuting)? { nil }
+      func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (
+        any NativeAPFSExecuting
+      )? { nil }
     }
 
     private struct NativeAPFSFixture: NativeAPFSPreparing, NativeAPFSExecuting {
       let marker: URL
       var recordMutation = false
-      func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (any NativeAPFSExecuting)? { self }
-      func prepareTarget(journal: URL, authorization: MachineOwnerAuthorization, sourceBootstrap: NativeSourceBootstrap) throws {
+      func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (
+        any NativeAPFSExecuting
+      )? { self }
+      func prepareTarget(
+        journal: URL, authorization: MachineOwnerAuthorization,
+        sourceBootstrap: NativeSourceBootstrap
+      ) throws {
         try Data("prepared".utf8).write(to: marker)
         if recordMutation {
           try NativeAdmissionTestData.journal(stages: 1).write(to: journal)
           let evidence = URL(fileURLWithPath: journal.path + ".apfs-target-prepared.evidence")
           try NativeAdmissionTestData.evidence.write(to: evidence)
-          try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: evidence.path)
+          try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600], ofItemAtPath: evidence.path)
         }
       }
     }
 
-    func testBackendLaunchFailureAfterNativeAPFSRetainsCheckpointAndMakesNoUnchangedDiskClaim() async throws {
+    func testBackendLaunchFailureAfterNativeAPFSRetainsCheckpointAndMakesNoUnchangedDiskClaim()
+      async throws
+    {
       let fixture = try makeFixture(expectNativeAPFS: true, missingBackendInterpreter: true)
       defer { try? FileManager.default.removeItem(at: fixture.root) }
-      let executor = fixtureExecutor(effectiveUserID: { 0 }, apfsPreparer: NativeAPFSFixture(
-        marker: fixture.root.appendingPathComponent("native-apfs-called"), recordMutation: true))
-      await assertThrowsErrorAsync(try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())) {
+      let executor = fixtureExecutor(
+        effectiveUserID: { 0 },
+        apfsPreparer: NativeAPFSFixture(
+          marker: fixture.root.appendingPathComponent("native-apfs-called"), recordMutation: true))
+      await assertThrowsErrorAsync(
+        try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
+      ) {
         guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
           return XCTFail("Expected a typed post-preparation launch failure")
         }
         XCTAssertFalse(report.notice.diskUnchanged)
       }
-      let journal = fixture.root.appendingPathComponent("execution-journals/" + String(repeating: "b", count: 64) + ".jsonl")
+      let journal = fixture.root.appendingPathComponent(
+        "execution-journals/" + String(repeating: "b", count: 64) + ".jsonl")
       XCTAssertEqual(try Data(contentsOf: journal), try NativeAdmissionTestData.journal(stages: 1))
-      XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: journal.path + ".apfs-target-prepared.evidence")), NativeAdmissionTestData.evidence)
+      XCTAssertEqual(
+        try Data(contentsOf: URL(fileURLWithPath: journal.path + ".apfs-target-prepared.evidence")),
+        NativeAdmissionTestData.evidence)
       XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.package.metadataURL.path))
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
     }
@@ -103,13 +120,16 @@
         let fixture = try makeFixture(supportsNativeAPFS: supported, expectNativeAPFS: true)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let marker = fixture.root.appendingPathComponent("native-apfs-called")
-        let executor = fixtureExecutor(effectiveUserID: { 0 }, apfsPreparer: NativeAPFSFixture(marker: marker))
+        let executor = fixtureExecutor(
+          effectiveUserID: { 0 }, apfsPreparer: NativeAPFSFixture(marker: marker))
         if supported {
-          let bytes = try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
+          let bytes = try await executor.execute(
+            fixture.package, authorization: machineOwnerAuthorization())
           XCTAssertEqual(bytes, fixture.transcript)
           XCTAssertTrue(FileManager.default.fileExists(atPath: marker.path))
         } else {
-          await assertThrowsErrorAsync(try await executor.execute(fixture.package, authorization: machineOwnerAuthorization()))
+          await assertThrowsErrorAsync(
+            try await executor.execute(fixture.package, authorization: machineOwnerAuthorization()))
           XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
         }
       }
@@ -941,8 +961,10 @@
         },
         validateSourceOwner: { _, _ in
           if rejectSourceOwner { throw NativeHandoffValidationError.invalidOwner }
-          return try NativeSourceBootstrap(systemUUID: "00000000-0000-0000-0000-000000000101",
-            groupUUID: "00000000-0000-0000-0000-000000000102", ownerUUID: "00000000-0000-0000-0000-000000000103")
+          return try NativeSourceBootstrap(
+            systemUUID: "00000000-0000-0000-0000-000000000101",
+            groupUUID: "00000000-0000-0000-0000-000000000102",
+            ownerUUID: "00000000-0000-0000-0000-000000000103")
         },
         prepareRecoveryTemplate: { package in
           if rejectRecovery { throw NativeRecoveryTemplateError.unavailable }

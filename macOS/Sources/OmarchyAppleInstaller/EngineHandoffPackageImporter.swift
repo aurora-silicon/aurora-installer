@@ -88,9 +88,12 @@
       _ package: ImportedEngineHandoffPackage, owner: uid_t = 0
     ) throws -> ValidatedEnginePlan {
       let tree = try NativeHandoffFileTree(package.packageURL, protected: true, owner: owner)
-      let manifest = try decodeManifest(tree.read("manifest.json", maximum: Self.maximumControlFileBytes))
-      let request = try decodeRequest(tree.read("request.json", maximum: Self.maximumControlFileBytes))
-      let identity = try decodeIdentity(tree.read("identity.json", maximum: Self.maximumControlFileBytes))
+      let manifest = try decodeManifest(
+        tree.read("manifest.json", maximum: Self.maximumControlFileBytes))
+      let request = try decodeRequest(
+        tree.read("request.json", maximum: Self.maximumControlFileBytes))
+      let identity = try decodeIdentity(
+        tree.read("identity.json", maximum: Self.maximumControlFileBytes))
       try validateBindings(manifest: manifest, request: request, identity: identity)
       guard package.installationIntent == .fresh, request.operation == "install",
         package.manifestURL == package.packageURL.appendingPathComponent("manifest.json"),
@@ -98,11 +101,14 @@
         package.identityURL == package.packageURL.appendingPathComponent("identity.json"),
         ["free", "resize"].contains(request.candidateKind),
         package.planDigest == request.planDigest, package.bindingDigest == identity.bindingDigest,
-        package.deviceIdentifier == request.deviceIdentifier, package.storeIdentifier == request.storeIdentifier,
+        package.deviceIdentifier == request.deviceIdentifier,
+        package.storeIdentifier == request.storeIdentifier,
         package.engineURL == package.packageURL.appendingPathComponent(manifest.engine.fileName),
-        package.metadataURL == package.packageURL.appendingPathComponent(manifest.metadata.fileName),
+        package.metadataURL
+          == package.packageURL.appendingPathComponent(manifest.metadata.fileName),
         package.payloadURL == package.packageURL.appendingPathComponent(manifest.payload.fileName),
-        package.restoreImageURL == package.packageURL.appendingPathComponent(manifest.restoreImage.fileName),
+        package.restoreImageURL
+          == package.packageURL.appendingPathComponent(manifest.restoreImage.fileName),
         identity.repairManifestDigest == nil
       else { throw EngineHandoffImportError.bindingMismatch }
       return ValidatedEnginePlan(

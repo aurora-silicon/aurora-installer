@@ -42,10 +42,11 @@ public struct IPSWHTTPRangeReader: FirmwareRangeReading {
     let range = response.value(forHTTPHeaderField: "Content-Range") ?? ""
     let suffix = range.dropFirst("bytes 0-0/".count)
     let encoding = response.value(forHTTPHeaderField: "Content-Encoding") ?? ""
-    try require(response.statusCode == 206 && range.hasPrefix("bytes 0-0/")
-      && !suffix.isEmpty && suffix.utf8.allSatisfy({ (48...57).contains($0) })
-      && response.value(forHTTPHeaderField: "Content-Length") == "1"
-      && (encoding.isEmpty || encoding == "identity"), "Restore-image range discovery failed.")
+    try require(
+      response.statusCode == 206 && range.hasPrefix("bytes 0-0/")
+        && !suffix.isEmpty && suffix.utf8.allSatisfy({ (48...57).contains($0) })
+        && response.value(forHTTPHeaderField: "Content-Length") == "1"
+        && (encoding.isEmpty || encoding == "identity"), "Restore-image range discovery failed.")
     guard let size = Int(suffix), (22...(128 << 30)).contains(size) else {
       throw RestoreFailure("Invalid restore-image length.")
     }
