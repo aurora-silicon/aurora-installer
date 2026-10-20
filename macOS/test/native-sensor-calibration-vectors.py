@@ -66,7 +66,15 @@ def generate():
                + der(4, b"synthetic sensor public-key payload"))
                + der(0xa0, der(0x30, text("IM4M") + der(2, b"\0") + der(0x31, b"")
                               + der(4, b"synthetic signature") + der(0x30, b""))))
-    roots = [("complete-root", root, True), ("truncated-root", root[:-1], False),
+    bare = root
+    def combined_root(blob=bare, security=b"synthetic trust bundle"):
+        return der(0x30, text("comb") + der(0x30, text("fdrd") + der(4, blob))
+                   + der(0x30, text("secb") + der(4, security)))
+    root = combined_root()
+    roots = [("complete-root", root, True), ("bare-root", bare, False),
+             ("empty-trust-bundle", combined_root(security=b""), False),
+             ("embedded-trailing-data", combined_root(bare + b"trailing"), False),
+             ("truncated-root", root[:-1], False),
              ("trailing-root-data", root + b"unexpected", False),
              ("wrong-root-type", root.replace(b"MSRk", b"FSC2"), False),
              ("missing-root-manifest", root.replace(b"IM4M", b"none"), False),
@@ -75,7 +83,7 @@ def generate():
                     for name, data, accepted in roots]
     return dict(referenceSHA256=hashlib.sha256(SOURCE.read_bytes()).hexdigest(), vectors=vectors,
                 rootKeys=root_vectors,
-                rootKeyProvenance="Synthetic IMG4/IM4P MSRk and IM4M envelope; no device key or certificate bytes.")
+                rootKeyProvenance="Synthetic combined root-key envelopes; no device key or certificate bytes. Structural checks only, not issuer validation.")
 
 
 if __name__ == "__main__":

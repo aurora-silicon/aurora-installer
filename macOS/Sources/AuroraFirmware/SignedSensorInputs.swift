@@ -5,8 +5,8 @@ import Foundation
 /// Callers admit the physical source separately; ambiguous inputs are rejected.
 public enum SignedSensorInputs {
 
-  /// Preserve the complete device-local signed root-key container. This admits
-  /// its structure and type; the enclave verifies the certificate chain.
+  /// Preserve a complete combined root-key record, including its trust bundle.
+  /// Structural admission does not establish the issuer chain or sensor binding.
   public static func rootKey(_ data: Data) throws -> Data {
     try require(
       data.startIndex == 0 && !data.isEmpty && data.count <= 16 << 20,
@@ -15,7 +15,25 @@ public enum SignedSensorInputs {
     try require(
       outer.tag == 0x30 && outer.whole.count == data.count,
       "Invalid signed sensor root-key envelope.")
-    let parts = try FirmwareDER.children(data, outer)
+    let fields = try FirmwareDER.children(data, outer)
+    try require(
+      fields.count == 3 && FirmwareDER.text(data, fields[0], "comb")
+        && fields[1].tag == 0x30 && fields[2].tag == 0x30,
+      "The sensor root key requires its complete combined envelope.")
+    let record = try FirmwareDER.children(data, fields[1])
+    let security = try FirmwareDER.children(data, fields[2])
+    try require(
+      record.count == 2 && FirmwareDER.text(data, record[0], "fdrd")
+        && record[1].tag == 4 && security.count == 2
+        && FirmwareDER.text(data, security[0], "secb") && security[1].tag == 4
+        && !security[1].content.isEmpty,
+      "Missing complete sensor root-key record or trust bundle.")
+    let image = try FirmwareDER.element(
+      data, at: record[1].content.lowerBound, limit: record[1].content.upperBound)
+    try require(
+      image.tag == 0x30 && image.whole.upperBound == record[1].content.upperBound,
+      "Invalid embedded sensor root-key image.")
+    let parts = try FirmwareDER.children(data, image)
     try require(
       parts.count == 3 && FirmwareDER.text(data, parts[0], "IMG4")
         && parts[1].tag == 0x30 && parts[2].tag == 0xa0,
