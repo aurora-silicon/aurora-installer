@@ -129,11 +129,12 @@
       let bytes = bootHeader[uuidOffset..<(uuidOffset + 16)]
       guard bytes.contains(where: { $0 != 0 }) else { return false }
       let hex = bytes.map { String(format: "%02x", $0) }.joined()
-      let uuid = [
-        String(hex.prefix(8)), String(hex.dropFirst(8).prefix(4)),
-        String(hex.dropFirst(12).prefix(4)), String(hex.dropFirst(16).prefix(4)),
-        String(hex.dropFirst(20)),
-      ].joined(separator: "-")
+      let first = String(hex.prefix(8))
+      let second = String(hex.dropFirst(8).prefix(4))
+      let third = String(hex.dropFirst(12).prefix(4))
+      let fourth = String(hex.dropFirst(16).prefix(4))
+      let fifth = String(hex.dropFirst(20))
+      let uuid = [first, second, third, fourth, fifth].joined(separator: "-")
       let script = Data("search.fs_uuid \(uuid) root\nset prefix=($root)/grub\n".utf8)
       return efi.range(of: script) != nil
     }
