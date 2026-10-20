@@ -49,9 +49,23 @@
     private var operationID = UUID()
     public private(set) var planRevision = 0
     public private(set) var isEditingSize = false
+    public private(set) var planNeedsCheck = false
+    public private(set) var draftAllocationBytes: UInt64?
+    private var preparationTask: Task<PlanPreparationDisplay, any Error>?
+    private var preparationDrain: Task<Void, Never>?
+    private var pendingPreparation: PreparationRequest?
+
+    private struct PreparationRequest {
+      let id: UUID
+      let host: HostDisplay?
+      let bytes: UInt64?
+      let hold: Bool
+      let replanning: Bool
+    }
 
     public func setSizeEditing(_ editing: Bool) {
-      guard !isBusy && !isExecuting, case .planReview = phase else { return }
+      guard !isExecuting, case .planReview = phase else { return }
+      if editing && isBusy { cancelPlanPreparation() }
       isEditingSize = editing
     }
     public private(set) var allocationNotice: String?
@@ -77,7 +91,9 @@
     }
 
     public var isSimulation: Bool { environment.isSimulation }
-    public var canInspect: Bool { !isBusy && !isExecuting && !hasExecutionStarted }
+    public var canInspect: Bool {
+      !isBusy && preparationDrain == nil && !isExecuting && !hasExecutionStarted
+    }
     public var canChangeChannel: Bool {
       recoveryAccount == nil && canInspect && !isEditingSize && credentialSheet.context == nil
     }
@@ -112,10 +128,6 @@
     /// The approved plan the engine refused before changing the disk, kept so
     /// a re-plan can start from the size the person chose.
     private var refusedPlan: PlanDisplay?
-    /// True while a chosen size is being re-planned; the Plan screen stays
-    /// visible with its controls disabled instead of showing the download
-    /// screen again.
-    private var isReplanning = false
     /// Identifies the running payload download watcher. A size change re-plans
     /// the same payload, so the download keeps going across it.
     private var prefetchID = UUID()
@@ -289,9 +301,7 @@
     /// Every returned plan is reviewed anew, even when the engine clamps to
     /// the old allocation. A revision clears any tentative view value.
     public func replan(omarchyBytes: UInt64) async {
-      guard !isBusy && !isExecuting, case .planReview = phase else { return }
-      isReplanning = true
-      defer { isReplanning = false }
+      guard !isExecuting, !hasExecutionStarted, case .planReview = phase else { return }
       await preparePlan(host: lastHost, omarchyBytes: omarchyBytes, hold: false)
     }
 
@@ -309,35 +319,97 @@
       await replan(omarchyBytes: plan.omarchyBytes)
     }
 
+    public var canCancelPlanPreparation: Bool {
+      guard isBusy, !isExecuting, !hasExecutionStarted else { return false }
+      switch phase {
+      case .preparingPlan, .planReview: return true
+      default: return false
+      }
+    }
+
+    public func cancelPlanPreparation() {
+      guard canCancelPlanPreparation else { return }
+      operationID = UUID()
+      pendingPreparation = nil
+      preparationTask?.cancel()
+      environment.cancelPlanPreparation()
+      isBusy = false
+      if case .preparingPlan = phase {
+        stopPrefetch()
+        if let host = lastHost { phase = .welcome(host) }
+      } else if case .planReview(let plan, _) = phase {
+        planNeedsCheck = true
+        phase = .planReview(plan, acknowledged: false)
+      }
+    }
+
+    public func checkDraftAllocation() async {
+      guard !isBusy, !isEditingSize, planNeedsCheck, case .planReview(let plan, _) = phase else { return }
+      await replan(omarchyBytes: draftAllocationBytes ?? plan.omarchyBytes)
+    }
+
     private func preparePlan(
       host: HostDisplay?,
       omarchyBytes: UInt64? = nil,
       hold: Bool = true
     ) async {
-      guard !isBusy && !isExecuting && !hasExecutionStarted else { return }
+      guard !isExecuting && !hasExecutionStarted else { return }
+      let replanning: Bool
+      if case .planReview = phase { replanning = true } else { replanning = false }
+      guard !isBusy || replanning else { return }
       operationID = UUID()
-      let currentOperation = operationID
-      resetForPlanPreparation(keepingPrefetch: isReplanning)
+      let request = PreparationRequest(
+        id: operationID, host: host, bytes: omarchyBytes, hold: hold, replanning: replanning)
+      // Invalidate before cancelling: even a worker that ignores cancellation
+      // cannot publish authority or send a late result into this generation.
+      environment.cancelPlanPreparation()
+      preparationTask?.cancel()
+      pendingPreparation = request
+      resetForPlanPreparation(keepingPrefetch: replanning)
+      planNeedsCheck = replanning
+      draftAllocationBytes = omarchyBytes
       lastOmarchyBytes = omarchyBytes
-      if !isReplanning {
+      if replanning, case .planReview(let plan, _) = phase {
+        phase = .planReview(plan, acknowledged: false)
+      } else {
         phase = .preparingPlan(AssetProgressUpdate(stage: .fetchingCatalog))
       }
       isBusy = true
-      defer { isBusy = false }
+      if preparationDrain == nil {
+        preparationDrain = Task { [weak self] in
+          guard let self else { return }
+          await self.drainPreparations()
+        }
+      }
+      await preparationDrain?.value
+    }
 
-      do {
-        let outcome = try await environment.preparePlan(omarchyBytes: omarchyBytes) {
-          [weak self] update in
-          Task { @MainActor in
-            guard let self, self.operationID == currentOperation else { return }
-            self.applyPreparation(update)
+    private func drainPreparations() async {
+      defer {
+        preparationDrain = nil
+        if pendingPreparation == nil { isBusy = false }
+      }
+      while let request = pendingPreparation {
+        pendingPreparation = nil
+        let task = Task { [environment, session = self] in
+          try await environment.preparePlan(omarchyBytes: request.bytes) { update in
+            Task { @MainActor in
+              guard session.operationID == request.id else { return }
+              session.applyPreparation(update)
+            }
           }
         }
-        guard operationID == currentOperation else { return }
+        preparationTask = task
+        do {
+          let outcome = try await task.value
+          preparationTask = nil
+          guard operationID == request.id else { continue }
         switch outcome {
         case .plan(let plan):
+          planNeedsCheck = false
+          draftAllocationBytes = nil
           planRevision += 1
-          allocationNotice = omarchyBytes.flatMap {
+          allocationNotice = request.bytes.flatMap {
             PlainLanguage.allocationNotice(requestedBytes: $0, actualBytes: plan.omarchyBytes)
           }
           let lastUpdate: AssetProgressUpdate =
@@ -347,8 +419,8 @@
               lastPrepared?.update ?? AssetProgressUpdate(stage: .planning)
             }
           lastPrepared = (plan, lastUpdate)
-          phase = hold ? .planPrepared(plan, lastUpdate) : .planReview(plan, acknowledged: false)
-          if isReplanning {
+          phase = request.hold ? .planPrepared(plan, lastUpdate) : .planReview(plan, acknowledged: false)
+          if request.replanning {
             // The re-plan may have replaced or restarted the download. Watch it
             // afresh so no result from the old watcher counts for this plan.
             forgetPrefetchWatcher()
@@ -361,7 +433,7 @@
           // Never replace, never install alongside: say what was found and
           // stop. The only way forward is to remove the existing copy first.
           stopPrefetch()
-          guard let host, !options.isEmpty else {
+          guard let host = request.host, !options.isEmpty else {
             // A choice without the host context (or without options) has no
             // safe way forward; require a fresh inspection.
             phase = .failed(
@@ -374,13 +446,24 @@
           }
           phase = .existingInstallRefused(host: host)
         }
-      } catch {
-        // Even after a size change: the failed page only offers a fresh
-        // check, which starts over, so nothing would use this download.
-        if operationID == currentOperation {
-          stopPrefetch()
+        } catch {
+          preparationTask = nil
+          guard operationID == request.id else { continue }
+          if error is CancellationError {
+            environment.cancelPlanPreparation()
+            if request.replanning, case .planReview(let plan, _) = phase {
+              planNeedsCheck = true
+              phase = .planReview(plan, acknowledged: false)
+            } else if let host = request.host {
+              stopPrefetch()
+              phase = .welcome(host)
+            }
+          } else {
+            stopPrefetch()
+            phase = .failed(PlainLanguage.failure(for: error))
+          }
         }
-        phase = .failed(PlainLanguage.failure(for: error))
+        if operationID == request.id { isBusy = false }
       }
     }
 
@@ -425,7 +508,7 @@
     }
 
     public func setAcknowledged(_ value: Bool) {
-      guard !isBusy, case .planReview(let plan, _) = phase else {
+      guard !isBusy, !planNeedsCheck, case .planReview(let plan, _) = phase else {
         return
       }
       phase = .planReview(plan, acknowledged: value)
@@ -444,7 +527,7 @@
     }
 
     public func approve() {
-      guard !isBusy && !isExecuting && !isEditingSize,
+      guard !isBusy && !isExecuting && !isEditingSize && !planNeedsCheck,
         case .planReview(let plan, let acknowledged) = phase,
         acknowledged
       else {
@@ -957,7 +1040,9 @@
     /// Mirrors the field resets of `inspectThisMac()`: no approval, plan,
     /// progress, latch, or credential state may survive a re-inspection.
     private func resetForInspection() {
-      environment.discardApproval()
+      environment.cancelPlanPreparation()
+      planNeedsCheck = false
+      draftAllocationBytes = nil
       isEditingSize = false
       shutdownMessage = nil
       allocationNotice = nil

@@ -184,6 +184,7 @@ struct OnePageInstallerView: View {
         plan: plan,
         editable: plan.isResizable,
         isBusy: session.isBusy,
+        pendingAllocationBytes: session.draftAllocationBytes,
         onSizeChosen: { bytes in
           session.setAcknowledged(false)
           Task { await session.replan(omarchyBytes: bytes) }
@@ -255,8 +256,13 @@ struct OnePageInstallerView: View {
   @ViewBuilder
   private var actions: some View {
     switch session.phase {
-    case .inspecting, .preparingPlan, .planPrepared:
+    case .inspecting, .planPrepared:
       EmptyView()
+
+    case .preparingPlan:
+      Button("Cancel", action: session.cancelPlanPreparation)
+        .omarchySecondaryButton()
+        .disabled(!session.canCancelPlanPreparation)
 
     case .unsupported:
       Button(PlainLanguage.checkAgain) { Task { await recheck() } }
@@ -275,6 +281,13 @@ struct OnePageInstallerView: View {
         .keyboardShortcut(.defaultAction)
 
     case .planReview(_, let acknowledged):
+      if session.canCancelPlanPreparation {
+        Button("Cancel check", action: session.cancelPlanPreparation).omarchySecondaryButton()
+      } else if session.planNeedsCheck {
+        Button("Check size") { Task { await session.checkDraftAllocation() } }
+          .omarchySecondaryButton()
+          .disabled(session.isEditingSize)
+      }
       Button(PlainLanguage.planInstall) {
         // Approve the exact plan and go straight to the password. If the
         // helper is not ready the page stays here and says so.
@@ -285,7 +298,7 @@ struct OnePageInstallerView: View {
       }
       .omarchyPrimaryButton()
       .disabled(
-        !acknowledged || session.isBusy || session.isEditingSize
+        !acknowledged || session.isBusy || session.isEditingSize || session.planNeedsCheck
           || session.prefetchState != .verified
       )
       .keyboardShortcut(.defaultAction)
@@ -436,7 +449,7 @@ struct OnePageInstallerView: View {
         .onTapGesture { session.setAcknowledged(!acknowledged) }
       Spacer(minLength: 0)
     }
-    .disabled(session.isBusy || session.isEditingSize)
+    .disabled(session.isBusy || session.isEditingSize || session.planNeedsCheck)
     .padding(.horizontal, 4)
     .padding(.top, 4)
   }
@@ -657,6 +670,7 @@ struct DiskSplitPanel: View {
   let plan: PlanDisplay
   let editable: Bool
   let isBusy: Bool
+  var pendingAllocationBytes: UInt64? = nil
   let onSizeChosen: (UInt64) -> Void
   var onEditingChange: (Bool) -> Void = { _ in }
 
@@ -692,17 +706,13 @@ struct DiskSplitPanel: View {
             macOSSpaceCaution: plan.macOSSpaceCaution(for: displayedOmarchyBytes),
             onAdjustOmarchyFraction: editable ? { adjust($0) } : nil,
             onCommitOmarchyFraction: editable ? { commit($0) } : nil,
-            isFrozen: isBusy || sizeInput.isEditing
+            isFrozen: sizeInput.isEditing
           )
           .transaction { $0.animation = nil }
           HStack {
             Text(plan.targetDescription)
             Spacer()
-            if plan.otherAllocatedBytes(for: displayedOmarchyBytes) > 0 {
-              Text(
-                "Other storage \(PlainLanguage.bytes(plan.otherAllocatedBytes(for: displayedOmarchyBytes)))"
-              )
-            }
+            Text(storageRemainderDescription)
           }
           .font(OmarchyTheme.detail).foregroundStyle(.secondary)
           if editable {
@@ -713,10 +723,10 @@ struct DiskSplitPanel: View {
                   "Size",
                   text: Binding(
                     get: {
-                      sizeInput.isEditing ? sizeInput.text : sizeInput.display(plan.omarchyBytes)
+                      sizeInput.isEditing ? sizeInput.text : sizeInput.display(displayedOmarchyBytes)
                     },
                     set: { value in
-                      guard sizeInput.isEditing || value != sizeInput.display(plan.omarchyBytes)
+                      guard sizeInput.isEditing || value != sizeInput.display(displayedOmarchyBytes)
                       else { return }
                       beginSizeEdit()
                       sizeInput.text = value
@@ -758,7 +768,7 @@ struct DiskSplitPanel: View {
                 if !sizeInput.isEditing {
                   Button("Use maximum") { onSizeChosen(plan.maximumBytes) }
                     .buttonStyle(.link)
-                    .disabled(plan.omarchyBytes == plan.maximumBytes)
+                    .disabled(displayedOmarchyBytes == plan.maximumBytes)
                 }
               }
               Text(
@@ -769,7 +779,6 @@ struct DiskSplitPanel: View {
                 Text(message).font(OmarchyTheme.detail).foregroundStyle(OmarchyTheme.danger)
               }
             }
-            .disabled(isBusy)
 
           }
           if plan.allocationSource == .freeExtent {
@@ -785,16 +794,9 @@ struct DiskSplitPanel: View {
           }
         }
       }
-      .overlay(alignment: .bottomTrailing) {
-        if isBusy {
-          NativeSpinner()
-            .controlSize(.small)
-            .frame(width: 16, height: 16)
-            .padding(.trailing, 14)
-            .padding(.bottom, 16)
-            .accessibilityLabel(PlainLanguage.replanning)
-            .help(PlainLanguage.replanning)
-        }
+      if isBusy {
+        Text("Checking available space…")
+          .font(OmarchyTheme.detail).foregroundStyle(.secondary)
       }
       ForEach(plan.spaceCautions(for: displayedOmarchyBytes), id: \.self) { caution in
         Text(caution).font(OmarchyTheme.body).foregroundStyle(OmarchyTheme.caution)
@@ -815,23 +817,32 @@ struct DiskSplitPanel: View {
 
   private var displayedOmarchyBytes: UInt64 {
     guard let exploredOmarchyGB else {
-      return plan.omarchyBytes
+      return pendingAllocationBytes ?? plan.omarchyBytes
     }
     return UInt64(exploredOmarchyGB * 1_000_000_000)
   }
 
+  private var storageRemainderDescription: String {
+    var parts: [String] = []
+    let other = plan.otherAllocatedBytes(for: displayedOmarchyBytes)
+    let free = plan.unallocatedBytes(for: displayedOmarchyBytes)
+    if other > 0 { parts.append("Other storage \(PlainLanguage.bytes(other))") }
+    if free > 0 { parts.append("Free \(PlainLanguage.bytes(free))") }
+    return parts.joined(separator: " · ")
+  }
+
   private func beginSizeEdit() {
-    guard !isBusy && editable else { return }
+    guard editable else { return }
     sizeInput.begin(
-      bytes: plan.omarchyBytes, minimum: plan.minimumBytes, maximum: plan.maximumBytes)
+      bytes: displayedOmarchyBytes, minimum: plan.minimumBytes, maximum: plan.maximumBytes)
     onEditingChange(true)
   }
 
   private func applySize() {
-    guard !isBusy, let chosen = sizeInput.apply() else { return }
+    guard let chosen = sizeInput.apply() else { return }
     sizeFocused = false
     onEditingChange(false)
-    if chosen != plan.omarchyBytes { onSizeChosen(chosen) }
+    if chosen != plan.omarchyBytes || pendingAllocationBytes != nil { onSizeChosen(chosen) }
   }
 
   private func cancelSize() {
@@ -841,6 +852,7 @@ struct DiskSplitPanel: View {
   }
 
   private func adjust(_ fraction: Double) {
+    onEditingChange(true)
     let requested = Double(plan.diskTotalBytes) * min(1, max(0, fraction))
     let chosen = min(Double(plan.maximumBytes), max(Double(plan.minimumBytes), requested))
     exploredOmarchyGB = chosen / 1_000_000_000
@@ -848,9 +860,10 @@ struct DiskSplitPanel: View {
 
   private func commit(_ fraction: Double) {
     adjust(fraction)
+    onEditingChange(false)
     let rounded = (Double(displayedOmarchyBytes) / 1_000_000_000).rounded() * 1_000_000_000
     let chosen = min(plan.maximumBytes, max(plan.minimumBytes, UInt64(rounded)))
-    if chosen != plan.omarchyBytes {
+    if chosen != plan.omarchyBytes || pendingAllocationBytes != nil {
       onSizeChosen(chosen)
     } else {
       exploredOmarchyGB = nil

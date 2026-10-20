@@ -43,6 +43,9 @@
             }
           } actions: {
             if screen.hasPrefix("allocation") {
+              if screen == "allocation-checking" {
+                Button("Cancel check", action: {}).omarchySecondaryButton()
+              }
               Button("Install Aurora", action: {}).omarchyPrimaryButton().disabled(true)
             } else {
               Text("Keep this Mac open and plugged in.")
@@ -56,8 +59,11 @@
 
     @ViewBuilder private var stage: some View {
       switch screen {
-      case "allocation", "allocation-free", "allocation-other":
-        DiskSplitPanel(plan: plan, editable: true, isBusy: false, onSizeChosen: { allocation = $0 })
+      case "allocation", "allocation-free", "allocation-other", "allocation-checking":
+        DiskSplitPanel(
+          plan: plan, editable: true, isBusy: screen == "allocation-checking",
+          pendingAllocationBytes: screen == "allocation-checking" ? 160_000_000_000 : nil,
+          onSizeChosen: { allocation = $0 })
         EncryptDiskToggle(isOn: true, enabled: true, onChange: { _ in })
         Toggle(
           PlainLanguage.planAcknowledgement(resizesMacOS: plan.allocationSource != .freeExtent),

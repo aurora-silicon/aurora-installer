@@ -10,4 +10,10 @@ The existing authenticated candidate bounds and live admission checks remain aut
 
 Debug visual fixtures are `--preview-screen=allocation`, `--preview-screen=allocation-free` and `--preview-screen=allocation-other`. They create no installer environment or disk activity. Fixtures and unit tests cover multiple containers, shared APFS volumes, system partitions, usable gaps and all three allocation sources.
 
-Read-only checks still need serialized cancellation with latest-draft ownership. This accounting change does not claim to implement that interaction.
+Size checks use one session-owned preparation task at a time. A new committed size cancels the current read-only task, replaces the pending draft, and starts only after the previous task finishes its cleanup. Progress, success and failure from superseded generations are ignored. Beginning an edit also cancels an older check so a late result cannot reset the field or drag.
+
+The controls remain usable during checking. Cancel check leaves the chosen draft visible and disables Install until Check size succeeds. Cancelling initial release preparation returns to Welcome. Approval is invalidated at once; the live environment independently verifies generation ownership before publishing its retained plan. These actions never cancel a helper-owned installation or Recovery operation.
+
+Detached host probes forward cancellation. Read-only commands drain both output streams concurrently, retain bounded output, use a 120-second query deadline and terminate only their owned process on cancellation or timeout. Native inspection retains its separate mount-cleanup path, which finishes before a queued size check starts.
+
+The `allocation-checking` visual fixture shows responsive sizing controls and the cancellation action. Regression tests include an intentionally cancellation-ignoring worker, late success and failure, latest-size queuing, approval invalidation, initial cancellation, output pressure and process termination.

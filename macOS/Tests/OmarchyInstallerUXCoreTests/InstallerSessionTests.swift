@@ -1672,6 +1672,7 @@
     var savedJournal: (@Sendable (Data) -> Void)?
     var inspectError: (any Error)?
     var prepareError: (any Error)?
+    var prepareHandler: (@Sendable (UInt64?, @escaping @Sendable (AssetProgressUpdate) -> Void) async throws -> PlanPreparationDisplay)?
     var approveError: (any Error)?
     var executeResults = [Result<CompletionDisplay, any Error>]()
     var journalChunks = [Data]()
@@ -1751,6 +1752,12 @@
       progress: @escaping @Sendable (AssetProgressUpdate) -> Void
     ) async throws -> PlanPreparationDisplay {
       savedProgress = progress
+      if let prepareHandler {
+        prepareCount += 1
+        lastOmarchyBytes = omarchyBytes
+        approved = false
+        return try await prepareHandler(omarchyBytes, progress)
+      }
       await prepareGate?.wait()
       prepareCount += 1
       cancelsBeforePrepare = prefetchCancelCount

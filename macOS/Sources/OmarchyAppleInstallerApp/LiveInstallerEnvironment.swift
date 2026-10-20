@@ -53,6 +53,38 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   private var selectedLane = ReleaseChannel.stable.rawValue
   private let prefetch = PayloadPrefetchOrchestrator()
   private var plannedPayload: StagedInstallerArtifact?
+  private var preparationGeneration = UUID()
+
+  private func inspectCurrentHost() async throws -> AppleSiliconHostInspection {
+    try Task.checkCancellation()
+    let worker = Task.detached(priority: .userInitiated) {
+      try Task.checkCancellation()
+      let host = try self.inspectHost()
+      try Task.checkCancellation()
+      return host
+    }
+    let host = try await withTaskCancellationHandler(
+      operation: { try await worker.value }, onCancel: { worker.cancel() })
+    try Task.checkCancellation()
+    return host
+  }
+
+  private func requirePreparation(_ generation: UUID) throws {
+    try Task.checkCancellation()
+    try lock.withLock {
+      guard preparationGeneration == generation else { throw CancellationError() }
+    }
+  }
+
+  func cancelPlanPreparation() {
+    lock.withLock {
+      preparationGeneration = UUID()
+      planReview = nil
+      preparedPlan = nil
+      planApproval = nil
+      releaseConfiguration = nil
+    }
+  }
 
   private func accountClient() throws -> AuthenticatedEngineXPCSubmitter {
     let configuration = try loadConfiguration()
@@ -125,9 +157,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   // MARK: Inspection
 
   func inspect() async throws -> HostDisplay {
-    let host = try await Task.detached(priority: .userInitiated) {
-      try self.inspectHost()
-    }.value
+    let host = try await inspectCurrentHost()
 
     var engine: ValidatedEngineTranscript?
     var transcript: Data?
@@ -146,6 +176,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       knownInstallations = inspection.knownInstallations
     } catch InstallerAppError.hostChanged {
       // engineFailure already set above.
+    } catch is CancellationError {
+      throw CancellationError()
     } catch {
       engineFailure =
         "The disk compatibility check failed. Installation is unavailable. Details: \(String(describing: error))"
@@ -275,13 +307,15 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     omarchyBytes: UInt64?,
     progress: @escaping @Sendable (AssetProgressUpdate) -> Void
   ) async throws -> PlanPreparationDisplay {
-    let (host, hasTranscript) = lock.withLock {
+    try Task.checkCancellation()
+    let (host, hasTranscript, generation) = lock.withLock {
+      preparationGeneration = UUID()
       let retained = (hostInspection, engineInspectionTranscript != nil)
       planReview = nil
       preparedPlan = nil
       planApproval = nil
       releaseConfiguration = nil
-      return retained
+      return (retained.0, retained.1, preparationGeneration)
     }
 
     guard let host, hasTranscript else {
@@ -318,8 +352,10 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
         previouslyPrepared: lock.withLock { reusableAssets },
         includePayload: false
       )
+    try requirePreparation(generation)
     try selection.requireMatchingProfile(release.assets.installer.installationProfile)
-    lock.withLock {
+    try lock.withLock {
+      guard preparationGeneration == generation, !Task.isCancelled else { throw CancellationError() }
       reusableAssets = release.assets
       selectedLane = channel.rawValue
     }
@@ -327,7 +363,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     // The payload is pinned by the verified catalog and does not depend on the
     // plan, so it downloads while the engine checks the Mac and the owner picks
     // a size. The session cancels it if this preparation fails.
-    beginPayloadPrefetch(release.assets.payload)
+    try beginPayloadPrefetch(release.assets.payload, generation: generation)
 
     progress(
       AssetProgressUpdate(stage: .inspectingEngine, rows: collector.rows())
@@ -338,12 +374,12 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     let payloadBytesOnDisk = prefetch.bytesOnDisk(for: release.assets.payload)
     let planningReserve = release.assets.planningReserveBytes(
       payloadBytesOnDisk: payloadBytesOnDisk)
-    let freshHost = try await Task.detached(priority: .userInitiated) {
-      try self.inspectHost()
-    }.value
+    let freshHost = try await inspectCurrentHost()
+    try requirePreparation(generation)
     guard freshHost.identity == host.identity else { throw InstallerAppError.hostChanged }
     let signedInspection = try await inspector.inspect(
       host: freshHost, metadata: release.assets.metadata)
+    try requirePreparation(generation)
     guard
       signedInspection.validated.deviceIdentifier
         == host.identity.deviceIdentifier,
@@ -391,7 +427,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
         )
       )
 
-    lock.withLock {
+    try lock.withLock {
+      guard preparationGeneration == generation, !Task.isCancelled else { throw CancellationError() }
       preparedPlan = prepared
       planReview = prepared.review
       releaseConfiguration = configuration
@@ -508,9 +545,12 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     try await prefetch.waitUntilVerified(progress: { _ in })
   }
 
-  private func beginPayloadPrefetch(_ payload: StagedInstallerArtifact) {
-    lock.withLock { plannedPayload = payload }
-    prefetch.begin(payload: payload)
+  private func beginPayloadPrefetch(_ payload: StagedInstallerArtifact, generation: UUID) throws {
+    try lock.withLock {
+      guard preparationGeneration == generation, !Task.isCancelled else { throw CancellationError() }
+      plannedPayload = payload
+      prefetch.begin(payload: payload)
+    }
   }
 
   // MARK: Execution

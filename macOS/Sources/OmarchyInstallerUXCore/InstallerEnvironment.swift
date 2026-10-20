@@ -588,6 +588,9 @@
       omarchyBytes: UInt64?,
       progress: @escaping @Sendable (AssetProgressUpdate) -> Void
     ) async throws -> PlanPreparationDisplay
+    /// Invalidates in-flight read-only preparation and its retained approval authority.
+    /// It never cancels helper-owned installation work.
+    func cancelPlanPreparation()
     func approve() throws
     func discardApproval()
     /// Re-reads whether the helper is registered and whether this build can
@@ -639,6 +642,7 @@
   }
 
   extension InstallerEnvironment {
+    public func cancelPlanPreparation() { discardApproval() }
     public func hasPendingInstallation() throws -> Bool { false }
     public func resumeInstallation(journal: @escaping @Sendable (Data) -> Void) async throws
       -> InstallerRestorationResult

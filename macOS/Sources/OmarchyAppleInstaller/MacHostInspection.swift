@@ -45,6 +45,7 @@
     case hardwarePropertyUnavailable(String)
     case invalidHardwareProperty(String)
     case commandFailed(String, Int32)
+    case commandTimedOut(String)
     case invalidCommandResponse(String)
     case unsafeContainerIdentifier(String)
     case unsupportedStorage(String)
@@ -355,27 +356,62 @@
   struct FoundationReadOnlyMacCommandRunner: ReadOnlyMacCommandRunning {
     func run(_ command: ReadOnlyMacCommand) throws -> Data {
       let process = Process()
-      let output = Pipe()
-      let error = Pipe()
       process.executableURL = command.executableURL
       process.arguments = command.arguments
+      return try Self.collect(process: process, auditName: command.auditName)
+    }
+
+    /// Internal fixture entry point; production callers use the fixed command enum.
+    static func collect(
+      process: Process, auditName: String, timeout: DispatchTimeInterval = .seconds(120),
+      onStarted: @Sendable () -> Void = {}
+    ) throws -> Data {
+      try Task.checkCancellation()
+      let output = Pipe()
+      let error = Pipe()
       process.standardOutput = output
       process.standardError = error
-
+      process.standardInput = FileHandle.nullDevice
+      process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL": "C"]
+      let bytes = BoundedStandardErrorCollector(limit: 8 << 20)
+      let errors = BoundedStandardErrorCollector(limit: 16 << 10)
+      try bytes.start(reading: output.fileHandleForReading)
+      defer { bytes.cancel() }
+      try errors.start(reading: error.fileHandleForReading)
+      defer { errors.cancel() }
+      let exited = DispatchSemaphore(value: 0)
+      process.terminationHandler = { _ in exited.signal() }
       try process.run()
-      let outputData = output.fileHandleForReading.readDataToEndOfFile()
-      _ = error.fileHandleForReading.readDataToEndOfFile()
-      process.waitUntilExit()
-
+      try? output.fileHandleForWriting.close()
+      try? error.fileHandleForWriting.close()
+      onStarted()
+      let deadline = DispatchTime.now() + timeout
+      while exited.wait(timeout: .now() + .milliseconds(50)) == .timedOut {
+        let cancelled = Task.isCancelled
+        if cancelled || DispatchTime.now() >= deadline {
+          if process.isRunning { process.terminate() }
+          if exited.wait(timeout: .now() + .seconds(5)) == .timedOut, process.isRunning {
+            kill(process.processIdentifier, SIGKILL)
+            _ = exited.wait(timeout: .now() + .seconds(2))
+          }
+          if cancelled { throw CancellationError() }
+          throw AppleSiliconHostInspectionError.commandTimedOut(auditName)
+        }
+      }
+      try Task.checkCancellation()
       guard process.terminationReason == .exit,
         process.terminationStatus == 0
       else {
         throw AppleSiliconHostInspectionError.commandFailed(
-          command.auditName,
+          auditName,
           process.terminationStatus
         )
       }
-      return outputData
+      let result = bytes.finish()
+      guard !result.truncated else {
+        throw AppleSiliconHostInspectionError.invalidCommandResponse(auditName)
+      }
+      return result.data
     }
   }
 
