@@ -425,6 +425,13 @@
               package, journal: journal, authorization: authorization,
               requirement: recovery.requirement, fullReadback: hadDiskWrites)
           }
+          if installationFinisher.requiresNativePath {
+            throw preparationFailure(
+              NativeHandoffValidationError.invalidTarget,
+              reason: .planIntegrity, operation: operation,
+              journal: journal, package: package, password: authorization.password,
+              summary: "No native execution path is available for this operation.")
+          }
           let result = try await run(
             archive: package.engineURL,
             executionParent: package.packageURL.deletingLastPathComponent(),

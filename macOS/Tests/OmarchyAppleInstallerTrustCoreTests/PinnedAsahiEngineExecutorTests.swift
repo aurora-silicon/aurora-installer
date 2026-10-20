@@ -231,6 +231,27 @@
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
     }
 
+    func testNativeCandidateRefusesLegacyRecoveryRetryWithoutLaunchingRuntime() async throws {
+      let fixture = try makeFixture(
+        transcript: NativeAdmissionTestData.journal(),
+        repairManifest: Data("repair".utf8), missingBackendInterpreter: true)
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let executor = fixtureExecutor(
+        effectiveUserID: { 0 },
+        installationFinisher: NativeFinishingFixture(
+          esp: fixture.root.appendingPathComponent("esp"),
+          marker: fixture.root.appendingPathComponent("finished")))
+      do {
+        _ = try await executor.execute(
+          fixture.package, authorization: try machineOwnerAuthorization(),
+          operation: .retryRecoveryAuthorization)
+        XCTFail("Legacy Recovery retry reached compatibility execution")
+      } catch let PinnedAsahiEngineExecutionError.engineFailed(report) {
+        XCTAssertEqual(report.notice.reason, .planIntegrity)
+      }
+      XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
+
     private struct NativeImagesFixture: NativePayloadImagesPreparing, NativePayloadImagesExecuting {
       var marker: URL? = nil
       var partitions: URL? = nil
