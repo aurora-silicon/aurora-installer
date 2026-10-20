@@ -10,10 +10,18 @@
     @State private var allocation: UInt64 = 128_000_000_000
 
     private var plan: PlanDisplay {
-      PlanDisplay(
+      let source: PlanAllocationSource = screen == "allocation-other" ? .otherContainerResize
+        : (screen == "allocation-free" ? .freeExtent : .macOSResize)
+      let macOS: UInt64 = source == .macOSResize ? 400_000_000_000 : 256_000_000_000
+      let other: UInt64 = source == .otherContainerResize ? 208_000_000_000 : 64_000_000_000
+      return PlanDisplay(
         diskTotalBytes: 512_000_000_000, omarchyBytes: allocation,
         bindingDigest: String(repeating: "a", count: 64), minimumBytes: 32_000_000_000,
-        maximumBytes: 192_000_000_000, fixedMacOSBytes: 320_000_000_000)
+        maximumBytes: source == .otherContainerResize ? 160_000_000_000 : 192_000_000_000,
+        targetDescription: source == .otherContainerResize ? "Internal storage · Resize Work"
+          : (source == .freeExtent ? "Internal storage · Use free space" : "Internal storage · Resize macOS"),
+        fixedMacOSBytes: source == .macOSResize ? nil : macOS,
+        allocationSource: source, baselineMacOSBytes: macOS, otherAllocatedBytes: other)
     }
 
     var body: some View {
@@ -30,7 +38,7 @@
               stage
             }
           } actions: {
-            if screen == "allocation" {
+            if screen.hasPrefix("allocation") {
               Button("Install Aurora", action: {}).omarchyPrimaryButton().disabled(true)
             } else {
               Text("Keep this Mac open and plugged in.")
@@ -44,10 +52,10 @@
 
     @ViewBuilder private var stage: some View {
       switch screen {
-      case "allocation":
+      case "allocation", "allocation-free", "allocation-other":
         DiskSplitPanel(plan: plan, editable: true, isBusy: false, onSizeChosen: { allocation = $0 })
         EncryptDiskToggle(isOn: true, enabled: true, onChange: { _ in })
-        Toggle(PlainLanguage.planAcknowledgement(resizesMacOS: false), isOn: .constant(false))
+        Toggle(PlainLanguage.planAcknowledgement(resizesMacOS: plan.allocationSource != .freeExtent), isOn: .constant(false))
           .toggleStyle(.checkbox).font(OmarchyTheme.body)
       case "loading":
         PreparationStatusPanel()

@@ -348,7 +348,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       signedInspection.validated.deviceIdentifier
         == host.identity.deviceIdentifier,
       signedInspection.validated.support == .supported,
-      let inventory = signedInspection.validated.inventory
+      let inventory = signedInspection.validated.inventory,
+      let geometry = signedInspection.displayGeometry
     else {
       throw InstallerPlanPreparationError.unsupportedDevice(
         host.identity.deviceIdentifier
@@ -400,6 +401,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       Self.planDisplay(
         review: prepared.review, host: freshHost, recommendation: recommendation,
         reservedBytes: planningReserve,
+        geometry: geometry,
         release:
           "\(channel.rawValue.capitalized) · \(release.assets.payload.fileURL.lastPathComponent)"
       ))
@@ -803,13 +805,28 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     host: AppleSiliconHostInspection,
     recommendation: InstallerAllocationRecommendation,
     reservedBytes: UInt64 = 0,
+    geometry: NativeDiskDisplayGeometry? = nil,
     release: String
   ) -> PlanDisplay {
     let length = review.plan.lengthBytes
-    let total =
+    let total = geometry?.diskTotalBytes ?? (
       review.plan.candidateKind == "free"
       ? host.storage.containerSizeBytes + recommendation.candidate.lengthBytes
-      : max(host.storage.containerSizeBytes, length)
+      : max(host.storage.containerSizeBytes, length))
+    let source: PlanAllocationSource = review.plan.candidateKind == "free" ? .freeExtent
+      : (review.plan.sourceIdentifier == (geometry?.macOSStoreIdentifier ?? host.storage.physicalStoreIdentifier)
+          ? .macOSResize : .otherContainerResize)
+    let sourceName = (geometry?.partitionNames[review.plan.sourceIdentifier]).flatMap {
+      $0.isEmpty ? nil : String($0.prefix(128))
+    }
+    let targetDescription: String
+    switch source {
+    case .freeExtent: targetDescription = "Internal storage · Use free space"
+    case .macOSResize: targetDescription = "Internal storage · Resize macOS"
+    case .otherContainerResize:
+      targetDescription = "Internal storage · Resize " + (
+        sourceName ?? "another APFS container")
+    }
 
     return PlanDisplay(
       diskTotalBytes: total,
@@ -819,15 +836,17 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       minimumBytes: recommendation.minimumBytes,
       maximumBytes: recommendation.maximumBytes,
       releaseDescription: release,
-      targetDescription:
-        "Internal storage · \(review.plan.candidateKind == "free" ? "Use free space" : "Resize macOS")",
-      fixedMacOSBytes: review.plan.candidateKind == "free" ? host.storage.containerSizeBytes : nil,
+      targetDescription: targetDescription,
+      fixedMacOSBytes: source == .macOSResize ? nil : host.storage.containerSizeBytes,
       macOSFreeBeforeAllocationBytes:
         review.plan.candidateKind == "resize"
         && recommendation.candidate.sourceIdentifier == host.storage.physicalStoreIdentifier
         ? host.storage.containerFreeBytes - min(host.storage.containerFreeBytes, reservedBytes)
         : nil,
-      recommendedOmarchyBytes: recommendation.candidate.recommendedInstallBytes
+      recommendedOmarchyBytes: recommendation.candidate.recommendedInstallBytes,
+      allocationSource: source,
+      baselineMacOSBytes: geometry?.macOSBytes,
+      otherAllocatedBytes: geometry?.otherAllocatedBytes ?? 0
     )
   }
 

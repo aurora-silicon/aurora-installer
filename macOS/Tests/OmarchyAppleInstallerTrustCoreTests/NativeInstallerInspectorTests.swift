@@ -89,6 +89,8 @@
       let result = try await inspector.inspect(host: value.host)
       XCTAssertEqual(result.validated, value.expected)
       XCTAssertTrue(result.knownInstallations.isEmpty)
+      XCTAssertEqual(
+        result.displayGeometry, try NativeDiskDisplayGeometry(snapshot: value.disk.snapshot))
     }
 
     func testKnownInstallationReportIsConnectedWithoutChangingLegacyInventory() async throws {

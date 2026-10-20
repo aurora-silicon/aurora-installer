@@ -208,7 +208,7 @@ struct OnePageInstallerView: View {
       if let notice = session.allocationNotice {
         Text(notice).font(OmarchyTheme.body).foregroundStyle(OmarchyTheme.caution)
       }
-      acknowledgement(acknowledged, resizesMacOS: plan.fixedMacOSBytes == nil)
+      acknowledgement(acknowledged, resizesMacOS: plan.allocationSource != .freeExtent)
 
     case .awaitingInstall(let plan, let helper, _):
       DiskSplitPanel(plan: plan, editable: false, isBusy: false, onSizeChosen: { _ in })
@@ -670,9 +670,9 @@ struct DiskSplitPanel: View {
         VStack(alignment: .leading, spacing: 10) {
           Text("Choose your space").font(.system(size: 22, weight: .semibold))
           Text(
-            plan.fixedMacOSBytes == nil
-              ? "Set aside space for Aurora. Drag the divider or enter a size below."
-              : "Choose how much of the available free space Aurora will use."
+            plan.allocationSource == .freeExtent
+              ? "Choose how much of the available free space Aurora will use."
+              : "Set aside space for Aurora. Drag the divider or enter a size below."
           )
           .font(OmarchyTheme.body).foregroundStyle(.secondary)
           .fixedSize(horizontal: false, vertical: true)
@@ -688,12 +688,21 @@ struct DiskSplitPanel: View {
             macOSBytes: plan.macOSBytes(for: displayedOmarchyBytes),
             omarchyBytes: displayedOmarchyBytes,
             unallocatedBytes: plan.unallocatedBytes(for: displayedOmarchyBytes),
+            otherAllocatedBytes: plan.otherAllocatedBytes(for: displayedOmarchyBytes),
             macOSSpaceCaution: plan.macOSSpaceCaution(for: displayedOmarchyBytes),
             onAdjustOmarchyFraction: editable ? { adjust($0) } : nil,
             onCommitOmarchyFraction: editable ? { commit($0) } : nil,
             isFrozen: isBusy || sizeInput.isEditing
           )
           .transaction { $0.animation = nil }
+          HStack {
+            Text(plan.targetDescription)
+            Spacer()
+            if plan.otherAllocatedBytes(for: displayedOmarchyBytes) > 0 {
+              Text("Other storage \(PlainLanguage.bytes(plan.otherAllocatedBytes(for: displayedOmarchyBytes)))")
+            }
+          }
+          .font(OmarchyTheme.detail).foregroundStyle(.secondary)
           if editable {
             VStack(alignment: .leading, spacing: 6) {
               HStack(spacing: 8) {
@@ -761,11 +770,14 @@ struct DiskSplitPanel: View {
             .disabled(isBusy)
 
           }
-          if plan.fixedMacOSBytes != nil {
+          if plan.allocationSource == .freeExtent {
             Text(
               "\(PlainLanguage.bytes(plan.unallocatedBytes(for: displayedOmarchyBytes))) remains unallocated. macOS keeps its current size."
             )
             .omarchyHelpText()
+          } else if plan.allocationSource == .otherContainerResize {
+            Text("macOS keeps its current size. Aurora uses space from the selected APFS container.")
+              .omarchyHelpText()
           }
         }
       }

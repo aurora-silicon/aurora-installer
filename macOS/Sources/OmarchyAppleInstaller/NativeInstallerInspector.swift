@@ -6,11 +6,16 @@
     public let transcript: Data
     public let validated: ValidatedEngineTranscript
     public let knownInstallations: [NativeKnownInstallation]
+    public let displayGeometry: NativeDiskDisplayGeometry?
 
-    public init(transcript: Data, knownInstallations: [NativeKnownInstallation] = []) throws {
+    public init(
+      transcript: Data, knownInstallations: [NativeKnownInstallation] = [],
+      displayGeometry: NativeDiskDisplayGeometry? = nil
+    ) throws {
       self.transcript = transcript
       validated = try AppleInstallerTrustCore().validateEngineTranscript(transcript)
       self.knownInstallations = knownInstallations
+      self.displayGeometry = displayGeometry
     }
   }
 
@@ -69,7 +74,8 @@
           transcript: NativeDiskInventory.transcript(
             device: device, snapshot: disk.snapshot, containers: disk.containers,
             metadata: metadata, stubBytes: stub),
-          knownInstallations: NativeKnownInstallations.recognize(disk))
+          knownInstallations: NativeKnownInstallations.recognize(disk),
+          displayGeometry: NativeDiskDisplayGeometry(snapshot: disk.snapshot))
         try Task.checkCancellation()
         return result
       }

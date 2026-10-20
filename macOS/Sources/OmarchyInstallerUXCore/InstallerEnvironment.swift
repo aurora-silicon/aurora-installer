@@ -109,6 +109,12 @@
     case existingInstallChoice([ExistingInstallDisplay])
   }
 
+  public enum PlanAllocationSource: Equatable, Sendable {
+    case macOSResize
+    case otherContainerResize
+    case freeExtent
+  }
+
   public struct PlanDisplay: Equatable, Sendable {
     public let diskTotalBytes: UInt64
     public let omarchyBytes: UInt64
@@ -118,6 +124,9 @@
     public let releaseDescription: String
     public let targetDescription: String
     public let fixedMacOSBytes: UInt64?
+    public let allocationSource: PlanAllocationSource
+    public let baselineMacOSBytes: UInt64
+    public let baselineOtherAllocatedBytes: UInt64
     /// Fresh APFS free space after reserving remaining staging and handoff copies.
     public let macOSFreeBeforeAllocationBytes: UInt64?
     public let recommendedOmarchyBytes: UInt64?
@@ -138,7 +147,10 @@
       targetDescription: String = "Internal storage",
       fixedMacOSBytes: UInt64? = nil,
       macOSFreeBeforeAllocationBytes: UInt64? = nil,
-      recommendedOmarchyBytes: UInt64? = nil
+      recommendedOmarchyBytes: UInt64? = nil,
+      allocationSource: PlanAllocationSource? = nil,
+      baselineMacOSBytes: UInt64? = nil,
+      otherAllocatedBytes: UInt64 = 0
     ) {
       self.diskTotalBytes = diskTotalBytes
       self.omarchyBytes = omarchyBytes
@@ -148,6 +160,11 @@
       self.releaseDescription = releaseDescription
       self.targetDescription = targetDescription
       self.fixedMacOSBytes = fixedMacOSBytes
+      self.allocationSource = allocationSource ?? (fixedMacOSBytes == nil ? .macOSResize : .freeExtent)
+      self.baselineOtherAllocatedBytes = min(otherAllocatedBytes, diskTotalBytes)
+      self.baselineMacOSBytes = min(
+        baselineMacOSBytes ?? fixedMacOSBytes ?? (diskTotalBytes - self.baselineOtherAllocatedBytes),
+        diskTotalBytes - self.baselineOtherAllocatedBytes)
       self.macOSFreeBeforeAllocationBytes = macOSFreeBeforeAllocationBytes
       self.recommendedOmarchyBytes = recommendedOmarchyBytes
       self.isResizable = isResizable && self.minimumBytes < self.maximumBytes
@@ -157,7 +174,7 @@
   extension PlanDisplay {
     /// Shared by the bar, its accessibility value, and the visible warning.
     public func macOSSpaceCaution(for allocation: UInt64) -> String? {
-      guard fixedMacOSBytes == nil, let free = macOSFreeBeforeAllocationBytes else { return nil }
+      guard allocationSource == .macOSResize, let free = macOSFreeBeforeAllocationBytes else { return nil }
       let remaining = free - min(free, allocation)
       guard remaining < Self.recommendedMacOSFreeBytes else { return nil }
       return
@@ -181,11 +198,18 @@
     }
 
     public func macOSBytes(for allocation: UInt64) -> UInt64 {
-      fixedMacOSBytes ?? (diskTotalBytes - min(diskTotalBytes, allocation))
+      allocationSource == .macOSResize
+        ? baselineMacOSBytes - min(baselineMacOSBytes, allocation) : baselineMacOSBytes
+    }
+    public func otherAllocatedBytes(for allocation: UInt64) -> UInt64 {
+      allocationSource == .otherContainerResize
+        ? baselineOtherAllocatedBytes - min(baselineOtherAllocatedBytes, allocation)
+        : baselineOtherAllocatedBytes
     }
     public func unallocatedBytes(for allocation: UInt64) -> UInt64 {
       let remaining = diskTotalBytes - min(diskTotalBytes, macOSBytes(for: allocation))
-      return remaining - min(remaining, allocation)
+      let afterOther = remaining - min(remaining, otherAllocatedBytes(for: allocation))
+      return afterOther - min(afterOther, allocation)
     }
   }
 

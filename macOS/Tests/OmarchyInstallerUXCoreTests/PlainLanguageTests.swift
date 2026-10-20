@@ -6,6 +6,29 @@
   @testable import OmarchyInstallerUXCore
 
   final class PlainLanguageTests: XCTestCase {
+    func testDiskAccountingPreservesOtherStorageAndNamesTheActualAllocationSource() {
+      let billion: UInt64 = 1_000_000_000
+      for (source, macOS, other, free) in [
+        (PlanAllocationSource.macOSResize, 350, 300, 300),
+        (.otherContainerResize, 400, 250, 300),
+        (.freeExtent, 400, 300, 250),
+      ] {
+        let plan = PlanDisplay(
+          diskTotalBytes: 1000 * billion, omarchyBytes: 50 * billion,
+          bindingDigest: "geometry", minimumBytes: 20 * billion, maximumBytes: 100 * billion,
+          macOSFreeBeforeAllocationBytes: 50 * billion, allocationSource: source,
+          baselineMacOSBytes: 400 * billion, otherAllocatedBytes: 300 * billion)
+        XCTAssertEqual(plan.macOSBytes(for: 50 * billion), UInt64(macOS) * billion)
+        XCTAssertEqual(plan.otherAllocatedBytes(for: 50 * billion), UInt64(other) * billion)
+        XCTAssertEqual(plan.unallocatedBytes(for: 50 * billion), UInt64(free) * billion)
+        XCTAssertEqual(
+          plan.macOSBytes(for: plan.omarchyBytes) + plan.otherAllocatedBytes(for: plan.omarchyBytes)
+            + plan.unallocatedBytes(for: plan.omarchyBytes) + plan.omarchyBytes,
+          plan.diskTotalBytes)
+        XCTAssertEqual(plan.macOSSpaceCaution(for: 50 * billion) != nil, source == .macOSResize)
+      }
+    }
+
     func testSpaceCautionsFollowAllocationAndReserveBoundary() {
       let plan = PlanDisplay(
         diskTotalBytes: 245_000_000_000, omarchyBytes: 40_000_000_000,
