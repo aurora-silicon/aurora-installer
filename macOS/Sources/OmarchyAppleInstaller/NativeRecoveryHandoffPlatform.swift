@@ -15,6 +15,7 @@
     let verifyRecovery: @Sendable (URL, String) throws -> Void
     let owner: uid_t
     let mountRoot: URL
+    let sourcePrebootMount: URL
     let verifyMount: @Sendable (Int32, URL, String) throws -> Void
 
     static var live: Self {
@@ -37,6 +38,7 @@
         }, rawDigest: { try NativeHandoffRawReader.digest(partition: $0, bytes: $1) },
         verifyRecovery: { try NativeRecoveryTemplate.verify($0, requirement: $1) }, owner: 0,
         mountRoot: URL(fileURLWithPath: "/Volumes"),
+        sourcePrebootMount: URL(fileURLWithPath: "/System/Volumes/Preboot"),
         verifyMount: NativeHandoffFileTree.verifyVolumeRoot)
     }
 
@@ -63,7 +65,9 @@
         _ = try? environment.command("/usr/sbin/diskutil", ["unmount", identifier])
       }
     }
-    func mounted(_ identifier: String, uuid: String, key: String = "VolumeUUID") throws -> URL {
+    func mounted(
+      _ identifier: String, uuid: String, key: String = "VolumeUUID", sourcePreboot: Bool = false
+    ) throws -> URL {
       var info = try environment.disk(identifier)
       guard (info[key] as? String)?.uppercased() == uuid.uppercased() else {
         throw NativeHandoffValidationError.invalidTarget
@@ -75,7 +79,8 @@
       }
       guard (info[key] as? String)?.uppercased() == uuid.uppercased(),
         let mount = info["MountPoint"] as? String,
-        mount.hasPrefix(environment.mountRoot.path + "/"),
+        mount.hasPrefix(environment.mountRoot.path + "/")
+          || (sourcePreboot && mount == environment.sourcePrebootMount.path),
         URL(fileURLWithPath: mount).standardizedFileURL.path == mount
       else {
         throw NativeHandoffValidationError.invalidTarget
@@ -332,7 +337,7 @@
             && $0["VolumeOwner"] as? Bool == true
         })
       else { throw NativeHandoffValidationError.invalidOwner }
-      let url = try mounts.mounted(preboot.identifier, uuid: preboot.uuid)
+      let url = try mounts.mounted(preboot.identifier, uuid: preboot.uuid, sourcePreboot: true)
       let tree = try NativeHandoffFileTree(
         url, protected: true, owner: environment.owner,
         volumeRoot: true, volumeDevice: preboot.identifier, verifyMount: environment.verifyMount)

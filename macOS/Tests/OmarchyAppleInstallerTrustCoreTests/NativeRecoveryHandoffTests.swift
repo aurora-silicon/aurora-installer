@@ -6,6 +6,17 @@
   @testable import OmarchyAppleInstallerTrustCore
 
   final class NativeRecoveryHandoffTests: XCTestCase {
+    func testSystemPrebootLocationIsAcceptedOnlyForTheVerifiedSourcePrebootRole() throws {
+      let fixture = try NativeRecoveryHandoffFixture()
+      defer { fixture.remove() }
+      XCTAssertEqual(NativeHandoffEnvironment.live.sourcePrebootMount.path, "/System/Volumes/Preboot")
+      let mounts = NativeHandoffMounts(fixture.environment())
+      let uuid = fixture.diskSnapshot.containers[0].volumes[2].uuid
+      XCTAssertThrowsError(try mounts.mounted("disk4s3", uuid: uuid))
+      XCTAssertEqual(
+        try mounts.mounted("disk4s3", uuid: uuid, sourcePreboot: true).path, fixture.sourcePreboot.path)
+      XCTAssertThrowsError(try mounts.mounted("disk4s3", uuid: UUID().uuidString, sourcePreboot: true))
+    }
     private struct ForbiddenFirmwarePreparation: NativeFirmwarePreparing {
       func prepare(deviceIdentifier: String, in workingDirectory: URL) async throws -> URL? {
         throw NativeHandoffValidationError.invalidTarget
@@ -121,7 +132,8 @@
     func testChangedContentSourceOwnerSignatureOrStartupReadbackNeverClaimsCompletion() async throws
     {
       for fault in [
-        "icon", "efi", "root", "owner", "signature", "startup", "mount", "layout", "device", "media",
+        "icon", "efi", "root", "owner", "signature", "startup", "mount", "layout", "device",
+        "media",
       ] {
         let fixture = try NativeRecoveryHandoffFixture()
         defer { fixture.remove() }
@@ -138,7 +150,8 @@
         case "mount": fixture.rejectMount = true
         case "device": fixture.observedDevice = "apple,j614s"
         case "media":
-          try FileManager.default.removeItem(at: fixture.system.appendingPathComponent(".IAPhysicalMedia"))
+          try FileManager.default.removeItem(
+            at: fixture.system.appendingPathComponent(".IAPhysicalMedia"))
         default: fixture.rejectLayout = true
         }
         do {
@@ -232,9 +245,11 @@
     func testDisabledMediaNameIsRestoredAndMountRootExceptionRequiresVolumeVerification() throws {
       let fixture = try NativeRecoveryHandoffFixture()
       defer { fixture.remove() }
-      XCTAssertThrowsError(try NativeHandoffFileTree(fixture.system, protected: true, owner: geteuid()))
       XCTAssertThrowsError(
-        try NativeHandoffFileTree(fixture.system, protected: true, owner: geteuid(), volumeRoot: true))
+        try NativeHandoffFileTree(fixture.system, protected: true, owner: geteuid()))
+      XCTAssertThrowsError(
+        try NativeHandoffFileTree(
+          fixture.system, protected: true, owner: geteuid(), volumeRoot: true))
       let inactive = fixture.system.appendingPathComponent("IAPhysicalMedia-disabled.plist")
       let active = fixture.system.appendingPathComponent(".IAPhysicalMedia")
       try FileManager.default.moveItem(at: active, to: inactive)
@@ -285,10 +300,11 @@
       let volumes = root.appendingPathComponent("Volumes")
       system = volumes.appendingPathComponent("Fedora")
       esp = volumes.appendingPathComponent("EFI")
-      sourcePreboot = volumes.appendingPathComponent("SourcePreboot")
+      sourcePreboot = root.appendingPathComponent("System/Volumes/Preboot")
       let imported = root.appendingPathComponent("imported-handoff-fixture")
       for directory in [
-        root, volumes, system, esp, sourcePreboot, imported,
+        root, volumes, system, esp, root.appendingPathComponent("System"),
+        root.appendingPathComponent("System/Volumes"), sourcePreboot, imported,
         root.appendingPathComponent("execution-journals"),
       ] {
         try FileManager.default.createDirectory(
@@ -370,7 +386,8 @@
           var result = self.diskSnapshot
           if self.rejectLayout { result.partitions[3].size += 4096 }
           return result
-        }, device: { self.observedDevice ?? self.package.deviceIdentifier }, command: { try self.command($0, $1) },
+        }, device: { self.observedDevice ?? self.package.deviceIdentifier },
+        command: { try self.command($0, $1) },
         ownerUUID: { _ in self.rejectOwner ? UUID().uuidString : self.vector["ownerUUID"] as! String
         },
         rawDigest: { identifier, _ in
@@ -383,6 +400,7 @@
           XCTAssertEqual(requirement, "fixture")
           if self.rejectSignature { throw NativeHandoffValidationError.invalidTarget }
         }, owner: geteuid(), mountRoot: root.appendingPathComponent("Volumes"),
+        sourcePrebootMount: sourcePreboot,
         verifyMount: { fd, url, device in
           let paths = ["disk8s1": self.system, "disk0s5": self.esp, "disk4s3": self.sourcePreboot]
           var opened = stat()
