@@ -1,4 +1,4 @@
-name: Verify native aligned allocation controls
+name: Verify native blue checkbox accents
 on:
   push:
     branches: [ci/native-recovery-review]
@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: c429652e464ffd8d4731195a8e844ef754b138ce
+          ref: 5b5ff4436e9010f0523cbfa87299665e3b90acf2
           path: source
           persist-credentials: false
       - name: Record immutable source and toolchain
@@ -50,7 +50,7 @@ jobs:
         run: |
           set -euo pipefail
           app="$RUNNER_TEMP/preview/Aurora Installer.app"
-          for screen in allocation-ready allocation-checking; do
+          for screen in allocation-ready; do
             for appearance in light dark; do
               for size in regular compact; do
                 output="$RUNNER_TEMP/evidence/$screen-$appearance-$size.png"
@@ -105,6 +105,6 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: native-allocation-button-row
+          name: native-blue-checkboxes
           path: ${{ runner.temp }}/evidence/
           retention-days: 14
