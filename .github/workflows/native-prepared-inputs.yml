@@ -1,4 +1,4 @@
-name: Qualify cancelable disk checks
+name: Qualify flat installer pages and allocation prompt
 on:
   push:
     branches: [ci/native-recovery-review]
@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: 9c751d470b152e48177ed5284cb07d8619ddcd64
+          ref: 2cd3f3aa20c0a9112751a98e9e6283ebf561c064
           path: source
           persist-credentials: false
       - name: Record immutable source and toolchain
@@ -47,28 +47,31 @@ jobs:
       - name: Qualify cancellation, writer retirement and space accounting
         run: |
           set -euo pipefail
-          filter='PayloadPrefetchTests|PlanCheckCancellationTests|InstallerSessionTests|ReadOnlyMacCommandRunnerTests|MacHostInspectionTests|NativeDiskDisplayGeometryTests|NativeInstallerInspectorTests|NativeDiskCollectorReplayTests|LiveNativeInspectionTests|PlainLanguageTests|DiskSizeInputTests|InstallerPlanReviewTests'
+          filter='OmarchyAppleInstallerAppTests|DiskSizeInputTests|PlanCheckCancellationTests|InstallerSessionTests|PayloadPrefetchTests'
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug \
             --filter "$filter" 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
       - name: Qualify cancellation and retirement in release
         run: |
           set -euo pipefail
-          filter='PayloadPrefetchTests|PlanCheckCancellationTests|InstallerSessionTests|ReadOnlyMacCommandRunnerTests|MacHostInspectionTests|NativeDiskDisplayGeometryTests|NativeInstallerInspectorTests|NativeDiskCollectorReplayTests|LiveNativeInspectionTests|PlainLanguageTests|DiskSizeInputTests|InstallerPlanReviewTests'
+          filter='OmarchyAppleInstallerAppTests|DiskSizeInputTests|PlanCheckCancellationTests|InstallerSessionTests|PayloadPrefetchTests'
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration release \
             --filter "$filter" 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
       - name: Build the unprivileged native preview
         run: bash Packaging/build-aurora-preview.sh "$RUNNER_TEMP/preview"
-      - name: Render allocation and active checking in both appearances
+      - name: Render all pages at regular and minimum window heights
         run: |
           set -euo pipefail
           app="$RUNNER_TEMP/preview/Aurora Installer.app"
-          for screen in allocation allocation-free allocation-other allocation-checking; do
+          for screen in chooser allocation allocation-free allocation-other allocation-checking allocation-editing loading preparing download install recovery; do
             for appearance in light dark; do
-              output="$RUNNER_TEMP/evidence/$screen-$appearance.png"
-              arguments=(--simulate "--preview-screen=$screen" "--snapshot=$output" --quit-after-snapshot)
-              [[ $appearance != dark ]] || arguments+=(--preview-dark)
-              open -W "$app" --args "${arguments[@]}"
-              test -s "$output"
+              for size in regular compact; do
+                output="$RUNNER_TEMP/evidence/$screen-$appearance-$size.png"
+                arguments=(--simulate "--preview-screen=$screen" "--snapshot=$output" --quit-after-snapshot)
+                [[ $appearance != dark ]] || arguments+=(--preview-dark)
+                [[ $size != compact ]] || arguments+=(--preview-compact)
+                open -W "$app" --args "${arguments[@]}"
+                test -s "$output"
+              done
             done
           done
       - name: Retain the native driver logs
@@ -83,6 +86,6 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: disk-check-cancellation-evidence
+          name: flat-installer-ui-evidence
           path: ${{ runner.temp }}/evidence/
           retention-days: 14
