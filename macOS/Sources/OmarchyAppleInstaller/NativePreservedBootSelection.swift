@@ -64,13 +64,15 @@
         verifyMount: environment.verifyMount)
       try verifyStage1(tree)
       let selected = try environment.command("/usr/sbin/bless", ["--getBoot", "--plist"])
-      guard let plist = try PropertyListSerialization.propertyList(from: selected, format: nil)
-        as? [String: Any],
+      guard
+        let plist = try PropertyListSerialization.propertyList(
+          from: selected, format: nil) as? [String: Any],
         let volume = plist["Boot Volume"] as? String, !volume.isEmpty
       else { throw NativeHandoffValidationError.invalidTarget }
       let info = try environment.disk(volume)
-      guard (info["APFSVolumeGroupID"] as? String)?.uppercased()
-        == target.group.uppercased()
+      guard
+        (info["APFSVolumeGroupID"] as? String)?.uppercased()
+          == target.group.uppercased()
       else { throw NativeHandoffValidationError.invalidTarget }
       guard try environment.snapshot() == baseline else {
         throw NativePreservedInstallError.changedLayout
@@ -109,9 +111,9 @@
     private func verifyStage1(_ tree: NativeHandoffFileTree) throws {
       let bytes = try tree.read(
         "Finish Installation.app/Contents/Resources/boot.bin", maximum: 64 << 20)
-      guard NativeStubFileIdentity(
-        bytes: bytes.count, sha256: NativeStubFileStore.hash(bytes)) == expectedStage1
-      else { throw NativeBootChainError.invalidStage1 }
+      let observed = NativeStubFileIdentity(
+        bytes: bytes.count, sha256: NativeStubFileStore.hash(bytes))
+      guard observed == expectedStage1 else { throw NativeBootChainError.invalidStage1 }
     }
   }
 #endif

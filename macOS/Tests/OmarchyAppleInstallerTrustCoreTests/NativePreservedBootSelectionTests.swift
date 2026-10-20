@@ -59,9 +59,9 @@
       let environment = NativeHandoffEnvironment(
         snapshot: { baseline }, device: { "apple,j314s" },
         command: { executable, arguments in
-          if executable == "/sbin/mount",
-            arguments == ["-u", "-w", systemRoot.path]
-          { return Data() }
+          let remount = executable == "/sbin/mount"
+            && arguments == ["-u", "-w", systemRoot.path]
+          if remount { return Data() }
           if executable == "/usr/sbin/bless", arguments == ["--getBoot", "--plist"] {
             return try PropertyListSerialization.data(
               fromPropertyList: ["Boot Volume": "selected-target"], format: .xml, options: 0)
@@ -80,7 +80,7 @@
             return try PropertyListSerialization.data(
               fromPropertyList: [
                 "APFSVolumeGroupID": FileManager.default.fileExists(atPath: selected.path)
-                  ? group : UUID().uuidString,
+                  ? group : UUID().uuidString
               ], format: .xml, options: 0)
           }
           throw NativeHandoffValidationError.invalidTarget
@@ -110,9 +110,10 @@
 
       var selector = failing
       selector.bless = { arguments, input, secret in
-        guard arguments == [
-          "--setBoot", "--device", "/dev/disk8s1", "--user", "mina", "--stdinpass",
-        ], input == Data("owner-password\n".utf8),
+        let expected = [
+          "--setBoot", "--device", "/dev/disk8s1", "--user", "mina", "--stdinpass"
+        ]
+        guard arguments == expected, input == Data("owner-password\n".utf8),
           secret == Data("owner-password".utf8)
         else { throw NativeHandoffValidationError.invalidTarget }
         try Data("selected".utf8).write(to: selected)
