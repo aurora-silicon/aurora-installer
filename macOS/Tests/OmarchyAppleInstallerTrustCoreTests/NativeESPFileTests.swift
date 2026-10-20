@@ -72,13 +72,15 @@
       try await fixture.prepare()
       let receipt = try JSONDecoder().decode(
         NativeESPFilesExecution.Receipt.self, from: Data(contentsOf: fixture.receipt))
-      let raw = try Data(contentsOf: fixture.images.base.mounts.appendingPathComponent(
-        "disk8s1/Finish Installation.app/Contents/Resources/boot.bin"))
+      let bootURL = fixture.images.base.mounts.appendingPathComponent(
+        "disk8s1/Finish Installation.app/Contents/Resources/boot.bin")
+      let raw = try Data(contentsOf: bootURL)
       try NativeLegacyStage1.verify(
         raw, receipt: XCTUnwrap(receipt.legacyStage1), uuid: receipt.espUUID.lowercased(),
         path: "m1n1/boot.bin")
-      XCTAssertEqual(
-        raw, try NativeLegacyStage1.fill(Self.legacyBase, uuid: receipt.espUUID.lowercased(), path: "m1n1/boot.bin"))
+      let filled = try NativeLegacyStage1.fill(
+        Self.legacyBase, uuid: receipt.espUUID.lowercased(), path: "m1n1/boot.bin")
+      XCTAssertEqual(raw, filled)
       let before = try Data(contentsOf: fixture.receipt)
       try await fixture.prepare()
       XCTAssertEqual(try Data(contentsOf: fixture.receipt), before)

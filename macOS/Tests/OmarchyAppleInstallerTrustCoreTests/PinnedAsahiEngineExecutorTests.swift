@@ -114,12 +114,14 @@
       let images = fixture.root.appendingPathComponent("images")
       let esp = fixture.root.appendingPathComponent("esp")
       let finished = fixture.root.appendingPathComponent("finished")
+      let legacyESP = NativeESPFixture(
+        marker: esp, images: images, requiresNativeFinishing: true)
       let executor = fixtureExecutor(
         effectiveUserID: { 0 }, apfsPreparer: NativeAPFSFixture(marker: apfs),
         stubFilesPreparer: NativeFilesFixture(marker: files, apfs: apfs),
         osPartitionsPreparer: NativePartitionsFixture(marker: partitions, files: files),
         payloadImagesPreparer: NativeImagesFixture(marker: images, partitions: partitions),
-        espFilesPreparer: NativeESPFixture(marker: esp, images: images, requiresNativeFinishing: true),
+        espFilesPreparer: legacyESP,
         installationFinisher: NativeFinishingFixture(esp: esp, marker: finished))
       let transcript = try await executor.execute(
         fixture.package, authorization: machineOwnerAuthorization())
@@ -137,12 +139,14 @@
       let partitions = fixture.root.appendingPathComponent("partitions")
       let images = fixture.root.appendingPathComponent("images")
       let esp = fixture.root.appendingPathComponent("esp")
+      let legacyESP = NativeESPFixture(
+        marker: esp, images: images, requiresNativeFinishing: true)
       let executor = fixtureExecutor(
         effectiveUserID: { 0 }, apfsPreparer: NativeAPFSFixture(marker: apfs),
         stubFilesPreparer: NativeFilesFixture(marker: files, apfs: apfs),
         osPartitionsPreparer: NativePartitionsFixture(marker: partitions, files: files),
         payloadImagesPreparer: NativeImagesFixture(marker: images, partitions: partitions),
-        espFilesPreparer: NativeESPFixture(marker: esp, images: images, requiresNativeFinishing: true))
+        espFilesPreparer: legacyESP)
       do {
         _ = try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
         XCTFail("Legacy ESP reached compatibility execution")
