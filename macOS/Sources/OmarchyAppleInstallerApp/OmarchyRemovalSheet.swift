@@ -18,6 +18,7 @@ struct OmarchyRemovalSheet: View {
   @State private var submitted = false
   @State private var completed = false
   @State private var message = "Checking for an existing Aurora installation…"
+  @State private var actionError: String?
   @State private var client: AuthenticatedEngineXPCSubmitter?
   /// No helper is installed yet: the account is asked for first, to set it
   /// up, and the same password then approves the removal.
@@ -101,6 +102,9 @@ struct OmarchyRemovalSheet: View {
     .interactiveDismissDisabled(busy)
     .task { if !preloaded { await prepare() } }
     .onDisappear { password = "" }
+    .onChange(of: username) { _, _ in actionError = nil }
+    .onChange(of: password) { _, _ in actionError = nil }
+    .onChange(of: phrase) { _, _ in actionError = nil }
     .onChange(of: busy) { _, value in onBusyChanged(value) }
     .onChange(of: simulationScenario) { _, value in
       #if DEBUG
@@ -156,6 +160,11 @@ struct OmarchyRemovalSheet: View {
             ? "Your macOS files stay as they are. This can’t be undone."
             : "Your macOS files stay as they are. Everything in the deleted partitions is lost. Removal can’t be undone.")
             .font(OmarchyTheme.body).fixedSize(horizontal: false, vertical: true)
+          if let actionError {
+            Text(actionError).font(OmarchyTheme.body).foregroundStyle(OmarchyTheme.danger)
+              .fixedSize(horizontal: false, vertical: true)
+              .accessibilityIdentifier("removal-action-error")
+          }
         }
       } else {
         Text(message).font(OmarchyTheme.body).fixedSize(horizontal: false, vertical: true)
@@ -401,6 +410,7 @@ struct OmarchyRemovalSheet: View {
 
   @MainActor private func remove() async {
     guard canRemove, let ticket else { return }
+    actionError = nil
     let authorization: MachineOwnerAuthorization?
     do {
       authorization =
@@ -408,6 +418,7 @@ struct OmarchyRemovalSheet: View {
         ? nil : try MachineOwnerAuthorization(username: username, password: Data(password.utf8))
     } catch {
       message = "Enter a valid macOS administrator account and password."
+      actionError = message
       return
     }
     password = ""
@@ -434,6 +445,7 @@ struct OmarchyRemovalSheet: View {
     guard let client else {
       submitted = false
       message = PlainLanguage.removalNotStarted
+      actionError = message
       return
     }
     do {
@@ -446,6 +458,7 @@ struct OmarchyRemovalSheet: View {
       // Never sent, so nothing started and nothing needs review.
       submitted = false
       message = PlainLanguage.removalNotStarted
+      actionError = message
     } catch {
       let outcome = RemovalConnectionLoss(
         helperRetired: await RemovalOutcomeProbe.helperRetired(),
