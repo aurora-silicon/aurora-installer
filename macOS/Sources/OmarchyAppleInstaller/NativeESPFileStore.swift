@@ -66,6 +66,47 @@
       }
     }
 
+    /// Archive publication has a separate budget; boot-file callers retain 64 MiB.
+    /// The protected source is opened once and copied with bounded buffers.
+    func file(
+      _ source: NativeHandoffFileTree, path sourcePath: String,
+      identity expected: NativeStubFileIdentity, owner: uid_t, at path: String
+    ) async throws -> NativeStubFileIdentity {
+      guard expected.bytes > 0, expected.bytes <= 256 << 20 else {
+        throw NativeHandoffValidationError.unsafePath
+      }
+      let descriptor = try source.fileDescriptor(sourcePath)
+      defer { close(descriptor) }
+      guard
+        try NativeStubFileStore.identity(
+          descriptor, owner: owner, maximum: expected.bytes) == expected
+      else { throw NativeStubFileError.changedFile }
+      return try await publish(path, bytes: expected.bytes, maximum: 256 << 20) { consume in
+        var digest = SHA256()
+        var offset = 0
+        while offset < expected.bytes {
+          try Task.checkCancellation()
+          let requested = min(4 << 20, expected.bytes - offset)
+          var chunk = Data(count: requested)
+          let count = chunk.withUnsafeMutableBytes {
+            pread(descriptor, $0.baseAddress, requested, off_t(offset))
+          }
+          if count < 0 && errno == EINTR { continue }
+          guard count > 0 else { throw NativeStubFileError.changedFile }
+          chunk.count = count
+          digest.update(data: chunk)
+          try consume(chunk)
+          offset += count
+        }
+        let actual = digest.finalize().map { String(format: "%02x", $0) }.joined()
+        guard actual == expected.sha256,
+          try NativeStubFileStore.identity(
+            descriptor, owner: owner, maximum: expected.bytes) == expected
+        else { throw NativeStubFileError.changedFile }
+        return actual
+      }
+    }
+
     func identity(_ path: String, maximum: Int = 64 << 20) throws -> NativeStubFileIdentity {
       let descriptor = try tree.fileDescriptor(path)
       defer { close(descriptor) }
@@ -73,10 +114,12 @@
     }
 
     private func publish(
-      _ path: String, bytes: Int,
+      _ path: String, bytes: Int, maximum: Int = 64 << 20,
       produce: ((Data) throws -> Void) async throws -> String
     ) async throws -> NativeStubFileIdentity {
-      guard NativeESPPayloadPlan.safeFATPath(path), (0...(64 << 20)).contains(bytes) else {
+      guard NativeESPPayloadPlan.safeFATPath(path), maximum <= 256 << 20,
+        (0...maximum).contains(bytes)
+      else {
         throw NativeHandoffValidationError.unsafePath
       }
       try Task.checkCancellation()
@@ -134,7 +177,7 @@
 
     private func identity(_ descriptor: Int32, maximum: Int) throws -> NativeStubFileIdentity {
       var before = stat()
-      guard (0...(64 << 20)).contains(maximum), fstat(descriptor, &before) == 0,
+      guard (0...(256 << 20)).contains(maximum), fstat(descriptor, &before) == 0,
         before.st_mode & S_IFMT == S_IFREG, before.st_dev == device,
         before.st_size >= 0, before.st_size <= maximum
       else { throw NativeHandoffValidationError.unsafePath }

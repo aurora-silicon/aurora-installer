@@ -1302,6 +1302,7 @@ class AsahiStage1Adapter:
         self.native_radio_files = None
         self.native_lsci = None
         self.native_als_calibration = None
+        self.native_touch_id = None
         self.template = None
         self.osins = None
         self.os_firmware = None
@@ -1352,7 +1353,7 @@ class AsahiStage1Adapter:
                     self.prepared_native_peripherals = prepared
                     self.native_camera_setfiles = prepared["camera"]
                     self.native_radio_files = prepared["radio"]
-                    self.installer.native_touch_id = prepared["sensor"]
+                    self.native_touch_id = prepared["sensor"]
                     self.native_lsci = prepared["lsci"][omarchy_native_peripherals.LSCI]
                     self.native_als_calibration = prepared["als"][omarchy_native_peripherals.ALS]
                 else:
@@ -1440,6 +1441,7 @@ class AsahiStage1Adapter:
         self.installer.ins.native_radio_files = self.native_radio_files
         self.installer.ins.native_lsci = self.native_lsci
         self.installer.ins.native_als_calibration = self.native_als_calibration
+        self.installer.ins.native_touch_id = self.native_touch_id
         self.installer.ins.neo_regulatory_policies = neo_policies
         self.installer.ins.load_ipsw(ipsw)
         self.restore_source_url = getattr(ipsw, "url", None)

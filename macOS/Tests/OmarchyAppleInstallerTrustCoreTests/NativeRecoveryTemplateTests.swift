@@ -28,6 +28,30 @@
       return (root, app)
     }
 
+    func testAppPublicationPreservesSystemRootAndRejectsChangedSignedBytes() throws {
+      let (root, app) = try fixture()
+      defer { try? FileManager.default.removeItem(at: root) }
+      let prepared = try NativeRecoveryTemplate.prepare(
+        source: app, in: root, owner: geteuid(), requirement: "fixture", verify: { _ in })
+      defer { prepared.remove() }
+      let system = root.appendingPathComponent("System")
+      try FileManager.default.createDirectory(
+        at: system, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+      let retained = system.appendingPathComponent("retain")
+      try Data("retained system content".utf8).write(to: retained)
+      XCTAssertThrowsError(try NativeRecoveryTemplate.publishApp(
+        prepared, to: system, owner: geteuid(), verify: { _ in }))
+      let destination = system.appendingPathComponent(InstallerProductIdentity.recoveryAppBundleName)
+      try NativeRecoveryTemplate.publishApp(prepared, to: destination, owner: geteuid(), verify: { _ in })
+      try NativeRecoveryTemplate.publishApp(prepared, to: destination, owner: geteuid(), verify: { _ in })
+      XCTAssertEqual(try Data(contentsOf: retained), Data("retained system content".utf8))
+      let executable = destination.appendingPathComponent("Contents/MacOS/OmarchyRecovery")
+      try Data("changed signature bytes".utf8).write(to: executable)
+      XCTAssertThrowsError(try NativeRecoveryTemplate.publishApp(
+        prepared, to: destination, owner: geteuid(), verify: { _ in }))
+      XCTAssertEqual(try Data(contentsOf: executable), Data("changed signature bytes".utf8))
+    }
+
     func testSnapshotBindsCompleteInventoryAndDoesNotChangeSource() throws {
       let (root, app) = try fixture()
       defer { try? FileManager.default.removeItem(at: root) }

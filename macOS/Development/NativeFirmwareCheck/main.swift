@@ -51,6 +51,33 @@ private actor MeasuredIPSWReader: FirmwareRangeReading {
           try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]) + Data([10]))
         return
       }
+      if CommandLine.arguments.count == 4 && CommandLine.arguments[1] == "multitouch" {
+        let path = CommandLine.arguments[2]
+        let descriptor = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
+        guard descriptor >= 0 else { throw RestoreFailure("Cannot open the firmware input.") }
+        let file = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        defer { try? file.close() }
+        var info = stat()
+        guard fstat(descriptor, &info) == 0 && info.st_mode & S_IFMT == S_IFREG,
+          info.st_size > 0 && info.st_size <= 16 << 20
+        else { throw RestoreFailure("Firmware input exceeds its file budget.") }
+        let input = try file.read(upToCount: Int(info.st_size) + 1) ?? Data()
+        guard input.count == info.st_size else { throw RestoreFailure("Firmware input changed.") }
+        let outputs = try MultitouchFirmware.convert(input, machine: CommandLine.arguments[3])
+        func digest(_ data: Data) -> String {
+          SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        }
+        let report: [String: Any] = [
+          "sourceSHA256": digest(input),
+          "files": outputs.mapValues {
+            ["bytes": $0.count, "sha256": digest($0)] as [String: Any]
+          },
+        ]
+        FileHandle.standardOutput.write(
+          try JSONSerialization.data(
+            withJSONObject: report, options: [.sortedKeys]) + Data([10]))
+        return
+      }
       if CommandLine.arguments == [CommandLine.arguments[0], "plan"] {
         let plan = try FirmwareExtractionPlan.bundled(for: "apple,j700")
         let report: [String: Any] = [
@@ -65,7 +92,9 @@ private actor MeasuredIPSWReader: FirmwareRangeReading {
       guard [3, 4].contains(CommandLine.arguments.count),
         ["extract", "verify", "zip"].contains(CommandLine.arguments[1])
       else {
-        throw RestoreFailure("usage: AuroraFirmwareCheck extract|verify|zip OUTPUT [CHECKPOINT]")
+        throw RestoreFailure(
+          "usage: AuroraFirmwareCheck extract|verify|zip OUTPUT [CHECKPOINT]; or policy INPUT; or multitouch INPUT MACHINE"
+        )
       }
       let output = URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)
       let plan = try FirmwareExtractionPlan.bundled(for: "apple,j700")

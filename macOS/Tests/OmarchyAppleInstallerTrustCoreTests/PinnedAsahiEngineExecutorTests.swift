@@ -83,6 +83,47 @@
       }
     }
 
+    private struct NativeFinishingFixture: NativeInstallationFinishingPreparing, NativeInstallationFinishing {
+      let esp: URL
+      let marker: URL
+      func preflight(
+        package: ImportedEngineHandoffPackage, stub: NativeStubFilePlan?,
+        peripherals: PreparedNativePeripheralInputs?
+      ) throws -> (any NativeInstallationFinishing)? { self }
+      func prepare(
+        journal: URL, authorization: MachineOwnerAuthorization,
+        sourceBootstrap: NativeSourceBootstrap, recovery: PreparedNativeRecoveryTemplate
+      ) async throws {
+        guard FileManager.default.fileExists(atPath: esp.path) else {
+          throw NativeHandoffValidationError.invalidTarget
+        }
+        try Data("native finishing".utf8).write(to: marker)
+      }
+    }
+
+    func testCompleteNativeClosureNeverExtractsOrLaunchesTheCompatibilityRuntime() async throws {
+      let fixture = try makeFixture(missingBackendInterpreter: true)
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let apfs = fixture.root.appendingPathComponent("apfs")
+      let files = fixture.root.appendingPathComponent("files")
+      let partitions = fixture.root.appendingPathComponent("partitions")
+      let images = fixture.root.appendingPathComponent("images")
+      let esp = fixture.root.appendingPathComponent("esp")
+      let finished = fixture.root.appendingPathComponent("finished")
+      let executor = fixtureExecutor(
+        effectiveUserID: { 0 }, apfsPreparer: NativeAPFSFixture(marker: apfs),
+        stubFilesPreparer: NativeFilesFixture(marker: files, apfs: apfs),
+        osPartitionsPreparer: NativePartitionsFixture(marker: partitions, files: files),
+        payloadImagesPreparer: NativeImagesFixture(marker: images, partitions: partitions),
+        espFilesPreparer: NativeESPFixture(marker: esp, images: images),
+        installationFinisher: NativeFinishingFixture(esp: esp, marker: finished))
+      let transcript = try await executor.execute(
+        fixture.package, authorization: machineOwnerAuthorization())
+      _ = try AppleInstallerTrustCore().validateEngineTranscript(transcript)
+      XCTAssertTrue(FileManager.default.fileExists(atPath: finished.path))
+      XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
+
     private struct NativeImagesFixture: NativePayloadImagesPreparing, NativePayloadImagesExecuting {
       var marker: URL? = nil
       var partitions: URL? = nil
@@ -1129,6 +1170,7 @@
       osPartitionsPreparer: any NativeOSPartitionsPreparing = NativePartitionsFixture(),
       payloadImagesPreparer: any NativePayloadImagesPreparing = NativeImagesFixture(),
       espFilesPreparer: any NativeESPFilesPreparing = NoNativeESPFixture(),
+      installationFinisher: any NativeInstallationFinishingPreparing = NativeInstallationFinisher(),
       collectInstallAdmission: @escaping @Sendable () throws -> NativeInstallAdmissionFacts = {
         NativeAdmissionTestData.facts()
       },
@@ -1151,7 +1193,7 @@
         peripheralPreparer: peripheralPreparer,
         apfsPreparer: apfsPreparer, stubFilesPreparer: stubFilesPreparer,
         osPartitionsPreparer: osPartitionsPreparer, payloadImagesPreparer: payloadImagesPreparer,
-        espFilesPreparer: espFilesPreparer,
+        espFilesPreparer: espFilesPreparer, installationFinisher: installationFinisher,
         nativeHandoff: FixtureNativeHandoff(),
         collectInstallAdmission: collectInstallAdmission,
         validatePayload: { _ in
