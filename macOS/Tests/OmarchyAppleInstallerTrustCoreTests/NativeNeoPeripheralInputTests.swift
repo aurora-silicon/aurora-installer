@@ -23,7 +23,7 @@
       defer { fixture.remove() }
       let prepared = try await fixture.preparer().prepare(
         package: fixture.package, rawDirectory: fixture.raw)
-      defer { prepared.remove() }
+      defer { try? prepared.remove() }
       XCTAssertEqual(prepared.directory.deletingLastPathComponent().path, fixture.root.path)
       XCTAssertEqual(prepared.recipeSHA256, fixture.value.manifest.recipeSHA256)
       let observed = try Data(
@@ -49,7 +49,7 @@
       XCTAssertFalse(
         FileManager.default.fileExists(
           atPath: fixture.raw.appendingPathComponent("manifest.json").path))
-      prepared.remove()
+      try prepared.remove()
       XCTAssertFalse(FileManager.default.fileExists(atPath: prepared.directory.path))
     }
 
@@ -59,11 +59,11 @@
       defer { fixture.remove() }
       let first = try await fixture.preparer().prepare(
         package: fixture.package, rawDirectory: fixture.raw)
-      defer { first.remove() }
+      defer { try? first.remove() }
       let other = Data([6, 5, 4, 3, 2, 1])
       let second = try await fixture.preparer(address: other).prepare(
         package: fixture.package, rawDirectory: fixture.raw)
-      defer { second.remove() }
+      defer { try? second.remove() }
       XCTAssertNotEqual(first.directory, second.directory)
       let record = "files/mediatek/j700-mt7932-bdaddr.bin"
       XCTAssertEqual(
@@ -76,6 +76,28 @@
       XCTAssertEqual(
         manifest.localInputs["address"], String(SHA256Digest(hashing: other).rawValue.dropFirst(7))
       )
+    }
+
+    func testSensorSnapshotIncludesBothCompleteDeviceLocalContainers() async throws {
+      let fixture = try InputFixture()
+      defer { fixture.remove() }
+      let sensor = NativeSensorInputs(
+        calibration: NativeSensorCalibrationTests.calibration(),
+        rootKey: NativeSensorCalibrationTests.rootKey())
+      let prepared = try await fixture.preparer(sensor: sensor).prepare(
+        package: fixture.package, rawDirectory: fixture.raw)
+      defer { try? prepared.remove() }
+      let tree = try NativeHandoffFileTree(prepared.directory, protected: true, owner: geteuid())
+      XCTAssertEqual(
+        try tree.read("files/apple/mesacal-j700.bin", maximum: 1 << 20), sensor.calibration)
+      XCTAssertEqual(try tree.read("files/apple/msrk-j700.bin", maximum: 1 << 20), sensor.rootKey)
+      let manifest = try JSONDecoder().decode(
+        NativeNeoPeripheralPreparer.Manifest.self,
+        from: tree.read("manifest.json", maximum: 65536))
+      XCTAssertEqual(manifest.files["apple/msrk-j700.bin"]?.role, "sensor")
+      XCTAssertEqual(
+        manifest.localInputs["sensorRootKey"],
+        String(SHA256Digest(hashing: sensor.rootKey).rawValue.dropFirst(7)))
     }
 
     func testChangedRawInputsUnsafeLinksMissingLocalCalibrationOrPolicyNeverPublishASnapshot()
@@ -150,8 +172,9 @@
           "payload_digest": value.manifest.payloadDigest,
         ]).write(to: package.identityURL)
       }
-      func preparer(address: Data? = nil, missingLocal: Bool = false) -> NativeNeoPeripheralPreparer
-      {
+      func preparer(
+        address: Data? = nil, missingLocal: Bool = false, sensor: NativeSensorInputs? = nil
+      ) -> NativeNeoPeripheralPreparer {
         let inventory = NativeNeoInputInventory(
           recipeSHA256: value.manifest.recipeSHA256,
           files: value.rawFiles.map { name, bytes in
@@ -161,10 +184,10 @@
           })
         let inputs = NativeNeoLocalInputs(
           factory: value.local["factory"]!, lsci: value.local["lsci"]!,
-          address: address ?? value.local["address"]!)
+          address: address ?? value.local["address"]!, sensor: sensor)
         return NativeNeoPeripheralPreparer(
           owner: geteuid(), inventory: { inventory },
-          localInputs: {
+          localInputs: { _ in
             if missingLocal { throw NativePeripheralInputError.localInput }
             return inputs
           })

@@ -22,6 +22,8 @@ RADIO |= {"mediatek/" + name for name in (*omarchy_mt7932.BT_FIRMWARE, omarchy_m
 RADIO |= {"mediatek/j700-mt7932-btcal.bin", "mediatek/j700-mt7932-bdaddr.bin"}
 ALS = "apple/j700-aop-als-cal.bin"
 LSCI = "fallback/lsci.bin"
+SENSOR = "apple/mesacal-j700.bin"
+SENSOR_ROOT_KEY = "apple/msrk-j700.bin"
 HASH = re.compile(r"[0-9a-f]{64}\Z")
 
 
@@ -106,12 +108,12 @@ def load(path, *, device, binding, plan, metadata, payload, recipe):
         _require(all(isinstance(value, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", value)
                      for value in (binding, metadata, payload)), "invalid native peripheral binding")
         local = manifest["local_inputs"]
-        _require(isinstance(local, dict) and set(local) == {"factory", "lsci", "address"}
+        _require(isinstance(local, dict) and set(local) in ({"factory", "lsci", "address"}, {"factory", "lsci", "address", "sensorCalibration", "sensorRootKey"})
                  and all(isinstance(value, str) and HASH.fullmatch(value) for value in local.values()),
                  "invalid native local-input identity")
         files = manifest["files"]
         _require(isinstance(files, dict) and 17 <= len(files) <= 320, "invalid native peripheral inventory")
-        result = {role: {} for role in ("camera", "radio", "als", "lsci", "policy")}
+        result = {role: {} for role in ("camera", "radio", "als", "lsci", "policy", "sensor")}
         expected_files = {"manifest.json"}
         expected_dirs = set()
         total = 0
@@ -123,6 +125,7 @@ def load(path, *, device, binding, plan, metadata, payload, recipe):
                      and isinstance(record["sha256"], str) and HASH.fullmatch(record["sha256"]), "invalid native peripheral size or digest")
             allowed = (role == "camera" and name in CAMERA or role == "radio" and name in RADIO
                        or role == "als" and name == ALS or role == "lsci" and name == LSCI
+                       or role == "sensor" and name in (SENSOR, SENSOR_ROOT_KEY)
                        or role == "policy" and re.fullmatch(r"mediatek/mt7932/policy/(?:world-XZ|[A-Z]{2})\.bin", name))
             _require(allowed, "unknown native peripheral output")
             if role == "als": _require(record["bytes"] == 80, "invalid native ALS size")
@@ -144,6 +147,13 @@ def load(path, *, device, binding, plan, metadata, payload, recipe):
         _require(hashlib.sha256(result["lsci"][LSCI]).hexdigest() == local["lsci"]
                  and hashlib.sha256(result["radio"]["mediatek/j700-mt7932-bdaddr.bin"]).hexdigest() == local["address"],
                  "native local-input snapshot changed")
+        if "sensorCalibration" in local:
+            _require(set(result["sensor"]) == {SENSOR, SENSOR_ROOT_KEY}
+                     and hashlib.sha256(result["sensor"][SENSOR]).hexdigest() == local["sensorCalibration"]
+                     and hashlib.sha256(result["sensor"][SENSOR_ROOT_KEY]).hexdigest() == local["sensorRootKey"],
+                     "native sensor calibration is missing or changed")
+        else:
+            _require(not result["sensor"], "unexpected native sensor calibration")
         observed_files, observed_dirs = set(), set()
         pending = [(os.dup(root), "", 0)]
         try:

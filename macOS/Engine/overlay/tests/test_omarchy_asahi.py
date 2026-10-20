@@ -405,7 +405,7 @@ class AsahiStage1AdapterTests(unittest.TestCase):
                     "radio": {name:b"radio" for name in module.omarchy_native_peripherals.RADIO},
                     "als": {module.omarchy_native_peripherals.ALS:b"a" * 80},
                     "lsci": {module.omarchy_native_peripherals.LSCI:b"l" * 156},
-                    "policy": {"mediatek/mt7932/policy/world-XZ.bin":b"supplied"}}
+                    "policy": {"mediatek/mt7932/policy/world-XZ.bin":b"supplied"}, "sensor": {}}
         with patch.object(module.omarchy_native_peripherals, "load", return_value=prepared) as load, patch.object(
             module.omarchy_mt7932, "collect", side_effect=AssertionError("legacy radio collector")
         ), patch.object(module.omarchy_isp, "extract", side_effect=AssertionError("legacy camera conversion")), patch.object(
@@ -2862,6 +2862,18 @@ class NeoTouchIdCalibrationTests(unittest.TestCase):
             ("apple/mesacal-j700.bin", ("FWFile", "apple/mesacal-j700.bin", b"img4")),
         ])
         self.assertEqual(devices, ["/dev/rdisk0s1"])
+
+    def test_native_snapshot_is_adopted_without_reading_live_sensor_or_container(self):
+        import omarchy_mesa
+        data = {"apple/mesacal-j700.bin": b"calibration", "apple/msrk-j700.bin": b"signed-root"}
+        package = SimpleNamespace(added=[])
+        package.add_file = lambda name, value: package.added.append((name, value))
+        installer = SimpleNamespace(sysinfo=SimpleNamespace(device_class="j700ap"), native_touch_id=data)
+        firmware = SimpleNamespace(core=SimpleNamespace(FWFile=lambda name, value: value))
+        with patch("omarchy_asahi.asahi_firmware", firmware):
+            _collect_neo_touch_id(installer, package, collect=lambda _: self.fail("read device"),
+                                  sensor_present=lambda: self.fail("read registry"))
+        self.assertEqual(dict(package.added), data)
 
     def test_other_macs_collect_nothing(self):
         self.assertEqual(self.run_hook("j613ap", lambda device: self.fail("read the container")), [])

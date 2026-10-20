@@ -839,8 +839,13 @@ def _iboot_system_container(dutil):
 
 def _collect_neo_touch_id(installer, pkg, collect=omarchy_mesa.collect,
                           sensor_present=omarchy_mesa.has_builtin_sensor, *, required=False):
-    """Collect optional calibration; requiring it needs an explicit template opt-in."""
+    """Adopt the private native calibration snapshot when available."""
     if getattr(getattr(installer, "sysinfo", None), "device_class", "") != "j700ap":
+        return
+    prepared = getattr(installer, "native_touch_id", None)
+    if prepared is not None:
+        for name, data in sorted(prepared.items()):
+            pkg.add_file(name, asahi_firmware.core.FWFile(name, data))
         return
     try:
         if not sensor_present():
@@ -1347,6 +1352,7 @@ class AsahiStage1Adapter:
                     self.prepared_native_peripherals = prepared
                     self.native_camera_setfiles = prepared["camera"]
                     self.native_radio_files = prepared["radio"]
+                    self.installer.native_touch_id = prepared["sensor"]
                     self.native_lsci = prepared["lsci"][omarchy_native_peripherals.LSCI]
                     self.native_als_calibration = prepared["als"][omarchy_native_peripherals.ALS]
                 else:

@@ -141,7 +141,7 @@
     }
   },
   "downstream_overlay": {
-    "version": "v0.9.2-aurora.12",
+    "version": "v0.9.2-aurora.13",
     "capability": "candidate_bound_full_os_stage_one_authenticated_recovery",
     "engine_modes": [
       "inspect",
@@ -171,7 +171,7 @@
       {
         "path": "overlay/src/omarchy_asahi.py",
         "destination": "src/omarchy_asahi.py",
-        "sha256": "36d19a75563a42f13f024a73eed68769fbb3e36d274f22e4800ad43e1011d6a3"
+        "sha256": "155a1ebb69838eda0242b2cc7b935a535ad0a9b79f65406f8b8ae127b8d5a271"
       },
       {
         "path": "overlay/src/omarchy_contract.py",
@@ -206,7 +206,7 @@
       {
         "path": "overlay/tests/test_omarchy_asahi.py",
         "destination": "tests/test_omarchy_asahi.py",
-        "sha256": "337570fa2276b4f7830e50f4d847e2028f8635f4680cca46bb259453f609ab76"
+        "sha256": "2bcecf2ef59687fb054140683a2a108c05760147198d8a0b79bc6ed54cdfc83b"
       },
       {
         "path": "overlay/tests/test_omarchy_contract.py",
@@ -326,12 +326,12 @@
       {
         "path": "overlay/src/omarchy_native_peripherals.py",
         "destination": "src/omarchy_native_peripherals.py",
-        "sha256": "3e82e79ba85b8efcb766e8aad526ed105345494b12e7fc5c2030e361500e8438"
+        "sha256": "41de6bdda234a63586b712c6c52754af2caba45cd8eccd47573f25b5e9c88763"
       },
       {
         "path": "overlay/tests/test_omarchy_native_peripherals.py",
         "destination": "tests/test_omarchy_native_peripherals.py",
-        "sha256": "561537601224a6bf5a7c17c3aeccc26fc2c15ec057a7b2553d68d7e83715aca5"
+        "sha256": "1e348dc7a54f37ef9447d4047cb4e05e56ee8736a2d1a1354c012b38674b733f"
       }
     ]
   },
@@ -474,9 +474,9 @@
     }
   ],
   "validation_artifact": {
-    "filename": "installer-v0.9.2-aurora.12.tar.gz",
-    "size_bytes": 17896318,
-    "sha256": "cd12b431c2425e4f92a7368a48b35e45143baef7e9b29c115811b8511422d492",
+    "filename": "installer-v0.9.2-aurora.13.tar.gz",
+    "size_bytes": 17896517,
+    "sha256": "32274778ea5a171a12b224d6d005280d16a2a59c6c45892ea30dd6790ce32e13",
     "reproducibility_scope": "two-identical-python-overlay-repacks-authenticated-base",
     "signature": "absent",
     "metadata_sha256": "2e6181ce6b6e17c11039e04bfadade8d10ae0e11889885ad8c9960b68f179a5d"

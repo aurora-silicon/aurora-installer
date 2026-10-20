@@ -93,7 +93,7 @@ def reference(archive):
                              minimumRecovery=recovery, expert=expert,
                              models=None if models is None else [item.removesuffix("ap") for item in models],
                              sourceURL=url))
-    policy = dict(runtimeVersion="v0.9.2-aurora.12", sourceSHA256=hashlib.sha256(main).hexdigest(),
+    policy = dict(runtimeVersion="v0.9.2-aurora.13", sourceSHA256=hashlib.sha256(main).hexdigest(),
                   chipMinimum={str(key): value for key, value in chips.items()}, devices=devices,
                   firmware=firmware, baselineMetadata=metadata)
     if policy != policy_source():

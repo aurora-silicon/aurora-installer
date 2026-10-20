@@ -56,8 +56,8 @@
         try FileManager.default.createDirectory(
           at: url, withIntermediateDirectories: false,
           attributes: [.posixPermissions: 0o700])
-        return PreparedNativePeripheralInputs(
-          directory: url, recipeSHA256: String(repeating: "a", count: 64))
+        return try PreparedNativePeripheralInputs(
+          directory: url, recipeSHA256: String(repeating: "a", count: 64), owner: geteuid())
       }
     }
 
