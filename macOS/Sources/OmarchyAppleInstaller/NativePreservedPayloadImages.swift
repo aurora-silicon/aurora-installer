@@ -77,8 +77,9 @@
           saved.verification == "source-sha256-write-flushed-v1"
         else { throw NativeRawImageError.invalidTarget }
         try verify(partition)
-        guard try platform.digest(partition.identifier, saved.installedBytes)
-          == saved.contentSHA256
+        guard
+          try platform.digest(partition.identifier, saved.installedBytes)
+            == saved.contentSHA256
         else { throw NativeHandoffValidationError.changedContent }
         try verify(partition)
         return saved

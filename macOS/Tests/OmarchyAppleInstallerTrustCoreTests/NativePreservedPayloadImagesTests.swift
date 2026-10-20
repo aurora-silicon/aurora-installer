@@ -49,12 +49,11 @@
         identifier: "disk0s6", uuid: UUID().uuidString, type: "Linux Filesystem",
         offset: boot.end, size: 4 << 20, name: "")
       let group = UUID().uuidString
+      let system = RemovalVolume(
+        uuid: UUID().uuidString, name: "Aurora NixOS", roles: ["System"],
+        group: group, identifier: "disk8s1")
       let container = RemovalContainer(
-        uuid: UUID().uuidString, storeUUID: stub.uuid,
-        volumes: [
-          RemovalVolume(uuid: UUID().uuidString, name: "Aurora NixOS", roles: ["System"],
-            group: group, identifier: "disk8s1"),
-        ])
+        uuid: UUID().uuidString, storeUUID: stub.uuid, volumes: [system])
       let baseline = RemovalSnapshot(
         disk: "disk0", devicePath: "/dev/disk0", diskSize: 64 << 20,
         macOSStoreUUID: UUID().uuidString, macOSContainerUUID: UUID().uuidString,
