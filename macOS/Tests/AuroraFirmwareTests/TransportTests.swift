@@ -118,6 +118,25 @@ private final class RangeServer: @unchecked Sendable {
 }
 
 final class TransportTests: XCTestCase, @unchecked Sendable {
+  func testRestoreArchiveDiscoveryRequiresOneExactBoundedRange() throws {
+    let url = URL(string: "https://updates.cdn-apple.com/fixture.ipsw")!
+    let valid = ["Content-Range": "bytes 0-0/1073741824", "Content-Length": "1"]
+    XCTAssertEqual(try IPSWHTTPRangeReader.discoveredSize(
+      XCTUnwrap(HTTPURLResponse(url: url, statusCode: 206, httpVersion: nil, headerFields: valid))), 1073741824)
+    for status in [200, 301, 302, 416] {
+      XCTAssertThrowsError(try IPSWHTTPRangeReader.discoveredSize(
+        XCTUnwrap(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: valid))))
+    }
+    for (key, value) in [("Content-Range", "bytes 1-1/1073741824"), ("Content-Range", "bytes 0-0/*"),
+      ("Content-Range", "bytes 0-0/21"), ("Content-Range", "bytes 0-0/137438953473"),
+      ("Content-Range", "bytes 0-0/+100"), ("Content-Range", "bytes 0-0/100 trailing"),
+      ("Content-Length", "0"), ("Content-Length", "2"), ("Content-Encoding", "gzip")] {
+      var headers = valid
+      headers[key] = value
+      XCTAssertThrowsError(try IPSWHTTPRangeReader.discoveredSize(
+        XCTUnwrap(HTTPURLResponse(url: url, statusCode: 206, httpVersion: nil, headerFields: headers))))
+    }
+  }
   func testFCSRedirectAdmissionAndLimit() throws {
     let path = "/fcs-keys/" + String(repeating: "a", count: 43) + "="
     let apple = try XCTUnwrap(URL(string: "https://wkms-public.apple.com" + path))

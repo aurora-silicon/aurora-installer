@@ -64,11 +64,12 @@
     private let verifyRestoreImage: @Sendable (URL, String) throws -> Void
     private let firmwarePreparer: any NativeFirmwarePreparing
     private let peripheralPreparer: any NativePeripheralPreparing
+    private let apfsPreparer: any NativeAPFSPreparing
     private let nativeHandoff: any NativeRecoveryHandoffExecuting
     private let collectInstallAdmission: @Sendable () throws -> NativeInstallAdmissionFacts
     private let validatePayload: @Sendable (ImportedEngineHandoffPackage) async throws -> Void
     private let validateSourceOwner:
-      @Sendable (ImportedEngineHandoffPackage, MachineOwnerAuthorization) throws -> Void
+      @Sendable (ImportedEngineHandoffPackage, MachineOwnerAuthorization) throws -> NativeSourceBootstrap
     private let prepareRecoveryTemplate:
       @Sendable (ImportedEngineHandoffPackage) throws -> PreparedNativeRecoveryTemplate
 
@@ -83,11 +84,12 @@
       extractionOptions = []
       firmwarePreparer = NativeFirmwarePreparer()
       peripheralPreparer = NativeNeoPeripheralPreparer()
+      apfsPreparer = NativeAPFSPreparer()
       nativeHandoff = NativeRecoveryHandoffExecutor()
       collectInstallAdmission = { try NativeInstallAdmissionFacts.live() }
       validatePayload = { try await NativePayloadPreflight.check($0) }
       validateSourceOwner = {
-        _ = try NativeSourceOwnerAdmission().check(package: $0, authorization: $1)
+        try NativeSourceOwnerAdmission().check(package: $0, authorization: $1)
       }
       prepareRecoveryTemplate = { try NativeRecoveryTemplate.prepare(package: $0) }
     }
@@ -102,6 +104,7 @@
       },
       firmwarePreparer: any NativeFirmwarePreparing = NativeFirmwarePreparer(),
       peripheralPreparer: any NativePeripheralPreparing = NativeNeoPeripheralPreparer(),
+      apfsPreparer: any NativeAPFSPreparing = NativeAPFSPreparer(),
       nativeHandoff: any NativeRecoveryHandoffExecuting = NativeRecoveryHandoffExecutor(),
       collectInstallAdmission: @escaping @Sendable () throws -> NativeInstallAdmissionFacts = {
         try NativeInstallAdmissionFacts.live()
@@ -110,9 +113,9 @@
         try await NativePayloadPreflight.check($0)
       },
       validateSourceOwner:
-        @escaping @Sendable (ImportedEngineHandoffPackage, MachineOwnerAuthorization) throws -> Void =
+        @escaping @Sendable (ImportedEngineHandoffPackage, MachineOwnerAuthorization) throws -> NativeSourceBootstrap =
         {
-          _ = try NativeSourceOwnerAdmission().check(package: $0, authorization: $1)
+          try NativeSourceOwnerAdmission().check(package: $0, authorization: $1)
         },
       prepareRecoveryTemplate:
         @escaping @Sendable (ImportedEngineHandoffPackage) throws -> PreparedNativeRecoveryTemplate =
@@ -125,6 +128,7 @@
       self.extractionOptions = extractionOptions
       self.firmwarePreparer = firmwarePreparer
       self.peripheralPreparer = peripheralPreparer
+      self.apfsPreparer = apfsPreparer
       self.nativeHandoff = nativeHandoff
       self.collectInstallAdmission = collectInstallAdmission
       self.validatePayload = validatePayload
@@ -164,8 +168,9 @@
           journal: journal, package: package, password: authorization.password)
       }
       let nativeFinalization = package.installationIntent != .repair
+      let sourceBootstrap: NativeSourceBootstrap?
       if operation == .install, nativeFinalization {
-        do { try validateSourceOwner(package, authorization) } catch {
+        do { sourceBootstrap = try validateSourceOwner(package, authorization) } catch {
           throw preparationFailure(
             error, reason: .recoveryPreparation, operation: operation, journal: journal,
             package: package, password: authorization.password,
@@ -181,7 +186,7 @@
               ? "Compatible boot firmware could not be selected."
               : "The installation images could not be verified.")
         }
-      }
+      } else { sourceBootstrap = nil }
       let hadDiskWrites = !journalProvesNoMutation(
         journal, identity: RecoveryRetryIdentity(package: package))
       var environment = installEnvironment(
@@ -219,6 +224,22 @@
                 secrets: [authorization.password])))
         }
       }
+      let preparedAPFS: (any NativeAPFSExecuting)?
+      do {
+        preparedAPFS = operation == .install && nativeFinalization
+          ? try await apfsPreparer.preflight(package) : nil
+        if preparedAPFS != nil {
+          guard let sourceBootstrap else { throw NativeHandoffValidationError.invalidOwner }
+          environment["OMARCHY_NATIVE_APFS_TARGET"] = "helper-target-v1"
+          environment["OMARCHY_NATIVE_SOURCE_BOOTSTRAP"] = String(decoding:
+            try JSONSerialization.data(withJSONObject: sourceBootstrap.configuration,
+              options: [.sortedKeys, .withoutEscapingSlashes]), as: UTF8.self)
+        }
+      } catch {
+        throw preparationFailure(error, reason: .planIntegrity, operation: operation,
+          journal: journal, package: package, password: authorization.password,
+          summary: "Native disk preparation could not be verified.")
+      }
       do {
         let result = try run(
           archive: package.engineURL,
@@ -231,10 +252,15 @@
           beforeLaunch: {
             guard operation == .install else { return }
             do {
-              let bytes = try self.readAdmissionJournal(journal)
-              try NativeInstallAdmission.check(
-                package: package, journal: bytes, collect: self.collectInstallAdmission,
-                readEvidence: { try self.readCheckpointEvidence(journal: journal, identifier: $0) })
+              if let preparedAPFS {
+                guard let sourceBootstrap else { throw NativeHandoffValidationError.invalidOwner }
+                try preparedAPFS.prepareTarget(journal: journal, authorization: authorization, sourceBootstrap: sourceBootstrap)
+              } else {
+                let bytes = try self.readAdmissionJournal(journal)
+                try NativeInstallAdmission.check(
+                  package: package, journal: bytes, collect: self.collectInstallAdmission,
+                  readEvidence: { try self.readCheckpointEvidence(journal: journal, identifier: $0) })
+              }
             } catch {
               throw PinnedAsahiEngineExecutionError.engineFailed(
                 EngineFailureReport(
@@ -257,6 +283,10 @@
             requirement: recovery.requirement, fullReadback: hadDiskWrites)
         }
         return result
+      } catch PinnedAsahiEngineExecutionError.launchFailed where preparedAPFS != nil {
+        throw preparationFailure(PinnedAsahiEngineExecutionError.launchFailed,
+          reason: .unclassified, operation: operation, journal: journal, package: package,
+          password: authorization.password, summary: "The installation backend could not be started.")
       } catch PinnedAsahiEngineExecutionError.restoreImageUnsupported {
         throw preparationFailure(
           PinnedAsahiEngineExecutionError.restoreImageUnsupported,
@@ -431,7 +461,9 @@
             additionalEnvironment["OMARCHY_NATIVE_FIRMWARE_ROOT"] == nil
               || values["nativeFirmwareInput"] as? String == "helper-raw-v1",
             additionalEnvironment["OMARCHY_NATIVE_PERIPHERALS"] == nil
-              || values["nativePeripheralInput"] as? String == "helper-converted-v1"
+              || values["nativePeripheralInput"] as? String == "helper-converted-v1",
+            additionalEnvironment["OMARCHY_NATIVE_APFS_TARGET"] == nil
+              || values["nativeAPFSInput"] as? String == "helper-target-v1"
           else { throw PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported }
         } catch {
           throw PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported

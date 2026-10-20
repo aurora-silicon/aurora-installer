@@ -1230,6 +1230,8 @@ class AsahiStage1Adapter:
         native_binding_digest=None,
         native_recipe_sha256=None,
         require_native_peripherals=False,
+        native_target_evidence=None,
+        expected_native_bootstrap=None,
     ):
         self.installer = installer
         self.metadata_path = metadata_path
@@ -1252,6 +1254,8 @@ class AsahiStage1Adapter:
         self.native_binding_digest = native_binding_digest
         self.native_recipe_sha256 = native_recipe_sha256
         self.require_native_peripherals = require_native_peripherals
+        self.native_target_evidence = native_target_evidence
+        self.expected_native_bootstrap = expected_native_bootstrap
         self.prepared_native_peripherals = None
         self.native_camera_setfiles = None
         self.native_radio_files = None
@@ -1277,6 +1281,8 @@ class AsahiStage1Adapter:
                     self.installer.dutil, self.installer.cur_os, self.authorized_owner)
             except (omarchy_recovery.RecoveryError, subprocess.CalledProcessError) as error:
                 raise AsahiAdapterError("native Recovery preflight failed") from error
+        if self.expected_native_bootstrap is not None and self.source_bootstrap != self.expected_native_bootstrap:
+            raise AsahiAdapterError("source owner changed after native APFS admission")
         if self.require_native_firmware and self.native_firmware_root is None:
             raise AsahiAdapterError("native firmware preparation is required for this Mac")
         if self.require_native_peripherals and self.native_peripheral_root is None:
@@ -1408,6 +1414,8 @@ class AsahiStage1Adapter:
         if stage2 is not None and self.osins.pkg.getinfo(stage2).file_size <= 0:
             raise AsahiAdapterError(f"this image has an empty {stage2}")
         self.installer.osins = self.osins
+        if self.native_target_evidence is not None:
+            self._validate_native_target(plan)
         self.preflight_complete = True
 
     def remove_existing_install(self, plan):
@@ -1517,6 +1525,8 @@ class AsahiStage1Adapter:
 
     def prepare_target(self, plan):
         self._require_preflight()
+        if self.native_target_evidence is not None:
+            raise AsahiAdapterError("native APFS preparation must never be repeated")
         self.installer.check_cur_os()
         self._refresh_parts()
         if plan.candidate_kind == "resize":
@@ -1543,7 +1553,9 @@ class AsahiStage1Adapter:
 
     def install_stub_and_esp(self, plan):
         self._require_preflight()
-        if self.target_part is None:
+        if self.native_target_evidence is not None:
+            self._validate_native_target(plan)
+        elif self.target_part is None:
             self._refresh_parts()
             self.target_part = self._find_prepared_target(plan)
             self.installer.part = self.target_part
@@ -1845,6 +1857,27 @@ class AsahiStage1Adapter:
                 "prepared APFS target cannot be reconciled"
             )
         return matches[0]
+
+    def _validate_native_target(self, plan):
+        evidence = self._parse_checkpoint_evidence(self.native_target_evidence, {
+            "plan_digest", "partition_identifier", "offset_bytes", "size_bytes", "uuid",
+        })
+        if (plan.candidate_kind not in ("free", "resize")
+                or evidence["plan_digest"] != plan.plan_digest
+                or evidence["offset_bytes"] != plan.offset_bytes
+                or evidence["size_bytes"] != self.stub_size
+                or not isinstance(evidence["uuid"], str)
+                or not re.fullmatch(r"[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}", evidence["uuid"])):
+            raise AsahiAdapterError("native APFS target evidence changed")
+        self._refresh_parts()
+        matches = [part for part in self.installer.parts if not part.free
+                   and part.name == evidence["partition_identifier"]
+                   and part.uuid == evidence["uuid"] and part.type == "Apple_APFS"
+                   and part.offset == evidence["offset_bytes"] and part.size == evidence["size_bytes"]]
+        if len(matches) != 1:
+            raise AsahiAdapterError("native APFS target identity changed")
+        self.target_part = matches[0]
+        self.installer.part = self.target_part
 
     def _target_evidence(self, plan):
         return json.dumps(

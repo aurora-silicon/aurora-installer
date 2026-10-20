@@ -149,6 +149,40 @@ class EngineRuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(EngineRuntimeError, "OMARCHY_ENGINE_BINDING_DIGEST"):
             EngineRuntime.from_environment(environment)
 
+    def test_native_target_requires_a_checkpoint_before_constructing_the_adapter(self):
+        environment = self._install_environment()
+        environment["OMARCHY_ENGINE_MODE"] = "prepare-native-handoff"
+        environment["OMARCHY_NATIVE_APFS_TARGET"] = "helper-target-v1"
+        runtime = EngineRuntime.from_environment(environment)
+        runtime.inspect("j314sap", True)
+        with patch("omarchy_runtime.omarchy_planner.collect_inventory", return_value=self.inventory), \
+             patch("omarchy_runtime.omarchy_execution.admit_execution", return_value=self.plan), \
+             patch("omarchy_runtime.omarchy_asahi.AsahiStage1Adapter") as adapter:
+            with self.assertRaisesRegex(EngineRuntimeError, "checkpoint is required"):
+                self._run_layout(runtime)
+        adapter.assert_not_called()
+
+    def test_native_target_checkpoint_is_passed_to_the_consumer(self):
+        self._seed_plan(self.journal_path, self.inventory, self.plan)
+        environment = self._install_environment()
+        environment["OMARCHY_ENGINE_MODE"] = "prepare-native-handoff"
+        environment["OMARCHY_NATIVE_APFS_TARGET"] = "helper-target-v1"
+        bootstrap = {"mode": "source-volume-owner", "sourceSystemUUID": "system",
+                     "sourceGroupUUID": "group", "ownerUUIDs": ["owner"]}
+        environment["OMARCHY_NATIVE_SOURCE_BOOTSTRAP"] = json.dumps(bootstrap)
+        runtime = EngineRuntime.from_environment(environment)
+        evidence = b'{"native":"target"}'
+        runtime.journal.event("apfs_preparation_started")
+        runtime.journal.checkpoint("apfs-target-prepared", "apfs_preparation", evidence)
+        runtime.inspect("j314sap", True)
+        with patch("omarchy_runtime.omarchy_planner.collect_inventory", return_value=self.inventory), \
+             patch("omarchy_runtime.omarchy_execution.admit_execution", return_value=self.plan), \
+             patch("omarchy_runtime.omarchy_asahi.AsahiStage1Adapter", return_value=Mock()) as factory, \
+             patch("omarchy_runtime.omarchy_stage1.prepare_native_handoff", return_value="native_handoff_ready"):
+            self._run_layout(runtime)
+        self.assertEqual(factory.call_args.kwargs["native_target_evidence"], evidence)
+        self.assertEqual(factory.call_args.kwargs["expected_native_bootstrap"], bootstrap)
+
     def test_native_handoff_keeps_neo_native_firmware_admission_enabled(self):
         self.plan = self._build_plan(self.inventory, device="apple,j700")
         environment = self._install_environment()

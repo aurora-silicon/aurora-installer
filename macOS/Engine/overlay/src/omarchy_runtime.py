@@ -2,6 +2,7 @@
 """Closed execution runtime presented to the pinned upstream entry point."""
 
 import os
+import json
 
 import omarchy_asahi
 import omarchy_contract
@@ -30,6 +31,8 @@ ENVIRONMENT_KEYS = {
     "OMARCHY_NATIVE_FIRMWARE_ROOT",
     "OMARCHY_NATIVE_PERIPHERALS",
     "OMARCHY_NATIVE_FIRMWARE_RECIPE",
+    "OMARCHY_NATIVE_APFS_TARGET",
+    "OMARCHY_NATIVE_SOURCE_BOOTSTRAP",
     "DISTRO",
     "DISTRO_DOCS",
     "OMARCHY_INSTALLER_NAME",
@@ -44,6 +47,8 @@ OPTIONAL_INSTALL_KEYS = {
     "OMARCHY_NATIVE_FIRMWARE_ROOT",
     "OMARCHY_NATIVE_PERIPHERALS",
     "OMARCHY_NATIVE_FIRMWARE_RECIPE",
+    "OMARCHY_NATIVE_APFS_TARGET",
+    "OMARCHY_NATIVE_SOURCE_BOOTSTRAP",
 }
 
 
@@ -272,6 +277,26 @@ class EngineRuntime:
                 )
             return completed
 
+        native_target = None
+        native_bootstrap = None
+        if "OMARCHY_NATIVE_APFS_TARGET" in self.values:
+            if (self.values["OMARCHY_NATIVE_APFS_TARGET"] != "helper-target-v1"
+                    or self.mode != "prepare-native-handoff"
+                    or plan.candidate_kind not in ("free", "resize")
+                    or "apfs-target-prepared" not in self.journal.checkpoints):
+                raise EngineRuntimeError("native APFS preparation checkpoint is required")
+            native_target = self.journal.checkpoint_evidence("apfs-target-prepared")
+            encoded = self.values.get("OMARCHY_NATIVE_SOURCE_BOOTSTRAP", "")
+            try:
+                if not isinstance(encoded, str) or not 1 <= len(encoded) <= 4096:
+                    raise ValueError("missing source bootstrap")
+                native_bootstrap = json.loads(encoded)
+                if (not isinstance(native_bootstrap, dict)
+                        or set(native_bootstrap) != {"mode", "sourceSystemUUID", "sourceGroupUUID", "ownerUUIDs"}
+                        or native_bootstrap["mode"] != "source-volume-owner"):
+                    raise ValueError("invalid source bootstrap")
+            except ValueError as error:
+                raise EngineRuntimeError("native source bootstrap is required") from error
         adapter = omarchy_asahi.AsahiStage1Adapter(
             installer=installer,
             metadata_path=self.values["OMARCHY_ENGINE_METADATA"],
@@ -287,6 +312,8 @@ class EngineRuntime:
             native_binding_digest=self.values.get("OMARCHY_ENGINE_BINDING_DIGEST"),
             native_recipe_sha256=self.values.get("OMARCHY_NATIVE_FIRMWARE_RECIPE"),
             require_native_peripherals=self.mode in ("install", "prepare-native-handoff") and self.device_identifier == "apple,j700",
+            native_target_evidence=native_target,
+            expected_native_bootstrap=native_bootstrap,
             full_readback=os.environ.get("OMARCHY_FULL_READBACK") == "1",
         )
         with omarchy_asahi.timing("preflight"):

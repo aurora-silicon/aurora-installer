@@ -22,6 +22,36 @@ public struct IPSWHTTPRangeReader: FirmwareRangeReading {
     self.sizeBytes = sizeBytes
   }
 
+  /// Discover the archive length through a one-byte range, without accepting a
+  /// whole-image response or redirect. Subsequent reads remain exactly bounded.
+  public static func discover(url: URL) async throws -> Self {
+    try require(appleRangeURL(url.absoluteString), "Invalid restore-image source.")
+    var request = URLRequest(url: url)
+    request.timeoutInterval = 45
+    request.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+    request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+    var size: Int?
+    let bytes = try await httpBytes(request, maximum: 1) { response in
+      size = try discoveredSize(response)
+    }
+    guard bytes.count == 1, let size else { throw RestoreFailure("Invalid restore-image length.") }
+    return try Self(url: url, sizeBytes: size)
+  }
+
+  static func discoveredSize(_ response: HTTPURLResponse) throws -> Int {
+    let range = response.value(forHTTPHeaderField: "Content-Range") ?? ""
+    let suffix = range.dropFirst("bytes 0-0/".count)
+    let encoding = response.value(forHTTPHeaderField: "Content-Encoding") ?? ""
+    try require(response.statusCode == 206 && range.hasPrefix("bytes 0-0/")
+      && !suffix.isEmpty && suffix.utf8.allSatisfy({ (48...57).contains($0) })
+      && response.value(forHTTPHeaderField: "Content-Length") == "1"
+      && (encoding.isEmpty || encoding == "identity"), "Restore-image range discovery failed.")
+    guard let size = Int(suffix), (22...(128 << 30)).contains(size) else {
+      throw RestoreFailure("Invalid restore-image length.")
+    }
+    return size
+  }
+
   public func read(offset: Int, count: Int) async throws -> Data {
     try require(
       offset >= 0 && count > 0 && count <= 8 * 1024 * 1024 && offset <= sizeBytes - count,

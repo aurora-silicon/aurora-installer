@@ -261,6 +261,22 @@ class AsahiStage1AdapterTests(unittest.TestCase):
             "expected_bootstrap": {"ownerUUIDs": ["original owner"]},
         })
 
+    def test_source_owner_proof_from_native_apfs_is_not_replaced_by_a_new_backend_proof(self):
+        installer = FakeInstaller(FakeDiskUtil([[self.free]]))
+        adapter = self._adapter(installer)
+        adapter.recovery_app = "/private/job/Recovery.app"
+        adapter.recovery_manifest = "/private/job/recovery.json"
+        adapter.recovery_requirement = 'cdhash H"' + 'a' * 40 + '"'
+        adapter.expected_native_bootstrap = {"ownerUUIDs": ["original owner"]}
+        with patch("omarchy_asahi.omarchy_recovery.validate_source"), patch(
+            "omarchy_asahi.omarchy_recovery.source_bootstrap", return_value={"ownerUUIDs": ["changed owner"]}
+        ), patch.object(adapter, "_load_metadata") as metadata:
+            with self.assertRaisesRegex(AsahiAdapterError, "source owner changed after native APFS admission"):
+                adapter.preflight(self.plan)
+        metadata.assert_not_called()
+        self.assertEqual(installer.dutil.resize_calls, [])
+        self.assertEqual(installer.dutil.add_calls, [])
+
     def test_invalid_helper_template_or_source_owner_stops_before_disk_calls(self):
         import omarchy_recovery
         for failed in ("template", "owner"):
@@ -843,6 +859,55 @@ class AsahiStage1AdapterTests(unittest.TestCase):
             [("disk0s2", 420 * GIB)],
         )
         self.assertEqual(dutil.add_calls[0][0], "disk0s3")
+
+    def _native_target_adapter(self):
+        target = FakePart("disk0s4", offset=self.plan.offset_bytes, size=2 * GIB, free=False,
+                          uuid="01234567-89AB-CDEF-0123-456789ABCDEF")
+        installer = FakeInstaller(FakeDiskUtil([[target]]))
+        adapter = self._adapter(installer)
+        adapter.native_target_evidence = json.dumps({
+            "plan_digest": self.plan.plan_digest, "partition_identifier": target.name,
+            "offset_bytes": target.offset, "size_bytes": target.size, "uuid": target.uuid,
+        }, sort_keys=True, separators=(",", ":")).encode()
+        return adapter, target
+
+    def test_native_apfs_continuation_never_repeats_preparation(self):
+        adapter, target = self._native_target_adapter()
+        adapter.preflight(self.plan)
+        with self.assertRaisesRegex(AsahiAdapterError, "must never be repeated"):
+            adapter.prepare_target(self.plan)
+        with patch.object(adapter.installer.ins, "prepare_volume", side_effect=RuntimeError("stub gate")) as prepare:
+            with self.assertRaisesRegex(RuntimeError, "stub gate"):
+                adapter.install_stub_and_esp(self.plan)
+        prepare.assert_called_once_with(target)
+        self.assertEqual(adapter.installer.dutil.resize_calls, [])
+        self.assertEqual(adapter.installer.dutil.add_calls, [])
+
+    def test_native_apfs_identity_is_reread_before_any_stub_write(self):
+        for field, value in [("uuid", "11111111-2222-3333-4444-555555555555"), ("name", "disk0s9"),
+                             ("offset", self.plan.offset_bytes + 4096), ("size", 2 * GIB + 4096),
+                             ("type", "Apple_APFS_Recovery")]:
+            with self.subTest(field=field):
+                adapter, target = self._native_target_adapter()
+                adapter.preflight(self.plan)
+                setattr(target, field, value)
+                with patch.object(adapter.installer.ins, "prepare_volume") as prepare:
+                    with self.assertRaisesRegex(AsahiAdapterError, "target identity changed"):
+                        adapter.install_stub_and_esp(self.plan)
+                prepare.assert_not_called()
+                self.assertEqual(adapter.installer.dutil.resize_calls, [])
+                self.assertEqual(adapter.installer.dutil.add_calls, [])
+
+    def test_native_target_evidence_is_canonical_and_bound_to_the_plan(self):
+        for change in ("plan_digest", "offset_bytes", "size_bytes", "extra"):
+            adapter, _ = self._native_target_adapter()
+            evidence = json.loads(adapter.native_target_evidence)
+            evidence[change] = 0
+            adapter.native_target_evidence = json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode()
+            with self.subTest(change=change), self.assertRaises(AsahiAdapterError):
+                adapter.preflight(self.plan)
+            self.assertEqual(adapter.installer.dutil.resize_calls, [])
+            self.assertEqual(adapter.installer.dutil.add_calls, [])
 
     def test_changed_free_extent_is_rejected_before_partition_creation(self):
         changed = FakePart(

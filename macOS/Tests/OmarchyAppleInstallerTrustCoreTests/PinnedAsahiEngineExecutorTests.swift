@@ -61,6 +61,60 @@
       }
     }
 
+    private struct NoNativeAPFSFixture: NativeAPFSPreparing {
+      func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (any NativeAPFSExecuting)? { nil }
+    }
+
+    private struct NativeAPFSFixture: NativeAPFSPreparing, NativeAPFSExecuting {
+      let marker: URL
+      var recordMutation = false
+      func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (any NativeAPFSExecuting)? { self }
+      func prepareTarget(journal: URL, authorization: MachineOwnerAuthorization, sourceBootstrap: NativeSourceBootstrap) throws {
+        try Data("prepared".utf8).write(to: marker)
+        if recordMutation {
+          try NativeAdmissionTestData.journal(stages: 1).write(to: journal)
+          let evidence = URL(fileURLWithPath: journal.path + ".apfs-target-prepared.evidence")
+          try NativeAdmissionTestData.evidence.write(to: evidence)
+          try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: evidence.path)
+        }
+      }
+    }
+
+    func testBackendLaunchFailureAfterNativeAPFSRetainsCheckpointAndMakesNoUnchangedDiskClaim() async throws {
+      let fixture = try makeFixture(expectNativeAPFS: true, missingBackendInterpreter: true)
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let executor = fixtureExecutor(effectiveUserID: { 0 }, apfsPreparer: NativeAPFSFixture(
+        marker: fixture.root.appendingPathComponent("native-apfs-called"), recordMutation: true))
+      await assertThrowsErrorAsync(try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())) {
+        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+          return XCTFail("Expected a typed post-preparation launch failure")
+        }
+        XCTAssertFalse(report.notice.diskUnchanged)
+      }
+      let journal = fixture.root.appendingPathComponent("execution-journals/" + String(repeating: "b", count: 64) + ".jsonl")
+      XCTAssertEqual(try Data(contentsOf: journal), try NativeAdmissionTestData.journal(stages: 1))
+      XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: journal.path + ".apfs-target-prepared.evidence")), NativeAdmissionTestData.evidence)
+      XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.package.metadataURL.path))
+      XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
+
+    func testNativeAPFSCapabilityIsAdmittedBeforePreparationAndPassedToContinuation() async throws {
+      for supported in [false, true] {
+        let fixture = try makeFixture(supportsNativeAPFS: supported, expectNativeAPFS: true)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let marker = fixture.root.appendingPathComponent("native-apfs-called")
+        let executor = fixtureExecutor(effectiveUserID: { 0 }, apfsPreparer: NativeAPFSFixture(marker: marker))
+        if supported {
+          let bytes = try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
+          XCTAssertEqual(bytes, fixture.transcript)
+          XCTAssertTrue(FileManager.default.fileExists(atPath: marker.path))
+        } else {
+          await assertThrowsErrorAsync(try await executor.execute(fixture.package, authorization: machineOwnerAuthorization()))
+          XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+        }
+      }
+    }
+
     func testConvertedPeripheralCapabilityAndCleanupAreRequiredBeforeBackendLaunch() async throws {
       for supported in [false, true] {
         let fixture = try makeFixture(supportsNativePeripherals: supported)
@@ -857,6 +911,7 @@
       extractionOptions: [String] = [],
       firmwarePreparer: any NativeFirmwarePreparing = NativeFirmwarePreparer(),
       peripheralPreparer: any NativePeripheralPreparing = NativeNeoPeripheralPreparer(),
+      apfsPreparer: any NativeAPFSPreparing = NoNativeAPFSFixture(),
       collectInstallAdmission: @escaping @Sendable () throws -> NativeInstallAdmissionFacts = {
         NativeAdmissionTestData.facts()
       },
@@ -877,6 +932,7 @@
         },
         firmwarePreparer: firmwarePreparer,
         peripheralPreparer: peripheralPreparer,
+        apfsPreparer: apfsPreparer,
         nativeHandoff: FixtureNativeHandoff(),
         collectInstallAdmission: collectInstallAdmission,
         validatePayload: { _ in
@@ -885,6 +941,8 @@
         },
         validateSourceOwner: { _, _ in
           if rejectSourceOwner { throw NativeHandoffValidationError.invalidOwner }
+          return try NativeSourceBootstrap(systemUUID: "00000000-0000-0000-0000-000000000101",
+            groupUUID: "00000000-0000-0000-0000-000000000102", ownerUUID: "00000000-0000-0000-0000-000000000103")
         },
         prepareRecoveryTemplate: { package in
           if rejectRecovery { throw NativeRecoveryTemplateError.unavailable }
@@ -915,6 +973,9 @@
       supportsSignedDecoder: Bool = true,
       supportsNativeHandoff: Bool = true,
       supportsNativePeripherals: Bool = true,
+      supportsNativeAPFS: Bool = true,
+      expectNativeAPFS: Bool = false,
+      missingBackendInterpreter: Bool = false,
       installationIntent: ImportedInstallationIntent? = nil,
       planDigest: String = NativeAdmissionTestData.plan.planDigest
     ) throws -> PinnedExecutorFixture {
@@ -951,8 +1012,9 @@
         supportsNativeHandoff ? ",\"nativeHandoff\":\"helper-finalize-v1\"" : ""
       let peripheralCapability =
         supportsNativePeripherals ? ",\"nativePeripheralInput\":\"helper-converted-v1\"" : ""
+      let apfsCapability = supportsNativeAPFS ? ",\"nativeAPFSInput\":\"helper-target-v1\"" : ""
       try Data(
-        #"{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1"\#(peripheralCapability)\#(handoffCapability)\#(capability)}"#
+        #"{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1"\#(apfsCapability)\#(peripheralCapability)\#(handoffCapability)\#(capability)}"#
           .utf8
       ).write(to: bundleSource.appendingPathComponent("engine-capabilities.json"))
       let main = bundleSource.appendingPathComponent("main.py")
@@ -991,7 +1053,7 @@
         attributes: [.posixPermissions: 0o700]
       )
       let script = """
-        #!/bin/sh
+        #!\(missingBackendInterpreter ? "/nonexistent/aurora-test-interpreter" : "/bin/sh")
         case "$OMARCHY_ENGINE_MODE" in
           inspect) ;;
           plan)
@@ -1019,6 +1081,7 @@
             [ -r "$OMARCHY_ENGINE_IDENTITY" ] || exit 74
             [ -r "$OMARCHY_ENGINE_METADATA" ] || exit 75
             [ -r "$OMARCHY_ENGINE_PAYLOAD" ] || exit 76
+            \(expectNativeAPFS ? "[ \"$OMARCHY_NATIVE_APFS_TARGET\" = \"helper-target-v1\" ] || exit 85" : "")
             \(repairManifest == nil ? "" : "[ -r \"$OMARCHY_ENGINE_REPAIR_MANIFEST\" ] || exit 82")
             ;;
           *) exit 70 ;;
