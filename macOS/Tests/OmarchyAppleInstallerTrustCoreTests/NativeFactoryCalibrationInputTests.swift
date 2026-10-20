@@ -42,6 +42,32 @@
       XCTAssertThrowsError(try NeoFirmwareConversions.factoryFields(invalid))
     }
 
+    func testWritableFactoryRecordHasTheSameProtectedReadBoundary() throws {
+      let (root, _, _) = try fixture()
+      defer { try? FileManager.default.removeItem(at: root) }
+      let name = "PEid-fixture"
+      let file = root.appendingPathComponent(
+        NativeSensorInputCollector.factoryRelativePath + "/" + name)
+      let expected = Data("synthetic factory record".utf8)
+      try expected.write(to: file)
+      XCTAssertEqual(chmod(file.path, 0o666), 0)
+      let tree = try NativeHandoffFileTree(root, protected: true, owner: getuid())
+      XCTAssertEqual(
+        try NativeFactoryCalibrationInput.readRecord(
+          tree, name: name, maximum: 64 << 20, owner: getuid()), expected)
+      XCTAssertThrowsError(
+        try NativeFactoryCalibrationInput.read(
+          tree, name: name, owner: getuid()))
+      XCTAssertThrowsError(
+        try tree.read(
+          NativeSensorInputCollector.factoryRelativePath + "/" + name, maximum: 64 << 20))
+      let other = file.appendingPathExtension("other")
+      XCTAssertEqual(link(file.path, other.path), 0)
+      XCTAssertThrowsError(
+        try NativeFactoryCalibrationInput.readRecord(
+          tree, name: name, maximum: 64 << 20, owner: getuid()))
+    }
+
     func testFactoryReaderRejectsUnsafeSourcesAndConcurrentChanges() throws {
       for fault in ["owner", "link", "symlink", "parent", "size", "mode", "changed"] {
         let (root, file, _) = try fixture()
@@ -77,6 +103,9 @@
       }
       let store = try MacRemovalDiskOperator().snapshot(maximumPartitions: 4096).disk
       let inputs = try NativeNeoLocalInputs.live(storeIdentifier: store)
+      let records = try NativeFactoryCalibrationInput.snapshot(storeIdentifier: store)
+      XCTAssertGreaterThanOrEqual(records.count, 20)
+      XCTAssertEqual(records.first { $0.key.hasPrefix("BWC2-") }?.value, inputs.factory)
       XCTAssertFalse(try NeoFirmwareConversions.factoryFields(inputs.factory).isEmpty)
       XCTAssertFalse(try NeoFirmwareConversions.alsCalibration(inputs.lsci).isEmpty)
       XCTAssertEqual(inputs.address.count, 6)
