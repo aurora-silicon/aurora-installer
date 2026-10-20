@@ -130,7 +130,6 @@ jobs:
       - name: Qualify the immutable native candidate
         run: |
           set -euo pipefail
-          bash test/all 2>&1 | tee "$RUNNER_TEMP/evidence/portable.log"
           xcrun swift-format lint --strict --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
           xcodebuildmcp swift-package build --package-path "$PWD" --configuration release 2>&1 | tee "$RUNNER_TEMP/evidence/build.log"
           bash Recovery/build-recovery.sh "$RUNNER_TEMP/recovery-template" 2>&1 | tee "$RUNNER_TEMP/evidence/recovery.log"

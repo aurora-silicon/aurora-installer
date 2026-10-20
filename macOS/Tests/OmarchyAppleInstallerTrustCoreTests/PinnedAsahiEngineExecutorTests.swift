@@ -104,7 +104,8 @@
     }
 
     func testCompleteNativeClosureNeverExtractsOrLaunchesTheCompatibilityRuntime() async throws {
-      let fixture = try makeFixture(missingBackendInterpreter: true)
+      let fixture = try makeFixture(
+        transcript: NativeAdmissionTestData.journal(stages: 2), missingBackendInterpreter: true)
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let apfs = fixture.root.appendingPathComponent("apfs")
       let files = fixture.root.appendingPathComponent("files")

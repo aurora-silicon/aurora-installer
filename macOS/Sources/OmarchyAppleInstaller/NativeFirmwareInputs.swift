@@ -17,7 +17,8 @@
     let command: @Sendable (String, [String]) throws -> Data
 
     static func open(image: URL, parent: URL) throws -> Self {
-      let directory = parent.appendingPathComponent("firmware-image-" + UUID().uuidString)
+      let directory = parent.resolvingSymlinksInPath()
+        .appendingPathComponent("firmware-image-" + UUID().uuidString)
       try FileManager.default.createDirectory(
         at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
       let root = directory.appendingPathComponent("recovery")
@@ -118,6 +119,7 @@
     static func snapshot(
       root: URL, prefix: String, tree: NativeHandoffFileTree, owner: uid_t
     ) throws -> [String: Data] {
+      let root = root.resolvingSymlinksInPath()
       guard NativeHandoffEvidence.safeRelative(prefix) else {
         throw NativeFirmwareInputFailure.invalidSource
       }

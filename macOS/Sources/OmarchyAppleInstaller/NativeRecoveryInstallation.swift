@@ -150,6 +150,7 @@
     }
 
     private func verifyData(_ root: URL, expected: [String: NativeStubFileIdentity]) throws {
+      let root = root.resolvingSymlinksInPath()
       let tree = try NativeHandoffFileTree(root, protected: true, owner: owner)
       let store = NativeStubFileStore(tree: tree, owner: owner)
       var failure: Error?
