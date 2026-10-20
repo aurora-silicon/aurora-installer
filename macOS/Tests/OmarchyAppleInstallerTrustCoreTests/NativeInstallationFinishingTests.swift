@@ -225,11 +225,10 @@
     {
       let fixture = try await Fixture()
       let peripherals = try XCTUnwrap(fixture.peripherals)
-      var finisher = NativeInstallationFinisher()
-      finisher.owner = geteuid()
-      XCTAssertNotNil(
-        try finisher.preflight(
-          package: fixture.base.package, stub: fixture.plan, peripherals: peripherals))
+      XCTAssertNoThrow(
+        try NativeInstallationFinisher.admitPeripheralPrivacy(
+          peripherals, package: fixture.base.package, approved: fixture.base.approved,
+          owner: geteuid()))
 
       let manifestURL = peripherals.directory.appendingPathComponent("manifest.json")
       var manifest = try XCTUnwrap(
@@ -240,8 +239,9 @@
       try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys]).write(
         to: manifestURL)
       XCTAssertThrowsError(
-        try finisher.preflight(
-          package: fixture.base.package, stub: fixture.plan, peripherals: peripherals))
+        try NativeInstallationFinisher.admitPeripheralPrivacy(
+          peripherals, package: fixture.base.package, approved: fixture.base.approved,
+          owner: geteuid()))
     }
 
     func testAmbientLightAbsenceAndCalibrationPublicationHaveSeparateContracts() throws {

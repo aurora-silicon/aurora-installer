@@ -41,20 +41,8 @@
       if source.machine == "j700" {
         guard let peripherals, source.fud.contains(where: { $0.component == "Multitouch" })
         else { throw NativeFirmwareInputFailure.invalidSource }
-        let tree = try NativeHandoffFileTree(peripherals.directory, protected: true, owner: owner)
-        let manifest = try JSONDecoder().decode(
-          NativeNeoPeripheralPreparer.Manifest.self,
-          from: tree.read("manifest.json", maximum: 1 << 20))
-        guard manifest.deviceIdentifier == package.deviceIdentifier,
-          manifest.bindingDigest == package.bindingDigest,
-          manifest.planDigest == approved.planDigest,
-          manifest.metadataDigest == approved.metadataDigest,
-          manifest.payloadDigest == approved.payloadDigest,
-          manifest.recipeSHA256 == peripherals.recipeSHA256,
-          manifest.localInputs["sensorRootKey"] == nil,
-          manifest.files["apple/msrk-j700.bin"] == nil,
-          manifest.files["apple/mesacal-j700.bin"] == nil
-        else { throw NativeFirmwareInputFailure.invalidSource }
+        try Self.admitPeripheralPrivacy(
+          peripherals, package: package, approved: approved, owner: owner)
       } else if peripherals != nil {
         throw NativeFirmwareInputFailure.invalidSource
       }
@@ -62,6 +50,26 @@
       return NativeInstallationFinishingExecution(
         package: package, approved: approved, stub: stub, peripherals: peripherals,
         owner: owner, environment: environment, disks: disks, ambientLight: ambientLight)
+    }
+
+    static func admitPeripheralPrivacy(
+      _ peripherals: PreparedNativePeripheralInputs, package: ImportedEngineHandoffPackage,
+      approved: ValidatedEnginePlan, owner: uid_t
+    ) throws {
+      let tree = try NativeHandoffFileTree(peripherals.directory, protected: true, owner: owner)
+      let manifest = try JSONDecoder().decode(
+        NativeNeoPeripheralPreparer.Manifest.self,
+        from: tree.read("manifest.json", maximum: 1 << 20))
+      guard manifest.deviceIdentifier == package.deviceIdentifier,
+        manifest.bindingDigest == package.bindingDigest,
+        manifest.planDigest == approved.planDigest,
+        manifest.metadataDigest == approved.metadataDigest,
+        manifest.payloadDigest == approved.payloadDigest,
+        manifest.recipeSHA256 == peripherals.recipeSHA256,
+        manifest.localInputs["sensorRootKey"] == nil,
+        manifest.files["apple/msrk-j700.bin"] == nil,
+        manifest.files["apple/mesacal-j700.bin"] == nil
+      else { throw NativeFirmwareInputFailure.invalidSource }
     }
   }
 
