@@ -358,6 +358,54 @@ class AsahiStage1AdapterTests(unittest.TestCase):
                 self.assertIsNone(adapter.osins)
                 self.assertIsNone(adapter.template)
 
+    def test_missing_required_native_conversion_stops_before_metadata_and_disk_work(self):
+        installer = FakeInstaller(FakeDiskUtil([[self.free]]))
+        adapter = self._adapter(installer)
+        adapter.require_native_peripherals = True
+        with patch.object(adapter, "_load_metadata") as metadata:
+            with self.assertRaisesRegex(AsahiAdapterError, "native peripheral conversion is required"):
+                adapter.preflight(self.plan)
+        metadata.assert_not_called()
+        self.assertEqual(installer.dutil.resize_calls, [])
+        self.assertEqual(installer.dutil.add_calls, [])
+
+    def test_helper_converted_inputs_bypass_host_collectors_and_are_consumed_before_disk_work(self):
+        import omarchy_asahi as module
+        raw = self.root / "converted-raw"
+        raw.mkdir(mode=0o700)
+        for name in ("sunrise", "bluetooth", "camera"): (raw / name).mkdir(mode=0o700)
+        installer = FakeInstaller(FakeDiskUtil([[self.free]]))
+        installer.sysinfo.device_class = "j700ap"
+        adapter = self._adapter(installer)
+        adapter.native_firmware_root = str(raw)
+        adapter.native_peripheral_root = str(self.root / "converted")
+        adapter.native_binding_digest = "sha256:" + "b" * 64
+        adapter.native_recipe_sha256 = "a" * 64
+        adapter.require_native_peripherals = True
+        self.plan.device_identifier = "apple,j700"
+        self.plan.metadata_digest = "sha256:" + "d" * 64
+        self.plan.payload_digest = "sha256:" + "e" * 64
+        prepared = {"camera": {name:b"setfile" for name in module.omarchy_native_peripherals.REQUIRED_CAMERA},
+                    "radio": {name:b"radio" for name in module.omarchy_native_peripherals.RADIO},
+                    "als": {module.omarchy_native_peripherals.ALS:b"a" * 80},
+                    "lsci": {module.omarchy_native_peripherals.LSCI:b"l" * 156},
+                    "policy": {"mediatek/mt7932/policy/world-XZ.bin":b"supplied"}}
+        with patch.object(module.omarchy_native_peripherals, "load", return_value=prepared) as load, patch.object(
+            module.omarchy_mt7932, "collect", side_effect=AssertionError("legacy radio collector")
+        ), patch.object(module.omarchy_isp, "extract", side_effect=AssertionError("legacy camera conversion")), patch.object(
+            module.omarchy_als, "read_lsci", side_effect=AssertionError("legacy host query")
+        ), patch.object(adapter, "_load_metadata", side_effect=RuntimeError("metadata gate reached")):
+            with self.assertRaisesRegex(RuntimeError, "metadata gate reached"): adapter.preflight(self.plan)
+        self.assertEqual(adapter.native_camera_setfiles, prepared["camera"])
+        self.assertEqual(adapter.native_radio_files, prepared["radio"])
+        self.assertEqual(adapter.native_lsci, b"l" * 156)
+        self.assertEqual(adapter.native_als_calibration, b"a" * 80)
+        load.assert_called_once_with(adapter.native_peripheral_root, device="apple,j700",
+            binding=adapter.native_binding_digest, plan=self.plan.plan_digest,
+            metadata=self.plan.metadata_digest, payload=self.plan.payload_digest, recipe=adapter.native_recipe_sha256)
+        self.assertEqual(installer.dutil.resize_calls, [])
+        self.assertEqual(installer.dutil.add_calls, [])
+
     def test_preflight_accepts_the_partition_floor(self):
         metadata = self._target_metadata()
         metadata["floor_size"] = 40 * GIB

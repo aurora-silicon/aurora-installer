@@ -63,6 +63,7 @@
     private let restoreImageRequirement: String?
     private let verifyRestoreImage: @Sendable (URL, String) throws -> Void
     private let firmwarePreparer: any NativeFirmwarePreparing
+    private let peripheralPreparer: any NativePeripheralPreparing
     private let nativeHandoff: any NativeRecoveryHandoffExecuting
     private let collectInstallAdmission: @Sendable () throws -> NativeInstallAdmissionFacts
     private let validatePayload: @Sendable (ImportedEngineHandoffPackage) async throws -> Void
@@ -81,6 +82,7 @@
       expectedFileOwnerID = { geteuid() }
       extractionOptions = []
       firmwarePreparer = NativeFirmwarePreparer()
+      peripheralPreparer = NativeNeoPeripheralPreparer()
       nativeHandoff = NativeRecoveryHandoffExecutor()
       collectInstallAdmission = { try NativeInstallAdmissionFacts.live() }
       validatePayload = { try await NativePayloadPreflight.check($0) }
@@ -99,6 +101,7 @@
         try RestoreImageHelper.verify($0, requirement: $1)
       },
       firmwarePreparer: any NativeFirmwarePreparing = NativeFirmwarePreparer(),
+      peripheralPreparer: any NativePeripheralPreparing = NativeNeoPeripheralPreparer(),
       nativeHandoff: any NativeRecoveryHandoffExecuting = NativeRecoveryHandoffExecutor(),
       collectInstallAdmission: @escaping @Sendable () throws -> NativeInstallAdmissionFacts = {
         try NativeInstallAdmissionFacts.live()
@@ -121,6 +124,7 @@
       self.verifyRestoreImage = verifyRestoreImage
       self.extractionOptions = extractionOptions
       self.firmwarePreparer = firmwarePreparer
+      self.peripheralPreparer = peripheralPreparer
       self.nativeHandoff = nativeHandoff
       self.collectInstallAdmission = collectInstallAdmission
       self.validatePayload = validatePayload
@@ -186,6 +190,8 @@
       if nativeFinalization { environment["OMARCHY_ENGINE_MODE"] = "prepare-native-handoff" }
       environment[RestoreImageHelper.pathEnvironmentVariable] = package.restoreImageURL!.path
       environment[RestoreImageHelper.requirementEnvironmentVariable] = restoreImageRequirement!
+      var preparedPeripherals: PreparedNativePeripheralInputs?
+      defer { preparedPeripherals?.remove() }
       if operation == .install {
         do {
           if let raw = try await firmwarePreparer.prepare(
@@ -193,6 +199,11 @@
             in: package.packageURL.deletingLastPathComponent())
           {
             environment["OMARCHY_NATIVE_FIRMWARE_ROOT"] = raw.path
+            if nativeFinalization {
+              let prepared = try await peripheralPreparer.prepare(package: package, rawDirectory: raw)
+              preparedPeripherals = prepared
+              environment.merge(prepared.environment) { _, new in new }
+            }
           }
         } catch {
           throw PinnedAsahiEngineExecutionError.engineFailed(
@@ -417,7 +428,9 @@
             additionalEnvironment["OMARCHY_ENGINE_MODE"] != "prepare-native-handoff"
               || values["nativeHandoff"] as? String == "helper-finalize-v1",
             additionalEnvironment["OMARCHY_NATIVE_FIRMWARE_ROOT"] == nil
-              || values["nativeFirmwareInput"] as? String == "helper-raw-v1"
+              || values["nativeFirmwareInput"] as? String == "helper-raw-v1",
+            additionalEnvironment["OMARCHY_NATIVE_PERIPHERALS"] == nil
+              || values["nativePeripheralInput"] as? String == "helper-converted-v1"
           else { throw PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported }
         } catch {
           throw PinnedAsahiEngineExecutionError.recoveryTemplateUnsupported

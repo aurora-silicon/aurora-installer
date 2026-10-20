@@ -31,6 +31,7 @@ import omarchy_als
 import omarchy_isp
 import omarchy_recovery
 import omarchy_planner
+import omarchy_native_peripherals
 from omarchy_image import (
     WRITE_VERIFICATION, flush_device, hash_target, open_target, timing, write_image,
 )
@@ -1225,6 +1226,10 @@ class AsahiStage1Adapter:
         authorized_owner=None,
         native_firmware_root=None,
         require_native_firmware=False,
+        native_peripheral_root=None,
+        native_binding_digest=None,
+        native_recipe_sha256=None,
+        require_native_peripherals=False,
     ):
         self.installer = installer
         self.metadata_path = metadata_path
@@ -1243,6 +1248,11 @@ class AsahiStage1Adapter:
         self.source_bootstrap = None
         self.native_firmware_root = native_firmware_root
         self.require_native_firmware = require_native_firmware
+        self.native_peripheral_root = native_peripheral_root
+        self.native_binding_digest = native_binding_digest
+        self.native_recipe_sha256 = native_recipe_sha256
+        self.require_native_peripherals = require_native_peripherals
+        self.prepared_native_peripherals = None
         self.native_camera_setfiles = None
         self.native_radio_files = None
         self.native_lsci = None
@@ -1269,6 +1279,10 @@ class AsahiStage1Adapter:
                 raise AsahiAdapterError("native Recovery preflight failed") from error
         if self.require_native_firmware and self.native_firmware_root is None:
             raise AsahiAdapterError("native firmware preparation is required for this Mac")
+        if self.require_native_peripherals and self.native_peripheral_root is None:
+            raise AsahiAdapterError("native peripheral conversion is required for this Mac")
+        if self.native_peripheral_root is not None and self.native_firmware_root is None:
+            raise AsahiAdapterError("native peripheral conversion has no raw source")
         if self.native_firmware_root is not None:
             if (getattr(self.installer.sysinfo, "device_class", "") != "j700ap"
                     or not isinstance(self.native_firmware_root, str)
@@ -1282,16 +1296,28 @@ class AsahiStage1Adapter:
                     child = os.lstat(os.path.join(self.native_firmware_root, prefix))
                     if not stat.S_ISDIR(child.st_mode) or child.st_uid != os.geteuid() or child.st_mode & 0o022:
                         raise ValueError("unsafe native firmware input directory")
-                camera_data = _read_native_camera_firmware(self.native_firmware_root)
-                self.native_camera_setfiles = omarchy_isp.extract(camera_data, asahi_firmware.isp.ISP_SETFILES)
+                if self.native_peripheral_root is not None:
+                    prepared = omarchy_native_peripherals.load(
+                        self.native_peripheral_root, device=plan.device_identifier,
+                        binding=self.native_binding_digest, plan=plan.plan_digest,
+                        metadata=plan.metadata_digest, payload=plan.payload_digest,
+                        recipe=self.native_recipe_sha256)
+                    self.prepared_native_peripherals = prepared
+                    self.native_camera_setfiles = prepared["camera"]
+                    self.native_radio_files = prepared["radio"]
+                    self.native_lsci = prepared["lsci"][omarchy_native_peripherals.LSCI]
+                    self.native_als_calibration = prepared["als"][omarchy_native_peripherals.ALS]
+                else:
+                    camera_data = _read_native_camera_firmware(self.native_firmware_root)
+                    self.native_camera_setfiles = omarchy_isp.extract(camera_data, asahi_firmware.isp.ISP_SETFILES)
+                    self.native_radio_files = omarchy_mt7932.collect(raw_directory=self.native_firmware_root)
+                    self.native_lsci = omarchy_als.read_lsci()
+                    self.native_als_calibration = omarchy_als.calibration(self.native_lsci)
                 expected = {"apple/isp_" + sensor + ".dat" for sensor in (
                     "1921_01XX", "1922_02XX", "1925_03XX")}
                 if expected - self.native_camera_setfiles.keys():
                     raise ValueError("required native camera setfiles are missing")
-                self.native_radio_files = omarchy_mt7932.collect(raw_directory=self.native_firmware_root)
                 _validate_neo_radio_files(self.native_radio_files)
-                self.native_lsci = omarchy_als.read_lsci()
-                self.native_als_calibration = omarchy_als.calibration(self.native_lsci)
             except (OSError, ValueError, omarchy_mt7932.Mt7932Error,
                     omarchy_isp.IspError, subprocess.CalledProcessError) as error:
                 raise AsahiAdapterError("native firmware input is unavailable") from error
@@ -1341,8 +1367,10 @@ class AsahiStage1Adapter:
         required = self.template.get("required_neo_peripherals", [])
         if board == "j700ap" and ("radio" in required or self.native_firmware_root is not None):
             try:
-                neo_policies = omarchy_mt7932.collect_policy_inputs(
-                    self.osins.pkg, self.template.get("neo_regulatory_policy"))
+                neo_policies = (self.prepared_native_peripherals["policy"]
+                                if self.prepared_native_peripherals is not None else
+                                omarchy_mt7932.collect_policy_inputs(
+                                    self.osins.pkg, self.template.get("neo_regulatory_policy")))
             except omarchy_mt7932.Mt7932Error as error:
                 raise AsahiAdapterError(f"MacBook Neo radio preflight failed: {error}") from error
         ipsw = self.installer.choose_ipsw(

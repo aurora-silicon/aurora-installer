@@ -39,6 +39,47 @@
         return nil
       }
     }
+    private struct RawFirmwareFixture: NativeFirmwarePreparing {
+      let url: URL
+      func prepare(deviceIdentifier: String, in workingDirectory: URL) async throws -> URL? {
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false,
+          attributes: [.posixPermissions: 0o700])
+        return url
+      }
+    }
+    private struct ConvertedPeripheralFixture: NativePeripheralPreparing {
+      let url: URL
+      func prepare(package: ImportedEngineHandoffPackage, rawDirectory: URL) async throws -> PreparedNativePeripheralInputs {
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false,
+          attributes: [.posixPermissions: 0o700])
+        return PreparedNativePeripheralInputs(directory: url, recipeSHA256: String(repeating: "a", count: 64))
+      }
+    }
+
+    func testConvertedPeripheralCapabilityAndCleanupAreRequiredBeforeBackendLaunch() async throws {
+      for supported in [false, true] {
+        let fixture = try makeFixture(supportsNativePeripherals: supported)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let converted = fixture.root.appendingPathComponent("converted-peripherals")
+        let executor = fixtureExecutor(effectiveUserID: { 0 },
+          firmwarePreparer: RawFirmwareFixture(url: fixture.root.appendingPathComponent("raw-firmware")),
+          peripheralPreparer: ConvertedPeripheralFixture(url: converted))
+        if supported {
+          let result = try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
+          XCTAssertEqual(result, fixture.transcript)
+        } else {
+          await assertThrowsErrorAsync(try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())) {
+            guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+              return XCTFail("Expected prepared-input capability refusal")
+            }
+            XCTAssertEqual(report.notice.reason, .recoveryPreparation)
+            XCTAssertTrue(report.notice.diskUnchanged)
+          }
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: converted.path))
+        XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+      }
+    }
 
     func testNativeAdmissionRecollectsAfterFirmwareAndStopsBeforeBackendLaunch() async throws {
       for failure in ["existing", "unreadable"] {
@@ -805,6 +846,7 @@
       expectedFileOwnerID: @escaping @Sendable () -> uid_t = { geteuid() },
       extractionOptions: [String] = [],
       firmwarePreparer: any NativeFirmwarePreparing = NativeFirmwarePreparer(),
+      peripheralPreparer: any NativePeripheralPreparing = NativeNeoPeripheralPreparer(),
       collectInstallAdmission: @escaping @Sendable () throws -> NativeInstallAdmissionFacts = {
         NativeAdmissionTestData.facts()
       },
@@ -824,6 +866,7 @@
           if rejectDecoder { throw RestoreImageHelperError.signatureRejected }
         },
         firmwarePreparer: firmwarePreparer,
+        peripheralPreparer: peripheralPreparer,
         nativeHandoff: FixtureNativeHandoff(),
         collectInstallAdmission: collectInstallAdmission,
         validatePayload: { _ in
@@ -861,6 +904,7 @@
       includeDecoder: Bool = true,
       supportsSignedDecoder: Bool = true,
       supportsNativeHandoff: Bool = true,
+      supportsNativePeripherals: Bool = true,
       installationIntent: ImportedInstallationIntent? = nil,
       planDigest: String = NativeAdmissionTestData.plan.planDigest
     ) throws -> PinnedExecutorFixture {
@@ -895,8 +939,9 @@
         supportsSignedDecoder ? ",\"signedHelperInput\":\"helper-executable-v1\"" : ""
       let handoffCapability =
         supportsNativeHandoff ? ",\"nativeHandoff\":\"helper-finalize-v1\"" : ""
+      let peripheralCapability = supportsNativePeripherals ? ",\"nativePeripheralInput\":\"helper-converted-v1\"" : ""
       try Data(
-        #"{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1"\#(handoffCapability)\#(capability)}"#
+        #"{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1"\#(peripheralCapability)\#(handoffCapability)\#(capability)}"#
           .utf8
       ).write(to: bundleSource.appendingPathComponent("engine-capabilities.json"))
       let main = bundleSource.appendingPathComponent("main.py")

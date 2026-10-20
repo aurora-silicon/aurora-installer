@@ -40,6 +40,7 @@ python3 test/native-handoff-vectors.py
 python3 test/native-payload-vectors.py
 python3 test/native-firmware-selection-vectors.py
 python3 test/native-source-owner-vectors.py
+python3 test/native-neo-firmware-vectors.py
 
 python3 -m unittest discover -s Engine/tests -p 'test_*.py'
 python3 -m unittest discover -s Engine/overlay/tests -p 'test_*.py'

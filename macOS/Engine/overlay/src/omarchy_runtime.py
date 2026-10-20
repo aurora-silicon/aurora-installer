@@ -28,6 +28,8 @@ ENVIRONMENT_KEYS = {
     "OMARCHY_RESTORE_IMAGE",
     "OMARCHY_RESTORE_IMAGE_REQUIREMENT",
     "OMARCHY_NATIVE_FIRMWARE_ROOT",
+    "OMARCHY_NATIVE_PERIPHERALS",
+    "OMARCHY_NATIVE_FIRMWARE_RECIPE",
     "DISTRO",
     "DISTRO_DOCS",
     "OMARCHY_INSTALLER_NAME",
@@ -40,6 +42,8 @@ OPTIONAL_INSTALL_KEYS = {
     "OMARCHY_ENGINE_REPAIR_MANIFEST",
     "OMARCHY_INSTALLER_NAME",
     "OMARCHY_NATIVE_FIRMWARE_ROOT",
+    "OMARCHY_NATIVE_PERIPHERALS",
+    "OMARCHY_NATIVE_FIRMWARE_RECIPE",
 }
 
 
@@ -279,6 +283,10 @@ class EngineRuntime:
             authorized_owner=self.values["OMARCHY_MACHINE_OWNER"],
             native_firmware_root=self.values.get("OMARCHY_NATIVE_FIRMWARE_ROOT"),
             require_native_firmware=self.mode in ("install", "prepare-native-handoff") and self.device_identifier == "apple,j700",
+            native_peripheral_root=self.values.get("OMARCHY_NATIVE_PERIPHERALS"),
+            native_binding_digest=self.values.get("OMARCHY_ENGINE_BINDING_DIGEST"),
+            native_recipe_sha256=self.values.get("OMARCHY_NATIVE_FIRMWARE_RECIPE"),
+            require_native_peripherals=self.mode in ("install", "prepare-native-handoff") and self.device_identifier == "apple,j700",
             full_readback=os.environ.get("OMARCHY_FULL_READBACK") == "1",
         )
         with omarchy_asahi.timing("preflight"):
