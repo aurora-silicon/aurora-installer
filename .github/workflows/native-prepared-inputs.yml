@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: 606bf17fb1ae646dafe6f0f12cb5807b3aebea85
+          ref: 670e1ee6a8cb25c776ebceb4e27c21d7a33f228a
           path: source
           persist-credentials: false
       - name: Record immutable source and toolchain
@@ -44,12 +44,16 @@ jobs:
           xcrun swift-format format -i --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
           git diff --binary > "$RUNNER_TEMP/evidence/format.patch"
           xcrun swift-format lint --strict --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
-      - name: Qualify cancellation ownership, bounded queries and app integration
+      - name: Qualify cancellation, writer retirement and space accounting
         run: |
           set -euo pipefail
-          filter='PlanCheckCancellationTests|InstallerSessionTests|ReadOnlyMacCommandRunnerTests|MacHostInspectionTests|NativeDiskDisplayGeometryTests|NativeInstallerInspectorTests|NativeDiskCollectorReplayTests|LiveNativeInspectionTests|PlainLanguageTests|DiskSizeInputTests|InstallerPlanReviewTests'
+          filter='PayloadPrefetchTests|PlanCheckCancellationTests|InstallerSessionTests|ReadOnlyMacCommandRunnerTests|MacHostInspectionTests|NativeDiskDisplayGeometryTests|NativeInstallerInspectorTests|NativeDiskCollectorReplayTests|LiveNativeInspectionTests|PlainLanguageTests|DiskSizeInputTests|InstallerPlanReviewTests'
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug \
             --filter "$filter" 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
+      - name: Qualify cancellation and retirement in release
+        run: |
+          set -euo pipefail
+          filter='PayloadPrefetchTests|PlanCheckCancellationTests|InstallerSessionTests|ReadOnlyMacCommandRunnerTests|MacHostInspectionTests|NativeDiskDisplayGeometryTests|NativeInstallerInspectorTests|NativeDiskCollectorReplayTests|LiveNativeInspectionTests|PlainLanguageTests|DiskSizeInputTests|InstallerPlanReviewTests'
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration release \
             --filter "$filter" 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
       - name: Build the unprivileged native preview
