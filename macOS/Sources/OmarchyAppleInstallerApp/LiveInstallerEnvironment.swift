@@ -916,13 +916,20 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     case "reinstall": source = .preservedInstall
     case "free": source = .freeExtent
     default:
-      source = review.plan.sourceIdentifier
-        == (geometry?.macOSStoreIdentifier ?? host.storage.physicalStoreIdentifier)
-        ? .macOSResize : .otherContainerResize
+      let sourceStore = geometry?.macOSStoreIdentifier ?? host.storage.physicalStoreIdentifier
+      if review.plan.sourceIdentifier == sourceStore {
+        source = .macOSResize
+      } else {
+        source = .otherContainerResize
+      }
     }
     let otherAllocated = geometry?.otherAllocatedBytes ?? 0
-    let otherAfter = source == .preservedInstall
-      ? otherAllocated - min(otherAllocated, length) : otherAllocated
+    let otherAfter: UInt64
+    if source == .preservedInstall {
+      otherAfter = otherAllocated - min(otherAllocated, length)
+    } else {
+      otherAfter = otherAllocated
+    }
     let sourceName = (geometry?.partitionNames[review.plan.sourceIdentifier]).flatMap {
       $0.isEmpty ? nil : String($0.prefix(128))
     }
