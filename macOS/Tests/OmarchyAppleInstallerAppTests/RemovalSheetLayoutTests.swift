@@ -91,7 +91,8 @@
       }
 
       private func host(
-        _ scenario: RemovalPreviewScenario, cap: CGFloat, showsAccountFields: Bool = false
+        _ scenario: RemovalPreviewScenario, cap: CGFloat, showsAccountFields: Bool = false,
+        showsApproval: Bool = true
       ) -> Hosted {
         let hosted = Hosted()
         hosted.window.isReleasedWhenClosed = false
@@ -99,6 +100,7 @@
         let view = NSHostingView(
           rootView: OmarchyRemovalSheet(
             previewScenario: scenario, heightCap: cap, showsAccountFields: showsAccountFields,
+            showsApproval: showsApproval,
             onControlFrame: { [weak hosted] id, frame in hosted?.controls[id] = frame }
           )
           .environment(\.colorScheme, .light))
@@ -172,20 +174,30 @@
         }
       }
 
-      func testSingleReviewShowsDeletionAndKeptSectionsWithPinnedConfirmation() throws {
-        for showsAccountFields in [false, true] {
-          let hosted = host(.success, cap: 580, showsAccountFields: showsAccountFields)
-          defer { hosted.window.close() }
-          XCTAssertLessThanOrEqual(hosted.size.height, 580)
-          XCTAssertTrue(hasScrollView(try XCTUnwrap(hosted.view)))
-          XCTAssertNotNil(hosted.controls["removal-deletions"])
-          XCTAssertNotNil(hosted.controls["removal-kept"])
-          let bounds = CGRect(origin: .zero, size: hosted.size)
-          for identifier in ["remove-omarchy", "removal-confirmation"] {
-            let frame = try XCTUnwrap(hosted.controls[identifier])
-            XCTAssertTrue(bounds.contains(frame), "\(identifier): \(frame) outside \(bounds)")
-          }
+      func testCompactReviewHasCompleteScopeBeforeSeparateApproval() throws {
+        let review = host(.success, cap: 580, showsAccountFields: true, showsApproval: false)
+        defer { review.window.close() }
+        XCTAssertLessThanOrEqual(review.size.height, 580)
+        XCTAssertNotNil(review.controls["removal-deletions"])
+        XCTAssertNotNil(review.controls["removal-kept"])
+        XCTAssertNotNil(review.controls["removal-continue"])
+        XCTAssertNil(review.controls["remove-omarchy"])
+        XCTAssertNil(review.controls["removal-confirmation"])
+        let bounds = CGRect(origin: .zero, size: review.size)
+        for identifier in ["removal-deletions", "removal-kept", "removal-continue"] {
+          let frame = try XCTUnwrap(review.controls[identifier])
+          XCTAssertTrue(bounds.contains(frame), "\(identifier): \(frame) outside \(bounds)")
         }
+        let continueFrame = try XCTUnwrap(review.controls["removal-continue"])
+        XCTAssertGreaterThanOrEqual(continueFrame.height, 40)
+        let approval = host(.success, cap: 580, showsAccountFields: true)
+        defer { approval.window.close() }
+        XCTAssertNil(approval.controls["removal-deletions"])
+        XCTAssertNil(approval.controls["removal-continue"])
+        XCTAssertNotNil(approval.controls["remove-omarchy"])
+        XCTAssertNotNil(approval.controls["removal-confirmation"])
+        try savePreview(review, name: "compact-review")
+        try savePreview(approval, name: "separate-approval")
       }
 
       private func hasScrollView(_ view: NSView) -> Bool {

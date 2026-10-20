@@ -1,6 +1,6 @@
 # Erasing an existing Linux installation
 
-Use **Erase Linux…** on the already-installed screen, or **Installation → Erase Linux…**, while no installation or download is running. One scrollable review lists every erased and retained partition, startup-disk changes, returned capacity and notes. Confirmation and the action remain visible below it. The exact phrase is `erase linux and its data`, followed by a macOS administrator account and password. There is no Return-key shortcut for the destructive button.
+Use **Erase Linux…** on the already-installed screen, or **Installation → Erase Linux…**, while no installation or download is running. One compact review lists every erased and retained partition, startup-disk changes, returned capacity and notes. Continue opens a separate approval page with the confirmation phrase and administrator account; Back returns to the review and clears the entered approval. The exact phrase is `erase linux and its data`, followed by a macOS administrator account and password. There is no Return-key shortcut for the destructive button.
 
 Removal uses the signed privileged helper directly. It does not download an OS, engine, IPSW or catalog. The helper owns a five-minute, single-use plan; the client sends an opaque ticket, never disk identifiers or commands. Cancellation performs no disk mutation. Credentials are not written to the removal journal.
 

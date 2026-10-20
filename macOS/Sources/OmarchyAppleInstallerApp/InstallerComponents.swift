@@ -233,7 +233,7 @@ struct ProgressTrack: View {
 
   var body: some View {
     ProgressView(value: fraction.map { min(1, max(0, $0)) })
-      .progressViewStyle(.linear).controlSize(.small).tint(.gray)
+      .progressViewStyle(.linear).controlSize(.small).tint(.blue)
       .frame(height: height)
   }
 }
@@ -291,9 +291,11 @@ struct TechnicalDetailText: View {
 
 extension View {
   @ViewBuilder func omarchyPrimaryButton() -> some View {
-    let button = controlSize(.large).tint(.gray).font(.system(size: 15, weight: .medium))
+    let button = controlSize(.extraLarge).tint(.gray).font(.system(size: 16, weight: .medium))
     if #available(macOS 26.0, *) {
-      button.buttonStyle(.glass)
+      button.buttonStyle(.glass).buttonSizing(.flexible)
+        .frame(minWidth: 148, minHeight: 44)
+        .fixedSize()
     } else {
       button.buttonStyle(.bordered)
     }

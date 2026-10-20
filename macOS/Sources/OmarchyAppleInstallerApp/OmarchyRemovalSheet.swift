@@ -25,6 +25,7 @@ struct OmarchyRemovalSheet: View {
   @State private var needsAccountFirst = false
   /// The person switched the helper off; the account first turns it back on.
   @State private var reenablingHelper = false
+  @State private var showsApproval = false
   @State private var reviewHeight: CGFloat = 1
   @State private var footerHeight: CGFloat = 0
   @State private var measuredHeightCap: CGFloat?
@@ -58,7 +59,7 @@ struct OmarchyRemovalSheet: View {
   #if DEBUG
     init(
       previewScenario: RemovalPreviewScenario, heightCap: CGFloat?,
-      showsAccountFields: Bool = false,
+      showsAccountFields: Bool = false, showsApproval: Bool = false,
       onControlFrame: ((String, CGRect) -> Void)? = nil
     ) {
       self.init(
@@ -71,12 +72,13 @@ struct OmarchyRemovalSheet: View {
       fixedHeightCap = heightCap
       preloaded = true
       self.onControlFrame = onControlFrame
+      _showsApproval = State(initialValue: showsApproval)
 
     }
   #endif
 
   private var canRemove: Bool {
-    ticket != nil && !busy && !submitted && phrase == ticket?.confirmation
+    ticket != nil && showsApproval && !busy && !submitted && phrase == ticket?.confirmation
       && (isSimulation || (!username.isEmpty && !password.isEmpty))
   }
 
@@ -131,11 +133,12 @@ struct OmarchyRemovalSheet: View {
   }
 
   private var reviewContent: some View {
-    VStack(alignment: .leading, spacing: 20) {
+    VStack(alignment: .leading, spacing: 14) {
       Text(heading).font(OmarchyTheme.title)
-      Text(message).font(OmarchyTheme.body).fixedSize(horizontal: false, vertical: true)
+      Text(ticket != nil && !submitted && !showsApproval ? reviewSummary : message)
+        .font(OmarchyTheme.body).fixedSize(horizontal: false, vertical: true)
         .accessibilityIdentifier("removal-message")
-      if let ticket, !submitted {
+      if let ticket, !submitted, !showsApproval {
         VStack(spacing: 8) {
           summaryRow("Space returned to macOS", value: PlainLanguage.bytes(ticket.reclaimBytes))
           summaryRow("macOS after removal", value: PlainLanguage.bytes(ticket.macOSBytesAfter))
@@ -166,7 +169,7 @@ struct OmarchyRemovalSheet: View {
       if needsAccountFirst && ticket == nil && !isSimulation {
         accountFields
       }
-      if let ticket, !submitted {
+      if let ticket, !submitted, showsApproval {
         Text(
           ticket.kind == .freeSpace
             ? "Your macOS files stay as they are."
@@ -234,7 +237,17 @@ struct OmarchyRemovalSheet: View {
             .keyboardShortcut(.defaultAction)
             .disabled(busy || username.isEmpty || password.isEmpty)
         }
-        if let ticket, !submitted {
+        if ticket != nil, !submitted, !showsApproval {
+          Button("Continue") { showsApproval = true }
+            .omarchyPrimaryButton().disabled(busy).keyboardShortcut(.defaultAction)
+            .reportsFrame("removal-continue", to: onControlFrame)
+        }
+        if let ticket, !submitted, showsApproval {
+          Button("Back") {
+            showsApproval = false
+            phrase = ""
+            password = ""
+          }.omarchySecondaryButton().disabled(busy)
           Button(ticket.kind == .freeSpace ? "Return Space" : "Erase Linux", role: .destructive) {
             Task { await remove() }
           }
@@ -292,7 +305,16 @@ struct OmarchyRemovalSheet: View {
     .font(OmarchyTheme.body)
   }
 
+  private var reviewSummary: String {
+    ticket?.kind == .freeSpace
+      ? "Return the unused space to macOS."
+      : "Erase the Linux installation and return its space to macOS."
+  }
+
   private var heading: String {
+    if showsApproval && !submitted {
+      return ticket?.kind == .freeSpace ? "Approve space return" : "Approve erasure"
+    }
     if ticket?.kind == .freeSpace { return completed ? "Space returned" : "Return free space" }
     return completed ? "Linux removed" : "Erase Linux"
   }
@@ -303,10 +325,7 @@ struct OmarchyRemovalSheet: View {
       ForEach(Array(items.enumerated()), id: \.offset) { _, item in
         HStack(alignment: .firstTextBaseline) {
           VStack(alignment: .leading, spacing: 1) {
-            Text(item.title)
-            Text(item.detail)
-              .font(OmarchyTheme.detail)
-              .foregroundStyle(OmarchyTheme.secondaryText)
+            Text(item.title).fixedSize(horizontal: false, vertical: true)
           }
           Spacer()
           Text(PlainLanguage.bytes(item.bytes)).fontWeight(.medium)
@@ -331,6 +350,7 @@ struct OmarchyRemovalSheet: View {
     busy = true
     defer { busy = false }
     ticket = nil
+    showsApproval = false
     phrase = ""
     if !keepingAccount { password = "" }
     submitted = false
