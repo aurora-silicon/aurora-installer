@@ -115,6 +115,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/tools" "$RUNNER_TEMP/evidence" "$RUNNER_TEMP/download"
+          if [[ ! -x /opt/homebrew/bin/bash ]]; then brew install bash; fi
+          echo /opt/homebrew/bin >> "$GITHUB_PATH"
           if [[ ! -x /opt/homebrew/opt/openssl@3/bin/openssl ]]; then brew install openssl@3; fi
           echo /opt/homebrew/opt/openssl@3/bin >> "$GITHUB_PATH"
           { git rev-parse HEAD; sw_vers; uname -m; xcodebuild -version; xcrun swift --version; } > "$RUNNER_TEMP/evidence/toolchain.txt"
