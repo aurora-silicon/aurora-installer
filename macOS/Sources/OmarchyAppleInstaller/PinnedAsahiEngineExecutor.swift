@@ -245,9 +245,12 @@
           ? try await apfsPreparer.preflight(package) : nil
         preparedStubFiles =
           preparedAPFS == nil ? nil : try await stubFilesPreparer.preflight(package)
-        preparedOSPartitions = preparedStubFiles == nil ? nil : try osPartitionsPreparer.preflight(package)
+        preparedOSPartitions =
+          preparedStubFiles == nil ? nil : try osPartitionsPreparer.preflight(package)
         if preparedStubFiles != nil { environment["OMARCHY_NATIVE_STUB_FILES"] = "helper-files-v1" }
-        if preparedOSPartitions != nil { environment["OMARCHY_NATIVE_OS_PARTITIONS"] = "helper-partitions-v1" }
+        if preparedOSPartitions != nil {
+          environment["OMARCHY_NATIVE_OS_PARTITIONS"] = "helper-partitions-v1"
+        }
         if preparedAPFS != nil {
           guard let sourceBootstrap else { throw NativeHandoffValidationError.invalidOwner }
           environment["OMARCHY_NATIVE_APFS_TARGET"] = "helper-target-v1"
@@ -283,7 +286,8 @@
                 try await preparedStubFiles?.prepare(
                   journal: journal, authorization: authorization,
                   sourceBootstrap: sourceBootstrap)
-                try preparedOSPartitions?.prepare(journal: journal, authorization: authorization,
+                try preparedOSPartitions?.prepare(
+                  journal: journal, authorization: authorization,
                   sourceBootstrap: sourceBootstrap)
               } else {
                 let bytes = try self.readAdmissionJournal(journal)

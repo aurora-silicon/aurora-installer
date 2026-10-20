@@ -61,12 +61,22 @@
       }
     }
 
-    private struct NativePartitionsFixture: NativeOSPartitionsPreparing, NativeOSPartitionsExecuting {
+    private struct NativePartitionsFixture: NativeOSPartitionsPreparing, NativeOSPartitionsExecuting
+    {
       var marker: URL? = nil
       var files: URL? = nil
-      func preflight(_ package: ImportedEngineHandoffPackage) throws -> any NativeOSPartitionsExecuting { self }
-      func prepare(journal: URL, authorization: MachineOwnerAuthorization, sourceBootstrap: NativeSourceBootstrap) throws {
-        if let files { guard FileManager.default.fileExists(atPath: files.path) else { throw NativeOSPartitionError.changedLayout } }
+      func preflight(_ package: ImportedEngineHandoffPackage) throws
+        -> any NativeOSPartitionsExecuting
+      { self }
+      func prepare(
+        journal: URL, authorization: MachineOwnerAuthorization,
+        sourceBootstrap: NativeSourceBootstrap
+      ) throws {
+        if let files {
+          guard FileManager.default.fileExists(atPath: files.path) else {
+            throw NativeOSPartitionError.changedLayout
+          }
+        }
         if let marker { try Data("partitions prepared".utf8).write(to: marker) }
       }
     }
@@ -175,19 +185,24 @@
 
     func testNativePartitionCapabilityPrecedesMutationAndPartitionsFollowFiles() async throws {
       for supported in [false, true] {
-        let fixture = try makeFixture(supportsNativePartitions: supported, expectNativeAPFS: true, expectNativeFiles: true)
+        let fixture = try makeFixture(
+          supportsNativePartitions: supported, expectNativeAPFS: true, expectNativeFiles: true)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let apfs = fixture.root.appendingPathComponent("apfs")
         let files = fixture.root.appendingPathComponent("files")
         let partitions = fixture.root.appendingPathComponent("partitions")
-        let executor = fixtureExecutor(effectiveUserID: { 0 }, apfsPreparer: NativeAPFSFixture(marker: apfs),
+        let executor = fixtureExecutor(
+          effectiveUserID: { 0 }, apfsPreparer: NativeAPFSFixture(marker: apfs),
           stubFilesPreparer: NativeFilesFixture(marker: files, apfs: apfs),
           osPartitionsPreparer: NativePartitionsFixture(marker: partitions, files: files))
         if supported {
-          _ = try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
+          _ = try await executor.execute(
+            fixture.package, authorization: machineOwnerAuthorization())
           XCTAssertTrue(FileManager.default.fileExists(atPath: partitions.path))
         } else {
-          await assertThrowsErrorAsync(try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())) { _ in }
+          await assertThrowsErrorAsync(
+            try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
+          ) { _ in }
           XCTAssertFalse(FileManager.default.fileExists(atPath: apfs.path))
           XCTAssertFalse(FileManager.default.fileExists(atPath: partitions.path))
         }
@@ -1123,7 +1138,8 @@
         supportsNativeAPFS
         ? ",\"nativeAPFSInput\":\"helper-target-v1\",\"nativeStubInput\":\"helper-volumes-v1\"" : ""
       let filesCapability = supportsNativeFiles ? ",\"nativeStubFiles\":\"helper-files-v1\"" : ""
-      let partitionsCapability = supportsNativePartitions ? ",\"nativeOSPartitions\":\"helper-partitions-v1\"" : ""
+      let partitionsCapability =
+        supportsNativePartitions ? ",\"nativeOSPartitions\":\"helper-partitions-v1\"" : ""
       try Data(
         #"{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1"\#(apfsCapability)\#(filesCapability)\#(partitionsCapability)\#(peripheralCapability)\#(handoffCapability)\#(capability)}"#
           .utf8
