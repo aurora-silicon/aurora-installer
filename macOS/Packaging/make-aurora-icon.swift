@@ -62,7 +62,7 @@ for (name, pixels) in [
   canvas.fill()
   // Keep the original colored ribbon on a fixed neutral gray macOS tile.
   let tile = canvas.insetBy(dx: CGFloat(pixels) / 16, dy: CGFloat(pixels) / 16)
-  NSColor(srgbRed: 209 / 255, green: 209 / 255, blue: 214 / 255, alpha: 1).setFill()
+  NSColor(srgbRed: 36 / 255, green: 36 / 255, blue: 38 / 255, alpha: 1).setFill()
   NSBezierPath(
     roundedRect: tile, xRadius: CGFloat(pixels) * 180 / 1024,
     yRadius: CGFloat(pixels) * 180 / 1024
