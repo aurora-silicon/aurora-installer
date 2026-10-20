@@ -69,6 +69,7 @@
     private struct NativeESPFixture: NativeESPFilesPreparing, NativeESPFilesExecuting {
       let marker: URL
       let images: URL
+      var requiresNativeFinishing = false
       func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (
         any NativeESPFilesExecuting
       )? { self }
@@ -118,12 +119,38 @@
         stubFilesPreparer: NativeFilesFixture(marker: files, apfs: apfs),
         osPartitionsPreparer: NativePartitionsFixture(marker: partitions, files: files),
         payloadImagesPreparer: NativeImagesFixture(marker: images, partitions: partitions),
-        espFilesPreparer: NativeESPFixture(marker: esp, images: images),
+        espFilesPreparer: NativeESPFixture(marker: esp, images: images, requiresNativeFinishing: true),
         installationFinisher: NativeFinishingFixture(esp: esp, marker: finished))
       let transcript = try await executor.execute(
         fixture.package, authorization: machineOwnerAuthorization())
       _ = try AppleInstallerTrustCore().validateEngineTranscript(transcript)
       XCTAssertTrue(FileManager.default.fileExists(atPath: finished.path))
+      XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
+
+    func testLegacyESPWithoutNativeFinishingRefusesBeforeDiskChangesOrRuntimeLaunch() async throws {
+      let fixture = try makeFixture(
+        transcript: NativeAdmissionTestData.journal(), missingBackendInterpreter: true)
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let apfs = fixture.root.appendingPathComponent("apfs")
+      let files = fixture.root.appendingPathComponent("files")
+      let partitions = fixture.root.appendingPathComponent("partitions")
+      let images = fixture.root.appendingPathComponent("images")
+      let esp = fixture.root.appendingPathComponent("esp")
+      let executor = fixtureExecutor(
+        effectiveUserID: { 0 }, apfsPreparer: NativeAPFSFixture(marker: apfs),
+        stubFilesPreparer: NativeFilesFixture(marker: files, apfs: apfs),
+        osPartitionsPreparer: NativePartitionsFixture(marker: partitions, files: files),
+        payloadImagesPreparer: NativeImagesFixture(marker: images, partitions: partitions),
+        espFilesPreparer: NativeESPFixture(marker: esp, images: images, requiresNativeFinishing: true))
+      do {
+        _ = try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
+        XCTFail("Legacy ESP reached compatibility execution")
+      } catch let PinnedAsahiEngineExecutionError.engineFailed(report) {
+        XCTAssertEqual(report.notice.reason, .planIntegrity)
+        XCTAssertTrue(report.notice.diskUnchanged)
+      }
+      XCTAssertFalse(FileManager.default.fileExists(atPath: apfs.path))
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
     }
 

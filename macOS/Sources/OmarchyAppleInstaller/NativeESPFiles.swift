@@ -14,8 +14,12 @@
     let stage1: Data
     let windowMilliseconds: UInt32
     let firmware: String
+    let usesLegacyStage1: Bool
 
-    static func make(metadata: Data, archive: IPSWArchive, device: String, firmware: String)
+    static func make(
+      metadata: Data, archive: IPSWArchive, device: String, firmware: String,
+      legacyStage1: (@Sendable () throws -> Data)? = nil
+    )
       async throws -> Self?
     {
       let template = try NativePayloadPreflight.target(metadata)
@@ -29,11 +33,21 @@
       let boot = try await NativeBootChain.admit(
         metadata: metadata, archive: archive,
         deviceIdentifier: device, firmware: firmware)
-      // The modern raw profile carries its own qualified stage-one object.
-      // A legacy profile keeps its existing path until its separate native port.
-      guard let source = boot.stage1Member else { return nil }
-      guard let stage = archive.members.first(where: { $0.name == source }),
-        let name = template["icon"] as? String,
+      let bytes: Data
+      let legacy: Bool
+      if let source = boot.stage1Member {
+        guard let stage = archive.members.first(where: { $0.name == source }) else {
+          throw NativeBootChainError.missingStage1
+        }
+        bytes = try await archive.read(stage, maximumBytes: 64 << 20)
+        legacy = false
+      } else {
+        guard let legacyStage1 else { return nil }
+        bytes = try legacyStage1()
+        try NativeLegacyStage1.validate(bytes)
+        legacy = true
+      }
+      guard let name = template["icon"] as? String,
         let icon = archive.members.first(where: { $0.name == name && !$0.isDirectory }),
         let rows = template["partitions"] as? [[String: Any]],
         let row = rows.first, let size = row["size"] as? String
@@ -64,10 +78,9 @@
         total < (try NativeInstallationMetadata.bytes(size)), icon.sizeBytes > 0,
         icon.sizeBytes <= 64 << 20
       else { throw NativePayloadPreflightError.invalidPartitions }
-      let bytes = try await archive.read(stage, maximumBytes: 64 << 20)
       return Self(
         archive: archive, entries: entries, icon: icon, stage1: bytes,
-        windowMilliseconds: boot.windowMilliseconds, firmware: firmware)
+        windowMilliseconds: boot.windowMilliseconds, firmware: firmware, usesLegacyStage1: legacy)
     }
 
     static func safeFATPath(_ path: String) -> Bool {
@@ -83,9 +96,13 @@
   }
 
   protocol NativeESPFilesExecuting: Sendable {
+    var requiresNativeFinishing: Bool { get }
     func prepare(
       journal: URL, authorization: MachineOwnerAuthorization,
       sourceBootstrap: NativeSourceBootstrap) async throws
+  }
+  extension NativeESPFilesExecuting {
+    var requiresNativeFinishing: Bool { false }
   }
   protocol NativeESPFilesPreparing: Sendable {
     func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (
@@ -94,6 +111,7 @@
   }
 
   struct NativeESPFilesPreparer: NativeESPFilesPreparing {
+    var allowLegacyStage1 = false
     var owner: uid_t = 0
     var environment: NativeHandoffEnvironment = .live
     var disks: NativeAPFSPlatform = .live
@@ -114,11 +132,24 @@
         policy: NativeInspectionPolicy.sealed())
       let archive = try await IPSWArchive.open(
         NativePayloadRangeReader(package.payloadURL, owner: owner))
+      let legacy: (@Sendable () throws -> Data)?
+      if allowLegacyStage1 {
+        let owner = owner
+        legacy = {
+          guard package.engineURL.deletingLastPathComponent().path == package.packageURL.path else {
+            throw NativeBootChainError.invalidStage1
+          }
+          return try NativeLegacyStage1.load(
+            archive: package.engineURL, expectedDigest: approved.engineDigest, owner: owner)
+        }
+      } else {
+        legacy = nil
+      }
       guard
         let plan = try await NativeESPPayloadPlan.make(
           metadata: metadata, archive: archive,
           device: package.deviceIdentifier,
-          firmware: firmware.version.components(separatedBy: " ")[0])
+          firmware: firmware.version.components(separatedBy: " ")[0], legacyStage1: legacy)
       else { return nil }
       return NativeESPFilesExecution(
         package: package, approved: approved, plan: plan,
@@ -140,6 +171,7 @@
       let files: [Entry]
       let icon: NativeStubFileIdentity
       let stage1: NativeStubFileIdentity
+      var legacyStage1: NativeLegacyStage1.Receipt? = nil
     }
     let package: ImportedEngineHandoffPackage
     let approved: ValidatedEnginePlan
@@ -150,6 +182,7 @@
     var admitESPFilesystem: @Sendable (Int32) throws -> Void = {
       try NativeESPFileStore.requireFAT($0)
     }
+    var requiresNativeFinishing: Bool { plan.usesLegacyStage1 }
 
     func prepare(
       journal: URL, authorization: MachineOwnerAuthorization,
@@ -241,9 +274,21 @@
       }
       let icon = try await systemStore.member(
         plan.icon, archive: plan.archive, at: ".VolumeIcon.icns")
-      let stage1 = try NativeBootChain.fillStage1(
-        plan.stage1, uuid: esp.uuid.lowercased(),
-        path: "m1n1/boot.bin", windowMilliseconds: plan.windowMilliseconds)
+      let stage1: Data
+      let legacy: NativeLegacyStage1.Receipt?
+      if plan.usesLegacyStage1 {
+        stage1 = try NativeLegacyStage1.fill(
+          plan.stage1, uuid: esp.uuid.lowercased(), path: "m1n1/boot.bin")
+        legacy = NativeLegacyStage1.Receipt(
+          configuration: "legacy-text-v1",
+          base: NativeStubFileIdentity(
+            bytes: plan.stage1.count, sha256: NativeStubFileStore.hash(plan.stage1)))
+      } else {
+        stage1 = try NativeBootChain.fillStage1(
+          plan.stage1, uuid: esp.uuid.lowercased(),
+          path: "m1n1/boot.bin", windowMilliseconds: plan.windowMilliseconds)
+        legacy = nil
+      }
       let stage1Identity = try await systemStore.data(
         stage1,
         at: "Finish Installation.app/Contents/Resources/boot.bin")
@@ -257,7 +302,8 @@
         encode(
           Receipt(
             plan: approved.planDigest, firmware: plan.firmware,
-            groupUUID: group, espUUID: esp.uuid, files: entries, icon: icon, stage1: stage1Identity)
+            groupUUID: group, espUUID: esp.uuid, files: entries, icon: icon, stage1: stage1Identity,
+            legacyStage1: legacy)
         ),
         identifier: "native-esp-files")
     }

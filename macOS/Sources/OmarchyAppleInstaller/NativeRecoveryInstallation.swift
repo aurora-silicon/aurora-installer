@@ -45,6 +45,11 @@
           "Finish Installation.app/Contents/Resources/boot.bin", maximum: 64 << 20)
           == espReceipt.stage1
       else { throw NativeHandoffValidationError.invalidEvidence }
+      if let legacy = espReceipt.legacyStage1 {
+        try NativeLegacyStage1.verify(
+          system.read("Finish Installation.app/Contents/Resources/boot.bin", maximum: 4 << 20),
+          receipt: legacy, uuid: target.esp.uuid.lowercased(), path: "m1n1/boot.bin")
+      }
       let stage2 = try esp.identity("m1n1/boot.bin")
       guard let stage2Entry = espReceipt.files.first(where: { $0.path == "m1n1/boot.bin" }),
         stage2 == stage2Entry.identity

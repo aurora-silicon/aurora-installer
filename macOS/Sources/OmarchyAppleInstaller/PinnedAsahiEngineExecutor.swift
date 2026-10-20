@@ -95,8 +95,9 @@
       stubFilesPreparer = NativeStubFilesPreparer()
       osPartitionsPreparer = NativeOSPartitionsPreparer()
       payloadImagesPreparer = NativePayloadImagesPreparer()
-      espFilesPreparer = NativeESPFilesPreparer()
-      installationFinisher = NativeInstallationFinisher()
+      let finishing = NativeInstallationFinisher()
+      espFilesPreparer = NativeESPFilesPreparer(allowLegacyStage1: finishing.enabled)
+      installationFinisher = finishing
       nativeHandoff = NativeRecoveryHandoffExecutor()
       collectInstallAdmission = { try NativeInstallAdmissionFacts.live() }
       validatePayload = { try await NativePayloadPreflight.check($0) }
@@ -284,6 +285,9 @@
             else {
               throw NativeInstallAdmissionError.invalidJournal
             }
+          }
+          guard preparedESPFiles?.requiresNativeFinishing != true || preparedFinishing != nil else {
+            throw NativeBootChainError.invalidQualification
           }
           if preparedESPFiles != nil { environment["OMARCHY_NATIVE_ESP_FILES"] = "helper-esp-v1" }
           if preparedPayloadImages != nil {

@@ -31,11 +31,14 @@
         expected["layout"] as! [String: String]
       )
     }
-    static func plan() async throws -> NativeESPPayloadPlan {
+    static let legacyBase = Data("synthetic legacy boot\0STACKBOT".utf8)
+
+    static func plan(deviceIdentifier: String = "apple,j700") async throws -> NativeESPPayloadPlan {
       let (metadata, payload, _) = try inputs()
       let archive = try await IPSWArchive.open(NativeRawImageWriterTests.Source(bytes: payload))
       let result = try await NativeESPPayloadPlan.make(
-        metadata: metadata, archive: archive, device: "apple,j700", firmware: "26.6.2")
+        metadata: metadata, archive: archive, device: deviceIdentifier, firmware: "26.6.2",
+        legacyStage1: { legacyBase })
       return try XCTUnwrap(result)
     }
 
@@ -56,6 +59,29 @@
       ] {
         XCTAssertFalse(NativeESPPayloadPlan.safeFATPath(path), path)
       }
+    }
+
+    func testLegacyBootDoesNotWidenModernQualificationOrReplaceItsSelection() async throws {
+      let modern = try await Self.plan()
+      XCTAssertFalse(modern.usesLegacyStage1)
+      let legacy = try await Self.plan(deviceIdentifier: "apple,j314s")
+      XCTAssertTrue(legacy.usesLegacyStage1)
+      XCTAssertEqual(legacy.stage1, Self.legacyBase)
+      XCTAssertFalse(legacy.entries.contains { $0.member.name == "esp/aurora/stage1.bin" })
+      let fixture = try await Fixture(deviceIdentifier: "apple,j314s")
+      try await fixture.prepare()
+      let receipt = try JSONDecoder().decode(
+        NativeESPFilesExecution.Receipt.self, from: Data(contentsOf: fixture.receipt))
+      let raw = try Data(contentsOf: fixture.images.base.mounts.appendingPathComponent(
+        "disk8s1/Finish Installation.app/Contents/Resources/boot.bin"))
+      try NativeLegacyStage1.verify(
+        raw, receipt: XCTUnwrap(receipt.legacyStage1), uuid: receipt.espUUID.lowercased(),
+        path: "m1n1/boot.bin")
+      XCTAssertEqual(
+        raw, try NativeLegacyStage1.fill(Self.legacyBase, uuid: receipt.espUUID.lowercased(), path: "m1n1/boot.bin"))
+      let before = try Data(contentsOf: fixture.receipt)
+      try await fixture.prepare()
+      XCTAssertEqual(try Data(contentsOf: fixture.receipt), before)
     }
 
     func testLegacyExtraDownloadsAreKeptOutOfNativePublicationBeforeDiskWork() async throws {
@@ -184,7 +210,7 @@
         let images = try await NativePayloadImageTests.Fixture(deviceIdentifier: deviceIdentifier)
         self.images = images
         try await images.prepare()
-        plan = try await NativeESPFileTests.plan()
+        plan = try await NativeESPFileTests.plan(deviceIdentifier: deviceIdentifier)
         esp = images.base.mounts.appendingPathComponent("disk0s5")
         try FileManager.default.createDirectory(
           at: esp, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o755])
