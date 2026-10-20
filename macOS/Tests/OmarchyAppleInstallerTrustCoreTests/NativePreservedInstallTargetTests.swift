@@ -182,5 +182,61 @@
           $0.kind == "reinstall"
         })
     }
+
+    func testAuthenticatedPreflightBindsCurrentLayoutImagesAndUnchangedStageOne() async throws {
+      let disk = try fixture()
+      let (baseMetadata, payload, _) = try NativeESPFileTests.inputs()
+      var document = try XCTUnwrap(
+        JSONSerialization.jsonObject(with: baseMetadata) as? [String: Any])
+      var templates = try XCTUnwrap(document["os_list"] as? [[String: Any]])
+      templates[0]["default_os_name"] = AuroraDistribution.nixos.title
+      document["os_list"] = templates
+      let metadata = try JSONSerialization.data(withJSONObject: document)
+      let archive = try await IPSWArchive.open(NativeRawImageWriterTests.Source(bytes: payload))
+      let inspection = try AppleInstallerTrustCore().validateEngineTranscript(
+        NativeDiskInventory.transcript(
+          device: "apple,j314s", snapshot: disk.snapshot, containers: disk.containers,
+          metadata: try NativeInstallationMetadata(data: metadata), stubBytes: 2_499_805_184))
+      let inventory = try XCTUnwrap(inspection.inventory)
+      let candidate = try XCTUnwrap(inventory.candidates.first { $0.kind == "reinstall" })
+      let request = try PinnedAsahiPlanRequest(
+        inventory: inventory, candidate: candidate,
+        requestedLengthBytes: candidate.lengthBytes)
+      let identity = try PinnedAsahiPlanIdentity(
+        engineVersion: "test", engineDigest: "sha256:" + String(repeating: "a", count: 64),
+        metadataDigest: SHA256Digest(hashing: metadata).rawValue,
+        payloadDigest: SHA256Digest(hashing: payload).rawValue)
+      let transcript = try NativeInstallerPlanner.transcript(
+        inspection: inspection, request: request, identity: identity)
+      let approved = try XCTUnwrap(
+        AppleInstallerTrustCore().validateEngineTranscript(transcript).plan)
+      let target = try NativePreservedInstallTarget.recognize(
+        disk, sourceIdentifier: candidate.sourceIdentifier, title: AuroraDistribution.nixos.title)
+      let possibleESP = try await NativeESPPayloadPlan.make(
+        metadata: metadata, archive: archive, device: "apple,j314s", firmware: "26.6.2",
+        legacyStage1: { NativeESPFileTests.legacyBase })
+      let esp = try XCTUnwrap(possibleESP)
+      let installed = try NativeLegacyStage1.fill(
+        esp.stage1, uuid: target.esp.uuid.lowercased(), path: "m1n1/boot.bin")
+      let prepared = try await NativePreservedInstallAdmission.check(
+        approved: approved, metadata: metadata, archive: archive, disk: disk,
+        stubBytes: 2_499_805_184, firmwareVersion: "26.6.2",
+        installedStage1: installed, legacyStage1: { NativeESPFileTests.legacyBase })
+      XCTAssertEqual(prepared.target.identityDigest, target.identityDigest)
+      XCTAssertEqual(prepared.transcript, transcript)
+      XCTAssertEqual(prepared.boot.name, "boot.img")
+      XCTAssertEqual(prepared.root.name, "root.img")
+      XCTAssertEqual(prepared.stage1.sha256, NativeStubFileStore.hash(installed))
+
+      var changed = installed
+      changed[0] ^= 1
+      do {
+        _ = try await NativePreservedInstallAdmission.check(
+          approved: approved, metadata: metadata, archive: archive, disk: disk,
+          stubBytes: 2_499_805_184, firmwareVersion: "26.6.2",
+          installedStage1: changed, legacyStage1: { NativeESPFileTests.legacyBase })
+        XCTFail("Changed Stage 1 was admitted")
+      } catch {}
+    }
   }
 #endif
