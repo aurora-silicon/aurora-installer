@@ -220,6 +220,30 @@
       }
     }
 
+    func testQualificationPreflightAdmitsSensorlessInputsAndRefusesPrivateSensorPublication()
+      async throws
+    {
+      let fixture = try await Fixture()
+      let peripherals = try XCTUnwrap(fixture.peripherals)
+      var finisher = NativeInstallationFinisher()
+      finisher.owner = geteuid()
+      XCTAssertNotNil(
+        try finisher.preflight(
+          package: fixture.base.package, stub: fixture.plan, peripherals: peripherals))
+
+      let manifestURL = peripherals.directory.appendingPathComponent("manifest.json")
+      var manifest = try XCTUnwrap(
+        JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any])
+      var local = try XCTUnwrap(manifest["local_inputs"] as? [String: String])
+      local["sensorRootKey"] = String(repeating: "a", count: 64)
+      manifest["local_inputs"] = local
+      try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys]).write(
+        to: manifestURL)
+      XCTAssertThrowsError(
+        try finisher.preflight(
+          package: fixture.base.package, stub: fixture.plan, peripherals: peripherals))
+    }
+
     func testAmbientLightAbsenceAndCalibrationPublicationHaveSeparateContracts() throws {
       let factory = ["HmCA-local": Data([1, 2, 3]), "BWC2-local": Data([4, 5, 6])]
       XCTAssertEqual(try NativeAmbientLightInputs.files(calibration: nil, factory: factory), [:])

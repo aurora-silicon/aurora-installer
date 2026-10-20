@@ -18,9 +18,9 @@
   }
 
   struct NativeInstallationFinisher: NativeInstallationFinishingPreparing {
-    // The alpha retains its qualified installation route until this native
-    // finishing transaction has device qualification as well as component proof.
-    var enabled = false
+    // This isolated candidate exercises native finishing before release.
+    // Keep publication gated on device qualification.
+    var enabled = true
     var owner: uid_t = 0
     var environment: NativeHandoffEnvironment = .live
     var disks: NativeAPFSPlatform = .live
@@ -39,7 +39,21 @@
         throw NativeFirmwareInputFailure.invalidSource
       }
       if source.machine == "j700" {
-        guard peripherals != nil, source.fud.contains(where: { $0.component == "Multitouch" })
+        guard let peripherals, source.fud.contains(where: { $0.component == "Multitouch" })
+        else { throw NativeFirmwareInputFailure.invalidSource }
+        let tree = try NativeHandoffFileTree(peripherals.directory, protected: true, owner: owner)
+        let manifest = try JSONDecoder().decode(
+          NativeNeoPeripheralPreparer.Manifest.self,
+          from: tree.read("manifest.json", maximum: 1 << 20))
+        guard manifest.deviceIdentifier == package.deviceIdentifier,
+          manifest.bindingDigest == package.bindingDigest,
+          manifest.planDigest == approved.planDigest,
+          manifest.metadataDigest == approved.metadataDigest,
+          manifest.payloadDigest == approved.payloadDigest,
+          manifest.recipeSHA256 == peripherals.recipeSHA256,
+          manifest.localInputs["sensorRootKey"] == nil,
+          manifest.files["apple/msrk-j700.bin"] == nil,
+          manifest.files["apple/mesacal-j700.bin"] == nil
         else { throw NativeFirmwareInputFailure.invalidSource }
       } else if peripherals != nil {
         throw NativeFirmwareInputFailure.invalidSource
