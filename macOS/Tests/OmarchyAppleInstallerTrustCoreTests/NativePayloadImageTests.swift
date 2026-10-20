@@ -29,6 +29,12 @@
         let parts = base.snapshot.partitions.filter {
           $0.offset >= stub.end && $0.offset < base.approved.offsetBytes + base.approved.lengthBytes
         }.sorted { $0.offset < $1.offset }
+        var original = base.snapshot
+        let created = Set(parts.map(\.uuid))
+        original.partitions.removeAll { created.contains($0.uuid) }
+        let baselinePath = URL(fileURLWithPath: base.journal.path + ".native-os-partition-baseline.evidence")
+        try JSONEncoder().encode(original).write(to: baselinePath)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: baselinePath.path)
         let layout = try NativeOSPartitionPlan(
           metadata: NativeOSPartitionTests.metadata(),
           available: base.approved.lengthBytes - stub.size)
@@ -125,7 +131,7 @@
         }
         do {
           try await fixture.prepare()
-          XCTFail("Changed installed identity was admitted")
+          XCTFail("Changed installed identity was admitted: " + fault)
         } catch {}
         XCTAssertEqual(fixture.opened, 2)
       }

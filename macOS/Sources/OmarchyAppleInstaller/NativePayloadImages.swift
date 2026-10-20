@@ -69,6 +69,11 @@
         from: file.readEvidence("native-os-partitions"))
       let baseline = try platform.disks.snapshot()
       _ = try NativeDiskInventory.extents(baseline)
+      var recordedLayout = try JSONDecoder().decode(RemovalSnapshot.self,
+        from: file.readEvidence("native-os-partition-baseline"))
+      recordedLayout.partitions.append(contentsOf: receipt.partitions)
+      recordedLayout.partitions.sort { $0.offset < $1.offset }
+      guard baseline == recordedLayout else { throw NativeOSPartitionError.changedLayout }
       let end = try NativeInspectionMath.add(approved.offsetBytes, approved.lengthBytes)
       guard receipt.plan == approved.planDigest, receipt.partitions.count == 3,
         receipt.layout.parts.count == 3, baseline.disk == approved.storeIdentifier,
