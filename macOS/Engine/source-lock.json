@@ -236,7 +236,7 @@
       {
         "path": "overlay/tests/test_omarchy_runtime.py",
         "destination": "tests/test_omarchy_runtime.py",
-        "sha256": "abb626adac337e1c0ff5e2b56688ff3f024a2a52b661c3ed07ccc0b202d1ba80"
+        "sha256": "097e9a482ed5bb5a8d05dfa9d2e65e7c0f6aa1ec5b966cf96fbb5a0314516a71"
       },
       {
         "path": "overlay/tests/test_omarchy_stage1.py",

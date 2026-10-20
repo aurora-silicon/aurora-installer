@@ -5,36 +5,52 @@
   @testable import OmarchyAppleInstallerTrustCore
 
   final class InstallerJobTests: XCTestCase {
-    func testChangedOrUncertainDiskFailuresRetainInputsAndVerifiedHandoffCanRetryAfterRestart() throws {
+    func testChangedOrUncertainDiskFailuresRetainInputsAndVerifiedHandoffCanRetryAfterRestart()
+      throws
+    {
       for unchanged in [false, true] {
         for eligible in [false, true] {
           let root = try workspace()
-          let jobs = InstallerJobRegistry(workingDirectory: root, work: HelperWorkState(),
+          let jobs = InstallerJobRegistry(
+            workingDirectory: root, work: HelperWorkState(),
             retryEligibility: { _ in eligible })
           let request = try request()
           XCTAssertTrue(try jobs.begin(request, initiatingUID: 501))
-          let packageURL = root.appendingPathComponent("imported-handoff-" + UUID().uuidString.lowercased())
-          try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: false,
+          let packageURL = root.appendingPathComponent(
+            "imported-handoff-" + UUID().uuidString.lowercased())
+          try FileManager.default.createDirectory(
+            at: packageURL, withIntermediateDirectories: false,
             attributes: [.posixPermissions: 0o700])
-          let package = ImportedEngineHandoffPackage(packageURL: packageURL, manifestURL: packageURL,
-            requestURL: packageURL, identityURL: packageURL, engineURL: packageURL, metadataURL: packageURL,
+          let package = ImportedEngineHandoffPackage(
+            packageURL: packageURL, manifestURL: packageURL,
+            requestURL: packageURL, identityURL: packageURL, engineURL: packageURL,
+            metadataURL: packageURL,
             payloadURL: packageURL, bindingDigest: request.ticket.bindingDigest,
-            planDigest: String(repeating: "a", count: 64), deviceIdentifier: "apple,j314s", storeIdentifier: "disk0")
+            planDigest: String(repeating: "a", count: 64), deviceIdentifier: "apple,j314s",
+            storeIdentifier: "disk0")
           try jobs.admitted(request.ticket.identifier, package: package)
-          let failure = PinnedAsahiEngineExecutionError.engineFailed(EngineFailureReport(
-            notice: EngineFailureNotice(reason: .recoveryPreparation, exitStatus: 1,
-              diskUnchanged: unchanged, summary: "Handoff did not complete"), redactedStandardErrorTail: ""))
+          let failure = PinnedAsahiEngineExecutionError.engineFailed(
+            EngineFailureReport(
+              notice: EngineFailureNotice(
+                reason: .recoveryPreparation, exitStatus: 1,
+                diskUnchanged: unchanged, summary: "Handoff did not complete"),
+              redactedStandardErrorTail: ""))
           let cleanup = jobs.finish(request.ticket.identifier, result: .failure(failure))
           XCTAssertEqual(cleanup?.path, unchanged ? packageURL.path : nil)
-          let restarted = InstallerJobRegistry(workingDirectory: root, work: HelperWorkState(),
+          let restarted = InstallerJobRegistry(
+            workingDirectory: root, work: HelperWorkState(),
             retryEligibility: { _ in eligible })
-          let snapshot = try restarted.status(InstallerJobStatusRequest(ticket: request.ticket, journalOffset: 0),
+          let snapshot = try restarted.status(
+            InstallerJobStatusRequest(ticket: request.ticket, journalOffset: 0),
             initiatingUID: 501)
           XCTAssertEqual(snapshot.recoveryRetryAvailable, !unchanged && eligible)
           if !unchanged && eligible {
-            XCTAssertTrue(try restarted.beginRecoveryRetry(
-              InstallerJobRecoveryRequest(ticket: request.ticket, attempt: UUID()), initiatingUID: 501))
-            XCTAssertEqual(try restarted.recoveryContext(request.ticket.identifier).packageName,
+            XCTAssertTrue(
+              try restarted.beginRecoveryRetry(
+                InstallerJobRecoveryRequest(ticket: request.ticket, attempt: UUID()),
+                initiatingUID: 501))
+            XCTAssertEqual(
+              try restarted.recoveryContext(request.ticket.identifier).packageName,
               packageURL.lastPathComponent)
           }
         }

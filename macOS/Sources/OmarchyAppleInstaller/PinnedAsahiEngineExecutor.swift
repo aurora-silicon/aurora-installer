@@ -128,7 +128,8 @@
       }
       defer { recovery.remove() }
       if operation == .retryRecoveryAuthorization, package.installationIntent != .repair {
-        return try await finalizeNativeHandoff(package, journal: journal, authorization: authorization,
+        return try await finalizeNativeHandoff(
+          package, journal: journal, authorization: authorization,
           requirement: recovery.requirement, fullReadback: true)
       }
       do {
@@ -142,7 +143,8 @@
           journal: journal, package: package, password: authorization.password)
       }
       let nativeFinalization = package.installationIntent != .repair
-      let hadDiskWrites = !journalProvesNoMutation(journal, identity: RecoveryRetryIdentity(package: package))
+      let hadDiskWrites = !journalProvesNoMutation(
+        journal, identity: RecoveryRetryIdentity(package: package))
       var environment = installEnvironment(
         package: package, authorization: authorization, operation: operation)
       environment.merge(recovery.environment) { _, new in new }
@@ -203,7 +205,8 @@
           }
         )
         if nativeFinalization {
-          return try await finalizeNativeHandoff(package, journal: journal, authorization: authorization,
+          return try await finalizeNativeHandoff(
+            package, journal: journal, authorization: authorization,
             requirement: recovery.requirement, fullReadback: hadDiskWrites)
         }
         return result
@@ -220,18 +223,23 @@
       }
     }
 
-    private func finalizeNativeHandoff(_ package: ImportedEngineHandoffPackage, journal: URL,
-      authorization: MachineOwnerAuthorization, requirement: String, fullReadback: Bool) async throws -> Data {
+    private func finalizeNativeHandoff(
+      _ package: ImportedEngineHandoffPackage, journal: URL,
+      authorization: MachineOwnerAuthorization, requirement: String, fullReadback: Bool
+    ) async throws -> Data {
       do {
-        return try await nativeHandoff.execute(package: package, journal: journal,
+        return try await nativeHandoff.execute(
+          package: package, journal: journal,
           authorization: authorization, requirement: requirement, fullReadback: fullReadback)
-      } catch let error as PinnedAsahiEngineExecutionError { throw error }
-      catch {
-        throw PinnedAsahiEngineExecutionError.engineFailed(EngineFailureReport(
-          notice: EngineFailureNotice(reason: .recoveryPreparation, exitStatus: 1,
-            diskUnchanged: false, summary: "Native Recovery handoff did not complete."),
-          redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
-            Data(String(describing: error).utf8), truncated: false, secrets: [authorization.password])))
+      } catch let error as PinnedAsahiEngineExecutionError { throw error } catch {
+        throw PinnedAsahiEngineExecutionError.engineFailed(
+          EngineFailureReport(
+            notice: EngineFailureNotice(
+              reason: .recoveryPreparation, exitStatus: 1,
+              diskUnchanged: false, summary: "Native Recovery handoff did not complete."),
+            redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
+              Data(String(describing: error).utf8), truncated: false,
+              secrets: [authorization.password])))
       }
     }
 
@@ -547,11 +555,13 @@
       }
       guard let validated = try? AppleInstallerTrustCore().validateEngineTranscript(transcript),
         let plan = validated.plan, ["free", "resize", "replace"].contains(plan.candidateKind),
-        let snapshot = try? NativeRecoveryJournalSnapshot.decode(transcript,
+        let snapshot = try? NativeRecoveryJournalSnapshot.decode(
+          transcript,
           planDigest: identity.planDigest, deviceIdentifier: identity.deviceIdentifier,
           storeIdentifier: identity.storeIdentifier,
           intent: plan.candidateKind == "replace" ? .replace : .fresh,
-          evidence: { try readCheckpointEvidence(journal: journal, identifier: $0) }) else { return false }
+          evidence: { try readCheckpointEvidence(journal: journal, identifier: $0) })
+      else { return false }
       return snapshot.state == .ready || snapshot.state == .started || snapshot.state == .prepared
     }
 

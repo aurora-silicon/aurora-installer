@@ -25,32 +25,41 @@
       _ bytes: Data, package: ImportedEngineHandoffPackage,
       evidence: (String) throws -> Data
     ) throws -> Self {
-      try decode(bytes, planDigest: package.planDigest, deviceIdentifier: package.deviceIdentifier,
-        storeIdentifier: package.storeIdentifier, intent: package.installationIntent, evidence: evidence)
+      try decode(
+        bytes, planDigest: package.planDigest, deviceIdentifier: package.deviceIdentifier,
+        storeIdentifier: package.storeIdentifier, intent: package.installationIntent,
+        evidence: evidence)
     }
 
-    static func decode(_ bytes: Data, planDigest: String, deviceIdentifier: String,
+    static func decode(
+      _ bytes: Data, planDigest: String, deviceIdentifier: String,
       storeIdentifier: String, intent: ImportedInstallationIntent,
-      evidence: (String) throws -> Data) throws -> Self {
+      evidence: (String) throws -> Data
+    ) throws -> Self {
       let records = try EngineTranscriptDecoder().decode(bytes)
       let validated = try AppleInstallerTrustCore().validateEngineTranscript(bytes)
       guard let plan = validated.plan, validated.support == .supported,
         validated.deviceIdentifier == deviceIdentifier,
         plan.deviceIdentifier == deviceIdentifier, plan.storeIdentifier == storeIdentifier,
         plan.planDigest == planDigest, intent != .repair,
-        (intent == .replace ? plan.candidateKind == "replace"
-          : ["free", "resize"].contains(plan.candidateKind))
+        intent == .replace
+          ? plan.candidateKind == "replace"
+          : ["free", "resize"].contains(plan.candidateKind)
       else { throw NativeRecoveryJournalError.invalidState }
-      var stages = [("apfs_preparation_started", "apfs-target-prepared", "apfs_preparation"),
-        ("stub_and_esp_started", "stub-and-esp-installed", "stub_and_esp")]
+      var stages = [
+        ("apfs_preparation_started", "apfs-target-prepared", "apfs_preparation"),
+        ("stub_and_esp_started", "stub-and-esp-installed", "stub_and_esp"),
+      ]
       if intent == .replace {
-        stages.insert(("existing_removal_started", "existing-install-removed", "existing_removal"), at: 0)
+        stages.insert(
+          ("existing_removal_started", "existing-install-removed", "existing_removal"), at: 0)
       }
       var cursor = 3
       var saved = [String: Data]()
       func checkpoint(_ index: Int, identifier: String, phase: String) throws {
         guard index < records.count, case .checkpoint(let checkpoint) = records[index].message,
-          checkpoint.identifier == identifier, checkpoint.phase == phase else {
+          checkpoint.identifier == identifier, checkpoint.phase == phase
+        else {
           throw NativeRecoveryJournalError.invalidState
         }
         let bytes = try evidence(identifier)
@@ -62,28 +71,35 @@
       }
       for stage in stages {
         guard cursor < records.count, case .event(let event) = records[cursor].message,
-          event.name == stage.0 else { throw NativeRecoveryJournalError.invalidState }
+          event.name == stage.0
+        else { throw NativeRecoveryJournalError.invalidState }
         try checkpoint(cursor + 1, identifier: stage.1, phase: stage.2)
         cursor += 2
       }
       let state: NativeRecoveryHandoffState
-      if cursor == records.count { state = .ready }
-      else {
+      if cursor == records.count {
+        state = .ready
+      } else {
         guard case .event(let event) = records[cursor].message,
-          event.name == "recovery_handoff_started" else { throw NativeRecoveryJournalError.invalidState }
+          event.name == "recovery_handoff_started"
+        else { throw NativeRecoveryJournalError.invalidState }
         cursor += 1
-        if cursor == records.count { state = .started }
-        else {
-          try checkpoint(cursor, identifier: "recovery-handoff-prepared", phase: "awaiting_recovery")
+        if cursor == records.count {
+          state = .started
+        } else {
+          try checkpoint(
+            cursor, identifier: "recovery-handoff-prepared", phase: "awaiting_recovery")
           guard saved["recovery-handoff-prepared"] == handoffEvidence(plan.planDigest) else {
             throw NativeRecoveryJournalError.evidenceChanged
           }
           cursor += 1
-          if cursor == records.count { state = .prepared }
-          else {
+          if cursor == records.count {
+            state = .prepared
+          } else {
             guard cursor + 1 == records.count,
               case .completion(let completion) = records[cursor].message,
-              completion.outcome == "awaiting_recovery" else { throw NativeRecoveryJournalError.invalidState }
+              completion.outcome == "awaiting_recovery"
+            else { throw NativeRecoveryJournalError.invalidState }
             state = .complete
           }
         }
@@ -119,21 +135,27 @@
 
     init(url: URL, package: ImportedEngineHandoffPackage, owner: uid_t = 0) throws {
       guard let binding = SHA256Digest(rawValue: package.bindingDigest),
-        url.lastPathComponent == binding.hexadecimal + ".jsonl" else {
+        url.lastPathComponent == binding.hexadecimal + ".jsonl"
+      else {
         throw NativeRecoveryJournalError.unsafeJournal
       }
       self.name = url.lastPathComponent
       self.owner = owner
       self.package = package
-      let parentFD = try Descriptor(open(url.deletingLastPathComponent().path,
-        O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW))
+      let parentFD = try Descriptor(
+        open(
+          url.deletingLastPathComponent().path,
+          O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW))
       directoryHandle = parentFD
       var parent = stat()
-      guard fstat(parentFD.value, &parent) == 0, parent.st_uid == owner, parent.st_mode & 0o077 == 0 else {
+      guard fstat(parentFD.value, &parent) == 0, parent.st_uid == owner, parent.st_mode & 0o077 == 0
+      else {
         throw NativeRecoveryJournalError.unsafeJournal
       }
-      fileHandle = try Descriptor(openat(parentFD.value, url.lastPathComponent,
-        O_RDWR | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK))
+      fileHandle = try Descriptor(
+        openat(
+          parentFD.value, url.lastPathComponent,
+          O_RDWR | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK))
       guard flock(file, LOCK_EX | LOCK_NB) == 0 else {
         throw NativeRecoveryJournalError.busy
       }
@@ -151,8 +173,12 @@
           throw NativeRecoveryJournalError.invalidState
         }
         if before.state == .ready {
-          try append(type: "event", payload: ["plan_digest": package.planDigest,
-            "name": "recovery_handoff_started"], before: before.transcript)
+          try append(
+            type: "event",
+            payload: [
+              "plan_digest": package.planDigest,
+              "name": "recovery_handoff_started",
+            ], before: before.transcript)
         }
       }
     }
@@ -163,9 +189,13 @@
         guard before.state == .started else { throw NativeRecoveryJournalError.invalidState }
         let bytes = NativeRecoveryJournalSnapshot.handoffEvidence(package.planDigest)
         try publishEvidence(bytes, identifier: "recovery-handoff-prepared")
-        try append(type: "checkpoint", payload: ["plan_digest": package.planDigest,
-          "identifier": "recovery-handoff-prepared", "phase": "awaiting_recovery",
-          "evidence_digest": SHA256Digest(hashing: bytes).rawValue], before: before.transcript)
+        try append(
+          type: "checkpoint",
+          payload: [
+            "plan_digest": package.planDigest,
+            "identifier": "recovery-handoff-prepared", "phase": "awaiting_recovery",
+            "evidence_digest": SHA256Digest(hashing: bytes).rawValue,
+          ], before: before.transcript)
       }
     }
 
@@ -176,8 +206,12 @@
           throw NativeRecoveryJournalError.invalidState
         }
         if before.state == .prepared {
-          try append(type: "completion", payload: ["plan_digest": package.planDigest,
-            "outcome": "awaiting_recovery"], before: before.transcript)
+          try append(
+            type: "completion",
+            payload: [
+              "plan_digest": package.planDigest,
+              "outcome": "awaiting_recovery",
+            ], before: before.transcript)
         }
         return try current().transcript
       }
@@ -190,10 +224,12 @@
     }
 
     private func readJournal() throws -> Data {
-      var info = stat(), entry = stat()
+      var info = stat()
+      var entry = stat()
       guard fstat(file, &info) == 0, fstatat(directory, name, &entry, AT_SYMLINK_NOFOLLOW) == 0,
         safe(info, maximum: PinnedAsahiEngineExecutor.maximumTranscriptBytes),
-        info.st_ino == entry.st_ino, info.st_dev == entry.st_dev else {
+        info.st_ino == entry.st_ino, info.st_dev == entry.st_dev
+      else {
         throw NativeRecoveryJournalError.unsafeJournal
       }
       return try read(file, bytes: Int(info.st_size))
@@ -205,7 +241,8 @@
     }
 
     private func readEvidence(_ identifier: String) throws -> Data {
-      let fd = openat(directory, name + "." + identifier + ".evidence",
+      let fd = openat(
+        directory, name + "." + identifier + ".evidence",
         O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)
       guard fd >= 0 else { throw NativeRecoveryJournalError.evidenceChanged }
       defer { close(fd) }
@@ -221,25 +258,32 @@
       try bytes.withUnsafeMutableBytes { buffer in
         var offset = 0
         while offset < count {
-          let got = pread(fd, buffer.baseAddress!.advanced(by: offset), count - offset, off_t(offset))
+          let got = pread(
+            fd, buffer.baseAddress!.advanced(by: offset), count - offset, off_t(offset))
           if got < 0 && errno == EINTR { continue }
           guard got > 0 else { throw NativeRecoveryJournalError.changed }
           offset += got
         }
       }
       var after = stat()
-      guard fstat(fd, &after) == 0, after.st_size == count else { throw NativeRecoveryJournalError.changed }
+      guard fstat(fd, &after) == 0, after.st_size == count else {
+        throw NativeRecoveryJournalError.changed
+      }
       return bytes
     }
 
     private func append(type: String, payload: [String: Any], before: Data) throws {
       guard try readJournal() == before else { throw NativeRecoveryJournalError.changed }
-      var line = try JSONSerialization.data(withJSONObject: ["schema_version": 1,
-        "sequence": before.split(separator: 10).count + 1, "type": type, "payload": payload],
+      var line = try JSONSerialization.data(
+        withJSONObject: [
+          "schema_version": 1,
+          "sequence": before.split(separator: 10).count + 1, "type": type, "payload": payload,
+        ],
         options: [.sortedKeys, .withoutEscapingSlashes])
       line.append(10)
       guard line.count <= EngineTranscriptDecoder.maximumLineBytes,
-        before.count + line.count <= PinnedAsahiEngineExecutor.maximumTranscriptBytes else {
+        before.count + line.count <= PinnedAsahiEngineExecutor.maximumTranscriptBytes
+      else {
         throw NativeRecoveryJournalError.writeFailed
       }
       _ = try EngineTranscriptDecoder().decode(before + line)
@@ -252,18 +296,25 @@
       let final = name + "." + identifier + ".evidence"
       var existing = stat()
       if fstatat(directory, final, &existing, AT_SYMLINK_NOFOLLOW) == 0 {
-        guard try readEvidence(identifier) == bytes else { throw NativeRecoveryJournalError.evidenceChanged }
+        guard try readEvidence(identifier) == bytes else {
+          throw NativeRecoveryJournalError.evidenceChanged
+        }
         return
       }
       guard errno == ENOENT else { throw NativeRecoveryJournalError.evidenceChanged }
       let temporary = ".handoff-evidence-" + UUID().uuidString
-      let fd = openat(directory, temporary, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0o600)
+      let fd = openat(
+        directory, temporary, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0o600)
       guard fd >= 0 else { throw NativeRecoveryJournalError.writeFailed }
-      defer { close(fd); unlinkat(directory, temporary, 0) }
+      defer {
+        close(fd)
+        unlinkat(directory, temporary, 0)
+      }
       try write(fd, bytes: bytes, offset: 0)
       guard fsync(fd) == 0,
         renameatx_np(directory, temporary, directory, final, UInt32(RENAME_EXCL)) == 0,
-        fsync(directory) == 0 else {
+        fsync(directory) == 0
+      else {
         throw NativeRecoveryJournalError.writeFailed
       }
     }
@@ -272,7 +323,8 @@
       try bytes.withUnsafeBytes { buffer in
         var written = 0
         while written < bytes.count {
-          let count = pwrite(fd, buffer.baseAddress!.advanced(by: written), bytes.count - written,
+          let count = pwrite(
+            fd, buffer.baseAddress!.advanced(by: written), bytes.count - written,
             offset + off_t(written))
           if count < 0 && errno == EINTR { continue }
           guard count > 0 else { throw NativeRecoveryJournalError.writeFailed }

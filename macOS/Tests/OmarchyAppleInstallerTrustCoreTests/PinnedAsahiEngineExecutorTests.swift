@@ -7,18 +7,23 @@
 
   final class PinnedAsahiEngineExecutorTests: XCTestCase {
     private struct FixtureNativeHandoff: NativeRecoveryHandoffExecuting {
-      func execute(package: ImportedEngineHandoffPackage, journal: URL,
-        authorization: MachineOwnerAuthorization, requirement: String, fullReadback: Bool) async throws -> Data {
-        try Data(contentsOf: package.packageURL.deletingLastPathComponent()
-          .appendingPathComponent("bundle-source/transcript.jsonl"))
+      func execute(
+        package: ImportedEngineHandoffPackage, journal: URL,
+        authorization: MachineOwnerAuthorization, requirement: String, fullReadback: Bool
+      ) async throws -> Data {
+        try Data(
+          contentsOf: package.packageURL.deletingLastPathComponent()
+            .appendingPathComponent("bundle-source/transcript.jsonl"))
       }
     }
 
     func testADelegatedHandoffRequiresAnAuthenticatedBackendCapability() async throws {
       let fixture = try makeFixture(supportsNativeHandoff: false)
       defer { try? FileManager.default.removeItem(at: fixture.root) }
-      await assertThrowsErrorAsync(try await fixtureExecutor(effectiveUserID: { 0 }).execute(
-        fixture.package, authorization: try machineOwnerAuthorization())) {
+      await assertThrowsErrorAsync(
+        try await fixtureExecutor(effectiveUserID: { 0 }).execute(
+          fixture.package, authorization: try machineOwnerAuthorization())
+      ) {
         guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
           return XCTFail("Expected capability admission failure")
         }
@@ -789,7 +794,9 @@
       planDigest: String = NativeAdmissionTestData.plan.planDigest
     ) throws -> PinnedExecutorFixture {
       let intent = installationIntent ?? (repairManifest == nil ? .fresh : .repair)
-      let backendMode = expectedInstallMode == "install" && intent != .repair ? "prepare-native-handoff" : expectedInstallMode
+      let backendMode =
+        expectedInstallMode == "install" && intent != .repair
+        ? "prepare-native-handoff" : expectedInstallMode
       let root = FileManager.default.temporaryDirectory.appendingPathComponent(
         "omarchy-pinned-executor-\(UUID().uuidString.lowercased())",
         isDirectory: true
@@ -815,7 +822,8 @@
 
       let capability =
         supportsSignedDecoder ? ",\"signedHelperInput\":\"helper-executable-v1\"" : ""
-      let handoffCapability = supportsNativeHandoff ? ",\"nativeHandoff\":\"helper-finalize-v1\"" : ""
+      let handoffCapability =
+        supportsNativeHandoff ? ",\"nativeHandoff\":\"helper-finalize-v1\"" : ""
       try Data(
         #"{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1"\#(handoffCapability)\#(capability)}"#
           .utf8
@@ -966,8 +974,11 @@
     }
 
     private func checkpointFixture(_ marker: String) -> Data {
-      try! JSONSerialization.data(withJSONObject: ["plan_digest": NativeAdmissionTestData.plan.planDigest,
-        "fixture": marker], options: [.sortedKeys])
+      try! JSONSerialization.data(
+        withJSONObject: [
+          "plan_digest": NativeAdmissionTestData.plan.planDigest,
+          "fixture": marker,
+        ], options: [.sortedKeys])
     }
 
     private func recoveryRetryTranscript(

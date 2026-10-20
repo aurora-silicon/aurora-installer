@@ -54,26 +54,36 @@
         let installedBytes = snapshot.evidence["stub-and-esp-installed"],
         SHA256Digest(hashing: metadata).rawValue == plan.metadataDigest,
         let document = try JSONSerialization.jsonObject(with: metadata) as? [String: Any],
-        let templates = document["os_list"] as? [[String: Any]] else {
+        let templates = document["os_list"] as? [[String: Any]]
+      else {
         throw NativeHandoffValidationError.invalidEvidence
       }
-      try Self.keys(targetBytes, ["plan_digest", "partition_identifier", "offset_bytes", "size_bytes", "uuid"])
-      try Self.keys(installedBytes, ["plan_digest", "apfs_vgid", "system_volume", "efi_partition",
-        "startup_volume_icon", "populated_partitions"])
+      try Self.keys(
+        targetBytes, ["plan_digest", "partition_identifier", "offset_bytes", "size_bytes", "uuid"])
+      try Self.keys(
+        installedBytes,
+        [
+          "plan_digest", "apfs_vgid", "system_volume", "efi_partition",
+          "startup_volume_icon", "populated_partitions",
+        ])
       let decoder = JSONDecoder()
       decoder.keyDecodingStrategy = .convertFromSnakeCase
       target = try decoder.decode(Target.self, from: targetBytes)
       installed = try decoder.decode(Installed.self, from: installedBytes)
       let object = try JSONSerialization.jsonObject(with: installedBytes) as! [String: Any]
-      try Self.keys(try JSONSerialization.data(withJSONObject: object["startup_volume_icon"]!),
+      try Self.keys(
+        try JSONSerialization.data(withJSONObject: object["startup_volume_icon"]!),
         ["member", "installed_bytes", "verification", "content_sha256"])
       guard let parts = object["populated_partitions"] as? [[String: Any]], parts.count == 3 else {
         throw NativeHandoffValidationError.invalidEvidence
       }
       for part in parts {
-        try Self.keys(try JSONSerialization.data(withJSONObject: part),
-          ["name", "partition_identifier", "partition_uuid", "partition_size_bytes", "population",
-            "installed_bytes", "verification", "content_sha256"])
+        try Self.keys(
+          try JSONSerialization.data(withJSONObject: part),
+          [
+            "name", "partition_identifier", "partition_uuid", "partition_size_bytes", "population",
+            "installed_bytes", "verification", "content_sha256",
+          ])
       }
       let matching = templates.filter { $0["omarchy_target"] as? String == "apple-silicon-full-os" }
       guard matching.count == 1, let template = matching.first,
@@ -102,26 +112,38 @@
           Self.hash(part.contentSha256)
         else { throw NativeHandoffValidationError.invalidEvidence }
       }
-      guard installed.populatedPartitions[0].partitionUuid.lowercased() == installed.efiPartition.lowercased(),
-        Set(([target.uuid] + installed.populatedPartitions.map(\.partitionUuid)).map { $0.lowercased() }).count == 4
+      guard
+        installed.populatedPartitions[0].partitionUuid.lowercased()
+          == installed.efiPartition.lowercased(),
+        Set(
+          ([target.uuid] + installed.populatedPartitions.map(\.partitionUuid)).map {
+            $0.lowercased()
+          }
+        ).count == 4
       else { throw NativeHandoffValidationError.invalidEvidence }
       if let policy = template["aurora_stage1"] {
-        guard let values = policy as? [String: Any], Set(values.keys) == ["kind", "qualified_machines"],
+        guard let values = policy as? [String: Any],
+          Set(values.keys) == ["kind", "qualified_machines"],
           values["kind"] as? String == "common-raw-v1",
-          let machines = values["qualified_machines"] as? [String: [String]] else {
+          let machines = values["qualified_machines"] as? [String: [String]]
+        else {
           throw NativeHandoffValidationError.invalidEvidence
         }
         qualifiedCommonFirmware = machines[Self.board(plan.deviceIdentifier)] ?? []
-      } else { qualifiedCommonFirmware = [] }
+      } else {
+        qualifiedCommonFirmware = []
+      }
     }
 
     func requireLayout(_ snapshot: RemovalSnapshot) throws -> [RemovalPartition] {
       _ = try NativeDiskInventory.extents(snapshot)
       guard snapshot.disk == plan.storeIdentifier,
-        let stub = snapshot.partitions.first(where: { $0.identifier == target.partitionIdentifier }),
+        let stub = snapshot.partitions.first(where: { $0.identifier == target.partitionIdentifier }
+        ),
         stub.type == "Apple_APFS", stub.uuid.lowercased() == target.uuid.lowercased(),
         stub.offset == target.offsetBytes, stub.size == target.sizeBytes,
-        !plan.offsetBytes.addingReportingOverflow(plan.lengthBytes).overflow else {
+        !plan.offsetBytes.addingReportingOverflow(plan.lengthBytes).overflow
+      else {
         throw NativeHandoffValidationError.changedLayout
       }
       let end = plan.offsetBytes + plan.lengthBytes
@@ -132,7 +154,8 @@
         guard part.identifier == recorded.partitionIdentifier,
           part.uuid.lowercased() == recorded.partitionUuid.lowercased(),
           part.size == recorded.partitionSizeBytes, part.end <= end,
-          part.type == (recorded.name == "EFI" ? "EFI" : "Linux Filesystem") else {
+          part.type == (recorded.name == "EFI" ? "EFI" : "Linux Filesystem")
+        else {
           throw NativeHandoffValidationError.changedLayout
         }
       }
@@ -140,10 +163,13 @@
     }
 
     func espLayout(members: Set<String>, firmware: String) throws -> [String: String] {
-      let common = members.contains("esp/aurora/stage1.bin") && qualifiedCommonFirmware.contains(firmware)
-      let own = !common && Self.board(plan.deviceIdentifier) == "j700ap" ? "esp/m1n1/boot-j700.bin" : nil
-      guard (!common || members.contains("esp/m1n1/boot.bin")),
-        own.map({ members.contains($0) }) ?? true else {
+      let common =
+        members.contains("esp/aurora/stage1.bin") && qualifiedCommonFirmware.contains(firmware)
+      let own =
+        !common && Self.board(plan.deviceIdentifier) == "j700ap" ? "esp/m1n1/boot-j700.bin" : nil
+      guard !common || members.contains("esp/m1n1/boot.bin"),
+        own.map({ members.contains($0) }) ?? true
+      else {
         throw NativeHandoffValidationError.changedContent
       }
       var layout = [String: String]()
@@ -151,12 +177,18 @@
         guard member.hasPrefix("esp/"), Self.safeRelative(member) else {
           throw NativeHandoffValidationError.unsafePath
         }
-        if member == own { layout[member] = "m1n1/boot.bin" }
-        else if (member == "esp/aurora/stage1.bin" && !common)
+        if member == own {
+          layout[member] = "m1n1/boot.bin"
+        } else if (member == "esp/aurora/stage1.bin" && !common)
           || member == "esp/m1n1/boot-j700.bin"
-          || (common && ["esp/aurora/stage1-j700.bin", "esp/aurora/stage1-j613.bin"].contains(member))
-          || (own != nil && member == "esp/m1n1/boot.bin") { continue }
-        else { layout[member] = String(member.dropFirst(4)) }
+          || (common
+            && ["esp/aurora/stage1-j700.bin", "esp/aurora/stage1-j613.bin"].contains(member))
+          || (own != nil && member == "esp/m1n1/boot.bin")
+        {
+          continue
+        } else {
+          layout[member] = String(member.dropFirst(4))
+        }
       }
       guard !layout.isEmpty, Set(layout.values).count == layout.count else {
         throw NativeHandoffValidationError.changedContent
@@ -166,7 +198,8 @@
 
     static func safeRelative(_ path: String) -> Bool {
       !path.isEmpty && path.utf8.count <= 4096 && !path.hasPrefix("/") && !path.contains("\0")
-        && !path.contains("\\") && path.split(separator: "/", omittingEmptySubsequences: false)
+        && !path.contains("\\")
+        && path.split(separator: "/", omittingEmptySubsequences: false)
           .allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
     }
     private static func board(_ device: String) -> String { String(device.dropFirst(6)) + "ap" }
@@ -180,7 +213,8 @@
     private static func hash(_ value: String) -> Bool { SHA256Digest(hexadecimal: value) != nil }
     private static func keys(_ data: Data, _ expected: Set<String>) throws {
       guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-        Set(object.keys) == expected else { throw NativeHandoffValidationError.invalidEvidence }
+        Set(object.keys) == expected
+      else { throw NativeHandoffValidationError.invalidEvidence }
     }
   }
 #endif
