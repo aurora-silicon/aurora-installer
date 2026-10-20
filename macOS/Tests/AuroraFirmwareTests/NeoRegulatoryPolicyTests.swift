@@ -98,7 +98,7 @@ final class NeoRegulatoryPolicyTests: XCTestCase {
     rows[0][8 * 36] = 196
     var bytes = Data(NeoRegulatoryPolicy.bitmap(rows))
     XCTAssertEqual(try bytes.little(4, 4), 0x3000_0000)
-    rows[0][8 * 36] = 0
+    rows[0][8 * 36] = 127  // Stop pass one before isolating the second-pass bit.
     rows[0][11 * 36 + 12] = 196
     bytes = Data(NeoRegulatoryPolicy.bitmap(rows))
     XCTAssertEqual(try bytes.little(4, 4), 0x8000_2000)
