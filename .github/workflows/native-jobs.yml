@@ -40,25 +40,18 @@ jobs:
           tar -xzf tool.tar.gz
           echo "$PWD/xcodebuildmcp-2.7.0-darwin-arm64/bin" >> "$GITHUB_PATH"
       - name: Verify independent planning and inspection vectors
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           export PYTHONPYCACHEPREFIX="$RUNNER_TEMP/planning-pycache"
           python3 -m py_compile test/native-plan-vectors.py
           python3 -m py_compile test/native-inspection-vectors.py
           python3 test/native-plan-vectors.py | tee "$RUNNER_TEMP/evidence/reference-vectors.log"
-          # Reuse the authenticated runtime already qualified in this repository.
-          # This reads public reference source only; no archived code is launched.
-          archive="$RUNNER_TEMP/reference-application.zip"
           runtime="$RUNNER_TEMP/reference-runtime.tar.gz"
-          trap 'rm -f "$archive" "$runtime"' EXIT
-          gh api repos/aurora-silicon/aurora-installer/actions/artifacts/12226459654/zip > "$archive"
-          echo "333239f74656ce63ea8dd2e563532d74b6bf42d4e0d8a0f4241c585c757f7911  $archive" | shasum -a 256 -c -
-          source Packaging/identity.conf
-          unzip -p "$archive" qualified-app.tar.gz | tar -xzOf - \
-            "$INSTALLER_APP_NAME.app/Contents/Resources/Engine/artifacts/installer-v0.9.2-aurora.4.tar.gz" > "$runtime"
+          trap 'rm -f "$runtime"' EXIT
+          bash test/prepare-reference-runtime.sh "$runtime" | tee "$RUNNER_TEMP/evidence/reference-build.log"
           python3 test/native-inspection-vectors.py --runtime "$runtime" | tee "$RUNNER_TEMP/evidence/inspection-vectors.log"
+          python3 test/native-firmware-selection-vectors.py --runtime "$runtime" | tee "$RUNNER_TEMP/evidence/firmware-vectors.log"
+          python3 test/native-neo-firmware-vectors.py --runtime "$runtime" | tee "$RUNNER_TEMP/evidence/neo-vectors.log"
       - name: Apply and check Xcode formatting
         env:
           REQUIRE_EXACT_FORMAT: ${{ github.event_name == 'push' || inputs.require_exact_format }}
