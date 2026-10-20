@@ -1,0 +1,101 @@
+name: Render installer pages with bounded owned processes
+on:
+  push:
+    branches: [ci/native-recovery-review]
+    paths: [.github/workflows/native-page-renders.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: macos-26
+    timeout-minutes: 35
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+      XCODEBUILDMCP_SENTRY_DISABLED: 'true'
+    defaults:
+      run:
+        shell: bash
+        working-directory: source/macOS
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: 54112f217f4316d87b85d382c6fd89e8f59c0cd7
+          path: source
+          persist-credentials: false
+      - name: Record immutable source and toolchain
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence" "$RUNNER_TEMP/tools"
+          if [[ ! -x /opt/homebrew/opt/openssl@3/bin/openssl ]]; then brew install openssl@3; fi
+          echo /opt/homebrew/opt/openssl@3/bin >> "$GITHUB_PATH"
+          { git rev-parse HEAD; sw_vers; uname -m; xcodebuild -version; xcrun swift --version; xcrun swift-format --version; } > "$RUNNER_TEMP/evidence/toolchain.txt"
+          /opt/homebrew/opt/openssl@3/bin/openssl version >> "$RUNNER_TEMP/evidence/toolchain.txt"
+          [[ $(uname -m) == arm64 ]]
+          cd "$RUNNER_TEMP/tools"
+          curl --fail --location --silent --show-error --retry 3 \
+            https://github.com/getsentry/XcodeBuildMCP/releases/download/v2.7.0/xcodebuildmcp-2.7.0-darwin-arm64.tar.gz -o tool.tar.gz
+          echo 'bd724a2c0e6ffe027b3f46257e66d626149a64cd045f4867124bd683b3cf081a  tool.tar.gz' | shasum -a 256 -c -
+          tar -xzf tool.tar.gz
+          echo "$PWD/xcodebuildmcp-2.7.0-darwin-arm64/bin" >> "$GITHUB_PATH"
+      - name: Format the focused candidate with Xcode
+        run: |
+          set -euo pipefail
+          xcrun swift-format format -i --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
+          git diff --binary > "$RUNNER_TEMP/evidence/format.patch"
+          xcrun swift-format lint --strict --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
+      - name: Build the unprivileged native preview
+        run: bash Packaging/build-aurora-preview.sh "$RUNNER_TEMP/preview"
+      - name: Render all pages at regular and minimum window heights
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/preview/Aurora Installer.app"
+          for screen in allocation-editing chooser allocation allocation-free allocation-other allocation-checking loading preparing download install recovery; do
+            for appearance in light dark; do
+              for size in regular compact; do
+                output="$RUNNER_TEMP/evidence/$screen-$appearance-$size.png"
+                arguments=(--simulate "--preview-screen=$screen" "--snapshot=$output" --quit-after-snapshot)
+                [[ $appearance != dark ]] || arguments+=(--preview-dark)
+                [[ $size != compact ]] || arguments+=(--preview-compact)
+                name="$screen-$appearance-$size"
+                echo "Rendering $name"
+                "$app/Contents/MacOS/AuroraInstallerPreview" "${arguments[@]}" \
+                  > "$RUNNER_TEMP/evidence/$name.log" 2>&1 &
+                render_pid=$!
+                for tick in {1..30}; do
+                  if ! kill -0 "$render_pid" 2>/dev/null; then break; fi
+                  sleep 1
+                done
+                if kill -0 "$render_pid" 2>/dev/null; then
+                  sample "$render_pid" 1 -file "$RUNNER_TEMP/evidence/$name.stack.txt" || true
+                  kill -TERM "$render_pid" || true
+                  for tick in {1..5}; do
+                    if ! kill -0 "$render_pid" 2>/dev/null; then break; fi
+                    sleep 1
+                  done
+                  if kill -0 "$render_pid" 2>/dev/null; then kill -KILL "$render_pid" || true; fi
+                  wait "$render_pid" || true
+                  echo "Renderer did not exit for $name" >&2
+                  exit 1
+                fi
+                wait "$render_pid"
+                test -s "$output"
+                echo "Rendered $name"
+              done
+            done
+          done
+      - name: Retain the native driver logs
+        if: always()
+        run: |
+          set -euo pipefail
+          root="$HOME/Library/Developer/XcodeBuildMCP/workspaces"
+          if [[ -d $root ]]; then
+            find "$root" -type f -path '*/logs/swift_package_test_*.log' \
+              -exec cp {} "$RUNNER_TEMP/evidence/" \;
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: bounded-installer-page-renders
+          path: ${{ runner.temp }}/evidence/
+          retention-days: 14
