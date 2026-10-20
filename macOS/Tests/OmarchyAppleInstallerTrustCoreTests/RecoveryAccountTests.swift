@@ -6,6 +6,22 @@
   @testable import OmarchyAppleInstallerTrustCore
 
   final class RecoveryAccountTests: XCTestCase {
+    func testStartupDiscoveryIgnoresAnEmptyProtectedPreflightJournal() throws {
+      let fm = FileManager.default
+      let root = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      defer { try? fm.removeItem(at: root) }
+      let journals = root.appendingPathComponent("execution-journals")
+      try fm.createDirectory(
+        at: journals, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+      let file = journals.appendingPathComponent(String(repeating: "a", count: 64) + ".jsonl")
+      try Data().write(to: file)
+      XCTAssertEqual(chmod(file.path, 0o600), 0)
+      XCTAssertNil(try RecoveryAccountHandoff.discover(in: root, owner: getuid()))
+      XCTAssertEqual(try Data(contentsOf: file), Data(), "keep the failed preparation evidence")
+      XCTAssertEqual(chmod(file.path, 0o666), 0)
+      XCTAssertThrowsError(try RecoveryAccountHandoff.discover(in: root, owner: getuid()))
+    }
+
     func testInterruptedRecoveryAppUpdatesRestoreOrKeepOnlyTheCommittedVersion() throws {
       let fm = FileManager.default
       for boundary in ["before-rename", "old-renamed", "new-renamed", "committed"] {

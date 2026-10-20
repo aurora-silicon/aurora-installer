@@ -1,5 +1,6 @@
 #if os(macOS)
   import CryptoKit
+  import Darwin
   import Foundation
   import RecoveryAccountCore
 
@@ -329,7 +330,7 @@
       return (group.uppercased(), esp.uppercased())
     }
 
-    static func discover(in workingDirectory: URL, binding: String? = nil) throws
+    static func discover(in workingDirectory: URL, binding: String? = nil, owner: uid_t = 0) throws
       -> CompletedRecoveryInstallation?
     {
       let directory = workingDirectory.appendingPathComponent(
@@ -345,18 +346,29 @@
       guard files.count <= 128 else {
         throw AccountSetupFailure("Too many installation records need review.")
       }
-      let diskBytes = try AccountNativeCommand.checked("/usr/sbin/diskutil", ["list", "-plist"])
-      guard
-        let diskList = try PropertyListSerialization.propertyList(
-          from: diskBytes, format: nil) as? [String: Any]
-      else { throw AccountSetupFailure("Couldn’t inspect the installed partitions.") }
+      let journals = try NativeHandoffFileTree(directory, protected: true, owner: owner)
+      var diskList: [String: Any]?
       var found = [CompletedRecoveryInstallation]()
       for file in files {
-        let bytes = try RecoveryAccountInstaller.protectedRead(file, limit: 4 << 20)
+        // Preparation can fail before the first record is written. An empty
+        // protected journal is not a completed installation or an account record.
+        let bytes = try journals.read(file.lastPathComponent, maximum: 4 << 20)
         let ended = bytes.split(separator: 10).last.flatMap {
           try? JSONSerialization.jsonObject(with: Data($0)) as? [String: Any]
         }
         guard ended?["type"] as? String == "completion" else { continue }
+        if diskList == nil {
+          let diskBytes = try AccountNativeCommand.checked(
+            "/usr/sbin/diskutil", ["list", "-plist"])
+          guard
+            let listing = try PropertyListSerialization.propertyList(
+              from: diskBytes, format: nil) as? [String: Any]
+          else { throw AccountSetupFailure("Couldn’t inspect the installed partitions.") }
+          diskList = listing
+        }
+        guard let listing = diskList else {
+          throw AccountSetupFailure("Couldn’t inspect the installed partitions.")
+        }
         var evidence = [String: Data]()
         for identifier in [
           "apfs-target-prepared", "stub-and-esp-installed", "recovery-handoff-prepared",
@@ -367,7 +379,7 @@
         let identity = try completedEvidence(transcript: bytes, evidence: evidence)
         if let current = try? liveTarget(group: identity.group, esp: identity.esp) {
           do {
-            try requireLivePartitions(evidence: evidence, listing: diskList)
+            try requireLivePartitions(evidence: evidence, listing: listing)
           } catch { continue }
           found.append(
             CompletedRecoveryInstallation(

@@ -291,17 +291,15 @@ struct TechnicalDetailText: View {
 
 extension View {
   @ViewBuilder func omarchyPrimaryButton() -> some View {
-    let button = controlSize(.extraLarge).tint(.gray).font(.system(size: 16, weight: .medium))
+    let button = controlSize(.extraLarge).tint(.gray).font(.system(size: 15, weight: .medium))
     if #available(macOS 26.0, *) {
-      button.buttonStyle(.glass).buttonSizing(.flexible)
-        .frame(minWidth: 148, minHeight: 44)
-        .fixedSize()
+      button.buttonStyle(.glass)
     } else {
       button.buttonStyle(.bordered)
     }
   }
   @ViewBuilder func omarchySecondaryButton() -> some View {
-    let button = controlSize(.large).font(.system(size: 15, weight: .medium))
+    let button = controlSize(.extraLarge).font(.system(size: 15, weight: .medium))
     if #available(macOS 26.0, *) {
       button.buttonStyle(.glass)
     } else {
