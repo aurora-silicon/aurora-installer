@@ -24,19 +24,8 @@
     var openImage: @Sendable (URL, URL) throws -> NativeFirmwareMountedImage = {
       try NativeFirmwareMountedImage.open(image: $0, parent: $1)
     }
-    var factoryFiles: @Sendable (String) throws -> [String: Data] = { store in
-      try NativeSensorInputCollector.requireFactoryStore(
-        NativeHandoffEnvironment.live.disk(NativeSensorInputCollector.hardwareVolume.path),
-        partition: store + "s1")
-      let root = NativeSensorInputCollector.factoryDirectory
-      let tree = try NativeHandoffFileTree(root.deletingLastPathComponent(), protected: true)
-      let result = try NativeFirmwareInputFiles.snapshot(
-        root: root.deletingLastPathComponent(), prefix: root.lastPathComponent, tree: tree, owner: 0
-      )
-      try NativeSensorInputCollector.requireFactoryStore(
-        NativeHandoffEnvironment.live.disk(NativeSensorInputCollector.hardwareVolume.path),
-        partition: store + "s1")
-      return result
+    var factoryFiles: @Sendable (String) throws -> [String: Data] = {
+      try NativeFactoryCalibrationInput.snapshot(storeIdentifier: $0)
     }
     var admitESPFilesystem: @Sendable (Int32) throws -> Void = NativeESPFileStore.requireFAT
 
