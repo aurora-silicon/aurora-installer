@@ -72,6 +72,7 @@
     private let payloadImagesPreparer: any NativePayloadImagesPreparing
     private let espFilesPreparer: any NativeESPFilesPreparing
     private let installationFinisher: any NativeInstallationFinishingPreparing
+    private let preservedReinstall: any NativePreservedReinstallExecuting
     private let nativeHandoff: any NativeRecoveryHandoffExecuting
     private let collectInstallAdmission: @Sendable () throws -> NativeInstallAdmissionFacts
     private let validatePayload: @Sendable (ImportedEngineHandoffPackage) async throws -> Void
@@ -99,6 +100,7 @@
       let finishing = NativeInstallationFinisher()
       espFilesPreparer = NativeESPFilesPreparer(allowLegacyStage1: finishing.enabled)
       installationFinisher = finishing
+      preservedReinstall = NativePreservedInstallCoordinator()
       nativeHandoff = NativeRecoveryHandoffExecutor()
       collectInstallAdmission = { try NativeInstallAdmissionFacts.live() }
       validatePayload = { try await NativePayloadPreflight.check($0) }
@@ -124,6 +126,8 @@
       payloadImagesPreparer: any NativePayloadImagesPreparing = NativePayloadImagesPreparer(),
       espFilesPreparer: any NativeESPFilesPreparing = NativeESPFilesPreparer(),
       installationFinisher: any NativeInstallationFinishingPreparing = NativeInstallationFinisher(),
+      preservedReinstall: any NativePreservedReinstallExecuting =
+        NativePreservedInstallCoordinator(),
       nativeHandoff: any NativeRecoveryHandoffExecuting = NativeRecoveryHandoffExecutor(),
       collectInstallAdmission: @escaping @Sendable () throws -> NativeInstallAdmissionFacts = {
         try NativeInstallAdmissionFacts.live()
@@ -154,6 +158,7 @@
       self.payloadImagesPreparer = payloadImagesPreparer
       self.espFilesPreparer = espFilesPreparer
       self.installationFinisher = installationFinisher
+      self.preservedReinstall = preservedReinstall
       self.nativeHandoff = nativeHandoff
       self.collectInstallAdmission = collectInstallAdmission
       self.validatePayload = validatePayload
@@ -169,12 +174,23 @@
       guard effectiveUserID() == 0 else {
         throw PinnedAsahiEngineExecutionError.privilegeRequired
       }
-      // The preserved target has its own signed plan. Never reinterpret it as
-      // fresh space or launch the compatibility replacement operation.
-      guard package.installationIntent != .reinstall else {
-        throw PinnedAsahiEngineExecutionError.nativeReinstallUnavailable
-      }
       let journal = try preparePersistentJournal(for: package)
+      if package.installationIntent == .reinstall {
+        guard operation == .install else {
+          throw PinnedAsahiEngineExecutionError.nativeReinstallUnavailable
+        }
+        do {
+          return try await preservedReinstall.execute(
+            package, journal: journal, authorization: authorization)
+        } catch let error as PinnedAsahiEngineExecutionError {
+          throw error
+        } catch {
+          throw preparationFailure(
+            error, reason: .unclassified, operation: operation,
+            journal: journal, package: package, password: authorization.password,
+            summary: "The preserved installation did not complete.")
+        }
+      }
       let resumesNativePreparation =
         operation == .retryRecoveryAuthorization
         && nativeDiskPreparationRetryEligible(

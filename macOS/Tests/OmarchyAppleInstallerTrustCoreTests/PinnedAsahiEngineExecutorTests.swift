@@ -17,6 +17,26 @@
       }
     }
 
+    private struct RefusingPreservedReinstall: NativePreservedReinstallExecuting {
+      func execute(
+        _ package: ImportedEngineHandoffPackage, journal: URL,
+        authorization: MachineOwnerAuthorization
+      ) async throws -> Data {
+        throw PinnedAsahiEngineExecutionError.nativeReinstallUnavailable
+      }
+    }
+
+    private struct MarkerPreservedReinstall: NativePreservedReinstallExecuting {
+      let marker: URL
+      func execute(
+        _ package: ImportedEngineHandoffPackage, journal: URL,
+        authorization: MachineOwnerAuthorization
+      ) async throws -> Data {
+        try Data("native preserved".utf8).write(to: marker)
+        return Data("native preserved transcript\n".utf8)
+      }
+    }
+
     func testADelegatedHandoffRequiresAnAuthenticatedBackendCapability() async throws {
       let fixture = try makeFixture(supportsNativeHandoff: false)
       defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -46,6 +66,21 @@
         XCTAssertEqual(
           $0 as? PinnedAsahiEngineExecutionError, .nativeReinstallUnavailable)
       }
+      XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
+
+    func testPreservedReinstallUsesItsNativeCoordinatorWithoutLaunchingPython() async throws {
+      let fixture = try makeFixture(
+        missingBackendInterpreter: true, installationIntent: .reinstall)
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let marker = fixture.root.appendingPathComponent("preserved")
+      let executor = fixtureExecutor(
+        effectiveUserID: { 0 },
+        preservedReinstall: MarkerPreservedReinstall(marker: marker))
+      let result = try await executor.execute(
+        fixture.package, authorization: try machineOwnerAuthorization())
+      XCTAssertEqual(result, Data("native preserved transcript\n".utf8))
+      XCTAssertTrue(FileManager.default.fileExists(atPath: marker.path))
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
     }
     private struct FirmwareMarker: NativeFirmwarePreparing {
@@ -1236,6 +1271,7 @@
       payloadImagesPreparer: any NativePayloadImagesPreparing = NativeImagesFixture(),
       espFilesPreparer: any NativeESPFilesPreparing = NoNativeESPFixture(),
       installationFinisher: any NativeInstallationFinishingPreparing = NativeInstallationFinisher(),
+      preservedReinstall: any NativePreservedReinstallExecuting = RefusingPreservedReinstall(),
       collectInstallAdmission: @escaping @Sendable () throws -> NativeInstallAdmissionFacts = {
         NativeAdmissionTestData.facts()
       },
@@ -1259,6 +1295,7 @@
         apfsPreparer: apfsPreparer, stubFilesPreparer: stubFilesPreparer,
         osPartitionsPreparer: osPartitionsPreparer, payloadImagesPreparer: payloadImagesPreparer,
         espFilesPreparer: espFilesPreparer, installationFinisher: installationFinisher,
+        preservedReinstall: preservedReinstall,
         nativeHandoff: FixtureNativeHandoff(),
         collectInstallAdmission: collectInstallAdmission,
         validatePayload: { _ in

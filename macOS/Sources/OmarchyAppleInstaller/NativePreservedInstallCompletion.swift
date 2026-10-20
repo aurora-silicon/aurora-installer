@@ -95,6 +95,10 @@
         espUUID: target.esp.uuid.lowercased(), boot: boot, root: root,
         espDigest: espDigest)
       try journal.recordWritten(receipt)
+      if saved.state == .complete {
+        try verifySelection(target)
+        return try journal.snapshot().transcript
+      }
       try selectBoot(target, authorization)
       try verifySelection(target)
       try journal.complete { recorded in

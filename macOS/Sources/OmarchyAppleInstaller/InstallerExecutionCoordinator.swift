@@ -76,12 +76,19 @@
       )
       // Nothing leaves the app until the helper has answered.
       try await submitter.ping()
+      let recoveryTemplate =
+        prepared.review.plan.candidateKind == "reinstall"
+        ? nil
+        : Bundle.main.bundleURL.appendingPathComponent(
+          "Contents/Resources/RecoveryTemplate/"
+            + InstallerProductIdentity.recoveryAppBundleName)
       let process = ClosedEngineHandoffProcess(
         assets: prepared.review.assets,
         handoffDirectory: handoffDirectory,
         submitter: submitter,
         authorization: machineOwnerAuthorization,
-        operation: operation
+        operation: operation,
+        recoveryTemplate: recoveryTemplate
       )
       return try await execute(
         prepared,
