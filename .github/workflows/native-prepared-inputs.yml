@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: bf34a1a65af67cbaaeb19097096314aba63258c2
+          ref: e338b0e7ce7f2381e84dd032aac4e1fd76522c2c
           path: source
           persist-credentials: false
       - name: Record immutable source and toolchain
