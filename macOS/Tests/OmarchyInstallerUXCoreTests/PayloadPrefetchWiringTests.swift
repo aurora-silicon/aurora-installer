@@ -25,7 +25,8 @@
       XCTAssertLessThan(sample.lowerBound, inspection.lowerBound)
       let reserve = try XCTUnwrap(
         body.range(of: "let planningReserve = release.assets.planningReserveBytes"))
-      let freshProbe = try XCTUnwrap(body.range(of: "let freshHost = try await inspectCurrentHost()"))
+      let freshProbe = try XCTUnwrap(
+        body.range(of: "let freshHost = try await inspectCurrentHost()"))
       XCTAssertLessThan(sample.lowerBound, reserve.lowerBound)
       XCTAssertLessThan(reserve.lowerBound, freshProbe.lowerBound)
       XCTAssertLessThan(freshProbe.lowerBound, inspection.lowerBound)
