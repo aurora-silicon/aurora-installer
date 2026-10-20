@@ -23,8 +23,10 @@
     }
 
     var configuration: [String: Any] {
-      ["mode": "source-volume-owner", "sourceSystemUUID": systemUUID,
-       "sourceGroupUUID": groupUUID, "ownerUUIDs": [ownerUUID]]
+      [
+        "mode": "source-volume-owner", "sourceSystemUUID": systemUUID,
+        "sourceGroupUUID": groupUUID, "ownerUUIDs": [ownerUUID],
+      ]
     }
 
     static func uuid(_ value: String) throws -> String {
@@ -76,10 +78,12 @@
     }
 
     private func resolve(
-      snapshot: RemovalSnapshot, authorization: MachineOwnerAuthorization, mounts: NativeHandoffMounts
+      snapshot: RemovalSnapshot, authorization: MachineOwnerAuthorization,
+      mounts: NativeHandoffMounts
     ) throws -> NativeSourceBootstrap {
       try Task.checkCancellation()
       let root = try environment.disk("/")
+      try Task.checkCancellation()
       guard let group = root["APFSVolumeGroupID"] as? String,
         let reference = root["APFSContainerReference"] as? String,
         NativeInspectionCommands.identifier(reference)
@@ -96,29 +100,40 @@
         container.volumes.filter({ $0.roles == ["Recovery"] }).count == 1
       else { throw NativeHandoffValidationError.invalidOwner }
       let source = try environment.disk(systems[0].identifier)
-      guard (source["VolumeUUID"] as? String).flatMap(UUID.init(uuidString:))?.uuidString == systems[0].uuid,
-        (source["APFSVolumeGroupID"] as? String).flatMap(UUID.init(uuidString:))?.uuidString == groupUUID,
+      try Task.checkCancellation()
+      guard
+        (source["VolumeUUID"] as? String).flatMap(UUID.init(uuidString:))?.uuidString
+          == systems[0].uuid,
+        (source["APFSVolumeGroupID"] as? String).flatMap(UUID.init(uuidString:))?.uuidString
+          == groupUUID,
         source["APFSContainerReference"] as? String == reference
       else { throw NativeHandoffValidationError.invalidOwner }
       let guid = try NativeSourceBootstrap.uuid(environment.ownerUUID(authorization.username))
       let bootstrap = try NativeSourceBootstrap(
         systemUUID: systems[0].uuid, groupUUID: groupUUID, ownerUUID: guid)
       let users = try environment.plist(["apfs", "listUsers", bootstrap.systemUUID, "-plist"])
-      guard let entries = users["Users"] as? [[String: Any]], entries.contains(where: {
-        guard let flag = $0["VolumeOwner"] as? NSNumber,
-          CFGetTypeID(flag) == CFBooleanGetTypeID(), flag.boolValue else { return false }
-        return ($0["APFSCryptoUserUUID"] as? String).flatMap(UUID.init(uuidString:))?.uuidString == guid
-      }) else { throw NativeHandoffValidationError.invalidOwner }
+      guard let entries = users["Users"] as? [[String: Any]],
+        entries.contains(where: {
+          guard let flag = $0["VolumeOwner"] as? NSNumber,
+            CFGetTypeID(flag) == CFBooleanGetTypeID(), flag.boolValue
+          else { return false }
+          return ($0["APFSCryptoUserUUID"] as? String).flatMap(UUID.init(uuidString:))?.uuidString
+            == guid
+        })
+      else { throw NativeHandoffValidationError.invalidOwner }
       try Task.checkCancellation()
       let preboot = preboots[0]
       let url = try mounts.mounted(preboot.identifier, uuid: preboot.uuid, sourcePreboot: true)
       let tree = try NativeHandoffFileTree(
         url, protected: true, owner: environment.owner,
         volumeRoot: true, volumeDevice: preboot.identifier, verifyMount: environment.verifyMount)
-      guard let admins = try PropertyListSerialization.propertyList(
-        from: tree.read(groupUUID + "/var/db/AdminUserRecoveryInfo.plist", maximum: 1 << 20), format: nil
-      ) as? [String: [String: Any]],
-        (admins[authorization.username]?["GeneratedUID"] as? String).flatMap(UUID.init(uuidString:))?.uuidString == guid
+      guard
+        let admins = try PropertyListSerialization.propertyList(
+          from: tree.read(groupUUID + "/var/db/AdminUserRecoveryInfo.plist", maximum: 1 << 20),
+          format: nil
+        ) as? [String: [String: Any]],
+        (admins[authorization.username]?["GeneratedUID"] as? String).flatMap(
+          UUID.init(uuidString:))?.uuidString == guid
       else { throw NativeHandoffValidationError.invalidOwner }
       try Task.checkCancellation()
       return bootstrap

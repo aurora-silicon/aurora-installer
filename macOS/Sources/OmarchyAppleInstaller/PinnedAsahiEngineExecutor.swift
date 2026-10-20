@@ -84,7 +84,9 @@
       nativeHandoff = NativeRecoveryHandoffExecutor()
       collectInstallAdmission = { try NativeInstallAdmissionFacts.live() }
       validatePayload = { try await NativePayloadPreflight.check($0) }
-      validateSourceOwner = { _ = try NativeSourceOwnerAdmission().check(package: $0, authorization: $1) }
+      validateSourceOwner = {
+        _ = try NativeSourceOwnerAdmission().check(package: $0, authorization: $1)
+      }
       prepareRecoveryTemplate = { try NativeRecoveryTemplate.prepare(package: $0) }
     }
 
@@ -104,9 +106,11 @@
       validatePayload: @escaping @Sendable (ImportedEngineHandoffPackage) async throws -> Void = {
         try await NativePayloadPreflight.check($0)
       },
-      validateSourceOwner: @escaping @Sendable (ImportedEngineHandoffPackage, MachineOwnerAuthorization) throws -> Void = {
-        _ = try NativeSourceOwnerAdmission().check(package: $0, authorization: $1)
-      },
+      validateSourceOwner:
+        @escaping @Sendable (ImportedEngineHandoffPackage, MachineOwnerAuthorization) throws -> Void =
+        {
+          _ = try NativeSourceOwnerAdmission().check(package: $0, authorization: $1)
+        },
       prepareRecoveryTemplate:
         @escaping @Sendable (ImportedEngineHandoffPackage) throws -> PreparedNativeRecoveryTemplate =
         { try NativeRecoveryTemplate.prepare(package: $0) }

@@ -450,11 +450,14 @@
       else { throw NativeHandoffValidationError.invalidTarget }
       let name = arguments[2]
       if name == "/" {
-        return try plist(["APFSVolumeGroupID": bootstrap["sourceGroupUUID"]!, "APFSContainerReference": "disk4"])
+        return try plist([
+          "APFSVolumeGroupID": bootstrap["sourceGroupUUID"]!, "APFSContainerReference": "disk4",
+        ])
       }
       if name == "disk4s1" {
         return try plist([
-          "VolumeUUID": bootstrap["sourceSystemUUID"]!, "APFSVolumeGroupID": bootstrap["sourceGroupUUID"]!,
+          "VolumeUUID": bootstrap["sourceSystemUUID"]!,
+          "APFSVolumeGroupID": bootstrap["sourceGroupUUID"]!,
           "APFSContainerReference": "disk4",
         ])
       }

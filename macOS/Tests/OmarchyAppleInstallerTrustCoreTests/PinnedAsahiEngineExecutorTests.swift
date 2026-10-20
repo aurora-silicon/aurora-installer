@@ -712,7 +712,8 @@
       let fixture = try makeFixture(expectedInstallMode: "retry-recovery-authorization")
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let executor = fixtureExecutor(
-        effectiveUserID: { 0 }, firmwarePreparer: FailedFirmware(), rejectPayload: true, rejectSourceOwner: true)
+        effectiveUserID: { 0 }, firmwarePreparer: FailedFirmware(), rejectPayload: true,
+        rejectSourceOwner: true)
       let result = try await executor.execute(
         fixture.package,
         authorization: try machineOwnerAuthorization(), operation: .retryRecoveryAuthorization)
@@ -761,7 +762,8 @@
       let fixture = try makeFixture()
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let executor = fixtureExecutor(
-        effectiveUserID: { 0 }, firmwarePreparer: FailedFirmware(), rejectPayload: true, rejectSourceOwner: true)
+        effectiveUserID: { 0 }, firmwarePreparer: FailedFirmware(), rejectPayload: true,
+        rejectSourceOwner: true)
       await assertThrowsErrorAsync(
         try await executor.execute(fixture.package, authorization: try machineOwnerAuthorization())
       ) {
@@ -771,7 +773,8 @@
         }
         XCTAssertEqual(report.notice.reason, .recoveryPreparation)
         XCTAssertTrue(report.notice.diskUnchanged)
-        XCTAssertEqual(report.notice.summary, "The current macOS volume owner could not be verified.")
+        XCTAssertEqual(
+          report.notice.summary, "The current macOS volume owner could not be verified.")
       }
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
     }
