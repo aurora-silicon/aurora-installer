@@ -66,12 +66,28 @@
         matchingContainers[0].volumes.filter({ $0.roles == ["Preboot"] }).count == 1,
         matchingContainers[0].volumes.filter({ $0.roles == ["Recovery"] }).count == 1
       else { throw NativePreservedInstallError.changedLayout }
-      var fields = ["aurora.preserve-stage1-target", "1", snapshot.disk, title, system.group]
+      let container = matchingContainers[0]
+      let roles = ["System", "Data", "Preboot", "Recovery"]
+      let volumes = roles.compactMap { role in
+        container.volumes.first { $0.roles == [role] }
+      }
+      guard UUID(uuidString: container.uuid) != nil,
+        volumes.count == roles.count,
+        Set(volumes.map(\.uuid)).count == volumes.count,
+        volumes.allSatisfy({ UUID(uuidString: $0.uuid) != nil })
+      else { throw NativePreservedInstallError.changedLayout }
+      var fields = [
+        "aurora.preserve-stage1-target", "1", snapshot.disk, title, system.group,
+        container.uuid,
+      ]
       for part in parts {
         fields += [
           part.identifier, part.type, part.name, part.uuid,
           String(part.offset), String(part.size),
         ]
+      }
+      for volume in volumes {
+        fields += [volume.roles[0], volume.name, volume.uuid, volume.group ?? ""]
       }
       return Self(
         disk: snapshot.disk, title: title, group: system.group,

@@ -73,6 +73,23 @@
           disk, sourceIdentifier: "disk0s4", title: AuroraDistribution.nixos.title,
           bootImageBytes: 4096, rootImageBytes: 4096
         ).identityDigest)
+      var changed = disk.snapshot
+      let container = try XCTUnwrap(changed.containers.first)
+      changed.containers = [
+        RemovalContainer(
+          uuid: container.uuid, storeUUID: container.storeUUID,
+          volumes: container.volumes.map { volume in
+            guard volume.roles == ["System"] else { return volume }
+            return RemovalVolume(
+              uuid: UUID().uuidString, name: volume.name, roles: volume.roles,
+              group: volume.group, identifier: volume.identifier)
+          })
+      ]
+      let changedTarget = try NativePreservedInstallTarget.admit(
+        NativeCollectedDisk(snapshot: changed, containers: disk.containers),
+        sourceIdentifier: "disk0s4", title: AuroraDistribution.nixos.title,
+        bootImageBytes: 4096, rootImageBytes: 4096)
+      XCTAssertNotEqual(target.identityDigest, changedTarget.identityDigest)
     }
 
     func testRejectsChangedLayoutWrongProfileAndOversizedImageBeforeWrite() throws {
