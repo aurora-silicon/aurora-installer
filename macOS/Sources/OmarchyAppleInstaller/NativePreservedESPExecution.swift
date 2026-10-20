@@ -119,6 +119,13 @@
         receipts.append(receipt)
       }
       try verify()
+      return (receipts, Self.digest(receipts, approved: approved, target: target))
+    }
+
+    static func digest(
+      _ receipts: [NativePreservedESPEntryReceipt],
+      approved: ValidatedEnginePlan, target: NativePreservedInstallTarget
+    ) -> String {
       var fields = [approved.planDigest, target.identityDigest, target.esp.uuid.lowercased()]
       for receipt in receipts.sorted(by: { $0.path < $1.path }) {
         fields += [
@@ -126,7 +133,7 @@
           receipt.backup?.previous.sha256 ?? "",
         ]
       }
-      return (receipts, InstallerDigest.lengthPrefixedSHA256(fields).hexadecimal)
+      return InstallerDigest.lengthPrefixedSHA256(fields).hexadecimal
     }
   }
 #endif
