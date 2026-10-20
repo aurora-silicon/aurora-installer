@@ -20,7 +20,9 @@
     {
       let template = try NativePayloadPreflight.target(metadata)
       if let value = template["extras"] {
-        guard let extras = value as? [String] else { throw NativePayloadPreflightError.invalidMetadata }
+        guard let extras = value as? [String] else {
+          throw NativePayloadPreflightError.invalidMetadata
+        }
         // Legacy extra downloads retain their existing execution contract.
         if !extras.isEmpty { return nil }
       }

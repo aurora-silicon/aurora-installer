@@ -7,21 +7,29 @@
 
   final class NativeESPFileTests: XCTestCase, @unchecked Sendable {
     static func inputs() throws -> (Data, Data, [String: String]) {
-      let url = try XCTUnwrap(Bundle.module.url(forResource: "native-firmware-selection-vectors",
-        withExtension: "json", subdirectory: "Fixtures"))
+      let url = try XCTUnwrap(
+        Bundle.module.url(
+          forResource: "native-firmware-selection-vectors",
+          withExtension: "json", subdirectory: "Fixtures"))
       let document = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
-      var metadata = try JSONSerialization.jsonObject(with: Data((document["completeMetadata"] as! String).utf8)) as! [String: Any]
+      var metadata =
+        try JSONSerialization.jsonObject(with: Data((document["completeMetadata"] as! String).utf8))
+        as! [String: Any]
       var templates = metadata["os_list"] as! [[String: Any]]
       var rows = templates[0]["partitions"] as! [[String: Any]]
       rows[0]["size"] = "8MiB"
       templates[0]["partitions"] = rows
       metadata["os_list"] = templates
       let payload = try XCTUnwrap(Data(base64Encoded: document["completeArchive"] as! String))
-      let reference = try XCTUnwrap((document["boot"] as! [[String: Any]]).first {
-        $0["name"] as? String == "j700ap-26.6.2-True-all"
-      })
+      let reference = try XCTUnwrap(
+        (document["boot"] as! [[String: Any]]).first {
+          $0["name"] as? String == "j700ap-26.6.2-True-all"
+        })
       let expected = reference["expected"] as! [String: Any]
-      return (try JSONSerialization.data(withJSONObject: metadata), payload, expected["layout"] as! [String: String])
+      return (
+        try JSONSerialization.data(withJSONObject: metadata), payload,
+        expected["layout"] as! [String: String]
+      )
     }
     static func plan() async throws -> NativeESPPayloadPlan {
       let (metadata, payload, _) = try inputs()
@@ -57,13 +65,15 @@
       templates[0]["extras"] = ["https://example.org/legacy-extra"]
       document["os_list"] = templates
       let archive = try await IPSWArchive.open(NativeRawImageWriterTests.Source(bytes: payload))
-      let result = try await NativeESPPayloadPlan.make(metadata: JSONSerialization.data(withJSONObject: document),
+      let result = try await NativeESPPayloadPlan.make(
+        metadata: JSONSerialization.data(withJSONObject: document),
         archive: archive, device: "apple,j700", firmware: "26.6.2")
       XCTAssertNil(result)
       templates[0]["extras"] = "malformed"
       document["os_list"] = templates
       do {
-        _ = try await NativeESPPayloadPlan.make(metadata: JSONSerialization.data(withJSONObject: document),
+        _ = try await NativeESPPayloadPlan.make(
+          metadata: JSONSerialization.data(withJSONObject: document),
           archive: archive, device: "apple,j700", firmware: "26.6.2")
         XCTFail("Malformed extra-download contract admitted")
       } catch {}

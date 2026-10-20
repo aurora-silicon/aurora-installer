@@ -62,14 +62,23 @@
     }
 
     private struct NoNativeESPFixture: NativeESPFilesPreparing {
-      func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (any NativeESPFilesExecuting)? { nil }
+      func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (
+        any NativeESPFilesExecuting
+      )? { nil }
     }
     private struct NativeESPFixture: NativeESPFilesPreparing, NativeESPFilesExecuting {
       let marker: URL
       let images: URL
-      func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (any NativeESPFilesExecuting)? { self }
-      func prepare(journal: URL, authorization: MachineOwnerAuthorization, sourceBootstrap: NativeSourceBootstrap) async throws {
-        guard FileManager.default.fileExists(atPath: images.path) else { throw NativeHandoffValidationError.invalidTarget }
+      func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (
+        any NativeESPFilesExecuting
+      )? { self }
+      func prepare(
+        journal: URL, authorization: MachineOwnerAuthorization,
+        sourceBootstrap: NativeSourceBootstrap
+      ) async throws {
+        guard FileManager.default.fileExists(atPath: images.path) else {
+          throw NativeHandoffValidationError.invalidTarget
+        }
         try Data("ESP prepared".utf8).write(to: marker)
       }
     }
@@ -271,23 +280,28 @@
 
     func testNativeESPCapabilityPrecedesMutationAndPublicationFollowsImages() async throws {
       for supported in [false, true] {
-        let fixture = try makeFixture(supportsNativeESP: supported, expectNativeAPFS: true, expectNativeFiles: true)
+        let fixture = try makeFixture(
+          supportsNativeESP: supported, expectNativeAPFS: true, expectNativeFiles: true)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let apfs = fixture.root.appendingPathComponent("apfs")
         let files = fixture.root.appendingPathComponent("files")
         let partitions = fixture.root.appendingPathComponent("partitions")
         let images = fixture.root.appendingPathComponent("images")
         let esp = fixture.root.appendingPathComponent("esp")
-        let executor = fixtureExecutor(effectiveUserID: { 0 }, apfsPreparer: NativeAPFSFixture(marker: apfs),
+        let executor = fixtureExecutor(
+          effectiveUserID: { 0 }, apfsPreparer: NativeAPFSFixture(marker: apfs),
           stubFilesPreparer: NativeFilesFixture(marker: files, apfs: apfs),
           osPartitionsPreparer: NativePartitionsFixture(marker: partitions, files: files),
           payloadImagesPreparer: NativeImagesFixture(marker: images, partitions: partitions),
           espFilesPreparer: NativeESPFixture(marker: esp, images: images))
         if supported {
-          _ = try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
+          _ = try await executor.execute(
+            fixture.package, authorization: machineOwnerAuthorization())
           XCTAssertTrue(FileManager.default.fileExists(atPath: esp.path))
         } else {
-          await assertThrowsErrorAsync(try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())) { _ in }
+          await assertThrowsErrorAsync(
+            try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
+          ) { _ in }
           XCTAssertFalse(FileManager.default.fileExists(atPath: apfs.path))
           XCTAssertFalse(FileManager.default.fileExists(atPath: esp.path))
         }
@@ -1136,7 +1150,8 @@
         firmwarePreparer: firmwarePreparer,
         peripheralPreparer: peripheralPreparer,
         apfsPreparer: apfsPreparer, stubFilesPreparer: stubFilesPreparer,
-        osPartitionsPreparer: osPartitionsPreparer, payloadImagesPreparer: payloadImagesPreparer, espFilesPreparer: espFilesPreparer,
+        osPartitionsPreparer: osPartitionsPreparer, payloadImagesPreparer: payloadImagesPreparer,
+        espFilesPreparer: espFilesPreparer,
         nativeHandoff: FixtureNativeHandoff(),
         collectInstallAdmission: collectInstallAdmission,
         validatePayload: { _ in

@@ -259,7 +259,8 @@
           preparedStubFiles == nil ? nil : try osPartitionsPreparer.preflight(package)
         preparedPayloadImages =
           preparedOSPartitions == nil ? nil : try await payloadImagesPreparer.preflight(package)
-        preparedESPFiles = preparedPayloadImages == nil ? nil : try await espFilesPreparer.preflight(package)
+        preparedESPFiles =
+          preparedPayloadImages == nil ? nil : try await espFilesPreparer.preflight(package)
         if preparedESPFiles != nil { environment["OMARCHY_NATIVE_ESP_FILES"] = "helper-esp-v1" }
         if preparedPayloadImages != nil {
           environment["OMARCHY_NATIVE_PAYLOAD_IMAGES"] = "helper-images-v1"
@@ -309,7 +310,8 @@
                 try await preparedPayloadImages?.prepare(
                   journal: journal, authorization: authorization,
                   sourceBootstrap: sourceBootstrap)
-                try await preparedESPFiles?.prepare(journal: journal, authorization: authorization,
+                try await preparedESPFiles?.prepare(
+                  journal: journal, authorization: authorization,
                   sourceBootstrap: sourceBootstrap)
               } else {
                 let bytes = try self.readAdmissionJournal(journal)
