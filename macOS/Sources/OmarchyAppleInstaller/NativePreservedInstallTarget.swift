@@ -40,9 +40,10 @@
         ordered[index + 3].type == "Linux Filesystem"
       else { throw NativePreservedInstallError.unavailable }
       let parts = Array(ordered[index...index + 3])
-      guard zip(parts, parts.dropFirst()).allSatisfy({ pair in
-        pair.0.end == pair.1.offset
-      }), Set(parts.map(\.uuid)).count == 4
+      guard
+        zip(parts, parts.dropFirst()).allSatisfy({ pair in
+          pair.0.end == pair.1.offset
+        }), Set(parts.map(\.uuid)).count == 4
       else { throw NativePreservedInstallError.changedLayout }
       guard bootImageBytes <= parts[2].size, rootImageBytes <= parts[3].size else {
         throw NativePreservedInstallError.imageTooLarge

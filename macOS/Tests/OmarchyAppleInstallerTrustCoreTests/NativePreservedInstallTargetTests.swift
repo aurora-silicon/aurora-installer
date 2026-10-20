@@ -71,7 +71,8 @@
         target.identityDigest,
         try NativePreservedInstallTarget.admit(
           disk, sourceIdentifier: "disk0s4", title: AuroraDistribution.nixos.title,
-          bootImageBytes: 4096, rootImageBytes: 4096).identityDigest)
+          bootImageBytes: 4096, rootImageBytes: 4096
+        ).identityDigest)
     }
 
     func testRejectsChangedLayoutWrongProfileAndOversizedImageBeforeWrite() throws {
