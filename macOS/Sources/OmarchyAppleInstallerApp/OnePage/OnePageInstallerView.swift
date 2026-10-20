@@ -837,12 +837,6 @@ struct InstallPanel: View {
               )
               .foregroundStyle(
                 index <= progress.stageIndex ? OmarchyTheme.text : OmarchyTheme.secondaryText)
-              Spacer()
-              if verified(index) {
-                Text("Verified").font(OmarchyTheme.detail).foregroundStyle(.secondary)
-              } else if index == progress.stageIndex {
-                Text("In progress").font(OmarchyTheme.detail).foregroundStyle(.secondary)
-              }
             }
           }
         }

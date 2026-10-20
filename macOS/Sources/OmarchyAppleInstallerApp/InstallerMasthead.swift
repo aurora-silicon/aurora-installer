@@ -6,10 +6,13 @@ struct MacHeaderDisplay {
   let name: String
   let chip: String?
   let symbol: String
+  let powerButtonGuide: MacPowerButtonGuide
 
-  static let unknown = MacHeaderDisplay(name: "Mac", chip: nil, symbol: "desktopcomputer")
+  static let unknown = MacHeaderDisplay(
+    name: "Mac", chip: nil, symbol: "desktopcomputer", powerButtonGuide: .generic)
   static let simulation = MacHeaderDisplay(
-    name: "MacBook Neo", chip: "Apple A18 Pro", symbol: "laptopcomputer")
+    name: "MacBook Neo", chip: "Apple A18 Pro", symbol: "laptopcomputer",
+    powerButtonGuide: .notebook)
 
   static func inspect(isSimulation: Bool) -> MacHeaderDisplay {
     if isSimulation { return .simulation }
@@ -22,7 +25,10 @@ struct MacHeaderDisplay {
     case "Mac Studio": symbol = "macstudio"
     default: symbol = "desktopcomputer"
     }
-    return MacHeaderDisplay(name: family ?? "Mac", chip: identity.chip, symbol: symbol)
+    return MacHeaderDisplay(
+      name: family ?? "Mac", chip: identity.chip, symbol: symbol,
+      powerButtonGuide: MacPowerButtonGuide(
+        deviceIdentifier: identity.deviceIdentifier, modelIdentifier: identity.model))
   }
 }
 
@@ -43,15 +49,15 @@ struct InstallerMasthead: View {
       }
       Spacer(minLength: 16)
       HStack(spacing: Self.markSpacing) {
+        Image(systemName: device.symbol).font(.system(size: 23, weight: .regular))
+          .frame(width: 30, height: 30)
+          .accessibilityHidden(true)
         VStack(alignment: .trailing, spacing: 2) {
           Text(device.name).font(.system(size: 12, weight: .medium))
           if let chip = device.chip {
             Text(chip).font(.system(size: 11)).foregroundStyle(.secondary)
           }
         }
-        Image(systemName: device.symbol).font(.system(size: 23, weight: .regular))
-          .frame(width: 30, height: 30)
-          .accessibilityHidden(true)
       }
       .lineLimit(1)
       .fixedSize(horizontal: true, vertical: false)

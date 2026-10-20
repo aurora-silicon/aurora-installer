@@ -14,7 +14,10 @@ struct RecoveryHandoffView: View {
   @State private var showingFailure = false
   @State private var showingDetails = false
   @State private var shutdownConfirmed = false
-  private var guide: MacPowerButtonGuide { session?.powerButtonGuide ?? .notebook }
+  private var guide: MacPowerButtonGuide {
+    let restoredGuide = session?.powerButtonGuide ?? .generic
+    return restoredGuide == .generic ? device.powerButtonGuide : restoredGuide
+  }
 
   var body: some View {
     InstallerPageLayout {
@@ -54,7 +57,7 @@ struct RecoveryHandoffView: View {
         NativeSpinner().controlSize(.small)
           .frame(width: 16, height: 16).opacity(busy ? 1 : 0)
           .accessibilityHidden(!busy).accessibilityLabel("Preparing shutdown")
-        Button(shutdownConfirmed ? "YES, I HAVE READ, SHUT DOWN" : "Shut Down", action: shutDown)
+        Button(shutdownConfirmed ? "Yes, I have read, shut down" : "Shut down", action: shutDown)
           .omarchyPrimaryButton().disabled(busy)
         Color.clear.frame(width: 16, height: 16).accessibilityHidden(true)
       }
