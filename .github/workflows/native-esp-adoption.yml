@@ -1,0 +1,83 @@
+name: Qualify native ESP execution adoption
+on:
+  push:
+    branches: [ci/native-recovery-review]
+    paths: [.github/workflows/native-esp-adoption.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: macos-26
+    timeout-minutes: 35
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+      XCODEBUILDMCP_SENTRY_DISABLED: 'true'
+    defaults:
+      run:
+        shell: bash
+        working-directory: source/macOS
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: 117a79c728c6ef45e916461cfe782dd7c1bc0f8c
+          path: source
+          persist-credentials: false
+      - name: Record immutable source and toolchain
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence" "$RUNNER_TEMP/tools"
+          if [[ ! -x /opt/homebrew/opt/openssl@3/bin/openssl ]]; then brew install openssl@3; fi
+          echo /opt/homebrew/opt/openssl@3/bin >> "$GITHUB_PATH"
+          { git rev-parse HEAD; sw_vers; uname -m; xcodebuild -version; xcrun swift --version; xcrun swift-format --version; } > "$RUNNER_TEMP/evidence/toolchain.txt"
+          /opt/homebrew/opt/openssl@3/bin/openssl version >> "$RUNNER_TEMP/evidence/toolchain.txt"
+          [[ $(uname -m) == arm64 ]]
+          cd "$RUNNER_TEMP/tools"
+          curl --fail --location --silent --show-error --retry 3 \
+            https://github.com/getsentry/XcodeBuildMCP/releases/download/v2.7.0/xcodebuildmcp-2.7.0-darwin-arm64.tar.gz -o tool.tar.gz
+          echo 'bd724a2c0e6ffe027b3f46257e66d626149a64cd045f4867124bd683b3cf081a  tool.tar.gz' | shasum -a 256 -c -
+          tar -xzf tool.tar.gz
+          echo "$PWD/xcodebuildmcp-2.7.0-darwin-arm64/bin" >> "$GITHUB_PATH"
+      - name: Format the focused candidate with Xcode
+        run: |
+          set -euo pipefail
+          xcrun swift-format format -i --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
+          git diff --binary > "$RUNNER_TEMP/evidence/format.patch"
+          xcrun swift-format lint --strict --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
+      - name: Qualify ESP execution capability and stage ordering
+        run: |
+          set -euo pipefail
+          filter='PinnedAsahiEngineExecutorTests|ValidationEngineArtifactTests'
+          xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug \
+            --filter "$filter" 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
+      - name: Qualify ESP execution adoption in release
+        run: |
+          set -euo pipefail
+          filter='PinnedAsahiEngineExecutorTests|ValidationEngineArtifactTests'
+          xcodebuildmcp swift-package test --package-path "$PWD" --configuration release \
+            --filter "$filter" 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
+      - name: Reproduce runtime and verify reference vectors
+        run: |
+          set -euo pipefail
+          export PYTHONPYCACHEPREFIX="$RUNNER_TEMP/reference-pycache"
+          runtime="$RUNNER_TEMP/installer-v0.9.2-aurora.12.tar.gz"
+          trap 'rm -f "$runtime"' EXIT
+          bash test/prepare-reference-runtime.sh "$runtime" | tee "$RUNNER_TEMP/evidence/reference-build.log"
+          python3 test/native-inspection-vectors.py --runtime "$runtime" | tee "$RUNNER_TEMP/evidence/inspection-vectors.log"
+          python3 test/native-firmware-selection-vectors.py --runtime "$runtime" | tee "$RUNNER_TEMP/evidence/firmware-vectors.log"
+          python3 test/native-neo-firmware-vectors.py --runtime "$runtime" | tee "$RUNNER_TEMP/evidence/neo-vectors.log"
+      - name: Retain the native driver logs
+        if: always()
+        run: |
+          set -euo pipefail
+          root="$HOME/Library/Developer/XcodeBuildMCP/workspaces"
+          if [[ -d $root ]]; then
+            find "$root" -type f -path '*/logs/swift_package_test_*.log' \
+              -exec cp {} "$RUNNER_TEMP/evidence/" \;
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: native-esp-adoption-evidence
+          path: ${{ runner.temp }}/evidence/
+          retention-days: 14
