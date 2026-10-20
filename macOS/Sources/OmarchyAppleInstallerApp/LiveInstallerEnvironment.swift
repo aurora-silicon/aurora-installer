@@ -809,13 +809,17 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     release: String
   ) -> PlanDisplay {
     let length = review.plan.lengthBytes
-    let total = geometry?.diskTotalBytes ?? (
+    let total =
+      geometry?.diskTotalBytes
+      ?? (review.plan.candidateKind == "free"
+        ? host.storage.containerSizeBytes + recommendation.candidate.lengthBytes
+        : max(host.storage.containerSizeBytes, length))
+    let source: PlanAllocationSource =
       review.plan.candidateKind == "free"
-      ? host.storage.containerSizeBytes + recommendation.candidate.lengthBytes
-      : max(host.storage.containerSizeBytes, length))
-    let source: PlanAllocationSource = review.plan.candidateKind == "free" ? .freeExtent
-      : (review.plan.sourceIdentifier == (geometry?.macOSStoreIdentifier ?? host.storage.physicalStoreIdentifier)
-          ? .macOSResize : .otherContainerResize)
+      ? .freeExtent
+      : (review.plan.sourceIdentifier
+        == (geometry?.macOSStoreIdentifier ?? host.storage.physicalStoreIdentifier)
+        ? .macOSResize : .otherContainerResize)
     let sourceName = (geometry?.partitionNames[review.plan.sourceIdentifier]).flatMap {
       $0.isEmpty ? nil : String($0.prefix(128))
     }
@@ -824,8 +828,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     case .freeExtent: targetDescription = "Internal storage · Use free space"
     case .macOSResize: targetDescription = "Internal storage · Resize macOS"
     case .otherContainerResize:
-      targetDescription = "Internal storage · Resize " + (
-        sourceName ?? "another APFS container")
+      targetDescription = "Internal storage · Resize " + (sourceName ?? "another APFS container")
     }
 
     return PlanDisplay(

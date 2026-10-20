@@ -160,10 +160,12 @@
       self.releaseDescription = releaseDescription
       self.targetDescription = targetDescription
       self.fixedMacOSBytes = fixedMacOSBytes
-      self.allocationSource = allocationSource ?? (fixedMacOSBytes == nil ? .macOSResize : .freeExtent)
+      self.allocationSource =
+        allocationSource ?? (fixedMacOSBytes == nil ? .macOSResize : .freeExtent)
       self.baselineOtherAllocatedBytes = min(otherAllocatedBytes, diskTotalBytes)
       self.baselineMacOSBytes = min(
-        baselineMacOSBytes ?? fixedMacOSBytes ?? (diskTotalBytes - self.baselineOtherAllocatedBytes),
+        baselineMacOSBytes ?? fixedMacOSBytes
+          ?? (diskTotalBytes - self.baselineOtherAllocatedBytes),
         diskTotalBytes - self.baselineOtherAllocatedBytes)
       self.macOSFreeBeforeAllocationBytes = macOSFreeBeforeAllocationBytes
       self.recommendedOmarchyBytes = recommendedOmarchyBytes
@@ -174,7 +176,9 @@
   extension PlanDisplay {
     /// Shared by the bar, its accessibility value, and the visible warning.
     public func macOSSpaceCaution(for allocation: UInt64) -> String? {
-      guard allocationSource == .macOSResize, let free = macOSFreeBeforeAllocationBytes else { return nil }
+      guard allocationSource == .macOSResize, let free = macOSFreeBeforeAllocationBytes else {
+        return nil
+      }
       let remaining = free - min(free, allocation)
       guard remaining < Self.recommendedMacOSFreeBytes else { return nil }
       return

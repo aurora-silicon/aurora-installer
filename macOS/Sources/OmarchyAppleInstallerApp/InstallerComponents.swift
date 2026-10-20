@@ -120,7 +120,10 @@ struct DiskBar: View {
 
   var body: some View {
     GeometryReader { geometry in
-      let total = max(1, Double(macOSBytes) + Double(omarchyBytes) + Double(unallocatedBytes) + Double(otherAllocatedBytes))
+      let total = max(
+        1,
+        Double(macOSBytes) + Double(omarchyBytes) + Double(unallocatedBytes)
+          + Double(otherAllocatedBytes))
       let width = geometry.size.width
       let omarchyWidth = width * Double(omarchyBytes) / total
       ZStack(alignment: .leading) {
@@ -135,7 +138,8 @@ struct DiskBar: View {
             segment(
               name: "Other", bytes: otherAllocatedBytes,
               width: width * Double(otherAllocatedBytes) / total,
-              background: OmarchyTheme.secondaryText.opacity(0.25), foreground: OmarchyTheme.secondaryText)
+              background: OmarchyTheme.secondaryText.opacity(0.25),
+              foreground: OmarchyTheme.secondaryText)
           }
           if unallocatedBytes > 0 {
             segment(
@@ -182,12 +186,16 @@ struct DiskBar: View {
     .accessibilityLabel("Disk space")
     .accessibilityValue(
       "macOS \(PlainLanguage.bytes(macOSBytes)), Aurora \(PlainLanguage.bytes(omarchyBytes)), unallocated \(PlainLanguage.bytes(unallocatedBytes))"
-        + (otherAllocatedBytes > 0 ? ", other storage \(PlainLanguage.bytes(otherAllocatedBytes))" : "")
+        + (otherAllocatedBytes > 0
+          ? ", other storage \(PlainLanguage.bytes(otherAllocatedBytes))" : "")
         + (macOSSpaceCaution.map { ". " + $0 } ?? "")
     )
     .accessibilityAdjustableAction { direction in
       guard !isFrozen else { return }
-      let total = max(1, Double(macOSBytes) + Double(omarchyBytes) + Double(unallocatedBytes) + Double(otherAllocatedBytes))
+      let total = max(
+        1,
+        Double(macOSBytes) + Double(omarchyBytes) + Double(unallocatedBytes)
+          + Double(otherAllocatedBytes))
       let change: Double
       switch direction {
       case .increment: change = 1_000_000_000

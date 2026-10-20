@@ -699,7 +699,9 @@ struct DiskSplitPanel: View {
             Text(plan.targetDescription)
             Spacer()
             if plan.otherAllocatedBytes(for: displayedOmarchyBytes) > 0 {
-              Text("Other storage \(PlainLanguage.bytes(plan.otherAllocatedBytes(for: displayedOmarchyBytes)))")
+              Text(
+                "Other storage \(PlainLanguage.bytes(plan.otherAllocatedBytes(for: displayedOmarchyBytes)))"
+              )
             }
           }
           .font(OmarchyTheme.detail).foregroundStyle(.secondary)
@@ -776,8 +778,10 @@ struct DiskSplitPanel: View {
             )
             .omarchyHelpText()
           } else if plan.allocationSource == .otherContainerResize {
-            Text("macOS keeps its current size. Aurora uses space from the selected APFS container.")
-              .omarchyHelpText()
+            Text(
+              "macOS keeps its current size. Aurora uses space from the selected APFS container."
+            )
+            .omarchyHelpText()
           }
         }
       }

@@ -10,7 +10,9 @@
     @State private var allocation: UInt64 = 128_000_000_000
 
     private var plan: PlanDisplay {
-      let source: PlanAllocationSource = screen == "allocation-other" ? .otherContainerResize
+      let source: PlanAllocationSource =
+        screen == "allocation-other"
+        ? .otherContainerResize
         : (screen == "allocation-free" ? .freeExtent : .macOSResize)
       let macOS: UInt64 = source == .macOSResize ? 400_000_000_000 : 256_000_000_000
       let other: UInt64 = source == .otherContainerResize ? 208_000_000_000 : 64_000_000_000
@@ -18,8 +20,10 @@
         diskTotalBytes: 512_000_000_000, omarchyBytes: allocation,
         bindingDigest: String(repeating: "a", count: 64), minimumBytes: 32_000_000_000,
         maximumBytes: source == .otherContainerResize ? 160_000_000_000 : 192_000_000_000,
-        targetDescription: source == .otherContainerResize ? "Internal storage · Resize Work"
-          : (source == .freeExtent ? "Internal storage · Use free space" : "Internal storage · Resize macOS"),
+        targetDescription: source == .otherContainerResize
+          ? "Internal storage · Resize Work"
+          : (source == .freeExtent
+            ? "Internal storage · Use free space" : "Internal storage · Resize macOS"),
         fixedMacOSBytes: source == .macOSResize ? nil : macOS,
         allocationSource: source, baselineMacOSBytes: macOS, otherAllocatedBytes: other)
     }
@@ -55,8 +59,11 @@
       case "allocation", "allocation-free", "allocation-other":
         DiskSplitPanel(plan: plan, editable: true, isBusy: false, onSizeChosen: { allocation = $0 })
         EncryptDiskToggle(isOn: true, enabled: true, onChange: { _ in })
-        Toggle(PlainLanguage.planAcknowledgement(resizesMacOS: plan.allocationSource != .freeExtent), isOn: .constant(false))
-          .toggleStyle(.checkbox).font(OmarchyTheme.body)
+        Toggle(
+          PlainLanguage.planAcknowledgement(resizesMacOS: plan.allocationSource != .freeExtent),
+          isOn: .constant(false)
+        )
+        .toggleStyle(.checkbox).font(OmarchyTheme.body)
       case "loading":
         PreparationStatusPanel()
       case "preparing":

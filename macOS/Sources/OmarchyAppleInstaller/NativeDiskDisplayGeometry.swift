@@ -48,9 +48,10 @@
         // Includes system partitions, GPT space and gaps too small to allocate.
         otherAllocatedBytes: snapshot.diskSize - store.size - free,
         unallocatedBytes: free,
-        partitionNames: Dictionary(uniqueKeysWithValues: snapshot.partitions.map {
-          ($0.identifier, $0.name)
-        }))
+        partitionNames: Dictionary(
+          uniqueKeysWithValues: snapshot.partitions.map {
+            ($0.identifier, $0.name)
+          }))
     }
   }
 #endif
