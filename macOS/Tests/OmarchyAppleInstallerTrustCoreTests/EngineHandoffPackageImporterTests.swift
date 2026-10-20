@@ -611,9 +611,14 @@
         {"format":1,"binding_digest":"\(bindingDigest)","request_file":"request.json","identity_file":"identity.json","engine":{"file_name":"\(engineFileName)","digest":"\(engineDigest)","size_bytes":\(engine.count)},"metadata":{"file_name":"installer-data.json","digest":"\(metadataDigest)","size_bytes":\(metadata.count)},"payload":{"file_name":"omarchy.img.zst","digest":"\(payloadDigest)","size_bytes":\(payload.count)},"restore_image":{"file_name":"\(RestoreImageHelper.fileName)","digest":"\(digest(decoder))","size_bytes":\(decoder.count)}\(repairManifestField)\(extraField)}
         """.utf8
       )
-      let operation =
-        repair ? "repair-installed-system"
-        : reinstall ? ImportedInstallationIntent.reinstallOperation : "install"
+      let operation: String
+      if repair {
+        operation = "repair-installed-system"
+      } else if reinstall {
+        operation = ImportedInstallationIntent.reinstallOperation
+      } else {
+        operation = "install"
+      }
       let humanStepsJSON =
         reinstall
         ? "[\"authenticateMachineOwner\"]"
