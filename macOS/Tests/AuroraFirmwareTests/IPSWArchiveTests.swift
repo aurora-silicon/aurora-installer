@@ -177,15 +177,17 @@ final class IPSWArchiveTests: XCTestCase, @unchecked Sendable {
 
   private func largeBytes() throws -> Data {
     struct Large: Decodable { let archive: Data }
-    let url = try XCTUnwrap(Bundle.module.url(
-      forResource: "zip-prefix", withExtension: "json", subdirectory: "Fixtures"))
+    let url = try XCTUnwrap(
+      Bundle.module.url(
+        forResource: "zip-prefix", withExtension: "json", subdirectory: "Fixtures"))
     return try JSONDecoder().decode(Large.self, from: Data(contentsOf: url)).archive
   }
 
   func testPrefixesInteroperateAndCompleteReadsStillCheckCRCAndEnd() async throws {
     for record in try fixture().archives {
-      let archive = try await IPSWArchive.open(ZIPSource(
-        data: try XCTUnwrap(Data(base64Encoded: record.data))))
+      let archive = try await IPSWArchive.open(
+        ZIPSource(
+          data: try XCTUnwrap(Data(base64Encoded: record.data))))
       let member = try XCTUnwrap(archive.members.first)
       let prefix = try await archive.readPrefix(member, maximumBytes: 5)
       XCTAssertEqual(prefix, Data("<plis".utf8), record.name)
@@ -218,8 +220,33 @@ final class IPSWArchiveTests: XCTestCase, @unchecked Sendable {
     XCTAssertLessThanOrEqual(after - before, 65536 + 256)
     for (output, input) in [(0, 1024), ((1 << 20) + 1, 1024), (0x11000, 1), (1024, 0)] {
       do {
-        _ = try await archive.readPrefix(member, maximumBytes: output, maximumCompressedBytes: input)
+        _ = try await archive.readPrefix(
+          member, maximumBytes: output, maximumCompressedBytes: input)
         XCTFail("Invalid or exhausted prefix budget admitted")
+      } catch is RestoreFailure {}
+    }
+  }
+
+  func testCompleteDeflatedPrefixesRejectLengthChangesAndTrailingData() async throws {
+    for change in [-1, 1, 0] {
+      var data = try bytes("deflate")
+      var cd = try central(data)
+      if change == 0 {
+        let compressed = try data.little(18, 4)
+        data.insert(0, at: cd)
+        cd += 1
+        set(&data, at: 18, value: compressed + 1, width: 4)
+        set(&data, at: cd + 20, value: compressed + 1, width: 4)
+        set(&data, at: data.count - 22 + 16, value: cd, width: 4)
+      } else {
+        let length = try data.little(22, 4) + change
+        set(&data, at: 22, value: length, width: 4)
+        set(&data, at: cd + 24, value: length, width: 4)
+      }
+      let archive = try await IPSWArchive.open(ZIPSource(data: data))
+      do {
+        _ = try await archive.readPrefix(try XCTUnwrap(archive.members.first), maximumBytes: 1024)
+        XCTFail("Complete prefix accepted a changed stream length")
       } catch is RestoreFailure {}
     }
   }

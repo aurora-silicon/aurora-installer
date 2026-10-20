@@ -21,7 +21,8 @@
       else { throw NativePayloadPreflightError.invalidPayload }
       let tree = try NativeHandoffFileTree(package.packageURL, protected: true, owner: owner)
       let metadata = try tree.read(package.metadataURL.lastPathComponent, maximum: 65_536)
-      let archive = try await IPSWArchive.open(NativePayloadRangeReader(package.payloadURL, owner: owner))
+      let archive = try await IPSWArchive.open(
+        NativePayloadRangeReader(package.payloadURL, owner: owner))
       try await validate(
         metadata: metadata, payloadName: package.payloadURL.lastPathComponent, archive: archive)
     }
@@ -60,7 +61,9 @@
       else { throw NativePayloadPreflightError.invalidMetadata }
       if let mode = template["recovery_gui"], !(mode is NSNull),
         mode as? String != "omarchy-native-v1"
-      { throw NativePayloadPreflightError.unsupportedRecovery }
+      {
+        throw NativePayloadPreflightError.unsupportedRecovery
+      }
       guard let partitions = template["partitions"] as? [[String: Any]], partitions.count == 3
       else { throw NativePayloadPreflightError.invalidPartitions }
       for (index, partition) in partitions.enumerated() {

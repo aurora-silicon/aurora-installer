@@ -30,8 +30,9 @@
     }
 
     private func fixture() throws -> Fixture {
-      let url = try XCTUnwrap(Bundle.module.url(
-        forResource: "native-payload-vectors", withExtension: "json", subdirectory: "Fixtures"))
+      let url = try XCTUnwrap(
+        Bundle.module.url(
+          forResource: "native-payload-vectors", withExtension: "json", subdirectory: "Fixtures"))
       return try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
     }
 
@@ -39,8 +40,9 @@
       let fixture = try fixture()
       XCTAssertEqual(fixture.vectors.count, 38)
       for vector in fixture.vectors {
-        let archive = try await IPSWArchive.open(PayloadFixtureSource(
-          bytes: try XCTUnwrap(fixture.archives[vector.archive])))
+        let archive = try await IPSWArchive.open(
+          PayloadFixtureSource(
+            bytes: try XCTUnwrap(fixture.archives[vector.archive])))
         var accepted = false
         do {
           try await NativePayloadPreflight.validate(
@@ -54,8 +56,9 @@
     func testBooleanPartitionFieldsCannotBeStringsOrNumbers() async throws {
       let fixture = try fixture()
       let vector = try XCTUnwrap(fixture.vectors.first)
-      let archive = try await IPSWArchive.open(PayloadFixtureSource(
-        bytes: try XCTUnwrap(fixture.archives[vector.archive])))
+      let archive = try await IPSWArchive.open(
+        PayloadFixtureSource(
+          bytes: try XCTUnwrap(fixture.archives[vector.archive])))
       for value in [1 as Any, "true", NSNull()] {
         var document = try XCTUnwrap(
           JSONSerialization.jsonObject(with: Data(vector.metadata.utf8)) as? [String: Any])
@@ -75,10 +78,13 @@
 
     func testMetadataBoundsAndTopLevelShapeFailClosed() async throws {
       let fixture = try fixture()
-      let archive = try await IPSWArchive.open(PayloadFixtureSource(
-        bytes: try XCTUnwrap(fixture.archives["btrfs"])))
-      for metadata in [Data(), Data(repeating: 32, count: 65_537), Data("[]".utf8),
-                       Data("{\"os_list\":[]}".utf8)] {
+      let archive = try await IPSWArchive.open(
+        PayloadFixtureSource(
+          bytes: try XCTUnwrap(fixture.archives["btrfs"])))
+      for metadata in [
+        Data(), Data(repeating: 32, count: 65_537), Data("[]".utf8),
+        Data("{\"os_list\":[]}".utf8),
+      ] {
         do {
           try await NativePayloadPreflight.validate(
             metadata: metadata, payloadName: "payload.zip", archive: archive)
