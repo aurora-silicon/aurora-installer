@@ -62,10 +62,13 @@ def generate():
         except reference.MesaError:
             value.update(accepted=False)
         vectors.append(value)
-    root = der(0x30, text("IMG4") + der(0x30, text("IM4P") + text("MSRk") + text("1.0")
-               + der(4, b"synthetic sensor public-key payload"))
-               + der(0xa0, der(0x30, text("IM4M") + der(2, b"\0") + der(0x31, b"")
-                              + der(4, b"synthetic signature") + der(0x30, b""))))
+    root_payload = der(0x30, text("IM4P") + text("MSRk") + text("1.0")
+                       + der(4, b"synthetic sensor public-key payload"))
+    root_manifest = der(0x30, text("IM4M") + der(2, b"\0") + der(0x31, b"")
+                        + der(4, b"synthetic signature") + der(0x30, b""))
+    root = der(0x30, text("IMG4") + root_payload + der(0xa0, root_manifest))
+    overfull = der(0x30, text("IMG4") + root_payload + der(0xa0,
+                   der(0x30, text("IM4M") + der(2, b"\0") + der(0x30, b"") * 1023)))
     bare = root
     def combined_root(blob=bare, security=b"synthetic trust bundle"):
         return der(0x30, text("comb") + der(0x30, text("fdrd") + der(4, blob))
@@ -73,6 +76,7 @@ def generate():
     root = combined_root()
     roots = [("complete-root", root, True), ("bare-root", bare, False),
              ("empty-trust-bundle", combined_root(security=b""), False),
+             ("manifest-field-limit", combined_root(overfull), False),
              ("embedded-trailing-data", combined_root(bare + b"trailing"), False),
              ("truncated-root", root[:-1], False),
              ("trailing-root-data", root + b"unexpected", False),
