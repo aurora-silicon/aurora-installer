@@ -140,7 +140,9 @@
       let incomplete = try InputFixture(kind: "free")
       defer { incomplete.remove() }
       try incomplete.prepare()
-      var records = try Data(contentsOf: incomplete.journal).split(separator: UInt8(10)).map { Data($0) }
+      var records = try Data(contentsOf: incomplete.journal).split(separator: UInt8(10)).map {
+        Data($0)
+      }
       records.removeLast()
       try
         (records.reduce(into: Data()) {
