@@ -47,9 +47,11 @@ let package = Package(
       name: "AuroraFirmwareCheck", dependencies: ["AuroraFirmware"],
       path: "Development/NativeFirmwareCheck"),
     .testTarget(
-      name: "AuroraFirmwareTests", dependencies: ["AuroraFirmware", "NativeFirmwareFixtureSupport"],
+      name: "AuroraFirmwareTests",
+      dependencies: ["AuroraFirmware", "NativeFirmwareFixtureSupport"],
       resources: [.copy("Fixtures")]),
-    .target(name: "NativeFirmwareFixtureSupport", path: "Tests/NativeFirmwareFixtureSupport",
+    .target(
+      name: "NativeFirmwareFixtureSupport", path: "Tests/NativeFirmwareFixtureSupport",
       resources: [.copy("Fixtures")]),
     .target(name: "RecoveryAuthorization", path: "Recovery/Native", publicHeadersPath: "."),
     .target(
@@ -116,7 +118,9 @@ let package = Package(
     ),
     .testTarget(
       name: "OmarchyAppleInstallerTrustCoreTests",
-      dependencies: ["OmarchyAppleInstallerTrustCore", "RecoveryAccountCore", "NativeFirmwareFixtureSupport"],
+      dependencies: [
+        "OmarchyAppleInstallerTrustCore", "RecoveryAccountCore", "NativeFirmwareFixtureSupport",
+      ],
       path: "Tests/OmarchyAppleInstallerTrustCoreTests",
       resources: [.copy("Fixtures")]
     ),

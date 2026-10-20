@@ -42,17 +42,22 @@
     private struct RawFirmwareFixture: NativeFirmwarePreparing {
       let url: URL
       func prepare(deviceIdentifier: String, in workingDirectory: URL) async throws -> URL? {
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false,
+        try FileManager.default.createDirectory(
+          at: url, withIntermediateDirectories: false,
           attributes: [.posixPermissions: 0o700])
         return url
       }
     }
     private struct ConvertedPeripheralFixture: NativePeripheralPreparing {
       let url: URL
-      func prepare(package: ImportedEngineHandoffPackage, rawDirectory: URL) async throws -> PreparedNativePeripheralInputs {
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false,
+      func prepare(package: ImportedEngineHandoffPackage, rawDirectory: URL) async throws
+        -> PreparedNativePeripheralInputs
+      {
+        try FileManager.default.createDirectory(
+          at: url, withIntermediateDirectories: false,
           attributes: [.posixPermissions: 0o700])
-        return PreparedNativePeripheralInputs(directory: url, recipeSHA256: String(repeating: "a", count: 64))
+        return PreparedNativePeripheralInputs(
+          directory: url, recipeSHA256: String(repeating: "a", count: 64))
       }
     }
 
@@ -61,14 +66,19 @@
         let fixture = try makeFixture(supportsNativePeripherals: supported)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let converted = fixture.root.appendingPathComponent("converted-peripherals")
-        let executor = fixtureExecutor(effectiveUserID: { 0 },
-          firmwarePreparer: RawFirmwareFixture(url: fixture.root.appendingPathComponent("raw-firmware")),
+        let executor = fixtureExecutor(
+          effectiveUserID: { 0 },
+          firmwarePreparer: RawFirmwareFixture(
+            url: fixture.root.appendingPathComponent("raw-firmware")),
           peripheralPreparer: ConvertedPeripheralFixture(url: converted))
         if supported {
-          let result = try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
+          let result = try await executor.execute(
+            fixture.package, authorization: machineOwnerAuthorization())
           XCTAssertEqual(result, fixture.transcript)
         } else {
-          await assertThrowsErrorAsync(try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())) {
+          await assertThrowsErrorAsync(
+            try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
+          ) {
             guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
               return XCTFail("Expected prepared-input capability refusal")
             }
@@ -939,7 +949,8 @@
         supportsSignedDecoder ? ",\"signedHelperInput\":\"helper-executable-v1\"" : ""
       let handoffCapability =
         supportsNativeHandoff ? ",\"nativeHandoff\":\"helper-finalize-v1\"" : ""
-      let peripheralCapability = supportsNativePeripherals ? ",\"nativePeripheralInput\":\"helper-converted-v1\"" : ""
+      let peripheralCapability =
+        supportsNativePeripherals ? ",\"nativePeripheralInput\":\"helper-converted-v1\"" : ""
       try Data(
         #"{"schema":1,"nativeRecoveryInput":"helper-template-v1","nativeFirmwareInput":"helper-raw-v1"\#(peripheralCapability)\#(handoffCapability)\#(capability)}"#
           .utf8

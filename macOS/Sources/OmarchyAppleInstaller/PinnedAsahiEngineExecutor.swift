@@ -200,7 +200,8 @@
           {
             environment["OMARCHY_NATIVE_FIRMWARE_ROOT"] = raw.path
             if nativeFinalization {
-              let prepared = try await peripheralPreparer.prepare(package: package, rawDirectory: raw)
+              let prepared = try await peripheralPreparer.prepare(
+                package: package, rawDirectory: raw)
               preparedPeripherals = prepared
               environment.merge(prepared.environment) { _, new in new }
             }

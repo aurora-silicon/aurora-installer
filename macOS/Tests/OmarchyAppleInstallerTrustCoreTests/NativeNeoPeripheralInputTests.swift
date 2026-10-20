@@ -16,50 +16,71 @@
       let outputSHA256: [String: String]
     }
 
-    func testConvertedSnapshotMatchesTheReferenceManifestAndStaysOutsideRetainedInputs() async throws {
+    func testConvertedSnapshotMatchesTheReferenceManifestAndStaysOutsideRetainedInputs()
+      async throws
+    {
       let fixture = try InputFixture()
       defer { fixture.remove() }
-      let prepared = try await fixture.preparer().prepare(package: fixture.package, rawDirectory: fixture.raw)
+      let prepared = try await fixture.preparer().prepare(
+        package: fixture.package, rawDirectory: fixture.raw)
       defer { prepared.remove() }
       XCTAssertEqual(prepared.directory.deletingLastPathComponent().path, fixture.root.path)
-      XCTAssertEqual(prepared.recipeSHA256, fixture.value.manifest.recipe_sha256)
-      let observed = try Data(contentsOf: prepared.directory.appendingPathComponent("manifest.json"))
-      let expected = try JSONSerialization.jsonObject(with: NeoFirmwareFixture.data()) as! [String: Any]
-      XCTAssertEqual(try JSONSerialization.jsonObject(with: observed) as! NSDictionary, expected["manifest"] as! NSDictionary)
+      XCTAssertEqual(prepared.recipeSHA256, fixture.value.manifest.recipeSHA256)
+      let observed = try Data(
+        contentsOf: prepared.directory.appendingPathComponent("manifest.json"))
+      let expected =
+        try JSONSerialization.jsonObject(with: NeoFirmwareFixture.data()) as! [String: Any]
+      XCTAssertEqual(
+        try JSONSerialization.jsonObject(with: observed) as! NSDictionary,
+        expected["manifest"] as! NSDictionary)
       let tree = try NativeHandoffFileTree(prepared.directory, protected: true, owner: geteuid())
       for (name, sha) in fixture.value.outputSHA256 {
         let record = try XCTUnwrap(fixture.value.manifest.files[name])
         let bytes = try tree.read("files/" + name, maximum: record.bytes)
         XCTAssertEqual(SHA256Digest(hashing: bytes).rawValue, "sha256:" + sha)
         var info = stat()
-        XCTAssertEqual(lstat(prepared.directory.appendingPathComponent("files/" + name).path, &info), 0)
+        XCTAssertEqual(
+          lstat(prepared.directory.appendingPathComponent("files/" + name).path, &info), 0)
         XCTAssertEqual(info.st_mode & 0o777, 0o600)
       }
-      XCTAssertEqual(Set(try FileManager.default.contentsOfDirectory(atPath: fixture.package.packageURL.path)),
+      XCTAssertEqual(
+        Set(try FileManager.default.contentsOfDirectory(atPath: fixture.package.packageURL.path)),
         ["metadata.json", "identity.json", "payload.zip"])
-      XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.raw.appendingPathComponent("manifest.json").path))
+      XCTAssertFalse(
+        FileManager.default.fileExists(
+          atPath: fixture.raw.appendingPathComponent("manifest.json").path))
       prepared.remove()
       XCTAssertFalse(FileManager.default.fileExists(atPath: prepared.directory.path))
     }
 
-    func testEachAttemptRecollectsLocalInputsInsteadOfCachingAnotherDeviceCalibration() async throws {
+    func testEachAttemptRecollectsLocalInputsInsteadOfCachingAnotherDeviceCalibration() async throws
+    {
       let fixture = try InputFixture()
       defer { fixture.remove() }
-      let first = try await fixture.preparer().prepare(package: fixture.package, rawDirectory: fixture.raw)
+      let first = try await fixture.preparer().prepare(
+        package: fixture.package, rawDirectory: fixture.raw)
       defer { first.remove() }
       let other = Data([6, 5, 4, 3, 2, 1])
-      let second = try await fixture.preparer(address: other).prepare(package: fixture.package, rawDirectory: fixture.raw)
+      let second = try await fixture.preparer(address: other).prepare(
+        package: fixture.package, rawDirectory: fixture.raw)
       defer { second.remove() }
       XCTAssertNotEqual(first.directory, second.directory)
       let record = "files/mediatek/j700-mt7932-bdaddr.bin"
-      XCTAssertEqual(try Data(contentsOf: first.directory.appendingPathComponent(record)), fixture.value.local["address"])
+      XCTAssertEqual(
+        try Data(contentsOf: first.directory.appendingPathComponent(record)),
+        fixture.value.local["address"])
       XCTAssertEqual(try Data(contentsOf: second.directory.appendingPathComponent(record)), other)
-      let manifest = try JSONDecoder().decode(NativeNeoPeripheralPreparer.Manifest.self,
+      let manifest = try JSONDecoder().decode(
+        NativeNeoPeripheralPreparer.Manifest.self,
         from: Data(contentsOf: second.directory.appendingPathComponent("manifest.json")))
-      XCTAssertEqual(manifest.local_inputs["address"], String(SHA256Digest(hashing: other).rawValue.dropFirst(7)))
+      XCTAssertEqual(
+        manifest.localInputs["address"], String(SHA256Digest(hashing: other).rawValue.dropFirst(7))
+      )
     }
 
-    func testChangedRawInputsUnsafeLinksMissingLocalCalibrationOrPolicyNeverPublishASnapshot() async throws {
+    func testChangedRawInputsUnsafeLinksMissingLocalCalibrationOrPolicyNeverPublishASnapshot()
+      async throws
+    {
       for fault in ["raw-digest", "raw-link", "local", "policy", "identity"] {
         let fixture = try InputFixture()
         defer { fixture.remove() }
@@ -68,18 +89,24 @@
         case "raw-digest": try Data("changed".utf8).write(to: source)
         case "raw-link":
           try FileManager.default.removeItem(at: source)
-          try FileManager.default.createSymbolicLink(at: source, withDestinationURL: fixture.package.payloadURL)
+          try FileManager.default.createSymbolicLink(
+            at: source, withDestinationURL: fixture.package.payloadURL)
         case "policy":
-          try Data("{\"os_list\":[{\"omarchy_target\":\"apple-silicon-full-os\"}]}".utf8).write(to: fixture.package.metadataURL)
+          try Data("{\"os_list\":[{\"omarchy_target\":\"apple-silicon-full-os\"}]}".utf8).write(
+            to: fixture.package.metadataURL)
           try fixture.rebindMetadata()
         case "identity": try Data("{}".utf8).write(to: fixture.package.identityURL)
         default: break
         }
         do {
-          _ = try await fixture.preparer(missingLocal: fault == "local").prepare(package: fixture.package, rawDirectory: fixture.raw)
+          _ = try await fixture.preparer(missingLocal: fault == "local").prepare(
+            package: fixture.package, rawDirectory: fixture.raw)
           XCTFail("Expected rejection: \(fault)")
         } catch {}
-        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: fixture.root.path).allSatisfy { !$0.hasPrefix("neo-peripherals-") })
+        XCTAssertTrue(
+          try FileManager.default.contentsOfDirectory(atPath: fixture.root.path).allSatisfy {
+            !$0.hasPrefix("neo-peripherals-")
+          })
       }
     }
 
@@ -93,40 +120,54 @@
         raw = root.appendingPathComponent("native-firmware/raw")
         let imported = root.appendingPathComponent("imported")
         for url in [root, raw, imported] {
-          try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+          try FileManager.default.createDirectory(
+            at: url, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         }
-        package = ImportedEngineHandoffPackage(packageURL: imported, manifestURL: imported.appendingPathComponent("manifest.json"),
-          requestURL: imported.appendingPathComponent("request.json"), identityURL: imported.appendingPathComponent("identity.json"),
-          engineURL: imported.appendingPathComponent("engine.tar.gz"), metadataURL: imported.appendingPathComponent("metadata.json"),
-          payloadURL: imported.appendingPathComponent("payload.zip"), bindingDigest: value.manifest.binding_digest,
-          planDigest: value.manifest.plan_digest, deviceIdentifier: value.manifest.device_identifier, storeIdentifier: "disk0")
+        package = ImportedEngineHandoffPackage(
+          packageURL: imported, manifestURL: imported.appendingPathComponent("manifest.json"),
+          requestURL: imported.appendingPathComponent("request.json"),
+          identityURL: imported.appendingPathComponent("identity.json"),
+          engineURL: imported.appendingPathComponent("engine.tar.gz"),
+          metadataURL: imported.appendingPathComponent("metadata.json"),
+          payloadURL: imported.appendingPathComponent("payload.zip"),
+          bindingDigest: value.manifest.bindingDigest,
+          planDigest: value.manifest.planDigest,
+          deviceIdentifier: value.manifest.deviceIdentifier, storeIdentifier: "disk0")
         try Data(value.metadata.utf8).write(to: package.metadataURL)
         try value.payload.write(to: package.payloadURL)
         try rebindMetadata()
         for (name, bytes) in value.rawFiles {
           let url = raw.appendingPathComponent(name)
-          try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+          try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700])
           try bytes.write(to: url)
         }
       }
       func rebindMetadata() throws {
         try JSONSerialization.data(withJSONObject: [
           "metadata_digest": SHA256Digest(hashing: Data(contentsOf: package.metadataURL)).rawValue,
-          "payload_digest": value.manifest.payload_digest,
+          "payload_digest": value.manifest.payloadDigest,
         ]).write(to: package.identityURL)
       }
-      func preparer(address: Data? = nil, missingLocal: Bool = false) -> NativeNeoPeripheralPreparer {
-        let inventory = NativeNeoInputInventory(recipeSHA256: value.manifest.recipe_sha256,
+      func preparer(address: Data? = nil, missingLocal: Bool = false) -> NativeNeoPeripheralPreparer
+      {
+        let inventory = NativeNeoInputInventory(
+          recipeSHA256: value.manifest.recipeSHA256,
           files: value.rawFiles.map { name, bytes in
-            NativeNeoInputInventory.File(name: name, bytes: bytes.count,
+            NativeNeoInputInventory.File(
+              name: name, bytes: bytes.count,
               sha256: String(SHA256Digest(hashing: bytes).rawValue.dropFirst(7)))
           })
-        let inputs = NativeNeoLocalInputs(factory: value.local["factory"]!, lsci: value.local["lsci"]!,
+        let inputs = NativeNeoLocalInputs(
+          factory: value.local["factory"]!, lsci: value.local["lsci"]!,
           address: address ?? value.local["address"]!)
-        return NativeNeoPeripheralPreparer(owner: geteuid(), inventory: { inventory }, localInputs: {
-          if missingLocal { throw NativePeripheralInputError.localInput }
-          return inputs
-        })
+        return NativeNeoPeripheralPreparer(
+          owner: geteuid(), inventory: { inventory },
+          localInputs: {
+            if missingLocal { throw NativePeripheralInputError.localInput }
+            return inputs
+          })
       }
       func remove() { try? FileManager.default.removeItem(at: root) }
     }
