@@ -1,4 +1,5 @@
 #if os(macOS)
+  import AuroraFirmware
   import Foundation
   import XCTest
   @testable import OmarchyAppleInstallerTrustCore
