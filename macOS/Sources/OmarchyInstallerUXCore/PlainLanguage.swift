@@ -529,7 +529,7 @@
     /// Shown only by builds that cannot install the helper themselves, when
     /// the installer package has not put it in place.
     public static let helperNotInstalled =
-      "The installation service is missing. Run the downloaded \(installerPackage) again, then reopen this app."
+      "Aurora couldn’t start its administrator process. Reopen Aurora Installer and try again."
 
     public static let engineUnavailable =
       "This build is missing the required validation engine. Installation is unavailable."

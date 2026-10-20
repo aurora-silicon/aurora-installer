@@ -964,8 +964,8 @@
       XCTAssertEqual(try Data(contentsOf: kept), finished)
     }
 
-    func testOnlyACompletedRemovalUninstallsTheHelper() async throws {
-      for (failAt, uninstalls) in [(Int?.none, 1), (3, 0)] {
+    func testRemovalKeepsTheAdministratorProcessAvailable() async throws {
+      for (failAt, completed) in [(Int?.none, true), (3, false)] {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let uninstaller = RecordingSelfUninstaller()
@@ -980,12 +980,12 @@
         let ticket = try XCTUnwrap(inspection.ticket)
         let result = try await service.removal(
           ticketID: ticket.id, confirmation: ticket.confirmation, authorization: authorization())
-        XCTAssertEqual(result.completed, uninstalls == 1, result.message)
-        XCTAssertEqual(uninstaller.calls, uninstalls, "failAt \(String(describing: failAt))")
+        XCTAssertEqual(result.completed, completed, result.message)
+        XCTAssertEqual(uninstaller.calls, 0, "erasing Linux keeps the installer usable")
       }
     }
 
-    func testACompletedRemovalRetiresTheHelperBeforeItTakesMoreWork() async throws {
+    func testCompletedRemovalPreservesJournalAndAcceptsAnotherRequest() async throws {
       let root = try temporaryDirectory()
       defer { try? FileManager.default.removeItem(at: root) }
       let service = ClosedEngineHelperServer(
@@ -1003,20 +1003,27 @@
         ticketID: ticket.id, confirmation: ticket.confirmation, authorization: authorization())
       XCTAssertTrue(result.completed, result.message)
 
-      let retiring = await service.isRetiring
-      XCTAssertTrue(retiring)
-      do {
-        _ = try await service.removal(ticketID: nil, confirmation: "", authorization: nil)
-        XCTFail("a retiring helper must refuse new work")
-      } catch let error as ClosedEngineHelperError {
-        XCTAssertEqual(error, .retiring)
-      }
+      XCTAssertFalse(service.isRetiring)
+      let journals = try FileManager.default.contentsOfDirectory(
+        at: root, includingPropertiesForKeys: nil
+      ).filter { $0.lastPathComponent.hasPrefix("removal-") }
+      let journal =
+        try JSONSerialization.jsonObject(with: Data(contentsOf: XCTUnwrap(journals.first)))
+        as? [String: Any]
+      XCTAssertEqual(journal?["phase"] as? String, "complete")
       let ping = await withCheckedContinuation { c in endpoint.ping { c.resume(returning: $0) } }
       let version = await withCheckedContinuation { c in
         endpoint.helperVersion { c.resume(returning: $0) }
       }
-      XCTAssertFalse(ping, "a retiring helper reads as gone, so the app sets up a fresh one")
-      XCTAssertEqual(version, "")
+      XCTAssertTrue(ping)
+      XCTAssertEqual(version, "28")
+      do {
+        _ = try await service.removal(ticketID: nil, confirmation: "", authorization: nil)
+        XCTFail("There is no more Linux installation to erase")
+      } catch let error as RemovalFailure {
+        XCTAssertTrue(error.message.contains("No Aurora installation"), error.message)
+      }
+
     }
 
     func testHelperErrorCodesKeepTheirValuesAcrossVersions() {

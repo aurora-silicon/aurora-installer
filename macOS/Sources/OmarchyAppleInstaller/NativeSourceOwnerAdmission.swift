@@ -129,7 +129,7 @@
         volumeRoot: true, volumeDevice: preboot.identifier, verifyMount: environment.verifyMount)
       guard
         let admins = try PropertyListSerialization.propertyList(
-          from: tree.read(groupUUID + "/var/db/AdminUserRecoveryInfo.plist", maximum: 1 << 20),
+          from: tree.sourceOwnerMetadata(groupUUID: groupUUID),
           format: nil
         ) as? [String: [String: Any]],
         (admins[authorization.username]?["GeneratedUID"] as? String).flatMap(

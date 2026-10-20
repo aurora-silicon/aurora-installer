@@ -5,6 +5,29 @@
   @testable import OmarchyAppleInstallerTrustCore
 
   final class NativeSourceOwnerAdmissionTests: XCTestCase, @unchecked Sendable {
+    func testOptInLiveSourceOwnerAdmissionIsReadOnly() throws {
+      guard ProcessInfo.processInfo.environment["AURORA_LIVE_OWNER_PROBE"] == "1" else {
+        throw XCTSkip("Opt-in live source-owner inspection")
+      }
+      let identity = try AppleSiliconHostInspector().inspectIdentity()
+      let disk = try MacRemovalDiskOperator().snapshot(maximumPartitions: 4096)
+      let unused = URL(fileURLWithPath: "/unused-source-owner-probe")
+      let package = ImportedEngineHandoffPackage(
+        packageURL: unused, manifestURL: unused, requestURL: unused, identityURL: unused,
+        engineURL: unused, metadataURL: unused, payloadURL: unused,
+        bindingDigest: String(repeating: "a", count: 64),
+        planDigest: String(repeating: "b", count: 64),
+        deviceIdentifier: identity.deviceIdentifier, storeIdentifier: disk.disk)
+      // This inspection never reads the password; authentication belongs to
+      // the calling helper before admission. No disk or boot changes occur.
+      let authorization = try MachineOwnerAuthorization(
+        username: NSUserName(), password: Data("unused-inspection-value".utf8))
+      let result = try NativeSourceOwnerAdmission().check(
+        package: package, authorization: authorization)
+      XCTAssertNotEqual(result.ownerUUID, "00000000-0000-0000-0000-000000000000")
+      print("Live source-owner admission passed on \(identity.deviceIdentifier)")
+    }
+
     func testBootstrapMatchesTheLockedBackendSourceOwnerVectors() throws {
       struct Fixture: Decodable {
         struct Vector: Decodable {
@@ -53,6 +76,29 @@
       XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.base.esp.path))
       XCTAssertFalse(fixture.commands.contains { $0.first == "unmount" })
       XCTAssertTrue(fixture.commands.allSatisfy(fixture.permitted))
+    }
+
+    func testSourcePrebootGroupWithNeoPermissionsStillRequiresProtectedOwnerMetadata() throws {
+      let fixture = try OwnerFixture()
+      defer { fixture.base.remove() }
+      let group = fixture.base.sourcePreboot.appendingPathComponent(fixture.group)
+      XCTAssertEqual(chmod(group.path, 0o777), 0)
+      XCTAssertEqual(try fixture.admit().ownerUUID, fixture.owner)
+      XCTAssertEqual(chmod(fixture.base.sourcePreboot.path, 0o755), 0)
+      let generic = try NativeHandoffFileTree(
+        fixture.base.sourcePreboot, protected: true, owner: getuid())
+      XCTAssertThrowsError(
+        try generic.read(
+          fixture.group + "/var/db/AdminUserRecoveryInfo.plist", maximum: 1 << 20))
+      XCTAssertThrowsError(try generic.sourceOwnerMetadata(groupUUID: fixture.group))
+      for directory in ["var", "var/db"] {
+        let path = group.appendingPathComponent(directory)
+        XCTAssertEqual(chmod(path.path, 0o777), 0)
+        XCTAssertThrowsError(try fixture.admit())
+        XCTAssertEqual(chmod(path.path, 0o755), 0)
+      }
+      XCTAssertEqual(chmod(fixture.admins.path, 0o666), 0)
+      XCTAssertThrowsError(try fixture.admit())
     }
 
     func testTargetBootstrapAndLiveSourceUseTheSameOwnerProof() throws {

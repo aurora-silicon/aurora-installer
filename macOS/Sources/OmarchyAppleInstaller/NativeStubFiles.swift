@@ -289,8 +289,7 @@
         source, protected: true, owner: owner,
         volumeRoot: true, volumeDevice: sourcePreboot.identifier,
         verifyMount: platform.environment.verifyMount)
-      let admin = try sourceTree.read(
-        sourceBootstrap.groupUUID + "/var/db/AdminUserRecoveryInfo.plist", maximum: 1 << 20)
+      let admin = try sourceTree.sourceOwnerMetadata(groupUUID: sourceBootstrap.groupUUID)
       guard
         let users = try PropertyListSerialization.propertyList(from: admin, format: nil)
           as? [String: [String: Any]],

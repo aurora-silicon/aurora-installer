@@ -109,6 +109,11 @@
     {
       let fixture = try ExecutionFixture()
       defer { try? FileManager.default.removeItem(at: fixture.directory) }
+      // Neo's source Preboot group is root-owned mode 0777.
+      XCTAssertEqual(
+        chmod(
+          fixture.mounts.appendingPathComponent("disk4s3/" + fixture.bootstrap.groupUUID).path,
+          0o777), 0)
       let vector = try XCTUnwrap(vectors().vectors.first)
       let source = try await plan(vector)
       let execution = NativeStubFilesExecution(

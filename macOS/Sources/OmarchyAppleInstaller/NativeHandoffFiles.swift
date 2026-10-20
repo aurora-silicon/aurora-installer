@@ -11,6 +11,7 @@
     private let root: Int32
     private let protected: Bool
     private let owner: uid_t
+    private let verifiedVolumeRoot: Bool
 
     init(
       _ url: URL, protected: Bool, owner: uid_t = 0, volumeRoot: Bool = false,
@@ -20,6 +21,7 @@
     ) throws {
       self.protected = protected
       self.owner = owner
+      verifiedVolumeRoot = volumeRoot
       let descriptor = open(url.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
       guard descriptor >= 0 else { throw NativeHandoffValidationError.unsafePath }
       var info = stat()
@@ -62,8 +64,23 @@
     }
 
     func read(_ path: String, maximum: Int) throws -> Data {
+      try read(path, maximum: maximum, sourcePrebootGroup: nil)
+    }
+
+    /// Source Preboot group directories can be root-owned mode 0777. Only
+    /// this exact read permits that first component; descendants stay protected.
+    func sourceOwnerMetadata(groupUUID: String) throws -> Data {
+      guard protected, verifiedVolumeRoot,
+        UUID(uuidString: groupUUID)?.uuidString == groupUUID
+      else { throw NativeHandoffValidationError.unsafePath }
+      return try read(
+        groupUUID + "/var/db/AdminUserRecoveryInfo.plist", maximum: 1 << 20,
+        sourcePrebootGroup: groupUUID)
+    }
+
+    private func read(_ path: String, maximum: Int, sourcePrebootGroup: String?) throws -> Data {
       guard maximum >= 0, maximum <= 64 << 20 else { throw NativeHandoffValidationError.unsafePath }
-      return try withParent(path) { parent, leaf in
+      return try withParent(path, sourcePrebootGroup: sourcePrebootGroup) { parent, leaf in
         let fd = openat(parent, leaf, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
         guard fd >= 0 else { throw NativeHandoffValidationError.unsafePath }
         defer { close(fd) }
@@ -192,6 +209,7 @@
 
     private func withParent<T>(
       _ path: String, missingParent: Bool = false, createParents: Bool = false,
+      sourcePrebootGroup: String? = nil,
       _ body: (Int32, String) throws -> T
     ) throws -> T {
       guard NativeHandoffEvidence.safeRelative(path) else {
@@ -201,7 +219,7 @@
       var current = dup(root)
       guard current >= 0 else { throw NativeHandoffValidationError.unsafePath }
       defer { close(current) }
-      for component in parts.dropLast() {
+      for (index, component) in parts.dropLast().enumerated() {
         var next = openat(current, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         if next < 0, createParents, errno == ENOENT {
           guard mkdirat(current, component, 0o755) == 0 else {
@@ -217,7 +235,10 @@
         guard next >= 0 else { throw NativeHandoffValidationError.unsafePath }
         var info = stat()
         guard fstat(next, &info) == 0,
-          !protected || (info.st_uid == owner && info.st_mode & 0o022 == 0)
+          !protected
+            || (info.st_uid == owner
+              && (info.st_mode & 0o022 == 0
+                || (index == 0 && component == sourcePrebootGroup && info.st_mode & 0o7777 == 0o777)))
         else {
           close(next)
           throw NativeHandoffValidationError.unsafePath

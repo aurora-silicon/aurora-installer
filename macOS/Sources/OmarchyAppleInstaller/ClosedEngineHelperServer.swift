@@ -109,14 +109,6 @@
     }
   }
 
-  /// A flag set once and read from any thread.
-  final class HelperRetirementFlag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value = false
-    var isSet: Bool { lock.withLock { value } }
-    func set() { lock.withLock { value = true } }
-  }
-
   public actor ClosedEngineHelperServer {
     private static let explicitlyUnsupportedDevices = ["apple,j614s"]
 
@@ -127,15 +119,12 @@
     private let removalDisks: any RemovalDiskOperating
     private let removalAdminValidator: @Sendable (MachineOwnerAuthorization) throws -> Void
     private let espDisks: any InstallConfESPDiskOperating
-    private let selfUninstaller: any HelperSelfUninstalling
     /// Jobs and replacement share this state; see `HelperWorkState`.
     nonisolated let work: HelperWorkState
     nonisolated let jobs: InstallerJobRegistry
-    /// Set once a removal completes: the helper is uninstalling itself. Kept
-    /// outside the actor so ping and the version check can read it at once,
-    /// even while the actor is busy verifying a payload for a long job.
-    private nonisolated let retirement = HelperRetirementFlag()
-    public nonisolated var isRetiring: Bool { retirement.isSet }
+    /// Compatibility signal for existing XPC clients. Erasing Linux keeps
+    /// the installer and its administrator process available for another install.
+    public nonisolated var isRetiring: Bool { false }
     private var completedInstallPlan: CompletedEngineInstallPlan?
     private var installConfConsumed = false
     private var recoveryAccountTargets: [String: (CompletedRecoveryInstallation, Date)] = [:]
@@ -147,7 +136,7 @@
       executor: any ImportedEngineHandoffExecuting,
       credentialValidator: any MachineOwnerCredentialValidating =
         OpenDirectoryMachineOwnerCredentialValidator(),
-      selfUninstaller: any HelperSelfUninstalling = NoHelperSelfUninstall()
+      selfUninstaller _: any HelperSelfUninstalling = NoHelperSelfUninstall()
     ) {
       self.workingDirectory = workingDirectory
       self.executor = executor
@@ -159,7 +148,6 @@
       removalDisks = MacRemovalDiskOperator()
       removalAdminValidator = requireRemovalAdministrator
       espDisks = DiskutilInstallConfESPOperator()
-      self.selfUninstaller = selfUninstaller
     }
 
     init(
@@ -168,7 +156,7 @@
       removalDisks: any RemovalDiskOperating,
       removalAdminValidator: @escaping @Sendable (MachineOwnerAuthorization) throws -> Void,
       espDisks: any InstallConfESPDiskOperating = DiskutilInstallConfESPOperator(),
-      selfUninstaller: any HelperSelfUninstalling = NoHelperSelfUninstall(),
+      selfUninstaller _: any HelperSelfUninstalling = NoHelperSelfUninstall(),
       work: HelperWorkState = HelperWorkState(),
       retryEligibility: (@Sendable (InstallerJobPlanIdentity) -> Bool)? = nil
     ) {
@@ -182,7 +170,6 @@
       self.removalDisks = removalDisks
       self.removalAdminValidator = removalAdminValidator
       self.espDisks = espDisks
-      self.selfUninstaller = selfUninstaller
     }
 
     public func recoveryAccount(
@@ -335,12 +322,8 @@
           return OmarchyRemovalReply(requiresReview: phase != "checking", message: message)
         }
       }.value
-      if reply.completed {
-        // Nothing of Aurora is left, so the helper goes too. It takes no more
-        // work from here on, before this reply even leaves.
-        retirement.set()
-        selfUninstaller.uninstallAfterRemoval()
-      }
+      // The installer stays usable after erasing Linux. Keep its administrator
+      // process and completed journal so the same app can install again.
       return reply
     }
 
