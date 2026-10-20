@@ -277,6 +277,51 @@
       }
     }
 
+    /// Publishes only the app entry; the System volume itself is never replaced.
+    static func publishApp(
+      _ prepared: PreparedNativeRecoveryTemplate, to destination: URL, owner: uid_t,
+      verify: (URL) throws -> Void,
+      flushTree: (URL) throws -> Void = RecoveryFileTransaction.flushTree,
+      flushDirectory: (URL) throws -> Void = RecoveryFileTransaction.flushDirectory
+    ) throws {
+      guard destination.lastPathComponent == InstallerProductIdentity.recoveryAppBundleName else {
+        throw NativeRecoveryTemplateError.unsafeTemplate
+      }
+      let parent = destination.deletingLastPathComponent()
+      try requireSafe(parent, directory: true, owner: owner)
+      let expected = try inventory(prepared.app, owner: owner)
+      try verify(prepared.app)
+      if FileManager.default.fileExists(atPath: destination.path) {
+        guard try inventory(destination, owner: owner) == expected else {
+          throw NativeRecoveryTemplateError.unsafeTemplate
+        }
+        try verify(destination)
+        return
+      }
+      let candidate = parent.appendingPathComponent(".native-recovery-app-" + UUID().uuidString)
+      try FileManager.default.copyItem(at: prepared.app, to: candidate)
+      defer { try? FileManager.default.removeItem(at: candidate) }
+      guard try inventory(candidate, owner: owner) == expected else {
+        throw NativeRecoveryTemplateError.unsafeTemplate
+      }
+      try verify(candidate)
+      try flushTree(candidate)
+      guard
+        renameatx_np(AT_FDCWD, candidate.path, AT_FDCWD, destination.path, UInt32(RENAME_EXCL)) == 0
+      else {
+        throw NativeRecoveryTemplateError.unsafeTemplate
+      }
+      try flushDirectory(parent)
+    }
+
+    static func templateIdentity(_ prepared: PreparedNativeRecoveryTemplate, owner: uid_t) throws
+      -> Data
+    {
+      let encoder = JSONEncoder()
+      encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+      return try encoder.encode(inventory(prepared.app, owner: owner))
+    }
+
     static func requirement(environment: [String: String]) -> String? {
       if let pinned = environment["OMARCHY_RECOVERY_TEMPLATE_REQUIREMENT"] {
         return pinned.range(

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import Foundation
+import zlib
 
 public struct FirmwarePackageInput: Sendable {
   public let name: String
@@ -66,11 +67,83 @@ public enum FirmwarePackageBuilder {
     return FirmwarePackageArchives(tar: tar, cpio: cpio.finish(), manifest: manifestBytes)
   }
 
+  /// The fallback is a separate raw-input archive, with stable metadata and
+  /// gzip header so interruption/retry reproduces the same published bytes.
+  public static func fallback(
+    _ inputs: [FirmwarePackageInput], symbolicLinks: [String: String]
+  ) throws -> Data {
+    try require(!inputs.isEmpty && inputs.count + symbolicLinks.count <= 20000,
+      "Invalid fallback file count.")
+    var names = Set<String>()
+    var total = 0
+    for input in inputs {
+      try require(safeRelative(input.name) && input.name.utf8.count <= 255,
+        "Invalid fallback input name.")
+      try require(names.insert(input.name).inserted && input.bytes.count <= maxFileBytes,
+        "Conflicting fallback input.")
+      total += input.bytes.count
+      try require(total <= 256 << 20, "Fallback inputs exceed their budget.")
+    }
+    for (name, target) in symbolicLinks {
+      try require(safeRelative(name) && name.utf8.count <= 255 && names.insert(name).inserted
+        && name.split(separator: "/").count >= 2
+        && target.hasPrefix("../") && safeRelative(String(target.dropFirst(3)))
+        && target.utf8.count <= 100, "Invalid fallback alias.")
+      let components = name.split(separator: "/").dropLast().dropLast().map(String.init)
+      let resolved = (components + [String(target.dropFirst(3))]).joined(separator: "/")
+      try require(inputs.contains(where: { $0.name == resolved }), "Missing fallback alias target.")
+    }
+    let sorted = names.sorted()
+    for name in sorted {
+      var parent = ""
+      for part in name.split(separator: "/").dropLast() {
+        parent += (parent.isEmpty ? "" : "/") + part
+        try require(!names.contains(parent), "Conflicting fallback paths.")
+      }
+    }
+    var tar = Data()
+    let files = Dictionary(uniqueKeysWithValues: inputs.map { ($0.name, $0.bytes) })
+    for name in sorted {
+      try Task.checkCancellation()
+      try appendTar(&tar, name: name, bytes: files[name] ?? Data(),
+        target: symbolicLinks[name], symbolic: symbolicLinks[name] != nil)
+    }
+    tar.append(Data(repeating: 0, count: 1024))
+    pad(&tar, alignment: 10240)
+    var stream = z_stream()
+    let initialized = deflateInit2_(
+      &stream, Z_DEFAULT_COMPRESSION, Z_DEFLATED, MAX_WBITS + 16, 8, Z_DEFAULT_STRATEGY,
+      ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
+    try require(initialized == Z_OK, "Cannot initialize fallback compression.")
+    defer { deflateEnd(&stream) }
+    return try tar.withUnsafeBytes { source in
+      stream.next_in = UnsafeMutablePointer(mutating: source.bindMemory(to: UInt8.self).baseAddress!)
+      stream.avail_in = uInt(tar.count)
+      var compressed = Data()
+      while true {
+        try Task.checkCancellation()
+        var block = Data(count: 64 << 10)
+        let status = block.withUnsafeMutableBytes { output in
+          stream.next_out = output.bindMemory(to: UInt8.self).baseAddress!
+          stream.avail_out = uInt(output.count)
+          return deflate(&stream, Z_FINISH)
+        }
+        try require(status == Z_OK || status == Z_STREAM_END, "Fallback compression failed.")
+        block.count -= Int(stream.avail_out)
+        try require(block.count <= (256 << 20) - compressed.count,
+          "Compressed fallback exceeds its budget.")
+        compressed.append(block)
+        if status == Z_STREAM_END { return compressed }
+      }
+    }
+  }
+
   private static func pad(_ bytes: inout Data, alignment: Int) {
     bytes.append(Data(repeating: 0, count: (alignment - bytes.count % alignment) % alignment))
   }
 
-  private static func appendTar(_ archive: inout Data, name: String, bytes: Data, target: String?)
+  private static func appendTar(
+    _ archive: inout Data, name: String, bytes: Data, target: String?, symbolic: Bool = false)
     throws
   {
     var header = Data(repeating: 0, count: 512)
@@ -102,7 +175,7 @@ public enum FirmwarePackageBuilder {
     try octal(124, 12, target == nil ? bytes.count : 0)
     try octal(136, 12, 0)
     try field(148, 8, "        ")
-    try field(156, 1, target == nil ? "0" : "1")
+    try field(156, 1, target == nil ? "0" : symbolic ? "2" : "1")
     if let target { try field(157, 100, target) }
     try field(257, 8, "ustar\0" + "00")
     let checksum = String(header.reduce(0) { $0 + Int($1) }, radix: 8)

@@ -1,4 +1,4 @@
-name: Draft native installer DMG
+name: Build native installer prerelease
 on:
   workflow_dispatch:
     inputs:
@@ -7,7 +7,11 @@ on:
         required: true
       version:
         description: Installer marketing version
-        default: '2.2.0'
+        default: '0.1.0'
+        required: true
+      release-tag:
+        description: Prerelease tag
+        default: 'v0.1.0-alpha.1'
         required: true
 permissions:
   contents: read
@@ -134,7 +138,7 @@ jobs:
           path: ${{ runner.temp }}/download/*.dmg
           if-no-files-found: error
           retention-days: 14
-  draft:
+  prerelease:
     needs: build
     runs-on: ubuntu-24.04
     permissions:
@@ -144,15 +148,17 @@ jobs:
         with:
           name: notarized-installer-dmg
           path: download
-      - name: Attach the notarized DMG to a draft
+      - name: Publish the notarized installer prerelease
         env:
           GH_TOKEN: ${{ github.token }}
           PROFILES_REVISION: ${{ inputs.profiles-revision }}
           APP_VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
         shell: bash
         run: |
           set -euo pipefail
           printf 'Native installer %s.\n\nSource: `%s`\nProfiles: `%s`\nBuild evidence: %s/%s/actions/runs/%s\n\nSigned and notarized DMG. Physical installation and hardware qualification remain separate release requirements.\n' \
             "$APP_VERSION" "$GITHUB_SHA" "$PROFILES_REVISION" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > notes.md
-          gh release create "native-draft-$GITHUB_RUN_ID" download/*.dmg --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" --draft --prerelease --title "Aurora Installer $APP_VERSION" --notes-file notes.md
+          [[ $RELEASE_TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha\.[1-9][0-9]*$ ]]
+          gh release create "$RELEASE_TAG" download/*.dmg --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --prerelease --title "Aurora Installer $APP_VERSION Alpha 1" --notes-file notes.md

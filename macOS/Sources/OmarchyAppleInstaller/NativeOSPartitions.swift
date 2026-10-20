@@ -178,7 +178,7 @@
         return
       }
       guard transcript.checkpoints.map(\.identifier) == ["apfs-target-prepared"],
-        try file.readJournal().split(separator: 10).count == 5,
+        try file.diskPreparationCanResume(),
         try file.containsEvidence("native-stub-files")
       else { throw NativeOSPartitionError.changedLayout }
       let targetData = try file.readEvidence("apfs-target-prepared")

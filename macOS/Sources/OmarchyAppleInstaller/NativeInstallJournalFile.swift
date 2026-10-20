@@ -140,6 +140,14 @@
       return bytes
     }
 
+    /// An interrupted native finishing checkpoint may leave only its start event.
+    func diskPreparationCanResume() throws -> Bool {
+      let records = try EngineTranscriptDecoder().decode(readJournal())
+      if records.count == 5 { return true }
+      guard records.count == 6, case .event(let event) = records[5].message else { return false }
+      return event.name == "stub_and_esp_started"
+    }
+
     func append(type: String, payload: [String: Any], before: Data) throws {
       guard try readJournal() == before else { throw NativeRecoveryJournalError.changed }
       var line = try JSONSerialization.data(

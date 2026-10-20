@@ -61,7 +61,7 @@
         return
       }
       guard transcript.checkpoints.map(\.identifier) == ["apfs-target-prepared"],
-        try file.readJournal().split(separator: 10).count == 5,
+        try file.diskPreparationCanResume(),
         members.map(\.name) == ["boot.img", "root.img"]
       else { throw NativeOSPartitionError.changedLayout }
       let receipt = try JSONDecoder().decode(

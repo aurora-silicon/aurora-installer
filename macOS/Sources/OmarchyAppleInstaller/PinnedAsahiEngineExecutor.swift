@@ -69,6 +69,7 @@
     private let osPartitionsPreparer: any NativeOSPartitionsPreparing
     private let payloadImagesPreparer: any NativePayloadImagesPreparing
     private let espFilesPreparer: any NativeESPFilesPreparing
+    private let installationFinisher: any NativeInstallationFinishingPreparing
     private let nativeHandoff: any NativeRecoveryHandoffExecuting
     private let collectInstallAdmission: @Sendable () throws -> NativeInstallAdmissionFacts
     private let validatePayload: @Sendable (ImportedEngineHandoffPackage) async throws -> Void
@@ -94,6 +95,7 @@
       osPartitionsPreparer = NativeOSPartitionsPreparer()
       payloadImagesPreparer = NativePayloadImagesPreparer()
       espFilesPreparer = NativeESPFilesPreparer()
+      installationFinisher = NativeInstallationFinisher()
       nativeHandoff = NativeRecoveryHandoffExecutor()
       collectInstallAdmission = { try NativeInstallAdmissionFacts.live() }
       validatePayload = { try await NativePayloadPreflight.check($0) }
@@ -118,6 +120,7 @@
       osPartitionsPreparer: any NativeOSPartitionsPreparing = NativeOSPartitionsPreparer(),
       payloadImagesPreparer: any NativePayloadImagesPreparing = NativePayloadImagesPreparer(),
       espFilesPreparer: any NativeESPFilesPreparing = NativeESPFilesPreparer(),
+      installationFinisher: any NativeInstallationFinishingPreparing = NativeInstallationFinisher(),
       nativeHandoff: any NativeRecoveryHandoffExecuting = NativeRecoveryHandoffExecutor(),
       collectInstallAdmission: @escaping @Sendable () throws -> NativeInstallAdmissionFacts = {
         try NativeInstallAdmissionFacts.live()
@@ -147,6 +150,7 @@
       self.osPartitionsPreparer = osPartitionsPreparer
       self.payloadImagesPreparer = payloadImagesPreparer
       self.espFilesPreparer = espFilesPreparer
+      self.installationFinisher = installationFinisher
       self.nativeHandoff = nativeHandoff
       self.collectInstallAdmission = collectInstallAdmission
       self.validatePayload = validatePayload
@@ -249,6 +253,7 @@
         let preparedOSPartitions: (any NativeOSPartitionsExecuting)?
         let preparedPayloadImages: (any NativePayloadImagesExecuting)?
         let preparedESPFiles: (any NativeESPFilesExecuting)?
+        let preparedFinishing: (any NativeInstallationFinishing)?
         do {
           preparedAPFS =
             operation == .install && nativeFinalization
@@ -261,6 +266,8 @@
             preparedOSPartitions == nil ? nil : try await payloadImagesPreparer.preflight(package)
           preparedESPFiles =
             preparedPayloadImages == nil ? nil : try await espFilesPreparer.preflight(package)
+          preparedFinishing = preparedESPFiles == nil ? nil : try installationFinisher.preflight(
+            package: package, stub: preparedStubFiles?.firmwarePlan, peripherals: preparedPeripherals)
           if preparedESPFiles != nil { environment["OMARCHY_NATIVE_ESP_FILES"] = "helper-esp-v1" }
           if preparedPayloadImages != nil {
             environment["OMARCHY_NATIVE_PAYLOAD_IMAGES"] = "helper-images-v1"
@@ -287,16 +294,7 @@
             journal: journal, package: package, password: authorization.password,
             summary: "Native disk preparation could not be verified.")
         }
-        do {
-          let result = try await run(
-            archive: package.engineURL,
-            executionParent: package.packageURL.deletingLastPathComponent(),
-            journal: journal,
-            additionalEnvironment: environment,
-            standardInput: nativeFinalization ? nil : authorization.password + Data([10]),
-            secrets: [authorization.password],
-            retryIdentity: RecoveryRetryIdentity(package: package),
-            beforeLaunch: {
+        let prepareDiskStages: @Sendable () async throws -> Void = {
               guard operation == .install else { return }
               do {
                 if let preparedAPFS {
@@ -338,7 +336,34 @@
                       Data(String(describing: error).utf8), truncated: false,
                       secrets: [authorization.password])))
               }
+        }
+        do {
+          if let preparedFinishing {
+            try await prepareDiskStages()
+            guard let sourceBootstrap else { throw NativeHandoffValidationError.invalidOwner }
+            do {
+              try await preparedFinishing.prepare(
+                journal: journal, authorization: authorization,
+                sourceBootstrap: sourceBootstrap, recovery: recovery)
+            } catch {
+              throw preparationFailure(
+                error, reason: .recoveryPreparation, operation: operation,
+                journal: journal, package: package, password: authorization.password,
+                summary: "Native firmware and Recovery publication did not complete.")
             }
+            return try await finalizeNativeHandoff(
+              package, journal: journal, authorization: authorization,
+              requirement: recovery.requirement, fullReadback: hadDiskWrites)
+          }
+          let result = try await run(
+            archive: package.engineURL,
+            executionParent: package.packageURL.deletingLastPathComponent(),
+            journal: journal,
+            additionalEnvironment: environment,
+            standardInput: nativeFinalization ? nil : authorization.password + Data([10]),
+            secrets: [authorization.password],
+            retryIdentity: RecoveryRetryIdentity(package: package),
+            beforeLaunch: prepareDiskStages
           )
           if nativeFinalization {
             return try await finalizeNativeHandoff(

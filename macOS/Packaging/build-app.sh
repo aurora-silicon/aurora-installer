@@ -31,7 +31,7 @@ build_jobs="${OMARCHY_BUILD_JOBS:-10}"
   || fail "OMARCHY_BUILD_JOBS must be a positive integer"
 export CARGO_BUILD_JOBS="$build_jobs"
 
-marketing_version="${OMARCHY_APP_VERSION:-2.1.1}"
+marketing_version="${OMARCHY_APP_VERSION:-0.1.0}"
 # SMJobBless never replaces a helper with a lower build, so a developer build
 # defaults to its UTC build minute (YYMMDDHHMM): each one installs over the
 # helper an earlier one left, without anyone tracking numbers by hand.

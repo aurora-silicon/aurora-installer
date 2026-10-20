@@ -5,10 +5,15 @@
   import IOKit
 
   protocol NativeStubFilesExecuting: Sendable {
+    var firmwarePlan: NativeStubFilePlan? { get }
     func prepare(
       journal: URL, authorization: MachineOwnerAuthorization,
       sourceBootstrap: NativeSourceBootstrap) async throws
   }
+  extension NativeStubFilesExecuting {
+    var firmwarePlan: NativeStubFilePlan? { nil }
+  }
+
   protocol NativeStubFilesPreparing: Sendable {
     func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (
       any NativeStubFilesExecuting
@@ -140,6 +145,7 @@
     let owner: uid_t
     let platform: NativeStubFilePlatform
     let cache: NativeStubRestoreCache?
+    var firmwarePlan: NativeStubFilePlan? { plan }
 
     func prepare(
       journal: URL, authorization: MachineOwnerAuthorization,
@@ -154,7 +160,7 @@
         return
       }
       guard transcript.checkpoints.map(\.identifier) == ["apfs-target-prepared"],
-        try file.readJournal().split(separator: 10).count == 5
+        try file.diskPreparationCanResume()
       else { throw NativeStubFileError.invalidPlan }
       let targetBytes = try file.readEvidence("apfs-target-prepared")
       guard transcript.checkpoints[0].evidenceDigest == SHA256Digest(hashing: targetBytes).rawValue

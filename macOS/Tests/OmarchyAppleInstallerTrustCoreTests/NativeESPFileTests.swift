@@ -179,12 +179,12 @@
           at: esp, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o755])
         receipt = URL(fileURLWithPath: images.base.journal.path + ".native-esp-files.evidence")
       }
-      func prepare() async throws {
+      var environment: NativeHandoffEnvironment {
         let original = images.base.platform.environment
         let command = original.command
         let esp = self.esp
         let partition = images.base.snapshot.partitions.first { $0.identifier == "disk0s5" }!
-        let environment = NativeHandoffEnvironment(
+        return NativeHandoffEnvironment(
           snapshot: original.snapshot, device: original.device,
           command: { executable, arguments in
             if arguments == ["info", "-plist", "disk0s5"] {
@@ -199,6 +199,8 @@
           verifyRecovery: original.verifyRecovery, owner: original.owner,
           mountRoot: original.mountRoot, sourcePrebootMount: original.sourcePrebootMount,
           verifyMount: original.verifyMount)
+      }
+      func prepare() async throws {
         try await NativeESPFilesExecution(
           package: images.base.package, approved: images.base.approved,
           plan: plan, owner: geteuid(), environment: environment, disks: images.platform.disks,

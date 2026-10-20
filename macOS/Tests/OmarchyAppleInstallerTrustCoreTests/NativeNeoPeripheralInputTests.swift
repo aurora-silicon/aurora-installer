@@ -7,7 +7,7 @@
   @testable import OmarchyAppleInstallerTrustCore
 
   final class NativeNeoPeripheralInputTests: XCTestCase, @unchecked Sendable {
-    private struct Fixture: Decodable, Sendable {
+    struct Fixture: Decodable, Sendable {
       let rawFiles: [String: Data]
       let local: [String: Data]
       let payload: Data
@@ -157,7 +157,7 @@
       }
     }
 
-    private final class InputFixture: @unchecked Sendable {
+    final class InputFixture: @unchecked Sendable {
       let value: Fixture
       var rawFiles: [String: Data] {
         value.rawFiles.merging(

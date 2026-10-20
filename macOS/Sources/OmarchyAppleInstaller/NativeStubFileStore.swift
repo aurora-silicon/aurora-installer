@@ -76,6 +76,48 @@
       }
     }
 
+    /// Copy a receipt-bound file from a verified source tree, including FAT.
+    /// Source POSIX metadata is not used as a credential; its bytes must match.
+    func file(
+      _ source: NativeHandoffFileTree, path sourcePath: String,
+      identity expected: NativeStubFileIdentity, at path: String
+    ) async throws -> NativeStubFileIdentity {
+      guard expected.bytes > 0, expected.bytes <= 256 << 20 else {
+        throw NativeStubFileError.invalidPlan
+      }
+      let descriptor = try source.fileDescriptor(sourcePath)
+      defer { close(descriptor) }
+      var before = stat()
+      guard fstat(descriptor, &before) == 0, before.st_mode & S_IFMT == S_IFREG,
+        before.st_size == expected.bytes
+      else { throw NativeStubFileError.changedFile }
+      return try await publish(path, bytes: expected.bytes, mode: 0o600) { writer in
+        var digest = SHA256()
+        var offset = 0
+        while offset < expected.bytes {
+          try Task.checkCancellation()
+          let requested = min(4 << 20, expected.bytes - offset)
+          var bytes = Data(count: requested)
+          let count = bytes.withUnsafeMutableBytes {
+            pread(descriptor, $0.baseAddress, requested, off_t(offset))
+          }
+          if count < 0 && errno == EINTR { continue }
+          guard count > 0 else { throw NativeStubFileError.changedFile }
+          bytes.count = count
+          digest.update(data: bytes)
+          try writer.append(bytes)
+          offset += count
+        }
+        var after = stat()
+        guard Self.hex(digest.finalize()) == expected.sha256,
+          fstat(descriptor, &after) == 0, after.st_size == before.st_size,
+          after.st_mtimespec.tv_sec == before.st_mtimespec.tv_sec,
+          after.st_mtimespec.tv_nsec == before.st_mtimespec.tv_nsec
+        else { throw NativeStubFileError.changedFile }
+        return expected
+      }
+    }
+
     func identity(_ path: String, maximum: Int = 8 << 30) throws -> NativeStubFileIdentity {
       let descriptor = try tree.fileDescriptor(path)
       defer { close(descriptor) }

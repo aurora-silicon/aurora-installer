@@ -51,6 +51,7 @@ class FakeOSInstaller:
 
 class FakeStubInstaller:
     def __init__(self, sysinfo, dutil, osinfo):
+        self.sysinfo = sysinfo
         self.calls = []
         self.recovery = tempfile.TemporaryDirectory()
         self.osi = SimpleNamespace(
@@ -421,6 +422,27 @@ class AsahiStage1AdapterTests(unittest.TestCase):
             metadata=self.plan.metadata_digest, payload=self.plan.payload_digest, recipe=adapter.native_recipe_sha256)
         self.assertEqual(installer.dutil.resize_calls, [])
         self.assertEqual(installer.dutil.add_calls, [])
+
+        # Complete preflight creates a different object for stub collection.
+        # Follow the private inputs through that boundary into the package.
+        self._common_payload()
+        metadata = self._target_metadata()
+        metadata["aurora_stage1"] = {
+            "kind": "common-raw-v1", "qualified_machines": {"j700ap": ["14.8.3"]}}
+        self._write_metadata([metadata])
+        prepared["sensor"] = {"apple/mesacal-j700.bin": b"synthetic calibration",
+                              "apple/msrk-j700.bin": b"synthetic signed root"}
+        with patch.object(module.omarchy_native_peripherals, "load", return_value=prepared):
+            adapter.preflight(self.plan)
+        self.assertIsNot(installer.ins, installer)
+        self.assertEqual(installer.ins.native_touch_id, prepared["sensor"])
+        added = {}
+        package = SimpleNamespace(add_file=lambda name, value: added.update({name: value}))
+        with patch.object(module, "asahi_firmware", SimpleNamespace(core=SimpleNamespace(FWFile=lambda name, data: data))):
+            module._collect_neo_touch_id(installer.ins, package,
+                collect=lambda _: self.fail("re-read device"),
+                sensor_present=lambda: self.fail("re-query hardware"))
+        self.assertEqual(added, prepared["sensor"])
 
     def test_preflight_accepts_the_partition_floor(self):
         metadata = self._target_metadata()
