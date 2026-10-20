@@ -32,13 +32,30 @@ def generate():
     controller = next(x for x in generic['vectors'] if x['name'] == 'controller-complete')
     kernel = base64.b64decode(controller['inputs']['kernel'])
     files['kernelcache.fixture'] = der(0x30, der(0x16, b'IM4P') + der(0x16, b'krnl') + der(0x16, b'synthetic') + der(4, kernel))
-    result = io.BytesIO()
-    with zipfile.ZipFile(result, 'w') as archive:
-        for name, data in sorted(files.items()):
-            info = zipfile.ZipInfo(name, (1980, 1, 1, 0, 0, 0))
-            info.external_attr = 0o100644 << 16
-            archive.writestr(info, data)
-    return json.dumps(dict(archive=base64.b64encode(result.getvalue()).decode()), sort_keys=True, separators=(',', ':')) + '\n'
+    def packed():
+        result = io.BytesIO()
+        with zipfile.ZipFile(result, 'w') as archive:
+            for name, data in sorted(files.items()):
+                info = zipfile.ZipInfo(name, (1980, 1, 1, 0, 0, 0))
+                info.external_attr = 0o100644 << 16
+                archive.writestr(info, data)
+        return base64.b64encode(result.getvalue()).decode()
+    result = dict(archive=packed())
+    for name, directory in (('wifi-dimensions', 'wifi'), ('bluetooth-AMKOR', 'bluetooth')):
+        vector = next(x for x in generic['vectors'] if x['name'] == name)
+        for member, data in vector['inputs'].items():
+            result['radio/' + directory + '/' + member] = data
+    for machine in ('j314s', 'j274'):
+        identity['Info']['DeviceClass'] = machine + 'ap'
+        if machine == 'j314s':
+            touch = next(x for x in generic['vectors'] if x['name'] == 'trackpad-j314s')
+            files['Firmware/synthetic.im4p'] = base64.b64decode(touch['inputs']['image'])
+        else:
+            del identity['Manifest']['Multitouch']
+            del files['Firmware/synthetic.im4p']
+        files['BuildManifest.plist'] = plistlib.dumps(manifest)
+        result['archive-' + machine] = packed()
+    return json.dumps(result, sort_keys=True, separators=(',', ':')) + '\n'
 
 
 if __name__ == '__main__':

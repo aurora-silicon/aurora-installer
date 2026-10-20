@@ -6,6 +6,11 @@ on:
   push:
     branches: [main, feat/fedora-native-20261018]
   workflow_dispatch:
+    inputs:
+      test-filter:
+        description: Optional focused Swift test filter; pushes always run the full suite
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -61,6 +66,7 @@ jobs:
     timeout-minutes: 20
     env:
       XCODEBUILDMCP_SENTRY_DISABLED: 'true'
+      NATIVE_TEST_FILTER: ${{ inputs.test-filter }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -96,9 +102,17 @@ jobs:
       - name: Check Swift formatting
         run: xcrun swift-format lint --strict --recursive Package.swift Sources Plugins Tests 2>&1 | tee "$RUNNER_TEMP/installer-ci/swift-format.log"
       - name: Run debug Swift tests
-        run: xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug 2>&1 | tee "$RUNNER_TEMP/installer-ci/swift-debug.log"
+        run: |
+          set -euo pipefail
+          arguments=(--package-path "$PWD" --configuration debug)
+          if [[ -n $NATIVE_TEST_FILTER ]]; then arguments+=(--filter "$NATIVE_TEST_FILTER"); fi
+          xcodebuildmcp swift-package test "${arguments[@]}" 2>&1 | tee "$RUNNER_TEMP/installer-ci/swift-debug.log"
       - name: Run release Swift tests
-        run: xcodebuildmcp swift-package test --package-path "$PWD" --configuration release 2>&1 | tee "$RUNNER_TEMP/installer-ci/swift-release.log"
+        run: |
+          set -euo pipefail
+          arguments=(--package-path "$PWD" --configuration release)
+          if [[ -n $NATIVE_TEST_FILTER ]]; then arguments+=(--filter "$NATIVE_TEST_FILTER"); fi
+          xcodebuildmcp swift-package test "${arguments[@]}" 2>&1 | tee "$RUNNER_TEMP/installer-ci/swift-release.log"
       - name: Build the native preview
         run: bash Packaging/build-aurora-preview.sh "$RUNNER_TEMP/aurora-preview"
       - name: Check exact developer app and helper requirements

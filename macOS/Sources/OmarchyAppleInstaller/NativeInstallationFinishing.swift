@@ -24,23 +24,30 @@
     var owner: uid_t = 0
     var environment: NativeHandoffEnvironment = .live
     var disks: NativeAPFSPlatform = .live
+    var collectAmbientLight: @Sendable () throws -> Data? = { try NativeAmbientLightInputs.live() }
 
     func preflight(
       package: ImportedEngineHandoffPackage, stub: NativeStubFilePlan?,
       peripherals: PreparedNativePeripheralInputs?
     ) throws -> (any NativeInstallationFinishing)? {
-      guard enabled, package.installationIntent == .fresh, package.deviceIdentifier == "apple,j700",
-        let stub, let peripherals
+      guard enabled, package.installationIntent == .fresh, let stub
       else { return nil }
       let approved = try EngineHandoffPackageImporter().executionPlan(package, owner: owner)
       let source = try NativeFirmwareSourcePlan(manifest: stub.manifest)
-      guard source.machine == "j700", source.fud.contains(where: { $0.component == "Multitouch" })
+      guard "apple," + source.machine == package.deviceIdentifier
       else {
         throw NativeFirmwareInputFailure.invalidSource
       }
+      if source.machine == "j700" {
+        guard peripherals != nil, source.fud.contains(where: { $0.component == "Multitouch" })
+        else { throw NativeFirmwareInputFailure.invalidSource }
+      } else if peripherals != nil {
+        throw NativeFirmwareInputFailure.invalidSource
+      }
+      let ambientLight = try source.machine == "j700" ? nil : collectAmbientLight()
       return NativeInstallationFinishingExecution(
         package: package, approved: approved, stub: stub, peripherals: peripherals,
-        owner: owner, environment: environment, disks: disks)
+        owner: owner, environment: environment, disks: disks, ambientLight: ambientLight)
     }
   }
 
@@ -48,10 +55,11 @@
     let package: ImportedEngineHandoffPackage
     let approved: ValidatedEnginePlan
     let stub: NativeStubFilePlan
-    let peripherals: PreparedNativePeripheralInputs
+    let peripherals: PreparedNativePeripheralInputs?
     let owner: uid_t
     let environment: NativeHandoffEnvironment
     let disks: NativeAPFSPlatform
+    let ambientLight: Data?
 
     func prepare(
       journal: URL, authorization: MachineOwnerAuthorization,
@@ -59,7 +67,7 @@
     ) async throws {
       _ = try await NativeVendorFirmware(
         package: package, approved: approved, plan: stub, peripherals: peripherals,
-        owner: owner, environment: environment, disks: disks
+        owner: owner, environment: environment, disks: disks, ambientLight: { self.ambientLight }
       ).prepare(journal: journal, authorization: authorization, bootstrap: sourceBootstrap)
       try await NativeRecoveryInstallation(
         package: package, approved: approved, template: recovery,

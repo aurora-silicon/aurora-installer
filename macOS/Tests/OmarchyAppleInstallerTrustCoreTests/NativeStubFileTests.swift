@@ -253,7 +253,7 @@
       let snapshot: RemovalSnapshot
       let bootstrap: NativeSourceBootstrap
       let authorization: MachineOwnerAuthorization
-      init() throws {
+      init(deviceIdentifier: String = "apple,j700") throws {
         let file = try XCTUnwrap(
           Bundle.module.url(
             forResource: "native-handoff-vectors", withExtension: "json", subdirectory: "Fixtures"))
@@ -271,7 +271,32 @@
           })
         self.snapshot = snapshot
         let lines = (vector["transcript"] as! String).split(separator: "\n").prefix(5)
-        let transcript = Data((lines.joined(separator: "\n") + "\n").utf8)
+        var transcript = Data((lines.joined(separator: "\n") + "\n").utf8)
+        if deviceIdentifier != "apple,j700" {
+          var messages = try transcript.split(separator: 10).map {
+            try JSONSerialization.jsonObject(with: Data($0)) as! [String: Any]
+          }
+          var plan = messages[2]["payload"] as! [String: Any]
+          plan["device_identifier"] = deviceIdentifier
+          let decoder = JSONDecoder()
+          decoder.keyDecodingStrategy = .convertFromSnakeCase
+          let admitted = try decoder.decode(
+            EnginePlanMessage.self, from: JSONSerialization.data(withJSONObject: plan))
+          for index in messages.indices {
+            var payload = messages[index]["payload"] as! [String: Any]
+            if payload["device_identifier"] != nil {
+              payload["device_identifier"] = deviceIdentifier
+            }
+            if payload["plan_digest"] != nil {
+              payload["plan_digest"] = admitted.computedPlanDigest
+            }
+            messages[index]["payload"] = payload
+          }
+          transcript = try messages.reduce(into: Data()) {
+            $0.append(try JSONSerialization.data(withJSONObject: $1, options: [.sortedKeys]))
+            $0.append(10)
+          }
+        }
         approved = try XCTUnwrap(
           AppleInstallerTrustCore().validateEngineTranscript(transcript).plan)
         directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -327,6 +352,19 @@
         let evidence = try NativeAPFSTargetEvidence(plan: approved.planDigest, partition: target)
           .bytes
         try writeEvidence(evidence, name: "apfs-target-prepared")
+        if deviceIdentifier != "apple,j700" {
+          var messages = try transcript.split(separator: 10).map {
+            try JSONSerialization.jsonObject(with: Data($0)) as! [String: Any]
+          }
+          var checkpoint = messages[4]["payload"] as! [String: Any]
+          checkpoint["evidence_digest"] = SHA256Digest(hashing: evidence).rawValue
+          messages[4]["payload"] = checkpoint
+          transcript = try messages.reduce(into: Data()) {
+            $0.append(try JSONSerialization.data(withJSONObject: $1, options: [.sortedKeys]))
+            $0.append(10)
+          }
+          try transcript.write(to: journal)
+        }
         let volumes = NativeStubVolumes(
           planDigest: approved.planDigest, partitionUUID: target.uuid,
           containerUUID: old.uuid, label: "System", volumes: snapshot.containers[1].volumes)

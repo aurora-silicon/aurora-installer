@@ -9,34 +9,39 @@
     final class Fixture: @unchecked Sendable {
       let esp: NativeESPFileTests.Fixture
       let inputs: NativeNeoPeripheralInputTests.InputFixture
-      let peripherals: PreparedNativePeripheralInputs
+      let peripherals: PreparedNativePeripheralInputs?
+      let machine: String
       let plan: NativeStubFilePlan
       let template: PreparedNativeRecoveryTemplate
       var imageOpens = 0
       var rejectDetach = false
       var attachment: URL?
       var base: NativeStubFileTests.ExecutionFixture { esp.images.base }
-      init() async throws {
-        let esp = try await NativeESPFileTests.Fixture()
+      init(machine: String = "j700") async throws {
+        self.machine = machine
+        let esp = try await NativeESPFileTests.Fixture(deviceIdentifier: "apple," + machine)
         self.esp = esp
         try await esp.prepare()
         let inputs = try NativeNeoPeripheralInputTests.InputFixture()
         self.inputs = inputs
-        let peripherals = try await inputs.preparer().prepare(
-          package: inputs.package, rawDirectory: inputs.raw)
+        let peripherals =
+          machine == "j700"
+          ? try await inputs.preparer().prepare(package: inputs.package, rawDirectory: inputs.raw)
+          : nil
         self.peripherals = peripherals
         let url = try XCTUnwrap(
           Bundle.module.url(
             forResource: "native-finishing", withExtension: "json", subdirectory: "Fixtures"))
         let document = try JSONDecoder().decode([String: Data].self, from: Data(contentsOf: url))
         let archive = try await IPSWArchive.open(
-          NativeStubFileTests.Source(bytes: XCTUnwrap(document["archive"])))
+          NativeStubFileTests.Source(
+            bytes: XCTUnwrap(document[machine == "j700" ? "archive" : "archive-" + machine])))
         let plan = try await NativeStubFilePlan(
           archive: archive,
           source: .init(
             version: "26.6.2", sourceURL: URL(string: "https://example.test/restore.ipsw")!,
             stubBytes: 8 << 20),
-          deviceClass: "j700ap", boardID: 1, chipID: 2)
+          deviceClass: machine + "ap", boardID: 1, chipID: 2)
         self.plan = plan
         let base = esp.images.base
         try await NativeStubFilesExecution(
@@ -53,15 +58,17 @@
                   subdirectory: "Fixtures")))) as! [String: Any]
         let metadata = ((vectors["vectors"] as! [[String: Any]])[0]["metadata"] as! String)
         try Data(metadata.utf8).write(to: base.package.metadataURL)
-        let manifestURL = peripherals.directory.appendingPathComponent("manifest.json")
-        var manifest =
-          try JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as! [String: Any]
-        manifest["binding_digest"] = base.package.bindingDigest
-        manifest["plan_digest"] = base.approved.planDigest
-        manifest["metadata_digest"] = base.approved.metadataDigest
-        manifest["payload_digest"] = base.approved.payloadDigest
-        try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys]).write(
-          to: manifestURL)
+        if let peripherals {
+          let manifestURL = peripherals.directory.appendingPathComponent("manifest.json")
+          var manifest =
+            try JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as! [String: Any]
+          manifest["binding_digest"] = base.package.bindingDigest
+          manifest["plan_digest"] = base.approved.planDigest
+          manifest["metadata_digest"] = base.approved.metadataDigest
+          manifest["payload_digest"] = base.approved.payloadDigest
+          try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys]).write(
+            to: manifestURL)
+        }
         let app = base.directory.appendingPathComponent("Template.app")
         try FileManager.default.createDirectory(
           at: app.appendingPathComponent("Contents/MacOS"), withIntermediateDirectories: true,
@@ -83,7 +90,7 @@
           verify: { _ in })
       }
       deinit {
-        try? peripherals.remove()
+        try? peripherals?.remove()
         inputs.remove()
         template.remove()
       }
@@ -110,6 +117,7 @@
         NativeVendorFirmware(
           package: base.package, approved: base.approved, plan: plan, peripherals: peripherals,
           owner: geteuid(), environment: environment, disks: esp.images.platform.disks,
+          ambientLight: { self.machine == "j314s" ? Data("synthetic generic ALS".utf8) : nil },
           openImage: { _, parent in
             self.imageOpens += 1
             let directory = parent.appendingPathComponent("firmware-image-" + UUID().uuidString)
@@ -120,8 +128,26 @@
                 at: root.appendingPathComponent(path), withIntermediateDirectories: true,
                 attributes: [.posixPermissions: 0o700])
             }
-            try Data("raw camera fallback".utf8).write(
-              to: root.appendingPathComponent("usr/sbin/appleh13camerad"))
+            let camera =
+              self.machine == "j700"
+              ? Data("raw camera fallback".utf8)
+              : try XCTUnwrap(
+                self.inputs.value.rawFiles.first { $0.key.hasPrefix("camera/") }?.value)
+            try camera.write(to: root.appendingPathComponent("usr/sbin/appleh13camerad"))
+            if self.machine != "j700" {
+              let url = try XCTUnwrap(
+                Bundle.module.url(
+                  forResource: "native-finishing", withExtension: "json", subdirectory: "Fixtures"))
+              let document = try JSONDecoder().decode(
+                [String: Data].self, from: Data(contentsOf: url))
+              for (name, data) in document where name.hasPrefix("radio/") {
+                let path = root.appendingPathComponent("usr/share/firmware/" + name.dropFirst(6))
+                try FileManager.default.createDirectory(
+                  at: path.deletingLastPathComponent(), withIntermediateDirectories: true,
+                  attributes: [.posixPermissions: 0o700])
+                try data.write(to: path)
+              }
+            }
             return NativeFirmwareMountedImage(
               directory: directory, root: root, device: "disk99s1",
               command: { _, args in
@@ -129,7 +155,13 @@
                 if self.rejectDetach { throw NativeFirmwareInputFailure.detachFailed }
                 return Data()
               })
-          }, factoryFiles: { _ in ["BWC2-synthetic": self.inputs.value.local["factory"]!] },
+          },
+          factoryFiles: { _ in
+            [
+              "BWC2-synthetic": self.inputs.value.local["factory"]!,
+              "HmCA-synthetic": Data("synthetic factory ALS".utf8),
+            ]
+          },
           admitESPFilesystem: { _ in })
       }
       var recovery: NativeRecoveryInstallation {
@@ -156,6 +188,49 @@
         URL(fileURLWithPath: base.journal.path + ".native-vendor-firmware.evidence")
       }
       var system: URL { base.mounts.appendingPathComponent("disk8s1") }
+    }
+
+    func testGenericLaptopAndSensorlessDesktopFinishWithoutNeoInputs() async throws {
+      for machine in ["j314s", "j274"] {
+        let fixture = try await Fixture(machine: machine)
+        XCTAssertNil(fixture.peripherals)
+        _ = try await fixture.prepareVendor()
+        let manifest = try String(
+          contentsOf: fixture.esp.esp.appendingPathComponent("vendorfw/manifest.txt"),
+          encoding: .utf8)
+        XCTAssertTrue(manifest.contains("apple/isp_1921_01XX.dat"))
+        XCTAssertTrue(manifest.contains("asmedia/asm2214a-apple.bin"))
+        XCTAssertTrue(manifest.contains("brcm/brcmfmac4355c1-pcie.apple,j314s.bin"))
+        XCTAssertTrue(manifest.contains("brcm/brcmbt4388b0-apple,tokara-a.bin"))
+        XCTAssertFalse(manifest.contains("mediatek/"))
+        XCTAssertFalse(manifest.contains("j700"))
+        XCTAssertEqual(manifest.contains("apple/tpmtfw-j314s.bin"), machine == "j314s")
+        XCTAssertEqual(manifest.contains("apple/aop-als-cal.bin"), machine == "j314s")
+        XCTAssertEqual(manifest.contains("apple/HmCA-synthetic"), machine == "j314s")
+        XCTAssertFalse(manifest.contains("apple/tpmtfw-j274.bin"))
+        try await fixture.prepareRecovery()
+        try await fixture.completion.prepare(
+          journal: fixture.base.journal, authorization: fixture.base.authorization,
+          bootstrap: fixture.base.bootstrap)
+        let file = try NativeInstallJournalFile(
+          url: fixture.base.journal, package: fixture.base.package, owner: geteuid())
+        let snapshot = try NativeRecoveryJournalSnapshot.decode(
+          file.readJournal(), package: fixture.base.package, evidence: file.readEvidence)
+        XCTAssertEqual(snapshot.state, .ready)
+      }
+    }
+
+    func testAmbientLightAbsenceAndCalibrationPublicationHaveSeparateContracts() throws {
+      let factory = ["HmCA-local": Data([1, 2, 3]), "BWC2-local": Data([4, 5, 6])]
+      XCTAssertEqual(try NativeAmbientLightInputs.files(calibration: nil, factory: factory), [:])
+      XCTAssertEqual(
+        try NativeAmbientLightInputs.files(calibration: Data([7]), factory: factory),
+        ["apple/aop-als-cal.bin": Data([7]), "apple/HmCA-local": Data([1, 2, 3])])
+      XCTAssertThrowsError(
+        try NativeAmbientLightInputs.files(calibration: Data(), factory: factory))
+      XCTAssertThrowsError(
+        try NativeAmbientLightInputs.files(
+          calibration: Data([7]), factory: ["HmCA/../outside": Data([1])]))
     }
 
     func testNativeFirmwareRecoveryAndFinalCheckpointAreAcceptedTogether() async throws {

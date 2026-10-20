@@ -16,10 +16,11 @@
     let package: ImportedEngineHandoffPackage
     let approved: ValidatedEnginePlan
     let plan: NativeStubFilePlan
-    let peripherals: PreparedNativePeripheralInputs
+    let peripherals: PreparedNativePeripheralInputs?
     var owner: uid_t = 0
     var environment: NativeHandoffEnvironment = .live
     var disks: NativeAPFSPlatform = .live
+    var ambientLight: @Sendable () throws -> Data? = { try NativeAmbientLightInputs.live() }
     var openImage: @Sendable (URL, URL) throws -> NativeFirmwareMountedImage = {
       try NativeFirmwareMountedImage.open(image: $0, parent: $1)
     }
@@ -42,7 +43,6 @@
     func prepare(
       journal: URL, authorization: MachineOwnerAuthorization, bootstrap: NativeSourceBootstrap
     ) async throws -> Receipt {
-      guard package.deviceIdentifier == "apple,j700" else { throw NativeStubFileError.invalidPlan }
       let file = try NativeInstallJournalFile(url: journal, package: package, owner: owner)
       let target = try NativeInstallationTarget(
         package: package, approved: approved, journal: file, authorization: authorization,
@@ -75,38 +75,45 @@
         }
         return receipt
       }
-      let tree = try NativeHandoffFileTree(peripherals.directory, protected: true, owner: owner)
-      let peripheralManifest = try JSONDecoder().decode(
-        NativeNeoPeripheralPreparer.Manifest.self,
-        from: tree.read("manifest.json", maximum: 1 << 20))
-      guard peripheralManifest.schema == 1, peripheralManifest.converter == "neo-v1",
-        peripheralManifest.deviceIdentifier == package.deviceIdentifier,
-        peripheralManifest.bindingDigest == package.bindingDigest,
-        peripheralManifest.planDigest == approved.planDigest,
-        peripheralManifest.metadataDigest == approved.metadataDigest,
-        peripheralManifest.payloadDigest == approved.payloadDigest,
-        peripheralManifest.recipeSHA256 == peripherals.recipeSHA256,
-        peripheralManifest.files.count <= 4096
-      else { throw NativeFirmwareInputFailure.invalidSource }
       var outputs = [String: Data]()
       var lsci: Data?
-      for (name, record) in peripheralManifest.files {
-        let data = try tree.read("files/" + name, maximum: 64 << 20)
-        guard data.count == record.bytes, NativeStubFileStore.hash(data) == record.sha256 else {
-          throw NativeFirmwareInputFailure.invalidSource
+      if package.deviceIdentifier == "apple,j700" {
+        guard let peripherals else { throw NativeFirmwareInputFailure.invalidSource }
+        let tree = try NativeHandoffFileTree(peripherals.directory, protected: true, owner: owner)
+        let peripheralManifest = try JSONDecoder().decode(
+          NativeNeoPeripheralPreparer.Manifest.self,
+          from: tree.read("manifest.json", maximum: 1 << 20))
+        guard peripheralManifest.schema == 1, peripheralManifest.converter == "neo-v1",
+          peripheralManifest.deviceIdentifier == package.deviceIdentifier,
+          peripheralManifest.bindingDigest == package.bindingDigest,
+          peripheralManifest.planDigest == approved.planDigest,
+          peripheralManifest.metadataDigest == approved.metadataDigest,
+          peripheralManifest.payloadDigest == approved.payloadDigest,
+          peripheralManifest.recipeSHA256 == peripherals.recipeSHA256,
+          peripheralManifest.files.count <= 4096
+        else { throw NativeFirmwareInputFailure.invalidSource }
+        for (name, record) in peripheralManifest.files {
+          let data = try tree.read("files/" + name, maximum: 64 << 20)
+          guard data.count == record.bytes, NativeStubFileStore.hash(data) == record.sha256 else {
+            throw NativeFirmwareInputFailure.invalidSource
+          }
+          if name == "fallback/lsci.bin" { lsci = data } else { outputs[name] = data }
         }
-        if name == "fallback/lsci.bin" { lsci = data } else { outputs[name] = data }
+        guard NeoFirmwareConversions.requiredCameraNames.isSubset(of: Set(outputs.keys)),
+          NeoFirmwareConversions.requiredRadioNames.isSubset(of: Set(outputs.keys)),
+          outputs[NeoFirmwareConversions.alsName] != nil, lsci != nil
+        else { throw NativeFirmwareInputFailure.invalidSource }
+      } else if peripherals != nil {
+        throw NativeFirmwareInputFailure.invalidSource
       }
-      guard NeoFirmwareConversions.requiredCameraNames.isSubset(of: Set(outputs.keys)),
-        NeoFirmwareConversions.requiredRadioNames.isSubset(of: Set(outputs.keys)),
-        outputs[NeoFirmwareConversions.alsName] != nil, let lsci
-      else { throw NativeFirmwareInputFailure.invalidSource }
       let work = package.packageURL.deletingLastPathComponent().appendingPathComponent(
         "vendor-firmware-" + UUID().uuidString.lowercased())
       try FileManager.default.createDirectory(
         at: work, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
       let cleanup = try PreparedNativePeripheralInputs(
-        directory: work, recipeSHA256: peripherals.recipeSHA256, owner: owner)
+        directory: work,
+        recipeSHA256: peripherals?.recipeSHA256 ?? NativeStubFileStore.hash(plan.manifest),
+        owner: owner)
       return try await PreparedNativePeripheralInputs.withCleanup(cleanup) {
         let sourceRecords = try self.sourceRecords(file, binding: binding, target: target)
         let preboot = try target.tree("Preboot")
@@ -160,21 +167,36 @@
           let radio = try NativeFirmwareInputFiles.snapshot(
             root: image.root, prefix: "usr/share/firmware", tree: imageTree, owner: owner)
           for (name, data) in radio { fallback["firmware/" + name] = data }
-          try merge(BroadcomFirmware.wifi(subtree(radio, "wifi/")), into: &outputs)
-          try merge(BroadcomFirmware.bluetooth(subtree(radio, "bluetooth/")), into: &outputs)
+          let wifi = try BroadcomFirmware.wifi(subtree(radio, "wifi/"))
+          let bluetooth = try BroadcomFirmware.bluetooth(subtree(radio, "bluetooth/"))
+          guard package.deviceIdentifier == "apple,j700" || (!wifi.isEmpty && !bluetooth.isEmpty)
+          else { throw NativeFirmwareInputFailure.invalidSource }
+          try merge(wifi, into: &outputs)
+          try merge(bluetooth, into: &outputs)
           for name in ["appleh13camerad", "appleh16camerad"] {
             let path = "usr/sbin/" + name
             if try !imageTree.isAbsent(path) {
               let data = try imageTree.read(path, maximum: 16 << 20)
               fallback[name] = data
+              if package.deviceIdentifier != "apple,j700" {
+                try merge(NeoFirmwareConversions.camera(data, requireNeoSet: false), into: &outputs)
+              }
             }
           }
         }
-        for (name, data) in try factoryFiles(package.storeIdentifier) {
+        let factory = try factoryFiles(package.storeIdentifier)
+        for (name, data) in factory {
           fallback["com.apple.factorydata/" + name] = data
         }
-        fallback[NeoFirmwareConversions.alsName] = outputs[NeoFirmwareConversions.alsName]
-        fallback["j700-exbright-LSCI.bin"] = lsci
+        if package.deviceIdentifier == "apple,j700" {
+          fallback[NeoFirmwareConversions.alsName] = outputs[NeoFirmwareConversions.alsName]
+          fallback["j700-exbright-LSCI.bin"] = lsci
+        } else {
+          let calibration = try NativeAmbientLightInputs.files(
+            calibration: ambientLight(), factory: factory)
+          try merge(calibration, into: &outputs)
+          try merge(calibration, into: &fallback)
+        }
         let archives = try FirmwarePackageBuilder.build(
           outputs.keys.sorted().map { FirmwarePackageInput(name: $0, bytes: outputs[$0]!) })
         let published: [String: Data] = [

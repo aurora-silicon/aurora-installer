@@ -15,8 +15,8 @@
       var opened = 0
       var changedOwner = false
       var changedSnapshot = false
-      init() async throws {
-        let base = try NativeStubFileTests.ExecutionFixture()
+      init(deviceIdentifier: String = "apple,j700") async throws {
+        let base = try NativeStubFileTests.ExecutionFixture(deviceIdentifier: deviceIdentifier)
         self.base = base
         let archive = try await IPSWArchive.open(
           NativeRawImageWriterTests.Source(bytes: NativeRawImageWriterTests.source()))

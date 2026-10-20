@@ -169,8 +169,8 @@
       let plan: NativeESPPayloadPlan
       let esp: URL
       let receipt: URL
-      init() async throws {
-        let images = try await NativePayloadImageTests.Fixture()
+      init(deviceIdentifier: String = "apple,j700") async throws {
+        let images = try await NativePayloadImageTests.Fixture(deviceIdentifier: deviceIdentifier)
         self.images = images
         try await images.prepare()
         plan = try await NativeESPFileTests.plan()
