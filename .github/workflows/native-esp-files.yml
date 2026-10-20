@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: 4926a4355c8ea154f1d99f4d4eede41e59676645
+          ref: 2c2952719aeed970478f3b13d2a0d958ceddb716
           path: source
           persist-credentials: false
       - name: Record immutable source and toolchain
@@ -64,7 +64,7 @@ jobs:
           import re,sys
           for name in ("debug.log", "release.log"):
               log=(Path(sys.argv[1])/name).read_text()
-              assert re.search(r"4 tests passed, 0 failed, 0 skipped", log), name + ": incomplete FAT qualification"
+              assert re.search(r"5 tests passed, 0 failed, 0 skipped", log), name + ": incomplete FAT qualification"
           PYCODE
       - name: Retain the native driver logs
         if: always()
