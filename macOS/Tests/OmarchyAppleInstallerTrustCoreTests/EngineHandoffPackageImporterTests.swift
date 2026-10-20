@@ -22,9 +22,11 @@
   }
 
   final class EngineHandoffPackageImporterTests: XCTestCase {
-    func testFreshRepairAndReplacementIntentSurvivesRetainedRevalidation() throws {
-      for intent in [ImportedInstallationIntent.fresh, .repair, .replace] {
-        let fixture = try makeFixture(repair: intent == .repair, replace: intent == .replace)
+    func testFreshRepairReplacementAndReinstallIntentSurvivesRetainedRevalidation() throws {
+      for intent in [ImportedInstallationIntent.fresh, .repair, .replace, .reinstall] {
+        let fixture = try makeFixture(
+          repair: intent == .repair, replace: intent == .replace,
+          reinstall: intent == .reinstall)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let source = try openDirectory(fixture.source)
         defer { try? source.close() }
@@ -35,7 +37,27 @@
           named: imported.packageURL.lastPathComponent,
           in: fixture.destination)
         XCTAssertEqual(reopened.installationIntent, intent)
+        if intent == .reinstall {
+          XCTAssertThrowsError(try importer.executionPlan(imported, owner: geteuid()))
+          let plan = try importer.preservedExecutionPlan(imported, owner: geteuid())
+          XCTAssertEqual(plan.candidateKind, "reinstall")
+          XCTAssertEqual(plan.requiredHumanSteps, ["authenticateMachineOwner"])
+        }
       }
+    }
+
+    func testReinstallCannotBeRelabeledAsFreshInstallation() throws {
+      let fixture = try makeFixture(reinstall: true)
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let original = try String(contentsOf: fixture.requestURL, encoding: .utf8)
+      let changed = original.replacingOccurrences(
+        of: ImportedInstallationIntent.reinstallOperation, with: "install")
+      try FileManager.default.removeItem(at: fixture.requestURL)
+      try writePrivate(Data(changed.utf8), to: fixture.requestURL)
+      let source = try openDirectory(fixture.source)
+      defer { try? source.close() }
+      XCTAssertThrowsError(
+        try EngineHandoffPackageImporter().prepare(from: source, in: fixture.destination))
     }
     func testDecoderIsExecutableAndRetainedRetryRejectsChangedOrNonExecutableBytes() throws {
       for change in ["bytes", "execute-bit"] {
@@ -501,6 +523,7 @@
       nulEngineFileName: Bool = false,
       repair: Bool = false,
       replace: Bool = false,
+      reinstall: Bool = false,
       strayRepairManifest: Bool = false
     ) throws -> ImportFixture {
       let root = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -558,7 +581,7 @@
       let repairDigest = digest(repairManifest)
       let layoutDigest = digest(Data("layout".utf8))
       let engineVersion = "v0.9.0-omarchy.2"
-      let candidateKind = repair ? "repair" : replace ? "replace" : "free"
+      let candidateKind = repair ? "repair" : reinstall ? "reinstall" : replace ? "replace" : "free"
       var planFields = [
         "apple,j314s", "disk0", layoutDigest, "free", "disk0s3",
         "2000", "1000", engineVersion, engineDigest, metadataDigest,
@@ -568,7 +591,9 @@
       if includeRepairManifest {
         planFields.append(repairDigest)
       }
-      planFields.append("enterOneTrueRecovery,authenticateMachineOwner")
+      let humanSteps =
+        reinstall ? "authenticateMachineOwner" : "enterOneTrueRecovery,authenticateMachineOwner"
+      planFields.append(humanSteps)
       let planDigest = lengthPrefixedDigest(planFields)
       let extraField = extraManifestField ? #","unexpected":true"# : ""
       let engineFileName =
@@ -586,9 +611,16 @@
         {"format":1,"binding_digest":"\(bindingDigest)","request_file":"request.json","identity_file":"identity.json","engine":{"file_name":"\(engineFileName)","digest":"\(engineDigest)","size_bytes":\(engine.count)},"metadata":{"file_name":"installer-data.json","digest":"\(metadataDigest)","size_bytes":\(metadata.count)},"payload":{"file_name":"omarchy.img.zst","digest":"\(payloadDigest)","size_bytes":\(payload.count)},"restore_image":{"file_name":"\(RestoreImageHelper.fileName)","digest":"\(digest(decoder))","size_bytes":\(decoder.count)}\(repairManifestField)\(extraField)}
         """.utf8
       )
+      let operation =
+        repair ? "repair-installed-system"
+        : reinstall ? ImportedInstallationIntent.reinstallOperation : "install"
+      let humanStepsJSON =
+        reinstall
+        ? "[\"authenticateMachineOwner\"]"
+        : "[\"enterOneTrueRecovery\",\"authenticateMachineOwner\"]"
       let request = Data(
         """
-        {"format":1,"operation":"\(repair ? "repair-installed-system" : "install")","plan_digest":"\(planDigest)","device_identifier":"apple,j314s","store_identifier":"disk0","layout_digest":"\(layoutDigest)","candidate_kind":"\(candidateKind)","source_identifier":"disk0s3","offset_bytes":2000,"length_bytes":1000,"engine_version":"\(engineVersion)","required_human_steps":["enterOneTrueRecovery","authenticateMachineOwner"]}
+        {"format":1,"operation":"\(operation)","plan_digest":"\(planDigest)","device_identifier":"apple,j314s","store_identifier":"disk0","layout_digest":"\(layoutDigest)","candidate_kind":"\(candidateKind)","source_identifier":"disk0s3","offset_bytes":2000,"length_bytes":1000,"engine_version":"\(engineVersion)","required_human_steps":\(humanStepsJSON)}
         """.utf8
       )
       let identity = Data(

@@ -32,6 +32,22 @@
       }
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
     }
+
+    func testPreservedReinstallCannotFallThroughToFreshDiskOrCompatibilityExecution()
+      async throws
+    {
+      let fixture = try makeFixture(installationIntent: .reinstall)
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let executor = fixtureExecutor(effectiveUserID: { 0 })
+      await assertThrowsErrorAsync(
+        try await executor.execute(
+          fixture.package, authorization: try machineOwnerAuthorization())
+      ) {
+        XCTAssertEqual(
+          $0 as? PinnedAsahiEngineExecutionError, .nativeReinstallUnavailable)
+      }
+      XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
     private struct FirmwareMarker: NativeFirmwarePreparing {
       let url: URL
       func prepare(deviceIdentifier: String, in workingDirectory: URL) async throws -> URL? {

@@ -26,6 +26,7 @@
     case restoreImageRejected
     case restoreImageUnsupported
     case recoveryTemplateUnsupported
+    case nativeReinstallUnavailable
     case unsafeTranscript
   }
 
@@ -167,6 +168,11 @@
     ) async throws -> Data {
       guard effectiveUserID() == 0 else {
         throw PinnedAsahiEngineExecutionError.privilegeRequired
+      }
+      // The preserved target has its own signed plan. Never reinterpret it as
+      // fresh space or launch the compatibility replacement operation.
+      guard package.installationIntent != .reinstall else {
+        throw PinnedAsahiEngineExecutionError.nativeReinstallUnavailable
       }
       let journal = try preparePersistentJournal(for: package)
       let resumesNativePreparation =

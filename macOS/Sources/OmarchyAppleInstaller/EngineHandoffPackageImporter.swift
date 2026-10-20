@@ -6,7 +6,10 @@
   public enum ImportedInstallationIntent: Equatable, Sendable {
     case fresh
     case replace
+    case reinstall
     case repair
+
+    static let reinstallOperation = "reinstall-preserving-stage1"
   }
 
   public struct ImportedEngineHandoffPackage: Sendable {
@@ -87,6 +90,24 @@
     func executionPlan(
       _ package: ImportedEngineHandoffPackage, owner: uid_t = 0
     ) throws -> ValidatedEnginePlan {
+      try boundPlan(
+        package, owner: owner, intent: .fresh, operation: "install",
+        candidateKinds: ["free", "resize"])
+    }
+
+    func preservedExecutionPlan(
+      _ package: ImportedEngineHandoffPackage, owner: uid_t = 0
+    ) throws -> ValidatedEnginePlan {
+      try boundPlan(
+        package, owner: owner, intent: .reinstall,
+        operation: ImportedInstallationIntent.reinstallOperation,
+        candidateKinds: ["reinstall"])
+    }
+
+    private func boundPlan(
+      _ package: ImportedEngineHandoffPackage, owner: uid_t,
+      intent: ImportedInstallationIntent, operation: String, candidateKinds: Set<String>
+    ) throws -> ValidatedEnginePlan {
       let tree = try NativeHandoffFileTree(package.packageURL, protected: true, owner: owner)
       let manifest = try decodeManifest(
         tree.read("manifest.json", maximum: Self.maximumControlFileBytes))
@@ -95,11 +116,11 @@
       let identity = try decodeIdentity(
         tree.read("identity.json", maximum: Self.maximumControlFileBytes))
       try validateBindings(manifest: manifest, request: request, identity: identity)
-      guard package.installationIntent == .fresh, request.operation == "install",
+      guard package.installationIntent == intent, request.operation == operation,
         package.manifestURL == package.packageURL.appendingPathComponent("manifest.json"),
         package.requestURL == package.packageURL.appendingPathComponent("request.json"),
         package.identityURL == package.packageURL.appendingPathComponent("identity.json"),
-        ["free", "resize"].contains(request.candidateKind),
+        candidateKinds.contains(request.candidateKind),
         package.planDigest == request.planDigest, package.bindingDigest == identity.bindingDigest,
         package.deviceIdentifier == request.deviceIdentifier,
         package.storeIdentifier == request.storeIdentifier,
@@ -111,6 +132,11 @@
           == package.packageURL.appendingPathComponent(manifest.restoreImage.fileName),
         identity.repairManifestDigest == nil
       else { throw EngineHandoffImportError.bindingMismatch }
+      if intent == .reinstall {
+        guard package.repairManifestURL == nil, package.recoveryTemplateURL == nil,
+          manifest.repairManifest == nil, manifest.recoveryTemplate == nil
+        else { throw EngineHandoffImportError.bindingMismatch }
+      }
       return ValidatedEnginePlan(
         planDigest: request.planDigest, deviceIdentifier: request.deviceIdentifier,
         storeIdentifier: request.storeIdentifier, layoutDigest: request.layoutDigest,
@@ -241,9 +267,7 @@
         planDigest: request.planDigest,
         deviceIdentifier: request.deviceIdentifier,
         storeIdentifier: request.storeIdentifier,
-        installationIntent: request.operation == "repair-installed-system"
-          ? .repair
-          : request.candidateKind == "replace" ? .replace : .fresh
+        installationIntent: intent(for: request)
       )
     }
 
@@ -310,9 +334,7 @@
         },
         bindingDigest: identity.bindingDigest, planDigest: request.planDigest,
         deviceIdentifier: request.deviceIdentifier, storeIdentifier: request.storeIdentifier,
-        installationIntent: request.operation == "repair-installed-system"
-          ? .repair
-          : request.candidateKind == "replace" ? .replace : .fresh)
+        installationIntent: intent(for: request))
     }
 
     private func readRetainedFile(
@@ -585,6 +607,9 @@
         guard request.format == 1,
           (request.operation == "install"
             && ["free", "resize", "replace"].contains(request.candidateKind))
+            || (request.operation == ImportedInstallationIntent.reinstallOperation
+              && request.candidateKind == "reinstall"
+              && request.requiredHumanSteps == ["authenticateMachineOwner"])
             || (request.operation == "repair-installed-system"
               && request.candidateKind == "repair"),
           isHexDigest(request.planDigest),
@@ -700,11 +725,19 @@
         manifest.repairManifest?.digest == identity.repairManifestDigest,
         (request.operation == "repair-installed-system"
           && identity.repairManifestDigest != nil)
-          || (request.operation == "install"
+          || (["install", ImportedInstallationIntent.reinstallOperation].contains(
+            request.operation)
             && identity.repairManifestDigest == nil)
       else {
         throw EngineHandoffImportError.bindingMismatch
       }
+    }
+
+    private func intent(for request: ImportedRequest) -> ImportedInstallationIntent {
+      if request.operation == "repair-installed-system" { return .repair }
+      if request.operation == ImportedInstallationIntent.reinstallOperation { return .reinstall }
+      if request.candidateKind == "replace" { return .replace }
+      return .fresh
     }
 
     private func exactObject(

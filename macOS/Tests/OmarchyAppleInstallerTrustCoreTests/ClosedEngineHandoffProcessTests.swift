@@ -236,6 +236,28 @@
       XCTAssertNil(manifest["repair_manifest"])
     }
 
+    func testPreservedReinstallUsesAnExplicitRequestWithoutRecoveryEnrollment() async throws {
+      let fixture = try makeFixture(reinstall: true)
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let submitter = RecordingHandoffSubmitter(transcript: fixture.executionTranscript)
+      let result = try await ClosedEngineProcessAdapter().execute(
+        fixture.request, approval: fixture.approval,
+        authorization: GrantedEngineAuthorization(),
+        process: ClosedEngineHandoffProcess(
+          assets: fixture.assets, handoffDirectory: fixture.handoffDirectory,
+          submitter: submitter, authorization: try machineOwnerAuthorization(),
+          restoreImage: fixture.restoreImage, recoveryTemplate: nil))
+      XCTAssertEqual(result.completion, .installed)
+      let recordedSnapshot = await submitter.snapshot
+      let snapshot = try XCTUnwrap(recordedSnapshot)
+      let request = try XCTUnwrap(
+        try JSONSerialization.jsonObject(with: snapshot.request) as? [String: Any])
+      XCTAssertEqual(request["operation"] as? String, ImportedInstallationIntent.reinstallOperation)
+      XCTAssertEqual(request["candidate_kind"] as? String, "reinstall")
+      XCTAssertEqual(request["required_human_steps"] as? [String], ["authenticateMachineOwner"])
+      XCTAssertNil(snapshot.repairManifest)
+    }
+
     func testReplacePlanWithRepairManifestAssetStopsBeforeSubmission()
       async throws
     {
@@ -344,6 +366,7 @@
       symlinkPayload: Bool = false,
       repair: Bool = false,
       replace: Bool = false,
+      reinstall: Bool = false,
       strayRepairManifestAsset: Bool = false
     ) throws -> HandoffFixture {
       let root = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -459,7 +482,7 @@
         payloadDigest: digest(catalog)
       )
       let transcript = transcript(
-        candidateKind: repair ? "repair" : replace ? "replace" : "free",
+        candidateKind: repair ? "repair" : reinstall ? "reinstall" : replace ? "replace" : "free",
         engineDigest: record.engineDigest,
         metadataDigest: record.metadataDigest,
         payloadDigest: record.payloadDigest,
@@ -582,16 +605,16 @@
       repairManifestDigest: String?
     ) -> HandoffTranscript {
       let identityDigest = "sha256:" + String(repeating: "9", count: 64)
-      let identityBoundKind = ["repair", "replace"].contains(candidateKind)
+      let identityBoundKind = ["repair", "replace", "reinstall"].contains(candidateKind)
       var layoutFields = ["disk0", candidateKind, "disk0s3", "2000", "1000"]
       if identityBoundKind {
         layoutFields.append(identityDigest)
       }
       let layoutDigest = lengthPrefixedDigest(layoutFields, prefix: "sha256:")
-      let humanSteps = [
-        "enterOneTrueRecovery",
-        "authenticateMachineOwner",
-      ]
+      let humanSteps =
+        candidateKind == "reinstall"
+        ? ["authenticateMachineOwner"]
+        : ["enterOneTrueRecovery", "authenticateMachineOwner"]
       var planFields = [
         "apple,j314s", "disk0", layoutDigest, candidateKind, "disk0s3",
         "2000", "1000", "v0.9.0-omarchy.2", engineDigest,
@@ -614,15 +637,21 @@
           ",\"repair_manifest_digest\":\"\($0)\""
         } ?? ""
       let minimumInstallBytes =
-        candidateKind == "repair" ? 1000 : candidateKind == "replace" ? 800 : 100
+        ["repair", "reinstall"].contains(candidateKind)
+        ? 1000 : candidateKind == "replace" ? 800 : 100
+      let humanStepsJSON =
+        candidateKind == "reinstall"
+        ? "[\"authenticateMachineOwner\"]"
+        : "[\"enterOneTrueRecovery\",\"authenticateMachineOwner\"]"
       let records = [
         #"{"schema_version":1,"sequence":1,"type":"inspection","payload":{"device_identifier":"apple,j314s","support":"supported"}}"#,
         #"{"schema_version":1,"sequence":2,"type":"inventory","payload":{"layout_digest":"\#(layoutDigest)","system_store_identifier":"disk0","candidates":[{"kind":"\#(candidateKind)","source_identifier":"disk0s3","offset_bytes":2000,"length_bytes":1000,"minimum_install_bytes":\#(minimumInstallBytes),"minimum_container_bytes":0\#(identityInventoryField)}]}}"#,
-        #"{"schema_version":1,"sequence":3,"type":"plan","payload":{"plan_digest":"\#(planDigest)","device_identifier":"apple,j314s","store_identifier":"disk0","layout_digest":"\#(layoutDigest)","candidate_kind":"\#(candidateKind)","source_identifier":"disk0s3","offset_bytes":2000,"length_bytes":1000,"engine_version":"v0.9.0-omarchy.2","engine_digest":"\#(engineDigest)","metadata_digest":"\#(metadataDigest)","payload_digest":"\#(payloadDigest)"\#(repairPlanField),"required_human_steps":["enterOneTrueRecovery","authenticateMachineOwner"]}}"#,
+        #"{"schema_version":1,"sequence":3,"type":"plan","payload":{"plan_digest":"\#(planDigest)","device_identifier":"apple,j314s","store_identifier":"disk0","layout_digest":"\#(layoutDigest)","candidate_kind":"\#(candidateKind)","source_identifier":"disk0s3","offset_bytes":2000,"length_bytes":1000,"engine_version":"v0.9.0-omarchy.2","engine_digest":"\#(engineDigest)","metadata_digest":"\#(metadataDigest)","payload_digest":"\#(payloadDigest)"\#(repairPlanField),"required_human_steps":\#(humanStepsJSON)}}"#,
       ]
       let planning = Data((records.joined(separator: "\n") + "\n").utf8)
+      let outcome = candidateKind == "reinstall" ? "installed" : "awaiting_recovery"
       let completion =
-        #"{"schema_version":1,"sequence":4,"type":"completion","payload":{"plan_digest":"\#(planDigest)","outcome":"awaiting_recovery"}}"#
+        #"{"schema_version":1,"sequence":4,"type":"completion","payload":{"plan_digest":"\#(planDigest)","outcome":"\#(outcome)"}}"#
       let execution = Data(
         (records.joined(separator: "\n") + "\n" + completion + "\n").utf8
       )
