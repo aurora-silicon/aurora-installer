@@ -1,11 +1,40 @@
 import CryptoKit
 import Foundation
+import OmarchyInstallerUXCore
 import XCTest
 
 @testable import OmarchyAppleInstallerApp
 @testable import OmarchyAppleInstallerTrustCore
 
 final class LiveNativeInspectionTests: XCTestCase {
+  func testStartupDefersRecoveryQueryUntilTheInstalledServiceIsAuthenticated() async throws {
+    for status in [InstallerHelperStatus.missing, .outdated, .disabled, .busy] {
+      let events = LiveInspectionEvents()
+      let environment = LiveInstallerEnvironment(
+        helperProbe: { HelperDisplay(status: status, canInstall: true) },
+        recoveryAccountInspector: {
+          events.append("account-query")
+          throw EngineXPCSubmissionError.connectionFailed
+        })
+      let account = try await environment.inspectRecoveryAccount()
+      XCTAssertNil(account)
+      XCTAssertTrue(events.values.isEmpty, "Unauthenticated service was queried: \(status)")
+    }
+  }
+
+  func testStartupStillQueriesTheAuthenticatedCurrentService() async throws {
+    let events = LiveInspectionEvents()
+    let environment = LiveInstallerEnvironment(
+      helperProbe: { HelperDisplay(status: .current, canInstall: true) },
+      recoveryAccountInspector: {
+        events.append("account-query")
+        return RecoveryAccountReply()
+      })
+    let account = try await environment.inspectRecoveryAccount()
+    XCTAssertNil(account)
+    XCTAssertEqual(events.values, ["account-query"])
+  }
+
   func testWelcomeInspectionUsesNativeServiceBeforeDownloadingAnEngine() async throws {
     let (host, bytes, known) = try fixture()
     let service = FixedNativeInspection(

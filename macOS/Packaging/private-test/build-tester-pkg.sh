@@ -19,7 +19,7 @@ fi
 app_requirement=$(private_code_requirement "$app" "$INSTALLER_APP_IDENTIFIER")
 helper="$app/Contents/Library/LaunchServices/$INSTALLER_HELPER_IDENTIFIER"
 [[ $(/usr/bin/lipo -archs "$helper") == "arm64" ]] || exit 1
-[[ $(/usr/bin/lipo -archs "$app/Contents/MacOS/OmarchyAppleInstallerApp") == "arm64" ]] || exit 1
+[[ $(/usr/bin/lipo -archs "$app/Contents/MacOS/AuroraInstaller") == "arm64" ]] || exit 1
 helper_requirement=$(private_code_requirement "$helper" "$INSTALLER_HELPER_IDENTIFIER")
 [[ $(/usr/bin/plutil -extract helper_code_signing_requirement raw -o - "$app/Contents/Resources/Release/release.json") == "$helper_requirement" ]] || exit 1
 [[ $(/usr/bin/plutil -extract EnvironmentVariables.OMARCHY_CLIENT_CODE_SIGNING_REQUIREMENT raw -o - "$app/Contents/Library/LaunchDaemons/$INSTALLER_HELPER_IDENTIFIER.plist") == "never" ]] || exit 1

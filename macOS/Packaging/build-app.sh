@@ -53,6 +53,7 @@ helper_identifier="$INSTALLER_HELPER_IDENTIFIER"
 restore_image_identifier="$INSTALLER_RESTORE_IMAGE_IDENTIFIER"
 app_name="$INSTALLER_APP_NAME.app"
 app_executable_name="OmarchyAppleInstallerApp"
+packaged_executable_name="AuroraInstaller"
 daemon_plist_name="$helper_identifier.plist"
 
 if [[ $signing_identity == "-" ]]; then
@@ -264,7 +265,7 @@ install -m 0755 "$restore_image_source" "$restore_image_path"
 python3 "$package_directory/Engine/verify-restore-image.py" "$restore_image_path" >/dev/null \
   || fail "the decoder copy differs from its recorded build"
 install -m 0444 "$package_directory/Engine/RestoreImage/LICENSE" "$resources/omarchy-restore-image.LICENSE"
-install -m 0755 "$app_binary" "$contents/MacOS/$app_executable_name"
+install -m 0755 "$app_binary" "$contents/MacOS/$packaged_executable_name"
 install -m 0755 "$helper_binary" "$helper_path"
 install -m 0444 "$release_descriptor" "$resources/Release/release.json"
 install -m 0444 "$trust_root" "$resources/Release/trust-root.ed25519.pub"

@@ -131,26 +131,12 @@
       else {
         throw NativeFirmwareInputFailure.invalidSource
       }
-      var failure: Error?
-      guard
-        let enumerator = FileManager.default.enumerator(
-          at: root.appendingPathComponent(prefix), includingPropertiesForKeys: nil,
-          errorHandler: { _, error in
-            failure = error
-            return false
-          })
-      else { throw NativeFirmwareInputFailure.invalidSource }
+      let source = root.appendingPathComponent(prefix)
       var files = [String: Data]()
       var total = 0
-      var entries = 0
-      let base = root.appendingPathComponent(prefix).path + "/"
-      for case let url as URL in enumerator {
+      for relative in try relativeEntries(root: source, maximum: 20000) {
         try Task.checkCancellation()
-        entries += 1
-        guard entries <= 20000, url.path.hasPrefix(base) else {
-          throw NativeFirmwareInputFailure.budget
-        }
-        let relative = String(url.path.dropFirst(base.count))
+        let url = source.appendingPathComponent(relative)
         var info = stat()
         guard lstat(url.path, &info) == 0 else { throw NativeFirmwareInputFailure.invalidSource }
         if info.st_mode & S_IFMT == S_IFDIR { continue }
@@ -163,8 +149,35 @@
         total += data.count
         files[relative] = data
       }
-      if let failure { throw failure }
       return files
+    }
+
+    /// Keep enumeration relative to its root. Foundation may spell absolute
+    /// temporary URLs differently, and unreadable directories must fail closed.
+    static func relativeEntries(root: URL, maximum: Int) throws -> [String] {
+      var pending = [""]
+      var entries = [String]()
+      while let parent = pending.popLast() {
+        try Task.checkCancellation()
+        let names = try FileManager.default.contentsOfDirectory(
+          atPath: parent.isEmpty ? root.path : root.appendingPathComponent(parent).path)
+        guard names.count <= maximum - entries.count else {
+          throw NativeFirmwareInputFailure.budget
+        }
+        for name in names {
+          let relative = parent.isEmpty ? name : parent + "/" + name
+          guard NativeHandoffEvidence.safeRelative(relative) else {
+            throw NativeFirmwareInputFailure.invalidSource
+          }
+          var info = stat()
+          guard lstat(root.appendingPathComponent(relative).path, &info) == 0,
+            info.st_mode & S_IFMT == S_IFREG || info.st_mode & S_IFMT == S_IFDIR
+          else { throw NativeFirmwareInputFailure.invalidSource }
+          entries.append(relative)
+          if info.st_mode & S_IFMT == S_IFDIR { pending.append(relative) }
+        }
+      }
+      return entries
     }
 
     static func write(_ bytes: Data, to url: URL) throws {

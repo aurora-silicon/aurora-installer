@@ -153,33 +153,17 @@
       let root = root.resolvingSymlinksInPath()
       let tree = try NativeHandoffFileTree(root, protected: true, owner: owner)
       let store = NativeStubFileStore(tree: tree, owner: owner)
-      var failure: Error?
-      guard
-        let enumerator = FileManager.default.enumerator(
-          at: root, includingPropertiesForKeys: nil,
-          errorHandler: { _, error in
-            failure = error
-            return false
-          })
-      else { throw NativeHandoffValidationError.unsafePath }
-      let prefix = root.path + "/"
       var actual = Set<String>()
-      var count = 0
-      for case let url as URL in enumerator {
-        count += 1
-        guard count <= 1024, url.path.hasPrefix(prefix) else {
-          throw NativeHandoffValidationError.unsafePath
-        }
+      for name in try NativeFirmwareInputFiles.relativeEntries(root: root, maximum: 1024) {
+        let url = root.appendingPathComponent(name)
         var info = stat()
         guard lstat(url.path, &info) == 0 else { throw NativeHandoffValidationError.unsafePath }
         if info.st_mode & S_IFMT == S_IFDIR { continue }
-        let name = String(url.path.dropFirst(prefix.count))
         guard let identity = expected[name],
           try store.identity(name, maximum: 256 << 20) == identity
         else { throw NativeHandoffValidationError.changedContent }
         actual.insert(name)
       }
-      if let failure { throw failure }
       guard actual == Set(expected.keys) else { throw NativeHandoffValidationError.changedContent }
     }
 

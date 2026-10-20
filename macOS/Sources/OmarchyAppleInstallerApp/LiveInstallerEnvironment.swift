@@ -15,6 +15,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   private let selection: AuroraInstallationSelection
   private let inspector: any NativeInstallerInspecting
   private let inspectHost: @Sendable () throws -> AppleSiliconHostInspection
+  private let helperProbe: @Sendable () async -> HelperDisplay
+  private let recoveryAccountInspector: (@Sendable () async throws -> RecoveryAccountReply)?
 
   init(
     selection: AuroraInstallationSelection = AuroraInstallationSelection(),
@@ -22,12 +24,18 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     inspectHost: @escaping @Sendable () throws -> AppleSiliconHostInspection = {
       try AppleSiliconHostInspector().inspect()
     },
-    prefetch: PayloadPrefetchOrchestrator = PayloadPrefetchOrchestrator()
+    prefetch: PayloadPrefetchOrchestrator = PayloadPrefetchOrchestrator(),
+    helperProbe: @escaping @Sendable () async -> HelperDisplay = {
+      await InstallerHelperSetup.probeDisplay()
+    },
+    recoveryAccountInspector: (@Sendable () async throws -> RecoveryAccountReply)? = nil
   ) {
     self.selection = selection
     self.inspector = inspector
     self.inspectHost = inspectHost
     self.prefetch = prefetch
+    self.helperProbe = helperProbe
+    self.recoveryAccountInspector = recoveryAccountInspector
   }
 
   private func loadConfiguration() throws -> InstallerReleaseConfiguration {
@@ -96,8 +104,15 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   }
 
   func inspectRecoveryAccount() async throws -> RecoveryAccountReply? {
-    guard refreshHelperStatus().isReady else { return nil }
-    let reply = try await accountClient().recoveryAccount(action: "inspect")
+    // Registration alone does not authenticate the running service. An older
+    // service may reject this app; upgrade it only after the owner authorizes.
+    guard await helperProbe().isCurrent else { return nil }
+    let reply: RecoveryAccountReply
+    if let recoveryAccountInspector {
+      reply = try await recoveryAccountInspector()
+    } else {
+      reply = try await accountClient().recoveryAccount(action: "inspect")
+    }
     return reply.target == nil ? nil : reply
   }
 
@@ -496,7 +511,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   }
 
   func probeHelperStatus() async -> HelperDisplay {
-    await InstallerHelperSetup.probeDisplay()
+    await helperProbe()
   }
 
   func ensureHelper(

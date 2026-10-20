@@ -189,7 +189,10 @@
     }
 
     /// The installer app's executable, by which its processes are found.
-    public static let installerExecutableName = "OmarchyAppleInstallerApp"
+    public static let installerExecutableName = "AuroraInstaller"
+    private static let installerExecutableNames = [
+      installerExecutableName, "OmarchyAppleInstallerApp",
+    ]
 
     /// One running process. `path` is nil when the kernel can't give it, as
     /// for a live process whose executable was deleted or replaced on disk;
@@ -203,9 +206,11 @@
       /// is gone.
       public var mayBeInstaller: Bool {
         if let path {
-          return path.hasSuffix(".app/Contents/MacOS/" + installerExecutableName)
+          return installerExecutableNames.contains {
+            path.hasSuffix(".app/Contents/MacOS/" + $0)
+          }
         }
-        return name == String(installerExecutableName.prefix(Int(MAXCOMLEN)))
+        return installerExecutableNames.contains { name == String($0.prefix(Int(MAXCOMLEN))) }
       }
     }
 

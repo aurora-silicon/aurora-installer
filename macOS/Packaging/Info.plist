@@ -7,7 +7,7 @@
   <key>CFBundleDisplayName</key>
   <string>REPLACED_DURING_PACKAGING</string>
   <key>CFBundleExecutable</key>
-  <string>OmarchyAppleInstallerApp</string>
+  <string>AuroraInstaller</string>
   <key>CFBundleIdentifier</key>
   <string>REPLACED_DURING_PACKAGING</string>
   <key>CFBundleIconFile</key>

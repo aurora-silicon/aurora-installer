@@ -31,7 +31,7 @@ rm -f "$info" "$launchd"
 /usr/bin/plutil -create xml1 "$info"
 /usr/bin/plutil -insert CFBundleIdentifier -string "$helper_identifier" "$info"
 /usr/bin/plutil -insert CFBundleInfoDictionaryVersion -string "6.0" "$info"
-/usr/bin/plutil -insert CFBundleName -string "$helper_identifier" "$info"
+/usr/bin/plutil -insert CFBundleName -string "Aurora Installation Service" "$info"
 /usr/bin/plutil -insert CFBundleVersion -string "$build_number" "$info"
 /usr/bin/plutil -insert CFBundleShortVersionString -string "$marketing_version" "$info"
 

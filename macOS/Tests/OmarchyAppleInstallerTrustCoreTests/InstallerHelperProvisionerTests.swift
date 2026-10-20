@@ -189,6 +189,13 @@
       }
       // Another user's copy of the very same bundle is another installer.
       XCTAssertEqual(open([Process(pid: 200, path: app, name: "")]), true)
+      XCTAssertEqual(
+        open([
+          Process(
+            pid: 201, path: "/Applications/Aurora Installer.app/Contents/MacOS/AuroraInstaller",
+            name: "")
+        ]), true)
+      XCTAssertEqual(open([Process(pid: 202, path: nil, name: "AuroraInstaller")]), true)
       XCTAssertEqual(open([Process(pid: 300, path: "/usr/bin/true", name: "")]), false)
       // A live installer whose bundle was deleted or updated in place has no
       // readable path; its kernel name (16 characters) still gives it away.
