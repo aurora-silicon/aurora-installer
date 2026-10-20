@@ -110,6 +110,16 @@
           windowMilliseconds: fixture.plan.windowMilliseconds))
     }
 
+    func testFATLabelAppearingOnMountPreservesTheApprovedLayout() async throws {
+      let fixture = try await Fixture()
+      fixture.labelOnMount = true
+      try await fixture.prepare()
+      let receipt = try Data(contentsOf: fixture.receipt)
+      XCTAssertEqual(fixture.images.espLabel, "EFI - FEDOR")
+      try await fixture.prepare()
+      XCTAssertEqual(try Data(contentsOf: fixture.receipt), receipt)
+    }
+
     func testChangedESPContentsOrRecordedLayoutCannotBeAdoptedOnRetry() async throws {
       for fault in ["contents", "layout", "owner"] {
         let fixture = try await Fixture()
@@ -169,6 +179,7 @@
       let plan: NativeESPPayloadPlan
       let esp: URL
       let receipt: URL
+      var labelOnMount = false
       init(deviceIdentifier: String = "apple,j700") async throws {
         let images = try await NativePayloadImageTests.Fixture(deviceIdentifier: deviceIdentifier)
         self.images = images
@@ -188,6 +199,9 @@
           snapshot: original.snapshot, device: original.device,
           command: { executable, arguments in
             if arguments == ["info", "-plist", "disk0s5"] {
+              if self.labelOnMount {
+                self.images.espLabel = "EFI - FEDOR"
+              }
               return try PropertyListSerialization.data(
                 fromPropertyList: [
                   "DiskUUID": partition.uuid,

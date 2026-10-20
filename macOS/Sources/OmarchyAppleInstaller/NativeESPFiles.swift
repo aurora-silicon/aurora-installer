@@ -175,7 +175,11 @@
       expected.partitions.append(contentsOf: parts.partitions)
       expected.partitions.sort { $0.offset < $1.offset }
       guard parts.plan == approved.planDigest, parts.partitions.count == 3,
-        snapshot == expected, snapshot.disk == approved.storeIdentifier,
+        parts.layout.parts.count == 3,
+        NativeESPLabelAdmission.matches(
+          snapshot, recorded: expected, espUUID: parts.partitions[0].uuid,
+          label: parts.layout.parts[0].fatLabel),
+        snapshot.disk == approved.storeIdentifier,
         let stub = snapshot.partitions.first(where: { $0.uuid == parts.stubUUID }),
         let esp = snapshot.partitions.first(where: { $0.uuid == parts.partitions[0].uuid }),
         esp.type == "EFI", esp.offset == stub.end,
@@ -197,7 +201,11 @@
       }
       try disks.verifySourceOwner(package, authorization, sourceBootstrap)
       try disks.verifyPartition(esp, snapshot.disk)
-      guard try disks.snapshot() == snapshot else { throw NativeOSPartitionError.changedLayout }
+      guard
+        NativeESPLabelAdmission.matches(
+          try disks.snapshot(), recorded: snapshot, espUUID: esp.uuid,
+          label: parts.layout.parts[0].fatLabel)
+      else { throw NativeOSPartitionError.changedLayout }
       let mounts = NativeHandoffMounts(environment)
       let espURL = try mounts.mounted(
         esp.identifier, uuid: esp.uuid, key: "DiskUUID", writable: true)
@@ -239,7 +247,11 @@
       let stage1Identity = try await systemStore.data(
         stage1,
         at: "Finish Installation.app/Contents/Resources/boot.bin")
-      guard try disks.snapshot() == snapshot else { throw NativeOSPartitionError.changedLayout }
+      guard
+        NativeESPLabelAdmission.matches(
+          try disks.snapshot(), recorded: snapshot, espUUID: esp.uuid,
+          label: parts.layout.parts[0].fatLabel)
+      else { throw NativeOSPartitionError.changedLayout }
       try disks.verifyPartition(esp, snapshot.disk)
       try file.publishEvidence(
         encode(

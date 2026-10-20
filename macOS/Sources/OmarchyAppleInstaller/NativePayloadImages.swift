@@ -74,17 +74,23 @@
         from: file.readEvidence("native-os-partition-baseline"))
       recordedLayout.partitions.append(contentsOf: receipt.partitions)
       recordedLayout.partitions.sort { $0.offset < $1.offset }
-      guard baseline == recordedLayout else { throw NativeOSPartitionError.changedLayout }
-      let end = try NativeInspectionMath.add(approved.offsetBytes, approved.lengthBytes)
       guard receipt.plan == approved.planDigest, receipt.partitions.count == 3,
-        receipt.layout.parts.count == 3, baseline.disk == approved.storeIdentifier,
+        receipt.layout.parts.count == 3,
+        NativeESPLabelAdmission.matches(
+          baseline, recorded: recordedLayout,
+          espUUID: receipt.partitions[0].uuid, label: receipt.layout.parts[0].fatLabel)
+      else { throw NativeOSPartitionError.changedLayout }
+      let end = try NativeInspectionMath.add(approved.offsetBytes, approved.lengthBytes)
+      guard baseline.disk == approved.storeIdentifier,
         let stub = baseline.partitions.first(where: { $0.uuid == receipt.stubUUID }),
         stub.type == "Apple_APFS", stub.offset == approved.offsetBytes
       else { throw NativeOSPartitionError.changedLayout }
       var offset = stub.end
       var liveParts = [RemovalPartition]()
       for (index, saved) in receipt.partitions.enumerated() {
-        guard let live = baseline.partitions.first(where: { $0.uuid == saved.uuid }), live == saved,
+        guard let live = baseline.partitions.first(where: { $0.uuid == saved.uuid }),
+          NativeESPLabelAdmission.matches(
+            live, saved: saved, label: receipt.layout.parts[index].fatLabel),
           live.offset == offset, live.size == receipt.layout.parts[index].bytes,
           live.type == (index == 0 ? "EFI" : "Linux Filesystem"), live.end <= end
         else { throw NativeOSPartitionError.changedLayout }

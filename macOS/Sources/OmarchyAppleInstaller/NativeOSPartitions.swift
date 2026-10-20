@@ -230,10 +230,10 @@
           guard saved.offset == offset, saved.size == part.bytes,
             saved.type == (part.type == "EFI" ? "EFI" : "Linux Filesystem"),
             saved.end <= end, let live = current.partitions.first(where: { $0.uuid == saved.uuid }),
-            live == saved
+            NativeESPLabelAdmission.matches(live, saved: saved, label: part.fatLabel)
           else { throw NativeOSPartitionError.changedLayout }
           created.append(live)
-          expected.partitions.append(saved)
+          expected.partitions.append(live)
           expected.partitions.sort { $0.offset < $1.offset }
           continue
         }
@@ -292,6 +292,21 @@
       guard current == expected, created.count == layout.parts.count,
         created.last?.end == end, try platform.disks.snapshot() == current
       else { throw NativeOSPartitionError.changedLayout }
+      if try file.containsEvidence("native-os-partitions") {
+        let saved = try JSONDecoder().decode(
+          Receipt.self, from: file.readEvidence("native-os-partitions"))
+        guard saved.plan == approved.planDigest, saved.stubUUID == stub.uuid,
+          saved.layout == layout, saved.partitions.count == created.count
+        else { throw NativeOSPartitionError.changedLayout }
+        for index in created.indices {
+          guard
+            NativeESPLabelAdmission.matches(
+              created[index], saved: saved.partitions[index],
+              label: layout.parts[index].fatLabel)
+          else { throw NativeOSPartitionError.changedLayout }
+        }
+        return
+      }
       try file.publishEvidence(
         encode(
           Receipt(

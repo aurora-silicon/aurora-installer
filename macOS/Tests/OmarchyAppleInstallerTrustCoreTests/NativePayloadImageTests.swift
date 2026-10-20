@@ -15,6 +15,7 @@
       var opened = 0
       var changedOwner = false
       var changedSnapshot = false
+      var espLabel: String?
       init(deviceIdentifier: String = "apple,j700") async throws {
         let base = try NativeStubFileTests.ExecutionFixture(deviceIdentifier: deviceIdentifier)
         self.base = base
@@ -59,6 +60,14 @@
             collect: { throw NativeOSPartitionError.changedLayout },
             snapshot: {
               var snapshot = self.base.snapshot
+              if let label = self.espLabel,
+                let index = snapshot.partitions.firstIndex(where: { $0.type == "EFI" })
+              {
+                let old = snapshot.partitions[index]
+                snapshot.partitions[index] = RemovalPartition(
+                  identifier: old.identifier, uuid: old.uuid, type: old.type,
+                  offset: old.offset, size: old.size, name: label)
+              }
               if self.changedSnapshot { snapshot.partitions[1].size -= 4096 }
               return snapshot
             },
@@ -66,7 +75,9 @@
               XCTAssertEqual(disk, self.base.snapshot.disk)
               XCTAssertTrue(
                 self.base.snapshot.partitions.contains {
-                  $0.identifier == partition.identifier && $0 == partition
+                  $0.identifier == partition.identifier
+                    && NativeESPLabelAdmission.matches(
+                      partition, saved: $0, label: self.espLabel)
                 })
             },
             verifySourceOwner: { _, _, bootstrap in
@@ -114,6 +125,20 @@
           NativeRawImageReceipt.self, from: Data(contentsOf: path))
         XCTAssertGreaterThan(receipt.installedBytes, 0)
       }
+    }
+
+    func testMountedFATLabelDoesNotRewriteCompletedImages() async throws {
+      let fixture = try await Fixture()
+      try await fixture.prepare()
+      fixture.espLabel = "EFI - FEDOR"
+      try await fixture.prepare()
+      XCTAssertEqual(fixture.opened, 2)
+      fixture.espLabel = "FOREIGN EFI"
+      do {
+        try await fixture.prepare()
+        XCTFail("Foreign ESP name was accepted")
+      } catch {}
+      XCTAssertEqual(fixture.opened, 2)
     }
 
     func testChangedCompletedImageOrOwnerCannotResumeOrWriteAnotherImage() async throws {

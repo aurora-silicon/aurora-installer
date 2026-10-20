@@ -111,6 +111,25 @@
       XCTAssertEqual(fixture.commands.count, 4)
     }
 
+    func testMountedFATLabelCanAppearWithoutAdmittingAnotherLayoutChange() throws {
+      let fixture = try Fixture()
+      defer { fixture.remove() }
+      try fixture.prepare()
+      let index = try XCTUnwrap(fixture.snapshot.partitions.firstIndex { $0.type == "EFI" })
+      let saved = fixture.snapshot.partitions[index]
+      func rename(_ name: String) {
+        fixture.snapshot.partitions[index] = RemovalPartition(
+          identifier: saved.identifier, uuid: saved.uuid, type: saved.type,
+          offset: saved.offset, size: saved.size, name: name)
+      }
+      rename(try XCTUnwrap(fixture.layout.parts[0].fatLabel).uppercased())
+      try fixture.prepare()
+      XCTAssertEqual(fixture.commands.count, 4)
+      rename("FOREIGN EFI")
+      XCTAssertThrowsError(try fixture.prepare())
+      XCTAssertEqual(fixture.commands.count, 4)
+    }
+
     func testForeignPartitionChangedOwnerOrUnexpectedDiskChangesStopWrites() throws {
       for fault in ["foreign", "owner", "offset", "size", "unrelated", "replaced"] {
         let fixture = try Fixture()
