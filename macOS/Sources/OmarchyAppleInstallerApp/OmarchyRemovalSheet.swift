@@ -102,9 +102,6 @@ struct OmarchyRemovalSheet: View {
     .interactiveDismissDisabled(busy)
     .task { if !preloaded { await prepare() } }
     .onDisappear { password = "" }
-    .onChange(of: username) { _, _ in actionError = nil }
-    .onChange(of: password) { _, _ in actionError = nil }
-    .onChange(of: phrase) { _, _ in actionError = nil }
     .onChange(of: busy) { _, value in onBusyChanged(value) }
     .onChange(of: simulationScenario) { _, value in
       #if DEBUG
@@ -187,7 +184,8 @@ struct OmarchyRemovalSheet: View {
           Text(ticket.confirmation)
             .font(OmarchyTheme.heading)
             .textSelection(.enabled)
-          TextField("Confirmation phrase", text: $phrase)
+          TextField("Confirmation phrase", text: Binding(
+            get: { phrase }, set: { phrase = $0; actionError = nil }))
             .textFieldStyle(.roundedBorder)
             .autocorrectionDisabled()
             .accessibilityIdentifier("removal-confirmation")
@@ -266,11 +264,13 @@ struct OmarchyRemovalSheet: View {
   private var accountFields: some View {
     VStack(alignment: .leading, spacing: 7) {
       Text("macOS administrator account").foregroundStyle(OmarchyTheme.secondaryText)
-      TextField("Account name", text: $username)
+      TextField("Account name", text: Binding(
+        get: { username }, set: { username = $0; actionError = nil }))
         .textFieldStyle(.roundedBorder)
         .textContentType(.username)
         .autocorrectionDisabled()
-      SecureField("macOS password", text: $password)
+      SecureField("macOS password", text: Binding(
+        get: { password }, set: { password = $0; actionError = nil }))
         .textFieldStyle(.roundedBorder)
         .textContentType(.password)
         .privacySensitive()
