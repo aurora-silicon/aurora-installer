@@ -66,7 +66,7 @@
       XCTAssertEqual(target.boot.identifier, "disk0s6")
       XCTAssertEqual(target.root.identifier, "disk0s7")
       XCTAssertEqual(target.group, disk.containers[1].systems[0].group)
-      XCTAssertEqual(target.identityDigest.count, 64)
+      XCTAssertNotNil(SHA256Digest(rawValue: target.identityDigest))
       XCTAssertEqual(
         target.identityDigest,
         try NativePreservedInstallTarget.admit(
