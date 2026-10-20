@@ -1,0 +1,92 @@
+name: Build Alpha 1 native application
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [.github/workflows/alpha1-build.yml]
+permissions:
+  contents: read
+concurrency:
+  group: alpha1-native-build
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+      XCODEBUILDMCP_SENTRY_DISABLED: 'true'
+    defaults:
+      run:
+        shell: bash
+        working-directory: macOS
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Prepare native tools and source evidence
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tools" "$RUNNER_TEMP/evidence" "$RUNNER_TEMP/native-inputs"
+          { git rev-parse HEAD; sw_vers; uname -m; xcodebuild -version; xcrun swift --version; } > "$RUNNER_TEMP/evidence/toolchain.txt"
+          xcrun swift-format format -i --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
+          git diff --binary > "$RUNNER_TEMP/evidence/format.patch"
+          cd "$RUNNER_TEMP/tools"
+          curl --fail --location --silent --show-error --retry 3 \
+            https://github.com/getsentry/XcodeBuildMCP/releases/download/v2.7.0/xcodebuildmcp-2.7.0-darwin-arm64.tar.gz -o tool.tar.gz
+          echo 'bd724a2c0e6ffe027b3f46257e66d626149a64cd045f4867124bd683b3cf081a  tool.tar.gz' | shasum -a 256 -c -
+          tar -xzf tool.tar.gz
+          rm tool.tar.gz
+          echo "$PWD/xcodebuildmcp-2.7.0-darwin-arm64/bin" >> "$GITHUB_PATH"
+      - name: Build the native application for the live device test
+        run: |
+          set -euo pipefail
+          xcodebuildmcp swift-package build --package-path "$PWD" --configuration release \
+            2>&1 | tee "$RUNNER_TEMP/evidence/release-build.log"
+          bin=$(xcrun swift build --configuration release --show-bin-path)
+          mkdir "$RUNNER_TEMP/native-inputs/binaries"
+          for product in OmarchyAppleInstallerApp OmarchyAppleInstallerHelper AuroraFirmwareCheck; do
+            cp "$bin/$product" "$RUNNER_TEMP/native-inputs/binaries/"
+          done
+          bash Recovery/build-recovery.sh "$RUNNER_TEMP/recovery" \
+            2>&1 | tee "$RUNNER_TEMP/evidence/recovery-build.log"
+      - name: Sign the matching Recovery resource
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/sign-recovery.sh" <<'SIGN'
+          #!/bin/bash
+          set -euo pipefail
+          app="$RUNNER_TEMP/recovery/Aurora Installer.app"
+          codesign --force --sign "$OMARCHY_APP_SIGNING_IDENTITY" --timestamp --options runtime "$app"
+          codesign --verify --deep --strict -R="anchor apple generic and certificate leaf[subject.OU] = \"$OMARCHY_TEAM_ID\"" "$app"
+          codesign --display --verbose=4 "$app" 2> "$RUNNER_TEMP/evidence/recovery-signature.txt"
+          grep -q 'flags=.*runtime' "$RUNNER_TEMP/evidence/recovery-signature.txt"
+          grep -q '^Timestamp=' "$RUNNER_TEMP/evidence/recovery-signature.txt"
+          grep -q "^TeamIdentifier=$OMARCHY_TEAM_ID$" "$RUNNER_TEMP/evidence/recovery-signature.txt"
+          tar -czf "$RUNNER_TEMP/native-inputs/aurora-recovery-template-alpha1.tar.gz" -C "$RUNNER_TEMP/recovery" 'Aurora Installer.app'
+          SIGN
+          bash Packaging/with-apple-signing.sh bash "$RUNNER_TEMP/sign-recovery.sh"
+          shasum -a 256 "$RUNNER_TEMP/native-inputs/"*.tar.gz > "$RUNNER_TEMP/evidence/native-inputs.sha256"
+      - name: Retain native build logs
+        if: always()
+        run: |
+          root="$HOME/Library/Developer/XcodeBuildMCP/workspaces"
+          if [[ -d $root ]]; then
+            find "$root" -type f -path '*/logs/swift_package_build_*.log' -exec cp {} "$RUNNER_TEMP/evidence/" \;
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: alpha1-build-evidence
+          path: ${{ runner.temp }}/evidence/
+          retention-days: 14
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: alpha1-native-inputs
+          path: ${{ runner.temp }}/native-inputs/
+          retention-days: 14
