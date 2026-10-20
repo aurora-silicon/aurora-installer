@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: 54132e77fe4d22d5a16130fb3595ea812302d87a
+          ref: ac74bec5b8a2562a11ff7fe4a1e32e0e2055f3cb
           path: source
           persist-credentials: false
       - name: Record immutable source and toolchain
@@ -31,6 +31,7 @@ jobs:
           echo /opt/homebrew/opt/openssl@3/bin >> "$GITHUB_PATH"
           { git rev-parse HEAD; sw_vers; uname -m; xcodebuild -version; xcrun swift --version; xcrun swift-format --version; } > "$RUNNER_TEMP/evidence/toolchain.txt"
           /opt/homebrew/opt/openssl@3/bin/openssl version >> "$RUNNER_TEMP/evidence/toolchain.txt"
+          hdiutil create -help > "$RUNNER_TEMP/evidence/hdiutil-create-help.txt" 2>&1
           [[ $(uname -m) == arm64 ]]
           cd "$RUNNER_TEMP/tools"
           curl --fail --location --silent --show-error --retry 3 \
