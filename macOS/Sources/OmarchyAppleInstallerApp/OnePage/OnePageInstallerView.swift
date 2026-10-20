@@ -430,7 +430,7 @@ struct OnePageInstallerView: View {
     .toggleStyle(.checkbox)
     .controlSize(.regular)
     .font(OmarchyTheme.body)
-    .tint(.gray)
+    .tint(.blue)
     .disabled(session.isBusy || session.isEditingSize || session.planNeedsCheck)
   }
 
@@ -588,7 +588,7 @@ struct EncryptDiskToggle: View {
       .toggleStyle(.checkbox)
       .controlSize(.regular)
       .font(OmarchyTheme.body)
-      .tint(.gray)
+      .tint(.blue)
       .disabled(!enabled)
       // One help paragraph: the password, and that nothing else unlocks the disk.
       Text(PlainLanguage.encryptLinuxDiskPassword + " " + PlainLanguage.encryptLinuxDiskNoRecovery)

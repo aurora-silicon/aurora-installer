@@ -79,7 +79,7 @@
           PlainLanguage.planAcknowledgement(resizesMacOS: plan.allocationSource != .freeExtent),
           isOn: .constant(screen == "allocation-ready")
         )
-        .toggleStyle(.checkbox).controlSize(.regular).font(OmarchyTheme.body).tint(.gray)
+        .toggleStyle(.checkbox).controlSize(.regular).font(OmarchyTheme.body).tint(.blue)
       case "loading":
         PreparationStatusPanel()
       case "preparing":
