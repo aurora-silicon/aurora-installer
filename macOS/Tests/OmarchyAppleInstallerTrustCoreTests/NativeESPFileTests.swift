@@ -7,33 +7,50 @@
 
   final class NativeESPFileTests: XCTestCase, @unchecked Sendable {
     static func inputs() throws -> (Data, Data, [String: String]) {
-      let url = try XCTUnwrap(Bundle.module.url(forResource: "native-handoff-vectors", withExtension: "json", subdirectory: "Fixtures"))
+      let url = try XCTUnwrap(
+        Bundle.module.url(
+          forResource: "native-handoff-vectors", withExtension: "json", subdirectory: "Fixtures"))
       let document = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
       let vector = (document["vectors"] as! [[String: Any]])[0]
-      var metadata = try JSONSerialization.jsonObject(with: Data((vector["metadata"] as! String).utf8)) as! [String: Any]
+      var metadata =
+        try JSONSerialization.jsonObject(with: Data((vector["metadata"] as! String).utf8))
+        as! [String: Any]
       var templates = metadata["os_list"] as! [[String: Any]]
       var rows = templates[0]["partitions"] as! [[String: Any]]
       rows[0]["size"] = "8MiB"
       templates[0]["partitions"] = rows
       metadata["os_list"] = templates
-      let payload = try XCTUnwrap(Bundle.module.url(forResource: "native-handoff-payload", withExtension: "zip", subdirectory: "Fixtures"))
-      return (try JSONSerialization.data(withJSONObject: metadata), try Data(contentsOf: payload), vector["espLayout"] as! [String: String])
+      let payload = try XCTUnwrap(
+        Bundle.module.url(
+          forResource: "native-handoff-payload", withExtension: "zip", subdirectory: "Fixtures"))
+      return (
+        try JSONSerialization.data(withJSONObject: metadata), try Data(contentsOf: payload),
+        vector["espLayout"] as! [String: String]
+      )
     }
     static func plan() async throws -> NativeESPPayloadPlan {
       let (metadata, payload, _) = try inputs()
       let archive = try await IPSWArchive.open(NativeRawImageWriterTests.Source(bytes: payload))
-      let result = try await NativeESPPayloadPlan.make(metadata: metadata, archive: archive, device: "apple,j700", firmware: "26.6.2")
+      let result = try await NativeESPPayloadPlan.make(
+        metadata: metadata, archive: archive, device: "apple,j700", firmware: "26.6.2")
       return try XCTUnwrap(result)
     }
 
     func testBoardMappingMatchesTheLockedBackendAndUnsafeFATNamesAreRefused() async throws {
       let result = try await Self.plan()
       let expected = try Self.inputs().2
-      XCTAssertEqual(Dictionary(uniqueKeysWithValues: result.entries.map { ($0.member.name, $0.path) }), expected)
-      for path in ["EFI/BOOT/BOOTAA64.EFI", "m1n1/boot.bin", "Aurora Installer.app/Contents/Info.plist"] {
+      XCTAssertEqual(
+        Dictionary(uniqueKeysWithValues: result.entries.map { ($0.member.name, $0.path) }), expected
+      )
+      for path in [
+        "EFI/BOOT/BOOTAA64.EFI", "m1n1/boot.bin", "Aurora Installer.app/Contents/Info.plist",
+      ] {
         XCTAssertTrue(NativeESPPayloadPlan.safeFATPath(path))
       }
-      for path in ["../escape", "EFI/../escape", "/absolute", "EFI/name.", "EFI/name ", "EFI/a:b", "EFI/back\\slash", "EFI/é", String(repeating: "a", count: 256)] {
+      for path in [
+        "../escape", "EFI/../escape", "/absolute", "EFI/name.", "EFI/name ", "EFI/a:b",
+        "EFI/back\\slash", "EFI/é", String(repeating: "a", count: 256),
+      ] {
         XCTAssertFalse(NativeESPPayloadPlan.safeFATPath(path), path)
       }
     }
@@ -51,29 +68,43 @@
       XCTAssertEqual(receipt.files.count, fixture.plan.entries.count)
       for entry in fixture.plan.entries {
         let expected = try await fixture.plan.archive.read(entry.member, maximumBytes: 64 << 20)
-        XCTAssertEqual(try Data(contentsOf: fixture.esp.appendingPathComponent(entry.path)), expected)
+        XCTAssertEqual(
+          try Data(contentsOf: fixture.esp.appendingPathComponent(entry.path)), expected)
       }
       let system = fixture.images.base.mounts.appendingPathComponent("disk8s1")
-      XCTAssertEqual(try Data(contentsOf: system.appendingPathComponent(".VolumeIcon.icns")).count, fixture.plan.icon.sizeBytes)
-      let stage1 = try Data(contentsOf: system.appendingPathComponent("Finish Installation.app/Contents/Resources/boot.bin"))
-      XCTAssertEqual(stage1, try NativeBootChain.fillStage1(fixture.plan.stage1,
-        uuid: receipt.espUUID.lowercased(), path: "m1n1/boot.bin", windowMilliseconds: fixture.plan.windowMilliseconds))
+      XCTAssertEqual(
+        try Data(contentsOf: system.appendingPathComponent(".VolumeIcon.icns")).count,
+        fixture.plan.icon.sizeBytes)
+      let stage1 = try Data(
+        contentsOf: system.appendingPathComponent(
+          "Finish Installation.app/Contents/Resources/boot.bin"))
+      XCTAssertEqual(
+        stage1,
+        try NativeBootChain.fillStage1(
+          fixture.plan.stage1,
+          uuid: receipt.espUUID.lowercased(), path: "m1n1/boot.bin",
+          windowMilliseconds: fixture.plan.windowMilliseconds))
     }
 
     func testChangedESPContentsOrRecordedLayoutCannotBeAdoptedOnRetry() async throws {
       for fault in ["contents", "layout", "owner"] {
         let fixture = try await Fixture()
         try await fixture.prepare()
-        if fault == "layout" { fixture.images.changedSnapshot = true }
-        else if fault == "owner" { fixture.images.changedOwner = true }
-        else {
+        if fault == "layout" {
+          fixture.images.changedSnapshot = true
+        } else if fault == "owner" {
+          fixture.images.changedOwner = true
+        } else {
           let path = fixture.esp.appendingPathComponent("m1n1/boot.bin")
           let descriptor = open(path.path, O_RDWR | O_NOFOLLOW | O_CLOEXEC)
           XCTAssertGreaterThanOrEqual(descriptor, 0)
           defer { close(descriptor) }
           try NativeRawImagePlatform.write(descriptor, Data([0xff]), 0)
         }
-        do { try await fixture.prepare(); XCTFail("Changed ESP was adopted: " + fault) } catch {}
+        do {
+          try await fixture.prepare()
+          XCTFail("Changed ESP was adopted: " + fault)
+        } catch {}
       }
     }
 
@@ -89,9 +120,11 @@
       }
       XCTAssertEqual(kind, "msdos")
       let root = mount.appendingPathComponent(UUID().uuidString)
-      try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+      try FileManager.default.createDirectory(
+        at: root, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
       defer { try? FileManager.default.removeItem(at: root) }
-      let store = try NativeESPFileStore(root: mount, volumeDevice: "fixture",
+      let store = try NativeESPFileStore(
+        root: mount, volumeDevice: "fixture",
         namespace: root.lastPathComponent, verifyMount: { _, _, _ in })
       let prefix = root.lastPathComponent + "/"
       let bytes = Data("verified native FAT publication".utf8)
@@ -103,7 +136,8 @@
         _ = try await store.data(Data("conflicting".utf8), at: prefix + "EFI/BOOT/fixture.bin")
         XCTFail("FAT publication overwrote conflicting contents")
       } catch {}
-      XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("EFI/BOOT/fixture.bin")), bytes)
+      XCTAssertEqual(
+        try Data(contentsOf: root.appendingPathComponent("EFI/BOOT/fixture.bin")), bytes)
     }
 
     final class Fixture: @unchecked Sendable {
@@ -117,7 +151,8 @@
         try await images.prepare()
         plan = try await NativeESPFileTests.plan()
         esp = images.base.mounts.appendingPathComponent("disk0s5")
-        try FileManager.default.createDirectory(at: esp, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o755])
+        try FileManager.default.createDirectory(
+          at: esp, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o755])
         receipt = URL(fileURLWithPath: images.base.journal.path + ".native-esp-files.evidence")
       }
       func prepare() async throws {
@@ -127,16 +162,22 @@
         let partition = images.base.snapshot.partitions.first { $0.identifier == "disk0s5" }!
         environment.command = { executable, arguments in
           if arguments == ["info", "-plist", "disk0s5"] {
-            return try PropertyListSerialization.data(fromPropertyList: ["DiskUUID": partition.uuid,
-              "MountPoint": esp.path, "Content": "EFI", "WritableVolume": true], format: .xml, options: 0)
+            return try PropertyListSerialization.data(
+              fromPropertyList: [
+                "DiskUUID": partition.uuid,
+                "MountPoint": esp.path, "Content": "EFI", "WritableVolume": true,
+              ], format: .xml, options: 0)
           }
           return try command(executable, arguments)
         }
-        try await NativeESPFilesExecution(package: images.base.package, approved: images.base.approved,
+        try await NativeESPFilesExecution(
+          package: images.base.package, approved: images.base.approved,
           plan: plan, owner: geteuid(), environment: environment, disks: images.platform.disks,
-          admitESPFilesystem: { _ in })
-          .prepare(journal: images.base.journal, authorization: images.base.authorization,
-            sourceBootstrap: images.base.bootstrap)
+          admitESPFilesystem: { _ in }
+        )
+        .prepare(
+          journal: images.base.journal, authorization: images.base.authorization,
+          sourceBootstrap: images.base.bootstrap)
       }
     }
   }

@@ -28,7 +28,7 @@ cleanup() {
 trap cleanup EXIT
 fixture_free_kib=$(df -Pk "$fixture_root" | awk 'NR == 2 {print $4}')
 [[ $fixture_free_kib =~ ^[0-9]+$ ]] && (( fixture_free_kib >= 10616832 ))
-hdiutil create -size 128m -layout NONE -format UDRW "$fixture_root/volume.dmg" > "$fixture_root/create.log"
+hdiutil create -size 128m -layout NONE -fs MS-DOS -volname AURORATEST "$fixture_root/volume.dmg" > "$fixture_root/create.log"
 # Attachment can partially succeed even when parsing or validation later fails.
 fixture_attached=true
 hdiutil attach -nomount -plist "$fixture_root/volume.dmg" > "$fixture_root/attach.plist"
