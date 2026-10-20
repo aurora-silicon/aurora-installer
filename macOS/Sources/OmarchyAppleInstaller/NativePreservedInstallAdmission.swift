@@ -52,9 +52,10 @@
       try target.admitImages(
         bootImageBytes: UInt64(members[0].sizeBytes),
         rootImageBytes: UInt64(members[1].sizeBytes))
-      guard let esp = try await NativeESPPayloadPlan.make(
-        metadata: metadata, archive: archive, device: approved.deviceIdentifier,
-        firmware: firmwareVersion, legacyStage1: legacyStage1)
+      guard
+        let esp = try await NativeESPPayloadPlan.make(
+          metadata: metadata, archive: archive, device: approved.deviceIdentifier,
+          firmware: firmwareVersion, legacyStage1: legacyStage1)
       else { throw NativePreservedInstallError.unavailable }
       let stage1 = try esp.admitPreservedStage1(installedStage1, espUUID: target.esp.uuid)
 
