@@ -37,7 +37,10 @@
         } else if screen == "recovery" {
           RecoveryHandoffView(volumeName: "Aurora Fedora Remix", device: .simulation)
         } else {
-          InstallerPageLayout(showsFooter: screen != "loading") {
+          InstallerPageLayout(
+            showsFooter: screen != "loading",
+            contentAlignment: ["loading", "preparing", "download"].contains(screen) ? .center : .top
+          ) {
             InstallerMasthead(distribution: .fedora, device: .simulation)
           } content: {
             VStack(alignment: .leading, spacing: 16) {

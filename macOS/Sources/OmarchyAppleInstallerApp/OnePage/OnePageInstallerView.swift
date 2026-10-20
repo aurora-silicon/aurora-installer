@@ -130,12 +130,21 @@ struct OnePageInstallerView: View {
   }
 
   private var installerPage: some View {
-    InstallerPageLayout(showsFooter: session.phase != .inspecting) {
+    InstallerPageLayout(
+      showsFooter: session.phase != .inspecting, contentAlignment: pageContentAlignment
+    ) {
       header
     } content: {
       VStack(alignment: .leading, spacing: 16) { stage }
     } actions: {
       HStack(spacing: 16) { actions }
+    }
+  }
+
+  private var pageContentAlignment: Alignment {
+    switch session.phase {
+    case .inspecting, .welcome, .preparingPlan, .planPrepared: .center
+    default: .top
     }
   }
 

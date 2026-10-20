@@ -11,12 +11,12 @@ struct InstallerPageLayout<Header: View, Content: View, Actions: View>: View {
   var body: some View {
     VStack(spacing: 0) {
       header()
-        .frame(maxWidth: 640)
+        .frame(maxWidth: 640, alignment: .leading)
         .padding(.horizontal, 40)
         .padding(.top, 20)
         .padding(.bottom, 16)
       content()
-        .frame(maxWidth: 640)
+        .frame(maxWidth: 640, alignment: .leading)
         .padding(.horizontal, 40)
         .padding(.vertical, 20)
         .fixedSize(horizontal: false, vertical: true)

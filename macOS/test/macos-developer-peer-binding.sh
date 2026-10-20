@@ -90,6 +90,11 @@ release = Path(sys.argv[1])
 profiles = {distribution + "-" + desktop for distribution in ("fedora", "arch", "nixos")
             for desktop in ("kde", "gnome", "minimal")}
 assert {path.name for path in (release / "Profiles").iterdir()} == profiles
+for path in [release, *release.rglob("*")]:
+    mode = path.stat().st_mode
+    assert mode & 0o004, (path, "not readable by the installed desktop user")
+    if path.is_dir():
+        assert mode & 0o001, (path, "not searchable by the installed desktop user")
 for descriptor in [release / "release.json", *[release / "Profiles" / profile / "release.json" for profile in sorted(profiles)]]:
     assert json.loads(descriptor.read_text())["helper_code_signing_requirement"] == sys.argv[2], descriptor
 print("Root and all nine profile descriptors pin the exact signed helper")

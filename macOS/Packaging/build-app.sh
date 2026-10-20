@@ -352,6 +352,10 @@ fi
 if [[ -d "$release_directory/Profiles" ]]; then
   /usr/bin/ditto "$release_directory/Profiles" "$resources/Release/Profiles"
 fi
+# Sealed inputs may come from a private staging directory. The installed app
+# runs as the desktop user, even when PackageKit makes the bundle root-owned.
+/usr/bin/find "$resources/Release" -type d -exec chmod 0755 {} +
+/usr/bin/find "$resources/Release" -type f -exec chmod 0444 {} +
 python3 "$script_directory/verify-bundled-engines.py" "$assembled_app" \
   || fail "a bundled execution engine is unsafe or carries unexpected native code"
 plutil -replace CFBundleVersion \

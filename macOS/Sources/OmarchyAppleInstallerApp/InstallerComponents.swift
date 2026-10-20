@@ -298,8 +298,15 @@ extension View {
       button.buttonStyle(.bordered)
     }
   }
-  func omarchySecondaryButton() -> some View { buttonStyle(.bordered).controlSize(.large) }
-  func omarchyDangerButton() -> some View { buttonStyle(.bordered).tint(.red).controlSize(.large) }
+  @ViewBuilder func omarchySecondaryButton() -> some View {
+    let button = controlSize(.large).font(.system(size: 15, weight: .medium))
+    if #available(macOS 26.0, *) {
+      button.buttonStyle(.glass)
+    } else {
+      button.buttonStyle(.bordered)
+    }
+  }
+  func omarchyDangerButton() -> some View { omarchySecondaryButton().tint(.red) }
 }
 
 struct PreparationStatusPanel: View {
