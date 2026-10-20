@@ -101,6 +101,11 @@
       private(set) var copied: UInt64 = 0
       private var pending = Data()
 
+      init(expected: UInt64, write: @escaping (Data, UInt64) throws -> Void) {
+        self.expected = expected
+        self.write = write
+      }
+
       mutating func append(_ bytes: Data) throws {
         guard !bytes.isEmpty, bytes.count <= 4 << 20,
           UInt64(bytes.count) <= expected - received
