@@ -10,11 +10,11 @@
   /// locator or require the reference archive to be bundled. Installation
   /// execution currently stages its independently authenticated catalog engine.
   public struct ValidationEngineArtifactLocator: Sendable {
-    public static let version = "v0.9.2-aurora.11"
-    public static let fileName = "installer-v0.9.2-aurora.11.tar.gz"
+    public static let version = "v0.9.2-aurora.12"
+    public static let fileName = "installer-v0.9.2-aurora.12.tar.gz"
     public static let expectedDigest =
-      "sha256:e3b1db5ff5e253c24567548356bf09851331a747d062e8f318b123c897c208be"
-    public static let expectedSizeBytes: UInt64 = 17_895_273
+      "sha256:cd12b431c2425e4f92a7368a48b35e45143baef7e9b29c115811b8511422d492"
+    public static let expectedSizeBytes: UInt64 = 17_896_318
 
     public init() {}
 

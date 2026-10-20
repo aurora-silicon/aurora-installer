@@ -273,12 +273,12 @@
         "version": "14.8.3"
       }
     ],
-    "runtimeVersion": "v0.9.2-aurora.11",
+    "runtimeVersion": "v0.9.2-aurora.12",
     "sourceSHA256": "17d0e11464af7996f45f83f0f535a0cc4e8d8c877a05775d3e1834aa38f16ad8"
   },
-  "runtimeSHA256": "e3b1db5ff5e253c24567548356bf09851331a747d062e8f318b123c897c208be",
+  "runtimeSHA256": "cd12b431c2425e4f92a7368a48b35e45143baef7e9b29c115811b8511422d492",
   "schema": 1,
-  "selectionSourceSHA256": "9faf71f858d85942ca2f0cc6c369712b87db3b1766d68f8da46cdbb1ac50f800",
+  "selectionSourceSHA256": "5c737592f0ffbf60e2f4dd5e2afe11836cc0610785da1059b4a20f191527f6ab",
   "vectors": [
     {
       "containers": [

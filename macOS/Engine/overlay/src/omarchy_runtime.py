@@ -37,6 +37,7 @@ ENVIRONMENT_KEYS = {
     "OMARCHY_NATIVE_STUB_FILES",
     "OMARCHY_NATIVE_OS_PARTITIONS",
     "OMARCHY_NATIVE_PAYLOAD_IMAGES",
+    "OMARCHY_NATIVE_ESP_FILES",
     "OMARCHY_NATIVE_SOURCE_BOOTSTRAP",
     "DISTRO",
     "DISTRO_DOCS",
@@ -57,6 +58,7 @@ OPTIONAL_INSTALL_KEYS = {
     "OMARCHY_NATIVE_STUB_FILES",
     "OMARCHY_NATIVE_OS_PARTITIONS",
     "OMARCHY_NATIVE_PAYLOAD_IMAGES",
+    "OMARCHY_NATIVE_ESP_FILES",
     "OMARCHY_NATIVE_SOURCE_BOOTSTRAP",
 }
 
@@ -331,6 +333,11 @@ class EngineRuntime:
                 raise EngineRuntimeError("native payload images require native partition preparation")
             native_images = {name + ".img": self.journal._read_checkpoint_evidence("native-image-" + name)
                              for name in ("boot", "root")}
+        native_esp = None
+        if "OMARCHY_NATIVE_ESP_FILES" in self.values:
+            if self.values["OMARCHY_NATIVE_ESP_FILES"] != "helper-esp-v1" or native_images is None:
+                raise EngineRuntimeError("native ESP files require native payload image preparation")
+            native_esp = self.journal._read_checkpoint_evidence("native-esp-files")
         adapter = omarchy_asahi.AsahiStage1Adapter(
             installer=installer,
             metadata_path=self.values["OMARCHY_ENGINE_METADATA"],
@@ -351,6 +358,7 @@ class EngineRuntime:
             native_file_evidence=native_files,
             native_partition_evidence=native_partitions,
             native_image_evidence=native_images,
+            native_esp_evidence=native_esp,
             expected_native_bootstrap=native_bootstrap,
             full_readback=os.environ.get("OMARCHY_FULL_READBACK") == "1",
         )

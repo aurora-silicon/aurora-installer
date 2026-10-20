@@ -1076,6 +1076,75 @@ class AsahiStage1AdapterTests(unittest.TestCase):
                     adapter._consume_native_images()
                 self.assertIsNone(getattr(adapter.osins, "native_image_receipts", None))
 
+    def _native_esp_adapter(self):
+        self._common_payload()
+        metadata = self._target_metadata()
+        metadata["aurora_stage1"] = dict(kind="common-raw-v1", qualified_machines={"j613ap": ["14.8.3"]})
+        self._write_metadata([metadata])
+        adapter, images = self._native_image_adapter()
+        adapter._consume_native_images()
+        adapter.template["partitions"][0]["source"] = "esp"
+        adapter.installer.dutil.mount_points[adapter.osins.efi_part.name] = str(self.installed_esp)
+        layout = esp_board_layout(adapter.installer.sysinfo.device_class, adapter._esp_members(), common_allowed=adapter.common_stage1)
+        files = []
+        for member, path in sorted(layout.items()):
+            data = adapter.osins.pkg.read(member)
+            target = self.installed_esp / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+            files.append(dict(member=member, path=path, identity=dict(bytes=len(data), sha256=hashlib.sha256(data).hexdigest())))
+        system = self.root / "native-system"
+        system.mkdir()
+        adapter.installer.ins.osi.system = str(system)
+        icon = adapter.osins.pkg.read(adapter.template["icon"])
+        adapter.installer.ins.icon_path = str(system / ".VolumeIcon.icns")
+        Path(adapter.installer.ins.icon_path).write_bytes(icon)
+        boot = system / "Finish Installation.app/Contents/Resources/boot.bin"
+        boot.parent.mkdir(parents=True)
+        data = fill_aurora_stage1(adapter.osins.pkg.read("esp/aurora/stage1.bin"), adapter.osins.efi_part.uuid.lower(), "m1n1/boot.bin", 0)
+        boot.write_bytes(data)
+        adapter.installer.ins.boot_obj_path = str(boot)
+        receipt = dict(plan=self.plan.plan_digest, firmware=adapter.os_firmware,
+            groupUUID=adapter.installer.ins.osi.vgid, espUUID=adapter.osins.efi_part.uuid,
+            files=files, icon=dict(bytes=len(icon), sha256=hashlib.sha256(icon).hexdigest()),
+            stage1=dict(bytes=len(data), sha256=hashlib.sha256(data).hexdigest()))
+        adapter.native_esp_evidence = json.dumps(receipt).encode()
+        return adapter, receipt
+
+    def test_native_esp_receipt_skips_legacy_copy_and_boot_object_rebuild(self):
+        adapter, receipt = self._native_esp_adapter()
+        adapter._consume_native_esp(self.plan)
+        self.assertTrue(adapter.osins.native_esp_prepared)
+        paths = [Path(adapter.installer.ins.icon_path), Path(adapter.installer.ins.boot_obj_path)]
+        inodes = [path.stat().st_ino for path in paths]
+        with patch.object(FakeOSInstaller, "install", side_effect=AssertionError("legacy ESP copy")), \
+             patch("omarchy_asahi.write_image", side_effect=AssertionError("raw image rewrite")):
+            adapter.osins.install(adapter.installer.ins)
+        self.assertEqual([path.stat().st_ino for path in paths], inodes)
+        self.assertEqual(set(adapter.osins.image_receipts), {"boot.img", "root.img"})
+
+    def test_native_esp_receipt_refuses_changed_binding_files_icon_or_stage1(self):
+        for fault in ("plan", "firmware", "group", "esp", "mapping", "digest", "contents", "icon", "stage1", "missing"):
+            with self.subTest(fault=fault):
+                # Each case owns its publication directories.
+                for path in (self.root / "native-system",):
+                    if path.exists(): shutil.rmtree(path)
+                adapter, receipt = self._native_esp_adapter()
+                if fault == "plan": receipt["plan"] = "changed"
+                elif fault == "firmware": receipt["firmware"] = "changed"
+                elif fault == "group": receipt["groupUUID"] = "changed"
+                elif fault == "esp": receipt["espUUID"] = "changed"
+                elif fault == "mapping": receipt["files"][0]["path"] = "../escape"
+                elif fault == "digest": receipt["files"][0]["identity"]["sha256"] = "a" * 64
+                elif fault == "contents": (self.installed_esp / "m1n1/boot.bin").write_bytes(b"changed")
+                elif fault == "icon": Path(adapter.installer.ins.icon_path).write_bytes(b"changed")
+                elif fault == "stage1": Path(adapter.installer.ins.boot_obj_path).write_bytes(b"changed")
+                elif fault == "missing": receipt["files"].pop()
+                adapter.native_esp_evidence = json.dumps(receipt).encode()
+                with self.assertRaisesRegex(AsahiAdapterError, "native ESP"):
+                    adapter._consume_native_esp(self.plan)
+                self.assertFalse(getattr(adapter.osins, "native_esp_prepared", False))
+
     def test_native_files_are_verified_and_skip_python_population_before_partitioning(self):
         with tempfile.TemporaryDirectory() as root:
             adapter, receipt = self._native_files_adapter(root)

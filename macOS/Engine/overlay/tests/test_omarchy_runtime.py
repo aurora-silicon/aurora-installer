@@ -205,6 +205,7 @@ class EngineRuntimeTests(unittest.TestCase):
                            OMARCHY_NATIVE_STUB_FILES="helper-files-v1",
                            OMARCHY_NATIVE_OS_PARTITIONS="helper-partitions-v1",
                            OMARCHY_NATIVE_PAYLOAD_IMAGES="helper-images-v1",
+                           OMARCHY_NATIVE_ESP_FILES="helper-esp-v1",
                            OMARCHY_NATIVE_SOURCE_BOOTSTRAP=json.dumps(dict(mode="source-volume-owner",
                                sourceSystemUUID="system", sourceGroupUUID="group", ownerUUIDs=["owner"])))
         runtime = EngineRuntime.from_environment(environment)
@@ -217,7 +218,7 @@ class EngineRuntimeTests(unittest.TestCase):
         partitions = b'{"native":"partitions"}'
         for name, content in (("native-stub-volumes", b"volumes"), ("native-stub-files", files),
                               ("native-stub-file-binding", binding), ("native-os-partitions", partitions),
-                              ("native-image-boot", b"boot-receipt"), ("native-image-root", b"root-receipt")):
+                              ("native-image-boot", b"boot-receipt"), ("native-image-root", b"root-receipt"), ("native-esp-files", b"esp-receipt")):
             runtime.journal._store_checkpoint_evidence(name, content)
         runtime.inspect("j314sap", True)
         with patch("omarchy_runtime.omarchy_planner.collect_inventory", return_value=self.inventory), \
@@ -227,6 +228,7 @@ class EngineRuntimeTests(unittest.TestCase):
             self._run_layout(runtime)
         self.assertEqual(factory.call_args.kwargs["native_partition_evidence"], partitions)
         self.assertEqual(factory.call_args.kwargs["native_image_evidence"], {"boot.img": b"boot-receipt", "root.img": b"root-receipt"})
+        self.assertEqual(factory.call_args.kwargs["native_esp_evidence"], b"esp-receipt")
 
     def test_native_partition_flag_without_native_files_stops_before_consumer_creation(self):
         environment = self._install_environment()

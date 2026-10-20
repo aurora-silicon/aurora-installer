@@ -1201,6 +1201,23 @@ class OmarchyOSInstaller(osinstall.OSInstaller):
                 os.makedirs(parent, exist_ok=True)
         return super().extract_tree(source, destination)
 
+    def install(self, stub_ins):
+        if not getattr(self, "native_esp_prepared", False):
+            return super().install(stub_ins)
+        if getattr(self, "native_image_receipts", None) is None or self.template.get("extras"):
+            raise AsahiAdapterError("native ESP population has an incomplete resource contract")
+        for part, info in zip(self.template["partitions"], self.part_info, strict=True):
+            if part.get("image"):
+                self.install_raw_image(part["image"], info)
+            if part.get("copy_firmware", False):
+                mountpoint = self.dutil.mount(info.name)
+                shutil.copytree(self.firmware_package.path, os.path.join(mountpoint, "vendorfw"))
+            if part.get("copy_installer_data", False):
+                mountpoint = self.dutil.mount(info.name)
+                path = os.path.join(mountpoint, "asahi")
+                os.makedirs(path, exist_ok=True)
+                self.idata_targets.append(path)
+
     def install_raw_image(self, image, info):
         native = getattr(self, "native_image_receipts", None)
         if native is not None:
@@ -1244,6 +1261,7 @@ class AsahiStage1Adapter:
         native_file_evidence=None,
         native_partition_evidence=None,
         native_image_evidence=None,
+        native_esp_evidence=None,
         expected_native_bootstrap=None,
     ):
         self.installer = installer
@@ -1272,6 +1290,7 @@ class AsahiStage1Adapter:
         self.native_file_evidence = native_file_evidence
         self.native_partition_evidence = native_partition_evidence
         self.native_image_evidence = native_image_evidence
+        self.native_esp_evidence = native_esp_evidence
         self.expected_native_bootstrap = expected_native_bootstrap
         self.prepared_native_peripherals = None
         self.native_camera_setfiles = None
@@ -1599,6 +1618,8 @@ class AsahiStage1Adapter:
             self._consume_native_partitions(plan, os_size)
         if self.native_image_evidence is not None:
             self._consume_native_images()
+        if self.native_esp_evidence is not None:
+            self._consume_native_esp(plan)
 
         firmware_package = None
         if self.osins.needs_firmware:
@@ -1611,21 +1632,22 @@ class AsahiStage1Adapter:
             self.osins.firmware_package = firmware_package
 
         self.osins.install(self.installer.ins)
-        install_board_stage1(
-            self.installer.sysinfo.device_class,
-            self.os_firmware,
-            self.osins.pkg.read,
-            self.osins.efi_part.uuid,
-            self.installer.ins.boot_obj_path,
-            self.template.get("next_object", "m1n1/boot.bin"),
-            common_allowed=self.common_stage1,
-        )
-        install_esp_board_layout(
-            self.installer.sysinfo.device_class,
-            self._esp_members(),
-            self.installer.dutil.mount(self.osins.efi_part.name),
-            common_allowed=self.common_stage1,
-        )
+        if self.native_esp_evidence is None:
+            install_board_stage1(
+                self.installer.sysinfo.device_class,
+                self.os_firmware,
+                self.osins.pkg.read,
+                self.osins.efi_part.uuid,
+                self.installer.ins.boot_obj_path,
+                self.template.get("next_object", "m1n1/boot.bin"),
+                common_allowed=self.common_stage1,
+            )
+            install_esp_board_layout(
+                self.installer.sysinfo.device_class,
+                self._esp_members(),
+                self.installer.dutil.mount(self.osins.efi_part.name),
+                common_allowed=self.common_stage1,
+            )
         if self.native_recovery_gui:
             omarchy_recovery.stage(
                 self.installer.ins, self.osins.efi_part.uuid,
@@ -1644,6 +1666,78 @@ class AsahiStage1Adapter:
                 os.path.join(target, "installer.log"),
             )
         return self._installed_evidence(plan)
+
+    def _consume_native_esp(self, plan):
+        try:
+            receipt = json.loads(self.native_esp_evidence)
+            if (self.native_image_evidence is None or not isinstance(receipt, dict)
+                    or set(receipt) != {"plan", "firmware", "groupUUID", "espUUID", "files", "icon", "stage1"}
+                    or receipt["plan"] != plan.plan_digest or receipt["firmware"] != self.os_firmware
+                    or receipt["groupUUID"] != self.installer.ins.osi.vgid
+                    or receipt["espUUID"].lower() != self.osins.efi_part.uuid.lower()):
+                raise ValueError("native ESP binding changed")
+            layout = esp_board_layout(self.installer.sysinfo.device_class, self._esp_members(),
+                                      common_allowed=self.common_stage1)
+            if not isinstance(receipt["files"], list) or len(receipt["files"]) != len(layout):
+                raise ValueError("native ESP member count changed")
+            records = {}
+            for entry in receipt["files"]:
+                if (not isinstance(entry, dict) or set(entry) != {"member", "path", "identity"}
+                        or entry["member"] in records or layout.get(entry["member"]) != entry["path"]):
+                    raise ValueError("native ESP mapping changed")
+                identity = entry["identity"]
+                self._native_file_identity(identity)
+                if identity["bytes"] != self.osins.pkg.getinfo(entry["member"]).file_size:
+                    raise ValueError("native ESP member size changed")
+                records[entry["member"]] = identity
+            if set(records) != set(layout):
+                raise ValueError("native ESP member set changed")
+            digest = hashlib.sha256()
+            total = 0
+            for name, identity in sorted(records.items()):
+                encoded = name.encode("utf-8")
+                digest.update(len(encoded).to_bytes(8, "big"))
+                digest.update(encoded)
+                digest.update(bytes.fromhex(identity["sha256"]))
+                total += identity["bytes"]
+            if self._verify_copied_tree("esp", self.osins.efi_part) != (total, digest.hexdigest()):
+                raise ValueError("native ESP files changed")
+            icon = receipt["icon"]
+            self._native_file_identity(icon)
+            installed = self._verify_installed_file(self.template["icon"], self.installer.ins.icon_path)
+            if installed["installed_bytes"] != icon["bytes"] or installed["content_sha256"] != icon["sha256"]:
+                raise ValueError("native volume icon changed")
+            board = board_stage1(self.installer.sysinfo.device_class, self.os_firmware,
+                                 self._esp_members(), common_allowed=self.common_stage1)
+            if board is None:
+                raise ValueError("native Stage 1 is not qualified")
+            expected = fill_aurora_stage1(read_board_stage1(board, self.osins.pkg.read),
+                self.osins.efi_part.uuid.lower(), "m1n1/boot.bin", board.window_ms)
+            identity = receipt["stage1"]
+            self._native_file_identity(identity)
+            if identity != dict(bytes=len(expected), sha256=hashlib.sha256(expected).hexdigest()):
+                raise ValueError("native Stage 1 identity changed")
+            boot_path = Path(self.installer.ins.osi.system, "Finish Installation.app/Contents/Resources/boot.bin")
+            if Path(self.installer.ins.boot_obj_path) != boot_path:
+                raise ValueError("native Stage 1 target changed")
+            descriptor = os.open(boot_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
+            with os.fdopen(descriptor, "rb") as observed:
+                info = os.fstat(observed.fileno())
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                        or info.st_mode & 0o022 or info.st_nlink != 1 or info.st_size != len(expected)):
+                    raise ValueError("unsafe native Stage 1")
+                self._matching_stream_digest(io.BytesIO(expected), observed, len(expected))
+            self.osins.native_esp_prepared = True
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, zipfile.BadZipFile, AsahiAdapterError) as error:
+            raise AsahiAdapterError("native ESP files could not be verified") from error
+
+    @staticmethod
+    def _native_file_identity(identity):
+        if (not isinstance(identity, dict) or set(identity) != {"bytes", "sha256"}
+                or type(identity["bytes"]) is not int or not 0 <= identity["bytes"] <= 64 << 20
+                or not isinstance(identity["sha256"], str)
+                or re.fullmatch(r"[0-9a-f]{64}", identity["sha256"]) is None):
+            raise ValueError("invalid native file identity")
 
     def _consume_native_images(self):
         try:
