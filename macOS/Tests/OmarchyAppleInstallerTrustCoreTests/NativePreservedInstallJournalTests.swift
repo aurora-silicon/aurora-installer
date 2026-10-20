@@ -5,10 +5,10 @@
   @testable import OmarchyAppleInstallerTrustCore
 
   final class NativePreservedInstallJournalTests: XCTestCase {
-    private func transcript() throws -> (Data, ValidatedEnginePlan) {
+    static func transcript() throws -> (Data, ValidatedEnginePlan) {
       let candidate = EngineInstallCandidate(
         kind: "reinstall", sourceIdentifier: "disk0s3", offsetBytes: 4096,
-        lengthBytes: 1_048_576, minimumInstallBytes: 1_048_576,
+        lengthBytes: 8 << 20, minimumInstallBytes: 8 << 20,
         minimumContainerBytes: 0,
         identityDigest: "sha256:" + String(repeating: "a", count: 64),
         recommendedInstallBytes: nil, recommendedContainerBytes: nil)
@@ -66,7 +66,7 @@
         verification: "source-sha256-write-flushed-v1")
       return NativePreservedInstallReceipt(
         planDigest: plan.planDigest,
-        targetIdentity: "sha256:" + String(repeating: "1", count: 64),
+        targetIdentity: "sha256:" + String(repeating: "a", count: 64),
         espUUID: UUID().uuidString.lowercased(), boot: boot, root: root,
         espDigest: String(repeating: "2", count: 64))
     }
@@ -84,7 +84,7 @@
         attributes: [.posixPermissions: 0o700])
       let binding = "sha256:" + String(repeating: "3", count: 64)
       let journalURL = parent.appendingPathComponent(String(binding.dropFirst(7)) + ".jsonl")
-      let (transcript, plan) = try transcript()
+      let (transcript, plan) = try Self.transcript()
       try Data(transcript.prefix(17)).write(to: journalURL)
       try FileManager.default.setAttributes(
         [.posixPermissions: 0o600], ofItemAtPath: journalURL.path)

@@ -7,6 +7,7 @@
   enum NativePreservedInstallAdmission {
     struct Prepared: Sendable {
       let target: NativePreservedInstallTarget
+      let diskSnapshot: RemovalSnapshot
       let transcript: Data
       let archive: IPSWArchive
       let boot: IPSWArchiveMember
@@ -83,7 +84,7 @@
       guard try AppleInstallerTrustCore().validateEngineTranscript(transcript).plan == approved
       else { throw NativePreservedInstallError.changedLayout }
       return Prepared(
-        target: target, transcript: transcript, archive: archive,
+        target: target, diskSnapshot: disk.snapshot, transcript: transcript, archive: archive,
         boot: members[0], root: members[1], esp: esp, stage1: stage1)
     }
   }

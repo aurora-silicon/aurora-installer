@@ -14,8 +14,9 @@
     let root: NativeRawImageReceipt
     let espDigest: String
 
-    func validate(plan: ValidatedEnginePlan) throws {
-      guard planDigest == plan.planDigest, SHA256Digest(rawValue: targetIdentity) != nil,
+    func validate(plan: ValidatedEnginePlan, expectedTarget: String) throws {
+      guard planDigest == plan.planDigest, targetIdentity == expectedTarget,
+        SHA256Digest(rawValue: targetIdentity) != nil,
         UUID(uuidString: espUUID) != nil, SHA256Digest(hexadecimal: espDigest) != nil,
         boot.verification == "source-sha256-write-flushed-v1",
         root.verification == "source-sha256-write-flushed-v1",
@@ -31,6 +32,7 @@
   struct NativePreservedInstallJournalSnapshot: Sendable {
     let transcript: Data
     let plan: ValidatedEnginePlan
+    let targetIdentity: String
     let state: NativePreservedInstallState
     let receipt: NativePreservedInstallReceipt?
 
@@ -44,19 +46,30 @@
         validated.support == .supported,
         validated.deviceIdentifier == package.deviceIdentifier,
         let plan = validated.plan, plan.candidateKind == "reinstall",
+        let inventory = validated.inventory,
+        inventory.candidates.filter({
+          $0.kind == "reinstall" && $0.sourceIdentifier == plan.sourceIdentifier
+        }).count == 1,
+        let targetIdentity = inventory.candidates.first(where: {
+          $0.kind == "reinstall" && $0.sourceIdentifier == plan.sourceIdentifier
+        })?.identityDigest,
         plan.planDigest == package.planDigest,
         plan.storeIdentifier == package.storeIdentifier,
         plan.requiredHumanSteps == ["authenticateMachineOwner"],
         (3...6).contains(records.count)
       else { throw NativeRecoveryJournalError.invalidState }
       if records.count == 3 {
-        return Self(transcript: bytes, plan: plan, state: .ready, receipt: nil)
+        return Self(
+          transcript: bytes, plan: plan, targetIdentity: targetIdentity,
+          state: .ready, receipt: nil)
       }
       guard case .event(let event) = records[3].message,
         event.name == "preserved_reinstall_started", event.planDigest == plan.planDigest
       else { throw NativeRecoveryJournalError.invalidState }
       if records.count == 4 {
-        return Self(transcript: bytes, plan: plan, state: .started, receipt: nil)
+        return Self(
+          transcript: bytes, plan: plan, targetIdentity: targetIdentity,
+          state: .started, receipt: nil)
       }
       guard case .checkpoint(let checkpoint) = records[4].message,
         checkpoint.identifier == "preserved-install-written",
@@ -68,14 +81,18 @@
         throw NativeRecoveryJournalError.evidenceChanged
       }
       let receipt = try JSONDecoder().decode(NativePreservedInstallReceipt.self, from: saved)
-      try receipt.validate(plan: plan)
+      try receipt.validate(plan: plan, expectedTarget: targetIdentity)
       if records.count == 5 {
-        return Self(transcript: bytes, plan: plan, state: .written, receipt: receipt)
+        return Self(
+          transcript: bytes, plan: plan, targetIdentity: targetIdentity,
+          state: .written, receipt: receipt)
       }
       guard case .completion(let completion) = records[5].message,
         completion.planDigest == plan.planDigest, completion.outcome == "installed"
       else { throw NativeRecoveryJournalError.invalidState }
-      return Self(transcript: bytes, plan: plan, state: .complete, receipt: receipt)
+      return Self(
+        transcript: bytes, plan: plan, targetIdentity: targetIdentity,
+        state: .complete, receipt: receipt)
     }
   }
 
@@ -115,10 +132,35 @@
       }
     }
 
+    func imageReceipt(_ name: String) throws -> NativeRawImageReceipt? {
+      guard ["boot", "root"].contains(name) else { throw NativeRecoveryJournalError.invalidState }
+      return try file.transaction {
+        let before = try current()
+        guard before.state != .ready else { throw NativeRecoveryJournalError.invalidState }
+        let identifier = "preserved-image-" + name
+        guard try file.containsEvidence(identifier) else { return nil }
+        return try JSONDecoder().decode(
+          NativeRawImageReceipt.self, from: file.readEvidence(identifier))
+      }
+    }
+
+    func recordImage(_ receipt: NativeRawImageReceipt, name: String) throws {
+      guard ["boot", "root"].contains(name) else { throw NativeRecoveryJournalError.invalidState }
+      try file.transaction {
+        let before = try current()
+        guard before.state == .started,
+          receipt.verification == "source-sha256-write-flushed-v1",
+          receipt.installedBytes > 0, receipt.installedBytes <= receipt.partitionSizeBytes,
+          SHA256Digest(hexadecimal: receipt.contentSHA256) != nil
+        else { throw NativeRecoveryJournalError.invalidState }
+        try file.publishEvidence(Self.encode(receipt), identifier: "preserved-image-" + name)
+      }
+    }
+
     func recordWritten(_ receipt: NativePreservedInstallReceipt) throws {
       try file.transaction {
         let before = try current()
-        try receipt.validate(plan: before.plan)
+        try receipt.validate(plan: before.plan, expectedTarget: before.targetIdentity)
         let bytes = try Self.encode(receipt)
         if before.state == .written || before.state == .complete {
           guard try file.readEvidence("preserved-install-written") == bytes else {
