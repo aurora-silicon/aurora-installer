@@ -1,4 +1,4 @@
-name: Qualify physical storage allocation display
+name: Qualify cancelable disk checks
 on:
   push:
     branches: [ci/native-recovery-review]
@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: f6f60ab26c50becc3d4ff9b601ac29ff5500d2f9
+          ref: 606bf17fb1ae646dafe6f0f12cb5807b3aebea85
           path: source
           persist-credentials: false
       - name: Record immutable source and toolchain
@@ -44,21 +44,21 @@ jobs:
           xcrun swift-format format -i --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
           git diff --binary > "$RUNNER_TEMP/evidence/format.patch"
           xcrun swift-format lint --strict --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
-      - name: Qualify physical storage accounting and app integration
+      - name: Qualify cancellation ownership, bounded queries and app integration
         run: |
           set -euo pipefail
-          filter='NativeDiskDisplayGeometryTests|NativeInstallerInspectorTests|NativeDiskCollectorReplayTests|LiveNativeInspectionTests|PlainLanguageTests|DiskSizeInputTests|InstallerPlanReviewTests'
+          filter='PlanCheckCancellationTests|InstallerSessionTests|ReadOnlyMacCommandRunnerTests|MacHostInspectionTests|NativeDiskDisplayGeometryTests|NativeInstallerInspectorTests|NativeDiskCollectorReplayTests|LiveNativeInspectionTests|PlainLanguageTests|DiskSizeInputTests|InstallerPlanReviewTests'
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug \
             --filter "$filter" 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration release \
             --filter "$filter" 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
       - name: Build the unprivileged native preview
         run: bash Packaging/build-aurora-preview.sh "$RUNNER_TEMP/preview"
-      - name: Render all three allocation sources in both appearances
+      - name: Render allocation and active checking in both appearances
         run: |
           set -euo pipefail
           app="$RUNNER_TEMP/preview/Aurora Installer.app"
-          for screen in allocation allocation-free allocation-other; do
+          for screen in allocation allocation-free allocation-other allocation-checking; do
             for appearance in light dark; do
               output="$RUNNER_TEMP/evidence/$screen-$appearance.png"
               arguments=(--simulate "--preview-screen=$screen" "--snapshot=$output" --quit-after-snapshot)
@@ -79,6 +79,6 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: disk-allocation-component-evidence
+          name: disk-check-cancellation-evidence
           path: ${{ runner.temp }}/evidence/
           retention-days: 14
