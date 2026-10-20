@@ -19,6 +19,11 @@
       async throws -> Self?
     {
       let template = try NativePayloadPreflight.target(metadata)
+      if let value = template["extras"] {
+        guard let extras = value as? [String] else { throw NativePayloadPreflightError.invalidMetadata }
+        // Legacy extra downloads retain their existing execution contract.
+        if !extras.isEmpty { return nil }
+      }
       let boot = try await NativeBootChain.admit(
         metadata: metadata, archive: archive,
         deviceIdentifier: device, firmware: firmware)
