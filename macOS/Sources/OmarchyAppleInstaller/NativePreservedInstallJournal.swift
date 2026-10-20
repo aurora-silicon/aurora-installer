@@ -200,7 +200,7 @@
       }
     }
 
-    private static func encode(_ receipt: NativePreservedInstallReceipt) throws -> Data {
+    private static func encode<T: Encodable>(_ receipt: T) throws -> Data {
       let encoder = JSONEncoder()
       encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
       return try encoder.encode(receipt)
