@@ -66,6 +66,8 @@
     private let nativeHandoff: any NativeRecoveryHandoffExecuting
     private let collectInstallAdmission: @Sendable () throws -> NativeInstallAdmissionFacts
     private let validatePayload: @Sendable (ImportedEngineHandoffPackage) async throws -> Void
+    private let validateSourceOwner:
+      @Sendable (ImportedEngineHandoffPackage, MachineOwnerAuthorization) throws -> Void
     private let prepareRecoveryTemplate:
       @Sendable (ImportedEngineHandoffPackage) throws -> PreparedNativeRecoveryTemplate
 
@@ -82,6 +84,7 @@
       nativeHandoff = NativeRecoveryHandoffExecutor()
       collectInstallAdmission = { try NativeInstallAdmissionFacts.live() }
       validatePayload = { try await NativePayloadPreflight.check($0) }
+      validateSourceOwner = { _ = try NativeSourceOwnerAdmission().check(package: $0, authorization: $1) }
       prepareRecoveryTemplate = { try NativeRecoveryTemplate.prepare(package: $0) }
     }
 
@@ -101,6 +104,9 @@
       validatePayload: @escaping @Sendable (ImportedEngineHandoffPackage) async throws -> Void = {
         try await NativePayloadPreflight.check($0)
       },
+      validateSourceOwner: @escaping @Sendable (ImportedEngineHandoffPackage, MachineOwnerAuthorization) throws -> Void = {
+        _ = try NativeSourceOwnerAdmission().check(package: $0, authorization: $1)
+      },
       prepareRecoveryTemplate:
         @escaping @Sendable (ImportedEngineHandoffPackage) throws -> PreparedNativeRecoveryTemplate =
         { try NativeRecoveryTemplate.prepare(package: $0) }
@@ -114,6 +120,7 @@
       self.nativeHandoff = nativeHandoff
       self.collectInstallAdmission = collectInstallAdmission
       self.validatePayload = validatePayload
+      self.validateSourceOwner = validateSourceOwner
       self.prepareRecoveryTemplate = prepareRecoveryTemplate
     }
 
@@ -150,6 +157,12 @@
       }
       let nativeFinalization = package.installationIntent != .repair
       if operation == .install, nativeFinalization {
+        do { try validateSourceOwner(package, authorization) } catch {
+          throw preparationFailure(
+            error, reason: .recoveryPreparation, operation: operation, journal: journal,
+            package: package, password: authorization.password,
+            summary: "The current macOS volume owner could not be verified.")
+        }
         do { try await validatePayload(package) } catch {
           let firmwareFailure = error is NativeFirmwareSelectionError
           throw preparationFailure(

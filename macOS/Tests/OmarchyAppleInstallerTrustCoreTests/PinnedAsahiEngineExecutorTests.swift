@@ -712,7 +712,7 @@
       let fixture = try makeFixture(expectedInstallMode: "retry-recovery-authorization")
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let executor = fixtureExecutor(
-        effectiveUserID: { 0 }, firmwarePreparer: FailedFirmware(), rejectPayload: true)
+        effectiveUserID: { 0 }, firmwarePreparer: FailedFirmware(), rejectPayload: true, rejectSourceOwner: true)
       let result = try await executor.execute(
         fixture.package,
         authorization: try machineOwnerAuthorization(), operation: .retryRecoveryAuthorization)
@@ -757,6 +757,25 @@
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
     }
 
+    func testSourceOwnerFailureStopsBeforePayloadFirmwareAndBackendExecution() async throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let executor = fixtureExecutor(
+        effectiveUserID: { 0 }, firmwarePreparer: FailedFirmware(), rejectPayload: true, rejectSourceOwner: true)
+      await assertThrowsErrorAsync(
+        try await executor.execute(fixture.package, authorization: try machineOwnerAuthorization())
+      ) {
+        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+          XCTFail("Expected typed source-owner preflight failure")
+          return
+        }
+        XCTAssertEqual(report.notice.reason, .recoveryPreparation)
+        XCTAssertTrue(report.notice.diskUnchanged)
+        XCTAssertEqual(report.notice.summary, "The current macOS volume owner could not be verified.")
+      }
+      XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
+
     func testRecoveryPreparationFailureNeverClaimsAnInstalledRetryWasUnchanged() async throws {
       for operation in [EngineHandoffOperation.install, .retryRecoveryAuthorization] {
         let fixture = try makeFixture()
@@ -791,7 +810,8 @@
         codeHash: String(repeating: "a", count: 40)),
       rejectDecoder: Bool = false,
       rejectPayload: Bool = false,
-      rejectFirmwareSelection: Bool = false
+      rejectFirmwareSelection: Bool = false,
+      rejectSourceOwner: Bool = false
     ) -> PinnedAsahiEngineExecutor {
       PinnedAsahiEngineExecutor(
         effectiveUserID: effectiveUserID, expectedFileOwnerID: expectedFileOwnerID,
@@ -806,6 +826,9 @@
         validatePayload: { _ in
           if rejectFirmwareSelection { throw NativeFirmwareSelectionError.noCompatibleFirmware }
           if rejectPayload { throw NativePayloadPreflightError.invalidFilesystem }
+        },
+        validateSourceOwner: { _, _ in
+          if rejectSourceOwner { throw NativeHandoffValidationError.invalidOwner }
         },
         prepareRecoveryTemplate: { package in
           if rejectRecovery { throw NativeRecoveryTemplateError.unavailable }

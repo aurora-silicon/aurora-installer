@@ -183,7 +183,7 @@
         volumeName: name, systemUUID: systems[0].uuid,
         dataUUID: data[0].uuid, groupUUID: group, prebootUUID: preboot[0].uuid)
       try target.validate()
-      try sourceOwner(
+      try NativeSourceOwnerAdmission(environment: environment).requireExpected(
         config: config, snapshot: before, authorization: authorization, mounts: mounts)
       try environment.verifyRecovery(
         systemURL.appendingPathComponent(InstallerProductIdentity.recoveryAppBundleName),
@@ -306,50 +306,6 @@
       try RecoveryAccountHandoff.requireStartupSelection(
         prepared.target, info: environment.disk(volume))
       try system.prepareForRecovery()
-    }
-
-    private func sourceOwner(
-      config: [String: Any], snapshot: RemovalSnapshot,
-      authorization: MachineOwnerAuthorization, mounts: NativeHandoffMounts
-    ) throws {
-      guard let bootstrap = config["bootstrap"] as? [String: Any],
-        bootstrap["mode"] as? String == "source-volume-owner",
-        let system = bootstrap["sourceSystemUUID"] as? String,
-        let group = bootstrap["sourceGroupUUID"] as? String,
-        let owners = bootstrap["ownerUUIDs"] as? [String], owners.count == 1,
-        group != config["groupUUID"] as? String,
-        let container = snapshot.containers.first(where: { $0.uuid == snapshot.macOSContainerUUID }
-        ),
-        container.volumes.filter({
-          $0.roles == ["System"] && $0.uuid == system && $0.group == group
-        }).count == 1,
-        try environment.disk("/")["APFSVolumeGroupID"] as? String == group,
-        let preboot = container.volumes.first(where: { $0.roles == ["Preboot"] })
-      else {
-        throw NativeHandoffValidationError.invalidOwner
-      }
-      let guid = try environment.ownerUUID(authorization.username)
-      guard owners == [guid],
-        let users = try environment.plist(["apfs", "listUsers", system, "-plist"])["Users"]
-          as? [[String: Any]],
-        users.contains(where: {
-          ($0["APFSCryptoUserUUID"] as? String)?.uppercased() == guid
-            && $0["VolumeOwner"] as? Bool == true
-        })
-      else { throw NativeHandoffValidationError.invalidOwner }
-      let url = try mounts.mounted(preboot.identifier, uuid: preboot.uuid, sourcePreboot: true)
-      let tree = try NativeHandoffFileTree(
-        url, protected: true, owner: environment.owner,
-        volumeRoot: true, volumeDevice: preboot.identifier, verifyMount: environment.verifyMount)
-      guard
-        let admins = try PropertyListSerialization.propertyList(
-          from:
-            tree.read(group + "/var/db/AdminUserRecoveryInfo.plist", maximum: 1 << 20), format: nil)
-          as? [String: [String: Any]],
-        (admins[authorization.username]?["GeneratedUID"] as? String)?.uppercased() == guid
-      else {
-        throw NativeHandoffValidationError.invalidOwner
-      }
     }
 
     private func uuid(_ value: String) throws -> String {
