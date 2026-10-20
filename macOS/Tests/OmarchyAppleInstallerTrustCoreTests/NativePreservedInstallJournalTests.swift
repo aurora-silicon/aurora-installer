@@ -28,10 +28,12 @@
       ]
       var bytes = Data()
       for (index, row) in rows.enumerated() {
-        bytes.append(try JSONSerialization.data(withJSONObject: [
-          "schema_version": 1, "sequence": index + 1,
-          "type": row.0, "payload": row.1,
-        ], options: [.sortedKeys]))
+        bytes.append(
+          try JSONSerialization.data(
+            withJSONObject: [
+              "schema_version": 1, "sequence": index + 1,
+              "type": row.0, "payload": row.1,
+            ], options: [.sortedKeys]))
         bytes.append(10)
       }
       let inspection = try AppleInstallerTrustCore().validateEngineTranscript(bytes)

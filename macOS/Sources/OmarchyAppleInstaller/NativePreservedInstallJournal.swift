@@ -132,7 +132,8 @@
           type: "checkpoint",
           payload: [
             "plan_digest": package.planDigest, "identifier": "preserved-install-written",
-            "phase": "preserved_reinstall", "evidence_digest": SHA256Digest(hashing: bytes).rawValue,
+            "phase": "preserved_reinstall",
+            "evidence_digest": SHA256Digest(hashing: bytes).rawValue,
           ], before: before.transcript)
       }
     }
