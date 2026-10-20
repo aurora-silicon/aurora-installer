@@ -17,23 +17,27 @@
       var attachment: URL?
       var base: NativeStubFileTests.ExecutionFixture { esp.images.base }
       init() async throws {
-        esp = try await NativeESPFileTests.Fixture()
+        let esp = try await NativeESPFileTests.Fixture()
+        self.esp = esp
         try await esp.prepare()
-        inputs = try NativeNeoPeripheralInputTests.InputFixture()
-        peripherals = try await inputs.preparer().prepare(
+        let inputs = try NativeNeoPeripheralInputTests.InputFixture()
+        self.inputs = inputs
+        let peripherals = try await inputs.preparer().prepare(
           package: inputs.package, rawDirectory: inputs.raw)
+        self.peripherals = peripherals
         let url = try XCTUnwrap(
           Bundle.module.url(
             forResource: "native-finishing", withExtension: "json", subdirectory: "Fixtures"))
         let document = try JSONDecoder().decode([String: Data].self, from: Data(contentsOf: url))
         let archive = try await IPSWArchive.open(
           NativeStubFileTests.Source(bytes: XCTUnwrap(document["archive"])))
-        plan = try await NativeStubFilePlan(
+        let plan = try await NativeStubFilePlan(
           archive: archive,
           source: .init(
             version: "26.6.2", sourceURL: URL(string: "https://example.test/restore.ipsw")!,
             stubBytes: 8 << 20),
           deviceClass: "j700ap", boardID: 1, chipID: 2)
+        self.plan = plan
         let base = esp.images.base
         try await NativeStubFilesExecution(
           package: base.package, approved: base.approved, plan: plan,

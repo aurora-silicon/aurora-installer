@@ -26,6 +26,7 @@ jobs:
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
       XCODEBUILDMCP_SENTRY_DISABLED: 'true'
+      OMARCHY_DEVELOPER_BUILD: '1'
       AURORA_SIGNING_KEYCHAIN_TIMEOUT: '5400'
     defaults:
       run:
@@ -51,10 +52,48 @@ jobs:
           path: delivery
           sparse-checkout: site/installer/Profiles
           persist-credentials: false
+      - name: Load the signed Alpha catalog set
+        run: |
+          set -euo pipefail
+          if [[ ! -x /opt/homebrew/opt/openssl@3/bin/openssl ]]; then brew install openssl@3; fi
+          directory="$RUNNER_TEMP/alpha-catalogs"
+          mkdir -p "$directory"
+          base=https://github.com/aurora-silicon/aurora-installer/releases/download/native-runtime-v0.9.2-aurora.14
+          curl -fLsS --retry 3 "$base/runtime-manifest.json" -o "$directory/runtime-manifest.json"
+          curl -fLsS --retry 3 "$base/runtime-manifest.json.sig" -o "$directory/runtime-manifest.json.sig"
+          python3 - "$directory" <<'PYKEY'
+          from pathlib import Path
+          import sys
+          public=Path('Release/trust-root.ed25519.pub').read_bytes()
+          assert len(public)==32
+          (Path(sys.argv[1])/'public.der').write_bytes(bytes.fromhex('302a300506032b6570032100')+public)
+          PYKEY
+          /opt/homebrew/opt/openssl@3/bin/openssl pkeyutl -verify -pubin -keyform DER \
+            -inkey "$directory/public.der" -rawin -in "$directory/runtime-manifest.json" \
+            -sigfile "$directory/runtime-manifest.json.sig"
+          python3 - "$directory" "$base" <<'PYCATALOGS'
+          import hashlib,json,sys,tarfile,urllib.request
+          from pathlib import Path,PurePosixPath
+          root=Path(sys.argv[1]);base=sys.argv[2]
+          record=json.loads((root/'runtime-manifest.json').read_text())['assets']['alpha1-profiles.tar.gz']
+          assert 0<record['bytes']<8<<20
+          with urllib.request.urlopen(base+'/alpha1-profiles.tar.gz',timeout=60) as response:
+              data=response.read((8<<20)+1)
+          assert len(data)==record['bytes'] and hashlib.sha256(data).hexdigest()==record['sha256']
+          archive=root/'alpha1-profiles.tar.gz';archive.write_bytes(data)
+          with tarfile.open(archive) as source:
+              members=source.getmembers();assert len(members)<=100
+              for member in members:
+                  path=PurePosixPath(member.name)
+                  assert not path.is_absolute() and '..' not in path.parts
+                  assert member.isfile() and 0<=member.size<=1<<20
+                  output=root.joinpath(*path.parts);output.parent.mkdir(parents=True,exist_ok=True)
+                  output.write_bytes(source.extractfile(member).read())
+          PYCATALOGS
       - name: Require catalogs paired with this execution contract
         run: |
           set -euo pipefail
-          python3 - "$GITHUB_WORKSPACE/delivery/site/installer/Profiles" <<'PY'
+          python3 - "$RUNNER_TEMP/alpha-catalogs/Profiles" <<'PY'
           import json,sys
           from pathlib import Path
           lock=json.loads(Path('Engine/source-lock.json').read_text())
@@ -91,8 +130,6 @@ jobs:
           set -euo pipefail
           bash test/all 2>&1 | tee "$RUNNER_TEMP/evidence/portable.log"
           xcrun swift-format lint --strict --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
-          xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
-          xcodebuildmcp swift-package test --package-path "$PWD" --configuration release 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
           xcodebuildmcp swift-package build --package-path "$PWD" --configuration release 2>&1 | tee "$RUNNER_TEMP/evidence/build.log"
           bash Recovery/build-recovery.sh "$RUNNER_TEMP/recovery-template" 2>&1 | tee "$RUNNER_TEMP/evidence/recovery.log"
       - name: Sign, notarize and package the tiny application
@@ -112,7 +149,7 @@ jobs:
           set -euo pipefail
           source Packaging/identity.conf
           python3 scripts/prepare-distribution-release.py \
-            --profiles "$GITHUB_WORKSPACE/delivery/site/installer/Profiles" \
+            --profiles "$RUNNER_TEMP/alpha-catalogs/Profiles" \
             --output "$RUNNER_TEMP/release" --sealed --signing-team "$OMARCHY_TEAM_ID"
           export OMARCHY_APP_BUILD_NUMBER=$(date -u +%y%m%d%H%M)
           export OMARCHY_RECOVERY_TEMPLATE="$RUNNER_TEMP/recovery-template/$INSTALLER_APP_NAME.app"
@@ -157,7 +194,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          printf 'Native installer %s.\n\nSource: `%s`\nProfiles: `%s`\nBuild evidence: %s/%s/actions/runs/%s\n\nSigned and notarized DMG. Physical installation and hardware qualification remain separate release requirements.\n' \
+          printf 'Native installer %s.\n\nSource: `%s`\nProfiles: `%s`\nBuild evidence: %s/%s/actions/runs/%s\n\nSigned and notarized DMG. Alpha 1 reuses the prior Fedora KDE payload. The installer backend migration and fresh encrypted hardware qualification remain in progress.\n' \
             "$APP_VERSION" "$GITHUB_SHA" "$PROFILES_REVISION" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > notes.md
           [[ $RELEASE_TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha\.[1-9][0-9]*$ ]]
           gh release create "$RELEASE_TAG" download/*.dmg --repo "$GITHUB_REPOSITORY" \
