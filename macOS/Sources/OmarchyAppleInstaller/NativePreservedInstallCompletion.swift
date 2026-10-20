@@ -26,6 +26,8 @@
       let saved = try journal.snapshot()
       let target = prepared.target
       let baseline = prepared.diskSnapshot
+      let calculatedESPDigest = NativePreservedESPExecution.digest(
+        espFiles, approved: approved, target: target)
       guard package.installationIntent == .reinstall, saved.plan == approved,
         saved.targetIdentity == target.identityDigest,
         saved.state == .started || saved.state == .written || saved.state == .complete,
@@ -42,8 +44,7 @@
         zip(espFiles, prepared.esp.entries).allSatisfy({ pair in
           pair.0.member == pair.1.member.name && pair.0.path == pair.1.path
         }),
-        espDigest == NativePreservedESPExecution.digest(
-          espFiles, approved: approved, target: target)
+        espDigest == calculatedESPDigest
       else { throw NativePreservedInstallError.changedLayout }
       try platform.disks.verifySourceOwner(package, authorization, bootstrap)
       let store = try NativeESPFileStore(
@@ -58,7 +59,8 @@
           try platform.disks.verifyPartition(part, baseline.disk)
         }
         if fullRaw {
-          guard try platform.digest(target.boot.identifier, boot.installedBytes)
+          guard
+            try platform.digest(target.boot.identifier, boot.installedBytes)
               == boot.contentSHA256,
             try platform.digest(target.root.identifier, root.installedBytes)
               == root.contentSHA256
@@ -70,12 +72,15 @@
               throw NativeHandoffValidationError.changedContent
             }
           }
-          guard try store.identity(file.path, maximum: file.installed.bytes) == file.installed else {
+          guard
+            try store.identity(file.path, maximum: file.installed.bytes) == file.installed
+          else {
             throw NativeHandoffValidationError.changedContent
           }
           if let backup = file.backup {
-            guard try store.identity(backup.backupPath, maximum: backup.previous.bytes)
-              == backup.previous
+            guard
+              try store.identity(backup.backupPath, maximum: backup.previous.bytes)
+                == backup.previous
             else { throw NativeHandoffValidationError.changedContent }
           } else {
             guard try store.tree.isAbsent(store.replacementPaths(file.path).backup) else {
