@@ -9,13 +9,16 @@
     func testSystemPrebootLocationIsAcceptedOnlyForTheVerifiedSourcePrebootRole() throws {
       let fixture = try NativeRecoveryHandoffFixture()
       defer { fixture.remove() }
-      XCTAssertEqual(NativeHandoffEnvironment.live.sourcePrebootMount.path, "/System/Volumes/Preboot")
+      XCTAssertEqual(
+        NativeHandoffEnvironment.live.sourcePrebootMount.path, "/System/Volumes/Preboot")
       let mounts = NativeHandoffMounts(fixture.environment())
       let uuid = fixture.diskSnapshot.containers[0].volumes[2].uuid
       XCTAssertThrowsError(try mounts.mounted("disk4s3", uuid: uuid))
       XCTAssertEqual(
-        try mounts.mounted("disk4s3", uuid: uuid, sourcePreboot: true).path, fixture.sourcePreboot.path)
-      XCTAssertThrowsError(try mounts.mounted("disk4s3", uuid: UUID().uuidString, sourcePreboot: true))
+        try mounts.mounted("disk4s3", uuid: uuid, sourcePreboot: true).path,
+        fixture.sourcePreboot.path)
+      XCTAssertThrowsError(
+        try mounts.mounted("disk4s3", uuid: UUID().uuidString, sourcePreboot: true))
     }
     private struct ForbiddenFirmwarePreparation: NativeFirmwarePreparing {
       func prepare(deviceIdentifier: String, in workingDirectory: URL) async throws -> URL? {
