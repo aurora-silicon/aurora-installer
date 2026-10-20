@@ -491,6 +491,7 @@ struct EngineTranscriptDecoder: Sendable {
     "existing_removal": 1,
     "apfs_preparation": 2,
     "stub_and_esp": 3,
+    "preserved_reinstall": 3,
     "awaiting_recovery": 4,
     "boot_policy": 5,
     "media_handoff": 6,
