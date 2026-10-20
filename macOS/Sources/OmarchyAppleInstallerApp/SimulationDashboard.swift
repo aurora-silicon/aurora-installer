@@ -57,6 +57,7 @@
     @Bindable var controls: SimulationControls
     var selection = AuroraInstallationSelection()
     var onSessionAvailable: ((InstallerSession) -> Void)? = nil
+    var onRemoveLinux: () -> Void = {}
 
     var body: some View {
       Group {
@@ -70,7 +71,8 @@
             onSessionAvailable: {
               controls.session = $0
               onSessionAvailable?($0)
-            }
+            },
+            onRemoveLinux: onRemoveLinux
           )
           .id(controls.generation)
           .task { await continueAtLaunch() }

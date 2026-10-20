@@ -22,6 +22,7 @@ struct OnePageInstallerView: View {
   let channel: ReleaseChannel?
   let onChannelAvailability: (Bool) -> Void
   let onSessionAvailable: (InstallerSession) -> Void
+  let onRemoveLinux: () -> Void
 
   init(
     environment: any InstallerEnvironment,
@@ -29,7 +30,8 @@ struct OnePageInstallerView: View {
     selection: AuroraInstallationSelection = AuroraInstallationSelection(),
     startAtPlan: Bool = false,
     onChannelAvailability: @escaping (Bool) -> Void = { _ in },
-    onSessionAvailable: @escaping (InstallerSession) -> Void = { _ in }
+    onSessionAvailable: @escaping (InstallerSession) -> Void = { _ in },
+    onRemoveLinux: @escaping () -> Void = {}
   ) {
     _session = State(
       initialValue: InstallerSession(
@@ -43,6 +45,7 @@ struct OnePageInstallerView: View {
     self.channel = channel
     self.onChannelAvailability = onChannelAvailability
     self.onSessionAvailable = onSessionAvailable
+    self.onRemoveLinux = onRemoveLinux
   }
 
   var body: some View {
@@ -285,9 +288,9 @@ struct OnePageInstallerView: View {
         .keyboardShortcut(.defaultAction)
 
     case .existingInstallRefused:
-      Button(PlainLanguage.closeInstaller) { NSApplication.shared.terminate(nil) }
-        .omarchyPrimaryButton()
-        .keyboardShortcut(.defaultAction)
+      Button("Wipe Linux…", role: .destructive, action: onRemoveLinux)
+        .omarchySecondaryButton()
+        .disabled(session.isBusy)
 
     case .planReview(_, let acknowledged):
       if session.canCancelPlanPreparation {
@@ -370,7 +373,7 @@ struct OnePageInstallerView: View {
   private func messagePanel(
     headline: String, detail: String, remedy: String?, technical: String?, isError: Bool
   ) -> some View {
-    Panel {
+    VStack(alignment: .leading, spacing: 10) {
       VStack(alignment: .leading, spacing: 8) {
         Text(headline)
           .font(OmarchyTheme.heading)
@@ -408,18 +411,7 @@ struct OnePageInstallerView: View {
   }
 
   private func existingInstallRefusedPanel() -> some View {
-    Panel {
-      Text(PlainLanguage.existingInstallHeadline)
-        .font(OmarchyTheme.heading)
-        .fixedSize(horizontal: false, vertical: true)
-        .padding(.vertical, 2)
-      Text(
-        "If you’d like to remove Aurora and return its space to macOS, select Installation → Remove Aurora from the menu bar."
-      )
-      .font(OmarchyTheme.body)
-      .foregroundStyle(OmarchyTheme.secondaryText)
-      .fixedSize(horizontal: false, vertical: true)
-    }
+    ExistingInstallationContent()
   }
 
   private func acknowledgement(_ acknowledged: Bool, resizesMacOS: Bool) -> some View {
@@ -466,7 +458,7 @@ struct OnePageInstallerView: View {
   }
 
   private func donePanel(_ completion: CompletionDisplay) -> some View {
-    Panel {
+    VStack(alignment: .leading, spacing: 10) {
       VStack(alignment: .leading, spacing: 8) {
         HStack(spacing: 10) {
           Image(systemName: "checkmark.circle.fill")
@@ -508,13 +500,13 @@ struct OnePageInstallerView: View {
 
 // MARK: - Prefetch strip and encryption
 
-private struct PrefetchStrip: View {
+struct PrefetchStrip: View {
   let state: PayloadPrefetchState
   var onRetry: (() -> Void)?
 
   var body: some View {
     if showsStrip {
-      Panel {
+      VStack(alignment: .leading, spacing: 10) {
         VStack(alignment: .leading, spacing: 8) {
           HStack {
             Text(PlainLanguage.prefetchTitle(for: state))
@@ -537,7 +529,6 @@ private struct PrefetchStrip: View {
             ProgressTrack(fraction: fraction)
           }
         }
-        .padding(.vertical, 2)
       }
     }
   }
@@ -568,6 +559,20 @@ private struct PrefetchStrip: View {
     default:
       nil
     }
+  }
+}
+
+struct ExistingInstallationContent: View {
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text(PlainLanguage.existingInstallHeadline)
+        .font(OmarchyTheme.heading)
+      Text("Wipe Linux to remove the installation and return its space to macOS.")
+        .font(OmarchyTheme.body)
+        .foregroundStyle(OmarchyTheme.secondaryText)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
   }
 }
 

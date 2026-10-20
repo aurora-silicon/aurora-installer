@@ -24,7 +24,7 @@
 
     // MARK: Screen A2 — Existing install
 
-    public static let existingInstallHeadline = "Aurora is already installed"
+    public static let existingInstallHeadline = "Linux is already installed"
     public static let closeInstaller = "Close"
 
     // MARK: Screen B — Plan

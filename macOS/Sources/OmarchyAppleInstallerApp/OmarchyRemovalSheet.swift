@@ -246,7 +246,7 @@ struct OmarchyRemovalSheet: View {
             .omarchyPrimaryButton().disabled(busy).keyboardShortcut(.defaultAction)
         }
         if let ticket, !submitted, isConfirmationPage {
-          Button(ticket.kind == .freeSpace ? "Return Space" : "Remove Aurora", role: .destructive) {
+          Button(ticket.kind == .freeSpace ? "Return Space" : "Wipe Linux", role: .destructive) {
             Task { await remove() }
           }
           .omarchyDangerButton()
@@ -305,7 +305,7 @@ struct OmarchyRemovalSheet: View {
 
   private var heading: String {
     if ticket?.kind == .freeSpace { return completed ? "Space returned" : "Return free space" }
-    return completed ? "Aurora removed" : "Remove Aurora"
+    return completed ? "Linux removed" : "Wipe Linux"
   }
 
   private func planSection(_ title: String, items: [OmarchyRemovalItem]) -> some View {

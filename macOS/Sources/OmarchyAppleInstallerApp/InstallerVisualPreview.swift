@@ -47,7 +47,9 @@
               stage
             }
           } actions: {
-            if screen.hasPrefix("allocation") {
+            if screen == "existing" {
+              Button("Wipe Linux…", role: .destructive, action: {}).omarchySecondaryButton()
+            } else if screen.hasPrefix("allocation") {
               HStack(spacing: 16) {
                 if screen == "allocation-checking" {
                   Button("Cancel check", action: {}).omarchySecondaryButton()
@@ -67,6 +69,11 @@
 
     @ViewBuilder private var stage: some View {
       switch screen {
+      case "existing":
+        ExistingInstallationContent()
+      case "prefetch":
+        DiskSplitPanel(plan: plan, editable: false, isBusy: false, onSizeChosen: { _ in })
+        PrefetchStrip(state: .downloading(completed: 1_520_000_000, total: 4_280_000_000))
       case "allocation", "allocation-free", "allocation-other", "allocation-checking",
         "allocation-editing", "allocation-ready":
         DiskSplitPanel(

@@ -163,7 +163,8 @@ struct OmarchyAppleInstallerApp: App {
     #if DEBUG
       if isSimulation {
         SimulationDashboard(
-          controls: simulation, selection: selection, onSessionAvailable: { liveSession = $0 })
+          controls: simulation, selection: selection, onSessionAvailable: { liveSession = $0 },
+          onRemoveLinux: { showsRemoval = true })
       } else {
         liveContent
       }
@@ -181,7 +182,7 @@ struct OmarchyAppleInstallerApp: App {
     OnePageInstallerView(
       environment: LiveInstallerEnvironment(selection: selection), channel: channel,
       selection: selection, startAtPlan: true,
-      onSessionAvailable: { liveSession = $0 })
+      onSessionAvailable: { liveSession = $0 }, onRemoveLinux: { showsRemoval = true })
   }
 
   @State private var channel = ReleaseChannelPreference().resolveFromMainBundle()
@@ -295,7 +296,7 @@ struct OmarchyAppleInstallerApp: App {
           generation = UUID()
         }.disabled(!choosingSystem && liveSession?.canChangeChannel != true)
         Divider()
-        Button("Remove Aurora…") { showsRemoval = true }
+        Button("Wipe Linux…") { showsRemoval = true }
           .disabled(removalNeedsReview || showsRemoval || liveSession?.canChangeChannel != true)
       }
       if InstallerBuildProfile.current.showsReleaseChannels {
