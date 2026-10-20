@@ -170,7 +170,7 @@
         "Found “Asahi Alarm Minimal”. Removal permanently deletes it and everything stored in it, then returns its space to macOS."
       )
       let ticket = plan.ticket(id: UUID())
-      XCTAssertEqual(ticket.confirmation, "delete omarchy installation and data")
+      XCTAssertEqual(ticket.confirmation, "erase linux and its data")
       XCTAssertEqual(
         ticket.deletions,
         [

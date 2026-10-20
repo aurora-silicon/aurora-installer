@@ -60,16 +60,20 @@ for (name, pixels) in [
   let canvas = NSRect(x: 0, y: 0, width: pixels, height: pixels)
   NSColor.clear.setFill()
   canvas.fill()
-  let scale = CGFloat(pixels) / sourceSize.width
+  // Keep the original colored ribbon on a fixed neutral gray macOS tile.
+  let tile = canvas.insetBy(dx: CGFloat(pixels) / 16, dy: CGFloat(pixels) / 16)
+  NSColor(srgbRed: 209 / 255, green: 209 / 255, blue: 214 / 255, alpha: 1).setFill()
+  NSBezierPath(
+    roundedRect: tile, xRadius: CGFloat(pixels) * 180 / 1024,
+    yRadius: CGFloat(pixels) * 180 / 1024
+  ).fill()
+  let scale = CGFloat(pixels) * 0.625 / max(crop.width, crop.height)
   let size = NSSize(width: crop.width * scale, height: crop.height * scale)
   sourceImage.draw(
     in: NSRect(
       x: (CGFloat(pixels) - size.width) / 2,
       y: (CGFloat(pixels) - size.height) / 2, width: size.width, height: size.height),
     from: crop, operation: .sourceOver, fraction: 1)
-  // Fixed sRGB gray: never replace it with an appearance-dependent label color.
-  NSColor(srgbRed: 58 / 255, green: 58 / 255, blue: 60 / 255, alpha: 1).setFill()
-  canvas.fill(using: .sourceIn)
   NSGraphicsContext.restoreGraphicsState()
   try bitmap.representation(using: .png, properties: [:])!.write(
     to: iconset.appendingPathComponent(name + ".png"))

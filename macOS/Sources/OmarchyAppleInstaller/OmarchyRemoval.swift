@@ -60,7 +60,7 @@
     public var confirmation: String {
       kind == .freeSpace ? Self.freeSpaceConfirmation : Self.confirmation
     }
-    public static let confirmation = "delete omarchy installation and data"
+    public static let confirmation = "erase linux and its data"
     public static let freeSpaceConfirmation = "return free space to macos"
   }
 

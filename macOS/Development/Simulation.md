@@ -71,9 +71,9 @@ Simulation proves presentation and session behavior. It does not prove hardware 
 
 ## Removal
 
-Choose **Installation → Remove Omarchy…** to dry-test removal independently of
+Choose **Installation → Erase Linux…** to dry-test removal independently of
 installation. The **Simulation → Removal Scenario** menu selects the removal outcome. Type
-`delete omarchy installation and data` exactly to enable removal. No real password
+`erase linux and its data` exactly to enable removal. No real password
 is requested in simulation. See [Removal.md](Removal.md) for the supported disk
 layout, recovery behavior and test coverage.
 

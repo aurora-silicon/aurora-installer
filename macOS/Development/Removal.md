@@ -1,26 +1,14 @@
-# Removing an existing Omarchy installation
+# Erasing an existing Linux installation
 
-Use **Installation → Remove Omarchy…** while no installation or download is
-running. The app displays the capacity returned to macOS and requires the exact
-phrase `delete omarchy installation and data`, plus a macOS administrator account
-and password. There is no Return-key shortcut for the destructive button.
+Use **Erase Linux…** on the already-installed screen, or **Installation → Erase Linux…**, while no installation or download is running. One scrollable review lists every erased and retained partition, startup-disk changes, returned capacity and notes. Confirmation and the action remain visible below it. The exact phrase is `erase linux and its data`, followed by a macOS administrator account and password. There is no Return-key shortcut for the destructive button.
 
-Removal uses the signed privileged helper directly. It does not download an OS,
-engine, IPSW or catalog. The helper owns a five-minute, single-use plan; the client
-sends an opaque ticket, never disk identifiers or commands. Cancellation performs
-no disk mutation. Credentials are not written to the removal journal.
+Removal uses the signed privileged helper directly. It does not download an OS, engine, IPSW or catalog. The helper owns a five-minute, single-use plan; the client sends an opaque ticket, never disk identifiers or commands. Cancellation performs no disk mutation. Credentials are not written to the removal journal.
 
 ## Supported layout
 
-The booted internal macOS physical store must precede one complete Omarchy group:
-Apple APFS startup container (at most 4 GiB, exactly Omarchy System/Data and
-Preboot/Recovery volumes), Omarchy EFI, Linux boot, Linux root. The four removal
-partitions must be contiguous. Apple ISC must precede macOS and Apple Recovery
-must follow Omarchy. Gaps immediately before and after Omarchy are reclaimed too.
+The booted internal macOS physical store must precede one complete installation: an APFS startup container (2.3–2.7 GB or 5.8–6.2 GB, exactly one System/Data volume group and Preboot/Recovery), EFI, then up to two Linux partitions. These installation members must be adjacent within the alignment allowance. Apple ISC must precede macOS and Apple Recovery must be last. Files on the primary startup container and EFI must independently prove the same volume group, ESP and exact installer-created partition set.
 
-Unknown partitions, multiple or partial installations, external boot, multiple
-APFS physical stores, mismatched names/types/UUIDs and explicitly unsupported
-`apple,j614s` are refused. This deliberately does not attempt general disk repair.
+Independent standalone startup containers after that group are retained and shown in the review. macOS grows only to the first retained container, including any adjacent unallocated space. The same boundary applies to reclaiming free space after deletion. A second complete installation with its own ESP, foreign partitions, full additional macOS systems, partial installations, external boot, multiple APFS physical stores, mismatched identities and explicitly unsupported `apple,j614s` remain refused.
 
 The helper validates disk/partition/container/volume identities before the first
 write and after each operation. It deletes the startup container without a
