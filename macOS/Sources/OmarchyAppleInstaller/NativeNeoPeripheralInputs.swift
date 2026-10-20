@@ -27,12 +27,12 @@
       }
       try verifyFactoryStore()
       let directory = NativeSensorInputCollector.factoryDirectory
-      let tree = try NativeHandoffFileTree(directory, protected: true)
       let names = try FileManager.default.contentsOfDirectory(atPath: directory.path).filter {
         $0.hasPrefix("BWC2-")
       }
       guard names.count == 1 else { throw NativePeripheralInputError.localInput }
-      let factory = try tree.read(names[0], maximum: 32 << 20)
+      let factory = try NativeFactoryCalibrationInput.live(
+        name: names[0], storeIdentifier: storeIdentifier)
       try Task.checkCancellation()
       let chosen = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/chosen")
       guard chosen != 0 else { throw NativePeripheralInputError.localInput }

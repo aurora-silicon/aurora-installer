@@ -21,6 +21,25 @@
       let vectors: [Vector]
     }
 
+    func testOptInFullNeoFirmwareConversionBeforeInstallation() async throws {
+      guard let source = ProcessInfo.processInfo.environment["AURORA_LIVE_RAW_FIRMWARE"],
+        ProcessInfo.processInfo.environment["AURORA_LIVE_FIRMWARE_PROBE"] == "1"
+      else { throw XCTSkip("Opt-in live Neo firmware conversion") }
+      let fixture = try InputFixture()
+      defer { fixture.remove() }
+      let preparer = NativeNeoPeripheralPreparer(
+        owner: geteuid(), inventory: { try NativeNeoInputInventory.sealed() },
+        localInputs: { try NativeNeoLocalInputs.live(storeIdentifier: $0) },
+        policyDeriver: { try NeoRegulatoryPolicy.derive($0) })
+      let prepared = try await preparer.prepare(
+        package: fixture.package, rawDirectory: URL(fileURLWithPath: source))
+      defer { try? prepared.remove() }
+      XCTAssertTrue(
+        FileManager.default.fileExists(
+          atPath: prepared.directory.appendingPathComponent("manifest.json").path))
+      print("Live Neo firmware conversion passed before installation")
+    }
+
     func testConvertedSnapshotMatchesTheReferenceManifestAndStaysOutsideRetainedInputs()
       async throws
     {

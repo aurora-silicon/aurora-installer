@@ -33,8 +33,8 @@
     }
 
     static let hardwareVolume = URL(fileURLWithPath: "/System/Volumes/Hardware")
-    static let factoryDirectory = hardwareVolume.appendingPathComponent(
-      "FactoryData/System/Library/Caches/com.apple.factorydata")
+    static let factoryRelativePath = "FactoryData/System/Library/Caches/com.apple.factorydata"
+    static let factoryDirectory = hardwareVolume.appendingPathComponent(factoryRelativePath)
 
     func collect(storeIdentifier: String) throws -> NativeSensorInputs? {
       try Task.checkCancellation()
