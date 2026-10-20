@@ -47,6 +47,8 @@
         ? "I have a current backup and approve the disk resize above."
         : "I have a current backup and approve the disk layout above."
     }
+    public static let planPreservedAcknowledgement =
+      "I have a current backup and approve replacing the Linux files while keeping the startup setup."
     public static let planInstall = "Install"
     public static let downloadingPackagesTitle = "Downloading Aurora"
     public static let encryptLinuxDiskTitle = "Encrypt the Aurora disk"
@@ -754,6 +756,14 @@
         switch preparation {
         case .unsupportedDevice(let identifier):
           return unsupportedModel(deviceIdentifier: identifier, technicalDetail: technical)
+        case .preservedReinstallUnavailable:
+          return FailureDisplay(
+            headline: "This installation cannot be reinstalled yet",
+            plainDetail:
+              "Choose the installed Aurora distribution and check this Mac again. The startup setup and disk were not changed.",
+            technicalDetail: technical,
+            remedy: "Select the installed distribution, then check this Mac again."
+          )
         default:
           return FailureDisplay(
             headline: "An installation plan couldn’t be prepared",

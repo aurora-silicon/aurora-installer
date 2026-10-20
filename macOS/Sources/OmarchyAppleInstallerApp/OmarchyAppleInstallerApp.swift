@@ -182,7 +182,13 @@ struct OmarchyAppleInstallerApp: App {
     OnePageInstallerView(
       environment: LiveInstallerEnvironment(selection: selection), channel: channel,
       selection: selection, startAtPlan: true,
-      onSessionAvailable: { liveSession = $0 }, onRemoveLinux: { showsRemoval = true })
+      onSessionAvailable: { liveSession = $0 }, onRemoveLinux: { showsRemoval = true },
+      onChooseSystem: {
+        liveSession?.cancelPrefetchOnQuit()
+        liveSession = nil
+        choosingSystem = true
+        generation = UUID()
+      })
   }
 
   @State private var channel = ReleaseChannelPreference().resolveFromMainBundle()

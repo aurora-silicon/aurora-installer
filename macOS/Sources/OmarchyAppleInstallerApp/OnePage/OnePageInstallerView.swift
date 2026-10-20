@@ -23,6 +23,7 @@ struct OnePageInstallerView: View {
   let onChannelAvailability: (Bool) -> Void
   let onSessionAvailable: (InstallerSession) -> Void
   let onRemoveLinux: () -> Void
+  let onChooseSystem: (() -> Void)?
 
   init(
     environment: any InstallerEnvironment,
@@ -31,7 +32,8 @@ struct OnePageInstallerView: View {
     startAtPlan: Bool = false,
     onChannelAvailability: @escaping (Bool) -> Void = { _ in },
     onSessionAvailable: @escaping (InstallerSession) -> Void = { _ in },
-    onRemoveLinux: @escaping () -> Void = {}
+    onRemoveLinux: @escaping () -> Void = {},
+    onChooseSystem: (() -> Void)? = nil
   ) {
     _session = State(
       initialValue: InstallerSession(
@@ -46,13 +48,15 @@ struct OnePageInstallerView: View {
     self.onChannelAvailability = onChannelAvailability
     self.onSessionAvailable = onSessionAvailable
     self.onRemoveLinux = onRemoveLinux
+    self.onChooseSystem = onChooseSystem
   }
 
   var body: some View {
     Group {
       if let account = session.recoveryAccount, let target = account.target {
         RecoveryHandoffView(
-          volumeName: target.volumeName, session: session, selection: selection, device: device)
+          volumeName: target.volumeName, session: session, selection: selection, device: device,
+          onReinstall: preservedReinstallAction)
       } else if case .awaitingRecovery = session.phase {
         RecoveryHandoffView(
           volumeName: "Aurora", session: session.isSimulation ? nil : session, selection: selection,
@@ -126,6 +130,13 @@ struct OnePageInstallerView: View {
         onCancel: { showsRecoveryRetryConfirmation = false }
       )
     }
+  }
+
+  private var preservedReinstallAction: (() -> Void)? {
+    guard case .existingInstallRefused(let host) = session.phase,
+      host.existingInstalls.count == 1
+    else { return nil }
+    return { session.showExistingInstallOptions() }
   }
 
   private var installerPage: some View {
@@ -220,7 +231,7 @@ struct OnePageInstallerView: View {
       if let notice = session.allocationNotice {
         Text(notice).font(OmarchyTheme.body).foregroundStyle(OmarchyTheme.caution)
       }
-      acknowledgement(acknowledged, resizesMacOS: plan.allocationSource != .freeExtent)
+      acknowledgement(acknowledged, plan: plan)
 
     case .awaitingInstall(let plan, let helper, _):
       DiskSplitPanel(plan: plan, editable: false, isBusy: false, onSizeChosen: { _ in })
@@ -287,20 +298,34 @@ struct OnePageInstallerView: View {
         .disabled(session.isBusy)
         .keyboardShortcut(.defaultAction)
 
-    case .existingInstallRefused:
+    case .existingInstallRefused(let host):
+      if let onChooseSystem {
+        Button("Choose system…", action: onChooseSystem)
+          .omarchySecondaryButton()
+          .disabled(session.isBusy)
+      }
+      if host.existingInstalls.count == 1 {
+        Button("Reinstall Aurora…") {
+          Task { await session.reinstallPreservingStage1() }
+        }
+        .omarchyPrimaryButton()
+        .disabled(!session.canPreparePreservedReinstall)
+      }
       Button("Erase Linux…", role: .destructive, action: onRemoveLinux)
         .omarchySecondaryButton()
         .disabled(session.isBusy)
 
-    case .planReview(_, let acknowledged):
+    case .planReview(let plan, let acknowledged):
       if session.canCancelPlanPreparation {
         Button("Cancel check", action: session.cancelPlanPreparation).omarchySecondaryButton()
       } else if session.planNeedsCheck {
-        Button("Check size") { Task { await session.checkDraftAllocation() } }
+        Button(plan.preservesStage1 ? "Check again" : "Check size") {
+          Task { await session.checkDraftAllocation() }
+        }
           .omarchySecondaryButton()
           .disabled(session.isEditingSize)
       }
-      Button(PlainLanguage.planInstall) {
+      Button(plan.preservesStage1 ? "Reinstall" : PlainLanguage.planInstall) {
         // Approve the exact plan and go straight to the password. If the
         // helper is not ready the page stays here and says so.
         session.approve()
@@ -415,9 +440,12 @@ struct OnePageInstallerView: View {
     ExistingInstallationContent()
   }
 
-  private func acknowledgement(_ acknowledged: Bool, resizesMacOS: Bool) -> some View {
+  private func acknowledgement(_ acknowledged: Bool, plan: PlanDisplay) -> some View {
     Toggle(
-      PlainLanguage.planAcknowledgement(resizesMacOS: resizesMacOS),
+      plan.preservesStage1
+        ? PlainLanguage.planPreservedAcknowledgement
+        : PlainLanguage.planAcknowledgement(
+          resizesMacOS: plan.allocationSource != .freeExtent),
       isOn: Binding(get: { acknowledged }, set: { session.setAcknowledged($0) })
     )
     .toggleStyle(.checkbox)
@@ -563,7 +591,9 @@ struct ExistingInstallationContent: View {
     VStack(alignment: .leading, spacing: 12) {
       Text(PlainLanguage.existingInstallHeadline)
         .font(OmarchyTheme.heading)
-      Text("Erase Linux to remove the installation and return its space to macOS.")
+      Text(
+        "Choose the installed Aurora distribution to reinstall while keeping its startup setup. Or erase Linux and return its space to macOS."
+      )
         .font(OmarchyTheme.body)
         .foregroundStyle(OmarchyTheme.secondaryText)
         .fixedSize(horizontal: false, vertical: true)
@@ -664,7 +694,13 @@ struct DiskSplitPanel: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 20) {
-      Text("Choose your space").font(.system(size: 22, weight: .semibold))
+      Text(plan.preservesStage1 ? "Review your installation" : "Choose your space")
+        .font(.system(size: 22, weight: .semibold))
+      if plan.preservesStage1 {
+        Text("The startup setup and partition sizes stay. Aurora rewrites the Linux files.")
+          .font(OmarchyTheme.body)
+          .foregroundStyle(OmarchyTheme.secondaryText)
+      }
       HStack(alignment: .top) {
         capacity("macOS", bytes: plan.macOSBytes(for: displayedOmarchyBytes), highlighted: false)
         Spacer()

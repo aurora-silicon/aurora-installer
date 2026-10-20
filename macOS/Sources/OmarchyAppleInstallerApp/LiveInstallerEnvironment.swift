@@ -325,6 +325,21 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     omarchyBytes: UInt64?,
     progress: @escaping @Sendable (AssetProgressUpdate) -> Void
   ) async throws -> PlanPreparationDisplay {
+    try await preparePlan(
+      omarchyBytes: omarchyBytes, preservingStage1: false, progress: progress)
+  }
+
+  func preparePreservedReinstallPlan(
+    progress: @escaping @Sendable (AssetProgressUpdate) -> Void
+  ) async throws -> PlanPreparationDisplay {
+    try await preparePlan(
+      omarchyBytes: nil, preservingStage1: true, progress: progress)
+  }
+
+  private func preparePlan(
+    omarchyBytes: UInt64?, preservingStage1: Bool,
+    progress: @escaping @Sendable (AssetProgressUpdate) -> Void
+  ) async throws -> PlanPreparationDisplay {
     try Task.checkCancellation()
     let (host, hasTranscript, generation) = lock.withLock {
       preparationGeneration = UUID()
@@ -418,22 +433,30 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
 
     progress(AssetProgressUpdate(stage: .planning, rows: collector.rows()))
 
-    // Existing installs are never replaced or joined: report them and let
-    // the session refuse.
     let existing = Self.existingInstalls(
       in: signedInspection.validated,
       knownInstallations: signedInspection.knownInstallations)
-    if !existing.isEmpty {
-      return .existingInstallChoice(existing)
-    }
-    let recommendation = try InstallerAllocationRecommendation(
-      inventory: inventory,
-      targetBytes: omarchyBytes ?? InstallerAllocationRecommendation.balancedTargetBytes,
-      reservedBytes: planningReserve,
-      snapshotConstraint: {
-        APFSSnapshotInspector().constraint(in: host.storage)
+    let recommendation: InstallerAllocationRecommendation
+    if preservingStage1 {
+      let sources = Set(existing.map(\.sourceIdentifier))
+      let candidates = inventory.candidates.filter {
+        $0.kind == "reinstall" && sources.contains($0.sourceIdentifier)
       }
-    )
+      guard candidates.count == 1, let candidate = candidates.first else {
+        throw InstallerPlanPreparationError.preservedReinstallUnavailable
+      }
+      recommendation = try InstallerAllocationRecommendation(preserved: candidate)
+    } else {
+      if !existing.isEmpty { return .existingInstallChoice(existing) }
+      recommendation = try InstallerAllocationRecommendation(
+        inventory: inventory,
+        targetBytes: omarchyBytes ?? InstallerAllocationRecommendation.balancedTargetBytes,
+        reservedBytes: planningReserve,
+        snapshotConstraint: {
+          APFSSnapshotInspector().constraint(in: host.storage)
+        }
+      )
+    }
     let candidate = recommendation.candidate
     let requestedLengthBytes = recommendation.requestedLengthBytes
 
@@ -889,7 +912,9 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
         ? host.storage.containerSizeBytes + recommendation.candidate.lengthBytes
         : max(host.storage.containerSizeBytes, length))
     let source: PlanAllocationSource =
-      review.plan.candidateKind == "free"
+      review.plan.candidateKind == "reinstall"
+      ? .preservedInstall
+      : review.plan.candidateKind == "free"
       ? .freeExtent
       : (review.plan.sourceIdentifier
         == (geometry?.macOSStoreIdentifier ?? host.storage.physicalStoreIdentifier)
@@ -903,13 +928,15 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     case .macOSResize: targetDescription = "Internal storage · Resize macOS"
     case .otherContainerResize:
       targetDescription = "Internal storage · Resize " + (sourceName ?? "another APFS container")
+    case .preservedInstall:
+      targetDescription = "Existing Aurora installation · Keep startup setup"
     }
 
     return PlanDisplay(
       diskTotalBytes: total,
       omarchyBytes: length,
       bindingDigest: review.identity.bindingDigest,
-      isResizable: review.plan.candidateKind != "replace",
+      isResizable: !["replace", "reinstall"].contains(review.plan.candidateKind),
       minimumBytes: recommendation.minimumBytes,
       maximumBytes: recommendation.maximumBytes,
       releaseDescription: release,
@@ -920,10 +947,14 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
         && recommendation.candidate.sourceIdentifier == host.storage.physicalStoreIdentifier
         ? host.storage.containerFreeBytes - min(host.storage.containerFreeBytes, reservedBytes)
         : nil,
-      recommendedOmarchyBytes: recommendation.candidate.recommendedInstallBytes,
+      recommendedOmarchyBytes: source == .preservedInstall
+        ? nil : recommendation.candidate.recommendedInstallBytes,
       allocationSource: source,
       baselineMacOSBytes: geometry?.macOSBytes,
-      otherAllocatedBytes: geometry?.otherAllocatedBytes ?? 0
+      otherAllocatedBytes: source == .preservedInstall
+        ? (geometry?.otherAllocatedBytes ?? 0) - min(
+          geometry?.otherAllocatedBytes ?? 0, length)
+        : geometry?.otherAllocatedBytes ?? 0
     )
   }
 

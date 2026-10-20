@@ -1453,6 +1453,36 @@
       XCTAssertFalse(session.canStartInstallation)
     }
 
+    func testExistingInstallCanReviewAnExplicitPreservedReinstall() async throws {
+      let environment = MockInstallerEnvironment()
+      environment.host = HostDisplay(
+        chipAndSpace: MockInstallerEnvironment.supportedHost.chipAndSpace,
+        supported: true,
+        existingInstalls: [
+          ExistingInstallDisplay(sourceIdentifier: "disk0s3", sizeDescription: "128 GB")
+        ])
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      XCTAssertNotNil(session.recoveryAccount?.target)
+      session.showExistingInstallOptions()
+      XCTAssertNil(session.recoveryAccount)
+      await session.reinstallPreservingStage1()
+      XCTAssertEqual(environment.preservedPrepareCount, 1)
+      XCTAssertEqual(environment.prepareCount, 0)
+      session.continueToPlanReview()
+      guard case .planReview(let plan, _) = session.phase else {
+        return XCTFail("Expected preserved reinstall review")
+      }
+      XCTAssertTrue(plan.preservesStage1)
+      XCTAssertFalse(plan.isResizable)
+      session.setEncryptLinuxDisk(false)
+      session.setAcknowledged(true)
+      session.approve()
+      session.presentInstallCredentials()
+      await session.submit(try authorization())
+      XCTAssertEqual(environment.lastEncryptLinuxDisk, false)
+    }
+
     func testAnExistingInstallFoundWhilePlanningIsRefusedToo() async {
       let environment = MockInstallerEnvironment()
       let install = ExistingInstallDisplay(
@@ -1660,6 +1690,7 @@
     }
     var host = MockInstallerEnvironment.supportedHost
     var plan = MockInstallerEnvironment.samplePlan
+    var preservedPlan = MockInstallerEnvironment.samplePreservedPlan
     var helper = HelperDisplay(status: .current)
     var installationBlocked = false
     var engineSupported = true
@@ -1690,6 +1721,7 @@
     private(set) var calls = [String]()
     var ensureHelperError: (any Error)?
     private(set) var prepareCount = 0
+    private(set) var preservedPrepareCount = 0
     private(set) var lastOperation: InstallOperationKind?
     private(set) var lastEncryptLinuxDisk: Bool?
     private(set) var storedEncryptLinuxDisk = true
@@ -1778,6 +1810,15 @@
         return .existingInstallChoice(existingInstalls)
       }
       return .plan(plan)
+    }
+
+    func preparePreservedReinstallPlan(
+      progress: @escaping @Sendable (AssetProgressUpdate) -> Void
+    ) async throws -> PlanPreparationDisplay {
+      savedProgress = progress
+      preservedPrepareCount += 1
+      approved = false
+      return .plan(preservedPlan)
     }
 
     func approve() throws {
@@ -1885,6 +1926,14 @@
       diskTotalBytes: 994_662_584_320,
       omarchyBytes: 137_438_953_472,
       bindingDigest: "sha256:" + String(repeating: "b", count: 64)
+    )
+
+    static let samplePreservedPlan = PlanDisplay(
+      diskTotalBytes: 994_662_584_320,
+      omarchyBytes: 137_438_953_472,
+      bindingDigest: "sha256:" + String(repeating: "c", count: 64),
+      isResizable: false,
+      allocationSource: .preservedInstall
     )
 
     static let recoveryCompletion = CompletionDisplay(

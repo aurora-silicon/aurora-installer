@@ -8,6 +8,7 @@
     case inventoryUnavailable
     case freshInspectionRequired
     case engineVersionUnavailable
+    case preservedReinstallUnavailable
   }
 
   public protocol InstallerPlanExecuting: Sendable {

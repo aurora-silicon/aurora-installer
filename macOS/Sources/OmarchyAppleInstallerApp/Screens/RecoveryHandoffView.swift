@@ -8,6 +8,7 @@ struct RecoveryHandoffView: View {
   var session: InstallerSession? = nil
   var selection = AuroraInstallationSelection()
   var device: MacHeaderDisplay = .unknown
+  var onReinstall: (() -> Void)? = nil
   @State private var busy = false
   @State private var failure: String?
   @State private var showingShutdownPreview = false
@@ -54,6 +55,11 @@ struct RecoveryHandoffView: View {
       }.font(OmarchyTheme.body)
     } actions: {
       HStack(spacing: 12) {
+        if let onReinstall {
+          Button("Reinstall options…", action: onReinstall)
+            .omarchySecondaryButton()
+            .disabled(busy)
+        }
         NativeSpinner().controlSize(.small)
           .frame(width: 16, height: 16).opacity(busy ? 1 : 0)
           .accessibilityHidden(!busy).accessibilityLabel("Preparing shutdown")

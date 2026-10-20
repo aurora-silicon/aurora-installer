@@ -32,6 +32,19 @@ public struct InstallerAllocationRecommendation:
   public let maximumBytes: UInt64
   public let requestedLengthBytes: UInt64
 
+  /// A preserved reinstall uses the exact approved extent. There is no
+  /// allocation choice and no reservation deducted from an existing partition.
+  public init(preserved candidate: ValidatedEngineCandidate) throws {
+    guard candidate.kind == "reinstall", candidate.lengthBytes > 0,
+      candidate.lengthBytes >= candidate.minimumInstallBytes,
+      candidate.lengthBytes % PinnedAsahiPlanRequest.allocationUnitBytes == 0
+    else { throw InstallerAllocationRecommendationError.noEligibleCandidate }
+    self.candidate = candidate
+    minimumBytes = candidate.lengthBytes
+    maximumBytes = candidate.lengthBytes
+    requestedLengthBytes = candidate.lengthBytes
+  }
+
   public init(
     inventory: ValidatedEngineInventory,
     targetBytes: UInt64 = Self.balancedTargetBytes,
