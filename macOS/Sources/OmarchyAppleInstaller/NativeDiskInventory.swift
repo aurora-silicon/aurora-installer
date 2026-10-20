@@ -117,8 +117,9 @@
       }
       let collected = NativeCollectedDisk(snapshot: snapshot, containers: containers)
       for known in try NativeKnownInstallations.recognize(collected) {
-        guard let preserved = try? NativePreservedInstallTarget.recognize(
-          collected, sourceIdentifier: known.sourceIdentifier, title: target.name)
+        guard
+          let preserved = try? NativePreservedInstallTarget.recognize(
+            collected, sourceIdentifier: known.sourceIdentifier, title: target.name)
         else { continue }
         let length = preserved.root.end - preserved.stub.offset
         guard length > 0, length % PinnedAsahiPlanRequest.allocationUnitBytes == 0 else {

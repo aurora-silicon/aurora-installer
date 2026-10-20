@@ -357,8 +357,8 @@ struct EngineTranscriptDecoder: Sendable {
           plan.offsetBytes.addingReportingOverflow(plan.lengthBytes).overflow == false,
           !plan.engineVersion.isEmpty,
           !plan.requiredHumanSteps.isEmpty,
-          (plan.candidateKind != "reinstall"
-            || plan.requiredHumanSteps == ["authenticateMachineOwner"])
+          plan.candidateKind != "reinstall"
+            || plan.requiredHumanSteps == ["authenticateMachineOwner"]
         else {
           if plan.lengthBytes == 0
             || plan.offsetBytes.addingReportingOverflow(plan.lengthBytes).overflow
