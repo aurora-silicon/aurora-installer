@@ -2,7 +2,7 @@ name: Qualify native Linux partition installation
 on:
   push:
     branches: [ci/native-recovery-review]
-    paths: [.github/workflows/native-stub-files.yml]
+    paths: [.github/workflows/native-os-partitions.yml]
   workflow_dispatch:
 permissions:
   contents: read
