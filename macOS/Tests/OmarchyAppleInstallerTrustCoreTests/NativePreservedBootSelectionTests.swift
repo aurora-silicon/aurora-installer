@@ -59,7 +59,8 @@
       let environment = NativeHandoffEnvironment(
         snapshot: { baseline }, device: { "apple,j314s" },
         command: { executable, arguments in
-          let remount = executable == "/sbin/mount"
+          let remount =
+            executable == "/sbin/mount"
             && arguments == ["-u", "-w", systemRoot.path]
           if remount { return Data() }
           if executable == "/usr/sbin/bless", arguments == ["--getBoot", "--plist"] {
@@ -111,7 +112,7 @@
       var selector = failing
       selector.bless = { arguments, input, secret in
         let expected = [
-          "--setBoot", "--device", "/dev/disk8s1", "--user", "mina", "--stdinpass"
+          "--setBoot", "--device", "/dev/disk8s1", "--user", "mina", "--stdinpass",
         ]
         guard arguments == expected, input == Data("owner-password\n".utf8),
           secret == Data("owner-password".utf8)
