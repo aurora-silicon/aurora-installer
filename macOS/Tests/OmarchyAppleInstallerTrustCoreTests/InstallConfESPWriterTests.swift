@@ -40,6 +40,36 @@
       XCTAssertEqual(identity.storeIdentifier, "disk0")
     }
 
+    func testLocatorAcceptsCurrentAuroraEFILabels() throws {
+      for distribution in AuroraDistribution.allCases {
+        let identity = try InstallConfESPLocator.identify(
+          storeIdentifier: "disk0", offsetBytes: 800_000_000_000,
+          lengthBytes: 137_000_000_000,
+          partitions: [
+            .init(
+              identifier: "disk0s5", storeIdentifier: "disk0", type: "EFI",
+              name: NativeKnownInstallations.espLabel(for: distribution.title),
+              offsetBytes: 803_000_000_000, lengthBytes: 500_000_000)
+          ])
+        XCTAssertEqual(identity.partitionIdentifier, "disk0s5")
+      }
+    }
+
+    func testLocatorRejectsUnknownEFILabelInsideThePlanExtent() {
+      XCTAssertThrowsError(
+        try InstallConfESPLocator.identify(
+          storeIdentifier: "disk0", offsetBytes: 800_000_000_000,
+          lengthBytes: 137_000_000_000,
+          partitions: [
+            .init(
+              identifier: "disk0s5", storeIdentifier: "disk0", type: "EFI",
+              name: "EFI - OTHER", offsetBytes: 803_000_000_000,
+              lengthBytes: 500_000_000)
+          ]
+        )
+      ) { XCTAssertEqual($0 as? InstallConfESPError, .notFound) }
+    }
+
     func testLocatorIgnoresAnEFIOutsideThePlanExtent() {
       XCTAssertThrowsError(
         try InstallConfESPLocator.identify(
