@@ -220,7 +220,7 @@ struct OmarchyRemovalSheet: View {
           password = ""
           onClose()
         }
-        .omarchySecondaryButton()
+        .omarchySecondaryButton(size: .large)
         .keyboardShortcut(.cancelAction)
         .focusEffectDisabled()
         .disabled(busy)
@@ -229,17 +229,17 @@ struct OmarchyRemovalSheet: View {
             Button(PlainLanguage.openLoginItems) {
               NSWorkspace.shared.open(PlainLanguage.loginItemsSettingsURL)
             }
-            .omarchySecondaryButton()
+            .omarchySecondaryButton(size: .large)
             .focusEffectDisabled()
           }
           Button(continueTitle) { Task { await setUpHelperThenScan() } }
-            .omarchyPrimaryButton()
+            .omarchyPrimaryButton(size: .large)
             .keyboardShortcut(.defaultAction)
             .disabled(busy || username.isEmpty || password.isEmpty)
         }
         if ticket != nil, !submitted, !showsApproval {
           Button("Continue") { showsApproval = true }
-            .omarchyPrimaryButton().disabled(busy).keyboardShortcut(.defaultAction)
+            .omarchyPrimaryButton(size: .large).disabled(busy).keyboardShortcut(.defaultAction)
             .reportsFrame("removal-continue", to: onControlFrame)
         }
         if let ticket, !submitted, showsApproval {
@@ -247,11 +247,11 @@ struct OmarchyRemovalSheet: View {
             showsApproval = false
             phrase = ""
             password = ""
-          }.omarchySecondaryButton().disabled(busy)
+          }.omarchySecondaryButton(size: .large).disabled(busy)
           Button(ticket.kind == .freeSpace ? "Return Space" : "Erase Linux", role: .destructive) {
             Task { await remove() }
           }
-          .omarchyDangerButton()
+          .omarchyDangerButton(size: .large)
           .disabled(!canRemove)
           .accessibilityIdentifier("remove-omarchy")
           .reportsFrame("remove-omarchy", to: onControlFrame)

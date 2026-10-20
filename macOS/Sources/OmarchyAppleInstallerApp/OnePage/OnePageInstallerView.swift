@@ -94,7 +94,6 @@ struct OnePageInstallerView: View {
         CredentialSheet(
           context: context,
           isSimulation: session.isSimulation,
-          approvedSize: approvedSize,
           onCancel: { session.dismissCredentials() },
           onSubmit: { authorization in
             Task { await session.submit(authorization) }
@@ -480,11 +479,6 @@ struct OnePageInstallerView: View {
 
   // MARK: Plumbing
 
-  private var approvedSize: String? {
-    guard case .awaitingInstall(let plan, _, _) = session.phase else { return nil }
-    return PlainLanguage.bytes(plan.omarchyBytes)
-  }
-
   private var credentialSheetBinding: Binding<Bool> {
     Binding(
       get: { session.credentialSheet.context != nil },
@@ -806,8 +800,9 @@ struct DiskSizePrompt: View {
       .fixedSize(horizontal: false, vertical: true)
       HStack(spacing: 12) {
         Spacer()
-        Button("Cancel", action: onCancel).omarchySecondaryButton().keyboardShortcut(.cancelAction)
-        Button("Apply", action: onApply).omarchyPrimaryButton()
+        Button("Cancel", action: onCancel).omarchySecondaryButton(size: .large).keyboardShortcut(
+          .cancelAction)
+        Button("Apply", action: onApply).omarchyPrimaryButton(size: .large)
           .disabled(input.requestedBytes == nil).keyboardShortcut(.defaultAction)
       }
     }

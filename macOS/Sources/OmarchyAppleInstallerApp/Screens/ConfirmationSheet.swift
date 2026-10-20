@@ -25,10 +25,10 @@ struct ConfirmationSheet: View {
       HStack(spacing: 16) {
         Spacer(minLength: 0)
         Button(PlainLanguage.cancel, action: onCancel)
-          .omarchySecondaryButton()
+          .omarchySecondaryButton(size: .large)
           .keyboardShortcut(.cancelAction)
         Button(action, action: onConfirm)
-          .omarchyPrimaryButton()
+          .omarchyPrimaryButton(size: .large)
           .keyboardShortcut(.defaultAction)
       }
     }

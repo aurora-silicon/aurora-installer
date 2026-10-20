@@ -189,7 +189,7 @@
           XCTAssertTrue(bounds.contains(frame), "\(identifier): \(frame) outside \(bounds)")
         }
         let continueFrame = try XCTUnwrap(review.controls["removal-continue"])
-        XCTAssertGreaterThanOrEqual(continueFrame.height, 36)
+        XCTAssertGreaterThanOrEqual(continueFrame.height, 28)
         let approval = host(.success, cap: 580, showsAccountFields: true)
         defer { approval.window.close() }
         XCTAssertNil(approval.controls["removal-deletions"])

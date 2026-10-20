@@ -14,7 +14,6 @@ import SwiftUI
 struct CredentialSheet: View {
   let context: CredentialSheetContext
   let isSimulation: Bool
-  let approvedSize: String?
   let onCancel: () -> Void
   let onSubmit: (MachineOwnerAuthorization) -> Void
   /// Asks whether the helper is switched off, as the sheet appears.
@@ -41,17 +40,6 @@ struct CredentialSheet: View {
       )
       .font(OmarchyTheme.body)
       .fixedSize(horizontal: false, vertical: true)
-
-      HStack {
-        Text(isRetry ? "Approved operation" : "Space for Aurora")
-          .foregroundStyle(OmarchyTheme.secondaryText)
-        Spacer()
-        Text(isRetry ? "Recovery authorization only" : approvedSize ?? "Reviewed size")
-          .fontWeight(.medium)
-      }
-      .font(OmarchyTheme.body)
-      .padding(12)
-      .background(OmarchyTheme.card, in: RoundedRectangle(cornerRadius: 4))
 
       if context.helperSwitchedOff && !isSimulation {
         HStack(alignment: .top, spacing: 8) {
@@ -108,7 +96,7 @@ struct CredentialSheet: View {
           Button(PlainLanguage.openLoginItems) {
             NSWorkspace.shared.open(PlainLanguage.loginItemsSettingsURL)
           }
-          .omarchySecondaryButton()
+          .omarchySecondaryButton(size: .large)
           .fixedSize()
           .focusEffectDisabled()
         }
@@ -119,12 +107,12 @@ struct CredentialSheet: View {
           .accessibilityLabel(PlainLanguage.authorizeChecking)
           .accessibilityHidden(!context.isVerifying)
         Button(PlainLanguage.authorizeCancel, action: cancel)
-          .omarchySecondaryButton()
+          .omarchySecondaryButton(size: .large)
           .fixedSize()
           .keyboardShortcut(.cancelAction)
           .focusEffectDisabled()
         Button(primaryTitle, action: submit)
-          .omarchyPrimaryButton()
+          .omarchyPrimaryButton(size: .large)
           .fixedSize()
           .keyboardShortcut(.defaultAction)
           .disabled(!input.isValid)

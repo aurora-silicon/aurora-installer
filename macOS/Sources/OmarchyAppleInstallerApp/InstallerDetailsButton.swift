@@ -21,10 +21,10 @@ struct InstallerDetailsButton: View {
             Button("Copy details") {
               NSPasteboard.general.clearContents()
               NSPasteboard.general.setString(text, forType: .string)
-            }.omarchySecondaryButton()
+            }.omarchySecondaryButton(size: .large)
             Spacer()
             Button("Done") { presented = false }
-              .omarchyPrimaryButton().keyboardShortcut(.defaultAction)
+              .omarchyPrimaryButton(size: .large).keyboardShortcut(.defaultAction)
           }
         }
         .padding(24).frame(width: 520)
