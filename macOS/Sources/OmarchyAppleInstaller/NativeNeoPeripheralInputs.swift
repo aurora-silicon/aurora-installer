@@ -178,18 +178,22 @@
     private let owner: uid_t
     private let inventory: @Sendable () throws -> NativeNeoInputInventory
     private let localInputs: @Sendable (String) throws -> NativeNeoLocalInputs
+    private let policyDeriver: @Sendable ([String: Data]) throws -> [String: Data]
     init() {
       owner = 0
       inventory = { try NativeNeoInputInventory.sealed() }
       localInputs = { try NativeNeoLocalInputs.live(storeIdentifier: $0) }
+      policyDeriver = { try NeoRegulatoryPolicy.derive($0) }
     }
     init(
       owner: uid_t, inventory: @escaping @Sendable () throws -> NativeNeoInputInventory,
-      localInputs: @escaping @Sendable (String) throws -> NativeNeoLocalInputs
+      localInputs: @escaping @Sendable (String) throws -> NativeNeoLocalInputs,
+      policyDeriver: @escaping @Sendable ([String: Data]) throws -> [String: Data]
     ) {
       self.owner = owner
       self.inventory = inventory
       self.localInputs = localInputs
+      self.policyDeriver = policyDeriver
     }
 
     struct Record: Codable, Equatable, Sendable {
@@ -277,7 +281,11 @@
         outputs["apple/mesacal-j700.bin"] = calibration
         outputs["apple/msrk-j700.bin"] = try SignedSensorInputs.rootKey(sensor.rootKey)
       }
-      let policies = try await suppliedPolicies(metadata: metadata, payload: package.payloadURL)
+      let tables = try Dictionary(
+        uniqueKeysWithValues: NeoRegulatoryPolicy.inputSHA256.keys.map {
+          ($0, try read("sunrise/" + $0))
+        })
+      let policies = try policyDeriver(tables)
       outputs.merge(policies) { _, new in new }
       var records = [String: Record]()
       for (name, data) in outputs {
@@ -342,33 +350,6 @@
         }
         throw operationError
       }
-    }
-
-    private func suppliedPolicies(metadata: Data, payload: URL) async throws -> [String: Data] {
-      let target = try NativePayloadPreflight.target(metadata)
-      guard let contract = target["neo_regulatory_policy"] as? [String: Any],
-        Set(contract.keys) == ["kind", "files"],
-        contract["kind"] as? String == "original-j7rp-v1",
-        let files = contract["files"] as? [String: String],
-        files["world-XZ.bin"] != nil, (1...251).contains(files.count)
-      else { throw NativePeripheralInputError.invalidPolicy }
-      let archive = try await IPSWArchive.open(NativePayloadRangeReader(payload, owner: owner))
-      var result = [String: Data]()
-      for (name, memberName) in files {
-        let country = name == "world-XZ.bin" ? "XZ" : String(name.dropLast(4))
-        guard
-          name == "world-XZ.bin"
-            || (name == country + ".bin" && country.utf8.count == 2
-              && country.utf8.allSatisfy({ (65...90).contains($0) })),
-          memberName == "installer-inputs/mt7932-policy/" + name,
-          let member = archive.members.first(where: { $0.name == memberName }),
-          (16...16384).contains(member.sizeBytes)
-        else { throw NativePeripheralInputError.invalidPolicy }
-        let data = try await archive.read(member, maximumBytes: 16384)
-        result["mediatek/mt7932/policy/" + name] = try NeoFirmwareConversions.policy(
-          data, country: country)
-      }
-      return result
     }
 
     private static func digest(_ data: Data) -> String {
