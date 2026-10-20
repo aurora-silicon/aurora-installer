@@ -56,7 +56,8 @@
         },
         command: { arguments in
           _ = try MacRemovalDiskOperator.systemRun("/usr/sbin/diskutil", arguments)
-        }, containerReference: { part, container in
+        },
+        containerReference: { part, container in
           guard
             let listing = try PropertyListSerialization.propertyList(
               from: disks.commands(["apfs", "list", "-plist"]), format: nil) as? [String: Any],
@@ -274,7 +275,8 @@
         let target = try createdTarget(before: available, after: after, label: label)
         try platform.verifyPartition(target, after.disk)
         let volumes = try NativeStubVolumes.prepare(
-          plan: approved.planDigest, target: target, label: label, snapshot: after, platform: platform)
+          plan: approved.planDigest, target: target, label: label, snapshot: after,
+          platform: platform)
         try file.publishEvidence(volumes.bytes, identifier: NativeStubVolumes.evidenceIdentifier)
         let evidence = try NativeAPFSTargetEvidence(plan: approved.planDigest, partition: target)
           .bytes
@@ -391,7 +393,8 @@
         matching.count == 1
       else { throw NativeAPFSError.changedTarget }
       try platform.verifyPartition(matching[0], snapshot.disk)
-      let volumes = try NativeStubVolumes.read(file.readEvidence(NativeStubVolumes.evidenceIdentifier))
+      let volumes = try NativeStubVolumes.read(
+        file.readEvidence(NativeStubVolumes.evidenceIdentifier))
       try volumes.validate(plan: approved.planDigest, target: matching[0], snapshot: snapshot)
     }
   }

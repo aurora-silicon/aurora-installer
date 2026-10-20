@@ -201,8 +201,10 @@
         fixture.stopAtCommand = command
         XCTAssertThrowsError(try fixture.prepare())
         XCTAssertEqual(fixture.commands.count, command)
-        XCTAssertTrue(try AppleInstallerTrustCore().validateEngineTranscript(
-          Data(contentsOf: fixture.journal)).checkpoints.isEmpty)
+        XCTAssertTrue(
+          try AppleInstallerTrustCore().validateEngineTranscript(
+            Data(contentsOf: fixture.journal)
+          ).checkpoints.isEmpty)
         fixture.stopAtCommand = nil
         XCTAssertThrowsError(try fixture.prepare())
         XCTAssertEqual(fixture.commands.count, command)
@@ -216,8 +218,10 @@
         fixture.fault = fault
         try fixture.prepare()
         XCTAssertEqual(fixture.commands.count, fault == "automatic-volumes" ? 4 : 6)
-        let receipt = try NativeStubVolumes.read(Data(contentsOf: URL(
-          fileURLWithPath: fixture.journal.path + ".native-stub-volumes.evidence")))
+        let receipt = try NativeStubVolumes.read(
+          Data(
+            contentsOf: URL(
+              fileURLWithPath: fixture.journal.path + ".native-stub-volumes.evidence")))
         XCTAssertEqual(receipt.volumes.count, 4)
         try fixture.prepare()
         XCTAssertEqual(fixture.commands.count, fault == "automatic-volumes" ? 4 : 6)
@@ -225,13 +229,17 @@
     }
 
     func testWrongVolumeGraphAndUnrelatedChangesCannotPublishAnAPFSCheckpoint() throws {
-      for fault in ["duplicate-preboot", "wrong-group", "unrelated-volume", "renumber-before-command"] {
+      for fault in [
+        "duplicate-preboot", "wrong-group", "unrelated-volume", "renumber-before-command",
+      ] {
         let fixture = try InputFixture(kind: "free")
         defer { fixture.remove() }
         fixture.fault = fault
         XCTAssertThrowsError(try fixture.prepare(), fault)
-        XCTAssertTrue(try AppleInstallerTrustCore().validateEngineTranscript(
-          Data(contentsOf: fixture.journal)).checkpoints.isEmpty)
+        XCTAssertTrue(
+          try AppleInstallerTrustCore().validateEngineTranscript(
+            Data(contentsOf: fixture.journal)
+          ).checkpoints.isEmpty)
       }
     }
 
@@ -244,11 +252,13 @@
         if fault == "missing" {
           try FileManager.default.removeItem(at: file)
         } else {
-          let index = try XCTUnwrap(fixture.snapshot.containers.firstIndex { $0.storeUUID.hasSuffix("000009") })
+          let index = try XCTUnwrap(
+            fixture.snapshot.containers.firstIndex { $0.storeUUID.hasSuffix("000009") })
           let old = fixture.snapshot.containers[index]
           var volumes = old.volumes
           let data = volumes[0]
-          volumes[0] = RemovalVolume(uuid: data.uuid,
+          volumes[0] = RemovalVolume(
+            uuid: data.uuid,
             name: fault == "name" ? "Changed" : data.name, roles: data.roles,
             group: fault == "group" ? "00000000-0000-0000-0000-000000000901" : data.group,
             identifier: data.identifier)
@@ -381,15 +391,20 @@
               deviceIdentifier: self.original.deviceIdentifier, hardware: self.original.hardware,
               disk: NativeCollectedDisk(
                 snapshot: snapshot, containers: self.original.disk.containers))
-          }, snapshot: {
+          },
+          snapshot: {
             if self.commands.count == 1 && self.fault == "renumber-before-command" {
               self.targetReadbacks += 1
               if self.targetReadbacks > 1 {
-                let index = try XCTUnwrap(self.snapshot.containers.firstIndex { $0.storeUUID.hasSuffix("000009") })
+                let index = try XCTUnwrap(
+                  self.snapshot.containers.firstIndex { $0.storeUUID.hasSuffix("000009") })
                 let old = self.snapshot.containers[index]
-                self.snapshot.containers[index] = RemovalContainer(uuid: old.uuid,
-                  storeUUID: old.storeUUID, volumes: old.volumes.map {
-                    RemovalVolume(uuid: $0.uuid, name: $0.name, roles: $0.roles,
+                self.snapshot.containers[index] = RemovalContainer(
+                  uuid: old.uuid,
+                  storeUUID: old.storeUUID,
+                  volumes: old.volumes.map {
+                    RemovalVolume(
+                      uuid: $0.uuid, name: $0.name, roles: $0.roles,
                       group: $0.group, identifier: "disk99s1")
                   })
               }
@@ -416,7 +431,9 @@
                 "apfs_preparation_started"))
             self.intentChecks += 1
             self.commands.append(arguments)
-            if self.commands.count == self.stopAtCommand { throw NativeStubVolumeError.changedVolumes }
+            if self.commands.count == self.stopAtCommand {
+              throw NativeStubVolumeError.changedVolumes
+            }
             if self.fault == "command-error" { throw NativeAPFSError.changedLayout }
             if arguments.prefix(2) == ["apfs", "resizeContainer"] {
               self.snapshot.partitions[1].size =
@@ -440,10 +457,14 @@
                   ]))
               if self.fault == "unrelated" { self.snapshot.partitions[0].size -= 4096 }
               if self.fault == "automatic-volumes" || self.fault == "duplicate-preboot" {
-                try self.mutateVolume(["apfs", "addVolume", "disk8", "apfs", "Preboot", "-role", "B"])
-                try self.mutateVolume(["apfs", "addVolume", "disk8", "apfs",
+                try self.mutateVolume([
+                  "apfs", "addVolume", "disk8", "apfs", "Preboot", "-role", "B",
+                ])
+                try self.mutateVolume([
+                  "apfs", "addVolume", "disk8", "apfs",
                   self.fault == "automatic-volumes" ? "Recovery" : "Preboot", "-role",
-                  self.fault == "automatic-volumes" ? "R" : "B"])
+                  self.fault == "automatic-volumes" ? "R" : "B",
+                ])
               }
             } else {
               try self.mutateVolume(arguments)
@@ -456,31 +477,38 @@
       }
 
       private func mutateVolume(_ arguments: [String]) throws {
-        let index = try XCTUnwrap(snapshot.containers.firstIndex { $0.storeUUID.hasSuffix("000009") })
+        let index = try XCTUnwrap(
+          snapshot.containers.firstIndex { $0.storeUUID.hasSuffix("000009") })
         let container = snapshot.containers[index]
         var volumes = container.volumes
         let group = "00000000-0000-0000-0000-000000000900"
         if arguments.prefix(2) == ["apfs", "changeVolumeRole"] {
-          volumes[0] = RemovalVolume(uuid: volumes[0].uuid, name: volumes[0].name,
+          volumes[0] = RemovalVolume(
+            uuid: volumes[0].uuid, name: volumes[0].name,
             roles: ["Data"], identifier: volumes[0].identifier)
         } else if arguments[0] == "rename" {
-          volumes[0] = RemovalVolume(uuid: volumes[0].uuid, name: arguments[2],
+          volumes[0] = RemovalVolume(
+            uuid: volumes[0].uuid, name: arguments[2],
             roles: volumes[0].roles, identifier: volumes[0].identifier)
         } else {
           let role = ["S": "System", "B": "Preboot", "R": "Recovery"][arguments[6]]!
           if role == "System" {
-            volumes[0] = RemovalVolume(uuid: volumes[0].uuid, name: volumes[0].name,
+            volumes[0] = RemovalVolume(
+              uuid: volumes[0].uuid, name: volumes[0].name,
               roles: volumes[0].roles, group: group, identifier: volumes[0].identifier)
           }
           let number = volumes.count + 1
-          volumes.append(RemovalVolume(
-            uuid: "00000000-0000-0000-0000-00000000045" + String(number + 5),
-            name: arguments[4], roles: [role], group: role == "System"
-              ? (fault == "wrong-group" ? "00000000-0000-0000-0000-000000000901" : group) : nil,
-            identifier: "disk8s" + String(number)))
+          volumes.append(
+            RemovalVolume(
+              uuid: "00000000-0000-0000-0000-00000000045" + String(number + 5),
+              name: arguments[4], roles: [role],
+              group: role == "System"
+                ? (fault == "wrong-group" ? "00000000-0000-0000-0000-000000000901" : group) : nil,
+              identifier: "disk8s" + String(number)))
         }
         snapshot.containers[index] = RemovalContainer(
-          uuid: container.uuid, storeUUID: container.storeUUID, volumes: volumes.sorted { $0.uuid < $1.uuid })
+          uuid: container.uuid, storeUUID: container.storeUUID,
+          volumes: volumes.sorted { $0.uuid < $1.uuid })
       }
 
       var execution: NativeAPFSExecution {

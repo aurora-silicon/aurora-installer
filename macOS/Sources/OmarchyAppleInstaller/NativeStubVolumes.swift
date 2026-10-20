@@ -130,7 +130,8 @@
         "apfs", "addVolume", reference, "apfs", label, "-role", "S", "-groupWith",
         try volume(dataUUID).identifier,
       ]) { before, after in
-        let added = after.volumes.filter { item in !before.volumes.contains { $0.uuid == item.uuid } }
+        let added = after.volumes.filter { item in !before.volumes.contains { $0.uuid == item.uuid }
+        }
         guard added.count == 1, let system = added.first, system.roles == ["System"],
           system.name == label, let group = system.group, validUUID(group),
           group != "00000000-0000-0000-0000-000000000000",
@@ -150,8 +151,11 @@
       for (role, short) in [("Preboot", "B"), ("Recovery", "R")] {
         if try container(current).volumes.contains(where: { $0.roles == [role] }) { continue }
         let reference = try platform.containerReference(target, try container(current))
-        try mutate(["apfs", "addVolume", reference, "apfs", role, "-role", short]) { before, after in
-          let added = after.volumes.filter { item in !before.volumes.contains { $0.uuid == item.uuid } }
+        try mutate(["apfs", "addVolume", reference, "apfs", role, "-role", short]) {
+          before, after in
+          let added = after.volumes.filter { item in
+            !before.volumes.contains { $0.uuid == item.uuid }
+          }
           guard added.count == 1, let item = added.first, item.name == role, item.roles == [role],
             item.group == nil, after.volumes.filter({ $0.uuid != item.uuid }) == before.volumes
           else { throw NativeStubVolumeError.changedVolumes }
