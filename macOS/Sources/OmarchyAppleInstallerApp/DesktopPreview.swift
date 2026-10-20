@@ -1,3 +1,4 @@
+import AppKit
 import OmarchyAppleInstallerTrustCore
 import SwiftUI
 
@@ -8,8 +9,8 @@ struct DesktopPreview: View {
   var body: some View {
     Group {
       switch desktop {
-      case .kde: BrandImage("KDE-Desktop")
-      case .gnome: BrandImage("GNOME-Desktop")
+      case .kde: screenshot("KDE-Desktop")
+      case .gnome: screenshot("GNOME-Desktop")
       case .minimal: ShellPreview()
       }
     }
@@ -18,6 +19,18 @@ struct DesktopPreview: View {
     .background(Color(white: 0.08))
     .allowsHitTesting(false)
     .accessibilityHidden(true)
+  }
+
+  private func screenshot(_ name: String) -> some View {
+    GeometryReader { geometry in
+      if let url = Bundle.main.url(forResource: name, withExtension: "png"),
+        let image = NSImage(contentsOf: url)
+      {
+        Image(nsImage: image).resizable().interpolation(.high).scaledToFill()
+          .frame(width: geometry.size.width, height: geometry.size.height)
+          .clipped()
+      }
+    }
   }
 }
 
