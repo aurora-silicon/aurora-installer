@@ -264,7 +264,9 @@ public enum NeoRegulatoryPolicy {
     return result
   }
   private static func subband(_ label: String, count: Int) throws -> Int {
-    guard label.hasPrefix("subband"), let number = Int(label.dropFirst(7)),
+    guard label.hasPrefix("subband"), !label.dropFirst(7).isEmpty,
+      label.dropFirst(7).utf8.allSatisfy({ (48...57).contains($0) }),
+      let number = Int(label.dropFirst(7)),
       (1...count).contains(number)
     else {
       throw RestoreFailure("Invalid regulatory subband.")
@@ -344,16 +346,18 @@ public enum NeoRegulatoryPolicy {
     var rows = Array(repeating: Array(repeating: UInt8(196), count: 540), count: channels.count)
     for (group, label, cells) in records {
       let parts = label.components(separatedBy: "-")
-      try check(parts.count <= 3 && parts[0].hasPrefix("ch") && parts[0].count == 5)
+      try check(
+        parts.count <= 3 && parts[0].hasPrefix("ch") && parts[0].count == 5
+          && parts[0].dropFirst(2).utf8.allSatisfy({ (48...57).contains($0) }))
       guard let start = Int(parts[0].dropFirst(2)) else {
         throw RestoreFailure("Invalid regulatory channel.")
       }
       let bonded = parts.count > 1
       let cdd = parts.last == "cdd"
-      try check(parts.count != 3 || cdd)
+      try check(parts.count != 3 || (cdd && parts[1] != "cdd"))
       let end: Int
       if parts.count > 1 && parts[1] != "cdd" {
-        try check(parts[1].count == 3)
+        try check(parts[1].count == 3 && parts[1].utf8.allSatisfy({ (48...57).contains($0) }))
         guard let value = Int(parts[1]) else { throw RestoreFailure("Invalid bonded channel.") }
         end = value
       } else {
@@ -631,6 +635,7 @@ public enum NeoRegulatoryPolicy {
     var commonCommand = record(58, count: 13, band: 1, last: 1, kind: 4)
     for row in common[0].rows {
       guard row.label.count == 5, row.label.hasPrefix("ch"),
+        row.label.dropFirst(2).utf8.allSatisfy({ (48...57).contains($0) }),
         let channel = Int(row.label.dropFirst(2)), (1...13).contains(channel)
       else {
         throw RestoreFailure("Invalid common-path regulatory channel.")

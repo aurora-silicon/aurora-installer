@@ -46,6 +46,13 @@ final class NeoRegulatoryPolicyTests: XCTestCase {
         { $0.replacingOccurrences(of: "subband1,0", with: "subband1,Y") }
       ),
       ("IZUBA_TxPwrLimit_SDB.dat", { $0.replacingOccurrences(of: "</sdb>", with: "") }),
+      (
+        "IZUBA_TxPwrLimit_SDB.dat", { $0.replacingOccurrences(of: "subband1,", with: "subband+1,") }
+      ),
+      (
+        "IZUBA_TxPwrLimit_2gCommonPath.dat",
+        { $0.replacingOccurrences(of: "ch001,", with: "ch+01,") }
+      ),
       ("IZUBA_db.dat", { $0.replacingOccurrences(of: ",\r\n", with: "\r\n") }),
       ("IZUBA_TxPwrLimit_2gCommonPath.dat", { $0.replacingOccurrences(of: "[US]", with: "[XX]") }),
     ]
@@ -81,6 +88,10 @@ final class NeoRegulatoryPolicyTests: XCTestCase {
     XCTAssertEqual(Array(rows[16][36..<44]), Array(repeating: 196, count: 8))  // channel 40
     XCTAssertEqual(Array(rows[17][72..<80]), Array(repeating: 3, count: 8))  // channel 42
     XCTAssertEqual(Array(rows[19][80..<88]), Array(repeating: 4, count: 8))  // channel 46
+    for label in ["ch+38", "ch038-cdd-cdd", "ch038-+42", "ch038-042-other"] {
+      XCTAssertThrowsError(
+        try NeoRegulatoryPolicy.powerRows([(1, label, Array(repeating: "1", count: 8))]), label)
+    }
   }
   func testBitmapKeepsHighBitsAndParsedGroupOffsets() throws {
     var rows = Array(repeating: Array(repeating: UInt8(0), count: 540), count: 67)
