@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: 54112f217f4316d87b85d382c6fd89e8f59c0cd7
+          ref: 58f3b337123cd11ce3ab94fd3357350a34056599
           path: source
           persist-credentials: false
       - name: Record immutable source and toolchain
@@ -59,7 +59,7 @@ jobs:
                 [[ $size != compact ]] || arguments+=(--preview-compact)
                 name="$screen-$appearance-$size"
                 echo "Rendering $name"
-                "$app/Contents/MacOS/AuroraInstallerPreview" "${arguments[@]}" \
+                open -W "$app" --args "${arguments[@]}" \
                   > "$RUNNER_TEMP/evidence/$name.log" 2>&1 &
                 render_pid=$!
                 for tick in {1..30}; do
@@ -67,7 +67,16 @@ jobs:
                   sleep 1
                 done
                 if kill -0 "$render_pid" 2>/dev/null; then
-                  sample "$render_pid" 1 -file "$RUNNER_TEMP/evidence/$name.stack.txt" || true
+                  app_pid=$(osascript -l JavaScript -e 'ObjC.import("AppKit"); var apps = $.NSRunningApplication.runningApplicationsWithBundleIdentifier("org.aurorasilicon.installer.preview"); apps.count == 1 ? apps.objectAtIndex(0).processIdentifier : 0' || true)
+                  if [[ $app_pid =~ ^[0-9]+$ && $app_pid -gt 1 ]]; then
+                    app_command=$(ps -p "$app_pid" -o command= || true)
+                    if [[ $app_command == "$app/Contents/MacOS/AuroraInstallerPreview"* ]]; then
+                      sample "$app_pid" 1 -file "$RUNNER_TEMP/evidence/$name.stack.txt" || true
+                      kill -TERM "$app_pid" || true
+                      sleep 2
+                      if kill -0 "$app_pid" 2>/dev/null; then kill -KILL "$app_pid" || true; fi
+                    fi
+                  fi
                   kill -TERM "$render_pid" || true
                   for tick in {1..5}; do
                     if ! kill -0 "$render_pid" 2>/dev/null; then break; fi
