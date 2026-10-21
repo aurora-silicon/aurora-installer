@@ -300,18 +300,18 @@ struct OnePageInstallerView: View {
 
     case .existingInstallRefused(let host):
       if let onChooseSystem {
-        Button("Choose system…", action: onChooseSystem)
+        Button("Choose system", action: onChooseSystem)
           .omarchySecondaryButton()
           .disabled(session.isBusy)
       }
       if host.existingInstalls.count == 1 {
-        Button("Reset Aurora…") {
+        Button("Reset Linux") {
           Task { await session.reinstallPreservingStage1() }
         }
         .omarchyPrimaryButton()
         .disabled(!session.canPreparePreservedReinstall)
       }
-      Button("Erase Linux…", role: .destructive, action: onRemoveLinux)
+      Button("Erase Linux", role: .destructive, action: onRemoveLinux)
         .omarchySecondaryButton()
         .disabled(session.isBusy)
 
@@ -325,7 +325,7 @@ struct OnePageInstallerView: View {
         .omarchySecondaryButton()
         .disabled(session.isEditingSize)
       }
-      Button(plan.preservesStage1 ? "Reset Aurora" : PlainLanguage.planInstall) {
+      Button(plan.preservesStage1 ? "Reset Linux" : PlainLanguage.planInstall) {
         // Approve the exact plan and go straight to the password. If the
         // helper is not ready the page stays here and says so.
         session.approve()
@@ -592,7 +592,7 @@ struct ExistingInstallationContent: View {
       Text(PlainLanguage.existingInstallHeadline)
         .font(OmarchyTheme.heading)
       Text(
-        "Reset Aurora in its current space while keeping Stage 1, or erase Linux and return its space to macOS."
+        "Reset Linux in its current space while keeping Stage 1, or erase Linux and return its space to macOS."
       )
       .font(OmarchyTheme.body)
       .foregroundStyle(OmarchyTheme.secondaryText)

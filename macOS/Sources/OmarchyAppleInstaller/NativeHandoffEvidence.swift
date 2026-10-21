@@ -47,6 +47,8 @@
     let target: Target
     let installed: Installed
     let qualifiedCommonFirmware: [String]
+    let stage2Member: String
+    let stage2Variants: Set<String>
 
     init(snapshot: NativeRecoveryJournalSnapshot, metadata: Data) throws {
       plan = snapshot.plan
@@ -133,6 +135,10 @@
       } else {
         qualifiedCommonFirmware = []
       }
+      let selection = try NativeBootChain.stage2Selection(
+        template: template, board: Self.board(plan.deviceIdentifier))
+      stage2Member = selection.member
+      stage2Variants = selection.variants
     }
 
     func requireLayout(_ snapshot: RemovalSnapshot) throws -> [RemovalPartition] {
@@ -164,8 +170,8 @@
 
     func espLayout(members: Set<String>, firmware: String) throws -> [String: String] {
       try NativeESPLayout.map(
-        deviceIdentifier: plan.deviceIdentifier, members: members,
-        commonAllowed: qualifiedCommonFirmware.contains(firmware))
+        members: members, commonAllowed: qualifiedCommonFirmware.contains(firmware),
+        stage2: stage2Member, stage2Variants: stage2Variants)
     }
 
     static func safeRelative(_ path: String) -> Bool {

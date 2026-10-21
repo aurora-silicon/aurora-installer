@@ -60,13 +60,13 @@
           bytes, uuid: "00000000-0000-0000-0000-000000000000",
           path: template["next_object"] as? String ?? "m1n1/boot.bin", windowMilliseconds: window)
       }
+      let stage2 = try stage2Selection(template: template, board: board)
       let esp = Set(members.keys.filter { $0.hasPrefix("esp/") })
       let layout = try NativeESPLayout.map(
-        deviceIdentifier: deviceIdentifier, members: esp, commonAllowed: common)
-      // Neo needs its dedicated boot payload even with the common Stage 1.
-      let stage2 = board == "j700ap" ? "esp/m1n1/boot-j700.bin" : "esp/m1n1/boot.bin"
-      guard let member = members[stage2], member.sizeBytes > 0,
-        layout[stage2] == "m1n1/boot.bin"
+        members: esp, commonAllowed: common, stage2: stage2.member,
+        stage2Variants: stage2.variants)
+      guard let member = members[stage2.member], member.sizeBytes > 0,
+        layout[stage2.member] == "m1n1/boot.bin"
       else { throw NativeBootChainError.missingStage2 }
       return NativeBootChainAdmission(
         stage1Member: stage1, windowMilliseconds: window, espLayout: layout)
@@ -80,6 +80,28 @@
         let machines = values["qualified_machines"] as? [String: [String]]
       else { throw NativeBootChainError.invalidQualification }
       return machines[board] ?? []
+    }
+
+    static func stage2Selection(template: [String: Any], board: String) throws -> (
+      member: String, variants: Set<String>
+    ) {
+      let standard = "esp/m1n1/boot.bin"
+      guard let policy = template["aurora_stage2"] else { return (standard, [standard]) }
+      guard let values = policy as? [String: Any],
+        Set(values.keys) == ["kind", "board_members"],
+        values["kind"] as? String == "board-file-v1",
+        let boardMembers = values["board_members"] as? [String: String],
+        !boardMembers.isEmpty,
+        boardMembers.keys.allSatisfy({
+          $0.range(of: #"\Aj[0-9]+ap\z"#, options: .regularExpression) != nil
+        }),
+        boardMembers.values.allSatisfy({
+          $0.hasPrefix("esp/m1n1/") && $0.hasSuffix(".bin")
+            && NativeHandoffEvidence.safeRelative($0)
+        }),
+        Set(boardMembers.values).count == boardMembers.count
+      else { throw NativeBootChainError.invalidQualification }
+      return (boardMembers[board] ?? standard, Set(boardMembers.values).union([standard]))
     }
 
     static func fillStage1(
@@ -125,25 +147,23 @@
 
   enum NativeESPLayout {
     static func map(
-      deviceIdentifier: String, members: Set<String>, commonAllowed: Bool
+      members: Set<String>, commonAllowed: Bool, stage2: String,
+      stage2Variants: Set<String>
     ) throws -> [String: String] {
       let common = members.contains("esp/aurora/stage1.bin") && commonAllowed
-      let own = deviceIdentifier == "apple,j700" ? "esp/m1n1/boot-j700.bin" : nil
-      guard !common || members.contains("esp/m1n1/boot.bin"),
-        own.map({ members.contains($0) }) ?? true
+      guard members.contains(stage2), !common || members.contains("esp/m1n1/boot.bin")
       else { throw NativeHandoffValidationError.changedContent }
       var layout = [String: String]()
       for member in members.sorted() {
         guard member.hasPrefix("esp/"), NativeHandoffEvidence.safeRelative(member) else {
           throw NativeHandoffValidationError.unsafePath
         }
-        if member == own {
+        if member == stage2 {
           layout[member] = "m1n1/boot.bin"
         } else if (member == "esp/aurora/stage1.bin" && !common)
-          || member == "esp/m1n1/boot-j700.bin"
+          || stage2Variants.contains(member)
           || (common
             && ["esp/aurora/stage1-j700.bin", "esp/aurora/stage1-j613.bin"].contains(member))
-          || (own != nil && member == "esp/m1n1/boot.bin")
         {
           continue
         } else {

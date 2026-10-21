@@ -70,6 +70,8 @@ class DistributionPayloadTests(unittest.TestCase):
         metadata = json.loads((output / 'installer-data-nixos-kde.json').read_text())['os_list'][0]
         self.assertEqual(metadata['allowed_device_classes'], ['j700ap'])
         self.assertEqual(metadata['required_neo_peripherals'], ['radio'])
+        self.assertEqual(metadata['aurora_stage2']['board_members'],
+                         {'j700ap': 'esp/m1n1/boot-j700.bin'})
         self.assertNotIn('neo_regulatory_policy', metadata)
         self.assertNotIn('excluded_device_classes', metadata)
         with zipfile.ZipFile(output / metadata['package']) as archive:

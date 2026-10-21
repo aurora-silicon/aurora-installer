@@ -295,14 +295,14 @@ struct OmarchyAppleInstallerApp: App {
         }
       #endif
       CommandMenu("Installation") {
-        Button("Choose System…") {
+        Button("Choose system") {
           liveSession?.cancelPrefetchOnQuit()
           liveSession = nil
           choosingSystem = true
           generation = UUID()
         }.disabled(!choosingSystem && liveSession?.canChangeChannel != true)
         Divider()
-        Button("Erase Linux…") { showsRemoval = true }
+        Button("Erase Linux") { showsRemoval = true }
           .disabled(removalNeedsReview || showsRemoval || liveSession?.canChangeChannel != true)
       }
       if InstallerBuildProfile.current.showsReleaseChannels {

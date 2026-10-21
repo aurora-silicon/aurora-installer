@@ -149,6 +149,8 @@ def assemble(bundle, recovery, output, policy_directory=None, reuse_payload=Fals
         template.update(allowed_device_classes=['j700ap'], supported_fw=['26.6.2'],
                         required_neo_peripherals=['radio'])
         template['aurora_stage1']['qualified_machines'] = {'j700ap': ['26.6.2']}
+        template['aurora_stage2'] = {'kind': 'board-file-v1',
+                                     'board_members': {'j700ap': 'esp/m1n1/boot-j700.bin'}}
     else:
         template['excluded_device_classes'] = ['j700ap']
     metadata = output / ('installer-data-' + profile + suffix + '.json')
