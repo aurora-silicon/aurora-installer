@@ -112,6 +112,27 @@ class CatalogGeneratorTests(unittest.TestCase):
         self.assertEqual(catalog["sequence"], 1788480000)
         self.assertEqual(len(catalog["models"]), len(self.inputs["device_identifiers"]))
 
+    def test_schema_five_binds_only_native_delivery_assets(self) -> None:
+        document = self.with_neo()
+        document["schema_version"] = 5
+        document.pop("engine_name")
+        document.pop("engine_version")
+        (self.assets / self.inputs["engine_name"]).unlink()
+        result = self.generate(document, developer=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        catalog = json.loads((self.directory / "catalog.json").read_text())
+        self.assertEqual(catalog["schemaVersion"], 5)
+        self.assertNotIn("expiresAt", catalog)
+        self.assertTrue(catalog["models"])
+        for model in catalog["models"]:
+            self.assertFalse({"engineArtifact", "engineDigest", "engineVersion"} & model.keys())
+            self.assertEqual(set(model) & {"metadataArtifact", "payloadArtifact"},
+                             {"metadataArtifact", "payloadArtifact"})
+
+    def test_schema_five_rejects_compatibility_artifact_fields(self) -> None:
+        self.inputs["schema_version"] = 5
+        self.assertRejected(self.inputs, "unknown keys: engine_name, engine_version")
+
     def test_carries_the_installer_compatibility_block(self) -> None:
         self.inputs["installer"]["minimum_version"] = "2.1.0"
         self.inputs["installer"]["latest_version"] = "2.3.0"

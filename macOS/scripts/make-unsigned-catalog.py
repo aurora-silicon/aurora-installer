@@ -20,6 +20,9 @@ Schema 4 carries no `expiresAt`: a signed catalog stays valid until a
 higher-sequence one replaces it. The monotonic `sequence` is the only
 machine-enforced guard.
 
+Schema 5 inputs set `schema_version` to 5 and omit `engine_name` and
+`engine_version`. Its models bind only native metadata and OS payload assets.
+
 `--developer` is for a developer build's sealed catalog only. Its inputs may
 add `developer_models`: groups of boards from the manifest's `developer`
 section, or supported Macs moved out of the main group, each group with its
@@ -44,14 +47,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import supported_models  # noqa: E402
 
-SCHEMA_VERSION = 4
+COMPATIBILITY_SCHEMA_VERSION = 4
+NATIVE_SCHEMA_VERSION = 5
 
-REQUIRED_INPUT_KEYS = frozenset(
+COMMON_INPUT_KEYS = frozenset(
     {
         "payload_name",
-        "engine_name",
         "metadata_name",
-        "engine_version",
         "evidence_revision",
         "asahi_installer_tag",
         "asahi_installer_revision",
@@ -61,6 +63,7 @@ REQUIRED_INPUT_KEYS = frozenset(
         "installer",
     }
 )
+COMPATIBILITY_INPUT_KEYS = frozenset({"engine_name", "engine_version"})
 REQUIRED_INSTALLER_KEYS = frozenset(
     {"minimum_version", "latest_version", "download_url"}
 )
@@ -189,6 +192,7 @@ def load_developer_models(document: dict) -> list[str]:
     # Groups may share a payload; each metadata file belongs to one group.
     payloads = {document["payload_name"]}
     metadata = {document["metadata_name"]}
+    reserved = {document["engine_name"]} if "engine_name" in document else set()
     boards = set(document["device_identifiers"])
     for group in groups:
         if not isinstance(group, dict) or set(group) != DEVELOPER_GROUP_KEYS:
@@ -200,9 +204,9 @@ def load_developer_models(document: dict) -> list[str]:
             name = group[key]
             if not isinstance(name, str) or not name or "/" in name or name in {".", ".."}:
                 raise SystemExit(f"inputs developer_models {key} must be a plain file name: {name}")
-        if group["metadata_name"] in metadata | payloads | {document["engine_name"]}:
+        if group["metadata_name"] in metadata | payloads | reserved:
             raise SystemExit(f"inputs developer_models reuses the file name {group['metadata_name']}")
-        if group["payload_name"] in metadata | {document["engine_name"]}:
+        if group["payload_name"] in metadata | reserved:
             raise SystemExit(f"inputs developer_models reuses the file name {group['payload_name']}")
         metadata.add(group["metadata_name"])
         payloads.add(group["payload_name"])
@@ -234,11 +238,19 @@ def load_inputs(path: Path, developer: bool = False) -> dict:
     if not isinstance(document, dict):
         raise SystemExit("inputs file must contain a JSON object")
 
+    schema = document.get("schema_version", COMPATIBILITY_SCHEMA_VERSION)
+    if type(schema) is not int or schema not in (COMPATIBILITY_SCHEMA_VERSION, NATIVE_SCHEMA_VERSION):
+        raise SystemExit("inputs schema_version must be 4 or 5")
+    required = COMMON_INPUT_KEYS | (
+        COMPATIBILITY_INPUT_KEYS if schema == COMPATIBILITY_SCHEMA_VERSION else set()
+    )
     keys = set(document)
-    missing = REQUIRED_INPUT_KEYS - keys
+    missing = required - keys
     if missing:
         raise SystemExit(f"inputs file is missing keys: {', '.join(sorted(missing))}")
-    unknown = keys - REQUIRED_INPUT_KEYS - {"installation_profile"} - ({"developer_models"} if developer else set())
+    unknown = keys - required - {"installation_profile", "schema_version"} - (
+        {"developer_models"} if developer else set()
+    )
     if unknown:
         raise SystemExit(f"inputs file has unknown keys: {', '.join(sorted(unknown))}")
 
@@ -252,16 +264,17 @@ def load_inputs(path: Path, developer: bool = False) -> dict:
 
     for key in (
         "payload_name",
-        "engine_name",
         "metadata_name",
-        "engine_version",
         "evidence_revision",
         "asahi_installer_tag",
-    ):
+    ) + (("engine_name", "engine_version") if schema == COMPATIBILITY_SCHEMA_VERSION else ()):
         value = document[key]
         if not isinstance(value, str) or not value:
             raise SystemExit(f"inputs {key} must be a non-empty string")
-    for key in ("payload_name", "engine_name", "metadata_name"):
+    file_keys = ("payload_name", "metadata_name") + (
+        ("engine_name",) if schema == COMPATIBILITY_SCHEMA_VERSION else ()
+    )
+    for key in file_keys:
         name = document[key]
         if "/" in name or name in {".", ".."}:
             raise SystemExit(f"inputs {key} must be a plain file name: {name}")
@@ -323,9 +336,10 @@ def load_inputs(path: Path, developer: bool = False) -> dict:
         )
     # Engines with recommendation fields require the compatible decoder and
     # reserve-policy UI. Refuse a catalog that sends older apps into decoding.
-    engine = re.fullmatch(r"v0\.9\.2-omarchy\.(\d+)", document["engine_version"])
-    if engine and int(engine.group(1)) >= 18 and parse_version(installer["minimum_version"]) < (2, 1, 0):
-        raise SystemExit("this engine requires installer.minimum_version >= 2.1.0")
+    if schema == COMPATIBILITY_SCHEMA_VERSION:
+        engine = re.fullmatch(r"v0\.9\.2-omarchy\.(\d+)", document["engine_version"])
+        if engine and int(engine.group(1)) >= 18 and parse_version(installer["minimum_version"]) < (2, 1, 0):
+            raise SystemExit("this engine requires installer.minimum_version >= 2.1.0")
     download_url = installer["download_url"]
     if not isinstance(download_url, str) or not download_url.startswith("https://"):
         raise SystemExit(f"inputs installer.download_url must be https: {download_url}")
@@ -395,7 +409,11 @@ def issue_time(override: str | None) -> datetime.datetime:
 
 def model_group(inputs: dict, group: dict, assets: Path, base_url: str) -> tuple[list[dict], int]:
     """The catalog models for one payload's boards, and its payload part count."""
-    engine = require_regular_file(assets / inputs["engine_name"])
+    schema = inputs.get("schema_version", COMPATIBILITY_SCHEMA_VERSION)
+    engine = (
+        require_regular_file(assets / inputs["engine_name"])
+        if schema == COMPATIBILITY_SCHEMA_VERSION else None
+    )
     metadata = require_regular_file(assets / group["metadata_name"])
     payload = require_regular_file(assets / group["payload_name"])
 
@@ -409,15 +427,16 @@ def model_group(inputs: dict, group: dict, assets: Path, base_url: str) -> tuple
         "asahiInstallerRevision": inputs["asahi_installer_revision"],
         "asahiInstallerDataRevision": inputs["asahi_installer_data_revision"],
         "downstreamRevision": inputs["downstream_revision"],
-        "engineVersion": inputs["engine_version"],
-        "engineDigest": f"sha256:{digest(engine)}",
         "metadataDigest": f"sha256:{digest(metadata)}",
         "payloadDigest": f"sha256:{digest(payload)}",
         "evidenceRevision": inputs["evidence_revision"],
-        "engineArtifact": artifact(engine, base_url),
         "metadataArtifact": artifact(metadata, base_url),
         "payloadArtifact": payload_artifact,
     }
+    if engine is not None:
+        shared["engineVersion"] = inputs["engine_version"]
+        shared["engineDigest"] = f"sha256:{digest(engine)}"
+        shared["engineArtifact"] = artifact(engine, base_url)
     if "installation_profile" in inputs:
         shared["installationProfile"] = inputs["installation_profile"]
     models = [
@@ -438,7 +457,7 @@ def main() -> None:
     installer = inputs["installer"]
 
     catalog = {
-        "schemaVersion": SCHEMA_VERSION,
+        "schemaVersion": inputs.get("schema_version", COMPATIBILITY_SCHEMA_VERSION),
         "sequence": int(issued.timestamp()),
         "issuedAt": issued.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "installer": {
