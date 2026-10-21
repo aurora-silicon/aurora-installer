@@ -554,6 +554,7 @@ struct PrefetchStrip: View {
           }
         }
       }
+      .padding(.vertical, 8)
     }
   }
 
