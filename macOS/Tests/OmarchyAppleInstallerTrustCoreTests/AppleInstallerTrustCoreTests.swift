@@ -1,6 +1,6 @@
 import CryptoKit
 import Foundation
-import OmarchyAppleInstallerTrustCore
+@testable import OmarchyAppleInstallerTrustCore
 import XCTest
 
 final class AppleInstallerTrustCoreTests: XCTestCase {
