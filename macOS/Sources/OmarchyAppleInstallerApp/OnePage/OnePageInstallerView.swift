@@ -703,7 +703,7 @@ struct DiskSplitPanel: View {
         .font(.system(size: 22, weight: .semibold))
       if plan.preservesStage1 {
         Text(
-          "Stage 1 and partition sizes stay. EFI boot files, Linux Boot and Root are replaced, erasing Linux accounts and files."
+          "Stage 1, its startup name and icon, and partition sizes stay. EFI boot files, Linux Boot and Root are replaced, erasing Linux accounts and files."
         )
         .font(OmarchyTheme.body)
         .foregroundStyle(OmarchyTheme.secondaryText)

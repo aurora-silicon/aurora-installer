@@ -28,9 +28,8 @@
         disk.snapshot.disk == approved.storeIdentifier
       else { throw NativePreservedInstallError.unavailable }
       let selected = try NativeInstallationMetadata(data: metadata).target()
-      let title = selected.name
       let target = try NativePreservedInstallTarget.recognize(
-        disk, sourceIdentifier: approved.sourceIdentifier, title: title)
+        disk, sourceIdentifier: approved.sourceIdentifier)
       guard approved.offsetBytes == target.stub.offset,
         approved.lengthBytes == target.root.end - target.stub.offset
       else { throw NativePreservedInstallError.changedLayout }
@@ -66,7 +65,9 @@
       guard !signedPaths.contains(configurationPath) else {
         throw NativeHandoffValidationError.unsafePath
       }
-      let stage1 = try esp.admitPreservedStage1(installedStage1, espUUID: target.esp.uuid)
+      let stage1 = try esp.admitPreservedStage1(
+        installedStage1, espUUID: target.esp.uuid,
+        allowDifferentStage1Code: target.title != selected.name)
 
       let inspection = try AppleInstallerTrustCore().validateEngineTranscript(
         NativeDiskInventory.transcript(

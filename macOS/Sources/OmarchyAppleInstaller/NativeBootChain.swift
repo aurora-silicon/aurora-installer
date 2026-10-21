@@ -144,6 +144,47 @@
       result.append(image.suffix(from: range.lowerBound + blockBytes))
       return result
     }
+
+    /// A cross-distro Reset keeps the already enrolled executable bytes. Check
+    /// the existing trampoline's bounded configuration against this exact ESP
+    /// instead of requiring another distro's build to reproduce its code bytes.
+    static func validateInstalledStage1(_ image: Data, uuid: String, path: String) throws {
+      let magic = Data("AURORA-S1-CFG01\0".utf8)
+      let blockBytes = magic.count + 244
+      guard
+        uuid.range(
+          of: #"\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z"#,
+          options: .regularExpression) != nil,
+        NativeHandoffEvidence.safeRelative(path),
+        image.count >= blockBytes + 8,
+        image.suffix(8) == Data("STACKBOT".utf8),
+        let range = image.range(of: magic),
+        image.range(of: magic, in: (range.lowerBound + 1)..<image.count) == nil,
+        range.lowerBound <= image.count - 8 - blockBytes
+      else { throw NativeBootChainError.invalidStage1 }
+      let body = Data(image[range.upperBound..<(range.lowerBound + blockBytes)])
+      let encoded = Data((";" + path).utf8)
+      guard body.count == 244,
+        body[0..<4].elementsEqual([1, 0, 0, 0]),
+        body[8..<44] == Data(uuid.utf8),
+        body[44..<48] == Data(repeating: 0, count: 4),
+        encoded.count < 192,
+        body[48..<(48 + encoded.count)] == encoded,
+        body[(48 + encoded.count)..<240].allSatisfy({ $0 == 0 })
+      else { throw NativeBootChainError.invalidStage1 }
+      let window = body[4..<8].enumerated().reduce(UInt32(0)) { result, pair in
+        result | (UInt32(pair.element) << (pair.offset * 8))
+      }
+      guard window <= 99_999 else { throw NativeBootChainError.invalidStage1 }
+      let framed = Data(body.prefix(240))
+      let checksum = framed.withUnsafeBytes {
+        UInt32(zlib.crc32(0, $0.bindMemory(to: Bytef.self).baseAddress, uInt(framed.count)))
+      }
+      guard
+        body.suffix(4).elementsEqual(
+          (0..<4).map { UInt8(truncatingIfNeeded: checksum >> ($0 * 8)) })
+      else { throw NativeBootChainError.invalidStage1 }
+    }
   }
 
   enum NativeESPLayout {

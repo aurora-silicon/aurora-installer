@@ -156,6 +156,17 @@
       XCTAssertEqual(candidate.sourceIdentifier, target.stub.identifier)
       XCTAssertEqual(candidate.identityDigest, target.identityDigest)
       XCTAssertEqual(candidate.minimumInstallBytes, candidate.lengthBytes)
+      templates[0]["default_os_name"] = AuroraDistribution.arch.title
+      metadata["os_list"] = templates
+      let switchedMetadata = try JSONSerialization.data(withJSONObject: metadata)
+      let switchedInspection = try AppleInstallerTrustCore().validateEngineTranscript(
+        NativeDiskInventory.transcript(
+          device: "apple,j314s", snapshot: disk.snapshot, containers: disk.containers,
+          metadata: try NativeInstallationMetadata(data: switchedMetadata),
+          stubBytes: 2_499_805_184))
+      let switched = try XCTUnwrap(
+        switchedInspection.inventory?.candidates.first { $0.kind == "reinstall" })
+      XCTAssertEqual(switched.identityDigest, target.identityDigest)
       XCTAssertThrowsError(
         try PinnedAsahiPlanRequest(
           inventory: inventory, candidate: candidate,

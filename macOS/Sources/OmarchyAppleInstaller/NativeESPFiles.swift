@@ -96,7 +96,9 @@
 
     /// Reuse the existing boot-policy target only when its installed Stage 1
     /// exactly matches the selected authenticated payload after ESP binding.
-    func admitPreservedStage1(_ installed: Data, espUUID: String) throws
+    func admitPreservedStage1(
+      _ installed: Data, espUUID: String, allowDifferentStage1Code: Bool = false
+    ) throws
       -> NativeStubFileIdentity
     {
       guard !installed.isEmpty, installed.count <= 64 << 20,
@@ -109,7 +111,13 @@
         : try NativeBootChain.fillStage1(
           stage1, uuid: espUUID.lowercased(), path: "m1n1/boot.bin",
           windowMilliseconds: windowMilliseconds)
-      guard installed == expected else { throw NativeBootChainError.invalidStage1 }
+      if installed != expected {
+        guard allowDifferentStage1Code, !usesLegacyStage1 else {
+          throw NativeBootChainError.invalidStage1
+        }
+        try NativeBootChain.validateInstalledStage1(
+          installed, uuid: espUUID.lowercased(), path: "m1n1/boot.bin")
+      }
       return NativeStubFileIdentity(
         bytes: installed.count, sha256: NativeStubFileStore.hash(installed))
     }
