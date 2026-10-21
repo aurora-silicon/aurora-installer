@@ -8,6 +8,13 @@
   /// content. Its synthesized POSIX metadata is not an ownership credential.
   /// The caller holds the protected installation journal lease throughout use.
   struct NativeESPFileStore: Sendable {
+    struct ReplacementReceipt: Codable, Equatable, Sendable {
+      let path: String
+      let backupPath: String
+      let previous: NativeStubFileIdentity
+      let installed: NativeStubFileIdentity
+    }
+
     let tree: NativeHandoffFileTree
     private let device: dev_t
     private let namespace: String
@@ -64,6 +71,104 @@
           member, maximumBytes: 64 << 20,
           maximumCompressedBytes: 64 << 20, consume: consume)
       }
+    }
+
+    /// Replace one admitted file while retaining its exact previous bytes for
+    /// rollback. The caller holds the journal lease and records this receipt.
+    func replaceData(
+      _ bytes: Data, replacing previous: NativeStubFileIdentity, at path: String
+    ) async throws -> ReplacementReceipt {
+      guard NativeESPPayloadPlan.safeFATPath(path),
+        !path.split(separator: "/").contains(where: {
+          $0.hasPrefix(".aurora-next-") || $0.hasPrefix(".aurora-old-")
+        }),
+        previous.bytes > 0, previous.bytes <= 64 << 20,
+        SHA256Digest(hexadecimal: previous.sha256) != nil,
+        bytes.count > 0, bytes.count <= 64 << 20
+      else { throw NativeHandoffValidationError.unsafePath }
+      let installed = NativeStubFileIdentity(
+        bytes: bytes.count, sha256: NativeStubFileStore.hash(bytes))
+      guard installed != previous else { throw NativeHandoffValidationError.invalidTarget }
+      let names = replacementPaths(path)
+      guard try await data(bytes, at: names.staged) == installed else {
+        throw NativeStubFileError.changedFile
+      }
+      let (parent, leaf) = try tree.writableParent(path)
+      defer { close(parent) }
+      var directory = stat()
+      guard fstat(parent, &directory) == 0, directory.st_mode & S_IFMT == S_IFDIR,
+        directory.st_dev == device
+      else { throw NativeHandoffValidationError.unsafePath }
+      let old = try identityIfPresent(
+        parent, leaf: leaf, maximum: max(previous.bytes, bytes.count))
+      let backup = try identityIfPresent(parent, leaf: names.backupLeaf, maximum: previous.bytes)
+      if backup == nil {
+        guard old == previous,
+          renameatx_np(parent, leaf, parent, names.backupLeaf, UInt32(RENAME_EXCL)) == 0,
+          fsync(parent) == 0
+        else { throw NativeStubFileError.changedFile }
+      } else {
+        guard backup == previous, old == nil || old == installed else {
+          throw NativeStubFileError.changedFile
+        }
+      }
+      if try identityIfPresent(parent, leaf: leaf, maximum: bytes.count) == nil {
+        guard renameatx_np(parent, names.stagedLeaf, parent, leaf, UInt32(RENAME_EXCL)) == 0,
+          fsync(parent) == 0
+        else { throw NativeStubFileError.writeFailed }
+      }
+      guard try identityIfPresent(parent, leaf: leaf, maximum: bytes.count) == installed,
+        try identityIfPresent(
+          parent, leaf: names.backupLeaf, maximum: previous.bytes) == previous
+      else { throw NativeStubFileError.changedFile }
+      if let staged = try identityIfPresent(
+        parent, leaf: names.stagedLeaf, maximum: bytes.count)
+      {
+        guard staged == installed else { throw NativeStubFileError.changedFile }
+        guard unlinkat(parent, names.stagedLeaf, 0) == 0, fsync(parent) == 0 else {
+          throw NativeStubFileError.writeFailed
+        }
+      }
+      return ReplacementReceipt(
+        path: path, backupPath: names.backup, previous: previous, installed: installed)
+    }
+
+    func replacementPaths(_ path: String) -> (
+      staged: String, backup: String, stagedLeaf: String, backupLeaf: String
+    ) {
+      let hash = NativeStubFileStore.hash(Data((namespace + ":" + path).utf8))
+      let parts = path.split(separator: "/").map(String.init)
+      let parent = parts.dropLast().joined(separator: "/")
+      let prefix = parent.isEmpty ? "" : parent + "/"
+      let stagedLeaf = ".aurora-next-" + hash
+      let backupLeaf = ".aurora-old-" + hash
+      return (prefix + stagedLeaf, prefix + backupLeaf, stagedLeaf, backupLeaf)
+    }
+
+    private func identityIfPresent(_ parent: Int32, leaf: String, maximum: Int)
+      throws -> NativeStubFileIdentity?
+    {
+      var named = stat()
+      if fstatat(parent, leaf, &named, AT_SYMLINK_NOFOLLOW) != 0 {
+        guard errno == ENOENT else { throw NativeHandoffValidationError.unsafePath }
+        return nil
+      }
+      guard named.st_mode & S_IFMT == S_IFREG, named.st_dev == device else {
+        throw NativeHandoffValidationError.unsafePath
+      }
+      let descriptor = openat(parent, leaf, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
+      guard descriptor >= 0 else { throw NativeHandoffValidationError.unsafePath }
+      defer { close(descriptor) }
+      var opened = stat()
+      guard fstat(descriptor, &opened) == 0, opened.st_dev == named.st_dev,
+        opened.st_ino == named.st_ino, opened.st_mode & S_IFMT == S_IFREG
+      else { throw NativeHandoffValidationError.unsafePath }
+      let value = try identity(descriptor, maximum: maximum)
+      var after = stat()
+      guard fstatat(parent, leaf, &after, AT_SYMLINK_NOFOLLOW) == 0,
+        after.st_dev == opened.st_dev, after.st_ino == opened.st_ino
+      else { throw NativeHandoffValidationError.unsafePath }
+      return value
     }
 
     /// Archive publication has a separate budget; boot-file callers retain 64 MiB.

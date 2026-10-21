@@ -99,7 +99,11 @@
           trustRoot: request.configuration.trustRoot,
           validationTime: request.validationTime,
           previouslyAcceptedCatalog: request.previouslyAcceptedCatalog,
-          installerVersion: request.installerVersion,
+          // A sealed catalog is distributed inside this signed app, so its
+          // remote-update minimum cannot make the app outdated against itself.
+          // Remote channel catalogs still enforce their minimum version.
+          installerVersion: request.configuration.sealedCatalogDocuments == nil
+            ? request.installerVersion : nil,
           stagingDirectory: request.stagingDirectory
         ),
         progress: progress,

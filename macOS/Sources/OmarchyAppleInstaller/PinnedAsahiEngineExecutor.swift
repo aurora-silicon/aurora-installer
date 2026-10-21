@@ -26,6 +26,7 @@
     case restoreImageRejected
     case restoreImageUnsupported
     case recoveryTemplateUnsupported
+    case nativeReinstallUnavailable
     case unsafeTranscript
   }
 
@@ -71,6 +72,7 @@
     private let payloadImagesPreparer: any NativePayloadImagesPreparing
     private let espFilesPreparer: any NativeESPFilesPreparing
     private let installationFinisher: any NativeInstallationFinishingPreparing
+    private let preservedReinstall: any NativePreservedReinstallExecuting
     private let nativeHandoff: any NativeRecoveryHandoffExecuting
     private let collectInstallAdmission: @Sendable () throws -> NativeInstallAdmissionFacts
     private let validatePayload: @Sendable (ImportedEngineHandoffPackage) async throws -> Void
@@ -98,6 +100,7 @@
       let finishing = NativeInstallationFinisher()
       espFilesPreparer = NativeESPFilesPreparer(allowLegacyStage1: finishing.enabled)
       installationFinisher = finishing
+      preservedReinstall = NativePreservedInstallCoordinator()
       nativeHandoff = NativeRecoveryHandoffExecutor()
       collectInstallAdmission = { try NativeInstallAdmissionFacts.live() }
       validatePayload = { try await NativePayloadPreflight.check($0) }
@@ -123,6 +126,8 @@
       payloadImagesPreparer: any NativePayloadImagesPreparing = NativePayloadImagesPreparer(),
       espFilesPreparer: any NativeESPFilesPreparing = NativeESPFilesPreparer(),
       installationFinisher: any NativeInstallationFinishingPreparing = NativeInstallationFinisher(),
+      preservedReinstall: any NativePreservedReinstallExecuting =
+        NativePreservedInstallCoordinator(),
       nativeHandoff: any NativeRecoveryHandoffExecuting = NativeRecoveryHandoffExecutor(),
       collectInstallAdmission: @escaping @Sendable () throws -> NativeInstallAdmissionFacts = {
         try NativeInstallAdmissionFacts.live()
@@ -153,6 +158,7 @@
       self.payloadImagesPreparer = payloadImagesPreparer
       self.espFilesPreparer = espFilesPreparer
       self.installationFinisher = installationFinisher
+      self.preservedReinstall = preservedReinstall
       self.nativeHandoff = nativeHandoff
       self.collectInstallAdmission = collectInstallAdmission
       self.validatePayload = validatePayload
@@ -165,10 +171,39 @@
       authorization: MachineOwnerAuthorization,
       operation: EngineHandoffOperation = .install
     ) async throws -> Data {
+      try await execute(
+        package, authorization: authorization, operation: operation, installConf: nil)
+    }
+
+    public func execute(
+      _ package: ImportedEngineHandoffPackage,
+      authorization: MachineOwnerAuthorization,
+      operation: EngineHandoffOperation,
+      installConf: InstallConf?
+    ) async throws -> Data {
       guard effectiveUserID() == 0 else {
         throw PinnedAsahiEngineExecutionError.privilegeRequired
       }
       let journal = try preparePersistentJournal(for: package)
+      if package.installationIntent == .reinstall {
+        guard let installConf,
+          operation == .install || operation == .retryRecoveryAuthorization
+        else {
+          throw PinnedAsahiEngineExecutionError.nativeReinstallUnavailable
+        }
+        do {
+          return try await preservedReinstall.execute(
+            package, journal: journal, authorization: authorization,
+            installConf: installConf)
+        } catch let error as PinnedAsahiEngineExecutionError {
+          throw error
+        } catch {
+          throw preparationFailure(
+            error, reason: .unclassified, operation: operation,
+            journal: journal, package: package, password: authorization.password,
+            summary: "The preserved installation did not complete.")
+        }
+      }
       let resumesNativePreparation =
         operation == .retryRecoveryAuthorization
         && nativeDiskPreparationRetryEligible(
@@ -279,6 +314,12 @@
             : try installationFinisher.preflight(
               package: package, stub: preparedStubFiles?.firmwarePlan,
               peripherals: preparedPeripherals)
+          if operation == .install, installationFinisher.requiresNativePath {
+            guard package.installationIntent == .fresh,
+              preparedAPFS != nil, preparedStubFiles != nil, preparedOSPartitions != nil,
+              preparedPayloadImages != nil, preparedESPFiles != nil, preparedFinishing != nil
+            else { throw NativeHandoffValidationError.invalidTarget }
+          }
           if resumesNativePreparation {
             guard preparedAPFS != nil, preparedStubFiles != nil, preparedOSPartitions != nil,
               preparedPayloadImages != nil, preparedESPFiles != nil
@@ -755,7 +796,8 @@
           workingDirectory: directory, bindingDigest: identity.bindingDigest)
       else { return false }
       let retryIdentity = RecoveryRetryIdentity(identity: identity)
-      return nativeDiskPreparationRetryEligible(journal: journal, identity: retryIdentity)
+      return preservedRetryEligible(journal: journal, identity: identity)
+        || nativeDiskPreparationRetryEligible(journal: journal, identity: retryIdentity)
         || isRecoveryAuthorizationRetryEligible(journal: journal, identity: retryIdentity)
     }
 
@@ -764,6 +806,12 @@
     func canResumeInterruptedRecoveryAuthorization(
       _ identity: InstallerJobPlanIdentity, in directory: URL
     ) -> Bool {
+      if let journal = EngineJournalLocator.journalURL(
+        workingDirectory: directory, bindingDigest: identity.bindingDigest),
+        preservedRetryEligible(journal: journal, identity: identity)
+      {
+        return true
+      }
       guard
         let journal = EngineJournalLocator.journalURL(
           workingDirectory: directory, bindingDigest: identity.bindingDigest),
@@ -790,6 +838,34 @@
         flock(fd, LOCK_EX | LOCK_NB) == 0
       else { return false }
       defer { _ = flock(fd, LOCK_UN) }
+      return true
+    }
+
+    private func preservedRetryEligible(
+      journal: URL, identity: InstallerJobPlanIdentity
+    ) -> Bool {
+      guard let transcript = try? readTranscript(journal),
+        let snapshot = try? NativePreservedInstallJournalSnapshot.decode(
+          transcript, identity: identity,
+          evidence: { try readCheckpointEvidence(journal: journal, identifier: $0) }),
+        snapshot.state != .ready,
+        let configuration = try? readCheckpointEvidence(
+          journal: journal, identifier: "preserved-install-conf"),
+        let parsed = try? InstallConf.parse(configuration),
+        parsed.serializedData == configuration
+      else { return false }
+      let descriptor = Darwin.open(journal.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
+      guard descriptor >= 0 else { return false }
+      defer { Darwin.close(descriptor) }
+      var opened = stat()
+      var named = stat()
+      guard fstat(descriptor, &opened) == 0, lstat(journal.path, &named) == 0,
+        opened.st_mode & S_IFMT == S_IFREG, opened.st_uid == expectedFileOwnerID(),
+        opened.st_mode & 0o077 == 0, opened.st_nlink == 1,
+        opened.st_dev == named.st_dev, opened.st_ino == named.st_ino,
+        flock(descriptor, LOCK_EX | LOCK_NB) == 0
+      else { return false }
+      defer { _ = flock(descriptor, LOCK_UN) }
       return true
     }
 

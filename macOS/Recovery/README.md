@@ -1,6 +1,8 @@
-# Omarchy Step 2
+# Aurora Recovery
 
-The Omarchy-branded native Recovery interface lives alongside the main installer. It has two explicit build modes, targeting macOS 13 independently of the main installer's macOS 15 requirement.
+The Aurora-branded native Recovery interface lives alongside the main installer. It has two explicit build modes, targeting macOS 13 independently of the main installer's macOS 15 requirement.
+
+Older Recovery environments may omit frameworks available in full macOS. Recovery uses a compatible system SHA-256 implementation, and packaging rejects direct linkage to either unavailable crypto framework. Launch on the affected older Recovery image still requires a boot test.
 
 ## Preview
 
@@ -47,7 +49,7 @@ Account preparation now invokes the existing conditional finalizer before the St
 
 The first-stage engine reads back the selected APFS volume group after `bless`. The macOS shutdown handoff also verifies that the target group remains selected. A successful process exit without the expected selection cannot complete the handoff.
 
-The welcome screen retains a small text attribution without an Aurora logo. The Omarchy banner and Kanagawa volume artwork are independent. AppKit owns the outer rounding with hidden title bar and standard window controls; Command-Q quits.
+The welcome screen retains a small text attribution without an Aurora logo. The Aurora banner and Kanagawa volume artwork are independent. AppKit owns the outer rounding with hidden title bar and standard window controls; Command-Q quits.
 
 ## Per-install firmware recovery baseline
 

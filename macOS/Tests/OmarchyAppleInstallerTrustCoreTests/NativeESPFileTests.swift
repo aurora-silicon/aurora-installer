@@ -200,6 +200,59 @@
       } catch {}
       XCTAssertEqual(
         try Data(contentsOf: root.appendingPathComponent("EFI/BOOT/fixture.bin")), bytes)
+      let newer = Data("verified replacement on FAT".utf8)
+      let replaced = try await store.replaceData(
+        newer, replacing: identity, at: prefix + "EFI/BOOT/fixture.bin")
+      XCTAssertEqual(try store.identity(prefix + "EFI/BOOT/fixture.bin"), replaced.installed)
+      XCTAssertEqual(try store.identity(replaced.backupPath), identity)
+      let repeatedReplacement = try await store.replaceData(
+        newer, replacing: identity, at: prefix + "EFI/BOOT/fixture.bin")
+      XCTAssertEqual(repeatedReplacement, replaced)
+    }
+
+    func testVerifiedESPReplacementResumesAfterTheOldNameIsBackedUp() async throws {
+      let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+        "aurora-esp-replace-" + UUID().uuidString)
+      try FileManager.default.createDirectory(
+        at: root, withIntermediateDirectories: false,
+        attributes: [.posixPermissions: 0o700])
+      defer { try? FileManager.default.removeItem(at: root) }
+      let store = try NativeESPFileStore(
+        root: root, volumeDevice: "fixture", namespace: "preserved-test",
+        verifyMount: { _, _, _ in }, admitFilesystem: { _ in })
+      let path = "EFI/BOOT/BOOTAA64.EFI"
+      let old = Data("old verified boot file".utf8)
+      let next = Data("new verified boot file".utf8)
+      let previous = try await store.data(old, at: path)
+      let wrong = NativeStubFileIdentity(
+        bytes: previous.bytes, sha256: String(repeating: "0", count: 64))
+      do {
+        _ = try await store.replaceData(next, replacing: wrong, at: path)
+        XCTFail("An unverified old file was replaced")
+      } catch {}
+      XCTAssertEqual(try store.identity(path), previous)
+      let names = store.replacementPaths(path)
+      let (parent, leaf) = try store.tree.writableParent(path)
+      defer { close(parent) }
+      XCTAssertEqual(
+        renameatx_np(parent, leaf, parent, names.backupLeaf, UInt32(RENAME_EXCL)), 0)
+      XCTAssertEqual(fsync(parent), 0)
+
+      let receipt = try await store.replaceData(next, replacing: previous, at: path)
+      XCTAssertEqual(receipt.backupPath, names.backup)
+      XCTAssertEqual(try store.identity(path), receipt.installed)
+      XCTAssertEqual(try store.identity(names.backup), previous)
+      let repeated = try await store.replaceData(next, replacing: previous, at: path)
+      XCTAssertEqual(repeated, receipt)
+      XCTAssertFalse(
+        FileManager.default.fileExists(atPath: root.appendingPathComponent(names.staged).path))
+
+      try Data("changed backup".utf8).write(to: root.appendingPathComponent(names.backup))
+      do {
+        _ = try await store.replaceData(next, replacing: previous, at: path)
+        XCTFail("Changed rollback file was adopted")
+      } catch {}
+      XCTAssertEqual(try store.identity(path), receipt.installed)
     }
 
     final class Fixture: @unchecked Sendable {

@@ -6,6 +6,7 @@ from pathlib import Path
 import plistlib
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'assemble-distribution-payload.py'
@@ -44,6 +45,48 @@ class DistributionPayloadTests(unittest.TestCase):
         self.assertIn('j700ap', metadata['excluded_device_classes'])
         with zipfile.ZipFile(output / metadata['package']) as archive:
             payload.omarchy_recovery.validate_payload(archive)
+
+    def test_neo_reset_catalog_requires_qualified_stage_two_without_private_inputs(self):
+        self.image.update(installation_profile='nixos-kde', layout_kind='nixos-btrfs-v1')
+        (self.bundle / 'image.json').write_text(json.dumps(self.image))
+        output = self.root / 'neo-reset'
+        with self.assertRaisesRegex(ValueError, 'current board-specific Stage 2'):
+            payload.assemble(self.bundle, self.app, output, native_neo_reset=True)
+        self.assertFalse(output.exists())
+        dedicated = self.bundle / 'esp/m1n1/boot-j700.bin'
+        dedicated.write_bytes(b'dedicated-stage-two-fixture')
+        manifest = {'schema': 1, 'sourceSha256': payload.digest(self.bundle / 'esp/m1n1/boot.bin'),
+                    'boards': {'j700ap': {'member': 'esp/m1n1/boot-j700.bin',
+                                          'bytes': dedicated.stat().st_size,
+                                          'sha256': '0' * 64}}}
+        (self.bundle / 'stage2.json').write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, 'member identity mismatch'):
+            payload.assemble(self.bundle, self.app, output, native_neo_reset=True)
+        manifest['boards']['j700ap']['sha256'] = payload.digest(dedicated)
+        (self.bundle / 'stage2.json').write_text(json.dumps(manifest))
+        payload.assemble(self.bundle, self.app, output, native_neo_reset=True,
+                         release_id='fixture')
+        metadata = json.loads((output / 'installer-data-nixos-kde.json').read_text())['os_list'][0]
+        self.assertEqual(metadata['allowed_device_classes'], ['j700ap'])
+        self.assertEqual(metadata['required_neo_peripherals'], ['radio'])
+        self.assertEqual(metadata['aurora_stage2']['board_members'],
+                         {'j700ap': 'esp/m1n1/boot-j700.bin'})
+        self.assertNotIn('neo_regulatory_policy', metadata)
+        self.assertNotIn('excluded_device_classes', metadata)
+        with zipfile.ZipFile(output / metadata['package']) as archive:
+            self.assertIn('esp/m1n1/boot-j700.bin', archive.namelist())
+        self.assertTrue(json.loads((output / 'delivery.json').read_text())['native_neo_reset_qa'])
+
+        self.image.update(installation_profile='fedora-kde', layout_kind='fedora-btrfs-v1')
+        (self.bundle / 'image.json').write_text(json.dumps(self.image))
+        fedora_output = self.root / 'neo-fedora-reset'
+        payload.assemble(self.bundle, self.app, fedora_output, native_neo_reset=True,
+                         release_id='fixture')
+        fedora = json.loads((fedora_output / 'installer-data-fedora-kde.json').read_text())['os_list'][0]
+        self.assertEqual(fedora['default_os_name'], 'Fedora Aurora Remix')
+        self.assertEqual(fedora['allowed_device_classes'], ['j700ap'])
+        self.assertEqual(fedora['aurora_stage2']['board_members']['j700ap'],
+                         'esp/m1n1/boot-j700.bin')
 
     def test_all_nine_profiles_use_the_selected_distribution_symbol(self):
         observed = {}

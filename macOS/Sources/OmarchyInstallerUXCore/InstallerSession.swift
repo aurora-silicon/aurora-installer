@@ -8,8 +8,8 @@
     case inspecting
     case unsupported(FailureDisplay)
     case welcome(HostDisplay)
-    /// Aurora is already on this Mac. The installer never replaces or adds
-    /// to an existing install; this is a terminal page with a Close button.
+    /// Aurora is already on this Mac. The person may erase it or prepare a
+    /// separate, fixed-size reinstall that keeps the enrolled startup setup.
     case existingInstallRefused(host: HostDisplay)
     case preparingPlan(AssetProgressUpdate)
     /// Everything is downloaded and verified; the plan waits for the person to
@@ -46,6 +46,7 @@
     public private(set) var journal = LiveInstallJournalModel()
     public private(set) var isBusy = false
     private var isExecuting = false
+    private var preservingStage1 = false
     private var operationID = UUID()
     public private(set) var planRevision = 0
     public private(set) var isEditingSize = false
@@ -55,12 +56,13 @@
     private var preparationDrain: Task<Void, Never>?
     private var pendingPreparation: PreparationRequest?
 
-    private struct PreparationRequest {
+    private struct PreparationRequest: Sendable {
       let id: UUID
       let host: HostDisplay?
       let bytes: UInt64?
       let hold: Bool
       let replanning: Bool
+      let preservingStage1: Bool
     }
 
     public func setSizeEditing(_ editing: Bool) {
@@ -295,7 +297,31 @@
       guard case .welcome(let host) = phase else {
         return
       }
+      preservingStage1 = false
       await preparePlan(host: host)
+    }
+
+    public var canPreparePreservedReinstall: Bool {
+      guard case .existingInstallRefused(let host) = phase else { return false }
+      return host.existingInstalls.count == 1 && host.supported
+        && !isBusy && !isExecuting && !hasExecutionStarted
+        && !environment.installationBlocked && environment.engineSupported
+    }
+
+    public func reinstallPreservingStage1() async {
+      guard canPreparePreservedReinstall,
+        case .existingInstallRefused(let host) = phase
+      else { return }
+      preservingStage1 = true
+      recoveryAccount = nil
+      await preparePlan(host: host)
+    }
+
+    public func showExistingInstallOptions() {
+      guard case .existingInstallRefused(let host) = phase,
+        !host.existingInstalls.isEmpty
+      else { return }
+      recoveryAccount = nil
     }
 
     /// Every returned plan is reviewed anew, even when the engine clamps to
@@ -336,7 +362,9 @@
       isBusy = false
       if case .preparingPlan = phase {
         stopPrefetch()
-        if let host = lastHost { phase = .welcome(host) }
+        if let host = lastHost {
+          phase = preservingStage1 ? .existingInstallRefused(host: host) : .welcome(host)
+        }
       } else if case .planReview(let plan, _) = phase {
         planNeedsCheck = true
         phase = .planReview(plan, acknowledged: false)
@@ -361,7 +389,8 @@
       guard !isBusy || replanning else { return }
       operationID = UUID()
       let request = PreparationRequest(
-        id: operationID, host: host, bytes: omarchyBytes, hold: hold, replanning: replanning)
+        id: operationID, host: host, bytes: omarchyBytes, hold: hold, replanning: replanning,
+        preservingStage1: preservingStage1)
       // Invalidate before cancelling: even a worker that ignores cancellation
       // cannot publish authority or send a late result into this generation.
       environment.cancelPlanPreparation()
@@ -394,12 +423,17 @@
       while let request = pendingPreparation {
         pendingPreparation = nil
         let task = Task { [environment, session = self] in
-          try await environment.preparePlan(omarchyBytes: request.bytes) { update in
+          let progress: @Sendable (AssetProgressUpdate) -> Void = { update in
             Task { @MainActor in
               guard session.operationID == request.id else { return }
               session.applyPreparation(update)
             }
           }
+          if request.preservingStage1 {
+            return try await environment.preparePreservedReinstallPlan(progress: progress)
+          }
+          return try await environment.preparePlan(
+            omarchyBytes: request.bytes, progress: progress)
         }
         preparationTask = task
         do {
@@ -1063,6 +1097,7 @@
       recoveryRetryAvailable = false
       isExecuting = false
       lastHost = nil
+      preservingStage1 = false
       refusedPlan = nil
       encryptLinuxDisk = allowsEncryption
       environment.setEncryptLinuxDisk(allowsEncryption)

@@ -14,7 +14,7 @@ struct ConfirmationSheet: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       Text(title)
-        .font(OmarchyTheme.title)
+        .font(OmarchyTheme.sheetTitle)
         .fixedSize(horizontal: false, vertical: true)
         .padding(.bottom, 14)
       Text(message)

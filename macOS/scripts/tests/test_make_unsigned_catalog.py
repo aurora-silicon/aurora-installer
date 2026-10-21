@@ -43,6 +43,7 @@ class CatalogGeneratorTests(unittest.TestCase):
         document: dict | None = None,
         output: str = "catalog.json",
         developer: bool = False,
+        qa_only_model: str | None = None,
     ):
         return subprocess.run(
             [
@@ -59,6 +60,7 @@ class CatalogGeneratorTests(unittest.TestCase):
                 "--now",
                 NOW,
                 *(["--developer"] if developer else []),
+                *(["--qa-only-model", qa_only_model] if qa_only_model else []),
             ],
             capture_output=True,
             text=True,
@@ -79,6 +81,17 @@ class CatalogGeneratorTests(unittest.TestCase):
         (self.assets / f"{neo['payload_name']}.part01").write_bytes(content[300:])
         document["developer_models"] = [neo]
         return document
+
+    def test_qa_catalog_admits_only_one_declared_developer_board(self):
+        document = json.loads(json.dumps(self.inputs))
+        document["device_identifiers"] = ["apple,j700"]
+        result = self.generate(document, qa_only_model="apple,j700")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        catalog = json.loads((self.directory / "catalog.json").read_text())
+        self.assertEqual([model["deviceIdentifier"] for model in catalog["models"]],
+                         ["apple,j700"])
+        self.assertNotEqual(self.generate(document).returncode, 0)
+        self.assertNotEqual(self.generate(document, qa_only_model="apple,j613").returncode, 0)
 
     def assertRejected(self, document: dict, fragment: str, developer: bool = False) -> None:
         result = self.generate(document, developer=developer)

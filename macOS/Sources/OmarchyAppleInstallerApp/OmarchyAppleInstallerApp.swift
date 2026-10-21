@@ -182,7 +182,13 @@ struct OmarchyAppleInstallerApp: App {
     OnePageInstallerView(
       environment: LiveInstallerEnvironment(selection: selection), channel: channel,
       selection: selection, startAtPlan: true,
-      onSessionAvailable: { liveSession = $0 }, onRemoveLinux: { showsRemoval = true })
+      onSessionAvailable: { liveSession = $0 }, onRemoveLinux: { showsRemoval = true },
+      onChooseSystem: {
+        liveSession?.cancelPrefetchOnQuit()
+        liveSession = nil
+        choosingSystem = true
+        generation = UUID()
+      })
   }
 
   @State private var channel = ReleaseChannelPreference().resolveFromMainBundle()
@@ -289,14 +295,14 @@ struct OmarchyAppleInstallerApp: App {
         }
       #endif
       CommandMenu("Installation") {
-        Button("Choose System…") {
+        Button("Choose system") {
           liveSession?.cancelPrefetchOnQuit()
           liveSession = nil
           choosingSystem = true
           generation = UUID()
         }.disabled(!choosingSystem && liveSession?.canChangeChannel != true)
         Divider()
-        Button("Erase Linux…") { showsRemoval = true }
+        Button("Erase Linux") { showsRemoval = true }
           .disabled(removalNeedsReview || showsRemoval || liveSession?.canChangeChannel != true)
       }
       if InstallerBuildProfile.current.showsReleaseChannels {

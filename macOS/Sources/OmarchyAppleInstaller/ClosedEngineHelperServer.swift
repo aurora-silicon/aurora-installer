@@ -14,6 +14,27 @@
       authorization: MachineOwnerAuthorization,
       operation: EngineHandoffOperation
     ) async throws -> Data
+
+    func execute(
+      _ package: ImportedEngineHandoffPackage,
+      authorization: MachineOwnerAuthorization,
+      operation: EngineHandoffOperation,
+      installConf: InstallConf?
+    ) async throws -> Data
+  }
+
+  extension ImportedEngineHandoffExecuting {
+    public func execute(
+      _ package: ImportedEngineHandoffPackage,
+      authorization: MachineOwnerAuthorization,
+      operation: EngineHandoffOperation,
+      installConf _: InstallConf?
+    ) async throws -> Data {
+      guard package.installationIntent != .reinstall else {
+        throw ClosedEngineHelperError.invalidOperation
+      }
+      return try await execute(package, authorization: authorization, operation: operation)
+    }
   }
 
   public enum ClosedEngineHelperError: Error, Equatable, Sendable {
@@ -456,6 +477,9 @@
       operation: EngineHandoffOperation, progress: (any EngineJournalProgressSink)?,
       installConf: InstallConf?
     ) async throws -> (Data, InstallConfHandoff) {
+      guard package.installationIntent != .reinstall || installConf != nil else {
+        throw ClosedEngineHelperError.invalidOperation
+      }
       var tailer: EngineJournalTailer?
       if let progress,
         let journalURL = EngineJournalLocator.journalURL(
@@ -477,7 +501,8 @@
         result = try await executor.execute(
           package,
           authorization: authorization,
-          operation: operation
+          operation: operation,
+          installConf: installConf
         )
       } catch {
         await tailer?.stop()

@@ -319,6 +319,46 @@
       XCTAssertEqual(result.catalogIdentity.sequence, 30)
     }
 
+    func testSealedCatalogIsPairedWithItsSignedAppInsteadOfRemoteMinimum() async throws {
+      let fixture = try makeFixture(
+        schemaVersion: 2,
+        installerMinimumVersion: "9.0.0"
+      )
+      let directory = temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let original = fixture.releaseConfiguration
+      let sealed = InstallerReleaseConfiguration(
+        channels: original.channels,
+        defaultChannel: original.defaultChannel,
+        trustRoot: original.trustRoot,
+        helperMachServiceName: original.helperMachServiceName,
+        helperCodeSigningRequirement: original.helperCodeSigningRequirement,
+        sealedCatalogDocuments: InstallerReleaseCatalogDocuments(
+          payload: fixture.catalogPayload, signature: fixture.catalogSignature)
+      )
+      let coordinator = InstallerReleaseAssetCoordinator(
+        catalogFetcher: InstallerReleaseCatalogFetcher(
+          downloader: fixture.releaseDownloader
+        ),
+        assetPreparer: fixture.preparer
+      )
+
+      let result = try await coordinator.prepare(
+        InstallerReleasePreparationRequest(
+          host: fixture.host,
+          configuration: sealed,
+          channel: .stable,
+          validationTime: now,
+          installerVersion: InstallerVersion("0.1.0"),
+          stagingDirectory: directory
+        )
+      )
+
+      XCTAssertEqual(result.catalogIdentity.sequence, 30)
+      let catalogDownloadCount = await fixture.releaseDownloader.downloadCount
+      XCTAssertEqual(catalogDownloadCount, 0)
+    }
+
     func testReleaseCoordinatorBlocksM4BeforeCatalogNetwork() async throws {
       let fixture = try makeFixture(
         schemaVersion: 2,

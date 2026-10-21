@@ -14,14 +14,15 @@ compile_run() {
   "$out/$name"
 }
 compile_run enrollment Sources/EnrollmentGate.swift Tests/EnrollmentGateCheck.swift
+compile_run digest Sources/Account/RecoveryDigest.swift Tests/RecoveryDigestCheck.swift
 compile_run owner Sources/RecoveryOwner.swift Tests/RecoveryOwnerCheck.swift
 compile_run bootstrap-owner Sources/RecoveryOwner.swift Tests/BootstrapOwnerCheck.swift
 compile_run boot-selection Sources/BootSelection.swift Tests/BootSelectionCheck.swift
 compile_run installer-log Sources/InstallerLog.swift Tests/InstallerLogCheck.swift
 compile_run log-view Sources/LogTextView.swift Tests/LogTextViewCheck.swift
 compile_run configuration Sources/RecoveryOwner.swift Sources/InstallConfiguration.swift Tests/InstallConfigurationCheck.swift
-compile_run file-transaction Sources/Account/RecoveryFileTransaction.swift Tests/RecoveryFileTransactionCheck.swift
+compile_run file-transaction Sources/Account/RecoveryDigest.swift Sources/Account/RecoveryFileTransaction.swift Tests/RecoveryFileTransactionCheck.swift
 compile_run installation-journal Sources/RecoveryInstallationJournal.swift Tests/RecoveryInstallationJournalCheck.swift
 compile_run account-restart Sources/RecoveryAccountRestart.swift Tests/RecoveryAccountRestartCheck.swift
-compile_run directory-swap Sources/Account/RecoveryFileTransaction.swift Sources/RecoveryDirectorySwap.swift Tests/RecoveryDirectorySwapCheck.swift
-compile_run baseline Sources/RecoveryBaseline.swift Tests/RecoveryBaselineCheck.swift
+compile_run directory-swap Sources/Account/RecoveryDigest.swift Sources/Account/RecoveryFileTransaction.swift Sources/RecoveryDirectorySwap.swift Tests/RecoveryDirectorySwapCheck.swift
+compile_run baseline Sources/Account/RecoveryDigest.swift Sources/RecoveryBaseline.swift Tests/RecoveryBaselineCheck.swift

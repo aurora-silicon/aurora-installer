@@ -48,7 +48,7 @@
             }
           } actions: {
             if screen == "existing" {
-              Button("Erase Linux…", role: .destructive, action: {}).omarchySecondaryButton()
+              Button("Erase Linux", role: .destructive, action: {}).omarchySecondaryButton()
             } else if screen.hasPrefix("allocation") {
               HStack(spacing: 16) {
                 if screen == "allocation-checking" {

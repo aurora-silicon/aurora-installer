@@ -93,6 +93,26 @@
             }
         }
     }
+
+    /// Reuse the existing boot-policy target only when its installed Stage 1
+    /// exactly matches the selected authenticated payload after ESP binding.
+    func admitPreservedStage1(_ installed: Data, espUUID: String) throws
+      -> NativeStubFileIdentity
+    {
+      guard !installed.isEmpty, installed.count <= 64 << 20,
+        UUID(uuidString: espUUID) != nil
+      else { throw NativeBootChainError.invalidStage1 }
+      let expected =
+        usesLegacyStage1
+        ? try NativeLegacyStage1.fill(
+          stage1, uuid: espUUID.lowercased(), path: "m1n1/boot.bin")
+        : try NativeBootChain.fillStage1(
+          stage1, uuid: espUUID.lowercased(), path: "m1n1/boot.bin",
+          windowMilliseconds: windowMilliseconds)
+      guard installed == expected else { throw NativeBootChainError.invalidStage1 }
+      return NativeStubFileIdentity(
+        bytes: installed.count, sha256: NativeStubFileStore.hash(installed))
+    }
   }
 
   protocol NativeESPFilesExecuting: Sendable {

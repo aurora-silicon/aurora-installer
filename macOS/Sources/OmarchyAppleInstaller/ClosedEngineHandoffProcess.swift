@@ -302,7 +302,8 @@
           && invocation.plan.candidateKind == "repair"
           && assets.repairManifest != nil)
           || (invocation.pinnedInstaller.operation == "install"
-            && invocation.plan.candidateKind != "repair"
+            && ["free", "resize", "replace", "reinstall"].contains(
+              invocation.plan.candidateKind)
             && assets.repairManifest == nil)
       else {
         throw ClosedEngineHandoffError.assetBindingMismatch
@@ -446,7 +447,9 @@
 
     init(invocation: ClosedEngineInvocation) {
       let plan = invocation.plan
-      operation = invocation.pinnedInstaller.operation
+      operation =
+        plan.candidateKind == "reinstall"
+        ? ImportedInstallationIntent.reinstallOperation : invocation.pinnedInstaller.operation
       planDigest = plan.planDigest
       deviceIdentifier = plan.deviceIdentifier
       storeIdentifier = plan.storeIdentifier

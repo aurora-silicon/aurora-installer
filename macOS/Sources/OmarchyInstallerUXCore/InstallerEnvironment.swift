@@ -113,6 +113,7 @@
     case macOSResize
     case otherContainerResize
     case freeExtent
+    case preservedInstall
   }
 
   public struct PlanDisplay: Equatable, Sendable {
@@ -131,10 +132,10 @@
     public let macOSFreeBeforeAllocationBytes: UInt64?
     public let recommendedOmarchyBytes: UInt64?
     public static let recommendedMacOSFreeBytes: UInt64 = 38_000_000_000
-    /// Whether the user may choose Aurora's size. A replace plan removes an
-    /// existing install and reuses its exact extent, so there is nothing to
-    /// drag; showing a divider there invites a re-plan the engine refuses.
+    /// Whether the user may choose Aurora's size. Replacement and preserved
+    /// reinstall plans reuse an exact extent, so there is nothing to drag.
     public let isResizable: Bool
+    public var preservesStage1: Bool { allocationSource == .preservedInstall }
 
     public init(
       diskTotalBytes: UInt64,
@@ -588,6 +589,9 @@
       omarchyBytes: UInt64?,
       progress: @escaping @Sendable (AssetProgressUpdate) -> Void
     ) async throws -> PlanPreparationDisplay
+    func preparePreservedReinstallPlan(
+      progress: @escaping @Sendable (AssetProgressUpdate) -> Void
+    ) async throws -> PlanPreparationDisplay
     /// Invalidates in-flight read-only preparation and its retained approval authority.
     /// It never cancels helper-owned installation work.
     func cancelPlanPreparation()
@@ -644,6 +648,11 @@
 
   extension InstallerEnvironment {
     public func cancelPayloadPrefetchOnQuit() { cancelPayloadPrefetch() }
+    public func preparePreservedReinstallPlan(
+      progress _: @escaping @Sendable (AssetProgressUpdate) -> Void
+    ) async throws -> PlanPreparationDisplay {
+      throw InstallerJobError.unavailable
+    }
     public func cancelPlanPreparation() { discardApproval() }
     public func hasPendingInstallation() throws -> Bool { false }
     public func resumeInstallation(journal: @escaping @Sendable (Data) -> Void) async throws

@@ -47,6 +47,8 @@
         ? "I have a current backup and approve the disk resize above."
         : "I have a current backup and approve the disk layout above."
     }
+    public static let planPreservedAcknowledgement =
+      "I have a current backup and approve erasing Linux while keeping Stage 1 and the partition sizes."
     public static let planInstall = "Install"
     public static let downloadingPackagesTitle = "Downloading Aurora"
     public static let encryptLinuxDiskTitle = "Encrypt the Aurora disk"
@@ -191,6 +193,7 @@
       case "apfs-target-prepared": "Disk space reserved for Aurora"
       case "stub-and-esp-installed": "Boot files written"
       case "recovery-handoff-prepared": "Ready to finish setup"
+      case "preserved-install-written": "Linux and boot files replaced"
       default: "Additional installation activity (\(identifier))"
       }
     }
@@ -201,6 +204,7 @@
       case "apfs_preparation_started": "Started preparing disk space"
       case "stub_and_esp_started": "Started writing boot files"
       case "recovery_handoff_started": "Started preparing final setup"
+      case "preserved_reinstall_started": "Started resetting Linux"
       default: "Additional installation activity (\(name))"
       }
     }
@@ -754,6 +758,14 @@
         switch preparation {
         case .unsupportedDevice(let identifier):
           return unsupportedModel(deviceIdentifier: identifier, technicalDetail: technical)
+        case .preservedReinstallUnavailable:
+          return FailureDisplay(
+            headline: "This installation cannot be reset yet",
+            plainDetail:
+              "Choose the installed Aurora distribution and check this Mac again. The startup setup and disk were not changed.",
+            technicalDetail: technical,
+            remedy: "Select the installed distribution, then check this Mac again."
+          )
         default:
           return FailureDisplay(
             headline: "An installation plan couldn’t be prepared",

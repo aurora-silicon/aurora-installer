@@ -37,7 +37,8 @@ def regular(path):
     return path
 
 
-def assemble(bundle, recovery, output, policy_directory=None, reuse_payload=False, release_id=None):
+def assemble(bundle, recovery, output, policy_directory=None, reuse_payload=False, release_id=None,
+             native_neo_reset=False):
     release_id = release_id or datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,79}", release_id):
         raise ValueError("invalid delivery release identifier")
@@ -45,6 +46,29 @@ def assemble(bundle, recovery, output, policy_directory=None, reuse_payload=Fals
     profile = image['installation_profile']
     if not re.fullmatch(r'(fedora|arch|nixos)-(kde|gnome|minimal)', profile):
         raise ValueError('unknown installation profile')
+    if native_neo_reset and policy_directory is not None:
+        raise ValueError('Neo Reset qualification requires an image without factory inputs')
+    stage2_members = {}
+    manifest_path = bundle / 'stage2.json'
+    if manifest_path.exists():
+        manifest = json.loads(regular(manifest_path).read_text())
+        if manifest.get('schema') != 1 or manifest.get('sourceSha256') != digest(regular(bundle / 'esp/m1n1/boot.bin')):
+            raise ValueError('Stage 2 source identity mismatch')
+        records = manifest.get('boards')
+        if not isinstance(records, dict) or not records:
+            raise ValueError('missing Stage 2 board records')
+        for board, record in records.items():
+            if not re.fullmatch(r'j[0-9]+[a-z]*ap', board):
+                raise ValueError('invalid Stage 2 board')
+            member = record.get('member')
+            if member != 'esp/m1n1/boot-' + board.removesuffix('ap') + '.bin':
+                raise ValueError('invalid Stage 2 member')
+            path = regular(bundle / member)
+            if path.stat().st_size != record.get('bytes') or digest(path) != record.get('sha256'):
+                raise ValueError('Stage 2 member identity mismatch')
+            stage2_members[board] = member
+    if native_neo_reset and 'j700ap' not in stage2_members:
+        raise ValueError('Neo Reset requires a current board-specific Stage 2')
     distribution_icon = regular(DISTRIBUTION_ICONS[profile.split('-')[0]])
     expected_layout = {'fedora': 'fedora', 'arch': 'alarm', 'nixos': 'nixos'}[profile.split('-')[0]] + '-btrfs-v1'
     if image['layout_kind'] != expected_layout or image['root_subvolume'] != 'root':
@@ -131,18 +155,28 @@ def assemble(bundle, recovery, output, policy_directory=None, reuse_payload=Fals
     template['aurora_stage1'] = {'kind': 'common-raw-v1', 'qualified_machines': {
         identifier.removeprefix('apple,') + 'ap': ['13.5', '14.8.3', '26.6', '26.6.2'] for identifier in identifiers
     }}
+    if stage2_members:
+        template['aurora_stage2'] = {'kind': 'board-file-v1', 'board_members': stage2_members}
     if policies:
         template.update(allowed_device_classes=['j700ap'], supported_fw=['26.6', '26.6.2'],
                         required_neo_peripherals=['radio'],
                         neo_regulatory_policy={'kind': 'original-j7rp-v1', 'files': policies})
         template['aurora_stage1']['qualified_machines'] = {'j700ap': ['26.6', '26.6.2']}
+    elif native_neo_reset:
+        # Reset keeps the existing per-device firmware on EFI. This test-only
+        # catalog carries no factory input and is never adopted into the feed.
+        template.update(allowed_device_classes=['j700ap'], supported_fw=['26.6.2'],
+                        required_neo_peripherals=['radio'])
+        template['aurora_stage1']['qualified_machines'] = {'j700ap': ['26.6.2']}
     else:
         template['excluded_device_classes'] = ['j700ap']
     metadata = output / ('installer-data-' + profile + suffix + '.json')
     metadata.write_text(json.dumps({'os_list': [template]}, indent=2) + '\n')
     records = {p.name: {'bytes': p.stat().st_size, 'sha256': digest(p)} for p in (payload, metadata)}
     (output / 'delivery.json').write_text(json.dumps({'schema': 1, 'installation_profile': profile,
-        'release_id': release_id, 'private_neo_inputs': bool(policies), 'physical_qualification': 'pending', 'artifacts': records}, indent=2) + '\n')
+        'release_id': release_id, 'private_neo_inputs': bool(policies),
+        'native_neo_reset_qa': bool(native_neo_reset),
+        'physical_qualification': 'pending', 'artifacts': records}, indent=2) + '\n')
     print(json.dumps(records, indent=2))
 
 
@@ -152,7 +186,9 @@ if __name__ == '__main__':
     parser.add_argument('--recovery-app', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--private-neo-policy-directory', type=Path)
+    parser.add_argument('--native-neo-reset', action='store_true')
     parser.add_argument('--reuse-payload', action='store_true')
     parser.add_argument('--release-id')
     args = parser.parse_args()
-    assemble(args.filesystems, args.recovery_app, args.output, args.private_neo_policy_directory, args.reuse_payload, args.release_id)
+    assemble(args.filesystems, args.recovery_app, args.output, args.private_neo_policy_directory,
+             args.reuse_payload, args.release_id, native_neo_reset=args.native_neo_reset)

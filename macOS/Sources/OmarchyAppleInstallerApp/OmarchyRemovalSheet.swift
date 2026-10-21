@@ -134,7 +134,7 @@ struct OmarchyRemovalSheet: View {
 
   private var reviewContent: some View {
     VStack(alignment: .leading, spacing: 14) {
-      Text(heading).font(OmarchyTheme.title)
+      Text(heading).font(OmarchyTheme.sheetTitle)
       Text(ticket != nil && !submitted && !showsApproval ? reviewSummary : message)
         .font(OmarchyTheme.body).fixedSize(horizontal: false, vertical: true)
         .accessibilityIdentifier("removal-message")
@@ -608,7 +608,7 @@ private struct RemovalSheetHeightCapReader: NSViewRepresentable {
 #if DEBUG
   enum RemovalPreviewScenario: String, CaseIterable {
     case success = "Complete removal"
-    case asahi = "Older omarchy-mac installation"
+    case asahi = "Older Linux installation"
     case startupDisk = "Starts up from Aurora"
     case startupFailed = "Startup disk not changed"
     case freeSpace = "Free space only"

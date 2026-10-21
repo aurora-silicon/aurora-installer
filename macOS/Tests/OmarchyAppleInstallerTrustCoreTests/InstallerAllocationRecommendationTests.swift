@@ -691,6 +691,27 @@ final class InstallerAllocationRecommendationTests: XCTestCase {
     XCTAssertEqual(recommendation.candidate, free)
   }
 
+  func testPreservedReinstallKeepsItsExactInstalledExtent() throws {
+    let reinstall = candidate(
+      kind: "reinstall", source: "disk0s3", length: 60 * gib,
+      minimumInstall: 32 * gib,
+      identityDigest: "sha256:" + String(repeating: "9", count: 64))
+    let recommendation = try InstallerAllocationRecommendation(preserved: reinstall)
+    XCTAssertEqual(recommendation.candidate, reinstall)
+    XCTAssertEqual(recommendation.minimumBytes, 60 * gib)
+    XCTAssertEqual(recommendation.maximumBytes, 60 * gib)
+    XCTAssertEqual(recommendation.requestedLengthBytes, 60 * gib)
+    XCTAssertNoThrow(
+      try PinnedAsahiPlanRequest(
+        inventory: inventory([reinstall]), candidate: reinstall,
+        requestedLengthBytes: recommendation.requestedLengthBytes))
+    XCTAssertThrowsError(
+      try InstallerAllocationRecommendation(
+        preserved: candidate(
+          kind: "replace", source: "disk0s3", length: 60 * gib,
+          minimumInstall: 32 * gib)))
+  }
+
   private func inventory(
     _ candidates: [ValidatedEngineCandidate]
   ) -> ValidatedEngineInventory {

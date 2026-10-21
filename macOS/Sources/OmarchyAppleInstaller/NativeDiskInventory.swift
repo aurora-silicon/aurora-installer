@@ -40,13 +40,15 @@
       var candidates = [EngineInstallCandidate]()
       func candidate(
         _ kind: String, _ source: String, _ offset: UInt64, _ length: UInt64,
-        minimum: UInt64, container: UInt64 = 0, identity: String? = nil
+        minimum: UInt64, container: UInt64 = 0, identity: String? = nil,
+        recommend: Bool = true
       ) -> EngineInstallCandidate {
         EngineInstallCandidate(
           kind: kind, sourceIdentifier: source, offsetBytes: offset,
           lengthBytes: length, minimumInstallBytes: minimum, minimumContainerBytes: container,
-          identityDigest: identity, recommendedInstallBytes: bounds.recommended,
-          recommendedContainerBytes: container)
+          identityDigest: identity,
+          recommendedInstallBytes: recommend ? bounds.recommended : nil,
+          recommendedContainerBytes: recommend ? container : nil)
       }
       for row in rows {
         try Task.checkCancellation()
@@ -112,6 +114,21 @@
             "replace", part.identifier, start, length,
             minimum: length >= bounds.recommended ? bounds.recommended : bounds.floor,
             identity: InstallerDigest.lengthPrefixedSHA256(fields).rawValue))
+      }
+      let collected = NativeCollectedDisk(snapshot: snapshot, containers: containers)
+      for known in try NativeKnownInstallations.recognize(collected) {
+        guard
+          let preserved = try? NativePreservedInstallTarget.recognize(
+            collected, sourceIdentifier: known.sourceIdentifier, title: target.name)
+        else { continue }
+        let length = preserved.root.end - preserved.stub.offset
+        guard length > 0, length % PinnedAsahiPlanRequest.allocationUnitBytes == 0 else {
+          continue
+        }
+        candidates.append(
+          candidate(
+            "reinstall", preserved.stub.identifier, preserved.stub.offset, length,
+            minimum: length, identity: preserved.identityDigest, recommend: false))
       }
       candidates.sort {
         $0.offsetBytes == $1.offsetBytes ? $0.kind < $1.kind : $0.offsetBytes < $1.offsetBytes

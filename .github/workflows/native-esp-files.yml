@@ -20,7 +20,6 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: 2c2952719aeed970478f3b13d2a0d958ceddb716
           path: source
           persist-credentials: false
       - name: Record immutable source and toolchain
@@ -39,11 +38,9 @@ jobs:
           echo 'bd724a2c0e6ffe027b3f46257e66d626149a64cd045f4867124bd683b3cf081a  tool.tar.gz' | shasum -a 256 -c -
           tar -xzf tool.tar.gz
           echo "$PWD/xcodebuildmcp-2.7.0-darwin-arm64/bin" >> "$GITHUB_PATH"
-      - name: Format the focused candidate with Xcode
+      - name: Check exact-source Swift formatting
         run: |
           set -euo pipefail
-          xcrun swift-format format -i --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
-          git diff --binary > "$RUNNER_TEMP/evidence/format.patch"
           xcrun swift-format lint --strict --recursive Package.swift Sources Plugins Tests Recovery/Package.swift Recovery/Sources Recovery/Tests
       - name: Qualify native ESP publication on disposable FAT
         run: |
@@ -64,7 +61,7 @@ jobs:
           import re,sys
           for name in ("debug.log", "release.log"):
               log=(Path(sys.argv[1])/name).read_text()
-              assert re.search(r"5 tests passed, 0 failed, 0 skipped", log), name + ": incomplete FAT qualification"
+              assert re.search(r"8 tests passed, 0 failed, 0 skipped", log), name + ": incomplete FAT qualification"
           PYCODE
       - name: Retain the native driver logs
         if: always()

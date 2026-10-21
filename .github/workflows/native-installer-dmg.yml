@@ -5,6 +5,10 @@ on:
       profiles-revision:
         description: Immutable aurora-distributions commit with matching signed catalogs
         required: true
+      neo-reset-release-tag:
+        description: Signed, non-adopted Neo Reset QA catalog release; empty for normal builds
+        default: ''
+        required: false
       version:
         description: Installer marketing version
         default: '0.1.0'
@@ -45,10 +49,13 @@ jobs:
         env:
           PROFILES_REVISION: ${{ inputs.profiles-revision }}
           APP_VERSION: ${{ inputs.version }}
+          NEO_RESET_TAG: ${{ inputs.neo-reset-release-tag }}
+          PUBLISH_RELEASE: ${{ inputs.publish-release }}
         run: |
           set -euo pipefail
           [[ $PROFILES_REVISION =~ ^[0-9a-f]{40}$ ]]
           [[ $APP_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ -z $NEO_RESET_TAG || $PUBLISH_RELEASE == false ]]
           [[ $(uname -m) == arm64 ]]
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -58,6 +65,8 @@ jobs:
           sparse-checkout: site/installer/Profiles
           persist-credentials: false
       - name: Load the signed Alpha catalog set
+        env:
+          NEO_RESET_TAG: ${{ inputs.neo-reset-release-tag }}
         run: |
           set -euo pipefail
           if [[ ! -x /opt/homebrew/opt/openssl@3/bin/openssl ]]; then brew install openssl@3; fi
@@ -95,6 +104,40 @@ jobs:
                   output=root.joinpath(*path.parts);output.parent.mkdir(parents=True,exist_ok=True)
                   output.write_bytes(source.extractfile(member).read())
           PYCATALOGS
+          if [[ -n $NEO_RESET_TAG ]]; then
+            [[ $NEO_RESET_TAG =~ ^payload-(fedora|arch|nixos)-(kde|gnome|minimal)-[0-9]+-neo-reset-qa[0-9]*$ ]]
+            qa_profile="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+            case ${BASH_REMATCH[1]} in
+              fedora) qa_repository=fedora-aurora ;;
+              arch) qa_repository=alarm-aurora ;;
+              nixos) qa_repository=nixos-aurora ;;
+            esac
+            profile="$directory/Profiles/$qa_profile"
+            base="https://github.com/aurora-silicon/$qa_repository/releases/download/$NEO_RESET_TAG"
+            curl -fLsS --retry 3 "$base/catalog.json" -o "$directory/neo-reset-catalog.json"
+            curl -fLsS --retry 3 "$base/catalog.json.sig" -o "$directory/neo-reset-catalog.json.sig"
+            /opt/homebrew/opt/openssl@3/bin/openssl pkeyutl -verify -pubin -keyform DER \
+              -inkey "$directory/public.der" -rawin -in "$directory/neo-reset-catalog.json" \
+              -sigfile "$directory/neo-reset-catalog.json.sig"
+            python3 - "$directory/neo-reset-catalog.json" "$NEO_RESET_TAG" "$qa_profile" <<'PYNEO'
+          import json,re,sys
+          from pathlib import Path
+          catalog=json.loads(Path(sys.argv[1]).read_text());tag=sys.argv[2];profile=sys.argv[3]
+          match=re.fullmatch(r'(payload-(?:fedora|arch|nixos)-(?:kde|gnome|minimal)-[0-9]+-neo-reset-qa)[0-9]*',tag)
+          assert match
+          asset_tags={tag,match.group(1)}
+          models=catalog.get('models',[])
+          assert catalog.get('schemaVersion')==4 and len(models)==1
+          model=models[0]
+          assert model['deviceIdentifier']=='apple,j700' and model['status']=='enabled'
+          assert model['installationProfile']==profile
+          for name in ('metadataArtifact','payloadArtifact'):
+              assert any('/releases/download/'+asset_tag+'/' in model[name]['sourceURL']
+                         for asset_tag in asset_tags)
+          PYNEO
+            cp "$directory/neo-reset-catalog.json" "$profile/catalog.json"
+            cp "$directory/neo-reset-catalog.json.sig" "$profile/catalog.json.sig"
+          fi
       - name: Require catalogs paired with this execution contract
         run: |
           set -euo pipefail

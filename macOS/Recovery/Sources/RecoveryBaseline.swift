@@ -1,4 +1,3 @@
-import CryptoKit
 import Darwin
 import Foundation
 
@@ -15,7 +14,7 @@ enum RecoveryBaseline {
   static let optionalVendorPath = "vendorfw/u-boot/asmedia/asm2214a-apple.bin"
 
   static func hash(_ data: Data) -> String {
-    SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    RecoveryDigest.sha256(data)
   }
 
   static func limit(_ name: String) -> Int {

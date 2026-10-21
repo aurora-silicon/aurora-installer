@@ -17,6 +17,26 @@
       }
     }
 
+    private struct RefusingPreservedReinstall: NativePreservedReinstallExecuting {
+      func execute(
+        _ package: ImportedEngineHandoffPackage, journal: URL,
+        authorization: MachineOwnerAuthorization, installConf: InstallConf
+      ) async throws -> Data {
+        throw PinnedAsahiEngineExecutionError.nativeReinstallUnavailable
+      }
+    }
+
+    private struct MarkerPreservedReinstall: NativePreservedReinstallExecuting {
+      let marker: URL
+      func execute(
+        _ package: ImportedEngineHandoffPackage, journal: URL,
+        authorization: MachineOwnerAuthorization, installConf: InstallConf
+      ) async throws -> Data {
+        try installConf.serializedData.write(to: marker)
+        return Data("native preserved transcript\n".utf8)
+      }
+    }
+
     func testADelegatedHandoffRequiresAnAuthenticatedBackendCapability() async throws {
       let fixture = try makeFixture(supportsNativeHandoff: false)
       defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -30,6 +50,39 @@
         XCTAssertEqual(report.notice.reason, .recoveryPreparation)
         XCTAssertTrue(report.notice.diskUnchanged)
       }
+      XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
+
+    func testPreservedReinstallCannotFallThroughToFreshDiskOrCompatibilityExecution()
+      async throws
+    {
+      let fixture = try makeFixture(installationIntent: .reinstall)
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let executor = fixtureExecutor(effectiveUserID: { 0 })
+      await assertThrowsErrorAsync(
+        try await executor.execute(
+          fixture.package, authorization: try machineOwnerAuthorization())
+      ) {
+        XCTAssertEqual(
+          $0 as? PinnedAsahiEngineExecutionError, .nativeReinstallUnavailable)
+      }
+      XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
+
+    func testPreservedReinstallUsesItsNativeCoordinatorWithoutLaunchingPython() async throws {
+      let fixture = try makeFixture(
+        missingBackendInterpreter: true, installationIntent: .reinstall)
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let marker = fixture.root.appendingPathComponent("preserved")
+      let executor = fixtureExecutor(
+        effectiveUserID: { 0 },
+        preservedReinstall: MarkerPreservedReinstall(marker: marker))
+      let configuration = try InstallConf(encrypt: true, lane: "stable")
+      let result = try await executor.execute(
+        fixture.package, authorization: try machineOwnerAuthorization(),
+        operation: .install, installConf: configuration)
+      XCTAssertEqual(result, Data("native preserved transcript\n".utf8))
+      XCTAssertEqual(try Data(contentsOf: marker), configuration.serializedData)
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
     }
     private struct FirmwareMarker: NativeFirmwarePreparing {
@@ -89,6 +142,7 @@
     {
       let esp: URL
       let marker: URL
+      var requiresNativePath: Bool { true }
       func preflight(
         package: ImportedEngineHandoffPackage, stub: NativeStubFilePlan?,
         peripherals: PreparedNativePeripheralInputs?
@@ -155,6 +209,25 @@
         XCTAssertTrue(report.notice.diskUnchanged)
       }
       XCTAssertFalse(FileManager.default.fileExists(atPath: apfs.path))
+      XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
+
+    func testRequiredNativeClosureRefusesMissingStageBeforeDiskOrRuntimeLaunch() async throws {
+      let fixture = try makeFixture(
+        transcript: NativeAdmissionTestData.journal(), missingBackendInterpreter: true)
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let marker = fixture.root.appendingPathComponent("finished")
+      let executor = fixtureExecutor(
+        effectiveUserID: { 0 },
+        installationFinisher: NativeFinishingFixture(esp: marker, marker: marker))
+      do {
+        _ = try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
+        XCTFail("Missing native stages reached execution")
+      } catch let PinnedAsahiEngineExecutionError.engineFailed(report) {
+        XCTAssertEqual(report.notice.reason, .planIntegrity)
+        XCTAssertTrue(report.notice.diskUnchanged)
+      }
+      XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
     }
 
@@ -1219,7 +1292,9 @@
       osPartitionsPreparer: any NativeOSPartitionsPreparing = NativePartitionsFixture(),
       payloadImagesPreparer: any NativePayloadImagesPreparing = NativeImagesFixture(),
       espFilesPreparer: any NativeESPFilesPreparing = NoNativeESPFixture(),
-      installationFinisher: any NativeInstallationFinishingPreparing = NativeInstallationFinisher(),
+      installationFinisher: any NativeInstallationFinishingPreparing = NativeInstallationFinisher(
+        enabled: false),
+      preservedReinstall: any NativePreservedReinstallExecuting = RefusingPreservedReinstall(),
       collectInstallAdmission: @escaping @Sendable () throws -> NativeInstallAdmissionFacts = {
         NativeAdmissionTestData.facts()
       },
@@ -1243,6 +1318,7 @@
         apfsPreparer: apfsPreparer, stubFilesPreparer: stubFilesPreparer,
         osPartitionsPreparer: osPartitionsPreparer, payloadImagesPreparer: payloadImagesPreparer,
         espFilesPreparer: espFilesPreparer, installationFinisher: installationFinisher,
+        preservedReinstall: preservedReinstall,
         nativeHandoff: FixtureNativeHandoff(),
         collectInstallAdmission: collectInstallAdmission,
         validatePayload: { _ in
