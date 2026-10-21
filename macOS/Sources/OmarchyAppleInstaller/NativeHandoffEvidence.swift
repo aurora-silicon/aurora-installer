@@ -47,7 +47,7 @@
     let target: Target
     let installed: Installed
     let qualifiedCommonFirmware: [String]
-    let stage2Member: String
+    let stage2Member: String?
     let stage2Variants: Set<String>
 
     init(snapshot: NativeRecoveryJournalSnapshot, metadata: Data) throws {
@@ -170,7 +170,8 @@
 
     func espLayout(members: Set<String>, firmware: String) throws -> [String: String] {
       try NativeESPLayout.map(
-        members: members, commonAllowed: qualifiedCommonFirmware.contains(firmware),
+        deviceIdentifier: plan.deviceIdentifier, members: members,
+        commonAllowed: qualifiedCommonFirmware.contains(firmware),
         stage2: stage2Member, stage2Variants: stage2Variants)
     }
 

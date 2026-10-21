@@ -63,10 +63,11 @@
       let stage2 = try stage2Selection(template: template, board: board)
       let esp = Set(members.keys.filter { $0.hasPrefix("esp/") })
       let layout = try NativeESPLayout.map(
-        members: esp, commonAllowed: common, stage2: stage2.member,
+        deviceIdentifier: deviceIdentifier, members: esp, commonAllowed: common,
+        stage2: stage2.member,
         stage2Variants: stage2.variants)
-      guard let member = members[stage2.member], member.sizeBytes > 0,
-        layout[stage2.member] == "m1n1/boot.bin"
+      guard let selected = layout.first(where: { $0.value == "m1n1/boot.bin" })?.key,
+        let member = members[selected], member.sizeBytes > 0
       else { throw NativeBootChainError.missingStage2 }
       return NativeBootChainAdmission(
         stage1Member: stage1, windowMilliseconds: window, espLayout: layout)
@@ -83,10 +84,10 @@
     }
 
     static func stage2Selection(template: [String: Any], board: String) throws -> (
-      member: String, variants: Set<String>
+      member: String?, variants: Set<String>
     ) {
       let standard = "esp/m1n1/boot.bin"
-      guard let policy = template["aurora_stage2"] else { return (standard, [standard]) }
+      guard let policy = template["aurora_stage2"] else { return (nil, []) }
       guard let values = policy as? [String: Any],
         Set(values.keys) == ["kind", "board_members"],
         values["kind"] as? String == "board-file-v1",
@@ -147,21 +148,26 @@
 
   enum NativeESPLayout {
     static func map(
-      members: Set<String>, commonAllowed: Bool, stage2: String,
+      deviceIdentifier: String, members: Set<String>, commonAllowed: Bool, stage2: String?,
       stage2Variants: Set<String>
     ) throws -> [String: String] {
+      let standard = "esp/m1n1/boot.bin"
+      let board = String(deviceIdentifier.dropFirst(6))
+      let conventional = "esp/m1n1/boot-\(board).bin"
+      let selected = stage2 ?? (members.contains(conventional) ? conventional : standard)
       let common = members.contains("esp/aurora/stage1.bin") && commonAllowed
-      guard members.contains(stage2), !common || members.contains("esp/m1n1/boot.bin")
+      guard members.contains(selected)
       else { throw NativeHandoffValidationError.changedContent }
       var layout = [String: String]()
       for member in members.sorted() {
         guard member.hasPrefix("esp/"), NativeHandoffEvidence.safeRelative(member) else {
           throw NativeHandoffValidationError.unsafePath
         }
-        if member == stage2 {
+        if member == selected {
           layout[member] = "m1n1/boot.bin"
         } else if (member == "esp/aurora/stage1.bin" && !common)
           || stage2Variants.contains(member)
+          || (member.hasPrefix("esp/m1n1/boot-") && member.hasSuffix(".bin"))
           || (common
             && ["esp/aurora/stage1-j700.bin", "esp/aurora/stage1-j613.bin"].contains(member))
         {
