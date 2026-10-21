@@ -2,7 +2,7 @@ import AppKit
 
 final class RecoveryPrimaryButton: NSButton {
   override var isEnabled: Bool {
-    didSet { bezelColor = isEnabled ? AuroraTheme.accent : AuroraTheme.card }
+    didSet { updateAppearance() }
   }
 
   override var intrinsicContentSize: NSSize {
@@ -16,16 +16,27 @@ final class RecoveryPrimaryButton: NSButton {
     self.title = title
     self.target = target
     self.action = action
-    bezelStyle = .rounded
-    font = AuroraTheme.button
-    contentTintColor = AuroraTheme.accentText
-    bezelColor = AuroraTheme.accent
-    isBordered = true
+    isBordered = false
+    wantsLayer = true
+    layer?.cornerRadius = AuroraTheme.buttonRadius
     translatesAutoresizingMaskIntoConstraints = false
     heightAnchor.constraint(equalToConstant: AuroraTheme.buttonHeight).isActive = true
+    updateAppearance()
   }
 
   required init?(coder: NSCoder) { fatalError("Use the programmatic initializer") }
+
+  private func updateAppearance() {
+    let neutral = AuroraTheme.card.blended(withFraction: 0.14, of: AuroraTheme.text)
+      ?? AuroraTheme.card
+    layer?.backgroundColor = AuroraTheme.darkCGColor(isEnabled ? AuroraTheme.accent : neutral)
+    attributedTitle = NSAttributedString(
+      string: title,
+      attributes: [
+        .font: AuroraTheme.button,
+        .foregroundColor: isEnabled ? AuroraTheme.accentText : AuroraTheme.secondaryText,
+      ])
+  }
 }
 
 final class RecoverySecondaryButton: NSButton {
