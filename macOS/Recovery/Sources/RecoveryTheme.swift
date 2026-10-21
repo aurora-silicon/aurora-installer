@@ -27,7 +27,8 @@ final class RecoveryPrimaryButton: NSButton {
   required init?(coder: NSCoder) { fatalError("Use the programmatic initializer") }
 
   private func updateAppearance() {
-    let neutral = AuroraTheme.card.blended(withFraction: 0.14, of: AuroraTheme.text)
+    let neutral =
+      AuroraTheme.card.blended(withFraction: 0.14, of: AuroraTheme.text)
       ?? AuroraTheme.card
     layer?.backgroundColor = AuroraTheme.darkCGColor(isEnabled ? AuroraTheme.accent : neutral)
     attributedTitle = NSAttributedString(
