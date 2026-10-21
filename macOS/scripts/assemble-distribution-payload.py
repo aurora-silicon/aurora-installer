@@ -46,9 +46,8 @@ def assemble(bundle, recovery, output, policy_directory=None, reuse_payload=Fals
     profile = image['installation_profile']
     if not re.fullmatch(r'(fedora|arch|nixos)-(kde|gnome|minimal)', profile):
         raise ValueError('unknown installation profile')
-    if native_neo_reset:
-        if profile != 'nixos-kde' or policy_directory is not None:
-            raise ValueError('Neo Reset qualification requires the public NixOS KDE image')
+    if native_neo_reset and policy_directory is not None:
+        raise ValueError('Neo Reset qualification requires an image without factory inputs')
     stage2_members = {}
     manifest_path = bundle / 'stage2.json'
     if manifest_path.exists():

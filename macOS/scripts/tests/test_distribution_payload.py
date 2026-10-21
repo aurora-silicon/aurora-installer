@@ -77,6 +77,17 @@ class DistributionPayloadTests(unittest.TestCase):
             self.assertIn('esp/m1n1/boot-j700.bin', archive.namelist())
         self.assertTrue(json.loads((output / 'delivery.json').read_text())['native_neo_reset_qa'])
 
+        self.image.update(installation_profile='fedora-kde', layout_kind='fedora-btrfs-v1')
+        (self.bundle / 'image.json').write_text(json.dumps(self.image))
+        fedora_output = self.root / 'neo-fedora-reset'
+        payload.assemble(self.bundle, self.app, fedora_output, native_neo_reset=True,
+                         release_id='fixture')
+        fedora = json.loads((fedora_output / 'installer-data-fedora-kde.json').read_text())['os_list'][0]
+        self.assertEqual(fedora['default_os_name'], 'Fedora Aurora Remix')
+        self.assertEqual(fedora['allowed_device_classes'], ['j700ap'])
+        self.assertEqual(fedora['aurora_stage2']['board_members']['j700ap'],
+                         'esp/m1n1/boot-j700.bin')
+
     def test_all_nine_profiles_use_the_selected_distribution_symbol(self):
         observed = {}
         provenance = json.loads((payload.ROOT / 'Packaging/DistributionIcons/provenance.json').read_text())['icons']
