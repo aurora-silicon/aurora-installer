@@ -158,8 +158,19 @@
       let existing = try file.readJournal()
       if existing.count <= transcript.count {
         try file.initialize(transcript)
-      } else if !existing.starts(with: transcript) {
-        throw NativeRecoveryJournalError.changed
+      } else {
+        // Free-space advice can change after the first write. Resume only when
+        // the reconstructed plan, layout and retained target still match.
+        let saved = try snapshot()
+        let records = try EngineTranscriptDecoder().decode(transcript)
+        let refreshed = try AppleInstallerTrustCore().validateEngineTranscript(transcript)
+        guard records.count == 3, refreshed.plan == saved.plan,
+          refreshed.inventory?.layoutDigest == saved.plan.layoutDigest,
+          refreshed.inventory?.candidates.contains(where: {
+            $0.kind == "reinstall" && $0.sourceIdentifier == saved.plan.sourceIdentifier
+              && $0.identityDigest == saved.targetIdentity
+          }) == true
+        else { throw NativeRecoveryJournalError.changed }
       }
       _ = try snapshot()
     }

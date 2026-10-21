@@ -6,6 +6,11 @@
 
   final class NativePreservedInstallJournalTests: XCTestCase {
     static func transcript() throws -> (Data, ValidatedEnginePlan) {
+      let resize = EngineInstallCandidate(
+        kind: "resize", sourceIdentifier: "disk0s2", offsetBytes: 0,
+        lengthBytes: 4096, minimumInstallBytes: 4096,
+        minimumContainerBytes: 1024, identityDigest: nil,
+        recommendedInstallBytes: 4096, recommendedContainerBytes: 1024)
       let candidate = EngineInstallCandidate(
         kind: "reinstall", sourceIdentifier: "disk0s3", offsetBytes: 4096,
         lengthBytes: 8 << 20, minimumInstallBytes: 8 << 20,
@@ -13,10 +18,10 @@
         identityDigest: "sha256:" + String(repeating: "a", count: 64),
         recommendedInstallBytes: nil, recommendedContainerBytes: nil)
       let unsigned = EngineInventoryMessage(
-        layoutDigest: "", systemStoreIdentifier: "disk0", candidates: [candidate])
+        layoutDigest: "", systemStoreIdentifier: "disk0", candidates: [resize, candidate])
       let inventory = EngineInventoryMessage(
         layoutDigest: unsigned.computedLayoutDigest,
-        systemStoreIdentifier: "disk0", candidates: [candidate])
+        systemStoreIdentifier: "disk0", candidates: [resize, candidate])
       let encoder = JSONEncoder()
       encoder.keyEncodingStrategy = .convertToSnakeCase
       let encodedInventory = try encoder.encode(inventory)
@@ -38,7 +43,7 @@
       }
       let inspection = try AppleInstallerTrustCore().validateEngineTranscript(bytes)
       let boundInventory = try XCTUnwrap(inspection.inventory)
-      let selected = try XCTUnwrap(boundInventory.candidates.first)
+      let selected = try XCTUnwrap(boundInventory.candidates.first { $0.kind == "reinstall" })
       let request = try PinnedAsahiPlanRequest(
         inventory: boundInventory, candidate: selected,
         requestedLengthBytes: selected.lengthBytes)
@@ -51,6 +56,26 @@
       let plan = try XCTUnwrap(
         AppleInstallerTrustCore().validateEngineTranscript(transcript).plan)
       return (transcript, plan)
+    }
+
+    private static func refreshedSpaceAdvice(_ transcript: Data) throws -> Data {
+      var lines = transcript.split(separator: 10).map(Data.init)
+      var row = try XCTUnwrap(
+        JSONSerialization.jsonObject(with: lines[1]) as? [String: Any])
+      var payload = try XCTUnwrap(row["payload"] as? [String: Any])
+      var candidates = try XCTUnwrap(payload["candidates"] as? [[String: Any]])
+      let resize = try XCTUnwrap(candidates.firstIndex { $0["kind"] as? String == "resize" })
+      candidates[resize]["minimum_container_bytes"] = 2048
+      candidates[resize]["recommended_container_bytes"] = 2048
+      payload["candidates"] = candidates
+      row["payload"] = payload
+      lines[1] = try JSONSerialization.data(withJSONObject: row, options: [.sortedKeys])
+      var refreshed = Data()
+      for line in lines {
+        refreshed.append(line)
+        refreshed.append(10)
+      }
+      return refreshed
     }
 
     private func receipt(_ plan: ValidatedEnginePlan) -> NativePreservedInstallReceipt {
@@ -130,6 +155,15 @@
         XCTAssertThrowsError(
           try reopened.bindInstallConf(InstallConf(encrypt: true, lane: "edge")))
         XCTAssertFalse(executor.canRetryRecoveryAuthorization(identity, in: root))
+      }
+      let refreshed = try Self.refreshedSpaceAdvice(transcript)
+      XCTAssertEqual(
+        try AppleInstallerTrustCore().validateEngineTranscript(refreshed).plan, plan)
+      do {
+        let reopened = try NativePreservedInstallJournal(
+          url: journalURL, package: package, transcript: refreshed, owner: geteuid())
+        XCTAssertEqual(try reopened.snapshot().state, .complete)
+        XCTAssertEqual(try reopened.snapshot().receipt, .some(completed))
       }
       let evidence = URL(fileURLWithPath: journalURL.path + ".preserved-install-written.evidence")
       try Data("changed".utf8).write(to: evidence)
