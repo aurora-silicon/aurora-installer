@@ -105,7 +105,7 @@ jobs:
                   output.write_bytes(source.extractfile(member).read())
           PYCATALOGS
           if [[ -n $NEO_RESET_TAG ]]; then
-            [[ $NEO_RESET_TAG =~ ^payload-nixos-kde-[0-9]+-neo-reset-qa$ ]]
+            [[ $NEO_RESET_TAG =~ ^payload-nixos-kde-[0-9]+-neo-reset-qa[0-9]*$ ]]
             profile="$directory/Profiles/nixos-kde"
             base="https://github.com/aurora-silicon/nixos-aurora/releases/download/$NEO_RESET_TAG"
             curl -fLsS --retry 3 "$base/catalog.json" -o "$directory/neo-reset-catalog.json"
@@ -114,16 +114,20 @@ jobs:
               -inkey "$directory/public.der" -rawin -in "$directory/neo-reset-catalog.json" \
               -sigfile "$directory/neo-reset-catalog.json.sig"
             python3 - "$directory/neo-reset-catalog.json" "$NEO_RESET_TAG" <<'PYNEO'
-          import json,sys
+          import json,re,sys
           from pathlib import Path
           catalog=json.loads(Path(sys.argv[1]).read_text());tag=sys.argv[2]
+          match=re.fullmatch(r'(payload-nixos-kde-[0-9]+-neo-reset-qa)[0-9]*',tag)
+          assert match
+          asset_tags={tag,match.group(1)}
           models=catalog.get('models',[])
           assert catalog.get('schemaVersion')==4 and len(models)==1
           model=models[0]
           assert model['deviceIdentifier']=='apple,j700' and model['status']=='enabled'
           assert model['installationProfile']=='nixos-kde'
           for name in ('metadataArtifact','payloadArtifact'):
-              assert '/releases/download/'+tag+'/' in model[name]['sourceURL']
+              assert any('/releases/download/'+asset_tag+'/' in model[name]['sourceURL']
+                         for asset_tag in asset_tags)
           PYNEO
             cp "$directory/neo-reset-catalog.json" "$profile/catalog.json"
             cp "$directory/neo-reset-catalog.json.sig" "$profile/catalog.json.sig"
