@@ -620,7 +620,8 @@
         nulEngineFileName
         ? #"engine\u0000ignored.tar.gz"#
         : "engine.tar.gz"
-      let engineField = native
+      let engineField =
+        native
         ? ""
         : ",\"engine\":{\"file_name\":\"\(engineFileName)\",\"digest\":\"\(engineDigest)\",\"size_bytes\":\(engine.count)}"
       let repairManifestField =

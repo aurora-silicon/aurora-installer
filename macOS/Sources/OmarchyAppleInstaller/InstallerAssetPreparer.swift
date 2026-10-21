@@ -45,7 +45,8 @@
     /// fallback and the helper's verified copy, both of which remain on macOS
     /// while the engine checks resize limits.
     public var additionalHandoffBytes: UInt64 {
-      let artifacts = [metadata, payload] + (engine.map { [$0] } ?? [])
+      let artifacts =
+        [metadata, payload] + (engine.map { [$0] } ?? [])
         + (repairManifest.map { [$0] } ?? [])
       var total: UInt64 = 0
       for staged in artifacts {

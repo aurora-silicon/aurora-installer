@@ -116,6 +116,9 @@
       let identity = try decodeIdentity(
         tree.read("identity.json", maximum: Self.maximumControlFileBytes))
       try validateBindings(manifest: manifest, request: request, identity: identity)
+      let expectedEngineURL = manifest.engine.map {
+        package.packageURL.appendingPathComponent($0.fileName)
+      }
       guard package.installationIntent == intent, request.operation == operation,
         package.manifestURL == package.packageURL.appendingPathComponent("manifest.json"),
         package.requestURL == package.packageURL.appendingPathComponent("request.json"),
@@ -124,9 +127,7 @@
         package.planDigest == request.planDigest, package.bindingDigest == identity.bindingDigest,
         package.deviceIdentifier == request.deviceIdentifier,
         package.storeIdentifier == request.storeIdentifier,
-        package.engineURL == manifest.engine.map {
-          package.packageURL.appendingPathComponent($0.fileName)
-        },
+        package.engineURL == expectedEngineURL,
         package.metadataURL
           == package.packageURL.appendingPathComponent(manifest.metadata.fileName),
         package.payloadURL == package.packageURL.appendingPathComponent(manifest.payload.fileName),
@@ -704,7 +705,8 @@
         planFields.append(repairManifestDigest)
       }
       planFields.append(request.requiredHumanSteps.joined(separator: ","))
-      let engineBound = manifest.format == 1
+      let engineBound =
+        manifest.format == 1
         ? manifest.engine?.digest == identity.engineDigest
         : manifest.format == 2 && manifest.engine == nil
           && identity.engineDigest == NativeExecutionIdentity.digest

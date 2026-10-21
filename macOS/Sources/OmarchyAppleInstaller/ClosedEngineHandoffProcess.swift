@@ -106,7 +106,8 @@
       try validateBindings(invocation: invocation, assets: assets)
       try ensurePrivateDirectory(handoffDirectory)
 
-      let artifactFileNames = [assets.metadata.artifact.fileName, assets.payload.artifact.fileName]
+      let artifactFileNames =
+        [assets.metadata.artifact.fileName, assets.payload.artifact.fileName]
         + (assets.engine.map { [$0.artifact.fileName] } ?? [])
         + (assets.repairManifest.map { [$0.artifact.fileName] } ?? [])
       guard Set(artifactFileNames).count == artifactFileNames.count,
