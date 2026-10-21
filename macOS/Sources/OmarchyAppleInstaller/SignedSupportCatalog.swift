@@ -1,6 +1,11 @@
 import CryptoKit
 import Foundation
 
+enum NativeExecutionIdentity {
+  static let version = "native-v1"
+  static let digest = SHA256Digest(hashing: Data("aurora-native-execution-v1".utf8)).rawValue
+}
+
 public struct PinnedInstallerRecord: Equatable, Sendable {
   public let deviceIdentifier: String
   public let operation: String
@@ -51,13 +56,13 @@ public struct PinnedInstallerRecord: Equatable, Sendable {
 }
 
 public struct PinnedInstallerDelivery: Equatable, Sendable {
-  public let engine: PinnedInstallerArtifact
+  public let engine: PinnedInstallerArtifact?
   public let metadata: PinnedInstallerArtifact
   public let payload: PinnedInstallerArtifact
   public let repairManifest: PinnedInstallerArtifact?
 
   public init(
-    engine: PinnedInstallerArtifact,
+    engine: PinnedInstallerArtifact?,
     metadata: PinnedInstallerArtifact,
     payload: PinnedInstallerArtifact,
     repairManifest: PinnedInstallerArtifact? = nil
@@ -160,7 +165,7 @@ struct SignedSupportCatalogVerifier: Sendable {
       throw SupportCatalogError.invalidPayload
     }
 
-    guard [1, 2, 3, 4].contains(manifest.schemaVersion) else {
+    guard [1, 2, 3, 4, 5].contains(manifest.schemaVersion) else {
       throw SupportCatalogError.unsupportedSchema(manifest.schemaVersion)
     }
     guard manifest.sequence > 0 else {
@@ -199,8 +204,18 @@ struct SignedSupportCatalogVerifier: Sendable {
       guard isSemanticVersionTag(model.asahiInstallerTag) else {
         throw SupportCatalogError.invalidField("models[\(index)].asahiInstallerTag")
       }
-      guard SHA256Digest(rawValue: model.engineDigest) != nil else {
-        throw SupportCatalogError.invalidField("models[\(index)].engineDigest")
+      let engineDigest: String
+      if manifest.schemaVersion == 5 {
+        guard model.engineDigest == nil, model.engineVersion == nil,
+          model.engineArtifact == nil, model.repairManifestDigest == nil,
+          model.repairManifestArtifact == nil
+        else { throw SupportCatalogError.invalidField("models[\(index)].engineArtifact") }
+        engineDigest = NativeExecutionIdentity.digest
+      } else {
+        guard let digest = model.engineDigest, SHA256Digest(rawValue: digest) != nil else {
+          throw SupportCatalogError.invalidField("models[\(index)].engineDigest")
+        }
+        engineDigest = digest
       }
       guard SHA256Digest(rawValue: model.metadataDigest) != nil else {
         throw SupportCatalogError.invalidField("models[\(index)].metadataDigest")
@@ -251,7 +266,9 @@ struct SignedSupportCatalogVerifier: Sendable {
       }
 
       let engineVersion: String?
-      if manifest.schemaVersion >= 2 {
+      if manifest.schemaVersion == 5 {
+        engineVersion = NativeExecutionIdentity.version
+      } else if manifest.schemaVersion >= 2 {
         guard let candidate = model.engineVersion,
           isEngineVersion(candidate)
         else {
@@ -288,7 +305,7 @@ struct SignedSupportCatalogVerifier: Sendable {
         asahiInstallerDataRevision: model.asahiInstallerDataRevision,
         downstreamRevision: model.downstreamRevision,
         engineVersion: engineVersion,
-        engineDigest: model.engineDigest,
+        engineDigest: engineDigest,
         metadataDigest: model.metadataDigest,
         payloadDigest: model.payloadDigest,
         repairManifestDigest: repairManifestDigest,
@@ -343,8 +360,7 @@ struct SignedSupportCatalogVerifier: Sendable {
     guard schemaVersion >= 2 else {
       return nil
     }
-    guard let engine = model.engineArtifact,
-      let metadata = model.metadataArtifact,
+    guard let metadata = model.metadataArtifact,
       let payload = model.payloadArtifact
     else {
       throw SupportCatalogError.invalidField(
@@ -370,12 +386,19 @@ struct SignedSupportCatalogVerifier: Sendable {
       } else {
         repairManifest = nil
       }
+      let engine: PinnedInstallerArtifact?
+      if schemaVersion == 5 {
+        engine = nil
+      } else {
+        guard let artifact = model.engineArtifact, let digest = model.engineDigest else {
+          throw SupportCatalogError.invalidField("models[\(modelIndex)].engineArtifact")
+        }
+        engine = try artifact.descriptor(
+          role: "engine", digest: digest,
+          field: "models[\(modelIndex)].engineArtifact")
+      }
       return PinnedInstallerDelivery(
-        engine: try engine.descriptor(
-          role: "engine",
-          digest: model.engineDigest,
-          field: "models[\(modelIndex)].engineArtifact"
-        ),
+        engine: engine,
         metadata: try metadata.descriptor(
           role: "metadata",
           digest: model.metadataDigest,
@@ -486,7 +509,7 @@ private struct ModelRecord: Decodable {
   let asahiInstallerDataRevision: String
   let downstreamRevision: String
   let engineVersion: String?
-  let engineDigest: String
+  let engineDigest: String?
   let metadataDigest: String
   let payloadDigest: String
   let repairManifestDigest: String?

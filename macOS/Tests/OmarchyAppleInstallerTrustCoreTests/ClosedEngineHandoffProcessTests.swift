@@ -66,7 +66,7 @@
       )
       XCTAssertEqual(
         manifestEngine["file_name"] as? String,
-        fixture.assets.engine.artifact.fileName
+        fixture.assets.engine?.artifact.fileName
       )
       // The app's own decoder travels with the package, executable by its owner only.
       XCTAssertEqual(snapshot.restoreImage, fixture.restoreImageBytes)
@@ -746,13 +746,14 @@
     let restoreImageMode: mode_t
 
     init(handoff: PreparedEngineHandoff) throws {
+      let engineURL = try XCTUnwrap(handoff.engineURL)
       packageURL = handoff.packageURL
       packageMode = try Self.mode(handoff.packageURL)
       let files = [
         handoff.manifestURL,
         handoff.requestURL,
         handoff.identityURL,
-        handoff.engineURL,
+        engineURL,
         handoff.metadataURL,
         handoff.payloadURL,
       ]
@@ -760,7 +761,7 @@
       manifest = try Data(contentsOf: handoff.manifestURL)
       request = try Data(contentsOf: handoff.requestURL)
       identity = try Data(contentsOf: handoff.identityURL)
-      engine = try Data(contentsOf: handoff.engineURL)
+      engine = try Data(contentsOf: engineURL)
       metadata = try Data(contentsOf: handoff.metadataURL)
       payload = try Data(contentsOf: handoff.payloadURL)
       repairManifest = try handoff.repairManifestURL.map {

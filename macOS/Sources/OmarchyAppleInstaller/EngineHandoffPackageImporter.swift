@@ -17,7 +17,7 @@
     public let manifestURL: URL
     public let requestURL: URL
     public let identityURL: URL
-    public let engineURL: URL
+    public let engineURL: URL?
     public let metadataURL: URL
     public let payloadURL: URL
     public let repairManifestURL: URL?
@@ -34,7 +34,7 @@
       manifestURL: URL,
       requestURL: URL,
       identityURL: URL,
-      engineURL: URL,
+      engineURL: URL?,
       metadataURL: URL,
       payloadURL: URL,
       repairManifestURL: URL? = nil,
@@ -124,7 +124,9 @@
         package.planDigest == request.planDigest, package.bindingDigest == identity.bindingDigest,
         package.deviceIdentifier == request.deviceIdentifier,
         package.storeIdentifier == request.storeIdentifier,
-        package.engineURL == package.packageURL.appendingPathComponent(manifest.engine.fileName),
+        package.engineURL == manifest.engine.map {
+          package.packageURL.appendingPathComponent($0.fileName)
+        },
         package.metadataURL
           == package.packageURL.appendingPathComponent(manifest.metadata.fileName),
         package.payloadURL == package.packageURL.appendingPathComponent(manifest.payload.fileName),
@@ -200,7 +202,7 @@
       try writePrivate(requestData, to: requestURL)
       try writePrivate(identityData, to: identityURL)
 
-      let engineURL = package.appendingPathComponent(manifest.engine.fileName)
+      let engineURL = manifest.engine.map { package.appendingPathComponent($0.fileName) }
       let metadataURL = package.appendingPathComponent(
         manifest.metadata.fileName
       )
@@ -208,12 +210,9 @@
       let repairManifestURL = manifest.repairManifest.map {
         package.appendingPathComponent($0.fileName)
       }
-      try copyArtifact(
-        manifest.engine,
-        role: "engine",
-        from: sourceDescriptor,
-        to: engineURL
-      )
+      if let engine = manifest.engine, let engineURL {
+        try copyArtifact(engine, role: "engine", from: sourceDescriptor, to: engineURL)
+      }
       try copyArtifact(
         manifest.metadata,
         role: "metadata",
@@ -302,10 +301,7 @@
       let identity = try decodeIdentity(
         readRetainedFile("identity.json", from: descriptor, control: true))
       try validateBindings(manifest: manifest, request: request, identity: identity)
-      let artifacts =
-        [manifest.engine, manifest.metadata, manifest.payload, manifest.restoreImage]
-        + (manifest.repairManifest.map { [$0] } ?? [])
-        + (manifest.recoveryTemplate.map { [$0] } ?? [])
+      let artifacts = manifest.artifacts
       let expectedNames = Set(
         ["manifest.json", "request.json", "identity.json"] + artifacts.map(\.fileName))
       guard Set(try FileManager.default.contentsOfDirectory(atPath: package.path)) == expectedNames
@@ -322,7 +318,7 @@
         packageURL: package, manifestURL: package.appendingPathComponent("manifest.json"),
         requestURL: package.appendingPathComponent("request.json"),
         identityURL: package.appendingPathComponent("identity.json"),
-        engineURL: package.appendingPathComponent(manifest.engine.fileName),
+        engineURL: manifest.engine.map { package.appendingPathComponent($0.fileName) },
         metadataURL: package.appendingPathComponent(manifest.metadata.fileName),
         payloadURL: package.appendingPathComponent(manifest.payload.fileName),
         repairManifestURL: manifest.repairManifest.map {
@@ -531,8 +527,9 @@
         }
         var manifestKeys: Set<String> = [
           "format", "binding_digest", "request_file", "identity_file",
-          "engine", "metadata", "payload", "restore_image",
+          "metadata", "payload", "restore_image",
         ]
+        if rawObject["format"] as? Int == 1 { manifestKeys.insert("engine") }
         if rawObject["recovery_template"] != nil { manifestKeys.insert("recovery_template") }
         if rawObject["repair_manifest"] != nil {
           manifestKeys.insert("repair_manifest")
@@ -556,25 +553,16 @@
           ImportedManifest.self,
           from: data
         )
-        let fileNames =
-          [
-            manifest.engine.fileName,
-            manifest.metadata.fileName,
-            manifest.payload.fileName,
-            manifest.restoreImage.fileName,
-          ] + (manifest.repairManifest.map { [$0.fileName] } ?? [])
-          + (manifest.recoveryTemplate.map { [$0.fileName] } ?? [])
-        guard manifest.format == 1,
+        let fileNames = manifest.artifacts.map(\.fileName)
+        guard [1, 2].contains(manifest.format),
+          (manifest.format == 1) == (manifest.engine != nil),
           manifest.requestFile == "request.json",
           manifest.identityFile == "identity.json",
           Set(fileNames).count == fileNames.count,
           Set(fileNames).isDisjoint(
             with: ["manifest.json", "request.json", "identity.json"]
           ),
-          ([manifest.engine, manifest.metadata, manifest.payload, manifest.restoreImage]
-            + (manifest.repairManifest.map { [$0] } ?? [])
-            + (manifest.recoveryTemplate.map { [$0] } ?? []))
-            .allSatisfy(validArtifact),
+          manifest.artifacts.allSatisfy(validArtifact),
           manifest.restoreImage.fileName == RestoreImageHelper.fileName,
           manifest.restoreImage.sizeBytes <= RestoreImageHelper.maximumBytes,
           manifest.recoveryTemplate == nil
@@ -716,10 +704,15 @@
         planFields.append(repairManifestDigest)
       }
       planFields.append(request.requiredHumanSteps.joined(separator: ","))
+      let engineBound = manifest.format == 1
+        ? manifest.engine?.digest == identity.engineDigest
+        : manifest.format == 2 && manifest.engine == nil
+          && identity.engineDigest == NativeExecutionIdentity.digest
+          && request.engineVersion == NativeExecutionIdentity.version
       guard manifest.bindingDigest == identity.bindingDigest,
         request.planDigest == identity.planDigest,
         request.planDigest == lengthPrefixedDigest(planFields),
-        manifest.engine.digest == identity.engineDigest,
+        engineBound,
         manifest.metadata.digest == identity.metadataDigest,
         manifest.payload.digest == identity.payloadDigest,
         manifest.repairManifest?.digest == identity.repairManifestDigest,
@@ -790,12 +783,19 @@
     let bindingDigest: String
     let requestFile: String
     let identityFile: String
-    let engine: ImportedArtifactRecord
+    let engine: ImportedArtifactRecord?
     let metadata: ImportedArtifactRecord
     let payload: ImportedArtifactRecord
     let restoreImage: ImportedArtifactRecord
     let repairManifest: ImportedArtifactRecord?
     let recoveryTemplate: ImportedArtifactRecord?
+
+    var artifacts: [ImportedArtifactRecord] {
+      [metadata, payload, restoreImage]
+        + (engine.map { [$0] } ?? [])
+        + (repairManifest.map { [$0] } ?? [])
+        + (recoveryTemplate.map { [$0] } ?? [])
+    }
 
     enum CodingKeys: String, CodingKey {
       case format

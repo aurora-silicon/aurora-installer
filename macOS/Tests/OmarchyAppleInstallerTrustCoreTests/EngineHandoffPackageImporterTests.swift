@@ -22,6 +22,25 @@
   }
 
   final class EngineHandoffPackageImporterTests: XCTestCase {
+    func testNativePackageImportsAndReopensWithoutAnExecutionArchive() throws {
+      let fixture = try makeFixture(native: true)
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let source = try openDirectory(fixture.source)
+      defer { try? source.close() }
+      let importer = EngineHandoffPackageImporter()
+      let imported = try importer.prepare(from: source, in: fixture.destination)
+      XCTAssertNil(imported.engineURL)
+      XCTAssertEqual(
+        try importer.executionPlan(imported, owner: geteuid()).engineDigest,
+        NativeExecutionIdentity.digest)
+      let reopened = try importer.reopenRetained(
+        named: imported.packageURL.lastPathComponent, in: fixture.destination)
+      XCTAssertNil(reopened.engineURL)
+      XCTAssertFalse(
+        try FileManager.default.contentsOfDirectory(atPath: imported.packageURL.path)
+          .contains("engine.tar.gz"))
+    }
+
     func testFreshRepairReplacementAndReinstallIntentSurvivesRetainedRevalidation() throws {
       for intent in [ImportedInstallationIntent.fresh, .repair, .replace, .reinstall] {
         let fixture = try makeFixture(
@@ -158,7 +177,7 @@
         XCTAssertThrowsError(try importer.reopenRetained(named: name, in: fixture.destination))
       }
       let alias = fixture.root.appendingPathComponent("hardlink")
-      XCTAssertEqual(link(imported.engineURL.path, alias.path), 0)
+      XCTAssertEqual(link(try XCTUnwrap(imported.engineURL).path, alias.path), 0)
       XCTAssertThrowsError(
         try importer.reopenRetained(
           named: imported.packageURL.lastPathComponent, in: fixture.destination))
@@ -306,8 +325,8 @@
       defer { try? FileManager.default.removeItem(at: imported.packageURL) }
 
       XCTAssertEqual(try mode(imported.packageURL), 0o700)
-      XCTAssertEqual(try mode(imported.engineURL), 0o400)
-      XCTAssertEqual(try Data(contentsOf: imported.engineURL), fixture.engine)
+      XCTAssertEqual(try mode(XCTUnwrap(imported.engineURL)), 0o400)
+      XCTAssertEqual(try Data(contentsOf: XCTUnwrap(imported.engineURL)), fixture.engine)
       XCTAssertEqual(
         try Data(contentsOf: imported.metadataURL),
         fixture.metadata
@@ -319,7 +338,7 @@
 
       try FileManager.default.removeItem(at: fixture.engineURL)
       try writePrivate(Data("changed!".utf8), to: fixture.engineURL)
-      XCTAssertEqual(try Data(contentsOf: imported.engineURL), fixture.engine)
+      XCTAssertEqual(try Data(contentsOf: XCTUnwrap(imported.engineURL)), fixture.engine)
     }
 
     func testUnknownManifestFieldIsRejectedBeforeImport() throws {
@@ -373,7 +392,7 @@
       defer { try? FileManager.default.removeItem(at: imported.packageURL) }
 
       XCTAssertNil(imported.repairManifestURL)
-      XCTAssertEqual(try Data(contentsOf: imported.engineURL), fixture.engine)
+      XCTAssertEqual(try Data(contentsOf: XCTUnwrap(imported.engineURL)), fixture.engine)
     }
 
     func testReplacePackageWithRepairManifestIsRejected() throws {
@@ -524,7 +543,8 @@
       repair: Bool = false,
       replace: Bool = false,
       reinstall: Bool = false,
-      strayRepairManifest: Bool = false
+      strayRepairManifest: Bool = false,
+      native: Bool = false
     ) throws -> ImportFixture {
       let root = FileManager.default.temporaryDirectory.appendingPathComponent(
         "omarchy-helper-import-\(UUID().uuidString.lowercased())",
@@ -561,7 +581,7 @@
           at: engineURL,
           withDestinationURL: target
         )
-      } else {
+      } else if !native {
         try writePrivate(engine, to: engineURL)
       }
       try writePrivate(metadata, to: metadataURL)
@@ -575,12 +595,12 @@
       }
 
       let bindingDigest = digest(Data("binding".utf8))
-      let engineDigest = digest(engine)
+      let engineDigest = native ? NativeExecutionIdentity.digest : digest(engine)
       let metadataDigest = digest(metadata)
       let payloadDigest = digest(payload)
       let repairDigest = digest(repairManifest)
       let layoutDigest = digest(Data("layout".utf8))
-      let engineVersion = "v0.9.0-omarchy.2"
+      let engineVersion = native ? NativeExecutionIdentity.version : "v0.9.0-omarchy.2"
       let candidateKind = repair ? "repair" : reinstall ? "reinstall" : replace ? "replace" : "free"
       var planFields = [
         "apple,j314s", "disk0", layoutDigest, "free", "disk0s3",
@@ -600,6 +620,9 @@
         nulEngineFileName
         ? #"engine\u0000ignored.tar.gz"#
         : "engine.tar.gz"
+      let engineField = native
+        ? ""
+        : ",\"engine\":{\"file_name\":\"\(engineFileName)\",\"digest\":\"\(engineDigest)\",\"size_bytes\":\(engine.count)}"
       let repairManifestField =
         includeRepairManifest
         ? ",\"repair_manifest\":{\"file_name\":\"repair.json\",\"digest\":\"\(repairDigest)\",\"size_bytes\":\(repairManifest.count)}"
@@ -608,7 +631,7 @@
       try writePrivate(decoder, to: source.appendingPathComponent(RestoreImageHelper.fileName))
       let manifest = Data(
         """
-        {"format":1,"binding_digest":"\(bindingDigest)","request_file":"request.json","identity_file":"identity.json","engine":{"file_name":"\(engineFileName)","digest":"\(engineDigest)","size_bytes":\(engine.count)},"metadata":{"file_name":"installer-data.json","digest":"\(metadataDigest)","size_bytes":\(metadata.count)},"payload":{"file_name":"omarchy.img.zst","digest":"\(payloadDigest)","size_bytes":\(payload.count)},"restore_image":{"file_name":"\(RestoreImageHelper.fileName)","digest":"\(digest(decoder))","size_bytes":\(decoder.count)}\(repairManifestField)\(extraField)}
+        {"format":\(native ? 2 : 1),"binding_digest":"\(bindingDigest)","request_file":"request.json","identity_file":"identity.json"\(engineField),"metadata":{"file_name":"installer-data.json","digest":"\(metadataDigest)","size_bytes":\(metadata.count)},"payload":{"file_name":"omarchy.img.zst","digest":"\(payloadDigest)","size_bytes":\(payload.count)},"restore_image":{"file_name":"\(RestoreImageHelper.fileName)","digest":"\(digest(decoder))","size_bytes":\(decoder.count)}\(repairManifestField)\(extraField)}
         """.utf8
       )
       let operation: String

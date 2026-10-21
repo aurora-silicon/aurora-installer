@@ -730,10 +730,11 @@
         withIntermediateDirectories: false,
         attributes: [.posixPermissions: 0o700]
       )
+      let engineURL = try XCTUnwrap(fixture.package.engineURL)
       let archive = try PinnedAsahiEngineArchive(
-        fileURL: fixture.package.engineURL,
-        expectedDigest: try digest(of: fixture.package.engineURL),
-        expectedSizeBytes: try size(of: fixture.package.engineURL)
+        fileURL: engineURL,
+        expectedDigest: try digest(of: engineURL),
+        expectedSizeBytes: try size(of: engineURL)
       )
       let executor = fixtureExecutor(effectiveUserID: { 501 })
 
@@ -755,10 +756,11 @@
         withIntermediateDirectories: false,
         attributes: [.posixPermissions: 0o700]
       )
+      let engineURL = try XCTUnwrap(fixture.package.engineURL)
       let archive = try PinnedAsahiEngineArchive(
-        fileURL: fixture.package.engineURL,
+        fileURL: engineURL,
         expectedDigest: "sha256:" + String(repeating: "0", count: 64),
-        expectedSizeBytes: try size(of: fixture.package.engineURL)
+        expectedSizeBytes: try size(of: engineURL)
       )
       let executor = fixtureExecutor(effectiveUserID: { 501 })
 
@@ -787,10 +789,11 @@
         withIntermediateDirectories: false,
         attributes: [.posixPermissions: 0o700]
       )
+      let engineURL = try XCTUnwrap(fixture.package.engineURL)
       let archive = try PinnedAsahiEngineArchive(
-        fileURL: fixture.package.engineURL,
-        expectedDigest: try digest(of: fixture.package.engineURL),
-        expectedSizeBytes: try size(of: fixture.package.engineURL)
+        fileURL: engineURL,
+        expectedDigest: try digest(of: engineURL),
+        expectedSizeBytes: try size(of: engineURL)
       )
       let candidate = ValidatedEngineCandidate(
         kind: "free",

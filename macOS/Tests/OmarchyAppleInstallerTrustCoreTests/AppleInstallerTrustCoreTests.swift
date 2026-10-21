@@ -272,6 +272,30 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
     )
   }
 
+  func testSignedNativeCatalogOmitsTheExecutionArchive() throws {
+    let issued = ISO8601DateFormatter().string(from: now.addingTimeInterval(-3_600))
+    let model = """
+      {"deviceIdentifier":"apple,j314s","status":"enabled","installationProfile":"nixos-kde","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","metadataDigest":"sha256:\(String(repeating: "e", count: 64))","payloadDigest":"sha256:\(String(repeating: "f", count: 64))","evidenceRevision":"native-1","metadataArtifact":{"sourceURL":"https://downloads.example.com/metadata.json","fileName":"metadata.json","sizeBytes":1},"payloadArtifact":{"sourceURL":"https://downloads.example.com/payload.zip","fileName":"payload.zip","sizeBytes":1}}
+      """
+    let document = """
+      {"schemaVersion":5,"sequence":50,"issuedAt":"\(issued)","models":[\(model)]}
+      """
+    let catalog = try validateSigned(payload: Data(document.utf8))
+    guard case .admitted(let record) = catalog.admission(for: "apple,j314s") else {
+      return XCTFail("Expected the signed native catalog to admit this Mac")
+    }
+    XCTAssertNil(record.delivery?.engine)
+    XCTAssertEqual(record.engineVersion, NativeExecutionIdentity.version)
+    XCTAssertEqual(record.engineDigest, NativeExecutionIdentity.digest)
+
+    let polluted = document.replacingOccurrences(
+      of: "\"metadataDigest\"",
+      with: "\"engineDigest\":\"sha256:\(String(repeating: "d", count: 64))\",\"metadataDigest\"")
+    XCTAssertThrowsError(try validateSigned(payload: Data(polluted.utf8))) {
+      XCTAssertEqual($0 as? SupportCatalogError, .invalidField("models[0].engineArtifact"))
+    }
+  }
+
   func testCatalogRejectsInvalidSignature() throws {
     let fixture = try makeCatalog(sequence: 8)
     let mutatedPayload = fixture.payload + Data(" ".utf8)
@@ -690,7 +714,7 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
       parts.first?.expectedDigest,
       "sha256:" + String(repeating: "1", count: 64)
     )
-    XCTAssertEqual(record.delivery?.engine.parts, [])
+    XCTAssertEqual(record.delivery?.engine?.parts, [])
   }
 
   func testCatalogRejectsPartsOutsidePayloadArtifact() {
