@@ -64,7 +64,7 @@
         let container = snapshot.containers.first(where: { $0.storeUUID == stub.uuid }),
         snapshot.containers.filter({ $0.storeUUID == stub.uuid }).count == 1,
         let system = container.volumes.first(where: {
-          $0.roles == ["System"] && AuroraDistribution.allCases.map(\.title).contains($0.name)
+          $0.roles == ["System"] && NativeKnownInstallations.recognizedTitles.contains($0.name)
         }),
         container.volumes.filter({
           $0.roles == ["System"] && $0.name == system.name

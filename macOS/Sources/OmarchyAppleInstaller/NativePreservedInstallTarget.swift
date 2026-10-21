@@ -7,7 +7,7 @@
     case imageTooLarge
   }
 
-  /// Read-only admission of an existing Aurora installation for a future
+  /// Read-only admission of an existing compatible installation for a future
   /// Stage-1-preserving rewrite. This value alone never authorizes a disk write.
   struct NativePreservedInstallTarget: Equatable, Sendable {
     let disk: String
@@ -56,7 +56,7 @@
         matchingFacts[0].systems.count == 1,
         let system = matchingFacts[0].systems.first,
         system.stub,
-        AuroraDistribution.allCases.map(\.title).contains(system.label),
+        NativeKnownInstallations.recognizedTitles.contains(system.label),
         title.map({ $0 == system.label }) ?? true,
         parts[1].name == NativeKnownInstallations.espLabel(for: system.label),
         UUID(uuidString: system.group) != nil,

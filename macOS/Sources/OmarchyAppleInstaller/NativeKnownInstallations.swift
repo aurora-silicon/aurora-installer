@@ -15,12 +15,13 @@
   }
 
   enum NativeKnownInstallations {
+    static let recognizedTitles = Set(AuroraDistribution.allCases.map(\.title) + ["Omarchy"])
+
     static func recognize(_ disk: NativeCollectedDisk) throws -> [NativeKnownInstallation] {
       let rows = try NativeDiskInventory.extents(disk.snapshot)
       guard Set(disk.containers.map(\.storeUUID)).count == disk.containers.count else {
         throw NativeInspectionError.invalidLayout
       }
-      let names = Set(AuroraDistribution.allCases.map(\.title) + ["Omarchy"])
       var result = [NativeKnownInstallation]()
       for (index, row) in rows.enumerated() {
         guard let stub = row.partition, stub.type == "Apple_APFS",
@@ -30,7 +31,7 @@
         guard container.capacity == stub.size, container.free <= container.capacity else {
           throw NativeInspectionError.invalidLayout
         }
-        let systems = container.systems.filter { $0.stub && names.contains($0.label) }
+        let systems = container.systems.filter { $0.stub && recognizedTitles.contains($0.label) }
         guard !systems.isEmpty else { continue }
         let members = rows[index...index + 3].compactMap(\.partition)
         guard members.count == 4, members[1].type == "EFI",

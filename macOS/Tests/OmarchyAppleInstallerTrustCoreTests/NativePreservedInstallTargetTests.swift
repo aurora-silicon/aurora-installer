@@ -5,7 +5,9 @@
   @testable import OmarchyAppleInstallerTrustCore
 
   final class NativePreservedInstallTargetTests: XCTestCase {
-    private func fixture() throws -> NativeCollectedDisk {
+    private func fixture(title: String = AuroraDistribution.nixos.title) throws
+      -> NativeCollectedDisk
+    {
       let directory = try XCTUnwrap(Bundle.module.url(forResource: "Fixtures", withExtension: nil))
       let document = try XCTUnwrap(
         JSONSerialization.jsonObject(
@@ -20,7 +22,6 @@
       var facts = try JSONDecoder().decode(
         [NativeContainerFacts].self,
         from: JSONSerialization.data(withJSONObject: vector["containers"]!))
-      let title = AuroraDistribution.nixos.title
       snapshot.partitions = snapshot.partitions.map { part in
         guard part.identifier == "disk0s5" else { return part }
         return RemovalPartition(
@@ -91,6 +92,38 @@
         sourceIdentifier: "disk0s4", title: AuroraDistribution.nixos.title,
         bootImageBytes: 4096, rootImageBytes: 4096)
       XCTAssertNotEqual(target.identityDigest, changedTarget.identityDigest)
+    }
+
+    func testOmarchyLayoutOffersCrossDistributionResetButUnknownStubDoesNot() throws {
+      let disk = try fixture(title: "Omarchy")
+      let target = try NativePreservedInstallTarget.recognize(
+        disk, sourceIdentifier: "disk0s4", title: "Omarchy")
+      XCTAssertEqual(target.title, "Omarchy")
+      XCTAssertEqual(target.esp.name, "EFI - OMARC")
+      let directory = try XCTUnwrap(Bundle.module.url(forResource: "Fixtures", withExtension: nil))
+      let document = try XCTUnwrap(
+        JSONSerialization.jsonObject(
+          with: Data(contentsOf: directory.appendingPathComponent("native-inspection-vectors.json")))
+          as? [String: Any])
+      let vectors = try XCTUnwrap(document["vectors"] as? [[String: Any]])
+      let vector = try XCTUnwrap(vectors.first { $0["name"] as? String == "complete-install" })
+      var metadata = try XCTUnwrap(vector["metadata"] as? [String: Any])
+      var templates = try XCTUnwrap(metadata["os_list"] as? [[String: Any]])
+      templates[0]["default_os_name"] = AuroraDistribution.arch.title
+      metadata["os_list"] = templates
+      let inspected = try AppleInstallerTrustCore().validateEngineTranscript(
+        NativeDiskInventory.transcript(
+          device: "apple,j314s", snapshot: disk.snapshot, containers: disk.containers,
+          metadata: try NativeInstallationMetadata(
+            data: JSONSerialization.data(withJSONObject: metadata)),
+          stubBytes: 2_499_805_184))
+      let candidate = try XCTUnwrap(
+        inspected.inventory?.candidates.first { $0.kind == "reinstall" })
+      XCTAssertEqual(candidate.sourceIdentifier, target.stub.identifier)
+      XCTAssertEqual(candidate.identityDigest, target.identityDigest)
+      XCTAssertThrowsError(
+        try NativePreservedInstallTarget.recognize(
+          try fixture(title: "Unknown Linux"), sourceIdentifier: "disk0s4"))
     }
 
     func testRejectsChangedLayoutWrongProfileAndOversizedImageBeforeWrite() throws {
