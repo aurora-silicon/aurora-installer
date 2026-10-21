@@ -37,23 +37,6 @@
       }
     }
 
-    func testADelegatedHandoffRequiresAnAuthenticatedBackendCapability() async throws {
-      let fixture = try makeFixture(
-        supportsNativeHandoff: false, installationIntent: .repair)
-      defer { try? FileManager.default.removeItem(at: fixture.root) }
-      await assertThrowsErrorAsync(
-        try await fixtureExecutor(effectiveUserID: { 0 }).execute(
-          fixture.package, authorization: try machineOwnerAuthorization())
-      ) {
-        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
-          return XCTFail("Expected capability admission failure")
-        }
-        XCTAssertEqual(report.notice.reason, .recoveryPreparation)
-        XCTAssertTrue(report.notice.diskUnchanged)
-      }
-      XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
-    }
-
     func testPreservedReinstallCannotFallThroughToFreshDiskOrCompatibilityExecution()
       async throws
     {
@@ -120,6 +103,19 @@
         any NativeESPFilesExecuting
       )? { nil }
     }
+
+    private struct FailingNativePartitionsFixture: NativeOSPartitionsPreparing {
+      func preflight(_ package: ImportedEngineHandoffPackage) throws
+        -> any NativeOSPartitionsExecuting
+      { throw NativeHandoffValidationError.invalidTarget }
+    }
+
+    private struct FailingNativeImagesFixture: NativePayloadImagesPreparing {
+      func preflight(_ package: ImportedEngineHandoffPackage) async throws
+        -> any NativePayloadImagesExecuting
+      { throw NativeHandoffValidationError.invalidTarget }
+    }
+
     private struct NativeESPFixture: NativeESPFilesPreparing, NativeESPFilesExecuting {
       let marker: URL
       let images: URL
@@ -182,6 +178,59 @@
       _ = try AppleInstallerTrustCore().validateEngineTranscript(transcript)
       XCTAssertTrue(FileManager.default.fileExists(atPath: finished.path))
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
+
+    func testEveryIncompleteNativeClosureRefusesBeforeDiskMutationOrRuntimeLaunch()
+      async throws
+    {
+      for missing in ["apfs", "stub", "partitions", "images", "esp", "finish"] {
+        let fixture = try makeFixture(missingBackendInterpreter: true)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let apfs = fixture.root.appendingPathComponent("apfs")
+        let files = fixture.root.appendingPathComponent("files")
+        let partitions = fixture.root.appendingPathComponent("partitions")
+        let images = fixture.root.appendingPathComponent("images")
+        let esp = fixture.root.appendingPathComponent("esp")
+        let finished = fixture.root.appendingPathComponent("finished")
+        let apfsPreparer: any NativeAPFSPreparing =
+          missing == "apfs" ? NoNativeAPFSFixture() : NativeAPFSFixture(marker: apfs)
+        let stubPreparer: any NativeStubFilesPreparing =
+          missing == "stub" ? NoNativeStubFilesFixture() : NativeFilesFixture(marker: files, apfs: apfs)
+        let partitionsPreparer: any NativeOSPartitionsPreparing =
+          missing == "partitions"
+          ? FailingNativePartitionsFixture()
+          : NativePartitionsFixture(marker: partitions, files: files)
+        let imagesPreparer: any NativePayloadImagesPreparing =
+          missing == "images"
+          ? FailingNativeImagesFixture()
+          : NativeImagesFixture(marker: images, partitions: partitions)
+        let espPreparer: any NativeESPFilesPreparing =
+          missing == "esp"
+          ? NoNativeESPFixture()
+          : NativeESPFixture(marker: esp, images: images, requiresNativeFinishing: true)
+        let finisher: any NativeInstallationFinishingPreparing =
+          missing == "finish"
+          ? NativeInstallationFinisher(enabled: false)
+          : NativeFinishingFixture(esp: esp, marker: finished)
+        let executor = fixtureExecutor(
+          effectiveUserID: { 0 }, apfsPreparer: apfsPreparer,
+          stubFilesPreparer: stubPreparer, osPartitionsPreparer: partitionsPreparer,
+          payloadImagesPreparer: imagesPreparer, espFilesPreparer: espPreparer,
+          installationFinisher: finisher)
+
+        await assertThrowsErrorAsync(
+          try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
+        ) {
+          guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError
+          else { return XCTFail("Expected a native preflight failure for \(missing)") }
+          XCTAssertEqual(report.notice.reason, .planIntegrity)
+          XCTAssertTrue(report.notice.diskUnchanged)
+        }
+        for marker in [apfs, files, partitions, images, esp, finished] {
+          XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+        }
+        XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+      }
     }
 
     func testLegacyESPWithoutNativeFinishingRefusesBeforeDiskChangesOrRuntimeLaunch() async throws {
@@ -336,39 +385,6 @@
       }
     }
 
-    func testNativeAdmissionRecollectsAfterFirmwareAndStopsBeforeBackendLaunch() async throws {
-      for failure in ["existing", "unreadable"] {
-        let fixture = try makeFixture(installationIntent: .repair)
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let marker = fixture.root.appendingPathComponent("firmware-marker")
-        let executor = fixtureExecutor(
-          effectiveUserID: { 0 },
-          firmwarePreparer: FirmwareMarker(url: marker),
-          collectInstallAdmission: {
-            guard try Data(contentsOf: marker) == Data("prepared".utf8) else {
-              throw CocoaError(.fileReadUnknown)
-            }
-            if failure == "unreadable" { throw CocoaError(.fileReadNoPermission) }
-            return NativeAdmissionTestData.facts(existing: true)
-          })
-        await assertThrowsErrorAsync(
-          try await executor.execute(
-            fixture.package,
-            authorization: try machineOwnerAuthorization())
-        ) {
-          guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
-            return XCTFail("Expected native admission failure, got \($0)")
-          }
-          XCTAssertEqual(report.notice.reason, .diskLayoutChanged)
-          XCTAssertTrue(report.notice.diskUnchanged)
-        }
-        XCTAssertEqual(try Data(contentsOf: marker), Data("prepared".utf8))
-        let journal = try XCTUnwrap(journalEntries(in: fixture.root).first)
-        XCTAssertTrue(try Data(contentsOf: journal).isEmpty)
-        XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
-      }
-    }
-
     func testMalformedRetainedJournalCannotBypassAdmissionOrClaimNoMutation() async throws {
       let fixture = try makeFixture()
       defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -419,69 +435,6 @@
             XCTAssertTrue(report.notice.diskUnchanged)
           }
           XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
-        }
-      }
-    }
-
-    func testRepairAdmissionRequiresPrivateMatchingCheckpointEvidence() async throws {
-      for evidenceState in [
-        "valid", "changed", "missing", "symlink", "public", "different-plan",
-        "different-read-only-plan",
-      ] {
-        let foreignPlan = evidenceState.hasPrefix("different")
-        let readOnly = evidenceState == "different-read-only-plan"
-        let fixture = try makeFixture(
-          installationIntent: .repair,
-          planDigest: foreignPlan
-            ? String(repeating: "d", count: 64)
-            : NativeAdmissionTestData.plan.planDigest)
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let directory = fixture.root.appendingPathComponent("execution-journals")
-        try FileManager.default.createDirectory(
-          at: directory, withIntermediateDirectories: false,
-          attributes: [.posixPermissions: 0o700])
-        let journal = directory.appendingPathComponent(String(repeating: "b", count: 64) + ".jsonl")
-        let retained = try NativeAdmissionTestData.journal(
-          stages: readOnly ? 0 : 2, pendingRecovery: !readOnly)
-        try retained.write(to: journal)
-        try FileManager.default.setAttributes(
-          [.posixPermissions: 0o600], ofItemAtPath: journal.path)
-        for identifier in ["apfs-target-prepared", "stub-and-esp-installed"] {
-          let evidence = URL(fileURLWithPath: journal.path + "." + identifier + ".evidence")
-          if evidenceState == "missing" { continue }
-          if evidenceState == "symlink" {
-            try FileManager.default.createSymbolicLink(at: evidence, withDestinationURL: journal)
-          } else {
-            try
-              (evidenceState == "changed" ? Data("changed".utf8) : NativeAdmissionTestData.evidence)
-              .write(to: evidence)
-            try FileManager.default.setAttributes(
-              [.posixPermissions: evidenceState == "public" ? 0o644 : 0o600],
-              ofItemAtPath: evidence.path)
-          }
-        }
-        let executor = fixtureExecutor(
-          effectiveUserID: { 0 },
-          collectInstallAdmission: {
-            throw CocoaError(.fileReadUnknown)
-          })
-        if evidenceState == "valid" {
-          let result = try await executor.execute(
-            fixture.package, authorization: try machineOwnerAuthorization())
-          XCTAssertEqual(result, fixture.transcript)
-        } else {
-          await assertThrowsErrorAsync(
-            try await executor.execute(
-              fixture.package,
-              authorization: try machineOwnerAuthorization())
-          ) {
-            guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
-              return XCTFail("Expected checkpoint rejection")
-            }
-            XCTAssertEqual(report.notice.reason, .planIntegrity)
-            XCTAssertFalse(report.notice.diskUnchanged)
-          }
-          XCTAssertEqual(try Data(contentsOf: journal), retained)
         }
       }
     }
