@@ -344,14 +344,14 @@ struct OnePageInstallerView: View {
       Button(plan.preservesStage1 ? "Back to review" : "Change size") {
         session.editPlan()
       }
-        .omarchySecondaryButton()
-        .disabled(!session.canEditPlan)
+      .omarchySecondaryButton()
+      .disabled(!session.canEditPlan)
       Button(plan.preservesStage1 ? "Reset Linux" : PlainLanguage.planInstall) {
         session.presentInstallCredentials()
       }
-        .omarchyPrimaryButton()
-        .disabled(!session.canStartInstallation)
-        .keyboardShortcut(.defaultAction)
+      .omarchyPrimaryButton()
+      .disabled(!session.canStartInstallation)
+      .keyboardShortcut(.defaultAction)
 
     case .installing:
       Text(PlainLanguage.installWarning)

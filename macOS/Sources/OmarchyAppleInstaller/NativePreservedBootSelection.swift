@@ -28,7 +28,8 @@
       try verifySystemInfo(system, target: target, mount: systemURL)
       _ = try environment.command("/sbin/mount", ["-u", "-w", systemURL.path])
       let writableInfo = try environment.disk(system.identifier)
-      guard (writableInfo["VolumeUUID"] as? String)?.uppercased()
+      guard
+        (writableInfo["VolumeUUID"] as? String)?.uppercased()
           == system.uuid.uppercased(),
         writableInfo["MountPoint"] as? String == systemURL.path,
         writableInfo["WritableVolume"] as? Bool == true
