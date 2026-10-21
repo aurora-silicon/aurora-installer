@@ -63,7 +63,8 @@
       let esp = Set(members.keys.filter { $0.hasPrefix("esp/") })
       let layout = try NativeESPLayout.map(
         deviceIdentifier: deviceIdentifier, members: esp, commonAllowed: common)
-      let stage2 = common || board != "j700ap" ? "esp/m1n1/boot.bin" : "esp/m1n1/boot-j700.bin"
+      // Neo needs its dedicated boot payload even with the common Stage 1.
+      let stage2 = board == "j700ap" ? "esp/m1n1/boot-j700.bin" : "esp/m1n1/boot.bin"
       guard let member = members[stage2], member.sizeBytes > 0,
         layout[stage2] == "m1n1/boot.bin"
       else { throw NativeBootChainError.missingStage2 }
@@ -127,7 +128,7 @@
       deviceIdentifier: String, members: Set<String>, commonAllowed: Bool
     ) throws -> [String: String] {
       let common = members.contains("esp/aurora/stage1.bin") && commonAllowed
-      let own = !common && deviceIdentifier == "apple,j700" ? "esp/m1n1/boot-j700.bin" : nil
+      let own = deviceIdentifier == "apple,j700" ? "esp/m1n1/boot-j700.bin" : nil
       guard !common || members.contains("esp/m1n1/boot.bin"),
         own.map({ members.contains($0) }) ?? true
       else { throw NativeHandoffValidationError.changedContent }
