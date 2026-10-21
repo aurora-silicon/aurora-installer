@@ -252,15 +252,16 @@
         XCTFail("Expected admitted schema-v2 installer")
         throw InstallerPlanReviewError.assetBindingMismatch
       }
+      let engine = try XCTUnwrap(delivery.engine)
 
       let alteredEngine = try PinnedInstallerArtifact(
-        role: delivery.engine.role,
-        sourceURL: delivery.engine.sourceURL,
-        fileName: delivery.engine.fileName,
+        role: engine.role,
+        sourceURL: engine.sourceURL,
+        fileName: engine.fileName,
         expectedDigest: alterEngineArtifact
           ? "sha256:" + String(repeating: "0", count: 64)
-          : delivery.engine.expectedDigest,
-        expectedSizeBytes: delivery.engine.expectedSizeBytes
+          : engine.expectedDigest,
+        expectedSizeBytes: engine.expectedSizeBytes
       )
       let assets = PreparedInstallerAssets(
         catalogIdentity: accepted.acceptedIdentity,

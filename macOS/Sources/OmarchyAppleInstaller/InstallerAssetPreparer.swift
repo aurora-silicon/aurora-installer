@@ -35,7 +35,7 @@
   public struct PreparedInstallerAssets: Sendable {
     public let catalogIdentity: AcceptedCatalogIdentity
     public let installer: PinnedInstallerRecord
-    public let engine: StagedInstallerArtifact
+    public let engine: StagedInstallerArtifact?
     public let metadata: StagedInstallerArtifact
     public let payload: StagedInstallerArtifact
     public let repairManifest: StagedInstallerArtifact?
@@ -45,7 +45,9 @@
     /// fallback and the helper's verified copy, both of which remain on macOS
     /// while the engine checks resize limits.
     public var additionalHandoffBytes: UInt64 {
-      let artifacts = [engine, metadata, payload] + (repairManifest.map { [$0] } ?? [])
+      let artifacts =
+        [metadata, payload] + (engine.map { [$0] } ?? [])
+        + (repairManifest.map { [$0] } ?? [])
       var total: UInt64 = 0
       for staged in artifacts {
         let (copies, copyOverflow) = staged.artifact.expectedSizeBytes.multipliedReportingOverflow(
@@ -72,7 +74,7 @@
     public init(
       catalogIdentity: AcceptedCatalogIdentity,
       installer: PinnedInstallerRecord,
-      engine: StagedInstallerArtifact,
+      engine: StagedInstallerArtifact?,
       metadata: StagedInstallerArtifact,
       payload: StagedInstallerArtifact,
       repairManifest: StagedInstallerArtifact? = nil,
@@ -177,7 +179,7 @@
       )
 
       if let previous = previouslyPrepared, previous.installer == installer {
-        var artifacts = [previous.engine, previous.metadata]
+        var artifacts = [previous.metadata] + (previous.engine.map { [$0] } ?? [])
         if includePayload {
           artifacts.append(previous.payload)
         }
@@ -205,17 +207,14 @@
         }
       }
 
-      async let engine = stager.stage(
-        delivery.engine,
-        in: stagingDirectory,
-        progress: progress
-      )
+      async let engine = stageOptionalArtifact(
+        delivery.engine, in: stagingDirectory, progress: progress)
       async let metadata = stager.stage(
         delivery.metadata,
         in: stagingDirectory,
         progress: progress
       )
-      async let repairManifest = stageRepairManifest(
+      async let repairManifest = stageOptionalArtifact(
         delivery.repairManifest,
         in: stagingDirectory,
         progress: progress
@@ -276,7 +275,7 @@
       return stagingDirectory.appendingPathComponent(revision, isDirectory: true)
     }
 
-    private func stageRepairManifest(
+    private func stageOptionalArtifact(
       _ artifact: PinnedInstallerArtifact?,
       in stagingDirectory: URL,
       progress: ArtifactStagingProgressHandler?

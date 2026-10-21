@@ -8,7 +8,7 @@
     public let manifestURL: URL
     public let requestURL: URL
     public let identityURL: URL
-    public let engineURL: URL
+    public let engineURL: URL?
     public let metadataURL: URL
     public let payloadURL: URL
     public let repairManifestURL: URL?
@@ -107,11 +107,9 @@
       try ensurePrivateDirectory(handoffDirectory)
 
       let artifactFileNames =
-        [
-          assets.engine.artifact.fileName,
-          assets.metadata.artifact.fileName,
-          assets.payload.artifact.fileName,
-        ] + (assets.repairManifest.map { [$0.artifact.fileName] } ?? [])
+        [assets.metadata.artifact.fileName, assets.payload.artifact.fileName]
+        + (assets.engine.map { [$0.artifact.fileName] } ?? [])
+        + (assets.repairManifest.map { [$0.artifact.fileName] } ?? [])
       guard Set(artifactFileNames).count == artifactFileNames.count,
         Set(artifactFileNames).isDisjoint(
           with: Self.reservedFileNames
@@ -141,9 +139,7 @@
         }
       }
 
-      let engineURL = pending.appendingPathComponent(
-        assets.engine.artifact.fileName
-      )
+      let engineURL = assets.engine.map { pending.appendingPathComponent($0.artifact.fileName) }
       let metadataURL = pending.appendingPathComponent(
         assets.metadata.artifact.fileName
       )
@@ -168,7 +164,9 @@
       } else {
         recoveryArtifact = nil
       }
-      try copyVerified(assets.engine, role: "engine", to: engineURL)
+      if let staged = assets.engine, let engineURL {
+        try copyVerified(staged, role: "engine", to: engineURL)
+      }
       try copyVerified(assets.metadata, role: "metadata", to: metadataURL)
       try copyVerified(assets.payload, role: "payload", to: payloadURL)
       if let staged = assets.repairManifest, let repairManifestURL {
@@ -207,9 +205,7 @@
         manifestURL: package.appendingPathComponent("manifest.json"),
         requestURL: package.appendingPathComponent("request.json"),
         identityURL: package.appendingPathComponent("identity.json"),
-        engineURL: package.appendingPathComponent(
-          assets.engine.artifact.fileName
-        ),
+        engineURL: assets.engine.map { package.appendingPathComponent($0.artifact.fileName) },
         metadataURL: package.appendingPathComponent(
           assets.metadata.artifact.fileName
         ),
@@ -286,13 +282,13 @@
     ) throws {
       guard invocation.catalogIdentity == assets.catalogIdentity,
         invocation.pinnedInstaller == assets.installer,
-        invocation.plan.engineDigest == assets.engine.artifact.expectedDigest,
+        invocation.plan.engineDigest == assets.installer.engineDigest,
         invocation.plan.metadataDigest == assets.metadata.artifact.expectedDigest,
         invocation.plan.payloadDigest == assets.payload.artifact.expectedDigest,
         invocation.plan.repairManifestDigest
           == assets.repairManifest?.artifact.expectedDigest,
         let delivery = invocation.pinnedInstaller.delivery,
-        delivery.engine == assets.engine.artifact,
+        delivery.engine == assets.engine?.artifact,
         delivery.metadata == assets.metadata.artifact,
         delivery.payload == assets.payload.artifact,
         delivery.repairManifest == assets.repairManifest?.artifact,
@@ -517,11 +513,11 @@
   }
 
   private struct EngineHandoffManifest: Encodable {
-    let format = 1
+    let format: Int
     let bindingDigest: String
     let requestFile = "request.json"
     let identityFile = "identity.json"
-    let engine: EngineHandoffArtifact
+    let engine: EngineHandoffArtifact?
     let metadata: EngineHandoffArtifact
     let payload: EngineHandoffArtifact
     let repairManifest: EngineHandoffArtifact?
@@ -535,7 +531,8 @@
       recoveryTemplate: EngineHandoffArtifact?
     ) {
       bindingDigest = invocation.candidateIdentity.bindingDigest
-      engine = EngineHandoffArtifact(staged: assets.engine)
+      format = assets.engine == nil ? 2 : 1
+      engine = assets.engine.map { EngineHandoffArtifact(staged: $0) }
       metadata = EngineHandoffArtifact(staged: assets.metadata)
       payload = EngineHandoffArtifact(staged: assets.payload)
       repairManifest = assets.repairManifest.map {

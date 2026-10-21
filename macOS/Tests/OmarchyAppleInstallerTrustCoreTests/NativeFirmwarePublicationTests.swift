@@ -35,6 +35,11 @@
       XCTAssertEqual(source.kernel, "kernelcache.release.synthetic")
       XCTAssertEqual(
         source.fud, [.init(component: "Multitouch", member: "Firmware/Multitouch.im4p")])
+      var withoutTrackpad = identity
+      var withoutTrackpadManifest = identity["Manifest"] as! [String: Any]
+      withoutTrackpadManifest.removeValue(forKey: "Multitouch")
+      withoutTrackpad["Manifest"] = withoutTrackpadManifest
+      XCTAssertThrowsError(try NativeFirmwareSourcePlan(manifest: manifest([withoutTrackpad])))
       XCTAssertThrowsError(try NativeFirmwareSourcePlan(manifest: manifest([identity, identity])))
       var malformed = identity
       malformed["Manifest"] = [

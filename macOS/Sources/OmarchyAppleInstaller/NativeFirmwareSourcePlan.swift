@@ -44,7 +44,8 @@
         }
       }
       guard kernels.count == 1, let kernel = kernels.first,
-        Set(selected.map(\.component)).count == selected.count
+        Set(selected.map(\.component)).count == selected.count,
+        machine != "j700" || selected.contains(where: { $0.component == "Multitouch" })
       else { throw NativeStubFileError.invalidPlan }
       self.kernel = kernel
       fud = selected

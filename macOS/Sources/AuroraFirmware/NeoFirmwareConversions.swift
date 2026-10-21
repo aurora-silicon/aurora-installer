@@ -23,6 +23,7 @@ public enum NeoFirmwareConversions {
     "apple/isp_1921_01XX.dat", "apple/isp_1922_02XX.dat", "apple/isp_1925_03XX.dat",
   ]
   public static let alsName = "apple/j700-aop-als-cal.bin"
+  public static let trackpadName = "apple/tpmtfw-j700.bin"
   public static let wifiPatch = "IZUBA_WIFI_MT7932_patch_mcu_1_2_hdr.bin"
   public static let wifiRAM = "IZUBA_W7932_2.bin"
   public static let bluetoothNames = [
