@@ -431,10 +431,10 @@
         let foreignPlan = evidenceState.hasPrefix("different")
         let readOnly = evidenceState == "different-read-only-plan"
         let fixture = try makeFixture(
+          installationIntent: .repair,
           planDigest: foreignPlan
             ? String(repeating: "d", count: 64)
-            : NativeAdmissionTestData.plan.planDigest,
-          installationIntent: .repair)
+            : NativeAdmissionTestData.plan.planDigest)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let directory = fixture.root.appendingPathComponent("execution-journals")
         try FileManager.default.createDirectory(
