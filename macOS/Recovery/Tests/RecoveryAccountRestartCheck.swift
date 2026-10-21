@@ -62,6 +62,43 @@ struct RecoveryFailure: Error { let message: String }
         restart: { preconditionFailure("Changed boot target restarted") })
       preconditionFailure("Changed target accepted")
     } catch is RecoveryFailure {}
+    calls = []
+    try RecoveryDirectRestart.perform(
+      receipt: original, hasPendingInstallation: false,
+      verifyBundle: { calls.append("verify") },
+      isTargetDefault: {
+        calls.append("default")
+        return true
+      },
+      restart: { calls.append("restart") })
+    precondition(calls == ["verify", "default", "default", "restart"])
+    for (receipt, pending, bundleValid, targetDefault) in [
+      (["status": "prepared"], false, true, true),
+      (["status": "installed"], true, true, true),
+      (original, false, false, true),
+      (original, false, true, false),
+    ] {
+      do {
+        try RecoveryDirectRestart.perform(
+          receipt: receipt, hasPendingInstallation: pending,
+          verifyBundle: { if !bundleValid { throw Injected.failure } },
+          isTargetDefault: { targetDefault },
+          restart: { preconditionFailure("Invalid direct restart proceeded") })
+        preconditionFailure("Invalid direct restart accepted")
+      } catch is RecoveryFailure {} catch Injected.failure {}
+    }
+    var directReads = 0
+    do {
+      try RecoveryDirectRestart.perform(
+        receipt: original, hasPendingInstallation: false,
+        verifyBundle: {},
+        isTargetDefault: {
+          directReads += 1
+          return directReads == 1
+        },
+        restart: { preconditionFailure("Changed startup target restarted") })
+      preconditionFailure("Changed direct startup target accepted")
+    } catch is RecoveryFailure {}
     print("PASS restart ordering, deferred account resume and no restart before committed setup")
   }
 }

@@ -19,7 +19,7 @@ compile_run owner Sources/RecoveryOwner.swift Tests/RecoveryOwnerCheck.swift
 compile_run bootstrap-owner Sources/RecoveryOwner.swift Tests/BootstrapOwnerCheck.swift
 compile_run boot-selection Sources/BootSelection.swift Tests/BootSelectionCheck.swift
 compile_run installer-log Sources/InstallerLog.swift Tests/InstallerLogCheck.swift
-compile_run log-view Sources/LogTextView.swift Tests/LogTextViewCheck.swift
+compile_run log-view Sources/InstallerTheme.swift Sources/LogTextView.swift Tests/LogTextViewCheck.swift
 compile_run configuration Sources/RecoveryOwner.swift Sources/InstallConfiguration.swift Tests/InstallConfigurationCheck.swift
 compile_run file-transaction Sources/Account/RecoveryDigest.swift Sources/Account/RecoveryFileTransaction.swift Tests/RecoveryFileTransactionCheck.swift
 compile_run installation-journal Sources/RecoveryInstallationJournal.swift Tests/RecoveryInstallationJournalCheck.swift

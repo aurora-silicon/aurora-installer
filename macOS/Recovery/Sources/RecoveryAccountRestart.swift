@@ -27,3 +27,24 @@ enum RecoveryAccountRestart {
     try restart()
   }
 }
+
+enum RecoveryDirectRestart {
+  static func perform(
+    receipt: [String: Any], hasPendingInstallation: Bool,
+    verifyBundle: () throws -> Void, isTargetDefault: () throws -> Bool,
+    restart: () throws -> Void
+  ) throws {
+    guard receipt["status"] as? String == "installed", !hasPendingInstallation else {
+      throw RecoveryFailure(message: "Finish installing the startup software before restarting.")
+    }
+    try verifyBundle()
+    guard try isTargetDefault() else {
+      throw RecoveryFailure(message: "Select this installation in Startup Disk before restarting.")
+    }
+    guard try isTargetDefault() else {
+      throw RecoveryFailure(
+        message: "The startup disk changed. Select this installation before restarting.")
+    }
+    try restart()
+  }
+}

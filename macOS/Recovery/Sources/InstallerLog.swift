@@ -1,12 +1,12 @@
-import Combine
 import Foundation
 
 // Only sanitized command output enters this log. The file keeps the current
 // attempt in full; the UI receives a bounded tail, at most five times a second.
-final class InstallerLog: ObservableObject {
+final class InstallerLog {
   static let shared = InstallerLog()
-  @Published private(set) var text = ""
-  @Published private(set) var truncated = false
+  var onChange: (() -> Void)?
+  private(set) var text = ""
+  private(set) var truncated = false
   let displayLimit: Int
   private let directory: URL
   private let lock = NSLock()
@@ -116,6 +116,7 @@ final class InstallerLog: ObservableObject {
       let display = error.map { "Log storage error: " + $0 + "\n" + snapshot } ?? snapshot
       if self.text != display { self.text = display }
       if self.truncated != clipped { self.truncated = clipped }
+      self.onChange?()
     }
   }
 }

@@ -648,6 +648,27 @@ enum RecoveryActions {
     try installed()["recoveryAccountRequired"] as? Bool == true
   }
 
+  static func restartCompletedSetup() throws {
+    try recoveryOnly()
+    let record = try installed()
+    try RecoveryDirectRestart.perform(
+      receipt: record,
+      hasPendingInstallation: FileManager.default.fileExists(atPath: pendingInstallation.path),
+      verifyBundle: {
+        let config = try configuration.get()
+        let expected = try asset("raw/boot.bin", manifest: manifest())
+        let target = try esp().appendingPathComponent(config.stage2Path)
+        try check(
+          try Data(contentsOf: target) == expected,
+          "The installed startup bundle changed. Restore it before restarting.")
+      },
+      isTargetDefault: targetIsDefaultBoot,
+      restart: {
+        InstallerLog.shared.append("Setup complete. Restarting now.")
+        _ = try run("/sbin/shutdown", ["-r", "now"])
+      })
+  }
+
   static func skipRecoveryAccountAndRestart() throws {
     try recoveryOnly()
     let record = try installed()
