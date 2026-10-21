@@ -114,7 +114,7 @@
       "The user name or password was incorrect."
     /// Shown on the sheet when authorizing will install the helper.
     public static let authorizeBackgroundItemNotice =
-      "macOS will show a notice that \(windowTitle) added a background item. That’s the installation service; it’s removed along with Aurora."
+      "macOS will show a background item notice. \(windowTitle) uses this on-demand helper for administrator disk changes and keeps it available for Reset or Erase."
     public static let authorizeHelperCancelled =
       "The installation service wasn’t set up, so nothing was changed. Try again, and approve the macOS password prompt if it appears."
     public static let authorizeHelperSwitchedOff =
