@@ -25,8 +25,8 @@
         throw NativeHandoffValidationError.invalidTarget
       }
     }
-    func testAllBoardLayoutsUseTheLockedBackendMappingAndKeepTheFastFreshRootPath() async throws {
-      for index in 0..<5 {
+    func testSupportedBoardLayoutsKeepTheFastFreshRootPath() async throws {
+      for index in [1, 2, 3] {
         let fixture = try NativeRecoveryHandoffFixture(index)
         defer { fixture.remove() }
         let result = try await fixture.executor().execute(
@@ -41,6 +41,23 @@
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.activeVersion.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.disabledVersion.path))
         XCTAssertEqual(try fixture.journalSnapshot().state, .complete)
+      }
+    }
+
+    func testOldNeoCommonPayloadCannotCompleteRecoveryWithTheWrongBootMember() async throws {
+      for index in [0, 4] {
+        let fixture = try NativeRecoveryHandoffFixture(index)
+        defer { fixture.remove() }
+        do {
+          _ = try await fixture.executor().execute(
+            package: fixture.package, journal: fixture.journalURL,
+            authorization: fixture.authorization(), requirement: "fixture",
+            fullReadback: false)
+          XCTFail("Old Neo boot member was accepted")
+        } catch {
+          XCTAssertEqual(error as? NativeHandoffValidationError, .changedContent)
+        }
+        XCTAssertEqual(fixture.blessCalls, 0)
       }
     }
 
@@ -287,7 +304,7 @@
       system.appendingPathComponent("System/Library/CoreServices/SystemVersion-disabled.plist")
     }
 
-    init(_ index: Int = 0) throws {
+    init(_ index: Int = 1) throws {
       let resources = Bundle.module.url(forResource: "Fixtures", withExtension: nil)!
       let document =
         try JSONSerialization.jsonObject(
