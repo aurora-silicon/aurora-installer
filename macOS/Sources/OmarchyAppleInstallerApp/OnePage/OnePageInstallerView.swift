@@ -305,7 +305,7 @@ struct OnePageInstallerView: View {
           .disabled(session.isBusy)
       }
       if host.existingInstalls.count == 1 {
-        Button("Reinstall Aurora…") {
+        Button("Reset Aurora…") {
           Task { await session.reinstallPreservingStage1() }
         }
         .omarchyPrimaryButton()
@@ -325,7 +325,7 @@ struct OnePageInstallerView: View {
         .omarchySecondaryButton()
         .disabled(session.isEditingSize)
       }
-      Button(plan.preservesStage1 ? "Reinstall" : PlainLanguage.planInstall) {
+      Button(plan.preservesStage1 ? "Reset Aurora" : PlainLanguage.planInstall) {
         // Approve the exact plan and go straight to the password. If the
         // helper is not ready the page stays here and says so.
         session.approve()
@@ -592,7 +592,7 @@ struct ExistingInstallationContent: View {
       Text(PlainLanguage.existingInstallHeadline)
         .font(OmarchyTheme.heading)
       Text(
-        "Choose the installed Aurora distribution to reinstall while keeping its startup setup. Or erase Linux and return its space to macOS."
+        "Reset Aurora in its current space while keeping Stage 1, or erase Linux and return its space to macOS."
       )
       .font(OmarchyTheme.body)
       .foregroundStyle(OmarchyTheme.secondaryText)
@@ -694,10 +694,10 @@ struct DiskSplitPanel: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 20) {
-      Text(plan.preservesStage1 ? "Review your installation" : "Choose your space")
+      Text(plan.preservesStage1 ? "Review your reset" : "Choose your space")
         .font(.system(size: 22, weight: .semibold))
       if plan.preservesStage1 {
-        Text("The startup setup and partition sizes stay. Aurora rewrites the Linux files.")
+        Text("Stage 1 and partition sizes stay. EFI boot files, Linux Boot and Root are replaced, erasing Linux accounts and files.")
           .font(OmarchyTheme.body)
           .foregroundStyle(OmarchyTheme.secondaryText)
       }

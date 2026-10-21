@@ -56,7 +56,7 @@ struct RecoveryHandoffView: View {
     } actions: {
       HStack(spacing: 12) {
         if let onReinstall {
-          Button("Reinstall options…", action: onReinstall)
+          Button("Reset options…", action: onReinstall)
             .omarchySecondaryButton()
             .disabled(busy)
         }

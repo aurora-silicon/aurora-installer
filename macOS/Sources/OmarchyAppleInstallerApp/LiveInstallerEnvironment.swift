@@ -940,7 +940,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     case .otherContainerResize:
       targetDescription = "Internal storage · Resize " + (sourceName ?? "another APFS container")
     case .preservedInstall:
-      targetDescription = "Existing Aurora installation · Keep startup setup"
+      targetDescription = "Existing Aurora installation · Reset without resizing"
     }
 
     return PlanDisplay(
