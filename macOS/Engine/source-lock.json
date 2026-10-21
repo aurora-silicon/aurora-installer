@@ -326,12 +326,12 @@
       {
         "path": "overlay/src/omarchy_native_peripherals.py",
         "destination": "src/omarchy_native_peripherals.py",
-        "sha256": "41de6bdda234a63586b712c6c52754af2caba45cd8eccd47573f25b5e9c88763"
+        "sha256": "ba3591819c4a6acfd34867effaa37711f60fae3781584c7d34a7b658e2fb2865"
       },
       {
         "path": "overlay/tests/test_omarchy_native_peripherals.py",
         "destination": "tests/test_omarchy_native_peripherals.py",
-        "sha256": "1e348dc7a54f37ef9447d4047cb4e05e56ee8736a2d1a1354c012b38674b733f"
+        "sha256": "690534ceb5144f31fd0e8a94ea521179527b675cc6f5b7224f2c55a089d588fd"
       }
     ]
   },

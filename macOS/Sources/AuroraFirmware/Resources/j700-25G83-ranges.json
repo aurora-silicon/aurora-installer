@@ -374,6 +374,37 @@
       ]
     },
     {
+      "source": "System/Library/DriverExtensions/com.apple.AppleSunriseWLAN.dext/IZUBA/IZUBA_TxPwrLimit6G_MT79x1.dat",
+      "name": "sunrise/IZUBA_TxPwrLimit6G_MT79x1.dat",
+      "transform": "identity",
+      "compressed": true,
+      "raw_sha256": "bc22e249526867b62542ef61231c14b7027ae49f8c926ad6d73029c742dc53bc",
+      "sha256": "bc22e249526867b62542ef61231c14b7027ae49f8c926ad6d73029c742dc53bc",
+      "size": 14728357,
+      "storage": [
+        {
+          "size": 16,
+          "sha256": "57e6f5429f9a5bfea269b445a3479dbb538360e23d450595eb9361fbf33a9b32",
+          "spans": [
+            {
+              "offset": 445515944,
+              "size": 16
+            }
+          ]
+        },
+        {
+          "size": 1159545,
+          "sha256": "71db920cef75e5b7d47ab4728702e98129f4a9ffd1614dc1d91e73ee10197017",
+          "spans": [
+            {
+              "offset": 4709736448,
+              "size": 1159545
+            }
+          ]
+        }
+      ]
+    },
+    {
       "source": "System/Library/DriverExtensions/com.apple.AppleSunriseWLAN.dext/IZUBA/IZUBA_TxPwrLimit_MT79x1.dat",
       "name": "sunrise/IZUBA_TxPwrLimit_MT79x1.dat",
       "transform": "identity",

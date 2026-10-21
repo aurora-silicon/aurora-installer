@@ -95,7 +95,7 @@ def load(path, *, device, binding, plan, metadata, payload, recipe):
                 values[key] = value
             return values
 
-        manifest = json.loads(read("manifest.json", 65536), object_pairs_hook=unique)
+        manifest = json.loads(read("manifest.json", 1 << 20), object_pairs_hook=unique)
         keys = {"schema", "converter", "device_identifier", "binding_digest", "plan_digest", "metadata_digest",
                 "payload_digest", "recipe_sha256", "local_inputs", "files"}
         _require(isinstance(manifest, dict) and set(manifest) == keys and type(manifest["schema"]) is int
@@ -112,7 +112,7 @@ def load(path, *, device, binding, plan, metadata, payload, recipe):
                  and all(isinstance(value, str) and HASH.fullmatch(value) for value in local.values()),
                  "invalid native local-input identity")
         files = manifest["files"]
-        _require(isinstance(files, dict) and 17 <= len(files) <= 320, "invalid native peripheral inventory")
+        _require(isinstance(files, dict) and 17 <= len(files) <= 512, "invalid native peripheral inventory")
         result = {role: {} for role in ("camera", "radio", "als", "lsci", "policy", "sensor")}
         expected_files = {"manifest.json"}
         expected_dirs = set()
@@ -126,17 +126,24 @@ def load(path, *, device, binding, plan, metadata, payload, recipe):
             allowed = (role == "camera" and name in CAMERA or role == "radio" and name in RADIO
                        or role == "als" and name == ALS or role == "lsci" and name == LSCI
                        or role == "sensor" and name in (SENSOR, SENSOR_ROOT_KEY)
-                       or role == "policy" and re.fullmatch(r"mediatek/mt7932/policy/(?:world-XZ|[A-Z]{2})\.bin", name))
+                       or role == "policy" and re.fullmatch(r"mediatek/mt7932/(?:policy/(?:world-XZ|[A-Z]{2})|policy-v2/[A-Z]{2})\.bin", name))
             _require(allowed, "unknown native peripheral output")
             if role == "als": _require(record["bytes"] == 80, "invalid native ALS size")
             if role == "lsci": _require(record["bytes"] == 156, "invalid native LSCI size")
-            if role == "policy": _require(16 <= record["bytes"] <= 16384, "invalid native policy size")
+            if role == "policy":
+                version = 2 if "/policy-v2/" in name else 1
+                _require(16 <= record["bytes"] <= (65536 if version == 2 else 16384),
+                         "invalid native policy size")
             total += record["bytes"]
             _require(total <= 64 << 20, "native peripheral snapshot exceeds its budget")
             relative = "files/" + name
             data = read(relative, record["bytes"])
             _require(len(data) == record["bytes"] and hashlib.sha256(data).hexdigest() == record["sha256"],
                      "native peripheral digest mismatch")
+            if role == "policy":
+                country = "XZ" if name.endswith("/world-XZ.bin") else name.rsplit("/", 1)[1][:-4]
+                _require(data[:4] == b"J7RP" and int.from_bytes(data[4:6], "little") == version
+                         and data[6:8] == country.encode("ascii"), "native policy directory/version mismatch")
             result[role][name] = data
             expected_files.add(relative)
             pieces = relative.split("/")

@@ -79,6 +79,63 @@ class PreparedPeripheralTests(unittest.TestCase):
         self.assertEqual(flat, self.files)
         self.assertEqual({name: hashlib.sha256(data).hexdigest() for name, data in flat.items()}, self.value["outputSHA256"])
 
+    def add_policy(self, country, version, size):
+        # Opaque synthetic producer output: structural validation belongs to Swift.
+        name = f"mediatek/mt7932/policy{'-v2' if version == 2 else ''}/{country}.bin"
+        data = b"J7RP" + version.to_bytes(2, "little") + country.encode("ascii") + bytes(size - 8)
+        path = self.root / "files" / name
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        path.write_bytes(data)
+        path.chmod(0o600)
+        self.manifest["files"][name] = dict(role="policy", bytes=len(data), sha256=hashlib.sha256(data).hexdigest())
+        return name
+
+    def test_complete_v1_and_v2_native_inventory_is_adopted_with_both_paths(self):
+        countries = [a + b for a in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" for b in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                     if a + b != "XZ"][:243]
+        for country in countries:
+            self.add_policy(country, 1, 10240)
+        for country in countries[:120]:
+            self.add_policy(country, 2, 28537)
+        self.save()
+        result = self.load()["policy"]
+        self.assertEqual(len(result), 364)
+        self.assertEqual(sum("/policy-v2/" in name for name in result), 120)
+        self.assertIn("mediatek/mt7932/policy/world-XZ.bin", result)
+
+    def test_v2_cannot_replace_v1_or_escape_the_v2_size_budget(self):
+        name = self.add_policy("US", 2, 28537)
+        self.save()
+        self.assertIn(name, self.load()["policy"])
+        record = self.manifest["files"][name]
+        record["bytes"] = 65537
+        self.save()
+        with self.assertRaisesRegex(native.NativePeripheralError, "policy size"):
+            self.load()
+        record["bytes"] = 28537
+        self.save()
+        path = self.root / "files" / name
+        data = bytearray(path.read_bytes())
+        data[4:6] = (1).to_bytes(2, "little")
+        path.write_bytes(data)
+        record["sha256"] = hashlib.sha256(data).hexdigest()
+        self.save()
+        with self.assertRaisesRegex(native.NativePeripheralError, "directory/version"):
+            self.load()
+        name = self.add_policy("CA", 1, 10240)
+        path = self.root / "files" / name
+        data = bytearray(path.read_bytes())
+        data[4:6] = (2).to_bytes(2, "little")
+        path.write_bytes(data)
+        self.manifest["files"][name]["sha256"] = hashlib.sha256(data).hexdigest()
+        # Remove the first invalid entry to isolate v2 misplaced in policy/.
+        del self.manifest["files"]["mediatek/mt7932/policy-v2/US.bin"]
+        (self.root / "files/mediatek/mt7932/policy-v2/US.bin").unlink()
+        (self.root / "files/mediatek/mt7932/policy-v2").rmdir()
+        self.save()
+        with self.assertRaisesRegex(native.NativePeripheralError, "directory/version"):
+            self.load()
+
     def test_sensor_inputs_require_both_complete_bound_files(self):
         # Synthetic opaque containers: the native producer validates DER; this
         # adoption boundary verifies the private snapshot and exact bytes.
