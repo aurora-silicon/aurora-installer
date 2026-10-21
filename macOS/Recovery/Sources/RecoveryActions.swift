@@ -1,4 +1,3 @@
-import CryptoKit
 import Darwin
 import Foundation
 import RecoveryAuthorization
@@ -88,7 +87,7 @@ enum RecoveryActions {
     if !condition { throw RecoveryFailure(message: message) }
   }
   static func hash(_ bytes: Data) -> String {
-    SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+    RecoveryDigest.sha256(bytes)
   }
   @discardableResult static func run(_ path: String, _ args: [String]) throws -> Data {
     let logged = path != "/usr/sbin/nvram"

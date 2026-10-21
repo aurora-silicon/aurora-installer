@@ -1,6 +1,8 @@
 # Omarchy Step 2
 
-The Omarchy-branded native Recovery interface lives alongside the main installer. It has two explicit build modes, targeting macOS 13 independently of the main installer's macOS 15 requirement.
+The Aurora-branded native Recovery interface lives alongside the main installer. It has two explicit build modes, targeting macOS 13 independently of the main installer's macOS 15 requirement.
+
+Older Recovery environments may omit frameworks available in full macOS. Recovery uses a compatible system SHA-256 implementation, and packaging rejects direct linkage to either unavailable crypto framework. Launch on the affected older Recovery image still requires a boot test.
 
 ## Preview
 

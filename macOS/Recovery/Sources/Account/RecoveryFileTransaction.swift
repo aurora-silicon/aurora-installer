@@ -1,4 +1,3 @@
-import CryptoKit
 import Darwin
 import Foundation
 
@@ -89,7 +88,7 @@ public final class RecoveryFileTransaction {
   }
 
   private static func hash(_ bytes: Data) -> String {
-    SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+    RecoveryDigest.sha256(bytes)
   }
 
   private func validateBackups() throws {

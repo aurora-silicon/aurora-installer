@@ -1,4 +1,3 @@
-import CryptoKit
 import Darwin
 import Foundation
 
@@ -118,7 +117,7 @@ public enum RecoveryInstallData {
         }
       }
       let bytes = try read(path, name.hasSuffix(".txt") ? 1 << 20 : 256 << 20)
-      let hash = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+      let hash = RecoveryDigest.sha256(bytes)
       guard entry["bytes"] as? Int == bytes.count, entry["sha256"] as? String == hash else {
         throw AccountSetupFailure("The old Recovery payload changed before migration.")
       }
