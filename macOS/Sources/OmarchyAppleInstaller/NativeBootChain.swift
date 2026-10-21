@@ -167,6 +167,7 @@
           layout[member] = "m1n1/boot.bin"
         } else if (member == "esp/aurora/stage1.bin" && !common)
           || stage2Variants.contains(member)
+          || (selected != standard && member == standard)
           || (member.hasPrefix("esp/m1n1/boot-") && member.hasSuffix(".bin"))
           || (common
             && ["esp/aurora/stage1-j700.bin", "esp/aurora/stage1-j613.bin"].contains(member))
