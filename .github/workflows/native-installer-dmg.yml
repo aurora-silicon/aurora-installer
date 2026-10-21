@@ -202,6 +202,18 @@ jobs:
           export OMARCHY_RECOVERY_TEMPLATE="$RUNNER_TEMP/recovery-template/$INSTALLER_APP_NAME.app"
           bash Packaging/build-app.sh "$RUNNER_TEMP/release" "$RUNNER_TEMP/application"
           app="$RUNNER_TEMP/application/$INSTALLER_APP_NAME.app"
+          python3 - "$app/Contents/Resources/Release/Profiles" \
+            "$RUNNER_TEMP/release/profile-manifest.json" <<'PYPROFILES'
+          import hashlib,json,sys
+          from pathlib import Path
+          profiles=Path(sys.argv[1]);manifest=json.loads(Path(sys.argv[2]).read_text())
+          expected=manifest['profiles']
+          assert manifest['sealed'] and {p.name for p in profiles.iterdir()}==set(expected)
+          for profile,record in expected.items():
+              data=(profiles/profile/'catalog.json').read_bytes()
+              assert hashlib.sha256(data).hexdigest()==record['catalog_sha256'],profile
+              assert json.loads(data)['sequence']==record['sequence'],profile
+          PYPROFILES
           bash Packaging/notarize-app.sh "$app"
           bash Packaging/make-download-dmg.sh "$app" "$RUNNER_TEMP/download/Aurora-Installer-$OMARCHY_APP_VERSION.dmg"
           cp "$RUNNER_TEMP/release/profile-manifest.json" "$RUNNER_TEMP/evidence/"
