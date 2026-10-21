@@ -434,7 +434,7 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
   func testAnUnsupportedSchemaIsStillRejected() throws {
     let fixture = try makeCatalog(
       sequence: 44,
-      schemaVersion: 5,
+      schemaVersion: 6,
       includeExpiry: false
     )
 
@@ -446,7 +446,7 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
         now: now
       )
     ) {
-      XCTAssertEqual($0 as? SupportCatalogError, .unsupportedSchema(5))
+      XCTAssertEqual($0 as? SupportCatalogError, .unsupportedSchema(6))
     }
   }
 
