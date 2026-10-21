@@ -2,7 +2,7 @@
 
 The Aurora-branded native Recovery interface lives alongside the main installer. It has two explicit build modes, targeting macOS 13 independently of the main installer's macOS 15 requirement.
 
-Older Recovery environments may omit frameworks available in full macOS. Recovery uses a compatible system SHA-256 implementation, and packaging rejects direct linkage to either unavailable crypto framework. Launch on the affected older Recovery image still requires a boot test.
+Older Recovery stubs can omit frameworks available in full macOS despite the same deployment version. The Recovery interface is programmatic AppKit and uses no SwiftUI or Combine. Recovery computes its SHA-256 checks with CommonCrypto in libSystem. The app build refuses direct SwiftUI, Combine, CryptoKit or CryptoTokenKit linkage. The deployment target and link check still need a boot test in the affected Recovery stub before claiming that launch is qualified.
 
 ## Preview
 
@@ -27,7 +27,7 @@ This explicitly defines `OMARCHY_STEP2_RECOVERY`, emits `build-recovery/Aurora I
 
 Put the app and adjacent manifest in the OS ZIP under `esp/aurora/recovery/`. The OS template should declare `"recovery_gui": "omarchy-native-v1"`; this requires the app and verifies its entire content inventory before partitioning. Older payloads without this contract or app retain their existing shell Step 2. After creating the target and finalizing Stage 1 and `m1n1/boot.bin`, `omarchy_recovery.stage` copies the signed app unchanged to the stub System volume. It separately publishes `Aurora/Recovery/InstallData/install-config.json` and `Aurora/Recovery/InstallData/AuraPayloads/` with the finalized Stage 1, Stage 2 and device firmware. Both inventories are checked before changing `.IAPhysicalMedia` to launch the app. The signed `OmarchyRecoveryDataLayout=external-install-data-v1` marker is required during payload preflight, staging and app packaging; an older embedded-data binary is refused before partitioning.
 
-Configuration schema 2 includes `volumeName`, `systemUUID`, `groupUUID`, `prebootUUID`, `espUUID`, `bootMode`, `stage2Path` and `bootstrap`. Only raw mode and `m1n1/boot.bin` are currently accepted. Mach-O and nested virtualization controls remain disabled in the real build until backed by a qualified complete payload. Runtime target discovery uses the app's containing volume, verified against the configured APFS identity; it does not rely on `/Volumes/Omarchy` or a fixed disk number.
+Configuration schema 2 includes `volumeName`, `systemUUID`, `groupUUID`, `prebootUUID`, `espUUID`, `bootMode`, `stage2Path` and `bootstrap`. Only raw mode and `m1n1/boot.bin` are currently accepted. The installer exposes no alternate boot-mode controls. Runtime target discovery uses the app's containing volume, verified against the configured APFS identity; it does not rely on `/Volumes/Omarchy` or a fixed disk number.
 
 The legacy `Finish Installation.app/Contents/Resources/boot.bin` remains for upstream resume detection; its `step2.sh` becomes a relative launcher for `Aurora Installer.app`. The new app remains on the stub after completion removes `.IAPhysicalMedia`, and the `aura` command opens its actual executable or invokes recovery actions. The localized `CFBundleDisplayName` must remain present: Recovery's Springboard requires it for this direct native launch contract.
 
@@ -69,7 +69,7 @@ File snapshots preserve original bytes, absence, ownership, permissions and flag
 
 The macOS CI job builds the enrollment app, runs `Recovery/test-all.sh <output>`, verifies its bundle, and builds the preview variant. Run the same fixture script on macOS locally. It runs the existing pure fixtures plus file snapshots, directory-swap interruption checks and the injected installation phase runner. It never enrolls a boot object or creates a live account. Debug/release package and Recovery builds remain separate native validation gates.
 
-The GUI clears password state on completion/dismissal, and owned native command buffers are wiped before release. SwiftUI String/Data copies cannot be guaranteed to have no allocator or framework copies; this is a bounded best-effort lifetime policy, not a claim of complete process-memory erasure.
+The GUI clears password state on completion/dismissal, and owned native command buffers are wiped before release. AppKit field editing and Swift String/Data copies cannot be guaranteed to have no allocator or framework copies; this is a bounded best-effort lifetime policy, not a claim of complete process-memory erasure.
 
 On Create Recovery Account, **Skip, Restart Now** restarts directly only after checking the completed installation, its startup bundle, and the selected default volume both before saving and immediately before restarting. A different default stops the action with Startup Disk guidance. It does not open Startup Disk, create an account, or mark ownership complete. The receipt records the deferral while keeping `recoveryAccountRequired` intact, so opening the installer in paired Recovery still offers account setup. Preview builds show a simulated restart alert.
 

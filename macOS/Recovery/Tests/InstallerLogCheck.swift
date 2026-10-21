@@ -1,4 +1,3 @@
-import Combine
 import Foundation
 
 @main struct Check {
@@ -13,8 +12,8 @@ import Foundation
     defer { try? FileManager.default.removeItem(at: root) }
     let log = InstallerLog(directory: root)
     var publications = 0
-    let observer = log.$text.sink { _ in publications += 1 }
-    defer { observer.cancel() }
+    log.onChange = { publications += 1 }
+    defer { log.onChange = nil }
     let saved = root.appendingPathComponent("saved-attempt.log")
     let command = CommandLog("$ fixture", log: log)
     command.output("first")

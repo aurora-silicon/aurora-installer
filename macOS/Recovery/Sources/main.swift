@@ -1,6 +1,5 @@
 import AppKit
 import CoreServices
-import SwiftUI
 
 // Explicit macOS previews simulate the flow; enrollment requires paired 1TR.
 // Credentials stay in memory and never enter command arguments or logs.
@@ -8,35 +7,32 @@ enum Stage: Int, CaseIterable {
   case welcome, installing, account, complete
 }
 
-final class InstallerModel: ObservableObject {
+final class InstallerModel {
+  var onChange: (() -> Void)?
+  private func changed() { onChange?() }
   let recoveryInterface =
     CommandLine.arguments.contains("--recovery-preview")
     || (!RecoveryActions.isPreview && RecoveryActions.recovering)
-  @Published var stage: Stage = .welcome
-  @Published var password = ""
-  @Published var authorizationOwner: RecoveryOwner?
-  @Published var authorizationUsesSourceOwner = false
-  @Published var progress = 0.0
-  @Published var currentOperation = "Preparing installation"
-  @Published var machoBootMode = false {
-    didSet {
-      if !machoBootMode { nestedVirtualization = false }
-    }
-  }
-  @Published var nestedVirtualization = false
-  @Published var operations: [String] = []
-  @Published var failure: String?
-  @Published var environmentIssue: EnrollmentGateIssue?
-  @Published var checkingEnvironment = false
-  @Published var debugEnabled = false
-  @Published var proxyEnabled = false
-  @Published var accountUsername = ""
-  @Published var accountPassword = ""
-  @Published var accountConfirmation = ""
-  @Published var accountAlreadyStarted = false
-  @Published var creatingAccount = false
-  @Published var restartingWithoutAccount = false
-  @Published var accountNeedsAuthorization = false
+  var stage: Stage = .welcome { didSet { changed() } }
+  var password = "" { didSet { changed() } }
+  var authorizationOwner: RecoveryOwner? { didSet { changed() } }
+  var authorizationUsesSourceOwner = false { didSet { changed() } }
+  var progress = 0.0 { didSet { changed() } }
+  var currentOperation = "Preparing installation" { didSet { changed() } }
+  var operations: [String] = [] { didSet { changed() } }
+  var failure: String? { didSet { changed() } }
+  var environmentIssue: EnrollmentGateIssue? { didSet { changed() } }
+  var checkingEnvironment = false { didSet { changed() } }
+  var debugEnabled = false { didSet { changed() } }
+  var proxyEnabled = false { didSet { changed() } }
+  var accountUsername = "" { didSet { changed() } }
+  var accountPassword = "" { didSet { changed() } }
+  var accountConfirmation = "" { didSet { changed() } }
+  var accountAlreadyStarted = false { didSet { changed() } }
+  var creatingAccount = false { didSet { changed() } }
+  var restartingWithoutAccount = false { didSet { changed() } }
+  var accountNeedsAuthorization = false { didSet { changed() } }
+  var previewNotice: (title: String, message: String)? { didSet { changed() } }
   private var checkingAccount = false
   private var awaitingStartupDiskReturn = false
 
@@ -96,6 +92,8 @@ final class InstallerModel: ObservableObject {
     creatingAccount = true
     if RecoveryActions.isPreview {
       creatingAccount = false
+      accountAlreadyStarted = true
+      accountNeedsAuthorization = true
       stage = .complete
       return
     }
@@ -129,11 +127,10 @@ final class InstallerModel: ObservableObject {
     accountPassword = ""
     accountConfirmation = ""
     if RecoveryActions.isPreview {
-      let alert = NSAlert()
-      alert.messageText = "Restart simulated"
-      alert.informativeText =
+      previewNotice = (
+        "Restart simulated",
         "Recovery account setup is deferred. This preview does not restart your Mac."
-      alert.runModal()
+      )
       return
     }
     restartingWithoutAccount = true
@@ -235,9 +232,7 @@ final class InstallerModel: ObservableObject {
   }
 
   private var installationTask: Task<Void, Never>?
-  var bootSelection: BootSelection {
-    BootSelection(machoEnabled: machoBootMode, nestedVirtualization: nestedVirtualization)
-  }
+  var bootSelection: BootSelection { BootSelection() }
 
   var steps: [String] {
     recoveryInterface
@@ -348,13 +343,24 @@ final class InstallerModel: ObservableObject {
     }
   }
 
-  func openStartupDisk() {
+  func finishSetup() {
+    if !accountNeedsAuthorization {
+      if RecoveryActions.isPreview {
+        previewNotice = ("Restart simulated", "This preview does not restart your Mac.")
+        return
+      }
+      DispatchQueue.global(qos: .userInitiated).async {
+        do { try RecoveryActions.restartCompletedSetup() } catch {
+          DispatchQueue.main.async { self.failure = error.localizedDescription }
+        }
+      }
+      return
+    }
     if RecoveryActions.isPreview {
-      let alert = NSAlert()
-      alert.messageText = "Choose your startup disk"
-      alert.informativeText =
+      previewNotice = (
+        "Choose your startup disk",
         "In Recovery, this opens Startup Disk. Select \(DestinationVolume.name), click Restart, and authorize your recovery account when asked."
-      alert.runModal()
+      )
       return
     }
     guard RecoveryActions.inRecovery else {
@@ -426,479 +432,7 @@ enum DestinationVolume {
   }()
 }
 
-enum InstallerSheet: String, Identifiable {
-  case authorization, advanced, details
-  var id: String { rawValue }
-}
-
-struct NestedVirtualizationInfo: View {
-  @State private var isPresented = false
-  private let explanation =
-    "Enables KVM support and recursive nested virtualization. Normal OS operations may incur up to a 20% performance hit."
-
-  var body: some View {
-    Button {
-      isPresented = true
-    } label: {
-      Image(systemName: "info.circle")
-        .font(RecoveryAppearance.font(13))
-        .foregroundColor(RecoveryAppearance.secondaryText)
-        .frame(width: 24, height: 24)
-        .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .onHover { hovering in
-      if hovering { isPresented = true }
-    }
-    .popover(isPresented: $isPresented, arrowEdge: .bottom) {
-      Text(explanation)
-        .font(RecoveryAppearance.font(12))
-        .fixedSize(horizontal: false, vertical: true)
-        .padding(14)
-        .frame(width: 280)
-    }
-    .accessibilityLabel("About nested virtualization")
-    .accessibilityHint(explanation)
-  }
-}
-
-struct InstallerView: View {
-  @ObservedObject var model: InstallerModel
-  @ObservedObject private var log = InstallerLog.shared
-  @FocusState private var passwordFocused: Bool
-  @FocusState private var accountField: AccountField?
-  private enum AccountField: Hashable { case username, password, confirmation }
-  @State private var activeSheet: InstallerSheet?
-  @State private var authorizingRecoveryRepair = false
-  @State private var copyingLog = false
-
-  private var title: String {
-    switch model.stage {
-    case .welcome: return model.recoveryInterface ? "Repair startup" : "Finish setup"
-    case .installing:
-      return model.recoveryInterface ? "Restoring startup software" : "Setting up Aurora"
-    case .account:
-      return model.accountAlreadyStarted ? "Resume recovery setup" : "Create a recovery account"
-    case .complete:
-      if model.accountNeedsAuthorization { return "Authorize recovery account" }
-      return model.recoveryInterface ? "Recovery complete" : "Installation complete"
-    }
-  }
-
-  var body: some View {
-    VStack(spacing: 0) {
-      Image(nsImage: RecoveryBrand.logo)
-        .resizable()
-        .renderingMode(.original)
-        .interpolation(.high)
-        .scaledToFit()
-        .frame(width: 80, height: 80)
-        .padding(.top, 32)
-        .padding(.bottom, 8)
-        .accessibilityHidden(true)
-      Text("Aurora Installer")
-        .font(.system(size: 13, weight: .semibold))
-        .foregroundStyle(.secondary)
-        .padding(.bottom, 8)
-      Text(title)
-        .font(RecoveryAppearance.title)
-        .foregroundColor(RecoveryAppearance.text)
-        .frame(width: model.stage == .account ? 380 : nil, alignment: .leading)
-        .padding(.bottom, 24)
-        .accessibilityAddTraits(.isHeader)
-
-      Group {
-        switch model.stage {
-        case .welcome: welcome
-        case .installing: installing
-        case .account: account
-        case .complete: complete
-        }
-      }
-      .frame(maxWidth: 510)
-      .frame(height: model.stage == .account ? 288 : 244, alignment: .top)
-      Spacer(minLength: 12)
-
-      ZStack {
-        navigation
-        HStack {
-          Spacer()
-          if model.stage == .welcome && !model.recoveryInterface {
-            Button {
-              activeSheet = .advanced
-            } label: {
-              Image(systemName: "slider.horizontal.3")
-                .font(RecoveryAppearance.font(17))
-                .frame(width: 32, height: 32)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .foregroundColor(RecoveryAppearance.secondaryText)
-            .help("Advanced Options")
-            .accessibilityLabel("Advanced Options")
-          }
-          if model.stage != .welcome || !log.text.isEmpty {
-            Button("Show details") { activeSheet = .details }
-              .buttonStyle(.plain)
-              .font(RecoveryAppearance.font(12))
-              .foregroundColor(RecoveryAppearance.secondaryText)
-          }
-        }
-      }
-      .padding(.horizontal, 32)
-      .frame(height: 72)
-      .padding(.bottom, 10)
-    }
-    .frame(width: 780, height: 660)
-    .background(RecoveryAppearance.window)
-    .foregroundColor(RecoveryAppearance.text)
-    .tint(RecoveryAppearance.accent)
-    .preferredColorScheme(.dark)
-    .ignoresSafeArea()
-    .alert(
-      model.environmentIssue?.title ?? "Setup could not finish",
-      isPresented: Binding(
-        get: { model.environmentIssue != nil || model.failure != nil },
-        set: {
-          if !$0 {
-            model.environmentIssue = nil
-            model.failure = nil
-          }
-        })
-    ) {
-      if model.environmentIssue?.canRepairStartupSelection == true {
-        Button("Set Startup Disk and Shut Down") {
-          model.environmentIssue = nil
-          model.repairRecoveryBoot {
-            authorizingRecoveryRepair = true
-            activeSheet = .authorization
-          }
-        }
-        Button("Cancel", role: .cancel) { model.environmentIssue = nil }
-      } else {
-        Button("Show details") {
-          model.environmentIssue = nil
-          model.failure = nil
-          activeSheet = .details
-        }
-        Button("OK") {
-          model.environmentIssue = nil
-          model.failure = nil
-        }
-      }
-    } message: {
-      Text(model.environmentIssue?.message(for: DestinationVolume.name) ?? model.failure ?? "")
-    }
-    .sheet(item: $activeSheet) { sheet in
-      switch sheet {
-      case .authorization: authorization
-      case .advanced: advancedOptions
-      case .details: details
-      }
-    }
-  }
-
-  private var welcome: some View {
-    VStack(spacing: 8) {
-      Text(
-        model.recoveryInterface
-          ? "Restore the startup software for your Mac." : "Finish setting up Aurora on your Mac."
-      )
-      .font(RecoveryAppearance.font(15)).foregroundColor(RecoveryAppearance.secondaryText)
-      Text(
-        model.recoveryInterface
-          ? "Use the saved recovery files to repair your\nstartup software."
-          : "The final step installs the startup software for your\nselected Aurora volume."
-      )
-      .font(RecoveryAppearance.font(13)).foregroundColor(RecoveryAppearance.secondaryText)
-      .multilineTextAlignment(.center).lineSpacing(4)
-      .padding(.top, 4)
-      VStack(spacing: 13) {
-        Image(nsImage: DestinationVolume.icon)
-          .resizable()
-          .interpolation(.high)
-          .scaledToFit()
-          .frame(width: 96, height: 96)
-          .accessibilityHidden(true)
-        Text(DestinationVolume.name)
-          .font(RecoveryAppearance.font(14, .medium))
-          .lineLimit(1)
-      }
-      .padding(.top, 32)
-      .accessibilityElement(children: .combine)
-      .accessibilityLabel("Selected startup volume: \(DestinationVolume.name)")
-    }
-  }
-
-  private var authorization: some View {
-    VStack(alignment: .leading, spacing: 20) {
-      VStack(alignment: .leading, spacing: 5) {
-        Text(authorizingRecoveryRepair ? "Authorize startup disk" : "Authorize installation")
-          .font(RecoveryAppearance.font(17, .semibold))
-        Text(
-          "Enter password for \(RecoveryActions.inRecovery ? (model.authorizationOwner?.username ?? "the volume owner") : NSUserName())"
-        )
-        .font(RecoveryAppearance.font(12)).foregroundColor(RecoveryAppearance.secondaryText)
-        if !authorizingRecoveryRepair {
-          Text(
-            model.authorizationUsesSourceOwner
-              ? "Use your existing macOS owner’s password to set up Aurora. Your macOS security settings are unaffected."
-              : "Use your Aurora installation’s credentials to adjust its security settings. The security of your macOS installations is unaffected."
-          )
-          .font(RecoveryAppearance.font(12)).foregroundColor(RecoveryAppearance.secondaryText)
-          .fixedSize(horizontal: false, vertical: true)
-          .padding(.top, 8)
-          if RecoveryActions.allowsCustomBootArguments {
-            Text("Aurora will also allow custom Aura boot arguments, including USB proxy mode.")
-              .font(RecoveryAppearance.font(12)).foregroundColor(RecoveryAppearance.secondaryText)
-              .fixedSize(horizontal: false, vertical: true)
-          }
-        }
-      }
-      SecureField("Password", text: $model.password)
-        .textFieldStyle(.roundedBorder)
-        .focused($passwordFocused)
-        .onSubmit { authorize() }
-        .accessibilityLabel("Password")
-      HStack(spacing: 10) {
-        Spacer()
-        Button("Cancel") {
-          model.password.removeAll(keepingCapacity: false)
-          activeSheet = nil
-        }
-        .keyboardShortcut(.cancelAction)
-        Button(authorizingRecoveryRepair ? "Shut Down" : "Install") { authorize() }
-          .keyboardShortcut(.defaultAction)
-          .disabled(model.password.isEmpty)
-      }
-    }
-    .padding(28)
-    .frame(width: 410)
-    .onAppear { passwordFocused = true }
-    .onDisappear { model.password.removeAll(keepingCapacity: false) }
-  }
-
-  private func authorize() {
-    guard !model.password.isEmpty else { return }
-    if authorizingRecoveryRepair {
-      let credential = model.password
-      model.password.removeAll(keepingCapacity: false)
-      activeSheet = nil
-      model.repairRecoveryBoot(password: credential) {
-        activeSheet = .authorization
-      }
-    } else {
-      model.startDemo()
-      activeSheet = nil
-    }
-  }
-
-  private var advancedOptions: some View {
-    VStack(alignment: .leading, spacing: 26) {
-      Text("Advanced Options")
-        .font(RecoveryAppearance.font(19, .semibold))
-      Toggle("Enable Mach-O Boot Mode", isOn: $model.machoBootMode)
-        .toggleStyle(.checkbox)
-        .disabled(!RecoveryActions.supportsMachO)
-      HStack(spacing: 8) {
-        Toggle("Enable Nested Virtualization", isOn: $model.nestedVirtualization)
-          .toggleStyle(.checkbox)
-          .fixedSize()
-          .disabled(!RecoveryActions.supportsMachO || !model.machoBootMode)
-        NestedVirtualizationInfo()
-        Spacer(minLength: 0)
-      }
-      HStack {
-        Spacer()
-        Button("Done") { activeSheet = nil }
-          .keyboardShortcut(.defaultAction)
-      }
-    }
-    .padding(28)
-    .frame(width: 430)
-  }
-
-  private var installing: some View {
-    VStack(spacing: 14) {
-      Text("\(model.recoveryInterface ? "Restoring" : "Setting up") \(DestinationVolume.name)")
-        .font(RecoveryAppearance.font(14)).foregroundColor(RecoveryAppearance.secondaryText)
-      ProgressView(value: model.progress)
-        .progressViewStyle(.linear)
-        .frame(width: 380).padding(.top, 12)
-      Text(model.currentOperation + "…")
-        .font(RecoveryAppearance.font(12)).foregroundColor(RecoveryAppearance.secondaryText)
-        .accessibilityLabel("Simulating: \(model.currentOperation)")
-    }
-  }
-
-  private var complete: some View {
-    VStack(spacing: 16) {
-      Text(
-        model.accountNeedsAuthorization
-          ? "\(DestinationVolume.name) is ready for authorization."
-          : "\(DestinationVolume.name) is ready to start."
-      )
-      .font(RecoveryAppearance.font(15))
-      .foregroundColor(RecoveryAppearance.secondaryText)
-      Image(nsImage: DestinationVolume.icon)
-        .resizable()
-        .interpolation(.high)
-        .scaledToFit()
-        .frame(width: 96, height: 96)
-        .padding(.vertical, 12)
-        .accessibilityHidden(true)
-      VStack(spacing: 8) {
-        Text("Select “\(DestinationVolume.name)”, click “Restart…”, then “Authorize Users…”.")
-        Text(
-          "Enter the credentials for your macOS account and the recovery account you just created."
-        )
-        .foregroundColor(RecoveryAppearance.secondaryText)
-      }
-      .font(RecoveryAppearance.font(12))
-      .multilineTextAlignment(.center)
-    }
-  }
-
-  private var account: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Text(
-        model.accountAlreadyStarted
-          ? "Verify your recovery account’s password to resume authorization.\n\nYour Linux login is separate."
-          : "Create a separate recovery account for your Linux volume. Next, authorize it as a volume owner to manage Linux boot settings independently of your macOS account.\n\nYour Linux login is separate."
-      )
-      .font(RecoveryAppearance.font(12)).foregroundColor(RecoveryAppearance.secondaryText)
-      VStack(alignment: .leading, spacing: 5) {
-        Text("Username").font(RecoveryAppearance.font(12))
-        TextField("recovery-owner", text: $model.accountUsername)
-          .textContentType(.username).autocorrectionDisabled()
-          .disabled(model.accountAlreadyStarted)
-          .focused($accountField, equals: .username)
-          .onSubmit { accountField = .password }
-      }
-      VStack(alignment: .leading, spacing: 5) {
-        Text("Password").font(RecoveryAppearance.font(12))
-        SecureField("Password", text: $model.accountPassword)
-          .privacySensitive()
-          .focused($accountField, equals: .password)
-          .onSubmit { accountField = .confirmation }
-      }
-      VStack(alignment: .leading, spacing: 5) {
-        Text("Retype password").font(RecoveryAppearance.font(12))
-        SecureField("Retype password", text: $model.accountConfirmation)
-          .privacySensitive()
-          .focused($accountField, equals: .confirmation)
-          .onSubmit { model.createRecoveryAccount() }
-      }
-    }
-    .frame(width: 380)
-    .textFieldStyle(.roundedBorder)
-    .disabled(model.creatingAccount || model.restartingWithoutAccount)
-    .onAppear { accountField = model.accountAlreadyStarted ? .password : .username }
-    .onDisappear {
-      model.accountPassword = ""
-      model.accountConfirmation = ""
-    }
-  }
-
-  @ViewBuilder private var navigation: some View {
-    switch model.stage {
-    case .welcome:
-      HStack(spacing: 12) {
-        Button(model.recoveryInterface ? "Restore" : "Continue") {
-          if model.recoveryInterface {
-            model.restore()
-          } else {
-            model.checkEnrollmentEnvironment {
-              authorizingRecoveryRepair = false
-              activeSheet = .authorization
-            }
-          }
-        }
-        if model.recoveryInterface {
-          Button(model.debugEnabled ? "Disable Debug" : "Enable Debug") {
-            model.toggleBootFlag("debug")
-          }
-          Button(model.proxyEnabled ? "Disable Proxy" : "Enable Proxy") {
-            model.toggleBootFlag("proxy")
-          }
-        }
-      }
-      .buttonStyle(.borderedProminent).controlSize(.large)
-      .disabled(model.checkingEnvironment)
-    case .installing:
-      EmptyView()
-    case .account:
-      VStack(spacing: 8) {
-        HStack(spacing: 12) {
-          ProgressView().controlSize(.small)
-            .frame(width: 16, height: 16)
-            .opacity(model.creatingAccount ? 1 : 0)
-            .accessibilityLabel("Preparing account")
-            .accessibilityHidden(!model.creatingAccount)
-          Button(model.accountAlreadyStarted ? "Continue" : "Create Account") {
-            model.createRecoveryAccount()
-          }
-          .buttonStyle(.borderedProminent).controlSize(.large)
-          .disabled(!model.canCreateAccount)
-          Color.clear.frame(width: 16, height: 16).accessibilityHidden(true)
-        }
-        Button(model.restartingWithoutAccount ? "Restarting…" : "Skip, Restart Now") {
-          model.skipRecoveryAccountAndRestart()
-        }
-        .buttonStyle(.plain)
-        .font(RecoveryAppearance.font(12))
-        .foregroundColor(RecoveryAppearance.secondaryText)
-        .disabled(model.creatingAccount || model.restartingWithoutAccount)
-      }
-    case .complete:
-      Button("Restart") { model.openStartupDisk() }
-        .buttonStyle(.borderedProminent).controlSize(.large)
-    }
-  }
-
-  private var details: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      Text("Installation details").font(RecoveryAppearance.font(20, .semibold))
-      Text(
-        "Boot security is reduced only for this Aurora installation. Your macOS security settings are unchanged."
-      )
-      .font(RecoveryAppearance.font(12))
-      .foregroundColor(RecoveryAppearance.secondaryText)
-      .fixedSize(horizontal: false, vertical: true)
-      LogTextView(text: log.text.isEmpty ? model.operations.joined(separator: "\n") : log.text)
-        .frame(height: 200)
-      if log.truncated {
-        Text("Showing recent output. Copy Log includes this attempt’s full log.")
-          .font(RecoveryAppearance.font(11)).foregroundColor(RecoveryAppearance.secondaryText)
-      }
-      HStack {
-        Button(copyingLog ? "Copying…" : "Copy Log") { copyFullLog() }
-          .disabled(copyingLog)
-        Spacer()
-        Button("Done") { activeSheet = nil }.keyboardShortcut(.defaultAction)
-      }
-    }.padding(28).frame(width: 530)
-  }
-  private func copyFullLog() {
-    copyingLog = true
-    DispatchQueue.global(qos: .userInitiated).async {
-      let result = Result { try log.fullText() }
-      DispatchQueue.main.async {
-        copyingLog = false
-        switch result {
-        case .success(let text):
-          NSPasteboard.general.clearContents()
-          NSPasteboard.general.setString(text, forType: .string)
-        case .failure(let error): model.failure = error.localizedDescription
-        }
-      }
-    }
-  }
-
-}
-
-// Let AppKit own the outer rounded frame, including the sheet dimming layer.
-// Clipping only the SwiftUI content of a borderless window does not clip that layer.
+// AppKit owns the window and sheets, including their titlebar and background.
 final class InstallerWindow: NSWindow {
   init() {
     super.init(
@@ -919,6 +453,7 @@ final class InstallerWindow: NSWindow {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
   private var window: NSWindow?
+  private var controller: InstallerView?
   private lazy var model = InstallerModel()
 
   func applicationDidBecomeActive(_ notification: Notification) {
@@ -936,11 +471,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     window.isMovableByWindowBackground = true
     NSApp.applicationIconImage = RecoveryBrand.logo
     LaunchTrace.mark("window.creatingContent")
-    let content = NSHostingView(rootView: InstallerView(model: model))
-    // This fixed-size design includes the transparent titlebar. Do not let
-    // hosting's preferred-content sizing add that titlebar a second time.
-    content.sizingOptions = []
-    window.contentView = content
+    let controller = InstallerView(model: model)
+    window.contentViewController = controller
+    self.controller = controller
     window.setFrame(NSRect(x: 0, y: 0, width: 780, height: 660), display: false)
     LaunchTrace.mark("window.contentCreated")
     window.center()
