@@ -50,23 +50,22 @@ class DistributionPayloadTests(unittest.TestCase):
         self.image.update(installation_profile='nixos-kde', layout_kind='nixos-btrfs-v1')
         (self.bundle / 'image.json').write_text(json.dumps(self.image))
         output = self.root / 'neo-reset'
-        with self.assertRaisesRegex(ValueError, 'expected regular input'):
+        with self.assertRaisesRegex(ValueError, 'current board-specific Stage 2'):
             payload.assemble(self.bundle, self.app, output, native_neo_reset=True)
         self.assertFalse(output.exists())
         dedicated = self.bundle / 'esp/m1n1/boot-j700.bin'
         dedicated.write_bytes(b'dedicated-stage-two-fixture')
-        with self.assertRaisesRegex(ValueError, 'physically qualified boot payload'):
+        manifest = {'schema': 1, 'sourceSha256': payload.digest(self.bundle / 'esp/m1n1/boot.bin'),
+                    'boards': {'j700ap': {'member': 'esp/m1n1/boot-j700.bin',
+                                          'bytes': dedicated.stat().st_size,
+                                          'sha256': '0' * 64}}}
+        (self.bundle / 'stage2.json').write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, 'member identity mismatch'):
             payload.assemble(self.bundle, self.app, output, native_neo_reset=True)
-        with dedicated.open('ab') as stream:
-            stream.truncate(9_277_502)
-        original_digest = payload.digest
-        def fixture_digest(path):
-            if path == dedicated:
-                return '0481c2d5d75c93300be6f7c2187746cd06b769f48c6538b134044aabe930b8d2'
-            return original_digest(path)
-        with patch.object(payload, 'digest', side_effect=fixture_digest):
-            payload.assemble(self.bundle, self.app, output, native_neo_reset=True,
-                             release_id='fixture')
+        manifest['boards']['j700ap']['sha256'] = payload.digest(dedicated)
+        (self.bundle / 'stage2.json').write_text(json.dumps(manifest))
+        payload.assemble(self.bundle, self.app, output, native_neo_reset=True,
+                         release_id='fixture')
         metadata = json.loads((output / 'installer-data-nixos-kde.json').read_text())['os_list'][0]
         self.assertEqual(metadata['allowed_device_classes'], ['j700ap'])
         self.assertEqual(metadata['required_neo_peripherals'], ['radio'])

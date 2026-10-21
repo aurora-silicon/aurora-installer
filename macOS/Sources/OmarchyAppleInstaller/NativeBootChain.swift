@@ -94,7 +94,7 @@
         let boardMembers = values["board_members"] as? [String: String],
         !boardMembers.isEmpty,
         boardMembers.keys.allSatisfy({
-          $0.range(of: #"\Aj[0-9]+ap\z"#, options: .regularExpression) != nil
+          $0.range(of: #"\Aj[0-9]+[a-z]*ap\z"#, options: .regularExpression) != nil
         }),
         boardMembers.values.allSatisfy({
           $0.hasPrefix("esp/m1n1/") && $0.hasSuffix(".bin")

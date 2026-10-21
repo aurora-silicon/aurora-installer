@@ -49,9 +49,27 @@ def assemble(bundle, recovery, output, policy_directory=None, reuse_payload=Fals
     if native_neo_reset:
         if profile != 'nixos-kde' or policy_directory is not None:
             raise ValueError('Neo Reset qualification requires the public NixOS KDE image')
-        dedicated = regular(bundle / 'esp/m1n1/boot-j700.bin')
-        if dedicated.stat().st_size != 9_277_502 or digest(dedicated) != '0481c2d5d75c93300be6f7c2187746cd06b769f48c6538b134044aabe930b8d2':
-            raise ValueError('Neo Reset requires the physically qualified boot payload')
+    stage2_members = {}
+    manifest_path = bundle / 'stage2.json'
+    if manifest_path.exists():
+        manifest = json.loads(regular(manifest_path).read_text())
+        if manifest.get('schema') != 1 or manifest.get('sourceSha256') != digest(regular(bundle / 'esp/m1n1/boot.bin')):
+            raise ValueError('Stage 2 source identity mismatch')
+        records = manifest.get('boards')
+        if not isinstance(records, dict) or not records:
+            raise ValueError('missing Stage 2 board records')
+        for board, record in records.items():
+            if not re.fullmatch(r'j[0-9]+[a-z]*ap', board):
+                raise ValueError('invalid Stage 2 board')
+            member = record.get('member')
+            if member != 'esp/m1n1/boot-' + board.removesuffix('ap') + '.bin':
+                raise ValueError('invalid Stage 2 member')
+            path = regular(bundle / member)
+            if path.stat().st_size != record.get('bytes') or digest(path) != record.get('sha256'):
+                raise ValueError('Stage 2 member identity mismatch')
+            stage2_members[board] = member
+    if native_neo_reset and 'j700ap' not in stage2_members:
+        raise ValueError('Neo Reset requires a current board-specific Stage 2')
     distribution_icon = regular(DISTRIBUTION_ICONS[profile.split('-')[0]])
     expected_layout = {'fedora': 'fedora', 'arch': 'alarm', 'nixos': 'nixos'}[profile.split('-')[0]] + '-btrfs-v1'
     if image['layout_kind'] != expected_layout or image['root_subvolume'] != 'root':
@@ -138,6 +156,8 @@ def assemble(bundle, recovery, output, policy_directory=None, reuse_payload=Fals
     template['aurora_stage1'] = {'kind': 'common-raw-v1', 'qualified_machines': {
         identifier.removeprefix('apple,') + 'ap': ['13.5', '14.8.3', '26.6', '26.6.2'] for identifier in identifiers
     }}
+    if stage2_members:
+        template['aurora_stage2'] = {'kind': 'board-file-v1', 'board_members': stage2_members}
     if policies:
         template.update(allowed_device_classes=['j700ap'], supported_fw=['26.6', '26.6.2'],
                         required_neo_peripherals=['radio'],
@@ -149,8 +169,6 @@ def assemble(bundle, recovery, output, policy_directory=None, reuse_payload=Fals
         template.update(allowed_device_classes=['j700ap'], supported_fw=['26.6.2'],
                         required_neo_peripherals=['radio'])
         template['aurora_stage1']['qualified_machines'] = {'j700ap': ['26.6.2']}
-        template['aurora_stage2'] = {'kind': 'board-file-v1',
-                                     'board_members': {'j700ap': 'esp/m1n1/boot-j700.bin'}}
     else:
         template['excluded_device_classes'] = ['j700ap']
     metadata = output / ('installer-data-' + profile + suffix + '.json')
