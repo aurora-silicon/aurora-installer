@@ -195,7 +195,9 @@
         let apfsPreparer: any NativeAPFSPreparing =
           missing == "apfs" ? NoNativeAPFSFixture() : NativeAPFSFixture(marker: apfs)
         let stubPreparer: any NativeStubFilesPreparing =
-          missing == "stub" ? NoNativeStubFilesFixture() : NativeFilesFixture(marker: files, apfs: apfs)
+          missing == "stub"
+          ? NoNativeStubFilesFixture()
+          : NativeFilesFixture(marker: files, apfs: apfs)
         let partitionsPreparer: any NativeOSPartitionsPreparing =
           missing == "partitions"
           ? FailingNativePartitionsFixture()
