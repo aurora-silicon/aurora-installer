@@ -79,6 +79,9 @@ public enum NeoRegulatoryPolicy {
   // CP2 138c4fca: sorted policy-v2/CC.bin<TAB>sha256<LF>, without mediatek/mt7932/.
   static let outputV2InventorySHA256 =
     "472f57a7928301916c825a896b968014c4c9e996dd942adc6d6a38e2af16e11c"
+  // Unbound v3 archive inventory; these files are never part of deployment.
+  static let outputV3ArchiveInventorySHA256 =
+    "cfa39308ebb199b15860bd75c828a3d558e09f814749b883819b09df75179278"
   private static let groups: [String] = [
     "cck", "ofdm", "ht20", "ht40", "vht20", "vht40", "vht80", "vht160", "ru26", "ru52", "ru106",
     "ru242", "ru484", "ru996", "ru996X2",
@@ -820,10 +823,7 @@ public enum NeoRegulatoryPolicy {
     return rows
   }
 
-  private static func extend(
-    _ baseline: Data, country: String, power: [Group], matrix: Group
-  ) throws -> Data? {
-    _ = try NeoFirmwareConversions.policy(baseline, country: country)
+  private static func validateSixMatrix(_ matrix: Group) throws {
     try check(
       matrix.columns.count == 116
         && Array(matrix.columns.suffix(6)) == [
@@ -848,6 +848,13 @@ public enum NeoRegulatoryPolicy {
             && Set(parts).count == parts.count)
       }
     }
+  }
+
+  private static func extend(
+    _ baseline: Data, country: String, power: [Group], matrix: Group
+  ) throws -> Data? {
+    _ = try NeoFirmwareConversions.policy(baseline, country: country)
+    try validateSixMatrix(matrix)
     guard let permission = matrix.rows.first(where: { $0.label == country }) else { return nil }
     let rows = try sixRows(power)
     let projected = rows.map(projection)
@@ -900,6 +907,82 @@ public enum NeoRegulatoryPolicy {
     write(little(2, 2), 4, &result)
     write(little(result.count, 4), 12, &result)
     return try NeoFirmwareConversions.policy(Data(result), country: country)
+  }
+
+  /// Opt-in host archives only. Binding revision zero is not a firmware command ABI.
+  /// The installer deployment path continues to use derive(), which emits only v1/v2.
+  public static func archiveLPIInputs(_ inputs: [String: Data]) throws -> [String: Data] {
+    try archiveLPIInputs(inputs, authenticated: true)
+  }
+
+  static func archiveLPIInputs(_ inputs: [String: Data], authenticated: Bool) throws
+    -> [String: Data]
+  {
+    let baseline = try derive(inputs, authenticated: authenticated)
+    let powers = try sections(
+      inputs["IZUBA_TxPwrLimit6G_MT79x1.dat"]!, name: "IZUBA_TxPwrLimit6G_MT79x1.dat",
+      expected: columns.filter { sixGroups.contains($0.key) }, allowY: true, sixGHz: true)
+    let matrix = try database(inputs["IZUBA_db.dat"]!).first { $0.name == "6gCC" }!
+    try validateSixMatrix(matrix)
+    var outputs = [String: Data]()
+    for permission in matrix.rows.sorted(by: { $0.label < $1.label }) {
+      try Task.checkCancellation()
+      let country = permission.label
+      guard country != "XZ", country.utf8.count == 2,
+        country.utf8.allSatisfy({ (65...90).contains($0) }),
+        let v1 = baseline["mediatek/mt7932/policy/" + country + ".bin"]
+      else { continue }
+      var sections = [[UInt8]]()
+      for (name, classID, mode) in [("VLP", 1, "2"), ("LP", 2, "1")] {
+        guard let power = powers[country + "," + name] else { continue }
+        let rows = try sixRows(power)
+        let values = rows.map(projection)
+        var mask: UInt64 = 0
+        for (index, channel) in channels6.enumerated()
+        where channel != 2 && (channel - 1) & 3 == 0 {
+          if permission.cells[index].components(separatedBy: "/").contains(mode)
+            && values[index].contains(where: { $0 != 196 && $0 != 127 })
+          {
+            mask |= UInt64(1) << ((channel - 1) / 4)
+          }
+        }
+        guard mask != 0 else { continue }
+        var pad = Array(repeating: UInt8(0), count: 32)
+        for (channel, row) in zip(channels6, rows) {
+          if (4...4 + width6(channel)).allSatisfy({
+            Int(Int8(bitPattern: row[$0 * 36])) - Int(Int8(bitPattern: row[$0 * 36 + 10])) >= 10
+          }) {
+            pad[channel >> 3] |= UInt8(1 << (channel & 7))
+          }
+        }
+        var section = [UInt8(classID), classID == 2 ? 1 : 0, 1, 110]
+        section += little(13476, 4)
+        section += (0..<8).map { UInt8(truncatingIfNeeded: mask >> ($0 * 8)) }
+        section += Array(country.utf8) + Array(repeating: UInt8(0), count: 6) + pad
+        for (channel, projected) in zip(channels6, values) {
+          section.append(UInt8(channel))
+          section += projected
+        }
+        try check(section.count == 13476)
+        sections.append(section)
+      }
+      guard sections.contains(where: { $0[0] == 2 }) else { continue }
+      var directory = Array("6GCL".utf8) + [1, UInt8(sections.count), 0, 0]
+      directory += little(16 + 13476 * sections.count, 4) + [0, 0, 0, 0]
+      var archive = Array(v1) + directory + sections.flatMap { $0 }
+      write(little(3, 2), 4, &archive)
+      write(little(archive.count, 4), 12, &archive)
+      outputs["mediatek/mt7932/policy-v3/" + country + ".bin"] = Data(archive)
+    }
+    if authenticated {
+      try check(outputs.count == 129)
+      let relative = Dictionary(
+        uniqueKeysWithValues: outputs.map {
+          (String($0.key.dropFirst("mediatek/mt7932/".count)), $0.value)
+        })
+      try verifyOutputs(relative, pins: [:], inventory: outputV3ArchiveInventorySHA256)
+    }
+    return outputs
   }
 
   public static func derive(_ inputs: [String: Data]) throws -> [String: Data] {

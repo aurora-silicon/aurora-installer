@@ -245,6 +245,94 @@ struct NeoRegulatoryPolicyV2Tests {
     }
   }
 
+  @Test func lpiArchiveIsOptInAndRejectedByRuntimeParser() throws {
+    let inputs = try synthetic(vlp: false, permission: "1")
+    let installed = try NeoRegulatoryPolicy.derive(inputs, authenticated: false)
+    #expect(!installed.keys.contains { $0.contains("policy-v3/") })
+    let archives = try NeoRegulatoryPolicy.archiveLPIInputs(inputs, authenticated: false)
+    #expect(archives.count == 1)
+    let bytes = try #require(archives["mediatek/mt7932/policy-v3/US.bin"])
+    let v1 = try #require(installed["mediatek/mt7932/policy/US.bin"])
+    let ext = v1.count
+    #expect(try bytes.little(4, 2) == 3)
+    #expect(try bytes.little(12, 4) == bytes.count)
+    #expect(bytes.count == ext + 16 + 13476)
+    #expect(try bytes.part(ext, 8) == Data("6GCL".utf8) + Data([1, 1, 0, 0]))
+    #expect(try bytes.part(ext + 16, 4) == Data([2, 1, 1, 110]))
+    #expect(try bytes.little(ext + 24, 8) == 1)
+    var restored = Data(bytes.prefix(ext))
+    restored.replaceSubrange(4..<6, with: [1, 0])
+    restored.replaceSubrange(12..<16, with: littleBytes(ext, count: 4))
+    #expect(restored == v1)
+    #expect(throws: (any Error).self) { try NeoFirmwareConversions.policy(bytes, country: "US") }
+    #expect(throws: (any Error).self) { try NeoRegulatoryPolicy.archiveLPIInputs(inputs) }
+  }
+
+  @Test func lpiArchivesRequireClassSpecificPermissionAndNumericData() throws {
+    for inputs in [
+      try synthetic(vlp: false, permission: "2"),
+      try synthetic(vlp: false, numeric: false, permission: "1"),
+      try synthetic(permission: "1/2"),
+    ] {
+      #expect(try NeoRegulatoryPolicy.archiveLPIInputs(inputs, authenticated: false).isEmpty)
+    }
+    var inputs = try synthetic(vlp: false, permission: "1/2/3")
+    let name = "IZUBA_TxPwrLimit6G_MT79x1.dat"
+    let lp = String(decoding: inputs[name]!, as: UTF8.self)
+    let body = try #require(lp.range(of: "[US,LP]"))
+    inputs[name] = Data(
+      (lp + lp[body.lowerBound...].replacingOccurrences(of: "[US,LP]", with: "[US,VLP]")).utf8)
+    let bytes = try #require(
+      try NeoRegulatoryPolicy.archiveLPIInputs(inputs, authenticated: false)[
+        "mediatek/mt7932/policy-v3/US.bin"])
+    let installed = try NeoRegulatoryPolicy.derive(inputs, authenticated: false)
+    let ext = try #require(installed["mediatek/mt7932/policy/US.bin"]).count
+    #expect(bytes.count == ext + 16 + 2 * 13476)
+    #expect(try bytes.part(ext + 16, 4) == Data([1, 0, 1, 110]))
+    #expect(try bytes.part(ext + 16 + 13476, 4) == Data([2, 1, 1, 110]))
+    #expect(installed["mediatek/mt7932/policy-v2/US.bin"] != nil)
+  }
+
+  @Test func lpiOnlyArchivesValidateTheEntireMatrix() throws {
+    let inputs = try synthetic(vlp: false, permission: "1")
+    for (from, to) in [("6g233", "6g231"), (",1,1,1,", ",1/9,1,1,")] {
+      var changed = inputs
+      let name = "IZUBA_db.dat"
+      let text = String(decoding: inputs[name]!, as: UTF8.self)
+      #expect(text.contains(from))
+      changed[name] = Data(text.replacingOccurrences(of: from, with: to).utf8)
+      #expect(throws: (any Error).self) {
+        try NeoRegulatoryPolicy.archiveLPIInputs(changed, authenticated: false)
+      }
+    }
+  }
+
+  @Test func liveLPIArchivesAreDeterministicAndDoNotChangeDeployment() throws {
+    guard ProcessInfo.processInfo.environment["AURORA_LIVE_POLICY_TEST"] == "1" else { return }
+    let inputs = try #require(try NeoRegulatoryPolicy.liveInputs())
+    let archives = try NeoRegulatoryPolicy.archiveLPIInputs(inputs)
+    #expect(archives.count == 129)
+    let relative = Dictionary(
+      uniqueKeysWithValues: archives.map {
+        (String($0.key.dropFirst("mediatek/mt7932/".count)), $0.value)
+      })
+    #expect(
+      NeoRegulatoryPolicy.inventoryDigest(relative)
+        == NeoRegulatoryPolicy.outputV3ArchiveInventorySHA256)
+    #expect(archives == (try NeoRegulatoryPolicy.archiveLPIInputs(inputs)))
+    #expect(archives.keys.allSatisfy { $0.hasPrefix("mediatek/mt7932/policy-v3/") })
+    let deployed = try NeoRegulatoryPolicy.derive(inputs)
+    #expect(deployed.count == 364)
+    #expect(!deployed.keys.contains { $0.contains("policy-v3/") })
+    for (path, bytes) in archives {
+      let country = String(path.suffix(6).prefix(2))
+      #expect(throws: (any Error).self) {
+        try NeoFirmwareConversions.policy(bytes, country: country)
+      }
+    }
+    print("Local LPI archive qualification: 129 archives, deployment remains 244 v1 + 120 v2")
+  }
+
   @Test func liveTablesReproduceBothInventories() throws {
     guard ProcessInfo.processInfo.environment["AURORA_LIVE_POLICY_TEST"] == "1" else { return }
     let inputs = try #require(try NeoRegulatoryPolicy.liveInputs())
