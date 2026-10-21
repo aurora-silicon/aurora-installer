@@ -231,6 +231,27 @@
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
     }
 
+    func testNativeCandidateRefusesLegacyRecoveryRetryWithoutLaunchingRuntime() async throws {
+      let fixture = try makeFixture(
+        transcript: NativeAdmissionTestData.journal(),
+        repairManifest: Data("repair".utf8), missingBackendInterpreter: true)
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let executor = fixtureExecutor(
+        effectiveUserID: { 0 },
+        installationFinisher: NativeFinishingFixture(
+          esp: fixture.root.appendingPathComponent("esp"),
+          marker: fixture.root.appendingPathComponent("finished")))
+      do {
+        _ = try await executor.execute(
+          fixture.package, authorization: try machineOwnerAuthorization(),
+          operation: .retryRecoveryAuthorization)
+        XCTFail("Legacy Recovery retry reached compatibility execution")
+      } catch let PinnedAsahiEngineExecutionError.engineFailed(report) {
+        XCTAssertEqual(report.notice.reason, .planIntegrity)
+      }
+      XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
+
     private struct NativeImagesFixture: NativePayloadImagesPreparing, NativePayloadImagesExecuting {
       var marker: URL? = nil
       var partitions: URL? = nil
@@ -709,10 +730,11 @@
         withIntermediateDirectories: false,
         attributes: [.posixPermissions: 0o700]
       )
+      let engineURL = try XCTUnwrap(fixture.package.engineURL)
       let archive = try PinnedAsahiEngineArchive(
-        fileURL: fixture.package.engineURL,
-        expectedDigest: try digest(of: fixture.package.engineURL),
-        expectedSizeBytes: try size(of: fixture.package.engineURL)
+        fileURL: engineURL,
+        expectedDigest: try digest(of: engineURL),
+        expectedSizeBytes: try size(of: engineURL)
       )
       let executor = fixtureExecutor(effectiveUserID: { 501 })
 
@@ -734,10 +756,11 @@
         withIntermediateDirectories: false,
         attributes: [.posixPermissions: 0o700]
       )
+      let engineURL = try XCTUnwrap(fixture.package.engineURL)
       let archive = try PinnedAsahiEngineArchive(
-        fileURL: fixture.package.engineURL,
+        fileURL: engineURL,
         expectedDigest: "sha256:" + String(repeating: "0", count: 64),
-        expectedSizeBytes: try size(of: fixture.package.engineURL)
+        expectedSizeBytes: try size(of: engineURL)
       )
       let executor = fixtureExecutor(effectiveUserID: { 501 })
 
@@ -766,10 +789,11 @@
         withIntermediateDirectories: false,
         attributes: [.posixPermissions: 0o700]
       )
+      let engineURL = try XCTUnwrap(fixture.package.engineURL)
       let archive = try PinnedAsahiEngineArchive(
-        fileURL: fixture.package.engineURL,
-        expectedDigest: try digest(of: fixture.package.engineURL),
-        expectedSizeBytes: try size(of: fixture.package.engineURL)
+        fileURL: engineURL,
+        expectedDigest: try digest(of: engineURL),
+        expectedSizeBytes: try size(of: engineURL)
       )
       let candidate = ValidatedEngineCandidate(
         kind: "free",

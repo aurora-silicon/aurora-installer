@@ -52,7 +52,7 @@
         includePayload: false
       )
 
-      XCTAssertEqual(try Data(contentsOf: result.engine.fileURL), fixture.engine)
+      XCTAssertEqual(try Data(contentsOf: XCTUnwrap(result.engine).fileURL), fixture.engine)
       XCTAssertEqual(try Data(contentsOf: result.metadata.fileURL), fixture.metadata)
       XCTAssertFalse(FileManager.default.fileExists(atPath: result.payload.fileURL.path))
       let downloadCount = await fixture.downloader.downloadCount
@@ -70,7 +70,7 @@
 
       XCTAssertEqual(result.catalogIdentity.sequence, 30)
       XCTAssertEqual(result.installer.deviceIdentifier, "apple,j314s")
-      XCTAssertEqual(try Data(contentsOf: result.engine.fileURL), fixture.engine)
+      XCTAssertEqual(try Data(contentsOf: XCTUnwrap(result.engine).fileURL), fixture.engine)
       XCTAssertEqual(try Data(contentsOf: result.metadata.fileURL), fixture.metadata)
       XCTAssertEqual(try Data(contentsOf: result.payload.fileURL), fixture.payload)
       let downloadCount = await fixture.downloader.downloadCount
@@ -201,7 +201,7 @@
       )
 
       XCTAssertEqual(result.catalogIdentity.sequence, 30)
-      XCTAssertEqual(try Data(contentsOf: result.engine.fileURL), fixture.engine)
+      XCTAssertEqual(try Data(contentsOf: XCTUnwrap(result.engine).fileURL), fixture.engine)
       XCTAssertEqual(try Data(contentsOf: result.payload.fileURL), fixture.payload)
       let releaseDownloadCount = await fixture.releaseDownloader.downloadCount
       let artifactDownloadCount = await fixture.downloader.downloadCount

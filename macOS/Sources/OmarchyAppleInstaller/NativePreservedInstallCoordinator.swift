@@ -23,12 +23,6 @@
       @Sendable (ImportedEngineHandoffPackage, MachineOwnerAuthorization) throws ->
         NativeSourceBootstrap =
         { try NativeSourceOwnerAdmission().check(package: $0, authorization: $1) }
-    var loadLegacyStage1:
-      @Sendable (ImportedEngineHandoffPackage, ValidatedEnginePlan, uid_t) throws -> Data =
-        { package, approved, owner in
-          try NativeLegacyStage1.load(
-            archive: package.engineURL, expectedDigest: approved.engineDigest, owner: owner)
-        }
 
     func execute(
       _ package: ImportedEngineHandoffPackage, journal journalURL: URL,
@@ -88,16 +82,11 @@
       let installedStage1 = try readStage1()
       let archive = try await IPSWArchive.open(
         NativePayloadRangeReader(package.payloadURL, owner: owner))
-      let loadLegacy = loadLegacyStage1
-      let expectedOwner = owner
-      let legacy: @Sendable () throws -> Data = {
-        try loadLegacy(package, approved, expectedOwner)
-      }
       let prepared = try await NativePreservedInstallAdmission.check(
         approved: approved, metadata: metadata, archive: archive, disk: facts.disk,
         stubBytes: firmware.stubBytes,
         firmwareVersion: firmware.version.components(separatedBy: " ")[0],
-        installedStage1: installedStage1, legacyStage1: legacy)
+        installedStage1: installedStage1)
       let nativeJournal = try NativePreservedInstallJournal(
         url: journalURL, package: package, transcript: prepared.transcript, owner: owner)
       try nativeJournal.bindInstallConf(installConf)

@@ -132,6 +132,10 @@
             try merge(converted, into: &outputs)
           }
         }
+        if source.machine == "j700" {
+          guard let trackpad = outputs[NeoFirmwareConversions.trackpadName], !trackpad.isEmpty
+          else { throw NativeFirmwareInputFailure.invalidSource }
+        }
         let kernel = try read("Preboot", restore + source.kernel, maximum: 256 << 20)
         let decoded = try FirmwareImage.decode(kernel)
         guard decoded.type == "krnl" else { throw NativeFirmwareInputFailure.invalidSource }
