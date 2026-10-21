@@ -28,6 +28,10 @@ final class RecoverySheet: NSPanel {
     let heading = NSTextField(labelWithString: title)
     heading.font = AuroraTheme.mono(19, .semibold)
     heading.textColor = AuroraTheme.text
+    heading.lineBreakMode = .byWordWrapping
+    heading.maximumNumberOfLines = 0
+    heading.preferredMaxLayoutWidth = width - 56
+    heading.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     heading.translatesAutoresizingMaskIntoConstraints = false
     root.addSubview(heading)
 
@@ -36,6 +40,8 @@ final class RecoverySheet: NSPanel {
     explanation.textColor = AuroraTheme.secondaryText
     explanation.lineBreakMode = .byWordWrapping
     explanation.maximumNumberOfLines = 0
+    explanation.preferredMaxLayoutWidth = width - 56
+    explanation.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     explanation.translatesAutoresizingMaskIntoConstraints = false
     root.addSubview(explanation)
 
