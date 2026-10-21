@@ -59,12 +59,15 @@
     }
 
     private static func refreshedSpaceAdvice(_ transcript: Data) throws -> Data {
-      var lines = transcript.split(separator: 10).map(Data.init)
+      var lines = Array(transcript).split(separator: UInt8(10)).map { Data($0) }
       var row = try XCTUnwrap(
         JSONSerialization.jsonObject(with: lines[1]) as? [String: Any])
       var payload = try XCTUnwrap(row["payload"] as? [String: Any])
       var candidates = try XCTUnwrap(payload["candidates"] as? [[String: Any]])
-      let resize = try XCTUnwrap(candidates.firstIndex { $0["kind"] as? String == "resize" })
+      let resize: Int = try XCTUnwrap(
+        candidates.firstIndex { candidate in
+          (candidate["kind"] as? String) == "resize"
+        })
       candidates[resize]["minimum_container_bytes"] = 2048
       candidates[resize]["recommended_container_bytes"] = 2048
       payload["candidates"] = candidates
