@@ -103,7 +103,8 @@
       let directory = try XCTUnwrap(Bundle.module.url(forResource: "Fixtures", withExtension: nil))
       let document = try XCTUnwrap(
         JSONSerialization.jsonObject(
-          with: Data(contentsOf: directory.appendingPathComponent("native-inspection-vectors.json")))
+          with: Data(
+            contentsOf: directory.appendingPathComponent("native-inspection-vectors.json")))
           as? [String: Any])
       let vectors = try XCTUnwrap(document["vectors"] as? [[String: Any]])
       let vector = try XCTUnwrap(vectors.first { $0["name"] as? String == "complete-install" })
