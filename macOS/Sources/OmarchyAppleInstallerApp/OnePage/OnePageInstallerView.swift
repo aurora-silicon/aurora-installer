@@ -154,6 +154,7 @@ struct OnePageInstallerView: View {
   private var pageContentAlignment: Alignment {
     switch session.phase {
     case .inspecting, .welcome, .preparingPlan, .planPrepared: .center
+    case .done(let completion) where completion.nextAction == .verifyInstalledSystem: .center
     default: .top
     }
   }
@@ -365,9 +366,15 @@ struct OnePageInstallerView: View {
           .keyboardShortcut(.defaultAction)
       }
 
-    case .done:
-      Button("Close") { NSApplication.shared.terminate(nil) }
-        .omarchySecondaryButton()
+    case .done(let completion):
+      if completion.nextAction == .verifyInstalledSystem {
+        Button("Restart") { session.restartInstalledSystem() }
+          .omarchyPrimaryButton()
+          .keyboardShortcut(.defaultAction)
+      } else {
+        Button("Close") { NSApplication.shared.terminate(nil) }
+          .omarchySecondaryButton()
+      }
 
     case .failed(let failure):
       if session.canInspect {
@@ -490,23 +497,29 @@ struct OnePageInstallerView: View {
     }
   }
 
+  @ViewBuilder
   private func donePanel(_ completion: CompletionDisplay) -> some View {
-    VStack(alignment: .leading, spacing: 10) {
-      VStack(alignment: .leading, spacing: 8) {
-        HStack(spacing: 10) {
-          Image(systemName: "checkmark.circle.fill")
-            .font(OmarchyTheme.heading)
-            .imageScale(.large)
-            .foregroundStyle(OmarchyTheme.accent)
-          Text(completion.headline)
-            .font(OmarchyTheme.heading)
+    if completion.nextAction == .verifyInstalledSystem {
+      VStack(spacing: 14) {
+        AuroraMark().frame(width: 72, height: 72)
+        Text(completion.headline)
+          .font(.system(size: 24, weight: .semibold))
+        Text("Restart to start Aurora.")
+          .font(OmarchyTheme.body)
+          .foregroundStyle(OmarchyTheme.secondaryText)
+        if let message = session.restartMessage {
+          Text(message).font(OmarchyTheme.detail).foregroundStyle(OmarchyTheme.caution)
         }
+      }
+      .multilineTextAlignment(.center)
+      .frame(maxWidth: .infinity)
+    } else {
+      VStack(alignment: .leading, spacing: 8) {
+        Text(completion.headline).font(OmarchyTheme.heading)
         Text(completion.subheadline)
           .font(OmarchyTheme.body)
           .foregroundStyle(OmarchyTheme.secondaryText)
           .fixedSize(horizontal: false, vertical: true)
-        FactGrid(rows: completion.verified, labelWidth: 118)
-          .padding(.top, 6)
       }
     }
   }

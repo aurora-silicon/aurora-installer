@@ -72,6 +72,7 @@
     }
     public private(set) var allocationNotice: String?
     public private(set) var shutdownMessage: String?
+    public private(set) var restartMessage: String?
     public private(set) var encryptLinuxDisk = true
     public let allowsEncryption: Bool
     public private(set) var prefetchState: PayloadPrefetchState = .verified
@@ -889,6 +890,23 @@
       return accepted
     }
 
+    /// The native completion is emitted only after startup selection and its
+    /// readback succeed. Do not offer a restart for a Recovery handoff.
+    @discardableResult
+    public func restartInstalledSystem() -> Bool {
+      guard case .done(let completion) = phase,
+        completion.nextAction == .verifyInstalledSystem
+      else { return false }
+      let accepted = environment.requestRestart()
+      restartMessage =
+        isSimulation
+        ? "Simulation complete: restart would begin now. Your Mac stays on."
+        : (accepted
+          ? "Restart requested. If another app stops it, save your work and choose Apple menu → Restart."
+          : "Your Mac couldn’t restart. Save your work, then choose Apple menu → Restart.")
+      return accepted
+    }
+
     public func prepareRecoveryAccount(username: String, password: Data) async throws {
       guard !isBusy, let ticket = recoveryAccount?.ticket else { return }
       isBusy = true
@@ -1089,6 +1107,7 @@
       draftAllocationBytes = nil
       isEditingSize = false
       shutdownMessage = nil
+      restartMessage = nil
       allocationNotice = nil
       stagingProgress = [:]
       journal.reset()

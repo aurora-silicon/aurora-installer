@@ -322,6 +322,7 @@
     }
 
     public func requestShutdown() -> Bool { scenario != .shutdownFailure }
+    public func requestRestart() -> Bool { scenario != .shutdownFailure }
 
     enum SimulationError: Error { case planChanged }
 

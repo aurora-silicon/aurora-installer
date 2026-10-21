@@ -632,6 +632,9 @@
     /// Returns true when the machine is actually going down; the preview
     /// environment and tests return false so nothing powers off.
     func requestShutdown() -> Bool
+    /// Requests a graceful restart after the helper completed and verified
+    /// startup selection for an installed system.
+    func requestRestart() -> Bool
     func setEncryptLinuxDisk(_ encrypt: Bool)
     func prefetchPayload(
       progress: @escaping @Sendable (PayloadPrefetchState) -> Void
@@ -677,6 +680,7 @@
     public func openStartupDisk() -> Bool { false }
     public var isSimulation: Bool { false }
     public func requestShutdown() -> Bool { false }
+    public func requestRestart() -> Bool { false }
     public var payloadPrefetchRequired: Bool { false }
     public var payloadPrefetchState: PayloadPrefetchState { .verified }
     public func setEncryptLinuxDisk(_ encrypt: Bool) {}

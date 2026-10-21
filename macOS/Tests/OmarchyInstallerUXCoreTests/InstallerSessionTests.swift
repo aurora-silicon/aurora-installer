@@ -1303,6 +1303,33 @@
       }
     }
 
+    func testRestartOnlyAfterVerifiedInstalledCompletion() async throws {
+      let environment = MockInstallerEnvironment()
+      environment.restartAccepted = true
+      environment.executeResults = [
+        .success(
+          CompletionDisplay(
+            nextAction: .verifyInstalledSystem, headline: "Aurora is installed",
+            subheadline: "Restart to start Aurora.", verified: [], handoff: nil))
+      ]
+      let session = await ready(environment)
+      XCTAssertFalse(session.restartInstalledSystem())
+      XCTAssertEqual(environment.requestRestartCount, 0)
+      session.presentInstallCredentials()
+      await session.submit(try authorization())
+      guard case .done = session.phase else { return XCTFail("Expected completed installation") }
+      XCTAssertTrue(session.restartInstalledSystem())
+      XCTAssertEqual(environment.requestRestartCount, 1)
+      XCTAssertNotNil(session.restartMessage)
+
+      let recoveryEnvironment = MockInstallerEnvironment()
+      let recoverySession = await ready(recoveryEnvironment)
+      recoverySession.presentInstallCredentials()
+      await recoverySession.submit(try authorization())
+      XCTAssertFalse(recoverySession.restartInstalledSystem())
+      XCTAssertEqual(recoveryEnvironment.requestRestartCount, 0)
+    }
+
     private func ready(_ environment: MockInstallerEnvironment) async -> InstallerSession {
       let session = InstallerSession(environment: environment)
       await session.inspect()
@@ -1696,6 +1723,8 @@
     var engineSupported = true
     var requestShutdownCount = 0
     var shutdownAccepted = false
+    var requestRestartCount = 0
+    var restartAccepted = false
     var inspectGate: OperationGate?
     var prepareGate: OperationGate?
     var executeGate: OperationGate?
@@ -1855,6 +1884,11 @@
     func requestShutdown() -> Bool {
       requestShutdownCount += 1
       return shutdownAccepted
+    }
+
+    func requestRestart() -> Bool {
+      requestRestartCount += 1
+      return restartAccepted
     }
 
     func setEncryptLinuxDisk(_ encrypt: Bool) {

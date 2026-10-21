@@ -568,6 +568,23 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     }
   }
 
+  func requestRestart() -> Bool {
+    let target = NSAppleEventDescriptor(bundleIdentifier: "com.apple.loginwindow")
+    let event = NSAppleEventDescriptor(
+      eventClass: AEEventClass(kCoreEventClass),
+      eventID: AEEventID(kAERestart),
+      targetDescriptor: target,
+      returnID: AEReturnID(kAutoGenerateReturnID),
+      transactionID: AETransactionID(kAnyTransactionID)
+    )
+    do {
+      _ = try event.sendEvent(options: [.noReply], timeout: 3)
+      return true
+    } catch {
+      return false
+    }
+  }
+
   func setEncryptLinuxDisk(_ encrypt: Bool) {
     lock.withLock { encryptLinuxDisk = buildProfile.allowsEncryption ? encrypt : false }
   }
