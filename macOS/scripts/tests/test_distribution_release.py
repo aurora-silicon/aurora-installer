@@ -59,6 +59,37 @@ class DistributionReleaseTests(unittest.TestCase):
         self.assertEqual((output / "catalog.json").read_bytes(),
                          (self.profiles / "fedora-kde/catalog.json").read_bytes())
 
+    def test_complete_native_only_set(self):
+        for profile in module.PROFILES:
+            directory = self.profiles / profile
+            catalog = json.loads((directory / "catalog.json").read_text())
+            catalog["schemaVersion"] = 5
+            catalog["installer"] = {"minimumVersion": "0.1.0", "latestVersion": "0.1.0"}
+            (directory / "catalog.json").write_text(json.dumps(catalog))
+            self.sign(directory)
+        output = self.root / "output"
+        with patch.object(module, "ROOT", self.root):
+            module.prepare(self.profiles, output, sealed=True)
+        self.assertEqual(len(list((output / "Profiles").iterdir())), 9)
+        self.assertEqual(json.loads((output / "catalog.json").read_text())["schemaVersion"], 5)
+
+    def test_mixed_schemas_and_engine_bearing_native_catalogs_emit_no_release(self):
+        directory = self.profiles / "fedora-kde"
+        catalog = json.loads((directory / "catalog.json").read_text())
+        catalog["schemaVersion"] = 5
+        (directory / "catalog.json").write_text(json.dumps(catalog))
+        self.sign(directory)
+        output = self.root / "output"
+        with patch.object(module, "ROOT", self.root), self.assertRaisesRegex(ValueError, "mixed catalog"):
+            module.prepare(self.profiles, output)
+        self.assertFalse(output.exists())
+        catalog["models"][0]["engineArtifact"] = {"fileName": "engine.tar.gz"}
+        (directory / "catalog.json").write_text(json.dumps(catalog))
+        self.sign(directory)
+        with patch.object(module, "ROOT", self.root), self.assertRaisesRegex(ValueError, "execution archive"):
+            module.prepare(self.profiles, output)
+        self.assertFalse(output.exists())
+
     def test_tampered_catalog_emits_no_partial_release(self):
         directory = self.profiles / "nixos-minimal"
         with (directory / "catalog.json").open("a") as stream:

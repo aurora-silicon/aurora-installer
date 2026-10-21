@@ -31,6 +31,7 @@ def prepare(source, output, sealed=False, signing_team=None):
     if len(trusted) != 32 or output.exists():
         raise ValueError("expected a 32-byte app trust root and a new output directory")
     documents = {}
+    schema_versions = set()
     with tempfile.TemporaryDirectory(prefix="aurora-delivery-verify-") as temporary:
         key = Path(temporary) / "public.der"
         key.write_bytes(bytes.fromhex("302a300506032b6570032100") + trusted)
@@ -49,11 +50,18 @@ def prepare(source, output, sealed=False, signing_team=None):
                             "-rawin", "-in", str(directory / "catalog.json"), "-sigfile",
                             str(directory / "catalog.json.sig")], check=True)
             catalog = json.loads(data["catalog.json"])
-            if catalog["schemaVersion"] != 4 or not catalog["models"] or any(
+            if catalog["schemaVersion"] not in (4, 5) or not catalog["models"] or any(
                 model.get("installationProfile") != profile for model in catalog["models"]
                 if model["status"] == "enabled"
             ):
                 raise ValueError(f"catalog profile mismatch: {profile}")
+            if catalog["schemaVersion"] == 5 and any(
+                any(field in model for field in ("engineVersion", "engineDigest", "engineArtifact",
+                                                 "repairManifestDigest", "repairManifestArtifact"))
+                for model in catalog["models"]
+            ):
+                raise ValueError(f"native-only catalog includes an execution archive: {profile}")
+            schema_versions.add(catalog["schemaVersion"])
             descriptor = json.loads(data["release.json"])
             expected = "sha256:" + hashlib.sha256(trusted).hexdigest()
             if descriptor["schema_version"] != 3 or descriptor["trust_root_fingerprint"] != expected:
@@ -63,6 +71,8 @@ def prepare(source, output, sealed=False, signing_team=None):
                 if descriptor["channels"][channel]["catalog_url"] != base + "/channels/" + channel + "/catalog.signed.json":
                     raise ValueError(f"descriptor channel mismatch: {profile}")
             documents[profile] = data
+    if len(schema_versions) != 1:
+        raise ValueError("mixed catalog schemas")
     def release_descriptor(content):
         if signing_team is None:
             return content
