@@ -24,9 +24,16 @@
       let system = try admittedSystem(target)
       let mounts = NativeHandoffMounts(environment)
       let systemURL = try mounts.mounted(
-        system.identifier, uuid: system.uuid, writable: true)
+        system.identifier, uuid: system.uuid)
       try verifySystemInfo(system, target: target, mount: systemURL)
       _ = try environment.command("/sbin/mount", ["-u", "-w", systemURL.path])
+      let writableInfo = try environment.disk(system.identifier)
+      guard (writableInfo["VolumeUUID"] as? String)?.uppercased()
+          == system.uuid.uppercased(),
+        writableInfo["MountPoint"] as? String == systemURL.path,
+        writableInfo["WritableVolume"] as? Bool == true
+          || writableInfo["ReadOnlyVolume"] as? Bool == false
+      else { throw NativeHandoffValidationError.invalidTarget }
       let tree = try NativeHandoffFileTree(
         systemURL, protected: true, owner: owner,
         volumeRoot: true, volumeDevice: system.identifier,

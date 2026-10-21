@@ -45,6 +45,11 @@
       return nil
     }
 
+    private var isPreservedReset: Bool {
+      lastEventName == "preserved_reinstall_started"
+        || checkpoints.contains { $0.phase == "preserved_reinstall" }
+    }
+
     public mutating func consume(_ chunk: Data) {
       guard !chunk.isEmpty else {
         return
@@ -69,6 +74,7 @@
     /// The number of the stage currently being worked on (0-based), derived
     /// from the highest checkpoint reached plus the last started event.
     public var stageIndex: Int {
+      if isPreservedReset { return 0 }
       let completedStages = Self.stagePhases.filter { phase in
         checkpoints.contains { $0.phase == phase }
       }.count
@@ -79,6 +85,7 @@
     }
 
     public var stageFractions: [Double] {
+      if isPreservedReset { return [completion == nil ? 0 : 1] }
       Self.stagePhases.map { phase in
         checkpoints.contains { $0.phase == phase } ? 1 : 0
       }
@@ -88,6 +95,10 @@
     /// last started event when it is at or beyond the last checkpoint,
     /// otherwise the last completed checkpoint's phase.
     public var phaseTitle: String {
+      if isPreservedReset {
+        return checkpoints.contains { $0.identifier == "preserved-install-written" }
+          ? "Finishing reset…" : "Resetting Linux…"
+      }
       let eventPhase = Self.phase(forEvent: lastEventName)
       let checkpointPhase = currentPhase
       let eventOrder = eventPhase.flatMap { Self.phaseOrder[$0] } ?? -1
@@ -112,7 +123,8 @@
         phaseTitle: phaseTitle,
         stageIndex: stageIndex,
         stageFractions: stageFractions,
-        stageLabels: PlainLanguage.installStageLabels,
+        stageLabels: isPreservedReset
+          ? ["Replacing Linux and boot files"] : PlainLanguage.installStageLabels,
         feed: feed,
         degraded: degraded,
         startedAt: startedAt

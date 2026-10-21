@@ -193,6 +193,7 @@
       case "apfs-target-prepared": "Disk space reserved for Aurora"
       case "stub-and-esp-installed": "Boot files written"
       case "recovery-handoff-prepared": "Ready to finish setup"
+      case "preserved-install-written": "Linux and boot files replaced"
       default: "Additional installation activity (\(identifier))"
       }
     }
@@ -203,6 +204,7 @@
       case "apfs_preparation_started": "Started preparing disk space"
       case "stub_and_esp_started": "Started writing boot files"
       case "recovery_handoff_started": "Started preparing final setup"
+      case "preserved_reinstall_started": "Started resetting Linux"
       default: "Additional installation activity (\(name))"
       }
     }

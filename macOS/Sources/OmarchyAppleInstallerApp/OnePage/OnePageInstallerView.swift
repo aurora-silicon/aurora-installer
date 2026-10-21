@@ -340,11 +340,15 @@ struct OnePageInstallerView: View {
       )
       .keyboardShortcut(.defaultAction)
 
-    case .awaitingInstall:
-      Button("Change size") { session.editPlan() }
+    case .awaitingInstall(let plan, _, _):
+      Button(plan.preservesStage1 ? "Back to review" : "Change size") {
+        session.editPlan()
+      }
         .omarchySecondaryButton()
         .disabled(!session.canEditPlan)
-      Button(PlainLanguage.planInstall) { session.presentInstallCredentials() }
+      Button(plan.preservesStage1 ? "Reset Linux" : PlainLanguage.planInstall) {
+        session.presentInstallCredentials()
+      }
         .omarchyPrimaryButton()
         .disabled(!session.canStartInstallation)
         .keyboardShortcut(.defaultAction)

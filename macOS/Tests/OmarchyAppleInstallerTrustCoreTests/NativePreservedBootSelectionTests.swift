@@ -56,13 +56,17 @@
         stub: stub, esp: esp, boot: boot, root: linuxRoot,
         identityDigest: "sha256:" + String(repeating: "a", count: 64))
       let selected = root.appendingPathComponent("selected")
+      let remounted = root.appendingPathComponent("remounted")
       let environment = NativeHandoffEnvironment(
         snapshot: { baseline }, device: { "apple,j314s" },
         command: { executable, arguments in
           let remount =
             executable == "/sbin/mount"
             && arguments == ["-u", "-w", systemRoot.path]
-          if remount { return Data() }
+          if remount {
+            try Data().write(to: remounted)
+            return Data()
+          }
           if executable == "/usr/sbin/bless", arguments == ["--getBoot", "--plist"] {
             return try PropertyListSerialization.data(
               fromPropertyList: ["Boot Volume": "selected-target"], format: .xml, options: 0)
@@ -74,7 +78,8 @@
             return try PropertyListSerialization.data(
               fromPropertyList: [
                 "VolumeUUID": system.uuid, "APFSVolumeGroupID": group,
-                "MountPoint": systemRoot.path, "WritableVolume": true,
+                "MountPoint": systemRoot.path,
+                "WritableVolume": FileManager.default.fileExists(atPath: remounted.path),
               ], format: .xml, options: 0)
           }
           if arguments[2] == "selected-target" {
