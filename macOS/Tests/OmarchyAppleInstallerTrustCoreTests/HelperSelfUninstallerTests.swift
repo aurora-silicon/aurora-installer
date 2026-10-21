@@ -17,7 +17,7 @@
       try? FileManager.default.removeItem(at: root)
     }
 
-    func testRemovesJobFileBinaryAndAllStateThenUnloadsAndExits() throws {
+    func testRemovesRegistrationButPreservesRecoveryState() throws {
       let paths = try makeInstalledHelper()
       let recorder = Recorder()
 
@@ -25,7 +25,7 @@
 
       XCTAssertFalse(FileManager.default.fileExists(atPath: paths.jobFile.path))
       XCTAssertFalse(FileManager.default.fileExists(atPath: paths.binary.path))
-      XCTAssertFalse(FileManager.default.fileExists(atPath: paths.state.path))
+      XCTAssertTrue(FileManager.default.fileExists(atPath: paths.state.path))
       XCTAssertEqual(recorder.events, ["unload:probe.helper", "exit"])
     }
 
@@ -37,7 +37,7 @@
       uninstaller(paths, recorder).uninstallNow()
 
       XCTAssertFalse(FileManager.default.fileExists(atPath: paths.jobFile.path))
-      XCTAssertFalse(FileManager.default.fileExists(atPath: paths.state.path))
+      XCTAssertTrue(FileManager.default.fileExists(atPath: paths.state.path))
       XCTAssertEqual(recorder.events, ["unload:probe.helper", "exit"])
     }
 
@@ -52,18 +52,18 @@
         try await Task.sleep(for: .milliseconds(10))
       }
       XCTAssertEqual(recorder.events, ["unload:probe.helper", "exit"])
-      XCTAssertFalse(FileManager.default.fileExists(atPath: paths.state.path))
+      XCTAssertTrue(FileManager.default.fileExists(atPath: paths.state.path))
     }
 
-    func testFilesGoAtOnceSoNoStaleHelperIsSeenWhileUnloadWaits() throws {
+    func testRegistrationRemainsUntilReplyDelayHasElapsed() throws {
       let paths = try makeInstalledHelper()
       let recorder = Recorder()
 
       uninstaller(paths, recorder, delay: .seconds(30)).uninstallAfterRemoval()
 
-      XCTAssertFalse(FileManager.default.fileExists(atPath: paths.jobFile.path))
-      XCTAssertFalse(FileManager.default.fileExists(atPath: paths.binary.path))
-      XCTAssertFalse(FileManager.default.fileExists(atPath: paths.state.path))
+      XCTAssertTrue(FileManager.default.fileExists(atPath: paths.jobFile.path))
+      XCTAssertTrue(FileManager.default.fileExists(atPath: paths.binary.path))
+      XCTAssertTrue(FileManager.default.fileExists(atPath: paths.state.path))
       XCTAssertEqual(recorder.events, [], "unloading waits for the reply to reach the app")
     }
 
@@ -103,7 +103,7 @@
     ) -> LaunchdHelperSelfUninstaller {
       LaunchdHelperSelfUninstaller(
         label: "probe.helper", jobFile: paths.jobFile, binary: paths.binary,
-        workingDirectory: paths.state, delay: delay,
+        delay: delay,
         unload: { recorder.record("unload:\($0)") },
         exitProcess: { recorder.record("exit") })
     }
