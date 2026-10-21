@@ -15,7 +15,7 @@ on:
         required: true
       release-tag:
         description: Prerelease tag
-        default: 'v0.1.0-alpha.2'
+        default: 'v0.1.0-alpha.4'
         required: true
       publish-release:
         description: Publish a prerelease after building; disable for a signed local rebuild
@@ -263,7 +263,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          printf 'Native installer %s.\n\nSource: `%s`\nProfiles: `%s`\nBuild evidence: %s/%s/actions/runs/%s\n\nSigned and notarized DMG. Fixes startup against an older installation service and names the macOS app process Aurora. Reuses the existing signed Linux payloads. Fresh encrypted hardware qualification remains in progress.\n' \
+          printf 'Native installer %s.\n\nSource: `%s`\nProfiles: `%s`\nBuild evidence: %s/%s/actions/runs/%s\n\nSigned and notarized DMG with nine sealed distribution catalogs. A NixOS KDE Reset and encrypted first boot passed on MacBook Neo; the other profiles still require physical installation qualification.\n' \
             "$APP_VERSION" "$GITHUB_SHA" "$PROFILES_REVISION" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > notes.md
           [[ $RELEASE_TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha\.[1-9][0-9]*$ ]]
           alpha_number=${RELEASE_TAG##*.}
