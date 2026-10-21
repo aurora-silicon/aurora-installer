@@ -871,6 +871,7 @@
         let snapshot = try server.jobs.status(request, initiatingUID: initiatingUID)
         reply(try JSONEncoder().encode(snapshot), nil)
         if snapshot.phase == .succeeded {
+          let server = server
           Task { await server.retireAfterCompletion() }
         }
       } catch {
