@@ -258,7 +258,6 @@
       var environment = installEnvironment(
         package: package, authorization: authorization, operation: operation)
       environment.merge(recovery.environment) { _, new in new }
-      if nativeFinalization { environment["OMARCHY_ENGINE_MODE"] = "prepare-native-handoff" }
       environment[RestoreImageHelper.pathEnvironmentVariable] = package.restoreImageURL!.path
       environment[RestoreImageHelper.requirementEnvironmentVariable] = restoreImageRequirement!
       var preparedPeripherals: PreparedNativePeripheralInputs?
@@ -314,7 +313,7 @@
             : try installationFinisher.preflight(
               package: package, stub: preparedStubFiles?.firmwarePlan,
               peripherals: preparedPeripherals)
-          if operation == .install, installationFinisher.requiresNativePath {
+          if operation == .install, nativeFinalization {
             guard package.installationIntent == .fresh,
               preparedAPFS != nil, preparedStubFiles != nil, preparedOSPartitions != nil,
               preparedPayloadImages != nil, preparedESPFiles != nil, preparedFinishing != nil
@@ -425,7 +424,9 @@
               package, journal: journal, authorization: authorization,
               requirement: recovery.requirement, fullReadback: hadDiskWrites)
           }
-          if installationFinisher.requiresNativePath {
+          // The compatibility runtime only handles repair. Fresh installation
+          // must stop when any native stage is unavailable.
+          guard package.installationIntent == .repair else {
             throw preparationFailure(
               NativeHandoffValidationError.invalidTarget,
               reason: .planIntegrity, operation: operation,
@@ -444,16 +445,11 @@
             executionParent: package.packageURL.deletingLastPathComponent(),
             journal: journal,
             additionalEnvironment: environment,
-            standardInput: nativeFinalization ? nil : authorization.password + Data([10]),
+            standardInput: authorization.password + Data([10]),
             secrets: [authorization.password],
             retryIdentity: RecoveryRetryIdentity(package: package),
             beforeLaunch: prepareDiskStages
           )
-          if nativeFinalization {
-            return try await finalizeNativeHandoff(
-              package, journal: journal, authorization: authorization,
-              requirement: recovery.requirement, fullReadback: hadDiskWrites)
-          }
           return result
         } catch PinnedAsahiEngineExecutionError.launchFailed where preparedAPFS != nil {
           throw preparationFailure(

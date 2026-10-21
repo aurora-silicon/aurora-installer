@@ -142,7 +142,6 @@
     {
       let esp: URL
       let marker: URL
-      var requiresNativePath: Bool { true }
       func preflight(
         package: ImportedEngineHandoffPackage, stub: NativeStubFilePlan?,
         peripherals: PreparedNativePeripheralInputs?
@@ -228,6 +227,22 @@
         XCTAssertTrue(report.notice.diskUnchanged)
       }
       XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+      XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
+
+    func testDisabledNativeFinisherCannotFallBackToCompatibilityRuntime() async throws {
+      let fixture = try makeFixture(transcript: NativeAdmissionTestData.journal())
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let executor = fixtureExecutor(
+        effectiveUserID: { 0 },
+        installationFinisher: NativeInstallationFinisher(enabled: false))
+      do {
+        _ = try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
+        XCTFail("Fresh installation reached compatibility execution")
+      } catch let PinnedAsahiEngineExecutionError.engineFailed(report) {
+        XCTAssertEqual(report.notice.reason, .planIntegrity)
+        XCTAssertTrue(report.notice.diskUnchanged)
+      }
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
     }
 

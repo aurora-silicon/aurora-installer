@@ -11,7 +11,6 @@
   }
 
   protocol NativeInstallationFinishingPreparing: Sendable {
-    var requiresNativePath: Bool { get }
     func preflight(
       package: ImportedEngineHandoffPackage, stub: NativeStubFilePlan?,
       peripherals: PreparedNativePeripheralInputs?
@@ -19,10 +18,8 @@
   }
 
   struct NativeInstallationFinisher: NativeInstallationFinishingPreparing {
-    // This isolated candidate exercises native finishing before release.
-    // Keep publication gated on device qualification.
+    // Disabling this in a test must fail a fresh install before mutation.
     var enabled = true
-    var requiresNativePath: Bool { enabled }
     var owner: uid_t = 0
     var environment: NativeHandoffEnvironment = .live
     var disks: NativeAPFSPlatform = .live
