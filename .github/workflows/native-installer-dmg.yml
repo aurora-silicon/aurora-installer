@@ -81,8 +81,8 @@ jobs:
           PYKEY
           python3 - "$directory" <<'PYCATALOGS'
           from pathlib import Path
-          import shutil,sys
-          root=Path(sys.argv[1]);source=Path('delivery/site/installer/Profiles')
+          import os,shutil,sys
+          root=Path(sys.argv[1]);source=Path(os.environ['GITHUB_WORKSPACE'])/'delivery/site/installer/Profiles'
           expected={f'{d}-{s}' for d in ('fedora','arch','nixos') for s in ('kde','gnome','minimal')}
           assert {p.name for p in source.iterdir()}==expected
           for profile in expected:
