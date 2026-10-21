@@ -22,8 +22,8 @@ final class AuroraWordmark: NSView {
     row.translatesAutoresizingMaskIntoConstraints = false
     addSubview(row)
     NSLayoutConstraint.activate([
-      mark.widthAnchor.constraint(equalToConstant: 72),
-      mark.heightAnchor.constraint(equalToConstant: 72),
+      mark.widthAnchor.constraint(equalToConstant: 60),
+      mark.heightAnchor.constraint(equalToConstant: 60),
       row.centerXAnchor.constraint(equalTo: centerXAnchor),
       row.centerYAnchor.constraint(equalTo: centerYAnchor),
     ])

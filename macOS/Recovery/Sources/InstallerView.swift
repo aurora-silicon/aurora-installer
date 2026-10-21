@@ -187,7 +187,7 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
     icon.translatesAutoresizingMaskIntoConstraints = false
     icon.widthAnchor.constraint(equalToConstant: 96).isActive = true
     icon.heightAnchor.constraint(equalToConstant: 96).isActive = true
-    stack.setCustomSpacing(30, after: stack.arrangedSubviews[1])
+    stack.setCustomSpacing(44, after: stack.arrangedSubviews[1])
     stack.addArrangedSubview(icon)
     stack.setCustomSpacing(24, after: icon)
     stack.addArrangedSubview(label(DestinationVolume.name, size: 14))
@@ -265,7 +265,7 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
         model.accountNeedsAuthorization
           ? DestinationVolume.name + " is ready for authorization."
           : DestinationVolume.name + " is ready to start.", size: 15))
-    stack.setCustomSpacing(25, after: stack.arrangedSubviews[0])
+    stack.setCustomSpacing(39, after: stack.arrangedSubviews[0])
     let icon = NSImageView(image: DestinationVolume.icon)
     icon.imageScaling = .scaleProportionallyUpOrDown
     icon.translatesAutoresizingMaskIntoConstraints = false
