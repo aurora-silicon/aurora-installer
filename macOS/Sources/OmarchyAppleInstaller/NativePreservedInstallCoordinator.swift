@@ -47,7 +47,7 @@
       guard SHA256Digest(hashing: metadata).rawValue == approved.metadataDigest else {
         throw NativePreservedInstallError.unavailable
       }
-      let selectedTitle = try NativeInstallationMetadata(data: metadata).target().name
+      _ = try NativeInstallationMetadata(data: metadata).target()
       let facts = try platform.disks.collect()
       guard facts.deviceIdentifier == package.deviceIdentifier,
         facts.disk.snapshot.disk == approved.storeIdentifier
@@ -64,10 +64,10 @@
         let container = snapshot.containers.first(where: { $0.storeUUID == stub.uuid }),
         snapshot.containers.filter({ $0.storeUUID == stub.uuid }).count == 1,
         let system = container.volumes.first(where: {
-          $0.roles == ["System"] && $0.name == selectedTitle
+          $0.roles == ["System"] && AuroraDistribution.allCases.map(\.title).contains($0.name)
         }),
         container.volumes.filter({
-          $0.roles == ["System"] && $0.name == selectedTitle
+          $0.roles == ["System"] && $0.name == system.name
         }).count == 1
       else { throw NativePreservedInstallError.changedLayout }
       func readStage1() throws -> Data {

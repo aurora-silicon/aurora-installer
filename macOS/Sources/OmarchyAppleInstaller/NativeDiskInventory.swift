@@ -119,7 +119,7 @@
       for known in try NativeKnownInstallations.recognize(collected) {
         guard
           let preserved = try? NativePreservedInstallTarget.recognize(
-            collected, sourceIdentifier: known.sourceIdentifier, title: target.name)
+            collected, sourceIdentifier: known.sourceIdentifier)
         else { continue }
         let length = preserved.root.end - preserved.stub.offset
         guard length > 0, length % PinnedAsahiPlanRequest.allocationUnitBytes == 0 else {

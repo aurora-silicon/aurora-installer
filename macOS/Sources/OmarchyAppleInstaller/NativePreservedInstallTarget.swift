@@ -29,20 +29,16 @@
     }
 
     static func recognize(
-      _ collected: NativeCollectedDisk, sourceIdentifier: String, title: String
+      _ collected: NativeCollectedDisk, sourceIdentifier: String, title: String? = nil
     ) throws -> Self {
       let snapshot = collected.snapshot
       _ = try NativeDiskInventory.extents(snapshot)
-      guard AuroraDistribution.allCases.map(\.title).contains(title) else {
-        throw NativePreservedInstallError.unavailable
-      }
       let ordered = snapshot.partitions.sorted { $0.offset < $1.offset }
       guard let index = ordered.firstIndex(where: { $0.identifier == sourceIdentifier }),
         index + 3 < ordered.count,
         ordered[index].type == "Apple_APFS",
         ordered[index].uuid != snapshot.macOSStoreUUID,
         ordered[index + 1].type == "EFI",
-        ordered[index + 1].name == NativeKnownInstallations.espLabel(for: title),
         ordered[index + 2].type == "Linux Filesystem",
         ordered[index + 3].type == "Linux Filesystem"
       else { throw NativePreservedInstallError.unavailable }
@@ -59,10 +55,13 @@
         matchingFacts[0].free <= matchingFacts[0].capacity,
         matchingFacts[0].systems.count == 1,
         let system = matchingFacts[0].systems.first,
-        system.stub, system.label == title,
+        system.stub,
+        AuroraDistribution.allCases.map(\.title).contains(system.label),
+        title.map({ $0 == system.label }) ?? true,
+        parts[1].name == NativeKnownInstallations.espLabel(for: system.label),
         UUID(uuidString: system.group) != nil,
         matchingContainers[0].volumes.filter({
-          $0.roles == ["System"] && $0.group == system.group && $0.name == title
+          $0.roles == ["System"] && $0.group == system.group && $0.name == system.label
         }).count == 1,
         matchingContainers[0].volumes.filter({
           $0.roles == ["Data"] && $0.group == system.group
@@ -81,7 +80,7 @@
         volumes.allSatisfy({ UUID(uuidString: $0.uuid) != nil })
       else { throw NativePreservedInstallError.changedLayout }
       var fields = [
-        "aurora.preserve-stage1-target", "1", snapshot.disk, title, system.group,
+        "aurora.preserve-stage1-target", "1", snapshot.disk, system.label, system.group,
         container.uuid,
       ]
       for part in parts {
@@ -94,7 +93,7 @@
         fields += [volume.roles[0], volume.name, volume.uuid, volume.group ?? ""]
       }
       return Self(
-        disk: snapshot.disk, title: title, group: system.group,
+        disk: snapshot.disk, title: system.label, group: system.group,
         stub: parts[0], esp: parts[1], boot: parts[2], root: parts[3],
         identityDigest: InstallerDigest.lengthPrefixedSHA256(fields).rawValue)
     }
