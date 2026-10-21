@@ -985,6 +985,64 @@
       }
     }
 
+    func testCompletedRemovalCanRetireHelperWithoutDeletingJournal() async throws {
+      let root = try temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: root) }
+      let uninstaller = RecordingSelfUninstaller()
+      let service = ClosedEngineHelperServer(
+        workingDirectory: root, executor: UnusedRemovalHandoffExecutor(),
+        credentialValidator: RemovalCredentials(reject: false), removalDisks: FakeRemovalDisk(),
+        removalAdminValidator: { _ in }, selfUninstaller: uninstaller)
+      let inspection = try await service.removal(
+        ticketID: nil, confirmation: "", authorization: nil)
+      let ticket = try XCTUnwrap(inspection.ticket)
+      let result = try await service.removal(
+        ticketID: ticket.id, confirmation: ticket.confirmation, authorization: authorization())
+      XCTAssertTrue(result.completed)
+
+      await service.retireAfterCompletion()
+      XCTAssertEqual(uninstaller.calls, 1)
+      let record = root.appendingPathComponent("removal-\(ticket.id.uuidString).json")
+      XCTAssertTrue(FileManager.default.fileExists(atPath: record.path))
+      XCTAssertThrowsError(
+        try service.work.beginJob(), "new disk work must wait for helper removal")
+    }
+
+    func testRemovalReplyTriggersHelperRetirement() async throws {
+      let root = try temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: root) }
+      let uninstaller = RecordingSelfUninstaller()
+      let service = ClosedEngineHelperServer(
+        workingDirectory: root, executor: UnusedRemovalHandoffExecutor(),
+        credentialValidator: RemovalCredentials(reject: false), removalDisks: FakeRemovalDisk(),
+        removalAdminValidator: { _ in }, selfUninstaller: uninstaller)
+      let endpoint = ClosedEngineXPCServiceEndpoint(server: service, version: "28")
+      let inspection = try await service.removal(
+        ticketID: nil, confirmation: "", authorization: nil)
+      let ticket = try XCTUnwrap(inspection.ticket)
+      let response: Data = try await withCheckedThrowingContinuation { continuation in
+        endpoint.removal(
+          ticket: ticket.id.uuidString, confirmation: ticket.confirmation,
+          machineOwner: "test-admin", password: Data("test-password".utf8)
+        ) { data, error in
+          if let error {
+            continuation.resume(throwing: error)
+          } else if let data {
+            continuation.resume(returning: data)
+          } else {
+            continuation.resume(throwing: ClosedEngineHelperError.invalidOperation)
+          }
+        }
+      }
+      XCTAssertTrue(try JSONDecoder().decode(OmarchyRemovalReply.self, from: response).completed)
+      for _ in 0..<50 where uninstaller.calls == 0 {
+        try await Task.sleep(for: .milliseconds(10))
+      }
+      XCTAssertEqual(uninstaller.calls, 1)
+      let record = root.appendingPathComponent("removal-\(ticket.id.uuidString).json")
+      XCTAssertTrue(FileManager.default.fileExists(atPath: record.path))
+    }
+
     func testCompletedRemovalPreservesJournalAndAcceptsAnotherRequest() async throws {
       let root = try temporaryDirectory()
       defer { try? FileManager.default.removeItem(at: root) }
@@ -1377,6 +1435,7 @@
   }
 
   private final class RecordingSelfUninstaller: HelperSelfUninstalling, @unchecked Sendable {
+    let shouldRetire = true
     private let lock = NSLock()
     private var count = 0
     var calls: Int { lock.withLock { count } }

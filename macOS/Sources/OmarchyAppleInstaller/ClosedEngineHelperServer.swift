@@ -140,11 +140,12 @@
     private let removalDisks: any RemovalDiskOperating
     private let removalAdminValidator: @Sendable (MachineOwnerAuthorization) throws -> Void
     private let espDisks: any InstallConfESPDiskOperating
+    private let selfUninstaller: any HelperSelfUninstalling
     /// Jobs and replacement share this state; see `HelperWorkState`.
     nonisolated let work: HelperWorkState
     nonisolated let jobs: InstallerJobRegistry
-    /// Compatibility signal for existing XPC clients. Erasing Linux keeps
-    /// the installer and its administrator process available for another install.
+    /// Compatibility signal for existing XPC clients. The replacement gate
+    /// prevents new work while a completed operation retires the helper.
     public nonisolated var isRetiring: Bool { false }
     private var completedInstallPlan: CompletedEngineInstallPlan?
     private var installConfConsumed = false
@@ -157,11 +158,12 @@
       executor: any ImportedEngineHandoffExecuting,
       credentialValidator: any MachineOwnerCredentialValidating =
         OpenDirectoryMachineOwnerCredentialValidator(),
-      selfUninstaller _: any HelperSelfUninstalling = NoHelperSelfUninstall()
+      selfUninstaller: any HelperSelfUninstalling = NoHelperSelfUninstall()
     ) {
       self.workingDirectory = workingDirectory
       self.executor = executor
       self.credentialValidator = credentialValidator
+      self.selfUninstaller = selfUninstaller
       let workState = HelperWorkState()
       work = workState
       jobs = InstallerJobRegistry(workingDirectory: workingDirectory, work: workState)
@@ -177,13 +179,14 @@
       removalDisks: any RemovalDiskOperating,
       removalAdminValidator: @escaping @Sendable (MachineOwnerAuthorization) throws -> Void,
       espDisks: any InstallConfESPDiskOperating = DiskutilInstallConfESPOperator(),
-      selfUninstaller _: any HelperSelfUninstalling = NoHelperSelfUninstall(),
+      selfUninstaller: any HelperSelfUninstalling = NoHelperSelfUninstall(),
       work: HelperWorkState = HelperWorkState(),
       retryEligibility: (@Sendable (InstallerJobPlanIdentity) -> Bool)? = nil
     ) {
       self.workingDirectory = workingDirectory
       self.executor = executor
       self.credentialValidator = credentialValidator
+      self.selfUninstaller = selfUninstaller
       self.work = work
       jobs = InstallerJobRegistry(
         workingDirectory: workingDirectory, work: work, retryEligibility: retryEligibility)
@@ -191,6 +194,14 @@
       self.removalDisks = removalDisks
       self.removalAdminValidator = removalAdminValidator
       self.espDisks = espDisks
+    }
+
+    /// Called only after a successful completion reply has been sent. A
+    /// replacement hold refuses new work until the helper unregisters.
+    func retireAfterCompletion() {
+      guard selfUninstaller.shouldRetire else { return }
+      guard work.beginReplacement(token: UUID().uuidString) else { return }
+      selfUninstaller.uninstallAfterRemoval()
     }
 
     public func recoveryAccount(
@@ -754,6 +765,7 @@
             ticketID: UUID(uuidString: ticket), confirmation: confirmation,
             authorization: authorization)
           reply(try JSONEncoder().encode(result), nil)
+          if result.completed { await server.retireAfterCompletion() }
         } catch {
           let message =
             (error as? RemovalFailure)?.message
@@ -858,6 +870,10 @@
         let request = try JSONDecoder().decode(InstallerJobStatusRequest.self, from: request)
         let snapshot = try server.jobs.status(request, initiatingUID: initiatingUID)
         reply(try JSONEncoder().encode(snapshot), nil)
+        if snapshot.phase == .succeeded {
+          let server = server
+          Task { await server.retireAfterCompletion() }
+        }
       } catch {
         reply(nil, InstallerJobXPCCodec.serviceError(error))
       }

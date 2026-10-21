@@ -2,14 +2,17 @@
   import Foundation
   import OSLog
 
-  /// Removes the helper from the Mac once a removal has completed, so no
-  /// Aurora trace is left: its launchd job file, its binary in
-  /// PrivilegedHelperTools and its whole state directory, including retired
-  /// install journals. A later install sets the helper up again.
+  /// Unregisters the helper after a completed operation. Protected execution
+  /// and removal journals remain for inspection and recovery.
   public protocol HelperSelfUninstalling: Sendable {
+    var shouldRetire: Bool { get }
     /// Called after the removal reply is built; it must let that reply reach
     /// the app before the helper goes away.
     func uninstallAfterRemoval()
+  }
+
+  extension HelperSelfUninstalling {
+    public var shouldRetire: Bool { false }
   }
 
   /// For tests and any caller that is not the running helper.
@@ -19,12 +22,12 @@
   }
 
   public struct LaunchdHelperSelfUninstaller: HelperSelfUninstalling {
+    public let shouldRetire = true
     private static let logger = Logger(subsystem: "com.omarchy.installer", category: "helper")
 
     private let label: String
     private let jobFile: URL
     private let binary: URL
-    private let workingDirectory: URL
     private let delay: Duration
     private let unload: @Sendable (String) -> Void
     private let exitProcess: @Sendable () -> Void
@@ -38,8 +41,6 @@
       binary: URL = URL(
         fileURLWithPath: "/Library/PrivilegedHelperTools/"
           + InstallerProductIdentity.helperIdentifier),
-      workingDirectory: URL = URL(
-        fileURLWithPath: InstallerProductIdentity.helperWorkingDirectory, isDirectory: true),
       delay: Duration = .seconds(2),
       unload: @escaping @Sendable (String) -> Void = LaunchdHelperSelfUninstaller.bootout,
       exitProcess: @escaping @Sendable () -> Void = { exit(0) }
@@ -47,23 +48,19 @@
       self.label = label
       self.jobFile = jobFile
       self.binary = binary
-      self.workingDirectory = workingDirectory
       self.delay = delay
       self.unload = unload
       self.exitProcess = exitProcess
     }
 
-    /// Deletes the files at once, so the app sees no helper from this moment
-    /// and a later install blesses a fresh one (which replaces this job and
-    /// ends this process), then unloads and exits after the delay that lets
-    /// the removal reply reach the app.
+    /// Waits for the completion reply to reach the app, then unregisters.
     public func uninstallAfterRemoval() {
-      removeFiles()
       let uninstaller = self
       Task.detached {
         // The suspending clock stops while the Mac sleeps, so the delay still
         // gives the reply time to reach the app after it wakes.
         try? await Task.sleep(for: uninstaller.delay, clock: .suspending)
+        uninstaller.removeFiles()
         uninstaller.unloadAndExit()
       }
     }
@@ -79,7 +76,7 @@
     }
 
     private func removeFiles() {
-      for item in [jobFile, binary, workingDirectory] {
+      for item in [jobFile, binary] {
         do {
           if FileManager.default.fileExists(atPath: item.path) {
             try FileManager.default.removeItem(at: item)
