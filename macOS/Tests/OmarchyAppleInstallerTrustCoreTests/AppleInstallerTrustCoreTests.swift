@@ -1,7 +1,8 @@
 import CryptoKit
 import Foundation
-@testable import OmarchyAppleInstallerTrustCore
 import XCTest
+
+@testable import OmarchyAppleInstallerTrustCore
 
 final class AppleInstallerTrustCoreTests: XCTestCase {
   private let core = AppleInstallerTrustCore()
