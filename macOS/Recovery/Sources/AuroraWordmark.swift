@@ -3,7 +3,7 @@ import AppKit
 /// The same Aurora mark and name used by the macOS installer.
 final class AuroraWordmark: NSView {
   private let mark = NSImageView()
-  private let name = NSTextField(labelWithString: "Aurora")
+  private let name = NSTextField(labelWithString: "Aurora Linux")
 
   override init(frame frameRect: NSRect) {
     super.init(frame: frameRect)
@@ -12,7 +12,7 @@ final class AuroraWordmark: NSView {
     }
     mark.imageScaling = .scaleProportionallyUpOrDown
     mark.translatesAutoresizingMaskIntoConstraints = false
-    name.font = NSFont.systemFont(ofSize: 38, weight: .semibold)
+    name.font = NSFont.systemFont(ofSize: 34, weight: .semibold)
     name.textColor = AuroraTheme.text
     name.translatesAutoresizingMaskIntoConstraints = false
     let row = NSStackView(views: [mark, name])
@@ -22,13 +22,13 @@ final class AuroraWordmark: NSView {
     row.translatesAutoresizingMaskIntoConstraints = false
     addSubview(row)
     NSLayoutConstraint.activate([
-      mark.widthAnchor.constraint(equalToConstant: 84),
-      mark.heightAnchor.constraint(equalToConstant: 84),
+      mark.widthAnchor.constraint(equalToConstant: 72),
+      mark.heightAnchor.constraint(equalToConstant: 72),
       row.centerXAnchor.constraint(equalTo: centerXAnchor),
       row.centerYAnchor.constraint(equalTo: centerYAnchor),
     ])
     setAccessibilityElement(true)
-    setAccessibilityLabel("Aurora")
+    setAccessibilityLabel("Aurora Linux")
   }
 
   required init?(coder: NSCoder) { fatalError("Use the programmatic initializer") }

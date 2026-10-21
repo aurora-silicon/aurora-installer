@@ -9,7 +9,6 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
   private var titleWidthConstraint: NSLayoutConstraint?
   private let content = NSView()
   private let footer = NSView()
-  private let attribution = NSTextField(labelWithString: "Made with ❤️ by Aurora Silicon")
   private var renderedStage: Stage?
   private var primaryButton: NSButton?
   private var debugButton: NSButton?
@@ -62,12 +61,6 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
     content.translatesAutoresizingMaskIntoConstraints = false
     root.addSubview(content)
 
-    attribution.font = AuroraTheme.detail
-    attribution.textColor = AuroraTheme.secondaryText
-    attribution.alignment = .center
-    attribution.translatesAutoresizingMaskIntoConstraints = false
-    root.addSubview(attribution)
-
     footer.translatesAutoresizingMaskIntoConstraints = false
     root.addSubview(footer)
 
@@ -77,8 +70,8 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
       wordmark.topAnchor.constraint(equalTo: root.topAnchor, constant: 62),
       wordmark.centerXAnchor.constraint(equalTo: root.centerXAnchor),
       wordmark.widthAnchor.constraint(equalToConstant: 400),
-      wordmark.heightAnchor.constraint(equalToConstant: 94),
-      titleLabel.topAnchor.constraint(equalTo: wordmark.bottomAnchor, constant: 28),
+      wordmark.heightAnchor.constraint(equalToConstant: 84),
+      titleLabel.topAnchor.constraint(equalTo: wordmark.bottomAnchor, constant: 24),
       titleLabel.centerXAnchor.constraint(equalTo: root.centerXAnchor),
       titleWidth,
       content.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 24),
@@ -89,8 +82,6 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
       footer.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -32),
       footer.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -14),
       footer.heightAnchor.constraint(equalToConstant: 80),
-      attribution.centerXAnchor.constraint(equalTo: root.centerXAnchor),
-      attribution.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: -8),
     ])
     refresh()
   }
@@ -108,7 +99,6 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
     titleLabel.stringValue = stageTitle
     titleLabel.alignment = model.stage == .account ? .left : .center
     titleWidthConstraint?.constant = model.stage == .account ? 380 : 600
-    attribution.isHidden = model.stage != .welcome
     progressIndicator?.doubleValue = model.progress * 100
     operationLabel?.stringValue = model.currentOperation + "…"
     primaryButton?.isEnabled = !model.checkingEnvironment
@@ -147,7 +137,7 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
     switch model.stage {
     case .welcome: return model.recoveryInterface ? "Repair startup" : "Finish setup"
     case .installing:
-      return model.recoveryInterface ? "Restoring startup software" : "Setting up Aurora"
+      return model.recoveryInterface ? "Restoring startup software" : "Setting up Aurora Linux"
     case .account:
       return model.accountAlreadyStarted ? "Resume recovery setup" : "Create a recovery account"
     case .complete:
@@ -185,7 +175,7 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
       label(
         model.recoveryInterface
           ? "Restore the startup software for your Mac."
-          : "Finish setting up Aurora on your Mac.", size: 15))
+          : "Finish setting up Aurora Linux on your Mac.", size: 15))
     stack.addArrangedSubview(
       label(
         model.recoveryInterface
@@ -199,6 +189,7 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
     icon.heightAnchor.constraint(equalToConstant: 96).isActive = true
     stack.setCustomSpacing(30, after: stack.arrangedSubviews[1])
     stack.addArrangedSubview(icon)
+    stack.setCustomSpacing(24, after: icon)
     stack.addArrangedSubview(label(DestinationVolume.name, size: 14))
     place(stack)
   }
@@ -281,7 +272,7 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
     icon.widthAnchor.constraint(equalToConstant: 96).isActive = true
     icon.heightAnchor.constraint(equalToConstant: 96).isActive = true
     stack.addArrangedSubview(icon)
-    stack.setCustomSpacing(25, after: icon)
+    stack.setCustomSpacing(28, after: icon)
     if model.accountNeedsAuthorization {
       stack.addArrangedSubview(
         label(
@@ -292,7 +283,7 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
           "Enter the credentials for your macOS account and the recovery account you just created.",
           size: 12))
     } else {
-      stack.addArrangedSubview(label("Restart to start using Aurora.", size: 12))
+      stack.addArrangedSubview(label("Restart to start using Aurora Linux.", size: 12))
     }
     place(stack)
   }
@@ -389,7 +380,7 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
     _ text: String, size: CGFloat, alignment: NSTextAlignment = .center
   ) -> NSTextField {
     let field = NSTextField(labelWithString: text)
-    field.font = AuroraTheme.mono(size)
+    field.font = AuroraTheme.font(size)
     field.textColor = AuroraTheme.secondaryText
     field.alignment = alignment
     field.lineBreakMode = .byWordWrapping

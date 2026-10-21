@@ -26,7 +26,7 @@ final class RecoverySheet: NSPanel {
     contentView = root
 
     let heading = NSTextField(labelWithString: title)
-    heading.font = AuroraTheme.mono(19, .semibold)
+    heading.font = AuroraTheme.font(19, .semibold)
     heading.textColor = AuroraTheme.text
     heading.lineBreakMode = .byWordWrapping
     heading.maximumNumberOfLines = 0

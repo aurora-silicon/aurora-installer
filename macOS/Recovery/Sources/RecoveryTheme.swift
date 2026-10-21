@@ -4,7 +4,7 @@ final class RecoveryPrimaryButton: NSButton {
   override var intrinsicContentSize: NSSize {
     let size = super.intrinsicContentSize
     return NSSize(
-      width: max(96, size.width + 40), height: max(AuroraTheme.buttonHeight, size.height))
+      width: max(92, size.width + 30), height: max(AuroraTheme.buttonHeight, size.height))
   }
 
   init(title: String, target: AnyObject?, action: Selector?) {
@@ -15,10 +15,8 @@ final class RecoveryPrimaryButton: NSButton {
     bezelStyle = .rounded
     font = AuroraTheme.button
     contentTintColor = AuroraTheme.accentText
-    wantsLayer = true
-    layer?.backgroundColor = AuroraTheme.darkCGColor(AuroraTheme.accent)
-    layer?.cornerRadius = AuroraTheme.buttonRadius
-    isBordered = false
+    bezelColor = AuroraTheme.accent
+    isBordered = true
     translatesAutoresizingMaskIntoConstraints = false
     heightAnchor.constraint(equalToConstant: AuroraTheme.buttonHeight).isActive = true
   }
@@ -29,7 +27,7 @@ final class RecoveryPrimaryButton: NSButton {
 final class RecoverySecondaryButton: NSButton {
   override var intrinsicContentSize: NSSize {
     let size = super.intrinsicContentSize
-    return NSSize(width: size.width + 32, height: max(AuroraTheme.buttonHeight, size.height))
+    return NSSize(width: size.width + 26, height: max(AuroraTheme.buttonHeight, size.height))
   }
 
   init(title: String, target: AnyObject?, action: Selector?) {
@@ -37,14 +35,10 @@ final class RecoverySecondaryButton: NSButton {
     self.title = title
     self.target = target
     self.action = action
+    bezelStyle = .rounded
     font = AuroraTheme.control
-    contentTintColor = AuroraTheme.secondaryText
-    isBordered = false
-    wantsLayer = true
-    layer?.backgroundColor = AuroraTheme.darkCGColor(AuroraTheme.card)
-    layer?.borderColor = AuroraTheme.darkCGColor(AuroraTheme.separator)
-    layer?.borderWidth = 1
-    layer?.cornerRadius = AuroraTheme.buttonRadius
+    contentTintColor = AuroraTheme.text
+    isBordered = true
     translatesAutoresizingMaskIntoConstraints = false
     heightAnchor.constraint(equalToConstant: AuroraTheme.buttonHeight).isActive = true
   }
