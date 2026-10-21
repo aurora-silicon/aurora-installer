@@ -697,9 +697,11 @@ struct DiskSplitPanel: View {
       Text(plan.preservesStage1 ? "Review your reset" : "Choose your space")
         .font(.system(size: 22, weight: .semibold))
       if plan.preservesStage1 {
-        Text("Stage 1 and partition sizes stay. EFI boot files, Linux Boot and Root are replaced, erasing Linux accounts and files.")
-          .font(OmarchyTheme.body)
-          .foregroundStyle(OmarchyTheme.secondaryText)
+        Text(
+          "Stage 1 and partition sizes stay. EFI boot files, Linux Boot and Root are replaced, erasing Linux accounts and files."
+        )
+        .font(OmarchyTheme.body)
+        .foregroundStyle(OmarchyTheme.secondaryText)
       }
       HStack(alignment: .top) {
         capacity("macOS", bytes: plan.macOSBytes(for: displayedOmarchyBytes), highlighted: false)
