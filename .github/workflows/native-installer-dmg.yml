@@ -108,27 +108,30 @@ jobs:
             /opt/homebrew/opt/openssl@3/bin/openssl pkeyutl -verify -pubin -keyform DER \
               -inkey "$directory/public.der" -rawin -in "$directory/neo-reset-catalog.json" \
               -sigfile "$directory/neo-reset-catalog.json.sig"
-            python3 - "$directory/neo-reset-catalog.json" "$NEO_RESET_TAG" "$qa_profile" \
-              "delivery/site/installer/Profiles/$qa_profile/catalog.json" <<'PYNEO'
-          import json,re,sys
+            python3 - "$directory/neo-reset-catalog.json" "$NEO_RESET_TAG" "$qa_profile" <<'PYNEO'
+          import hashlib,json,re,sys,urllib.request
           from pathlib import Path
           catalog=json.loads(Path(sys.argv[1]).read_text());tag=sys.argv[2];profile=sys.argv[3]
-          public=json.loads(Path(sys.argv[4]).read_text())
-          match=re.fullmatch(r'(payload-(?:fedora|arch|nixos)-(?:kde|gnome|minimal)-[0-9]+-neo-reset-qa)[0-9]*',tag)
+          match=re.fullmatch(r'(payload-(?:fedora|arch|nixos)-(?:kde|gnome|minimal)-([0-9]+)-neo-reset-qa)[0-9]*',tag)
           assert match
-          public_tag=tag.split('-neo-reset-qa')[0]
+          asset_tags={tag,match.group(1)}
           models=catalog.get('models',[])
           assert catalog.get('schemaVersion')==4 and len(models)==1
           model=models[0]
           assert model['deviceIdentifier']=='apple,j700' and model['status']=='enabled'
           assert model['installationProfile']==profile
-          assert public.get('schemaVersion')==4 and public['models']
-          reference=public['models'][0]
+          assert model['evidenceRevision']=='image-build-'+match.group(2)
           for name in ('metadataArtifact','payloadArtifact'):
-              assert model[name]==reference[name]
-              assert '/releases/download/'+public_tag+'/' in model[name]['sourceURL']
-          for name in ('metadataDigest','payloadDigest','engineArtifact','engineDigest','engineVersion'):
-              assert model[name]==reference[name]
+              assert any('/releases/download/'+asset_tag+'/' in model[name]['sourceURL']
+                         for asset_tag in asset_tags)
+          with urllib.request.urlopen(model['metadataArtifact']['sourceURL'],timeout=60) as response:
+              metadata=response.read((1<<20)+1)
+          assert len(metadata)<=1<<20
+          assert 'sha256:'+hashlib.sha256(metadata).hexdigest()==model['metadataDigest']
+          template=json.loads(metadata)['os_list'][0]
+          policy=template['aurora_stage1']
+          assert '26.6.2' in policy['qualified_machines']['j700ap']
+          assert 'j700ap' not in template.get('excluded_device_classes',[])
           PYNEO
             cp "$directory/neo-reset-catalog.json" "$profile/catalog.json"
             cp "$directory/neo-reset-catalog.json.sig" "$profile/catalog.json.sig"
