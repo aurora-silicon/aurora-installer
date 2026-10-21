@@ -38,7 +38,8 @@
     }
 
     func testADelegatedHandoffRequiresAnAuthenticatedBackendCapability() async throws {
-      let fixture = try makeFixture(supportsNativeHandoff: false)
+      let fixture = try makeFixture(
+        supportsNativeHandoff: false, installationIntent: .repair)
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       await assertThrowsErrorAsync(
         try await fixtureExecutor(effectiveUserID: { 0 }).execute(
@@ -246,27 +247,6 @@
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
     }
 
-    func testNativeCandidateRefusesLegacyRecoveryRetryWithoutLaunchingRuntime() async throws {
-      let fixture = try makeFixture(
-        transcript: NativeAdmissionTestData.journal(),
-        repairManifest: Data("repair".utf8), missingBackendInterpreter: true)
-      defer { try? FileManager.default.removeItem(at: fixture.root) }
-      let executor = fixtureExecutor(
-        effectiveUserID: { 0 },
-        installationFinisher: NativeFinishingFixture(
-          esp: fixture.root.appendingPathComponent("esp"),
-          marker: fixture.root.appendingPathComponent("finished")))
-      do {
-        _ = try await executor.execute(
-          fixture.package, authorization: try machineOwnerAuthorization(),
-          operation: .retryRecoveryAuthorization)
-        XCTFail("Legacy Recovery retry reached compatibility execution")
-      } catch let PinnedAsahiEngineExecutionError.engineFailed(report) {
-        XCTAssertEqual(report.notice.reason, .planIntegrity)
-      }
-      XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
-    }
-
     private struct NativeImagesFixture: NativePayloadImagesPreparing, NativePayloadImagesExecuting {
       var marker: URL? = nil
       var partitions: URL? = nil
@@ -339,33 +319,6 @@
       }
     }
 
-    func testBackendLaunchFailureAfterNativeAPFSRetainsCheckpointAndMakesNoUnchangedDiskClaim()
-      async throws
-    {
-      let fixture = try makeFixture(expectNativeAPFS: true, missingBackendInterpreter: true)
-      defer { try? FileManager.default.removeItem(at: fixture.root) }
-      let executor = fixtureExecutor(
-        effectiveUserID: { 0 },
-        apfsPreparer: NativeAPFSFixture(
-          marker: fixture.root.appendingPathComponent("native-apfs-called"), recordMutation: true))
-      await assertThrowsErrorAsync(
-        try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
-      ) {
-        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
-          return XCTFail("Expected a typed post-preparation launch failure")
-        }
-        XCTAssertFalse(report.notice.diskUnchanged)
-      }
-      let journal = fixture.root.appendingPathComponent(
-        "execution-journals/" + String(repeating: "b", count: 64) + ".jsonl")
-      XCTAssertEqual(try Data(contentsOf: journal), try NativeAdmissionTestData.journal(stages: 1))
-      XCTAssertEqual(
-        try Data(contentsOf: URL(fileURLWithPath: journal.path + ".apfs-target-prepared.evidence")),
-        NativeAdmissionTestData.evidence)
-      XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.package.metadataURL.path))
-      XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
-    }
-
     private struct NativeFilesFixture: NativeStubFilesPreparing, NativeStubFilesExecuting {
       let marker: URL
       let apfs: URL
@@ -383,168 +336,9 @@
       }
     }
 
-    func testNativeFileCapabilityIsAdmittedBeforeAnyMutationAndFilesFollowAPFS() async throws {
-      for supported in [false, true] {
-        let fixture = try makeFixture(
-          supportsNativeFiles: supported, expectNativeAPFS: true, expectNativeFiles: true)
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let apfs = fixture.root.appendingPathComponent("apfs")
-        let files = fixture.root.appendingPathComponent("files")
-        let executor = fixtureExecutor(
-          effectiveUserID: { 0 },
-          apfsPreparer: NativeAPFSFixture(marker: apfs),
-          stubFilesPreparer: NativeFilesFixture(marker: files, apfs: apfs))
-        if supported {
-          _ = try await executor.execute(
-            fixture.package, authorization: machineOwnerAuthorization())
-          XCTAssertTrue(FileManager.default.fileExists(atPath: files.path))
-        } else {
-          await assertThrowsErrorAsync(
-            try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
-          ) { _ in }
-          XCTAssertFalse(FileManager.default.fileExists(atPath: apfs.path))
-          XCTAssertFalse(FileManager.default.fileExists(atPath: files.path))
-        }
-      }
-    }
-
-    func testNativePartitionCapabilityPrecedesMutationAndPartitionsFollowFiles() async throws {
-      for supported in [false, true] {
-        let fixture = try makeFixture(
-          supportsNativePartitions: supported, expectNativeAPFS: true, expectNativeFiles: true)
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let apfs = fixture.root.appendingPathComponent("apfs")
-        let files = fixture.root.appendingPathComponent("files")
-        let partitions = fixture.root.appendingPathComponent("partitions")
-        let executor = fixtureExecutor(
-          effectiveUserID: { 0 }, apfsPreparer: NativeAPFSFixture(marker: apfs),
-          stubFilesPreparer: NativeFilesFixture(marker: files, apfs: apfs),
-          osPartitionsPreparer: NativePartitionsFixture(marker: partitions, files: files))
-        if supported {
-          _ = try await executor.execute(
-            fixture.package, authorization: machineOwnerAuthorization())
-          XCTAssertTrue(FileManager.default.fileExists(atPath: partitions.path))
-        } else {
-          await assertThrowsErrorAsync(
-            try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
-          ) { _ in }
-          XCTAssertFalse(FileManager.default.fileExists(atPath: apfs.path))
-          XCTAssertFalse(FileManager.default.fileExists(atPath: partitions.path))
-        }
-      }
-    }
-
-    func testNativeImageCapabilityPrecedesMutationAndImagesFollowPartitions() async throws {
-      for supported in [false, true] {
-        let fixture = try makeFixture(
-          supportsNativeImages: supported, expectNativeAPFS: true, expectNativeFiles: true)
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let apfs = fixture.root.appendingPathComponent("apfs")
-        let files = fixture.root.appendingPathComponent("files")
-        let partitions = fixture.root.appendingPathComponent("partitions")
-        let images = fixture.root.appendingPathComponent("images")
-        let executor = fixtureExecutor(
-          effectiveUserID: { 0 }, apfsPreparer: NativeAPFSFixture(marker: apfs),
-          stubFilesPreparer: NativeFilesFixture(marker: files, apfs: apfs),
-          osPartitionsPreparer: NativePartitionsFixture(marker: partitions, files: files),
-          payloadImagesPreparer: NativeImagesFixture(marker: images, partitions: partitions))
-        if supported {
-          _ = try await executor.execute(
-            fixture.package, authorization: machineOwnerAuthorization())
-          XCTAssertTrue(FileManager.default.fileExists(atPath: images.path))
-        } else {
-          await assertThrowsErrorAsync(
-            try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
-          ) { _ in }
-          XCTAssertFalse(FileManager.default.fileExists(atPath: apfs.path))
-          XCTAssertFalse(FileManager.default.fileExists(atPath: images.path))
-        }
-      }
-    }
-
-    func testNativeESPCapabilityPrecedesMutationAndPublicationFollowsImages() async throws {
-      for supported in [false, true] {
-        let fixture = try makeFixture(
-          supportsNativeESP: supported, expectNativeAPFS: true, expectNativeFiles: true)
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let apfs = fixture.root.appendingPathComponent("apfs")
-        let files = fixture.root.appendingPathComponent("files")
-        let partitions = fixture.root.appendingPathComponent("partitions")
-        let images = fixture.root.appendingPathComponent("images")
-        let esp = fixture.root.appendingPathComponent("esp")
-        let executor = fixtureExecutor(
-          effectiveUserID: { 0 }, apfsPreparer: NativeAPFSFixture(marker: apfs),
-          stubFilesPreparer: NativeFilesFixture(marker: files, apfs: apfs),
-          osPartitionsPreparer: NativePartitionsFixture(marker: partitions, files: files),
-          payloadImagesPreparer: NativeImagesFixture(marker: images, partitions: partitions),
-          espFilesPreparer: NativeESPFixture(marker: esp, images: images))
-        if supported {
-          _ = try await executor.execute(
-            fixture.package, authorization: machineOwnerAuthorization())
-          XCTAssertTrue(FileManager.default.fileExists(atPath: esp.path))
-        } else {
-          await assertThrowsErrorAsync(
-            try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
-          ) { _ in }
-          XCTAssertFalse(FileManager.default.fileExists(atPath: apfs.path))
-          XCTAssertFalse(FileManager.default.fileExists(atPath: esp.path))
-        }
-      }
-    }
-
-    func testNativeAPFSCapabilityIsAdmittedBeforePreparationAndPassedToContinuation() async throws {
-      for supported in [false, true] {
-        let fixture = try makeFixture(supportsNativeAPFS: supported, expectNativeAPFS: true)
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let marker = fixture.root.appendingPathComponent("native-apfs-called")
-        let executor = fixtureExecutor(
-          effectiveUserID: { 0 }, apfsPreparer: NativeAPFSFixture(marker: marker))
-        if supported {
-          let bytes = try await executor.execute(
-            fixture.package, authorization: machineOwnerAuthorization())
-          XCTAssertEqual(bytes, fixture.transcript)
-          XCTAssertTrue(FileManager.default.fileExists(atPath: marker.path))
-        } else {
-          await assertThrowsErrorAsync(
-            try await executor.execute(fixture.package, authorization: machineOwnerAuthorization()))
-          XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
-        }
-      }
-    }
-
-    func testConvertedPeripheralCapabilityAndCleanupAreRequiredBeforeBackendLaunch() async throws {
-      for supported in [false, true] {
-        let fixture = try makeFixture(supportsNativePeripherals: supported)
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let converted = fixture.root.appendingPathComponent("converted-peripherals")
-        let executor = fixtureExecutor(
-          effectiveUserID: { 0 },
-          firmwarePreparer: RawFirmwareFixture(
-            url: fixture.root.appendingPathComponent("raw-firmware")),
-          peripheralPreparer: ConvertedPeripheralFixture(url: converted))
-        if supported {
-          let result = try await executor.execute(
-            fixture.package, authorization: machineOwnerAuthorization())
-          XCTAssertEqual(result, fixture.transcript)
-        } else {
-          await assertThrowsErrorAsync(
-            try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
-          ) {
-            guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
-              return XCTFail("Expected prepared-input capability refusal")
-            }
-            XCTAssertEqual(report.notice.reason, .recoveryPreparation)
-            XCTAssertTrue(report.notice.diskUnchanged)
-          }
-        }
-        XCTAssertFalse(FileManager.default.fileExists(atPath: converted.path))
-        XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
-      }
-    }
-
     func testNativeAdmissionRecollectsAfterFirmwareAndStopsBeforeBackendLaunch() async throws {
       for failure in ["existing", "unreadable"] {
-        let fixture = try makeFixture()
+        let fixture = try makeFixture(installationIntent: .repair)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let marker = fixture.root.appendingPathComponent("firmware-marker")
         let executor = fixtureExecutor(
@@ -601,7 +395,7 @@
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
     }
 
-    func testExplicitRepairAndReplacementReachTheBackendWithKnownInstallations() async throws {
+    func testOnlyRepairCanReachTheCompatibilityBackendWithAnExistingInstallation() async throws {
       for intent in [ImportedInstallationIntent.repair, .replace] {
         let fixture = try makeFixture(installationIntent: intent)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -610,13 +404,26 @@
           collectInstallAdmission: {
             NativeAdmissionTestData.facts(existing: true)
           })
-        let result = try await executor.execute(
-          fixture.package, authorization: try machineOwnerAuthorization())
-        XCTAssertEqual(result, fixture.transcript)
+        if intent == .repair {
+          let result = try await executor.execute(
+            fixture.package, authorization: try machineOwnerAuthorization())
+          XCTAssertEqual(result, fixture.transcript)
+        } else {
+          await assertThrowsErrorAsync(
+            try await executor.execute(
+              fixture.package, authorization: try machineOwnerAuthorization())
+          ) {
+            guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError
+            else { return XCTFail("Expected a native-only refusal") }
+            XCTAssertEqual(report.notice.reason, .planIntegrity)
+            XCTAssertTrue(report.notice.diskUnchanged)
+          }
+          XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+        }
       }
     }
 
-    func testRecordedInstallResumesOnlyWithPrivateMatchingCheckpointEvidence() async throws {
+    func testRepairAdmissionRequiresPrivateMatchingCheckpointEvidence() async throws {
       for evidenceState in [
         "valid", "changed", "missing", "symlink", "public", "different-plan",
         "different-read-only-plan",
@@ -626,7 +433,8 @@
         let fixture = try makeFixture(
           planDigest: foreignPlan
             ? String(repeating: "d", count: 64)
-            : NativeAdmissionTestData.plan.planDigest)
+            : NativeAdmissionTestData.plan.planDigest,
+          installationIntent: .repair)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let directory = fixture.root.appendingPathComponent("execution-journals")
         try FileManager.default.createDirectory(
@@ -708,7 +516,8 @@
     }
 
     func testAnOlderEngineCannotSilentlyUseABundledDecoder() async throws {
-      let fixture = try makeFixture(supportsSignedDecoder: false)
+      let fixture = try makeFixture(
+        supportsSignedDecoder: false, installationIntent: .repair)
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let executor = fixtureExecutor(effectiveUserID: { 0 })
       await assertThrowsErrorAsync(
@@ -869,7 +678,7 @@
     func testValidPinnedBundleReceivesBoundInputsAndCleansExecutionRoot()
       async throws
     {
-      let fixture = try makeFixture()
+      let fixture = try makeFixture(installationIntent: .repair)
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let executor = fixtureExecutor(effectiveUserID: { 0 })
 
@@ -887,7 +696,7 @@
 
     func testRecoveryRetryUsesDedicatedEngineMode() async throws {
       let fixture = try makeFixture(
-        expectedInstallMode: "retry-recovery-authorization"
+        expectedInstallMode: "retry-recovery-authorization", installationIntent: .repair
       )
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let executor = fixtureExecutor(effectiveUserID: { 0 })
@@ -920,7 +729,8 @@
     func testRootStyleExtractionNormalizesGroupWritableArchiveModes()
       async throws
     {
-      let fixture = try makeFixture(groupWritableBundleEntry: true)
+      let fixture = try makeFixture(
+        groupWritableBundleEntry: true, installationIntent: .repair)
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let executor = fixtureExecutor(
         effectiveUserID: { 0 },
@@ -937,7 +747,8 @@
     }
 
     func testEscapingBundleSymlinkIsRejected() async throws {
-      let fixture = try makeFixture(escapingSymlink: true)
+      let fixture = try makeFixture(
+        escapingSymlink: true, installationIntent: .repair)
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let executor = fixtureExecutor(effectiveUserID: { 0 })
 
@@ -958,7 +769,7 @@
     func testNonzeroEngineExitIsRejectedAndExecutionRootIsCleaned()
       async throws
     {
-      let fixture = try makeFixture(exitCode: 17)
+      let fixture = try makeFixture(exitCode: 17, installationIntent: .repair)
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let executor = fixtureExecutor(effectiveUserID: { 0 })
 
@@ -996,7 +807,8 @@
       let fixture = try makeFixture(
         exitCode: 1,
         transcript: readOnlyJournal(),
-        standardError: Data(stderr.utf8)
+        standardError: Data(stderr.utf8),
+        installationIntent: .repair
       )
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let executor = fixtureExecutor(effectiveUserID: { 0 })
@@ -1032,7 +844,8 @@
         exitCode: 1,
         transcript: readOnlyJournal(withEvent: true),
         standardError: Data(
-          "omarchy_asahi.AsahiAdapterError: approved extent is smaller than Asahi minimum\n".utf8)
+          "omarchy_asahi.AsahiAdapterError: approved extent is smaller than Asahi minimum\n".utf8),
+        installationIntent: .repair
       )
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let executor = fixtureExecutor(effectiveUserID: { 0 })
@@ -1059,7 +872,8 @@
       let fixture = try makeFixture(
         exitCode: 3,
         transcript: readOnlyJournal(),
-        standardError: stderr
+        standardError: stderr,
+        installationIntent: .repair
       )
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let executor = fixtureExecutor(effectiveUserID: { 0 })
@@ -1100,7 +914,8 @@
         checkpointEvidence: [
           "apfs-target-prepared": targetEvidence,
           "stub-and-esp-installed": installedEvidence,
-        ]
+        ],
+        installationIntent: .repair
       )
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let executor = fixtureExecutor(effectiveUserID: { 0 })
@@ -1150,7 +965,8 @@
     }
 
     func testTruncatedTranscriptIsRejected() async throws {
-      let fixture = try makeFixture(transcript: Data("truncated".utf8))
+      let fixture = try makeFixture(
+        transcript: Data("truncated".utf8), installationIntent: .repair)
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let executor = fixtureExecutor(effectiveUserID: { 0 })
 
