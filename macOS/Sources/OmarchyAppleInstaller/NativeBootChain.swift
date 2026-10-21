@@ -180,8 +180,9 @@
       let checksum = framed.withUnsafeBytes {
         UInt32(zlib.crc32(0, $0.bindMemory(to: Bytef.self).baseAddress, uInt(framed.count)))
       }
-      guard body.suffix(4).elementsEqual(
-        (0..<4).map { UInt8(truncatingIfNeeded: checksum >> ($0 * 8)) })
+      guard
+        body.suffix(4).elementsEqual(
+          (0..<4).map { UInt8(truncatingIfNeeded: checksum >> ($0 * 8)) })
       else { throw NativeBootChainError.invalidStage1 }
     }
   }
