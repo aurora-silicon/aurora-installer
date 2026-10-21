@@ -86,7 +86,7 @@
 
     public var stageFractions: [Double] {
       if isPreservedReset { return [completion == nil ? 0 : 1] }
-      Self.stagePhases.map { phase in
+      return Self.stagePhases.map { phase in
         checkpoints.contains { $0.phase == phase } ? 1 : 0
       }
     }
