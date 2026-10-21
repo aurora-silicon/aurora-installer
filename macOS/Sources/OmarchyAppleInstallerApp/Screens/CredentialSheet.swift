@@ -30,7 +30,7 @@ struct CredentialSheet: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
       Text(isRetry ? PlainLanguage.authorizeRetryTitle : PlainLanguage.authorizeTitle)
-        .font(OmarchyTheme.title)
+        .font(OmarchyTheme.sheetTitle)
         .foregroundStyle(OmarchyTheme.accent)
 
       Text(
