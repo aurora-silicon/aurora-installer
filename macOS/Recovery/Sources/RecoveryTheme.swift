@@ -1,6 +1,10 @@
 import AppKit
 
 final class RecoveryPrimaryButton: NSButton {
+  override var isEnabled: Bool {
+    didSet { bezelColor = isEnabled ? AuroraTheme.accent : AuroraTheme.card }
+  }
+
   override var intrinsicContentSize: NSSize {
     let size = super.intrinsicContentSize
     return NSSize(
