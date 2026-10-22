@@ -9,7 +9,7 @@ repository.
 Every per-release value comes from an inputs file (`--inputs`), so cutting a
 release never edits this script. `scripts/release-inputs.template.json` holds
 the current values. The inputs must list exactly the Macs in
-`scripts/supported-models.json`: every M1, M2 and M3 Mac, none refused.
+`scripts/supported-models.json`: every supported Mac, none refused.
 
 The catalog pins whole-file digests. When the payload was split for release
 delivery, the sibling `<payload>.partNN` files are emitted as an additional
@@ -27,7 +27,7 @@ Schema 5 inputs set `schema_version` to 5 and omit `engine_name` and
 add `developer_models`: groups of boards from the manifest's `developer`
 section, or supported Macs moved out of the main group, each group with its
 own metadata and its own or a shared payload. The main group and the moved
-Macs together still cover exactly every M1, M2 and M3 Mac. Channel publishing
+Macs together still cover exactly every supported Mac. Channel publishing
 rejects a catalog with a developer board.
 
 Usage:
@@ -227,7 +227,7 @@ def load_developer_models(document: dict) -> list[str]:
     return taken
 
 
-def load_inputs(path: Path, developer: bool = False, qa_only_model: str | None = None) -> dict:
+def load_inputs(path: Path, developer: bool = False) -> dict:
     """Read and fully validate the per-release inputs, failing closed."""
     if not path.is_file() or path.is_symlink():
         raise SystemExit(f"unsafe or missing inputs file: {path}")
@@ -308,16 +308,12 @@ def load_inputs(path: Path, developer: bool = False, qa_only_model: str | None =
             identifier
         ):
             raise SystemExit(f"invalid device identifier: {identifier}")
-    # Every catalog enables every M1, M2 and M3 Mac (scripts/supported-models.json):
+    # Every catalog enables every supported Mac (scripts/supported-models.json):
     # in the main group, or in a developer group that gives some of them their own metadata.
     taken = load_developer_models(document) if "developer_models" in document else []
-    if qa_only_model is not None:
-        if developer or identifiers != [qa_only_model] or qa_only_model not in supported_models.developer_boards():
-            raise SystemExit("QA catalog must contain exactly one developer board")
-    else:
-        coverage = supported_models.coverage_errors(identifiers + taken)
-        if coverage:
-            raise SystemExit("inputs device_identifiers: " + "; ".join(coverage))
+    coverage = supported_models.coverage_errors(identifiers + taken)
+    if coverage:
+        raise SystemExit("inputs device_identifiers: " + "; ".join(coverage))
 
     installer = document["installer"]
     if not isinstance(installer, dict):
@@ -386,10 +382,6 @@ def parse_arguments() -> argparse.Namespace:
         action="store_true",
         help="allow developer_models: for a developer build's sealed catalog only",
     )
-    parser.add_argument(
-        "--qa-only-model",
-        help="produce a signed, non-adopted QA catalog for one developer board",
-    )
     arguments = parser.parse_args()
 
     if not arguments.base_url.startswith("https://"):
@@ -456,9 +448,7 @@ def model_group(inputs: dict, group: dict, assets: Path, base_url: str) -> tuple
 
 def main() -> None:
     arguments = parse_arguments()
-    inputs = load_inputs(
-        arguments.inputs, developer=arguments.developer,
-        qa_only_model=arguments.qa_only_model)
+    inputs = load_inputs(arguments.inputs, developer=arguments.developer)
     models, parts = model_group(inputs, inputs, arguments.assets_dir, arguments.base_url)
     for group in inputs.get("developer_models", []):
         models += model_group(inputs, group, arguments.assets_dir, arguments.base_url)[0]

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Package a finalized distro filesystem bundle and native Recovery template.
 
-A private Neo variant may additionally carry recorded original policy inputs.
-It is a separate, explicitly local payload and must not be published publicly.
+One payload serves every supported Mac. It carries no per-Mac firmware,
+calibration or radio policy: the native installer collects and derives those
+on the Mac being installed.
 """
 import argparse
 import datetime
@@ -17,7 +18,6 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 sys.path.insert(0, str(ROOT / 'Engine/overlay/src'))
-import omarchy_mt7932
 import omarchy_recovery
 
 DISTRIBUTION_ICONS = {
@@ -37,8 +37,7 @@ def regular(path):
     return path
 
 
-def assemble(bundle, recovery, output, policy_directory=None, reuse_payload=False, release_id=None,
-             native_neo_reset=False):
+def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
     release_id = release_id or datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,79}", release_id):
         raise ValueError("invalid delivery release identifier")
@@ -46,8 +45,6 @@ def assemble(bundle, recovery, output, policy_directory=None, reuse_payload=Fals
     profile = image['installation_profile']
     if not re.fullmatch(r'(fedora|arch|nixos)-(kde|gnome|minimal)', profile):
         raise ValueError('unknown installation profile')
-    if native_neo_reset and policy_directory is not None:
-        raise ValueError('Neo Reset qualification requires an image without factory inputs')
     stage2_members = {}
     manifest_path = bundle / 'stage2.json'
     if manifest_path.exists():
@@ -67,8 +64,10 @@ def assemble(bundle, recovery, output, policy_directory=None, reuse_payload=Fals
             if path.stat().st_size != record.get('bytes') or digest(path) != record.get('sha256'):
                 raise ValueError('Stage 2 member identity mismatch')
             stage2_members[board] = member
-    if native_neo_reset and 'j700ap' not in stage2_members:
-        raise ValueError('Neo Reset requires a current board-specific Stage 2')
+    if 'j700ap' not in stage2_members:
+        # The MacBook Neo cannot load the combined Stage 2 that carries every
+        # board's device trees, so the shared payload must carry its own.
+        raise ValueError('the MacBook Neo requires a current board-specific Stage 2')
     distribution_icon = regular(DISTRIBUTION_ICONS[profile.split('-')[0]])
     expected_layout = {'fedora': 'fedora', 'arch': 'alarm', 'nixos': 'nixos'}[profile.split('-')[0]] + '-btrfs-v1'
     if image['layout_kind'] != expected_layout or image['root_subvolume'] != 'root':
@@ -84,8 +83,7 @@ def assemble(bundle, recovery, output, policy_directory=None, reuse_payload=Fals
     if output.exists() and not reuse_payload:
         raise ValueError('output exists; use a new release directory')
     output.mkdir(parents=True, exist_ok=reuse_payload)
-    suffix = '-neo-local' if policy_directory else ''
-    payload = output / (profile + suffix + '-' + release_id + '.zip')
+    payload = output / (profile + '-' + release_id + '.zip')
     files = {'boot.img': bundle / 'boot.img', 'root.img': bundle / 'root.img',
              'aurora-volume.icns': distribution_icon}
     for path in sorted((bundle / 'esp').rglob('*')):
@@ -97,19 +95,6 @@ def assemble(bundle, recovery, output, policy_directory=None, reuse_payload=Fals
     for path in sorted(recovery.rglob('*')):
         if path.is_file():
             files[prefix + omarchy_recovery.APP_NAME + '/' + path.relative_to(recovery).as_posix()] = path
-    policies = {}
-    if policy_directory:
-        for path in sorted(policy_directory.glob('*.bin')):
-            name = path.name
-            country = 'XZ' if name == 'world-XZ.bin' else name.removesuffix('.bin')
-            if name != 'world-XZ.bin' and not re.fullmatch(r'[A-Z]{2}\.bin', name):
-                raise ValueError('invalid local policy filename')
-            omarchy_mt7932.validate_policy(regular(path).read_bytes(), country)
-            member = 'installer-inputs/mt7932-policy/' + name
-            files[member] = path
-            policies[name] = member
-        if 'world-XZ.bin' not in policies:
-            raise ValueError('private Neo payload requires its original world-XZ input')
     manifest_name = prefix + omarchy_recovery.MANIFEST_NAME
     manifest_data = (json.dumps(recovery_manifest, sort_keys=True, indent=2) + '\n').encode()
     if reuse_payload:
@@ -132,8 +117,6 @@ def assemble(bundle, recovery, output, policy_directory=None, reuse_payload=Fals
             archive.writestr(prefix + omarchy_recovery.MANIFEST_NAME, json.dumps(recovery_manifest, sort_keys=True, indent=2) + '\n')
     with zipfile.ZipFile(payload) as archive:
         omarchy_recovery.validate_payload(archive)
-        if policies:
-            omarchy_mt7932.collect_policy_inputs(archive, {'kind': 'original-j7rp-v1', 'files': policies})
     title = {'fedora': 'Fedora Aurora Remix', 'arch': 'Aurora ALARM', 'nixos': 'Aurora NixOS'}[profile.split('-')[0]]
     template = {
         'omarchy_target': 'apple-silicon-full-os', 'name': title + ' (' + profile.split('-')[1] + ')',
@@ -157,25 +140,15 @@ def assemble(bundle, recovery, output, policy_directory=None, reuse_payload=Fals
     }}
     if stage2_members:
         template['aurora_stage2'] = {'kind': 'board-file-v1', 'board_members': stage2_members}
-    if policies:
-        template.update(allowed_device_classes=['j700ap'], supported_fw=['26.6', '26.6.2'],
-                        required_neo_peripherals=['radio'],
-                        neo_regulatory_policy={'kind': 'original-j7rp-v1', 'files': policies})
-        template['aurora_stage1']['qualified_machines'] = {'j700ap': ['26.6', '26.6.2']}
-    elif native_neo_reset:
-        # Reset keeps the existing per-device firmware on EFI. This test-only
-        # catalog carries no factory input and is never adopted into the feed.
-        template.update(allowed_device_classes=['j700ap'], supported_fw=['26.6.2'],
-                        required_neo_peripherals=['radio'])
-        template['aurora_stage1']['qualified_machines'] = {'j700ap': ['26.6.2']}
-    else:
-        template['excluded_device_classes'] = ['j700ap']
-    metadata = output / ('installer-data-' + profile + suffix + '.json')
+    # The payload admits every supported Mac, including the MacBook Neo. The
+    # native installer derives the Neo's firmware, calibration and radio
+    # policy on the Mac itself; the payload carries none of them.
+    metadata = output / ('installer-data-' + profile + '.json')
     metadata.write_text(json.dumps({'os_list': [template]}, indent=2) + '\n')
     records = {p.name: {'bytes': p.stat().st_size, 'sha256': digest(p)} for p in (payload, metadata)}
     (output / 'delivery.json').write_text(json.dumps({'schema': 1, 'installation_profile': profile,
-        'release_id': release_id, 'private_neo_inputs': bool(policies),
-        'native_neo_reset_qa': bool(native_neo_reset),
+        # Kept for adoption, which refuses private inputs and Neo-only QA sets.
+        'release_id': release_id, 'private_neo_inputs': False, 'native_neo_reset_qa': False,
         'physical_qualification': 'pending', 'artifacts': records}, indent=2) + '\n')
     print(json.dumps(records, indent=2))
 
@@ -185,10 +158,7 @@ if __name__ == '__main__':
     parser.add_argument('--filesystems', type=Path, required=True)
     parser.add_argument('--recovery-app', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--private-neo-policy-directory', type=Path)
-    parser.add_argument('--native-neo-reset', action='store_true')
     parser.add_argument('--reuse-payload', action='store_true')
     parser.add_argument('--release-id')
     args = parser.parse_args()
-    assemble(args.filesystems, args.recovery_app, args.output, args.private_neo_policy_directory,
-             args.reuse_payload, args.release_id, native_neo_reset=args.native_neo_reset)
+    assemble(args.filesystems, args.recovery_app, args.output, args.reuse_payload, args.release_id)

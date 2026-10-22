@@ -5,10 +5,6 @@ on:
       profiles-revision:
         description: Immutable aurora-distributions commit with matching signed catalogs
         required: true
-      neo-reset-release-tag:
-        description: Signed, non-adopted Neo Reset QA catalog release; empty for normal builds
-        default: ''
-        required: false
       version:
         description: Installer marketing version
         default: '0.1.0'
@@ -49,13 +45,10 @@ jobs:
         env:
           PROFILES_REVISION: ${{ inputs.profiles-revision }}
           APP_VERSION: ${{ inputs.version }}
-          NEO_RESET_TAG: ${{ inputs.neo-reset-release-tag }}
-          PUBLISH_RELEASE: ${{ inputs.publish-release }}
         run: |
           set -euo pipefail
           [[ $PROFILES_REVISION =~ ^[0-9a-f]{40}$ ]]
           [[ $APP_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          [[ -z $NEO_RESET_TAG || $PUBLISH_RELEASE == false ]]
           [[ $(uname -m) == arm64 ]]
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -65,8 +58,6 @@ jobs:
           sparse-checkout: site/installer/Profiles
           persist-credentials: false
       - name: Load the current signed distribution catalogs
-        env:
-          NEO_RESET_TAG: ${{ inputs.neo-reset-release-tag }}
         run: |
           set -euo pipefail
           if [[ ! -x /opt/homebrew/opt/openssl@3/bin/openssl ]]; then brew install openssl@3; fi
@@ -93,49 +84,6 @@ jobs:
                   assert original.is_file() and not original.is_symlink() and original.stat().st_size<=1<<20
                   shutil.copyfile(original,destination/name)
           PYCATALOGS
-          if [[ -n $NEO_RESET_TAG ]]; then
-            [[ $NEO_RESET_TAG =~ ^payload-(fedora|arch|nixos)-(kde|gnome|minimal)-[0-9]+-neo-reset-qa[0-9]*$ ]]
-            qa_profile="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
-            case ${BASH_REMATCH[1]} in
-              fedora) qa_repository=fedora-aurora ;;
-              arch) qa_repository=alarm-aurora ;;
-              nixos) qa_repository=nixos-aurora ;;
-            esac
-            profile="$directory/Profiles/$qa_profile"
-            base="https://github.com/aurora-silicon/$qa_repository/releases/download/$NEO_RESET_TAG"
-            curl -fLsS --retry 3 "$base/catalog.json" -o "$directory/neo-reset-catalog.json"
-            curl -fLsS --retry 3 "$base/catalog.json.sig" -o "$directory/neo-reset-catalog.json.sig"
-            /opt/homebrew/opt/openssl@3/bin/openssl pkeyutl -verify -pubin -keyform DER \
-              -inkey "$directory/public.der" -rawin -in "$directory/neo-reset-catalog.json" \
-              -sigfile "$directory/neo-reset-catalog.json.sig"
-            python3 - "$directory/neo-reset-catalog.json" "$NEO_RESET_TAG" "$qa_profile" <<'PYNEO'
-          import hashlib,json,re,sys,urllib.request
-          from pathlib import Path
-          catalog=json.loads(Path(sys.argv[1]).read_text());tag=sys.argv[2];profile=sys.argv[3]
-          match=re.fullmatch(r'(payload-(?:fedora|arch|nixos)-(?:kde|gnome|minimal)-([0-9]+)-neo-reset-qa)[0-9]*',tag)
-          assert match
-          asset_tags={tag,match.group(1)}
-          models=catalog.get('models',[])
-          assert catalog.get('schemaVersion')==4 and len(models)==1
-          model=models[0]
-          assert model['deviceIdentifier']=='apple,j700' and model['status']=='enabled'
-          assert model['installationProfile']==profile
-          assert model['evidenceRevision']=='image-build-'+match.group(2)
-          for name in ('metadataArtifact','payloadArtifact'):
-              assert any('/releases/download/'+asset_tag+'/' in model[name]['sourceURL']
-                         for asset_tag in asset_tags)
-          with urllib.request.urlopen(model['metadataArtifact']['sourceURL'],timeout=60) as response:
-              metadata=response.read((1<<20)+1)
-          assert len(metadata)<=1<<20
-          assert 'sha256:'+hashlib.sha256(metadata).hexdigest()==model['metadataDigest']
-          template=json.loads(metadata)['os_list'][0]
-          policy=template['aurora_stage1']
-          assert '26.6.2' in policy['qualified_machines']['j700ap']
-          assert 'j700ap' not in template.get('excluded_device_classes',[])
-          PYNEO
-            cp "$directory/neo-reset-catalog.json" "$profile/catalog.json"
-            cp "$directory/neo-reset-catalog.json.sig" "$profile/catalog.json.sig"
-          fi
       - name: Require catalogs paired with this execution contract
         env:
           APP_VERSION: ${{ inputs.version }}
@@ -175,6 +123,9 @@ jobs:
                   assert installer['latestVersion']==os.environ['APP_VERSION']
                   assert installer['downloadURL'].endswith('/releases/tag/'+os.environ['RELEASE_TAG'])
           assert len(schemas)==1 and len(set(map(frozenset,models_by_profile.values())))==1
+          # Every profile is one image for every supported Mac, the MacBook Neo included.
+          supported=set(json.loads(Path('scripts/supported-models.json').read_text())['supported'])
+          assert all(models==supported for models in models_by_profile.values())
           PY
       - name: Install the pinned native build driver
         run: |

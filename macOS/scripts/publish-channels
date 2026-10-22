@@ -144,7 +144,7 @@ build_envelope() {
   local catalog=$1 signature=$2 output=$3
   require_file "$catalog"
   require_file "$signature"
-  # A catalog offering any Mac enables every M1, M2 and M3 Mac
+  # A catalog offering any Mac enables every supported Mac
   # (scripts/supported-models.json); only an empty catalog lists none.
   python3 "$script_directory/supported_models.py" check-catalog "$catalog" ||
     die "$catalog does not enable every supported Mac"

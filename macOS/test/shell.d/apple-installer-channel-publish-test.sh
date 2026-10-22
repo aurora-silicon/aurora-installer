@@ -283,7 +283,7 @@ json.loads(base64.b64decode(d["catalog"]))
   fail "envelope decodes to a catalog and a signature"
 pass "an envelope holds the catalog and its signature in one object"
 
-# --- a catalog that offers Macs offers every M1, M2 and M3 Mac ---------------
+# --- a catalog that offers Macs offers every supported Mac -------------------
 refused_envelope() {
   local name=$1 edit=$2 expected=$3
   write_catalog "$WORK/$name.catalog" 100 "$BASE/releases/x/payload.zip" 128
@@ -304,11 +304,12 @@ json.dump(catalog, open(path, 'w'))
   [[ ! -e $WORK/$name.envelope ]] || fail "no envelope is written for a catalog with $name"
 }
 refused_envelope "a-missing-m3-mac" "catalog['models'] = [m for m in models if m['deviceIdentifier'] != 'apple,j613']" "missing apple,j613"
-refused_envelope "a-disabled-m3-mac" "models[-1]['status'] = 'disabled'" "apple,j516m is listed but disabled"
+refused_envelope "a-disabled-m3-mac" "next(m for m in models if m['deviceIdentifier'] == 'apple,j516m')['status'] = 'disabled'" "apple,j516m is listed but disabled"
+refused_envelope "a-missing-neo" "catalog['models'] = [m for m in models if m['deviceIdentifier'] != 'apple,j700']" "missing apple,j700"
 refused_envelope "only-m1-and-m2" "catalog['models'] = models[:23]" "missing apple,j433"
 refused_envelope "an-m3-ultra" "models.append(dict(models[0], deviceIdentifier='apple,j575d'))" "apple,j575d is refused"
 refused_envelope "an-m4-mac" "models.append(dict(models[0], deviceIdentifier='apple,j614s'))" "M4 and later"
-pass "envelope refuses a catalog missing, disabling or overreaching any M1, M2 or M3 Mac"
+pass "envelope refuses a catalog missing, disabling or overreaching any supported Mac"
 
 # --- promotion writes both channel objects and verifies them back -----------
 OMARCHY_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260902 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260902 --to stable \
