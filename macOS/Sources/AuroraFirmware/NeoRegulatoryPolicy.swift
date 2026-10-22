@@ -6,6 +6,8 @@ import Foundation
 /// Derives country policies in process from the authenticated model-wide tables.
 public enum NeoRegulatoryPolicy {
   public static let inputSHA256: [String: String] = [
+    "IZUBA_TxPwrLimit6G_MT79x1.dat":
+      "bc22e249526867b62542ef61231c14b7027ae49f8c926ad6d73029c742dc53bc",
     "IZUBA_TxPwrLimit_MT79x1.dat":
       "03ee51df5231d131c1976f1d2ea7f81a1396988e63a132a318a9893e8ef5ec38",
     "IZUBA_TxPwrLimit_SAR.dat": "d8dc9dfff2ad2d1ddf301d892e60c93f476603992f71de9e742194a395ca850d",
@@ -14,7 +16,8 @@ public enum NeoRegulatoryPolicy {
     "IZUBA_db.dat": "a61e0b70cbc9a381fc41ff9afa8f036cbd032cadad66209134d4a5adfa18c8b2",
     "IZUBA_TxPwrLimit_SDB.dat": "042906f4b23f05d82f211549b22f195a57d3437b137009fda0a0e40935abbfd0",
   ]
-  private static let versions: [String: String] = [
+  static let versions: [String: String] = [
+    "IZUBA_TxPwrLimit6G_MT79x1.dat": "{Ver:Izuba_WLAN_Final_dedicated_v8 Date:2025-12-18 08:36:50}",
     "IZUBA_TxPwrLimit_MT79x1.dat": "{Ver:Izuba_WLAN_Final_dedicated_v8 Date:2025-12-18 06:17:25}",
     "IZUBA_TxPwrLimit_SAR.dat":
       "{Ver:J700_Izuba_WLAN_EVT_SAR_Cap_Input_v3.00 Date:2025-10-30 03:06:21}",
@@ -25,6 +28,7 @@ public enum NeoRegulatoryPolicy {
     "IZUBA_TxPwrLimit_SDB.dat": "{Ver:Izuba_SDB_WLAN_P2_PT_v1 Date:2025-08-09 05:19:31}",
   ]
   private static let formats: [String: String] = [
+    "IZUBA_TxPwrLimit6G_MT79x1.dat": "<Ver:03>",
     "IZUBA_TxPwrLimit_MT79x1.dat": "<Ver:03>", "IZUBA_TxPwrLimit_SAR.dat": "<Ver:01>",
   ]
   private static let outputSHA256: [String: String] = [
@@ -38,6 +42,43 @@ public enum NeoRegulatoryPolicy {
   // SHA-256 of sorted ASCII path<TAB>blob-sha256<LF> records for all 244 policies.
   static let outputInventorySHA256 =
     "37419c03c0ba222d60eb78fdbdf9fed9ef1d005ef76a8bae0255d4a978defd5d"
+  /// All six tables are selected as a unit; never mix macOS revisions or sources.
+  /// The fixed system-volume path is read only. A miss/mismatch uses pinned IPSW ranges.
+  public static func liveInputs() throws -> [String: Data]? {
+    let directory = URL(
+      fileURLWithPath:
+        "/System/Library/DriverExtensions/com.apple.AppleSunriseWLAN.dext/IZUBA",
+      isDirectory: true)
+    return try matchingInputs { name in
+      try readRegular(directory.appendingPathComponent(name), maximum: 32 << 20)
+    }
+  }
+
+  static func matchingInputs(
+    hashes: [String: String] = inputSHA256,
+    read: (String) throws -> Data
+  ) throws -> [String: Data]? {
+    var result = [String: Data]()
+    do {
+      for name in hashes.keys.sorted() {
+        try Task.checkCancellation()
+        let bytes = try read(name)
+        guard bytes.count <= 32 << 20, bytes.sha256 == hashes[name] else { return nil }
+        // The digest authenticates every byte; also require the explicit format/version lines.
+        _ = try lines(bytes, name: name)
+        result[name] = bytes
+      }
+      return result
+    } catch {
+      try Task.checkCancellation()
+      if error is CancellationError { throw error }
+      return nil
+    }
+  }
+
+  // CP2 138c4fca: sorted policy-v2/CC.bin<TAB>sha256<LF>, without mediatek/mt7932/.
+  static let outputV2InventorySHA256 =
+    "472f57a7928301916c825a896b968014c4c9e996dd942adc6d6a38e2af16e11c"
   private static let groups: [String] = [
     "cck", "ofdm", "ht20", "ht40", "vht20", "vht40", "vht80", "vht160", "ru26", "ru52", "ru106",
     "ru242", "ru484", "ru996", "ru996X2",
@@ -158,6 +199,7 @@ public enum NeoRegulatoryPolicy {
   private struct Group {
     let name: String
     var rows: [Row]
+    var columns: [String] = []
   }
   private typealias Sections = [String: [Group]]
   private static func check(_ value: Bool) throws {
@@ -185,7 +227,7 @@ public enum NeoRegulatoryPolicy {
     return result
   }
   private static func sections(
-    _ data: Data, name: String, expected: [String: [String]]?, allowY: Bool
+    _ data: Data, name: String, expected: [String: [String]]?, allowY: Bool, sixGHz: Bool = false
   ) throws -> Sections {
     var result = Sections()
     var section: String?
@@ -194,13 +236,21 @@ public enum NeoRegulatoryPolicy {
     for line in try lines(data, name: name) {
       if line.hasPrefix("[") && line.hasSuffix("]") {
         let key = String(line.dropFirst().dropLast())
-        try check(active == nil && !key.isEmpty && !key.contains(",") && result[key] == nil)
+        let parts = fields(key)
+        let validKey =
+          sixGHz
+          ? parts.count == 2 && parts[0].utf8.count == 2
+            && parts[0].utf8.allSatisfy { (65...90).contains($0) || (48...57).contains($0) }
+            && ["VLP", "LP", "SP"].contains(parts[1])
+          : !key.isEmpty && !key.contains(",")
+        try check(active == nil && validKey && result[key] == nil)
         section = key
         result[key] = []
         continue
       }
       if line.hasPrefix("</") && line.hasSuffix(">") {
-        try check(active != nil && String(line.dropFirst(2).dropLast()) == active)
+        let closer = String(line.dropFirst(2).dropLast())
+        try check(active != nil && (closer == active || (sixGHz && closer == "end")))
         active = nil
         continue
       }
@@ -224,7 +274,14 @@ public enum NeoRegulatoryPolicy {
       guard let section, active != nil else { throw RestoreFailure("Unscoped regulatory row.") }
       let row = fields(line)
       try check(row.count == width + 1 && !row[0].isEmpty)
-      try check(row.dropFirst().allSatisfy { (allowY && $0 == "Y") || integer($0) })
+      try check(
+        row.dropFirst().allSatisfy {
+          if sixGHz {
+            return ["X", "x", "Y"].contains($0)
+              || (integer($0) && Int($0).map { (-128...127).contains($0) } == true)
+          }
+          return (allowY && $0 == "Y") || integer($0)
+        })
       let index = result[section]!.count - 1
       result[section]![index].rows.append(Row(label: row[0], cells: Array(row.dropFirst())))
     }
@@ -253,7 +310,7 @@ public enum NeoRegulatoryPolicy {
         width = row[0] == "2gCC" ? 76 : 116
         try check(row.count == width + 1)
         active = result.count
-        result.append(Group(name: row[0], rows: []))
+        result.append(Group(name: row[0], rows: [], columns: Array(row.dropFirst())))
         continue
       }
       guard let active else { throw RestoreFailure("Unscoped regulatory database row.") }
@@ -667,6 +724,184 @@ public enum NeoRegulatoryPolicy {
     return try NeoFirmwareConversions.policy(Data(result), country: country)
   }
 
+  // Independently implemented from the CP2 J7RP v1/v2 byte-format contract.
+  // No Python producer or GPL driver implementation is incorporated here.
+  private static let sixGroups = [
+    "ofdm", "ru26", "ru52", "ru106", "ru242", "ru484", "ru996", "ru996X2",
+  ]
+  private static let channels6 =
+    [2] + (1...233).filter { $0 != 231 && $0 & 1 == 1 && width6($0) != 255 }
+
+  static func width6(_ channel: Int) -> Int {
+    if channel == 2 { return 0 }
+    guard (1...233).contains(channel) else { return 255 }
+    let delta = channel - 1
+    if delta & 3 == 0 { return 0 }
+    if delta & 7 == 2 { return 1 }
+    if delta & 15 == 6 { return 2 }
+    if delta & 31 == 14 { return 3 }
+    return 255
+  }
+
+  private static func projection(_ row: [UInt8]) -> [UInt8] {
+    let dense = groups.enumerated().flatMap { i, group in
+      Array(row[i * 36..<i * 36 + columns[group]!.count])
+    }
+    var result = [UInt8]()
+    for descriptor in descriptors {
+      let source = descriptor[0]
+      let kind = descriptor[1]
+      let stride = descriptor[2]
+      if kind == 0 {
+        result.append(dense[source])
+        continue
+      }
+      let deltas = kind == 1 ? [0, 4, 6] : [0, 3, 5]
+      for repeatIndex in 0..<(source == 4 ? 1 : 3) {
+        result += deltas.map { dense[source + repeatIndex * stride + $0] }
+      }
+    }
+    return result
+  }
+
+  private static func sixRows(_ power: [Group]) throws -> [[UInt8]] {
+    var rows = Array(repeating: Array(repeating: UInt8(196), count: 540), count: channels6.count)
+    for group in power {
+      let source = groups.firstIndex(of: group.name)!
+      for row in group.rows {
+        let pieces = row.label.components(separatedBy: "-")
+        try check(
+          (1...3).contains(pieces.count) && pieces[0].hasPrefix("ch") && pieces[0].count == 5
+            && pieces[0].dropFirst(2).utf8.allSatisfy { (48...57).contains($0) })
+        let start = Int(pieces[0].dropFirst(2))!
+        let cdd = pieces.last == "cdd"
+        try check(pieces.count != 3 || (cdd && pieces[1] != "cdd"))
+        let end: Int
+        if pieces.count > 1 && pieces[1] != "cdd" {
+          try check(pieces[1].count == 3 && pieces[1].utf8.allSatisfy { (48...57).contains($0) })
+          end = Int(pieces[1])!
+        } else {
+          end = start
+        }
+        try check(channels6.contains(start) && channels6.contains(end))
+        let ws = width6(start)
+        let we = width6(end)
+        var channel = start
+        var destination = source
+        var offset = 0
+        if pieces.count > 1 && ws != 0 {
+          channel = end
+          if [11, 12, 13].contains(source) {
+            destination = ws + 11
+          } else if source == 1 {
+            if ws == we {
+              destination = 2
+              offset = 8
+            } else if (ws == 2 && we == 1) || (ws == 3 && we == 2) {
+              destination = cdd ? 3 : 2
+              offset = cdd ? 0 : 16
+            } else if ws == 3 && we == 1 {
+              destination = 3
+              offset = cdd ? 16 : 8
+            } else {
+              destination = 2
+              offset = (ws - 1) * 8
+            }
+          }
+        }
+        try check(offset + row.cells.count <= columns[groups[destination]]!.count)
+        let index = channels6.firstIndex(of: channel)!
+        write(row.cells.map { cell($0) }, destination * 36 + offset, &rows[index])
+        if source == 1 && (pieces.count == 1 || ws == 0) && (ws > 0 || start == 2) {
+          write(row.cells.map { cell($0) }, 72, &rows[index])
+        }
+      }
+    }
+    return rows
+  }
+
+  private static func extend(
+    _ baseline: Data, country: String, power: [Group], matrix: Group
+  ) throws -> Data? {
+    _ = try NeoFirmwareConversions.policy(baseline, country: country)
+    try check(
+      matrix.columns.count == 116
+        && Array(matrix.columns.suffix(6)) == [
+          "vht40", "vht80", "vht160", "c2clpi", "vlpp2p", "flag",
+        ])
+    let channelNames = matrix.columns.prefix(110)
+    let channelOrder = try channelNames.map { name -> Int in
+      try check(name.hasPrefix("6g") && integer(String(name.dropFirst(2))))
+      guard let channel = Int(name.dropFirst(2)) else {
+        throw RestoreFailure("Invalid 6 GHz matrix channel.")
+      }
+      return channel
+    }
+    try check(channelOrder == channels6)
+    // Validate every matrix mode set, including countries which have no VLP power section.
+    for row in matrix.rows {
+      for token in row.cells.prefix(110) {
+        let parts = token.components(separatedBy: "/")
+        try check(
+          !parts.isEmpty && ["0", "1", "2", "3"].contains(parts[0])
+            && parts.dropFirst().allSatisfy { ["1", "2", "3"].contains($0) }
+            && Set(parts).count == parts.count)
+      }
+    }
+    guard let permission = matrix.rows.first(where: { $0.label == country }) else { return nil }
+    let rows = try sixRows(power)
+    let projected = rows.map(projection)
+    var mask: UInt64 = 0
+    for (index, channel) in channels6.enumerated() where channel != 2 && (channel - 1) & 3 == 0 {
+      if permission.cells[index].components(separatedBy: "/").contains("2")
+        && projected[index].contains(where: { $0 != 196 && $0 != 127 })
+      {
+        mask |= UInt64(1) << ((channel - 1) / 4)
+      }
+    }
+    guard mask != 0 else { return nil }
+    var pad = Array(repeating: UInt8(0), count: 32)
+    for (channel, row) in zip(channels6, rows) {
+      if (4...4 + width6(channel)).allSatisfy({
+        Int(Int8(bitPattern: row[$0 * 36])) - Int(Int8(bitPattern: row[$0 * 36 + 10])) >= 10
+      }) {
+        pad[channel >> 3] |= UInt8(1 << (channel & 7))
+      }
+    }
+    var extensionBytes = Array("6GRP".utf8) + [1, 14, 28, 0]
+    extensionBytes += (0..<8).map { UInt8(truncatingIfNeeded: mask >> ($0 * 8)) }
+    extensionBytes += Array(country.utf8) + [1, 0, 0, 0, 0, 0]
+    for cid: UInt8 in [0x5d, 0x95] {
+      for start in stride(from: 0, to: channels6.count, by: 8) {
+        let count = min(8, channels6.count - start)
+        let size = 44 + count * (cid == 0x5d ? 122 : 33)
+        var body = Array(repeating: UInt8(0), count: size)
+        body[4] = UInt8(count)
+        body[5] = 3
+        body[6] = start + count == channels6.count ? 1 : 0
+        if cid == 0x5d {
+          body[0] = 3
+          body[1] = 0x2a
+          write(little(size, 2), 2, &body)
+          write(Array(country.utf8), 8, &body)
+          write(pad, 12, &body)
+        }
+        for slot in 0..<count {
+          let at = 44 + slot * (cid == 0x5d ? 122 : 33)
+          body[at] = UInt8(channels6[start + slot])
+          write(
+            cid == 0x5d ? projected[start + slot] : Array(repeating: 127, count: 32), at + 1, &body)
+        }
+        extensionBytes += [cid, 0] + little(size, 2) + body
+      }
+    }
+    try check(extensionBytes.count == 18418)
+    var result = Array(baseline) + extensionBytes
+    write(little(2, 2), 4, &result)
+    write(little(result.count, 4), 12, &result)
+    return try NeoFirmwareConversions.policy(Data(result), country: country)
+  }
+
   public static func derive(_ inputs: [String: Data]) throws -> [String: Data] {
     try derive(inputs, authenticated: true)
   }
@@ -700,6 +935,9 @@ public enum NeoRegulatoryPolicy {
       inputs["IZUBA_TxPwrLimit_2gCommonPath.dat"]!, name: "IZUBA_TxPwrLimit_2gCommonPath.dat",
       expected: nil, allowY: false)
     let db = try database(inputs["IZUBA_db.dat"]!)
+    let sixPower = try sections(
+      inputs["IZUBA_TxPwrLimit6G_MT79x1.dat"]!, name: "IZUBA_TxPwrLimit6G_MT79x1.dat",
+      expected: columns.filter { sixGroups.contains($0.key) }, allowY: true, sixGHz: true)
     let sdb = try simultaneous(inputs["IZUBA_TxPwrLimit_SDB.dat"]!)
     let databaseCountries = Set(db.first { $0.name == "2gCC" }!.rows.map(\.label))
     let candidates = Set(power.keys).intersection(sar.keys).intersection(common.keys).intersection(
@@ -719,8 +957,29 @@ public enum NeoRegulatoryPolicy {
       result[name] = bytes
     }
     if authenticated {
+      try check(result.count == 244)
       try verifyOutputs(result, pins: outputSHA256, inventory: outputInventorySHA256)
     }
+    var v2 = [String: Data]()
+    for country in countries where country != "XZ" {
+      try Task.checkCancellation()
+      guard let power = sixPower[country + ",VLP"] else { continue }
+      if let bytes = try extend(
+        result["mediatek/mt7932/policy/" + country + ".bin"]!,
+        country: country, power: power, matrix: db.first { $0.name == "6gCC" }!)
+      {
+        v2["mediatek/mt7932/policy-v2/" + country + ".bin"] = bytes
+      }
+    }
+    if authenticated {
+      try check(v2.count == 120)
+      let relative = Dictionary(
+        uniqueKeysWithValues: v2.map {
+          (String($0.key.dropFirst("mediatek/mt7932/".count)), $0.value)
+        })
+      try verifyOutputs(relative, pins: [:], inventory: outputV2InventorySHA256)
+    }
+    result.merge(v2) { _, new in new }
     return result
   }
 }

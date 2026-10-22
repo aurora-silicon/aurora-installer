@@ -4,7 +4,7 @@ import Foundation
 // The recipe is compiled into the library: a launchd-installed helper carries
 // its inputs without relying on an app bundle or a SwiftPM build directory.
 let arguments = CommandLine.arguments
-let digest = "595d5acf3c4bca51c5749fc45691a7873f9216e2527436be9101757aae472834"
+let digest = "40686fb3b064e35205cae8dc7061f0406c154326301f9e8dcb17d82df3e9c4b3"
 do {
   guard arguments.count == 3 else { throw CocoaError(.fileReadInvalidFileName) }
   let bytes = try Data(contentsOf: URL(fileURLWithPath: arguments[1]))

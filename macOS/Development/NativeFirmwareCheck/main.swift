@@ -22,31 +22,45 @@ private actor MeasuredIPSWReader: FirmwareRangeReading {
 @main struct AuroraFirmwareCheck {
   static func main() async {
     do {
-      if CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "policy" {
-        let directory = URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)
-        let inputs = try Dictionary(
-          uniqueKeysWithValues: NeoRegulatoryPolicy.inputSHA256.keys.map { name in
-            let file = try FileHandle(
-              forReadingFrom: directory.appendingPathComponent("sunrise/" + name))
-            defer { try? file.close() }
-            let bytes = try file.read(upToCount: (32 << 20) + 1) ?? Data()
-            guard bytes.count <= 32 << 20 else {
-              throw RestoreFailure("Regulatory input exceeds its budget.")
-            }
-            return (name, bytes)
-          })
-        let policies = try NeoRegulatoryPolicy.derive(inputs)
-        let index = policies.keys.sorted().map { name in
-          let sha = SHA256.hash(data: policies[name]!).map { String(format: "%02x", $0) }.joined()
-          return name + " " + sha + "\n"
-        }.joined()
-        let digest = SHA256.hash(data: Data(index.utf8)).map { String(format: "%02x", $0) }.joined()
-        guard policies.count == 244,
-          digest == "b1578bcc83fb3270c4fcef4f88de37b384ac1c46c8bc7093c5b2ea867d1c08c1"
-        else {
-          throw RestoreFailure("Regulatory output differs from the reference inventory.")
+      if (CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "policy")
+        || CommandLine.arguments == [CommandLine.arguments[0], "policy-live"]
+      {
+        let inputs: [String: Data]
+        if CommandLine.arguments[1] == "policy-live" {
+          guard let live = try NeoRegulatoryPolicy.liveInputs() else {
+            throw RestoreFailure("The live macOS policy tables do not match the pins.")
+          }
+          inputs = live
+        } else {
+          let directory = URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)
+          inputs = try Dictionary(
+            uniqueKeysWithValues: NeoRegulatoryPolicy.inputSHA256.keys.map { name in
+              let file = try FileHandle(
+                forReadingFrom: directory.appendingPathComponent("sunrise/" + name))
+              defer { try? file.close() }
+              let bytes = try file.read(upToCount: (32 << 20) + 1) ?? Data()
+              guard bytes.count <= 32 << 20 else {
+                throw RestoreFailure("Regulatory input exceeds its budget.")
+              }
+              return (name, bytes)
+            })
         }
-        let report: [String: Any] = ["policyCount": policies.count, "inventorySHA256": digest]
+        let policies = try NeoRegulatoryPolicy.derive(inputs)
+        func inventory(_ files: [String: Data], strip: String = "") -> String {
+          let index = files.keys.sorted().map { name in
+            let sha = SHA256.hash(data: files[name]!).map { String(format: "%02x", $0) }.joined()
+            return String(name.dropFirst(strip.count)) + "\t" + sha + "\n"
+          }.joined()
+          return SHA256.hash(data: Data(index.utf8)).map { String(format: "%02x", $0) }.joined()
+        }
+        let v1 = policies.filter { $0.key.contains("/policy/") }
+        let v2 = policies.filter { $0.key.contains("/policy-v2/") }
+        let report: [String: Any] = [
+          "v1Count": v1.count, "v1InventorySHA256": inventory(v1),
+          "v2Count": v2.count, "v2InventorySHA256": inventory(v2, strip: "mediatek/mt7932/"),
+          "source": CommandLine.arguments[1] == "policy-live"
+            ? "live-macOS" : "authenticated-inputs",
+        ]
         FileHandle.standardOutput.write(
           try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]) + Data([10]))
         return
@@ -90,10 +104,10 @@ private actor MeasuredIPSWReader: FirmwareRangeReading {
         return
       }
       guard [3, 4].contains(CommandLine.arguments.count),
-        ["extract", "verify", "zip"].contains(CommandLine.arguments[1])
+        ["extract", "extract-ipsw", "verify", "zip"].contains(CommandLine.arguments[1])
       else {
         throw RestoreFailure(
-          "usage: AuroraFirmwareCheck extract|verify|zip OUTPUT [CHECKPOINT]; or policy INPUT; or multitouch INPUT MACHINE"
+          "usage: AuroraFirmwareCheck extract|extract-ipsw|verify|zip OUTPUT [CHECKPOINT]; or policy INPUT; or policy-live; or multitouch INPUT MACHINE"
         )
       }
       let output = URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)
@@ -124,7 +138,8 @@ private actor MeasuredIPSWReader: FirmwareRangeReading {
             withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) + Data([10]))
         return
       }
-      let extractor = FirmwareExtractor()
+      let extractor = FirmwareExtractor(
+        preferLivePolicyTables: CommandLine.arguments[1] != "extract-ipsw")
       let checkpoint =
         CommandLine.arguments.count == 4
         ? URL(fileURLWithPath: CommandLine.arguments[3], isDirectory: true) : nil

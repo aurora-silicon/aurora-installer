@@ -339,10 +339,14 @@ public enum NeoFirmwareConversions {
     let alpha = Data(country.utf8)
     try require(
       data.startIndex == 0 && alpha.count == 2 && alpha.allSatisfy { (65...90).contains($0) }
-        && (16...16384).contains(data.count) && data.prefix(4) == Data("J7RP".utf8),
+        && (16...65536).contains(data.count) && data.prefix(4) == Data("J7RP".utf8),
       "Invalid radio policy envelope.")
+    let version = try data.little(4, 2)
     try require(
-      try data.little(4, 2) == 1 && data.part(6, 2) == alpha
+      [1, 2].contains(version) && (version == 2 || data.count <= 16384),
+      "Unsupported radio policy version or size.")
+    try require(
+      try data.part(6, 2) == alpha
         && (2...3).contains(Int(data[8])) && data.part(9, 3) == Data([13, 0, 0])
         && data.little(12, 4) == data.count, "Invalid radio policy header.")
     var at = 16
@@ -395,7 +399,59 @@ public enum NeoFirmwareConversions {
       tables.append(table)
       at += size
     }
+    if version == 2 { at = try policy6GHz(data, at: at, alpha: alpha) }
     try require(at == data.count, "Trailing radio policy data.")
     return data
   }
+  // Swift validation of the CP2 v2 parser contract, independently written from its spec.
+  private static func policy6GHz(_ data: Data, at start: Int, alpha: Data) throws -> Int {
+    let header = try data.part(start, 24)
+    try require(
+      header.prefix(4) == Data("6GRP".utf8)
+        && header[4] == 1 && header[5] == 14 && (1...32).contains(header[6])
+        && header[7] == 0 && header[15] & 0xf8 == 0
+        && header[8..<16].contains(where: { $0 != 0 })
+        && header[16..<18] == alpha && header[18] == 1
+        && header[19..<24].allSatisfy { $0 == 0 }, "Invalid 6 GHz policy header.")
+    var at = start + 24
+    var selectors = Set<UInt8>()
+    for _ in 0..<Int(header[6]) {
+      let wrapper = try data.part(at, 4)
+      let size = try wrapper.little(2, 2)
+      try require(
+        [0x5d, 0x95].contains(wrapper[0]) && wrapper[1] == 0
+          && (44...1020).contains(size), "Invalid 6 GHz policy record.")
+      let body = try data.part(at + 4, size)
+      let count = Int(body[4])
+      try require(
+        (1...8).contains(count) && body[5] == 3 && body[6] <= 1 && body[7] == 0,
+        "Invalid 6 GHz page identity.")
+      if wrapper[0] == 0x5d {
+        try require(
+          try body.prefix(2) == Data([3, 0x2a]) && body.little(2, 2) == size
+            && body.part(8, 4) == alpha + Data([0, 0]) && size == 44 + 122 * count,
+          "Invalid 6 GHz native page.")
+        let selector = body[44]
+        if [2, 15].contains(selector) {
+          try require(
+            count == 8 && size == 1020 && selectors.insert(selector).inserted,
+            "Invalid or duplicate 6 GHz association page.")
+        }
+      } else {
+        try require(
+          body.prefix(4) == Data(repeating: 0, count: 4)
+            && body[8..<44].allSatisfy { $0 == 0 } && size == 44 + 33 * count,
+          "Invalid 6 GHz legacy page.")
+        for index in 0..<count {
+          try require(
+            body[(45 + index * 33)..<(77 + index * 33)].allSatisfy { $0 == 127 },
+            "Invalid 6 GHz legacy sentinel.")
+        }
+      }
+      at += 4 + size
+    }
+    try require(selectors == [2, 15], "Missing 6 GHz association pages.")
+    return at
+  }
+
 }

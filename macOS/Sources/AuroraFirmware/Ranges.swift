@@ -107,7 +107,8 @@ func decodeRanges(_ recipe: RangeRecipe, fetched: [RangeRecord: Data], archiveKe
 }
 
 func assembleRangeFiles(
-  _ recipe: RangeRecipe, decoded: [Int: Data], output: URL, workspace: URL? = nil
+  _ recipe: RangeRecipe, decoded: [Int: Data], output: URL, workspace: URL? = nil,
+  preferred: [String: Data] = [:]
 ) throws {
   try require(!exists(output), "Firmware output already exists.")
   let fm = FileManager.default
@@ -116,7 +117,7 @@ func assembleRangeFiles(
   for file in recipe.files {
     try Task.checkCancellation()
     var storage: [Data] = []
-    for record in file.storage {
+    for record in file.storage where preferred[file.name] == nil {
       var data = Data()
       for span in record.spans {
         var offset = span.offset
@@ -136,7 +137,8 @@ func assembleRangeFiles(
         data.count == record.size && data.sha256 == record.sha256, "APFS storage SHA-256 mismatch.")
       storage.append(data)
     }
-    var result = try file.compressed ? decompressStorage(storage) : storage[0]
+    var result =
+      try preferred[file.name] ?? (file.compressed ? decompressStorage(storage) : storage[0])
     try require(result.sha256 == file.rawSHA256, "Source firmware SHA-256 mismatch.")
     if file.transform == "nvram" {
       try require(result.allSatisfy { $0 <= 127 }, "Non-ASCII NVRAM.")
@@ -186,92 +188,132 @@ func assembleRangeFiles(
   try require(fsync(parent) == 0, "Cannot sync firmware publication directory.")
 }
 
+// Keep the sealed recipe's exact dependency closure for files still requiring IPSW data.
+// Preferred bytes are admitted against the same output pins before any network access.
+func networkRecipe(_ recipe: RangeRecipe, preferred: [String: Data]) throws -> RangeRecipe {
+  try recipe.validate()
+  for (name, bytes) in preferred {
+    guard let file = recipe.files.first(where: { $0.name == name }),
+      file.transform == "identity", bytes.count == file.size, bytes.sha256 == file.sha256
+    else { throw RestoreFailure("Local firmware differs from the sealed recipe.") }
+  }
+  var network = recipe
+  network.files.removeAll { preferred[$0.name] != nil }
+  var ids = Set<Int>()
+  for file in network.files {
+    for storage in file.storage {
+      for span in storage.spans {
+        ids.formUnion((span.offset / segmentBytes)...((span.offset + span.size - 1) / segmentBytes))
+      }
+    }
+  }
+  network.segments = recipe.segments.filter { ids.contains(Int($0.key)!) }
+  network.headers = recipe.headers.filter { header in
+    ids.contains { $0 / clusterWidth == header.cluster }
+  }
+  if !network.files.isEmpty { try network.validate() }
+  return network
+}
+
 func extractFirmwareRecipe(
   _ recipe: RangeRecipe, output: URL,
   cache: FirmwareRangeCache? = nil,
-  progress: @Sendable (FirmwareExtractionProgress) -> Void
-) async throws {
+  progress: @Sendable (FirmwareExtractionProgress) -> Void,
+  preferred: [String: Data] = [:]
+) async throws -> Int {
   // Admission and publication failures never trigger a whole-IPSW fallback.
-  try recipe.validate()
+  let fullRecipe = recipe
+  let recipe = try networkRecipe(recipe, preferred: preferred)
   try require(!exists(output), "Firmware output already exists.")
   let decoded: [Int: Data]
-  do {
-    let header: Data
-    if let cache {
-      header = try await cache.fetch(recipe.source, record: recipe.zipHeader, base: 0)
-    } else {
-      header = try await fetchRange(recipe.source, record: recipe.zipHeader, base: 0)
-    }
-    try require(
-      try header.part(0, 4) == Data([0x50, 0x4b, 3, 4]) && header.little(8, 2) == 0,
-      "System image is not a stored ZIP member.")
-    let nameSize = try header.little(26, 2)
-    let extraSize = try header.little(28, 2)
-    try require(
-      try header.count == 30 + nameSize + extraSize
-        && header.part(30, nameSize) == Data(recipe.systemImage.member.utf8),
-      "ZIP member identity mismatch.")
-    let records =
-      [recipe.prefix] + recipe.headers.map(\.record)
-      + recipe.segments.keys.sorted().compactMap { recipe.segments[$0] }
-    let total = recipe.zipHeader.size + records.reduce(0) { $0 + $1.size }
-    var completed = header.count
-    progress(
-      FirmwareExtractionProgress(stage: .downloading, completedBytes: completed, totalBytes: total))
-    let fetched = try await withThrowingTaskGroup(of: (RangeRecord, Data).self) { group in
-      var next = 0
-      func submit(_ record: RangeRecord) {
-        group.addTask {
-          if let cache {
+  if recipe.files.isEmpty {
+    decoded = [:]
+  } else {
+    do {
+      let header: Data
+      if let cache {
+        header = try await cache.fetch(recipe.source, record: recipe.zipHeader, base: 0)
+      } else {
+        header = try await fetchRange(recipe.source, record: recipe.zipHeader, base: 0)
+      }
+      try require(
+        try header.part(0, 4) == Data([0x50, 0x4b, 3, 4]) && header.little(8, 2) == 0,
+        "System image is not a stored ZIP member.")
+      let nameSize = try header.little(26, 2)
+      let extraSize = try header.little(28, 2)
+      try require(
+        try header.count == 30 + nameSize + extraSize
+          && header.part(30, nameSize) == Data(recipe.systemImage.member.utf8),
+        "ZIP member identity mismatch.")
+      let records =
+        [recipe.prefix] + recipe.headers.map(\.record)
+        + recipe.segments.keys.sorted().compactMap { recipe.segments[$0] }
+      let total = recipe.zipHeader.size + records.reduce(0) { $0 + $1.size }
+      var completed = header.count
+      progress(
+        FirmwareExtractionProgress(
+          stage: .downloading, completedBytes: completed, totalBytes: total))
+      let fetched = try await withThrowingTaskGroup(of: (RangeRecord, Data).self) { group in
+        var next = 0
+        func submit(_ record: RangeRecord) {
+          group.addTask {
+            if let cache {
+              return (
+                record,
+                try await cache.fetch(recipe.source, record: record, base: recipe.memberOffset)
+              )
+            }
             return (
-              record,
-              try await cache.fetch(recipe.source, record: record, base: recipe.memberOffset)
+              record, try await fetchRange(recipe.source, record: record, base: recipe.memberOffset)
             )
           }
-          return (
-            record, try await fetchRange(recipe.source, record: record, base: recipe.memberOffset)
-          )
         }
-      }
-      while next < min(6, records.count) {
-        submit(records[next])
-        next += 1
-      }
-      var fetched: [RangeRecord: Data] = [:]
-      while let (record, data) = try await group.next() {
-        fetched[record] = data
-        completed += data.count
-        progress(
-          FirmwareExtractionProgress(
-            stage: .downloading, completedBytes: completed, totalBytes: total))
-        if next < records.count {
+        while next < min(6, records.count) {
           submit(records[next])
           next += 1
         }
+        var fetched: [RangeRecord: Data] = [:]
+        while let (record, data) = try await group.next() {
+          fetched[record] = data
+          completed += data.count
+          progress(
+            FirmwareExtractionProgress(
+              stage: .downloading, completedBytes: completed, totalBytes: total))
+          if next < records.count {
+            submit(records[next])
+            next += 1
+          }
+        }
+        return fetched
       }
-      return fetched
+      progress(
+        FirmwareExtractionProgress(stage: .authenticating, completedBytes: total, totalBytes: total)
+      )
+      decoded = try await decodeRanges(recipe, fetched: fetched)
+    } catch {
+      try Task.checkCancellation()
+      if error is CancellationError || (error as? URLError)?.code == .cancelled {
+        throw CancellationError()
+      }
+      throw RestoreFailure(error.localizedDescription, fallback: true)
     }
-    progress(
-      FirmwareExtractionProgress(stage: .authenticating, completedBytes: total, totalBytes: total))
-    decoded = try await decodeRanges(recipe, fetched: fetched)
-  } catch {
-    try Task.checkCancellation()
-    if error is CancellationError || (error as? URLError)?.code == .cancelled {
-      throw CancellationError()
-    }
-    throw RestoreFailure(error.localizedDescription, fallback: true)
   }
   let total =
-    recipe.zipHeader.size + recipe.prefix.size
-    + recipe.headers.reduce(0) { $0 + $1.size } + recipe.segments.values.reduce(0) { $0 + $1.size }
+    recipe.files.isEmpty
+    ? 0
+    : recipe.zipHeader.size + recipe.prefix.size
+      + recipe.headers.reduce(0) { $0 + $1.size }
+      + recipe.segments.values.reduce(0) { $0 + $1.size }
   progress(FirmwareExtractionProgress(stage: .writing, completedBytes: total, totalBytes: total))
   let workspace = try await cache?.publicationWorkspace(beside: output)
-  try assembleRangeFiles(recipe, decoded: decoded, output: output, workspace: workspace)
+  try assembleRangeFiles(
+    fullRecipe, decoded: decoded, output: output, workspace: workspace, preferred: preferred)
   progress(FirmwareExtractionProgress(stage: .complete, completedBytes: total, totalBytes: total))
+  return total
 }
 
 // Retained for decoder regression tests; native callers use the admitted plan API.
 func extractFirmwareRanges(_ path: URL, digest: String, output: URL) async throws {
-  try await extractFirmwareRecipe(
+  _ = try await extractFirmwareRecipe(
     readRecipe(path, digest: digest), output: output, progress: { _ in })
 }

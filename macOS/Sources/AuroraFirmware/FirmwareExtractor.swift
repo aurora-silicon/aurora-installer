@@ -67,7 +67,10 @@ public struct FirmwareExtractionPlan: Sendable {
 /// CryptoKit/CommonCrypto authentication and native Compression decoding.
 /// It never starts Python, a shell, a decoder executable or a whole-IPSW fetch.
 public struct FirmwareExtractor: Sendable {
-  public init() {}
+  private let preferLivePolicyTables: Bool
+  public init(preferLivePolicyTables: Bool = true) {
+    self.preferLivePolicyTables = preferLivePolicyTables
+  }
 
   /// Continue the same job after a process interruption. A published tree is
   /// reused only after every admitted output is verified again.
@@ -121,11 +124,21 @@ public struct FirmwareExtractor: Sendable {
     } else {
       cache = nil
     }
-    try await extractFirmwareRecipe(plan.recipe, output: output, cache: cache, progress: progress)
+    let policyNames = Set(NeoRegulatoryPolicy.inputSHA256.keys.map { "sunrise/" + $0 })
+    let preferred: [String: Data]
+    if preferLivePolicyTables, policyNames.isSubset(of: Set(plan.outputs.map(\.name))),
+      let local = try NeoRegulatoryPolicy.liveInputs()
+    {
+      preferred = Dictionary(uniqueKeysWithValues: local.map { ("sunrise/" + $0.key, $0.value) })
+    } else {
+      preferred = [:]
+    }
+    let rangeBytes = try await extractFirmwareRecipe(
+      plan.recipe, output: output, cache: cache, progress: progress, preferred: preferred)
     try await cache?.retire(plan.recipe.rangeRecords)
     return FirmwareExtractionReceipt(
       deviceIdentifier: plan.deviceIdentifier, sourceURL: plan.sourceURL,
-      recipeSHA256: plan.recipeSHA256, authenticatedRangeBytes: plan.authenticatedRangeBytes,
+      recipeSHA256: plan.recipeSHA256, authenticatedRangeBytes: rangeBytes,
       files: plan.outputs)
   }
 
