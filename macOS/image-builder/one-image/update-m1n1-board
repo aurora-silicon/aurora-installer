@@ -37,7 +37,8 @@ if [ -z "$omarchy_m1n1_board" ]; then
     *" apple,j700 "*) omarchy_m1n1_board=j700 ;;
     *" apple,t8103 "* | *" apple,t6000 "* | *" apple,t6001 "* | *" apple,t6002 "* | \
       *" apple,t8112 "* | *" apple,t6020 "* | *" apple,t6021 "* | *" apple,t6022 "* | \
-      *" apple,t8122 "* | *" apple,t6030 "* | *" apple,t6031 "* | *" apple,t6034 "*)
+      *" apple,t8122 "* | *" apple,t6030 "* | *" apple,t6031 "* | *" apple,t6032 "* | \
+      *" apple,t6034 "*)
       omarchy_m1n1_board=m123
       ;;
     *) omarchy_m1n1_board=unsupported ;;

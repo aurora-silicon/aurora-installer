@@ -67,7 +67,7 @@ Ticket 03. Two files in `image-builder/one-image/`, uncommitted:
 - **`update-m1n1-board`** installs at `/usr/lib/omarchy-mac-image/update-m1n1-board`, unowned until a package adopts it. It reads `/proc/device-tree/compatible` (NUL-separated):
   - `apple,j614s` is refused first, because it carries a supported M3 SoC compatible.
   - `apple,j700` sets `M1N1=/usr/lib/m1n1-neo/m1n1.bin` and `U_BOOT=/usr/lib/asahi-boot-j700/u-boot-nodtb.bin`.
-  - `apple,t8103`, `t6000`, `t6001`, `t6002`, `t8112`, `t6020`, `t6021`, `t6022`, `t8122`, `t6030`, `t6031` or `t6034` keeps update-m1n1's defaults (`m1n1-aurora` and `uboot-asahi`).
+  - `apple,t8103`, `t6000`, `t6001`, `t6002`, `t8112`, `t6020`, `t6021`, `t6022`, `t8122`, `t6030`, `t6031`, `t6032` or `t6034` keeps update-m1n1's defaults (`m1n1-aurora` and `uboot-asahi`).
   - Anything else (missing or empty device tree, M4 SoCs, near misses) prints the reason to stderr and runs an explicit `exit 1`.
   - `DTBS` comes from `pacman -Qlq linux-aurora`, as Aurora's installer sets it, and only when nothing (a caller or the overlay helper) has set it already. For M1–M3 without overlays this differs from dev5, which used update-m1n1's newest `-ARCH` module directory default.
   - `OMARCHY_M1N1_BOARD=j700|m123` skips detection, for the image build's chroot only (where `/proc/device-tree` belongs to the build host). Any other value is refused. `OMARCHY_DT_COMPATIBLE` redirects detection for tests.
@@ -78,7 +78,7 @@ Ticket 03. Two files in `image-builder/one-image/`, uncommitted:
 
 **Refusal behaviour.** asahi-scripts `update-m1n1` (tag `20260127.1`) is `#!/bin/sh` with `set -e` and sources `/etc/default/update-m1n1` with `.` before it writes `boot.bin.new` or `boot.bin`. An `exit 1` in the sourced file, or in a file it sources, ends update-m1n1 there, so the old `boot.bin` stays. The selector's last command always returns 0 on success, so errexit never ends a good run. A failing pacman hook doesn't fail the transaction; the selector's message explains it. `omarchy-apple-silicon-boot-check` reads the config in a clean shell and fails closed with "cannot read" on a refused board.
 
-**Test.** `test/shell.d/update-m1n1-selector-test.sh`, wired into `test/all`, runs 52 checks under `sh`, `dash` and `bash` against fake compatible files (j700, j314s, j613, j614s, t8132, `apple,t8140x`, empty, missing), the override, `DTBS` handling with a stubbed `pacman`, the packaged-prefix hash, and update-m1n1's sourcing lines reproduced exactly. It uses only `mktemp` files and needs no privilege.
+**Test.** `test/shell.d/update-m1n1-selector-test.sh`, wired into `test/all`, runs 55 checks under `sh`, `dash` and `bash` against fake compatible files (j700, j314s, j613, j575d, j614s, t8132, `apple,t8140x`, empty, missing), the override, `DTBS` handling with a stubbed `pacman`, the packaged-prefix hash, and update-m1n1's sourcing lines reproduced exactly. It uses only `mktemp` files and needs no privilege.
 
 ## How `pacman -Syu` keeps the right m1n1
 

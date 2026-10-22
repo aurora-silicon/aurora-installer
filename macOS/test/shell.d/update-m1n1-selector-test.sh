@@ -37,6 +37,7 @@ dt() {
 dt j700 apple,j700 apple,t8140 apple,arm-platform
 dt j314s apple,j314s apple,t6000 apple,arm-platform
 dt j613 apple,j613 apple,t8122 apple,arm-platform
+dt j575d apple,j575d apple,t6032 apple,arm-platform
 dt j614s apple,j614s apple,t6031 apple,arm-platform
 dt t8132 apple,j713 apple,t8132 apple,arm-platform
 dt j704 apple,j704 apple,t8140x apple,arm-platform
@@ -90,6 +91,7 @@ for shell in "${shells[@]}"; do
   expect_choice "$shell" "MacBook Neo (j700)" "$test_tmp/j700" "" "$neo_m1n1" "$neo_u_boot"
   expect_choice "$shell" "M1 Pro (j314s, t6000)" "$test_tmp/j314s" "" default default
   expect_choice "$shell" "M3 Air (j613, t8122)" "$test_tmp/j613" "" default default
+  expect_choice "$shell" "M3 Ultra Mac Studio (j575d, t6032)" "$test_tmp/j575d" "" default default
   expect_choice "$shell" "board override j700" "$test_tmp/missing" j700 "$neo_m1n1" "$neo_u_boot"
   expect_choice "$shell" "board override m123 on a Neo tree" "$test_tmp/j700" m123 default default
   expect_refusal "$shell" "j614s (t6031)" "$test_tmp/j614s" "" "compatible with apple,j614s apple,t6031 apple,arm-platform;"

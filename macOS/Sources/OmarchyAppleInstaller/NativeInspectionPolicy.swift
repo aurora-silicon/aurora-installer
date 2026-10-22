@@ -178,8 +178,49 @@
     let firmware: [Firmware]
     let baselineMetadata: NativeInstallationMetadata
 
+    /// Boards, chips and firmware models the native installer adds to the
+    /// retained runtime's tables.
+    struct Additions: Decodable, Sendable {
+      let chipMinimum: [String: String]
+      let devices: [String: Device]
+      let firmwareModels: [String: [String]]
+    }
+
     static func sealed() throws -> Self {
-      try JSONDecoder().decode(Self.self, from: Data(NativeInspectionPolicySource.json.utf8))
+      let decoder = JSONDecoder()
+      let retained = try decoder.decode(
+        Self.self, from: Data(NativeInspectionPolicySource.json.utf8))
+      return try retained.adding(
+        decoder.decode(
+          Additions.self, from: Data(NativeInspectionPolicySource.nativeAdditions.utf8)))
+    }
+
+    /// Additions only extend the retained tables. A chip or board they already
+    /// list, a firmware version they don't list or list for every model, or a
+    /// model added twice or without its board entry fails closed.
+    func adding(_ additions: Additions) throws -> Self {
+      guard Set(additions.chipMinimum.keys).isDisjoint(with: chipMinimum.keys),
+        Set(additions.devices.keys).isDisjoint(with: devices.keys)
+      else { throw NativeInspectionError.invalidPolicy }
+      var entries = firmware
+      for (version, models) in additions.firmwareModels {
+        let matching = entries.indices.filter { entries[$0].version == version }
+        guard matching.count == 1, let index = matching.first,
+          let existing = entries[index].models, !models.isEmpty,
+          Set(models).count == models.count, Set(models).isDisjoint(with: existing),
+          models.allSatisfy({ devices[$0] != nil || additions.devices[$0] != nil })
+        else { throw NativeInspectionError.invalidPolicy }
+        let entry = entries[index]
+        entries[index] = Firmware(
+          version: entry.version, minimumMacOS: entry.minimumMacOS,
+          minimumBoot: entry.minimumBoot, minimumRecovery: entry.minimumRecovery,
+          expert: entry.expert, models: existing + models, sourceURL: entry.sourceURL)
+      }
+      return Self(
+        runtimeVersion: runtimeVersion, sourceSHA256: sourceSHA256,
+        chipMinimum: chipMinimum.merging(additions.chipMinimum) { current, _ in current },
+        devices: devices.merging(additions.devices) { current, _ in current },
+        firmware: entries, baselineMetadata: baselineMetadata)
     }
 
     func supports(_ identifier: String, hardware: NativeInspectionHardware) -> Bool {

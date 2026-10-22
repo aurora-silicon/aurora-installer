@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """The Macs every Omarchy Mac catalog must enable, and the ones it must refuse.
 
-`supported-models.json` is the single list: every M1, M2 and M3 Mac the
-pinned engine can inspect, and the MacBook Neo, which the native installer
-inspects and prepares itself. A catalog that offers any Mac offers all of
+`supported-models.json` is the single list: every M1, M2 and M3 Mac and the
+MacBook Neo, each of which the native installer inspects and prepares
+itself. A catalog that offers any Mac offers all of
 them, so a release or preview can never ship a subset by accident. A channel with no
 Mac release yet (an empty catalog) is the only exception. `refused` names each
 board that stays out and why. `developer` names each board only a developer
@@ -58,7 +58,7 @@ def coverage_errors(identifiers: list[str]) -> list[str]:
         elif identifier not in supported:
             errors.append(
                 f"{identifier} is not in scripts/supported-models.json; "
-                "add it there, with its engine and device-tree support, first"
+                "add it there, with its native installer and device-tree support, first"
             )
     return errors
 

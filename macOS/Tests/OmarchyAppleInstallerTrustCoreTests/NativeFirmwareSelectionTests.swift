@@ -193,6 +193,118 @@
         try choose("apple,j700", neo, supported: ["26.6.2"], policy: expert))
     }
 
+    func testTheM3UltraMacStudioUsesOnlyFirmwareThatHasItsBuild() throws {
+      let policy = try NativeInspectionPolicy.sealed()
+      func metadata(_ supported: [String]?) throws -> NativeInstallationMetadata {
+        var template: [String: Any] = [
+          "omarchy_target": "apple-silicon-full-os", "default_os_name": "Fixture",
+          "partitions": [["size": "1GiB"]],
+        ]
+        if let supported { template["supported_fw"] = supported }
+        return try NativeInstallationMetadata(
+          data: JSONSerialization.data(withJSONObject: ["os_list": [template]]))
+      }
+      func choose(
+        _ hardware: NativeInspectionHardware, supported: [String]?
+      ) throws -> NativeFirmwareSelection {
+        try NativeFirmwareSelection.choose(
+          deviceIdentifier: "apple,j575d",
+          facts: .init(deviceIdentifier: "apple,j575d", hardware: hardware),
+          metadata: metadata(supported), policy: policy)
+      }
+      let current = NativeInspectionHardware(
+        chipID: 0x6032, bootVersion: "mBoot-18000.161.10", macOSVersion: "26.6.2",
+        recoveryVersion: "25.7.83.0.0,0")
+      let entry = try XCTUnwrap(policy.firmware.first { $0.version == "26.6.2" })
+      let releases: [[String]?] = [nil, ["13.5", "14.8.3", "26.6", "26.6.2"]]
+      for supported in releases {
+        let selected = try choose(current, supported: supported)
+        XCTAssertEqual(selected.version, "26.6.2")
+        XCTAssertEqual(selected.sourceURL.absoluteString, entry.sourceURL)
+        XCTAssertEqual(selected.stubBytes, 5_999_951_872)
+      }
+      // Inspection sizes the 26.x stub before the Mac's versions are known.
+      let unknown = NativeInspectionHardware(
+        chipID: 0x6032, bootVersion: nil, macOSVersion: nil, recoveryVersion: nil)
+      XCTAssertTrue(policy.supports("apple,j575d", hardware: unknown))
+      XCTAssertEqual(
+        try policy.stubBytes("apple,j575d", hardware: unknown, metadata: metadata(nil)),
+        5_999_951_872)
+
+      // Boot firmware older than the 26.6.2 restore image's names that update.
+      let older = NativeInspectionHardware(
+        chipID: 0x6032, bootVersion: "mBoot-18000.161.9", macOSVersion: "26.6",
+        recoveryVersion: "25.7.72.0.0,0")
+      XCTAssertThrowsError(try choose(older, supported: nil)) {
+        XCTAssertEqual(
+          $0 as? NativeFirmwareSelectionError, .macOSUpdateRequired(version: "26.6.2"))
+      }
+      // A release without 26.6.2 offers this Mac nothing: no older firmware
+      // has an M3 Ultra build.
+      XCTAssertThrowsError(try choose(current, supported: ["13.5", "14.8.3", "26.6"])) {
+        XCTAssertEqual($0 as? NativeFirmwareSelectionError, .noCompatibleFirmware)
+      }
+      // An unlisted chip stays refused, whatever board it reports.
+      let unlisted = NativeInspectionHardware(
+        chipID: 0x6033, bootVersion: "mBoot-18000.161.10", macOSVersion: "26.6.2",
+        recoveryVersion: "25.7.83.0.0,0")
+      XCTAssertFalse(policy.supports("apple,j575d", hardware: unlisted))
+    }
+
+    func testNativeAdditionsOnlyExtendTheRetainedRuntimePolicy() throws {
+      let retained = try JSONDecoder().decode(
+        NativeInspectionPolicy.self, from: Data(NativeInspectionPolicySource.json.utf8))
+      let sealed = try NativeInspectionPolicy.sealed()
+      XCTAssertEqual(sealed.runtimeVersion, retained.runtimeVersion)
+      XCTAssertEqual(sealed.sourceSHA256, retained.sourceSHA256)
+      XCTAssertEqual(
+        sealed.chipMinimum, retained.chipMinimum.merging(["24626": "26.6.2"]) { $1 })
+      XCTAssertEqual(Set(sealed.devices.keys), Set(retained.devices.keys).union(["j575d"]))
+      XCTAssertEqual(sealed.devices["j575d"]?.minimum, "26.6.2")
+      XCTAssertEqual(sealed.devices["j575d"]?.expert, false)
+      func rows(_ policy: NativeInspectionPolicy) -> [String] {
+        policy.firmware.map {
+          [
+            $0.version, $0.minimumMacOS, $0.minimumBoot, $0.minimumRecovery,
+            String($0.expert), $0.models?.joined(separator: ",") ?? "*", $0.sourceURL,
+          ].joined(separator: " ")
+        }
+      }
+      var expected = rows(retained)
+      let index = try XCTUnwrap(retained.firmware.firstIndex { $0.version == "26.6.2" })
+      expected[index] = expected[index].replacingOccurrences(
+        of: " j613,j615,j700 ", with: " j613,j615,j700,j575d ")
+      XCTAssertEqual(rows(sealed), expected)
+
+      func adding(_ object: [String: Any]) throws -> NativeInspectionPolicy {
+        let empty: [String: Any] = ["chipMinimum": [:], "devices": [:], "firmwareModels": [:]]
+        return try retained.adding(
+          JSONDecoder().decode(
+            NativeInspectionPolicy.Additions.self,
+            from: JSONSerialization.data(withJSONObject: empty.merging(object) { $1 })))
+      }
+      let board: [String: Any] = ["j999": ["expert": false, "minimum": "26.6.2"]]
+      XCTAssertNoThrow(try adding([:]))
+      let added = try adding(["devices": board, "firmwareModels": ["26.6.2": ["j999"]]])
+      XCTAssertEqual(
+        added.firmware.first { $0.version == "26.6.2" }?.models, ["j613", "j615", "j700", "j999"])
+      let refusals: [[String: Any]] = [
+        ["chipMinimum": ["24576": "26.6.2"]],
+        ["devices": ["j274": ["expert": false, "minimum": "26.6.2"]]],
+        ["devices": board, "firmwareModels": ["99.0": ["j999"]]],
+        ["devices": board, "firmwareModels": ["13.5": ["j999"]]],
+        ["devices": board, "firmwareModels": ["26.6.2": ["j999", "j999"]]],
+        ["devices": board, "firmwareModels": ["26.6.2": [String]()]],
+        ["firmwareModels": ["26.6.2": ["j700"]]],
+        ["firmwareModels": ["26.6.2": ["j999"]]],
+      ]
+      for refused in refusals {
+        XCTAssertThrowsError(try adding(refused), "\(refused)") {
+          XCTAssertEqual($0 as? NativeInspectionError, .invalidPolicy)
+        }
+      }
+    }
+
     func testBoardBootObjectsAndESPLayoutMatchTheLockedBackend() async throws {
       let fixture = try fixture()
       XCTAssertEqual(fixture.boot.count, 56)

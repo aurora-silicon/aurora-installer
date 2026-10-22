@@ -3,6 +3,8 @@
   // This table admits backend capability; the signed catalog separately
   // admits the selected public release and model qualification.
   enum NativeInspectionPolicySource {
+    // `json` stays byte-for-byte what the retained runtime's tables produce;
+    // test/native-inspection-vectors.py --runtime checks that.
     static let json = #"""
       {
         "baselineMetadata": {
@@ -280,6 +282,34 @@
         ],
         "runtimeVersion": "v0.9.2-aurora.14",
         "sourceSHA256": "17d0e11464af7996f45f83f0f535a0cc4e8d8c877a05775d3e1834aa38f16ad8"
+      }
+      """#
+
+    // Macs the native installer admits that the retained runtime predates.
+    // These entries only extend `json`: NativeInspectionPolicy.sealed()
+    // refuses any that would change a chip, board or firmware entry it has.
+    //
+    // Mac Studio (M3 Ultra, 2025): j575d, T6032 (24626 = 0x6032). Its only
+    // usable OS firmware here is 26.6.2: that restore image installs j575dap
+    // (chip 0x6032, board 0x44) with boot firmware mBoot-18000.161.10, the
+    // minimum the 26.6.2 entry already names. The 14.8.3 asset has no
+    // j575dap build, and 13.5 and older predate this Mac.
+    static let nativeAdditions = #"""
+      {
+        "chipMinimum": {
+          "24626": "26.6.2"
+        },
+        "devices": {
+          "j575d": {
+            "expert": false,
+            "minimum": "26.6.2"
+          }
+        },
+        "firmwareModels": {
+          "26.6.2": [
+            "j575d"
+          ]
+        }
       }
       """#
   }

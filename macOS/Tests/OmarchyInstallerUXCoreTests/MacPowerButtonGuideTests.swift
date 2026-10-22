@@ -7,7 +7,9 @@
       for id in ["apple,j293", "apple,j413", "apple,j414s", "apple,j700"] {
         XCTAssertEqual(MacPowerButtonGuide(deviceIdentifier: id, modelIdentifier: ""), .notebook)
       }
-      for id in ["apple,j274", "apple,j473", "apple,j474s", "apple,j375c", "apple,j475d"] {
+      for id in [
+        "apple,j274", "apple,j473", "apple,j474s", "apple,j375c", "apple,j475d", "apple,j575d",
+      ] {
         XCTAssertEqual(MacPowerButtonGuide(deviceIdentifier: id, modelIdentifier: ""), .desktopRear)
       }
     }
