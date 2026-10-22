@@ -49,7 +49,7 @@ The native AArch64 producers and signed update repositories live in [fedora-auro
 
 `scripts/assemble-distribution-payload.py` combines verified filesystem outputs with native Recovery and records their delivery identities. `scripts/prepare-distribution-release.py` authenticates the complete nine-profile set before preparing app resources. The delivery pipeline supports separately pinned download parts and a whole-payload digest. Package signing, image assembly, signed delivery and physical qualification are separate gates.
 
-Target firmware and calibration are collected from the target Mac. Neo additionally requires an authenticated `original-j7rp-v1` policy contract and admitted original-derived inputs under `installer-inputs/mt7932-policy/`. Preflight validates `world-XZ.bin` structure and country identity before disk changes. Known local policy inputs remain private and are excluded from generic images and public caches; general derivation and redistribution remain unresolved.
+Target firmware and calibration are collected from the target Mac. On the MacBook Neo, the native installer also fetches the model's firmware through its authenticated range recipe, reads the Mac's own radio, light-sensor and Touch ID records, and derives the Wi-Fi country policies before any disk change. The boot gate requires `world-XZ.bin`. Payloads and catalogs carry none of these inputs. Each of the nine profiles is one image for every supported Mac, the Neo included, and payload assembly has no board-only or privately supplied-input variant.
 
 ## Provenance and checks
 

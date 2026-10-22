@@ -34,13 +34,12 @@
     "apple,j514m",
     "apple,j516s",
     "apple,j516c",
-    "apple,j516m"
+    "apple,j516m",
+    "apple,j700"
   ],
   "refused": {
     "apple,j575d": "Mac Studio (M3 Ultra, 2025): the pinned v0.9.2 engine has no j575dap device or T6032 chip entry, so it cannot inspect or plan this Mac",
     "apple,j614s": "MacBook Pro 14-inch (M4 Pro, 2024): M4 and later Macs are not supported"
   },
-  "developer": {
-    "apple,j700": "MacBook Neo (A18 Pro, T8140): boots its own J700 m1n1 and Stage 1 from its own image; developer builds only"
-  }
+  "developer": {}
 }
