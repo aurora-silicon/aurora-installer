@@ -6,11 +6,14 @@ import XCTest
 final class FirmwareExtractorTests: XCTestCase, @unchecked Sendable {
   func testBundledRecipeAdmitsOnlyItsExactModelAndBoundedPartialDownload() throws {
     let plan = try FirmwareExtractionPlan.bundled(for: "apple,j700")
+    // The 6 GHz policy table adds one 14,728,357-byte output. Its compressed
+    // extents lie in segments already fetched for the other radio files, so
+    // the partial download is unchanged; only local publication space grows.
     XCTAssertEqual(plan.authenticatedRangeBytes, 15_996_940)
     XCTAssertEqual(plan.sourceSizeBytes, 19_772_231_540)
-    XCTAssertEqual(plan.outputs.count, 13)
-    XCTAssertEqual(plan.outputs.reduce(0) { $0 + $1.sizeBytes }, 32_014_794)
-    XCTAssertLessThan(plan.requiredDiskBytes, 40_000_000)
+    XCTAssertEqual(plan.outputs.count, 14)
+    XCTAssertEqual(plan.outputs.reduce(0) { $0 + $1.sizeBytes }, 46_743_151)
+    XCTAssertEqual(plan.requiredDiskBytes, 47_824_896)
     for model in ["apple,j614s", "apple,j414s", "j700", "apple,j700/../other"] {
       XCTAssertThrowsError(try FirmwareExtractionPlan.bundled(for: model))
     }
