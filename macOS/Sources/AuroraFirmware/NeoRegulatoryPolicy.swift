@@ -35,6 +35,9 @@ public enum NeoRegulatoryPolicy {
     "mediatek/mt7932/policy/CA.bin":
       "cf6f05261985ae48efa4c2802d645c26e6fb13d7eed3a5a64888ef372497f0da",
   ]
+  // SHA-256 of sorted ASCII path<TAB>blob-sha256<LF> records for all 244 policies.
+  static let outputInventorySHA256 =
+    "37419c03c0ba222d60eb78fdbdf9fed9ef1d005ef76a8bae0255d4a978defd5d"
   private static let groups: [String] = [
     "cck", "ofdm", "ht20", "ht40", "vht20", "vht40", "vht80", "vht160", "ru26", "ru52", "ru106",
     "ru242", "ru484", "ru996", "ru996X2",
@@ -667,6 +670,18 @@ public enum NeoRegulatoryPolicy {
   public static func derive(_ inputs: [String: Data]) throws -> [String: Data] {
     try derive(inputs, authenticated: true)
   }
+  static func inventoryDigest(_ outputs: [String: Data]) -> String {
+    let records = outputs.keys.sorted().map { "\($0)\t\(outputs[$0]!.sha256)\n" }.joined()
+    return Data(records.utf8).sha256
+  }
+  static func verifyOutputs(
+    _ outputs: [String: Data], pins: [String: String], inventory: String
+  ) throws {
+    for (name, expected) in pins {
+      try check(outputs[name]?.sha256 == expected)
+    }
+    try check(inventoryDigest(outputs) == inventory)
+  }
   // Internal entry point permits synthetic grammar fixtures; production always pins inputs.
   static func derive(_ inputs: [String: Data], authenticated: Bool) throws -> [String: Data] {
     for (name, sha) in inputSHA256 {
@@ -701,8 +716,10 @@ public enum NeoRegulatoryPolicy {
       let bytes = try build(
         country, power: power[country]!, sar: sar[country]!, common: common[country]!, db: db,
         sdb: sdb)
-      if authenticated, let expected = outputSHA256[name] { try check(bytes.sha256 == expected) }
       result[name] = bytes
+    }
+    if authenticated {
+      try verifyOutputs(result, pins: outputSHA256, inventory: outputInventorySHA256)
     }
     return result
   }

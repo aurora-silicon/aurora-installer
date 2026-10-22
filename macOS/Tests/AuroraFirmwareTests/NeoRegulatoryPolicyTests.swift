@@ -5,6 +5,21 @@ import XCTest
 @testable import AuroraFirmware
 
 final class NeoRegulatoryPolicyTests: XCTestCase {
+  func testInventoryRejectsChangedUnpinnedOutputAndMissingPinnedCountry() throws {
+    var outputs = ["world.bin": Data("baseline".utf8), "DE.bin": Data("power values".utf8)]
+    let pins = ["world.bin": outputs["world.bin"]!.sha256]
+    let expected = NeoRegulatoryPolicy.inventoryDigest(outputs)
+    try NeoRegulatoryPolicy.verifyOutputs(outputs, pins: pins, inventory: expected)
+    let reversed = Dictionary(uniqueKeysWithValues: outputs.sorted { $0.key > $1.key })
+    XCTAssertEqual(NeoRegulatoryPolicy.inventoryDigest(reversed), expected)
+    outputs["DE.bin"] = Data("changed power values".utf8)
+    XCTAssertThrowsError(
+      try NeoRegulatoryPolicy.verifyOutputs(outputs, pins: pins, inventory: expected))
+    outputs.removeValue(forKey: "world.bin")
+    let missingPinInventory = NeoRegulatoryPolicy.inventoryDigest(outputs)
+    XCTAssertThrowsError(
+      try NeoRegulatoryPolicy.verifyOutputs(outputs, pins: pins, inventory: missingPinInventory))
+  }
   private struct Fixture: Decodable {
     let inputs: [String: String]
     let outputs: [String: String]
