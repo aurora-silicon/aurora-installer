@@ -6,24 +6,46 @@
   @testable import OmarchyAppleInstallerTrustCore
 
   final class NativeSensorCalibrationTests: XCTestCase, @unchecked Sendable {
-    static func calibration() -> Data {
-      func der(_ tag: UInt8, _ value: Data) -> Data { Data([tag, UInt8(value.count)]) + value }
-      func text(_ value: String) -> Data { der(0x16, Data(value.utf8)) }
-      let payload = der(
-        0x30, text("IM4P") + text("FSC2") + text("synthetic") + der(4, Data("CALB".utf8)))
-      return der(0x30, text("IMG4") + payload + der(0xa0, der(0x30, text("IM4M"))))
+    static func der(_ tag: UInt8, _ value: Data) -> Data {
+      value.count < 0x80
+        ? Data([tag, UInt8(value.count)]) + value
+        : Data([tag, 0x81, UInt8(value.count)]) + value
     }
 
-    static func rootKey() -> Data {
-      func der(_ tag: UInt8, _ value: Data) -> Data { Data([tag, UInt8(value.count)]) + value }
-      func text(_ value: String) -> Data { der(0x16, Data(value.utf8)) }
-      let payload = der(0x30, text("IM4P") + text("MSRk") + text("1.0") + der(4, Data([1])))
-      let image = der(
-        0x30, text("IMG4") + payload + der(0xa0, der(0x30, text("IM4M") + der(2, Data([0])))))
+    static func text(_ value: String) -> Data { der(0x16, Data(value.utf8)) }
+
+    static let calibrationPayload = der(
+      0x30, text("IM4P") + text("FSC2") + text("synthetic") + der(4, Data("CALB".utf8)))
+    static let rootPayload = der(
+      0x30, text("IM4P") + text("MSRk") + text("1.0") + der(4, Data([1])))
+    static let seal = der(0x30, text("IM4M") + der(2, Data([0])))
+    static let trust = Data("synthetic trust bundle".utf8)
+    static let trustName = "trustobject-" + SHA256Digest(hashing: trust).hexadecimal.uppercased()
+    static let factoryNames = [
+      "MSRk-synthetic", "seal-synthetic", "trustobject-current", trustName,
+    ]
+
+    /// The standalone FSC2 calibration, as the iBoot System Container stores it.
+    static func calibration() -> Data {
+      der(0x30, text("IMG4") + calibrationPayload + der(0xa0, der(0x30, text("IM4M"))))
+    }
+
+    /// The combined root-key record the enclave loads.
+    static func rootKey() -> Data { sealed(rootPayload) }
+
+    /// The bare MSRk record as the factory cache stores it, with its own manifest.
+    static func factoryRoot() -> Data {
+      let manifest = der(0x30, text("IM4M") + der(2, Data([1])))
+      return der(0x30, text("IMG4") + rootPayload + der(0xa0, manifest))
+    }
+
+    /// An IM4P under the sealing manifest with the trust bundle as secb.
+    static func sealed(_ payload: Data) -> Data {
+      let image = der(0x30, text("IMG4") + payload + der(0xa0, seal))
       return der(
         0x30,
         text("comb") + der(0x30, text("fdrd") + der(4, image))
-          + der(0x30, text("secb") + der(4, Data("synthetic trust bundle".utf8))))
+          + der(0x30, text("secb") + der(4, trust)))
     }
 
     static func snapshot(type: String = "Apple_APFS_ISC") -> RemovalSnapshot {
@@ -38,7 +60,7 @@
 
     static func collector(
       _ snapshot: RemovalSnapshot, present: Bool = true,
-      fault: String = "", factory: [String] = ["MSRk-synthetic"]
+      fault: String = "", factory: [String] = factoryNames
     ) -> NativeSensorInputCollector {
       let part = snapshot.partitions[0]
       return NativeSensorInputCollector(
@@ -63,15 +85,42 @@
           return fault == "short" ? Data() : calibration()
         }, factoryNames: { factory },
         factoryRead: { name in
-          if name.hasPrefix("MSRk-") { return fault == "bad-root" ? calibration() : rootKey() }
+          if name.hasPrefix("MSRk-") { return fault == "bad-root" ? calibration() : factoryRoot() }
+          if name.hasPrefix("seal-") { return seal }
+          if name == "trustobject-current" { return fault == "stale-trust" ? Data([1]) : trust }
+          if name.hasPrefix("trustobject-") { return trust }
           return calibration()
         })
     }
 
-    func testPresentSensorKeepsItsCompleteSignedEnvelope() throws {
-      XCTAssertEqual(
-        try Self.collector(Self.snapshot()).collect(storeIdentifier: "disk0")?.calibration,
-        Self.calibration())
+    func testPresentSensorResealsItsRecordsTheWayTheEnclaveLoadsThem() throws {
+      let inputs = try XCTUnwrap(Self.collector(Self.snapshot()).collect(storeIdentifier: "disk0"))
+      XCTAssertEqual(inputs.calibration, Self.sealed(Self.calibrationPayload))
+      XCTAssertEqual(inputs.rootKey, Self.sealed(Self.rootPayload))
+      XCTAssertEqual(try SignedSensorInputs.rootKey(inputs.rootKey), inputs.rootKey)
+      let calibration = inputs.calibration
+      XCTAssertEqual(try SignedSensorInputs.sealedCalibration(calibration), calibration)
+    }
+
+    func testTheTrustBundleFollowsTrustobjectCurrentAndSealingRecordsAreRequired() throws {
+      let stale = "trustobject-" + String(repeating: "0", count: 64)
+      XCTAssertNotNil(
+        try Self.collector(Self.snapshot(), factory: Self.factoryNames + [stale]).collect(
+          storeIdentifier: "disk0"))
+      let current = Self.factoryNames.filter { $0 != "trustobject-current" }
+      XCTAssertNotNil(
+        try Self.collector(Self.snapshot(), factory: current).collect(storeIdentifier: "disk0"))
+      for names in [
+        Self.factoryNames.filter { !$0.hasPrefix("seal-") },
+        Self.factoryNames + ["seal-other"],
+        Self.factoryNames.filter { $0 != Self.trustName },
+        current + [stale],
+      ] {
+        XCTAssertThrowsError(
+          try Self.collector(Self.snapshot(), factory: names).collect(storeIdentifier: "disk0"))
+      }
+      XCTAssertThrowsError(
+        try Self.collector(Self.snapshot(), fault: "stale-trust").collect(storeIdentifier: "disk0"))
     }
 
     func testAbsentSensorDoesNotReadAnyDevice() throws {
@@ -112,10 +161,10 @@
       let pair = try XCTUnwrap(
         Self.collector(
           Self.snapshot(), fault: "forbid-read",
-          factory: ["FSC2-synthetic", "MSRk-synthetic"]
+          factory: Self.factoryNames + ["FSC2-synthetic"]
         ).collect(storeIdentifier: "disk0"))
-      XCTAssertEqual(pair.calibration, Self.calibration())
-      XCTAssertEqual(pair.rootKey, Self.rootKey())
+      XCTAssertEqual(pair.calibration, Self.sealed(Self.calibrationPayload))
+      XCTAssertEqual(pair.rootKey, Self.sealed(Self.rootPayload))
       for names in [[], ["MSRk-one", "MSRk-two"], ["FSC2-one", "MSRk-two"]] {
         XCTAssertThrowsError(
           try Self.collector(

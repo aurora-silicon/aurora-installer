@@ -69,29 +69,65 @@
         NativeHandoffEvidence.safeRelative(root), !root.contains("/"), root.utf8.count <= 255,
         root.count > 5
       else { throw NativePeripheralInputError.sensorRootKeyMissing }
-      let rootKey = try SignedSensorInputs.rootKey(factoryRead(root))
+      // The enclave refuses the factory records as stored: it loads their
+      // IM4P under the FDR sealing manifest with the trust bundle as secb.
+      let sealing = try Self.sealingRecords(names, read: factoryRead)
+      let rootKey = try SignedSensorInputs.rootKey(
+        SignedSensorInputs.reseal(factoryRead(root), seal: sealing.seal, trust: sealing.trust))
       let calibrations = names.filter { $0.hasPrefix("FSC2-") || $0.hasPrefix("FSCl-") }
-      let calibration: Data
+      let found: Data
       if calibrations.isEmpty {
         let bytes = try read(source.identifier, source.size)
         guard bytes.count == source.size else { throw NativePeripheralInputError.localInput }
-        calibration = try SignedSensorInputs.calibration(in: bytes)
+        found = try SignedSensorInputs.calibration(in: bytes)
       } else {
         guard calibrations.count == 1, let name = calibrations.first,
           String(name.dropFirst(5)) == String(root.dropFirst(5)),
           NativeHandoffEvidence.safeRelative(name), !name.contains("/"), name.utf8.count <= 255
         else { throw NativePeripheralInputError.sensorCalibrationMissing }
         let bytes = try factoryRead(name)
-        calibration = try SignedSensorInputs.calibration(in: bytes)
-        guard calibration == bytes else {
+        found = try SignedSensorInputs.calibration(in: bytes)
+        guard found == bytes else {
           throw NativePeripheralInputError.sensorCalibrationMissing
         }
       }
+      let calibration = try SignedSensorInputs.loadableCalibration(
+        found, seal: sealing.seal, trust: sealing.trust)
       try Task.checkCancellation()
       try verify()
       try verifyFactory()
       guard try snapshot() == before else { throw NativePeripheralInputError.identityChanged }
       return NativeSensorInputs(calibration: calibration, rootKey: rootKey)
+    }
+
+    /// The FDR sealing manifest and the trust bundle that trustobject-current
+    /// names. A macOS update can leave older named bundles in the cache; without
+    /// trustobject-current exactly one named bundle must be present.
+    static func sealingRecords(_ names: [String], read: (String) throws -> Data) throws -> (
+      seal: Data, trust: Data
+    ) {
+      func admitted(_ name: String) -> Bool {
+        NativeHandoffEvidence.safeRelative(name) && !name.contains("/") && name.utf8.count <= 255
+      }
+      let seals = names.filter { $0.hasPrefix("seal-") }
+      let bundles = names.filter { $0.hasPrefix("trustobject-") && $0 != "trustobject-current" }
+      guard seals.count == 1, let seal = seals.first, admitted(seal) else {
+        throw NativePeripheralInputError.sensorRootKeyMissing
+      }
+      let trust: Data
+      if names.contains("trustobject-current") {
+        trust = try read("trustobject-current")
+      } else {
+        guard bundles.count == 1, let only = bundles.first, admitted(only) else {
+          throw NativePeripheralInputError.sensorRootKeyMissing
+        }
+        trust = try read(only)
+      }
+      let digest = SHA256Digest(hashing: trust).hexadecimal
+      let named = bundles.filter { String($0.dropFirst(12)).lowercased() == digest }
+      guard named.count == 1, let name = named.first, admitted(name), try read(name) == trust
+      else { throw NativePeripheralInputError.sensorRootKeyMissing }
+      return (try read(seal), trust)
     }
 
     static func requireFactoryStore(_ info: [String: Any], partition: String) throws {

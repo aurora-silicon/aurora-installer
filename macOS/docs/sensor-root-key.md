@@ -1,13 +1,19 @@
-# Touch ID root-key extraction: draft qualification boundary
+# Touch ID root key and calibration
 
-The Neo sensor needs a complete device-local combined root-key container. A bare `IMG4` containing an `MSRk` payload is not sufficient. Keep the outer `comb`, its `fdrd` image and manifest, and its `secb` trust bundle byte-for-byte. Never synthesize a manifest or combine records from different machines.
+The Neo's enclave loads both sensor records only in the combined layout macOS hands it:
 
-`SignedSensorInputs.rootKey` checks this envelope and rejects a missing trust bundle, wrong payload type, truncated records and trailing bytes. This is structural admission only. It does not verify the certificate chain or establish that the record belongs to the connected sensor.
+`comb { fdrd: IMG4 { IM4P, [0] seal-<ECID> }, secb: trust bundle }`
 
-The native collector still reads the named root-key record from the protected factory store on the selected internal disk. That raw factory record has not been shown to contain the combined envelope required by the sensor. Do not merge this draft as a working automatic extractor: the sealed-record retrieval path remains to be implemented and qualified.
+The factory cache (`/System/Volumes/Hardware/FactoryData/System/Library/Caches/com.apple.factorydata`) stores the pieces, not that layout:
 
-Before merging, use a Touch ID-equipped Neo and its own accepted capture to identify the sealed source, compare the complete signed record and trust bundle, verify sensor binding, and confirm that the installed kernel opens a sensor session after a cold boot. Then repeat through a fresh native install. Keep all device records and keys private; synthetic fixture acceptance is not hardware qualification.
+- `MSRk-<sensor>`: an `IMG4` whose `IM4P` carries the root key. Its own factory manifest chains to a root the enclave does not trust, so the bare record is refused.
+- `seal-<ECID>`: the FDR sealing manifest (`IM4M`).
+- `trustobject-<sha256>`: the trust bundle. `trustobject-current` holds the bytes in use; a macOS update can leave older named bundles behind.
 
-The currently available Neo has no Touch ID. The previously tested sensor-equipped machine and its capture are unavailable. Sensorless machines must continue to skip this collection path.
+`NativeSensorInputCollector` rebuilds both records from these. It takes the `IM4P` of the factory `MSRk` record, uses `seal-<ECID>` as its manifest and adds the trust bundle as `secb`. The calibration is either a standalone FSC2 `IMG4`, from an `FSC2-<sensor>` factory record or carved from the iBoot System Container, or an FSCl `comb` record. The enclave refuses the plain FSC2 image (`LOAD_CALIBRATION` fails), so it is rebuilt the same way, with the same seal and trust bundle; an FSCl record already has the layout and is kept as it is.
 
-Treat the root-key record as device-private: root-owned mode `0600` in staging and after installation, with private staging directories mode `0700`. Its archive writer and final installer must preserve that mode before this path is enabled; ordinary world-readable firmware defaults are unsuitable.
+Exactly one `seal-*` record is required. The trust bundle is the named `trustobject-<sha256>` whose digest and bytes match `trustobject-current`; without `trustobject-current`, exactly one named bundle must be present and match its name. Nothing is synthesized: every byte comes from this Mac's own records, and nothing crosses machines. `SignedSensorInputs.rootKey` and `SignedSensorInputs.sealedCalibration` admit the results structurally; they do not verify the certificate chain or the sensor binding.
+
+On a Touch ID-equipped Neo (macOS 26.6.2, 25G83), the rebuilt root key is byte-identical to the 12,688-byte container macOS uses, and it enrols on Linux. The resealed calibration loads where the plain image is refused, and an enrolled finger matches after a reboot without re-enrolling. Those results come from records placed by hand; a fresh native install that writes them is still to be confirmed. Sensorless machines skip this collection.
+
+Treat the root-key record as device-private: root-owned mode `0600` in staging and after installation, with private staging directories mode `0700`. Its archive writer and final installer must preserve that mode; ordinary world-readable firmware defaults are unsuitable.
