@@ -34,6 +34,18 @@ if [[ $dependencies == *'/SwiftUI.framework/'* ||
   echo 'Recovery executable links a framework unavailable in older Recovery OS' >&2
   exit 1
 fi
+# The macOS 13.5 Recovery stub loads only these Swift libraries. It has no
+# AppKit overlay, so a call such as NSSound.beep() stops Recovery launching.
+# Weak-linked libraries are allowed.
+while read -r lib; do
+  case $lib in
+    libswiftCore.dylib | libswiftDarwin.dylib | libswiftDispatch.dylib | libswiftObjectiveC.dylib | libswift_Concurrency.dylib) ;;
+    *)
+      echo "Recovery executable requires $lib, which older Recovery OS lacks" >&2
+      exit 1
+      ;;
+  esac
+done < <(printf '%s\n' "$dependencies" | grep '/usr/lib/swift/' | grep -v ', weak)' | sed -E 's#.*/usr/lib/swift/([^ ]+).*#\1#')
 if grep -REn '^[[:space:]]*import[[:space:]]+(SwiftUI|Combine|CryptoKit|CryptoTokenKit)' Sources; then
   echo 'Recovery sources import a framework unavailable in older Recovery OS' >&2
   exit 1

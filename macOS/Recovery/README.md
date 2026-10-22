@@ -2,7 +2,7 @@
 
 The Aurora-branded native Recovery interface lives alongside the main installer. It has two explicit build modes, targeting macOS 13 independently of the main installer's macOS 15 requirement.
 
-Older Recovery stubs can omit frameworks available in full macOS despite the same deployment version. The Recovery interface is programmatic AppKit and uses no SwiftUI or Combine. Recovery computes its SHA-256 checks with CommonCrypto in libSystem. The app build refuses direct SwiftUI, Combine, CryptoKit or CryptoTokenKit linkage. The deployment target and link check still need a boot test in the affected Recovery stub before claiming that launch is qualified.
+Older Recovery stubs can omit frameworks available in full macOS despite the same deployment version. The Recovery interface is programmatic AppKit and uses no SwiftUI or Combine. Recovery computes its SHA-256 checks with CommonCrypto in libSystem. The app build refuses direct SwiftUI, Combine, CryptoKit or CryptoTokenKit linkage, and any required Swift library beyond `libswiftCore`, `libswiftDarwin`, `libswiftDispatch`, `libswiftObjectiveC` and `libswift_Concurrency`, the only ones the macOS 13.5 Recovery stub provides. It has no Swift AppKit overlay, so overlay-only calls such as `NSSound.beep()` stop the app launching there; weak-linked libraries remain allowed. The deployment target and link check still need a boot test in the affected Recovery stub before claiming that launch is qualified.
 
 ## Preview
 
