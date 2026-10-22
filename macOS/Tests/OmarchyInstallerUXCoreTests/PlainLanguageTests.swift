@@ -186,6 +186,44 @@
       XCTAssertFalse(unknown.replanAvailable)
     }
 
+    func testAMacOnOlderFirmwareIsToldWhichMacOSToInstall() throws {
+      let summary = try XCTUnwrap(EngineFailureReason.macOSUpdateSummary(version: "26.6.2"))
+      let failure = PlainLanguage.failure(
+        for: EngineXPCSubmissionError.engineFailed(
+          EngineFailureNotice(
+            reason: .macOSUpdateRequired, exitStatus: 1, diskUnchanged: true, summary: summary)))
+      XCTAssertEqual(failure.headline, "Update macOS to install Aurora")
+      XCTAssertEqual(
+        failure.plainDetail,
+        "This Mac’s firmware is older than macOS 26.6.2, which this release needs. No disk changes were made."
+      )
+      XCTAssertTrue(
+        try XCTUnwrap(failure.remedy).hasPrefix(
+          "Install macOS 26.6.2 or later in System Settings → General → Software Update"))
+      XCTAssertEqual(failure.actionURL, PlainLanguage.softwareUpdateSettingsURL)
+      XCTAssertEqual(failure.actionTitle, PlainLanguage.openSoftwareUpdate)
+      XCTAssertFalse(failure.replanAvailable)
+      XCTAssertFalse(failure.isBlockedModel)
+
+      let changed = PlainLanguage.failure(
+        for: EngineXPCSubmissionError.engineFailed(
+          EngineFailureNotice(
+            reason: .macOSUpdateRequired, exitStatus: 1, diskUnchanged: false, summary: summary)))
+      XCTAssertEqual(changed.headline, failure.headline)
+      XCTAssertTrue(try XCTUnwrap(changed.remedy).hasPrefix("Save the error details"))
+      XCTAssertNil(changed.actionURL)
+
+      // A summary without a usable version still points to Software Update.
+      let unnamed = PlainLanguage.engineFailure(
+        EngineFailureNotice(
+          reason: .macOSUpdateRequired, exitStatus: 1, diskUnchanged: true,
+          summary: "This Mac needs macOS 26.6.2.1 or later."),
+        technicalDetail: "detail")
+      XCTAssertTrue(
+        unnamed.plainDetail.hasPrefix("This Mac’s firmware is older than this release needs."))
+      XCTAssertTrue(try XCTUnwrap(unnamed.remedy).hasPrefix("Install the latest macOS"))
+    }
+
     func testEveryEngineFailureReasonHasPlainWording() {
       for reason in EngineFailureReason.allCases {
         for unchanged in [true, false] {

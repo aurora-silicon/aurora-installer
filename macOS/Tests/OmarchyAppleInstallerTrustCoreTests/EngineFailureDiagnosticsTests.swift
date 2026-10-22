@@ -174,6 +174,32 @@
         .unclassified)
     }
 
+    func testMacOSUpdateSummaryCarriesOnlyAPlainVersion() throws {
+      let summary = try XCTUnwrap(EngineFailureReason.macOSUpdateSummary(version: "26.6.2"))
+      XCTAssertEqual(summary, "This Mac needs macOS 26.6.2 or later.")
+      // The summary survives the notice's sanitizing on both sides of XPC.
+      let notice = EngineFailureNotice(
+        reason: .macOSUpdateRequired, exitStatus: 1, diskUnchanged: true, summary: summary)
+      XCTAssertEqual(EngineFailureReason.requiredMacOSVersion(inSummary: notice.summary), "26.6.2")
+      for version in ["14.8.3", "26.6", "26"] {
+        XCTAssertEqual(
+          EngineFailureReason.macOSUpdateSummary(version: version).flatMap {
+            EngineFailureReason.requiredMacOSVersion(inSummary: $0)
+          }, version)
+      }
+      for version in ["", "26.6.2.1", "26..2", "26.6.2b", "1234.1", "26.6 or later", "２６.6"] {
+        XCTAssertNil(EngineFailureReason.macOSUpdateSummary(version: version), version)
+      }
+      for summary in [
+        "", "This Mac needs macOS  or later.", "This Mac needs macOS 26.6.2.",
+        "This Mac needs macOS 26.6.2 or later", "This Mac needs macOS 26.6.2.1 or later.",
+        "Compatible boot firmware could not be selected.",
+        "x This Mac needs macOS 26.6.2 or later.",
+      ] {
+        XCTAssertNil(EngineFailureReason.requiredMacOSVersion(inSummary: summary), summary)
+      }
+    }
+
     func testSummaryIsOneBoundedPrintableLine() {
       let notice = EngineFailureNotice(
         reason: .unclassified, exitStatus: 1, diskUnchanged: false,

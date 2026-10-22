@@ -128,6 +128,10 @@
     /// System Settings → General → Login Items & Extensions.
     public static let loginItemsSettingsURL = URL(
       string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension")!
+    public static let openSoftwareUpdate = "Open Software Update"
+    /// System Settings → General → Software Update.
+    public static let softwareUpdateSettingsURL = URL(
+      string: "x-apple.systempreferences:com.apple.Software-Update-Settings.extension")!
     public static let helperBeingReplacedHeadline = "The installation service is being updated"
     public static let helperBeingReplacedDetail =
       "Another copy of the installer is replacing the installation service, so this request didn't start and nothing was changed. Try again in a moment."
@@ -504,6 +508,21 @@
           remedy: unchanged
             ? "Check your internet connection and free space, then choose Check again. Verified downloads will be reused."
             : "Save the error details and check the verified installation record before trying again."
+        )
+      case .macOSUpdateRequired:
+        let required = EngineFailureReason.requiredMacOSVersion(inSummary: notice.summary)
+        let needed =
+          required.map { "macOS \($0), which this release needs" } ?? "this release needs"
+        let update = required.map { "macOS \($0) or later" } ?? "the latest macOS"
+        return FailureDisplay(
+          headline: "Update macOS to install Aurora",
+          plainDetail: "This Mac’s firmware is older than \(needed). \(diskState)",
+          technicalDetail: technicalDetail,
+          remedy: unchanged
+            ? "Install \(update) in System Settings → General → Software Update, then open \(windowTitle) again."
+            : "Save the error details and check the verified installation record before trying again. \(engineDiagnosticsLocation)",
+          actionURL: unchanged ? softwareUpdateSettingsURL : nil,
+          actionTitle: unchanged ? openSoftwareUpdate : nil
         )
       case .recoveryPreparation:
         return FailureDisplay(

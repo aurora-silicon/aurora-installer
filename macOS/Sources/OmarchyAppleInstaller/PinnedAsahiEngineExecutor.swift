@@ -198,10 +198,12 @@
         } catch let error as PinnedAsahiEngineExecutionError {
           throw error
         } catch {
+          let update = Self.macOSUpdateSummary(for: error)
           throw preparationFailure(
-            error, reason: .unclassified, operation: operation,
-            journal: journal, package: package, password: authorization.password,
-            summary: "The preserved installation did not complete.")
+            error, reason: update == nil ? .unclassified : .macOSUpdateRequired,
+            operation: operation, journal: journal, package: package,
+            password: authorization.password,
+            summary: update ?? "The preserved installation did not complete.")
         }
       }
       let resumesNativePreparation =
@@ -241,14 +243,10 @@
             summary: "The current macOS volume owner could not be verified.")
         }
         do { try await validatePayload(package) } catch {
-          let firmwareFailure = error is NativeFirmwareSelectionError
+          let (reason, summary) = Self.payloadFailure(error)
           throw preparationFailure(
-            error, reason: firmwareFailure ? .firmwarePreparation : .planIntegrity,
-            operation: operation, journal: journal,
-            package: package, password: authorization.password,
-            summary: firmwareFailure
-              ? "Compatible boot firmware could not be selected."
-              : "The installation images could not be verified.")
+            error, reason: reason, operation: operation, journal: journal,
+            package: package, password: authorization.password, summary: summary)
         }
       } else {
         sourceBootstrap = nil
@@ -489,6 +487,27 @@
               Data(String(describing: error).utf8), truncated: false,
               secrets: [authorization.password])))
       }
+    }
+
+    /// How a refused payload preflight is reported. A Mac whose firmware is
+    /// too old for every OS firmware the release allows is told which macOS
+    /// version to install instead of getting a generic firmware failure.
+    static func payloadFailure(_ error: any Error) -> (EngineFailureReason, String) {
+      if let update = macOSUpdateSummary(for: error) {
+        return (.macOSUpdateRequired, update)
+      }
+      return error is NativeFirmwareSelectionError
+        ? (.firmwarePreparation, "Compatible boot firmware could not be selected.")
+        : (.planIntegrity, "The installation images could not be verified.")
+    }
+
+    /// The notice summary naming the macOS version this Mac must update to,
+    /// or nil when the error is not that firmware refusal.
+    static func macOSUpdateSummary(for error: any Error) -> String? {
+      guard case NativeFirmwareSelectionError.macOSUpdateRequired(let version) = error else {
+        return nil
+      }
+      return EngineFailureReason.macOSUpdateSummary(version: version)
     }
 
     private func preparationFailure(

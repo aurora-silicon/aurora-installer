@@ -24,6 +24,9 @@
     /// Native preparation stopped before the installation engine was launched.
     case firmwarePreparation = 5
     case recoveryPreparation = 6
+    /// This Mac's boot firmware or macOS is older than every OS firmware the
+    /// release allows. The summary names the macOS version to update to.
+    case macOSUpdateRequired = 7
 
     /// Exact final-exception messages raised before the first mutation by
     /// `omarchy_execution.admit_execution`, `omarchy_runtime` and the Asahi
@@ -54,6 +57,36 @@
       "ExecutionAdmissionError", "EngineRuntimeError", "AsahiAdapterError",
       "ContractError",
     ]
+
+    private static let macOSUpdatePrefix = "This Mac needs macOS "
+    private static let macOSUpdateSuffix = " or later."
+
+    /// The `.macOSUpdateRequired` summary, which carries the version across
+    /// XPC. Nil for anything but a plain `26.6.2`-style version.
+    public static func macOSUpdateSummary(version: String) -> String? {
+      isPlainVersion(version) ? macOSUpdatePrefix + version + macOSUpdateSuffix : nil
+    }
+
+    /// The macOS version a `.macOSUpdateRequired` summary names, if it has
+    /// exactly the shape `macOSUpdateSummary(version:)` produces.
+    public static func requiredMacOSVersion(inSummary summary: String) -> String? {
+      guard summary.hasPrefix(macOSUpdatePrefix), summary.hasSuffix(macOSUpdateSuffix),
+        summary.count > macOSUpdatePrefix.count + macOSUpdateSuffix.count
+      else { return nil }
+      let version = String(
+        summary.dropFirst(macOSUpdatePrefix.count).dropLast(macOSUpdateSuffix.count))
+      return isPlainVersion(version) ? version : nil
+    }
+
+    /// One to three dot-separated runs of one to three ASCII digits.
+    private static func isPlainVersion(_ version: String) -> Bool {
+      let parts = version.split(separator: ".", omittingEmptySubsequences: false)
+      return (1...3).contains(parts.count)
+        && parts.allSatisfy { part in
+          (1...3).contains(part.count)
+            && part.unicodeScalars.allSatisfy { ("0"..."9").contains($0) }
+        }
+    }
   }
 
   /// The part of an engine failure that may leave the privileged helper: a

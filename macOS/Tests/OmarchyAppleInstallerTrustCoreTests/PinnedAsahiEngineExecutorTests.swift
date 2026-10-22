@@ -26,6 +26,15 @@
       }
     }
 
+    private struct FirmwareTooOldPreservedReinstall: NativePreservedReinstallExecuting {
+      func execute(
+        _ package: ImportedEngineHandoffPackage, journal: URL,
+        authorization: MachineOwnerAuthorization, installConf: InstallConf
+      ) async throws -> Data {
+        throw NativeFirmwareSelectionError.macOSUpdateRequired(version: "14.8.3")
+      }
+    }
+
     private struct MarkerPreservedReinstall: NativePreservedReinstallExecuting {
       let marker: URL
       func execute(
@@ -69,6 +78,28 @@
       XCTAssertEqual(try Data(contentsOf: marker), configuration.serializedData)
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
     }
+
+    func testPreservedReinstallOnOlderFirmwareNamesTheMacOSToInstall() async throws {
+      let fixture = try makeFixture(installationIntent: .reinstall)
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let executor = fixtureExecutor(
+        effectiveUserID: { 0 }, preservedReinstall: FirmwareTooOldPreservedReinstall())
+      await assertThrowsErrorAsync(
+        try await executor.execute(
+          fixture.package, authorization: try machineOwnerAuthorization(),
+          operation: .install, installConf: try InstallConf(encrypt: true, lane: "stable"))
+      ) {
+        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+          XCTFail("Expected typed firmware refusal")
+          return
+        }
+        XCTAssertEqual(report.notice.reason, .macOSUpdateRequired)
+        XCTAssertTrue(report.notice.diskUnchanged)
+        XCTAssertEqual(report.notice.summary, "This Mac needs macOS 14.8.3 or later.")
+      }
+      XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
+
     private struct FirmwareMarker: NativeFirmwarePreparing {
       let url: URL
       func prepare(deviceIdentifier: String, in workingDirectory: URL) async throws -> URL? {
@@ -1034,7 +1065,8 @@
       let fixture = try makeFixture()
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let executor = fixtureExecutor(
-        effectiveUserID: { 0 }, firmwarePreparer: FailedFirmware(), rejectFirmwareSelection: true)
+        effectiveUserID: { 0 }, firmwarePreparer: FailedFirmware(),
+        rejectFirmwareSelection: .noCompatibleFirmware)
       await assertThrowsErrorAsync(
         try await executor.execute(fixture.package, authorization: try machineOwnerAuthorization())
       ) {
@@ -1045,6 +1077,28 @@
         XCTAssertEqual(report.notice.reason, .firmwarePreparation)
         XCTAssertTrue(report.notice.diskUnchanged)
         XCTAssertEqual(report.notice.summary, "Compatible boot firmware could not be selected.")
+      }
+      XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
+
+    func testFirmwareOlderThanTheReleaseNamesTheMacOSToInstallBeforeLaunch() async throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let executor = fixtureExecutor(
+        effectiveUserID: { 0 }, firmwarePreparer: FailedFirmware(),
+        rejectFirmwareSelection: .macOSUpdateRequired(version: "26.6.2"))
+      await assertThrowsErrorAsync(
+        try await executor.execute(fixture.package, authorization: try machineOwnerAuthorization())
+      ) {
+        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+          XCTFail("Expected typed firmware refusal")
+          return
+        }
+        XCTAssertEqual(report.notice.reason, .macOSUpdateRequired)
+        XCTAssertTrue(report.notice.diskUnchanged)
+        XCTAssertEqual(report.notice.summary, "This Mac needs macOS 26.6.2 or later.")
+        XCTAssertEqual(
+          EngineFailureReason.requiredMacOSVersion(inSummary: report.notice.summary), "26.6.2")
       }
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
     }
@@ -1113,7 +1167,7 @@
         codeHash: String(repeating: "a", count: 40)),
       rejectDecoder: Bool = false,
       rejectPayload: Bool = false,
-      rejectFirmwareSelection: Bool = false,
+      rejectFirmwareSelection: NativeFirmwareSelectionError? = nil,
       rejectSourceOwner: Bool = false
     ) -> PinnedAsahiEngineExecutor {
       PinnedAsahiEngineExecutor(
@@ -1132,7 +1186,7 @@
         nativeHandoff: FixtureNativeHandoff(),
         collectInstallAdmission: collectInstallAdmission,
         validatePayload: { _ in
-          if rejectFirmwareSelection { throw NativeFirmwareSelectionError.noCompatibleFirmware }
+          if let rejectFirmwareSelection { throw rejectFirmwareSelection }
           if rejectPayload { throw NativePayloadPreflightError.invalidFilesystem }
         },
         validateSourceOwner: { _, _ in
