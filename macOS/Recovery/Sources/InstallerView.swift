@@ -20,18 +20,27 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
   private var accountConfirmationField: NSSecureTextField?
   private var accountButton: NSButton?
   private var skipButton: NSButton?
+  private var detailsButton: NSButton?
   private var issueShowing = false
   private var issueRepair = false
   private var authorizationRepair = false
-  private var activePanel: RecoverySheet?
+  private let sheets = SheetPresenter()
   private var authorizationField: NSSecureTextField?
   private var detailsViewer: LogTextView?
+  private var copyButton: NSButton?
+  private var copyingLog = false
 
   init(model: InstallerModel) {
     self.model = model
     super.init(nibName: nil, bundle: nil)
     model.onChange = { [weak self] in self?.refresh() }
     log.onChange = { [weak self] in self?.refresh() }
+    sheets.onDismiss = { [weak self] in
+      self?.authorizationField = nil
+      self?.detailsViewer = nil
+      self?.copyButton = nil
+      self?.refresh()
+    }
   }
 
   required init?(coder: NSCoder) { fatalError("Use the programmatic initializer") }
@@ -101,28 +110,41 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
     titleWidthConstraint?.constant = model.stage == .account ? 380 : 600
     progressIndicator?.doubleValue = model.progress * 100
     operationLabel?.stringValue = model.currentOperation + "…"
-    primaryButton?.isEnabled = !model.checkingEnvironment
+    primaryButton?.isEnabled = !model.checkingEnvironment && !model.restartingCompletedSetup
+    detailsButton?.isHidden = model.stage == .welcome && log.text.isEmpty
     debugButton?.title = model.debugEnabled ? "Disable Debug" : "Enable Debug"
     proxyButton?.title = model.proxyEnabled ? "Disable Proxy" : "Enable Proxy"
-    accountButton?.title = model.accountAlreadyStarted ? "CONTINUE" : "CREATE ACCOUNT"
+    accountButton?.title =
+      model.creatingAccount
+      ? "Preparing…" : model.accountAlreadyStarted ? "Continue" : "Create Account"
     accountButton?.isEnabled = model.canCreateAccount
     skipButton?.title = model.restartingWithoutAccount ? "Restarting…" : "Skip, Restart Now"
     skipButton?.isEnabled = !model.creatingAccount && !model.restartingWithoutAccount
     if let field = accountUsernameField {
-      field.isEnabled = !model.accountAlreadyStarted && !model.creatingAccount
+      field.isEnabled =
+        !model.accountAlreadyStarted && !model.creatingAccount && !model.restartingWithoutAccount
       if field.currentEditor() == nil && field.stringValue != model.accountUsername {
         field.stringValue = model.accountUsername
       }
     }
     accountPasswordField?.isEnabled = !model.creatingAccount && !model.restartingWithoutAccount
     accountConfirmationField?.isEnabled = !model.creatingAccount && !model.restartingWithoutAccount
+    // The model drops typed passwords on Skip and failures; keep the native fields in step.
+    for (field, value) in [
+      (accountPasswordField, model.accountPassword),
+      (accountConfirmationField, model.accountConfirmation),
+    ] where value.isEmpty && field?.stringValue.isEmpty == false {
+      field?.stringValue = ""
+    }
+    copyButton?.title = copyingLog ? "Copying…" : "Copy Log"
+    copyButton?.isEnabled = !copyingLog
     detailsViewer?.update(
       text: log.text.isEmpty ? model.operations.joined(separator: "\n") : log.text)
     if (model.environmentIssue != nil || model.failure != nil) && !issueShowing
-      && activePanel == nil
+      && sheets.active == nil
     {
       presentIssue()
-    } else if let notice = model.previewNotice, activePanel == nil {
+    } else if let notice = model.previewNotice, sheets.active == nil {
       let done = RecoveryPrimaryButton(
         title: "Done", target: self, action: #selector(donePanelPressed))
       done.keyEquivalent = "\r"
@@ -159,6 +181,7 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
     accountConfirmationField = nil
     accountButton = nil
     skipButton = nil
+    detailsButton = nil
 
     switch model.stage {
     case .welcome: buildWelcome()
@@ -323,32 +346,25 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
       center.addArrangedSubview(skip)
       skipButton = skip
     case .complete:
-      center.addArrangedSubview(
-        RecoveryPrimaryButton(
-          title: "Restart", target: self, action: #selector(restartPressed)))
+      let restart = RecoveryPrimaryButton(
+        title: "Restart", target: self, action: #selector(restartPressed))
+      center.addArrangedSubview(restart)
+      primaryButton = restart
     }
     footer.addSubview(center)
     NSLayoutConstraint.activate([
       center.centerXAnchor.constraint(equalTo: footer.centerXAnchor),
       center.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
     ])
-    let right = NSStackView()
-    right.orientation = .horizontal
-    right.alignment = .centerY
-    right.spacing = 12
-    right.translatesAutoresizingMaskIntoConstraints = false
-    if model.stage != .welcome || !log.text.isEmpty {
-      let details = RecoveryTextButton(
-        title: "Show details", target: self, action: #selector(detailsPressed))
-      right.addArrangedSubview(details)
-    }
-    if !right.arrangedSubviews.isEmpty {
-      footer.addSubview(right)
-      NSLayoutConstraint.activate([
-        right.trailingAnchor.constraint(equalTo: footer.trailingAnchor),
-        right.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
-      ])
-    }
+    // Always built; refresh() shows it once there is output, even on the welcome screen.
+    let details = RecoveryTextButton(
+      title: "Show details", target: self, action: #selector(detailsPressed))
+    footer.addSubview(details)
+    NSLayoutConstraint.activate([
+      details.trailingAnchor.constraint(equalTo: footer.trailingAnchor),
+      details.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
+    ])
+    detailsButton = details
   }
 
   private func fieldRow(_ title: String, field: NSTextField) -> NSStackView {
@@ -407,6 +423,32 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
     }
   }
 
+  func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+    // Tab and Shift-Tab step through the account fields in order.
+    let fields = [accountUsernameField, accountPasswordField, accountConfirmationField]
+      .compactMap { $0 }.filter(\.isEnabled)
+    if selector == #selector(NSResponder.insertTab(_:))
+      || selector == #selector(NSResponder.insertBacktab(_:)),
+      let index = fields.firstIndex(where: { $0 === control })
+    {
+      let step = selector == #selector(NSResponder.insertTab(_:)) ? 1 : fields.count - 1
+      view.window?.makeFirstResponder(fields[(index + step) % fields.count])
+      return true
+    }
+    // Return moves to the next account field and creates the account from the last.
+    guard selector == #selector(NSResponder.insertNewline(_:)) else { return false }
+    if control === accountUsernameField {
+      view.window?.makeFirstResponder(accountPasswordField)
+    } else if control === accountPasswordField {
+      view.window?.makeFirstResponder(accountConfirmationField)
+    } else if control === accountConfirmationField {
+      if model.canCreateAccount { accountPressed() }
+    } else {
+      return false
+    }
+    return true
+  }
+
   @objc private func startPressed() {
     LaunchTrace.mark("ui.continue.pressed")
     if model.recoveryInterface {
@@ -426,29 +468,20 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
     accountPasswordField?.stringValue = ""
     accountConfirmationField?.stringValue = ""
   }
-  @objc private func skipPressed() { model.skipRecoveryAccountAndRestart() }
+  @objc private func skipPressed() {
+    model.skipRecoveryAccountAndRestart()
+    accountPasswordField?.stringValue = ""
+    accountConfirmationField?.stringValue = ""
+  }
   @objc private func restartPressed() { model.finishSetup() }
 
-  private func present(_ panel: RecoverySheet, focus: NSView? = nil) {
-    guard let window = view.window, activePanel == nil else { return }
-    activePanel = panel
-    window.beginSheet(panel) { [weak self, weak panel] _ in
-      guard let self, self.activePanel === panel else { return }
-      self.activePanel = nil
-      self.refresh()
-    }
+  @discardableResult private func present(_ panel: RecoverySheet, focus: NSView? = nil) -> Bool {
+    guard sheets.present(panel, on: view.window) else { return false }
     if let focus { panel.makeFirstResponder(focus) }
+    return true
   }
 
-  private func closePanel() {
-    guard let panel = activePanel else { return }
-    view.window?.endSheet(panel)
-    panel.orderOut(nil)
-    activePanel = nil
-    authorizationField = nil
-    detailsViewer = nil
-    refresh()
-  }
+  private func closePanel() { sheets.close() }
 
   private func showAuthorization(repair: Bool) {
     guard view.window != nil else {
@@ -460,9 +493,13 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
     let owner =
       RecoveryActions.inRecovery
       ? (model.authorizationOwner?.username ?? "the volume owner") : NSUserName()
-    let explanation =
-      "Enter password for " + owner + "."
-      + (repair ? "" : " Your macOS security settings are unaffected.")
+    var explanation = "Enter password for " + owner + "."
+    if !repair {
+      explanation +=
+        model.authorizationUsesSourceOwner
+        ? " Use your existing macOS owner’s password to set up Aurora. Your macOS security settings are unaffected."
+        : " Use your Aurora installation’s credentials to adjust its security settings. The security of your macOS installations is unaffected."
+    }
     let field = NSSecureTextField()
     field.placeholderString = "Password"
     field.font = AuroraTheme.body
@@ -504,9 +541,15 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
 
   @objc private func authorizePanelPressed() {
     let credential = authorizationField?.stringValue ?? ""
+    // An empty password keeps the sheet open. Refocus the field instead of
+    // beeping: NSSound.beep() needs the Swift AppKit overlay, which older
+    // Recovery lacks.
+    guard !credential.isEmpty else {
+      authorizationField?.window?.makeFirstResponder(authorizationField)
+      return
+    }
     authorizationField?.stringValue = ""
     closePanel()
-    guard !credential.isEmpty else { return }
     if authorizationRepair {
       model.repairRecoveryBoot(password: credential) { [weak self] in
         self?.showAuthorization(repair: true)
@@ -518,6 +561,7 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
   }
 
   @objc private func cancelPanelPressed() {
+    authorizationField?.stringValue = ""
     model.password.removeAll(keepingCapacity: false)
     closePanel()
   }
@@ -530,21 +574,30 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
     detailsViewer = viewer
     let copy = RecoverySecondaryButton(
       title: "Copy Log", target: self, action: #selector(copyLogPressed))
+    copyButton = copy
     let done = RecoveryPrimaryButton(
       title: "Done", target: self, action: #selector(donePanelPressed))
     done.keyEquivalent = "\r"
     let panel = RecoverySheet(
       title: "Installation details",
-      message: "Command output from this installation.",
+      message:
+        "Boot security is reduced only for this Aurora installation. Your macOS security settings are unchanged."
+        + (log.truncated
+          ? " Showing recent output. Copy Log includes this attempt’s full log." : ""),
       width: 550, height: 480, body: viewer, bodyHeight: 290, buttons: [copy, done])
     present(panel)
   }
 
   @objc private func copyLogPressed() {
+    guard !copyingLog else { return }
+    copyingLog = true
+    refresh()
     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
       guard let self else { return }
       let result = Result { try self.log.fullText() }
       DispatchQueue.main.async {
+        self.copyingLog = false
+        self.refresh()
         switch result {
         case .success(let text):
           NSPasteboard.general.clearContents()
@@ -561,7 +614,6 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
   }
 
   private func presentIssue() {
-    issueShowing = true
     let issue = model.environmentIssue
     issueRepair = issue?.canRepairStartupSelection == true
     let primary = RecoveryPrimaryButton(
@@ -576,7 +628,8 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
       message: issue?.message ?? model.failure ?? "",
       width: 490, height: 270, body: NSView(), bodyHeight: 0,
       buttons: [cancel, primary])
-    present(panel)
+    // A sheet that could not be shown must not block every later failure.
+    issueShowing = present(panel)
   }
 
   @objc private func issuePrimaryPressed() {

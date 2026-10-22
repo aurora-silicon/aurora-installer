@@ -71,7 +71,7 @@ struct RecoveryFailure: Error { let message: String }
         return true
       },
       restart: { calls.append("restart") })
-    precondition(calls == ["verify", "default", "default", "restart"])
+    precondition(calls == ["default", "verify", "default", "restart"])
     for (receipt, pending, bundleValid, targetDefault) in [
       (["status": "prepared"], false, true, true),
       (["status": "installed"], true, true, true),

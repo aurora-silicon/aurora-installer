@@ -1,6 +1,7 @@
 import AppKit
 
-/// A fixed-size, keyboard-modal AppKit sheet styled like the Recovery window.
+/// A keyboard-modal AppKit sheet styled like the Recovery window. It keeps
+/// `height` as its minimum and grows to fit a long wrapped message.
 final class RecoverySheet: NSPanel {
   init(
     title: String, message: String, width: CGFloat, height: CGFloat,
@@ -70,6 +71,9 @@ final class RecoverySheet: NSPanel {
       actions.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -28),
       actions.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -24),
       body.bottomAnchor.constraint(lessThanOrEqualTo: actions.topAnchor, constant: -14),
+      root.widthAnchor.constraint(equalToConstant: width),
     ])
+    // A long failure message must not overflow a fixed height.
+    setContentSize(NSSize(width: width, height: max(height, root.fittingSize.height)))
   }
 }
