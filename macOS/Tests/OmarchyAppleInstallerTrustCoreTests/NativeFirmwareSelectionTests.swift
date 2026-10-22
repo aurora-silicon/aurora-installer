@@ -88,6 +88,111 @@
       }
     }
 
+    func testFollowingTheNamedMacOSUpdateMakesTheFirmwareSelectable() throws {
+      let fixture = try fixture()
+      let policy = try NativeInspectionPolicy.sealed()
+      var named = 0
+      for vector in fixture.firmware where vector.expected == nil {
+        let metadata = try NativeInstallationMetadata(data: Data(vector.metadata.utf8))
+        func choose(_ hardware: NativeInspectionHardware) throws -> NativeFirmwareSelection {
+          try NativeFirmwareSelection.choose(
+            deviceIdentifier: vector.device,
+            facts: .init(deviceIdentifier: vector.device, hardware: hardware),
+            metadata: metadata, policy: policy)
+        }
+        do {
+          _ = try choose(vector.hardware)
+          XCTFail("\(vector.name): firmware admitted")
+        } catch NativeFirmwareSelectionError.macOSUpdateRequired(let version) {
+          // A Mac updated to the named macOS has at least that release's
+          // boot firmware, macOS and recovery versions.
+          named += 1
+          let entry = try XCTUnwrap(policy.firmware.first { $0.version == version }, vector.name)
+          let updated = NativeInspectionHardware(
+            chipID: vector.hardware.chipID, bootVersion: entry.minimumBoot,
+            macOSVersion: version, recoveryVersion: entry.minimumRecovery)
+          XCTAssertNoThrow(try choose(updated), vector.name)
+        } catch NativeFirmwareSelectionError.noCompatibleFirmware {
+          // No macOS update helps when the release offers this Mac nothing.
+          let newest = NativeInspectionHardware(
+            chipID: vector.hardware.chipID, bootVersion: "mBoot-99999", macOSVersion: "99.0",
+            recoveryVersion: "99.0.0.0.0,0")
+          XCTAssertThrowsError(try choose(newest), vector.name) {
+            XCTAssertEqual(
+              $0 as? NativeFirmwareSelectionError, .noCompatibleFirmware, vector.name)
+          }
+        } catch {}
+      }
+      XCTAssertEqual(named, 27)
+    }
+
+    func testAMacOnOlderFirmwareIsToldWhichMacOSToInstall() throws {
+      let policy = try NativeInspectionPolicy.sealed()
+      func choose(
+        _ device: String, _ hardware: NativeInspectionHardware, supported: [String]?,
+        policy changed: NativeInspectionPolicy? = nil
+      ) throws -> NativeFirmwareSelection {
+        var template: [String: Any] = [
+          "omarchy_target": "apple-silicon-full-os", "default_os_name": "Fixture",
+          "partitions": [["size": "1GiB"]],
+        ]
+        if let supported { template["supported_fw"] = supported }
+        return try NativeFirmwareSelection.choose(
+          deviceIdentifier: device, facts: .init(deviceIdentifier: device, hardware: hardware),
+          metadata: NativeInstallationMetadata(
+            data: JSONSerialization.data(withJSONObject: ["os_list": [template]])),
+          policy: changed ?? policy)
+      }
+      func assertUpdate(
+        _ expected: NativeFirmwareSelectionError, _ selection: @autoclosure () throws -> Any,
+        line: UInt = #line
+      ) {
+        XCTAssertThrowsError(try selection(), line: line) {
+          XCTAssertEqual($0 as? NativeFirmwareSelectionError, expected, line: line)
+        }
+      }
+      // A MacBook Neo on macOS 26.6 (25G72) has mBoot-18000.161.9; the 26.6.2
+      // firmware needs mBoot-18000.161.10, so the Neo must update to 26.6.2.
+      let neo = NativeInspectionHardware(
+        chipID: 0x8140, bootVersion: "mBoot-18000.161.9", macOSVersion: "26.6",
+        recoveryVersion: "25.7.72.0.0,0")
+      assertUpdate(
+        .macOSUpdateRequired(version: "26.6.2"),
+        try choose("apple,j700", neo, supported: ["26.6.2"]))
+      XCTAssertEqual(try choose("apple,j700", neo, supported: nil).version, "26.6")
+      let updatedNeo = NativeInspectionHardware(
+        chipID: 0x8140, bootVersion: "mBoot-18000.161.10", macOSVersion: "26.6.2",
+        recoveryVersion: "25.7.83.0.0,0")
+      XCTAssertEqual(try choose("apple,j700", updatedNeo, supported: ["26.6.2"]).version, "26.6.2")
+      assertUpdate(.noCompatibleFirmware, try choose("apple,j700", neo, supported: ["13.5"]))
+
+      // The lowest firmware this Mac may use names the update, not the newest.
+      let air = NativeInspectionHardware(
+        chipID: 0x8122, bootVersion: "iBoot-10151.121.1", macOSVersion: "14.6",
+        recoveryVersion: "23.6.74.0.0,0")
+      assertUpdate(
+        .macOSUpdateRequired(version: "14.8.3"),
+        try choose("apple,j613", air, supported: ["14.8.3", "26.6.2"]))
+      assertUpdate(
+        .macOSUpdateRequired(version: "26.6.2"),
+        try choose("apple,j613", air, supported: ["26.6.2"]))
+
+      // Expert-only firmware is never a reason to update macOS.
+      var object =
+        try JSONSerialization.jsonObject(with: Data(NativeInspectionPolicySource.json.utf8))
+        as! [String: Any]
+      var entries = object["firmware"] as! [[String: Any]]
+      for index in entries.indices where entries[index]["version"] as? String == "26.6.2" {
+        entries[index]["expert"] = true
+      }
+      object["firmware"] = entries
+      let expert = try JSONDecoder().decode(
+        NativeInspectionPolicy.self, from: JSONSerialization.data(withJSONObject: object))
+      assertUpdate(
+        .noCompatibleFirmware,
+        try choose("apple,j700", neo, supported: ["26.6.2"], policy: expert))
+    }
+
     func testBoardBootObjectsAndESPLayoutMatchTheLockedBackend() async throws {
       let fixture = try fixture()
       XCTAssertEqual(fixture.boot.count, 56)

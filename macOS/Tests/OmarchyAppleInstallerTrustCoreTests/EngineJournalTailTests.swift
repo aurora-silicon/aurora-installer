@@ -185,11 +185,19 @@
         try handle.write(contentsOf: Data(text.utf8))
         return
       }
-      try Data(text.utf8).write(to: url, options: .atomic)
+      // The tailer disables itself for good if it ever sees the journal
+      // readable by others, and it polls while a test writes. The file
+      // reaches its path already 0600: written and restricted under a
+      // temporary name, then renamed into place.
+      let staging = url.appendingPathExtension("staging")
+      try Data(text.utf8).write(to: staging)
       try FileManager.default.setAttributes(
         [.posixPermissions: 0o600],
-        ofItemAtPath: url.path
+        ofItemAtPath: staging.path
       )
+      guard Darwin.rename(staging.path, url.path) == 0 else {
+        throw CocoaError(.fileWriteUnknown)
+      }
     }
   }
 

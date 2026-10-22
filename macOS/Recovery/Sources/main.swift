@@ -31,6 +31,7 @@ final class InstallerModel {
   var accountAlreadyStarted = false { didSet { changed() } }
   var creatingAccount = false { didSet { changed() } }
   var restartingWithoutAccount = false { didSet { changed() } }
+  var restartingCompletedSetup = false { didSet { changed() } }
   var accountNeedsAuthorization = false { didSet { changed() } }
   var previewNotice: (title: String, message: String)? { didSet { changed() } }
   private var checkingAccount = false
@@ -349,9 +350,28 @@ final class InstallerModel {
         previewNotice = ("Restart simulated", "This preview does not restart your Mac.")
         return
       }
+      guard !restartingCompletedSetup else { return }
+      restartingCompletedSetup = true
       DispatchQueue.global(qos: .userInitiated).async {
-        do { try RecoveryActions.restartCompletedSetup() } catch {
-          DispatchQueue.main.async { self.failure = error.localizedDescription }
+        do {
+          // Another default volume is not an error: let the person choose
+          // this installation in Startup Disk, which restarts from there.
+          guard try RecoveryActions.targetIsDefaultBoot() else {
+            InstallerLog.shared.append(
+              "This installation is not the startup disk. Opening Startup Disk.")
+            DispatchQueue.main.async {
+              self.restartingCompletedSetup = false
+              self.openStartupDisk()
+            }
+            return
+          }
+          try RecoveryActions.restartCompletedSetup()
+        } catch {
+          InstallerLog.shared.append("Restart failed: " + error.localizedDescription)
+          DispatchQueue.main.async {
+            self.restartingCompletedSetup = false
+            self.failure = error.localizedDescription
+          }
         }
       }
       return
@@ -363,6 +383,10 @@ final class InstallerModel {
       )
       return
     }
+    openStartupDisk()
+  }
+
+  private func openStartupDisk() {
     guard RecoveryActions.inRecovery else {
       environmentIssue = .notRecovery
       return
@@ -444,6 +468,8 @@ final class InstallerWindow: NSWindow {
     for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
       standardWindowButton(button)?.isHidden = true
     }
+    // Views are built in code, so let AppKit derive Tab order from layout.
+    autorecalculatesKeyViewLoop = true
     isMovableByWindowBackground = true
     // Full-size content occupies the titlebar too. Preserve the original outer
     // dimensions instead of adding AppKit's titlebar height to the layout.

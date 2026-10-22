@@ -37,10 +37,15 @@ enum RecoveryDirectRestart {
     guard receipt["status"] as? String == "installed", !hasPendingInstallation else {
       throw RecoveryFailure(message: "Finish installing the startup software before restarting.")
     }
-    try verifyBundle()
+    // Check the startup disk before and after verifying the bundle, so the
+    // selection that is restarted is the one checked last.
     guard try isTargetDefault() else {
-      throw RecoveryFailure(message: "Select this installation in Startup Disk before restarting.")
+      throw RecoveryFailure(
+        message:
+          "Select this installation in Apple menu → Startup Disk before restarting. Your Mac has not been restarted."
+      )
     }
+    try verifyBundle()
     guard try isTargetDefault() else {
       throw RecoveryFailure(
         message: "The startup disk changed. Select this installation before restarting.")
