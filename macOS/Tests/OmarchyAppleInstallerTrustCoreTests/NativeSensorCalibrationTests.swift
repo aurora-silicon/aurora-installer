@@ -18,8 +18,12 @@
       func der(_ tag: UInt8, _ value: Data) -> Data { Data([tag, UInt8(value.count)]) + value }
       func text(_ value: String) -> Data { der(0x16, Data(value.utf8)) }
       let payload = der(0x30, text("IM4P") + text("MSRk") + text("1.0") + der(4, Data([1])))
-      return der(
+      let image = der(
         0x30, text("IMG4") + payload + der(0xa0, der(0x30, text("IM4M") + der(2, Data([0])))))
+      return der(
+        0x30,
+        text("comb") + der(0x30, text("fdrd") + der(4, image))
+          + der(0x30, text("secb") + der(4, Data("synthetic trust bundle".utf8))))
     }
 
     static func snapshot(type: String = "Apple_APFS_ISC") -> RemovalSnapshot {
