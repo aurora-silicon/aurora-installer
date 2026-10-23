@@ -446,6 +446,68 @@
       XCTAssertEqual(calls, 9)
     }
 
+    func testStatusReportsTheStepARunningJobIsOnAndForgetsItWhenTheJobEnds() throws {
+      let root = try workspace()
+      let jobs = InstallerJobRegistry(workingDirectory: root, work: HelperWorkState())
+      let request = try request()
+      let status = InstallerJobStatusRequest(ticket: request.ticket, journalOffset: 0)
+      // A job that was never begun keeps no step.
+      jobs.note(request.ticket.identifier, step: "source_owner")
+      XCTAssertTrue(try jobs.begin(request, initiatingUID: 501))
+      XCTAssertNil(try jobs.status(status, initiatingUID: 501).preparationStep)
+      jobs.note(request.ticket.identifier, step: "source_owner")
+      XCTAssertEqual(try jobs.status(status, initiatingUID: 501).preparationStep, "source_owner")
+      jobs.note(request.ticket.identifier, step: "stub_files_preflight")
+      XCTAssertEqual(
+        try jobs.status(status, initiatingUID: 501).preparationStep, "stub_files_preflight")
+      jobs.finish(request.ticket.identifier, result: .failure(InstallerJobError.interrupted))
+      jobs.note(request.ticket.identifier, step: "finishing_preflight")
+      XCTAssertNil(try jobs.status(status, initiatingUID: 501).preparationStep)
+    }
+
+    func testObservationReportsEachNewHelperStepOnce() async throws {
+      let request = try request()
+      func snapshot(_ phase: InstallerJobPhase, step: String?) -> InstallerJobSnapshot {
+        InstallerJobSnapshot(
+          identifier: request.ticket.identifier, bindingDigest: request.ticket.bindingDigest,
+          selection: request.ticket.selection, phase: phase, plan: nil,
+          transcript: phase == .succeeded ? Data("result\n".utf8) : nil,
+          installConf: phase == .succeeded ? .recorded : nil, failure: nil,
+          journal: Data(), journalOffset: 0, recoveryAttempt: nil, recoveryRetryAvailable: false,
+          startOverAvailable: nil, preparationStep: step)
+      }
+      let source = JobObservationFixture(responses: [
+        .success(snapshot(.preparing, step: nil)),
+        .success(snapshot(.preparing, step: "credential_validation")),
+        .success(snapshot(.preparing, step: "credential_validation")),
+        .success(snapshot(.preparing, step: "source_owner")),
+        .success(snapshot(.succeeded, step: nil)),
+      ])
+      let reported = StepLog()
+      let result = try await InstallerJobObservation.wait(
+        fetch: { _ in try await source.next() }, preparation: { reported.append($0) },
+        sleep: { _ in })
+      XCTAssertEqual(result.phase, .succeeded)
+      XCTAssertEqual(reported.steps, ["credential_validation", "source_owner"])
+    }
+
+    func testSnapshotsFromHelpersThatReportNoStepStillDecode() throws {
+      let request = try request()
+      let snapshot = InstallerJobSnapshot(
+        identifier: request.ticket.identifier, bindingDigest: request.ticket.bindingDigest,
+        selection: request.ticket.selection, phase: .running, plan: nil, transcript: nil,
+        installConf: nil, failure: nil, journal: Data(), journalOffset: 0, recoveryAttempt: nil,
+        recoveryRetryAvailable: false, startOverAvailable: nil, preparationStep: "source_owner")
+      var fields = try XCTUnwrap(
+        JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot)) as? [String: Any])
+      XCTAssertEqual(fields["preparationStep"] as? String, "source_owner")
+      fields.removeValue(forKey: "preparationStep")
+      let older = try JSONDecoder().decode(
+        InstallerJobSnapshot.self, from: JSONSerialization.data(withJSONObject: fields))
+      XCTAssertNil(older.preparationStep)
+      XCTAssertEqual(older.phase, .running)
+    }
+
     func testTerminalResultSurvivesHelperRestartWithTheSameHandoffOutcome() throws {
       let root = try workspace()
       let first = InstallerJobRegistry(workingDirectory: root, work: HelperWorkState())
@@ -683,5 +745,13 @@
     private var count = 0
     var value: Int { lock.withLock { count } }
     func add() { lock.withLock { count += 1 } }
+  }
+
+  /// Steps an observation reported, in order.
+  private final class StepLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [String] = []
+    var steps: [String] { lock.withLock { recorded } }
+    func append(_ step: String) { lock.withLock { recorded.append(step) } }
   }
 #endif

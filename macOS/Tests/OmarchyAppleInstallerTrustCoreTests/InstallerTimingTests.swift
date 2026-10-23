@@ -49,6 +49,28 @@
       XCTAssertEqual(try lines(sidecar).count, 7)
     }
 
+    func testAnAttemptReportsEachMeasuredStepAsItStarts() async {
+      final class Started: @unchecked Sendable {
+        private let lock = NSLock()
+        private var names: [String] = []
+        var all: [String] { lock.withLock { names } }
+        func append(_ name: String) { lock.withLock { names.append(name) } }
+      }
+      let started = Started()
+      let observe: @Sendable (String) -> Void = { started.append($0) }
+      await InstallerTimingRecorder.attempt("install", observe: observe) {
+        InstallerPerformance.measure("source_owner") {
+          XCTAssertEqual(started.all, ["source_owner"])
+          InstallerPerformance.measure("owner_snapshot") {}
+        }
+        await InstallerPerformance.measuring("stub_files_preflight") {}
+      }
+      XCTAssertEqual(started.all, ["source_owner", "owner_snapshot", "stub_files_preflight"])
+      // Outside an attempt nothing is reported.
+      InstallerPerformance.measure("finishing") {}
+      XCTAssertEqual(started.all.count, 3)
+    }
+
     func testAnUnsafeSidecarIsNeverWritten() throws {
       let root = try temporaryDirectory()
       defer { try? FileManager.default.removeItem(at: root) }

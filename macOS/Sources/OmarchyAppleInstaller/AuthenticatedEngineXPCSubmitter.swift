@@ -752,7 +752,7 @@
         fetch: { offset in
           try await self.jobStatus(hint, journalOffset: offset, otherBuild: otherBuild)
         },
-        journal: journalProgress)
+        journal: journalProgress, preparation: jobContext?.preparation)
     }
 
     public func writeInstallConf(

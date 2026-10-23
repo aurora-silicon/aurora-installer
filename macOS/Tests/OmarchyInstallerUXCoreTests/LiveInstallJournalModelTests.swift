@@ -34,6 +34,32 @@
       XCTAssertEqual(model.feed.last?.kind, .completion)
     }
 
+    func testPreparationOnlyMovesForwardAndEndsWithTheFirstJournalRecord() throws {
+      var model = LiveInstallJournalModel()
+      let steps = PlainLanguage.installPreparationSteps
+      XCTAssertEqual(
+        model.display(startedAt: Date()).preparation,
+        InstallPreparationDisplay(stepLabels: steps, stepIndex: 0))
+      model.prepare(step: PlainLanguage.installPreparationHandoffStep)
+      model.prepare(helperStep: "credential_validation")
+      XCTAssertEqual(model.preparation?.stepIndex, 1)
+      model.prepare(helperStep: "stub_files_preflight")
+      XCTAssertEqual(model.preparation?.stepIndex, 5)
+      // A late report, a step after the preparation and an unknown step
+      // change nothing.
+      model.prepare(helperStep: "source_owner")
+      model.prepare(helperStep: "apfs_preparation")
+      model.prepare(helperStep: "a_step_from_a_newer_helper")
+      model.prepare(step: 99)
+      XCTAssertEqual(model.preparation?.stepIndex, steps.count - 1)
+
+      model.consume(try XCTUnwrap(JournalFixture.lines().first))
+      XCTAssertNil(model.preparation)
+      XCTAssertNil(model.display(startedAt: Date()).preparation)
+      model.reset()
+      XCTAssertEqual(model.preparation?.stepIndex, 0)
+    }
+
     func testPartialReplayTracksTheStageInFlight() throws {
       let lines = try JournalFixture.lines()
       var model = LiveInstallJournalModel()

@@ -79,6 +79,27 @@
       XCTAssertTrue(unreachable.remedy?.contains("open it again") == true)
     }
 
+    func testHelperStepsFillThePreparationInTheOrderTheHelperRunsThem() {
+      // The order the helper's preparation runs its measured steps in.
+      let helperOrder = [
+        "credential_validation", "helper_import", "recovery_template", "restore_helper_check",
+        "source_owner", "owner_device", "owner_snapshot", "owner_resolve", "owner_recheck",
+        "payload_preflight", "firmware_preparation", "peripheral_inputs", "apfs_preflight",
+        "stub_files_preflight", "os_partitions_preflight", "payload_images_preflight",
+        "esp_files_preflight", "finishing_preflight",
+      ]
+      let steps = helperOrder.compactMap(PlainLanguage.installPreparationStep(forHelperStep:))
+      XCTAssertEqual(steps.count, helperOrder.count)
+      XCTAssertEqual(steps, steps.sorted(), "The list never moves backwards.")
+      XCTAssertEqual(
+        Set(steps).union([0, PlainLanguage.installPreparationHandoffStep]),
+        Set(PlainLanguage.installPreparationSteps.indices))
+      for name in ["apfs_preparation", "apfs_collect", "stub_files", "payload_images", "finishing"]
+      {
+        XCTAssertNil(PlainLanguage.installPreparationStep(forHelperStep: name), name)
+      }
+    }
+
     func testHeaderNamesTheChosenSizeOnceThereIsOne() {
       let host = HostDisplay(
         chipAndSpace: "Apple M2 Max · 375 GB free · up to 314 GB for Aurora",

@@ -91,17 +91,21 @@
     let selection: AuroraInstallationSelection
     let store: PendingInstallerJobStore
     let installConf: InstallConf
+    /// Told each step the helper starts while the job runs.
+    let preparation: (@Sendable (String) -> Void)?
     private let lock = NSLock()
     private var handoff: InstallConfHandoff?
 
     public init(
       bindingDigest: String, selection: AuroraInstallationSelection,
-      store: PendingInstallerJobStore, installConf: InstallConf
+      store: PendingInstallerJobStore, installConf: InstallConf,
+      preparation: (@Sendable (String) -> Void)? = nil
     ) {
       self.bindingDigest = bindingDigest
       self.selection = selection
       self.store = store
       self.installConf = installConf
+      self.preparation = preparation
     }
 
     public var installConfHandoff: InstallConfHandoff? { lock.withLock { handoff } }
@@ -263,6 +267,9 @@
     /// The helper may set this failed job aside if the person chooses Start
     /// over. Older helpers never report it.
     public let startOverAvailable: Bool?
+    /// The step a preparing or running job is on, such as `source_owner`.
+    /// Older helpers never report it.
+    public var preparationStep: String? = nil
 
     public var initialFailureWithoutDiskChanges: EngineXPCSubmissionError? {
       guard phase == .failed, recoveryAttempt == nil, let failure, failure.diskUnchanged else {
@@ -362,6 +369,9 @@
     private let interruptedRetryEligibility: @Sendable (InstallerJobPlanIdentity) -> Bool
     private let abandonEligibility: @Sendable (InstallerJobPlanIdentity) -> Bool
     private var records = [UUID: InstallerJobRecord]()
+    /// The step each running job is on. Kept in memory only: a restarted
+    /// helper has no running job.
+    private var steps = [UUID: String]()
     private var loaded = false
     private var loadError: (any Error)?
     private static let maximumRecordBytes = 12 * 1_048_576
@@ -455,6 +465,7 @@
       var holdForInspection = false
       defer { if !holdForInspection { work.endJob() } }
       lock.withLock {
+        steps.removeValue(forKey: identifier)
         guard var record = records[identifier] else { return }
         let retainedPackageName = record.retainedPackageName
         switch result {
@@ -499,17 +510,28 @@
       return cleanup
     }
 
+    /// The step a job is on, for status while it runs.
+    func note(_ identifier: UUID, step: String) {
+      lock.withLock {
+        guard let record = records[identifier],
+          record.phase == .preparing || record.phase == .running
+        else { return }
+        steps[identifier] = step
+      }
+    }
+
     func status(_ request: InstallerJobStatusRequest, initiatingUID: UInt32) throws
       -> InstallerJobSnapshot
     {
       try request.ticket.validate()
-      let record = try lock.withLock {
+      let (record, step) = try lock.withLock {
         try load()
         guard let record = records[request.ticket.identifier] else {
           throw InstallerJobError.unavailable
         }
         try authorize(record, ticket: request.ticket, uid: initiatingUID)
-        return record
+        let running = record.phase == .preparing || record.phase == .running
+        return (record, running ? steps[record.identifier] : nil)
       }
       let (journal, offset) = readJournal(record, offset: request.journalOffset)
       return InstallerJobSnapshot(
@@ -518,7 +540,7 @@
         transcript: record.transcript, installConf: record.installConf, failure: record.failure,
         journal: journal, journalOffset: offset, recoveryAttempt: record.recoveryAttempt,
         recoveryRetryAvailable: retryAvailable(record),
-        startOverAvailable: abandonAvailable(record))
+        startOverAvailable: abandonAvailable(record), preparationStep: step)
     }
 
     /// Start over: sets a failed job aside once the person chose to. Only a
@@ -844,15 +866,21 @@
     static func wait(
       fetch: @escaping @Sendable (UInt64) async throws -> InstallerJobSnapshot,
       journal: (@Sendable (Data) -> Void)? = nil,
+      preparation: (@Sendable (String) -> Void)? = nil,
       sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     ) async throws -> InstallerJobSnapshot {
       var offset: UInt64 = 0
       var lostConnections = 0
+      var step: String?
       while true {
         do {
           let snapshot = try await fetch(offset)
           lostConnections = 0
           offset = snapshot.journalOffset
+          if let current = snapshot.preparationStep, current != step {
+            step = current
+            preparation?(current)
+          }
           if !snapshot.journal.isEmpty { journal?(snapshot.journal) }
           switch snapshot.phase {
           case .preparing, .running:

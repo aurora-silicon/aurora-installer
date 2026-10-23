@@ -261,6 +261,32 @@
     }
     public func discardApproval() { lock.withLock { approved = false } }
 
+    /// The steps a real helper reports before the first journal record, so
+    /// the simulated Install screen shows its preparation.
+    static let preparationSteps = [
+      "credential_validation", "helper_import", "source_owner", "payload_preflight",
+      "firmware_preparation", "stub_files_preflight", "finishing_preflight",
+    ]
+
+    public func execute(
+      operation: InstallOperationKind, authorization: MachineOwnerAuthorization,
+      encryptLinuxDisk: Bool,
+      journal: @escaping @Sendable (Data) -> Void,
+      preparation: @escaping @Sendable (String) -> Void
+    ) async throws -> CompletionDisplay {
+      // A first attempt whose credentials are refused never gets past them.
+      let refused = scenario == .credentialsRejected && lock.withLock { attempts } == 0
+      if operation == .install, hasApprovedPlan, !refused {
+        for step in Self.preparationSteps {
+          try await tick()
+          preparation(step)
+        }
+      }
+      return try await execute(
+        operation: operation, authorization: authorization, encryptLinuxDisk: encryptLinuxDisk,
+        journal: journal)
+    }
+
     public func execute(
       operation: InstallOperationKind, authorization: MachineOwnerAuthorization,
       encryptLinuxDisk: Bool,

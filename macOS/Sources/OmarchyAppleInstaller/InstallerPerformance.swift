@@ -8,6 +8,7 @@
 
     @discardableResult
     static func measure<T>(_ phase: String, _ action: () throws -> T) rethrows -> T {
+      InstallerTimingRecorder.current?.begin(phase)
       let start = InstallerTimingRecorder.now()
       var completed = false
       defer { finish(phase, start: start, completed: completed) }
@@ -18,6 +19,7 @@
 
     @discardableResult
     static func measuring<T>(_ phase: String, _ action: () async throws -> T) async rethrows -> T {
+      InstallerTimingRecorder.current?.begin(phase)
       let start = InstallerTimingRecorder.now()
       var completed = false
       defer { finish(phase, start: start, completed: completed) }

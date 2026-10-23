@@ -425,7 +425,9 @@
       identifier: UUID,
       installConf: InstallConf
     ) async throws -> (Data, InstallConfHandoff) {
-      try await InstallerTimingRecorder.attempt(operation.rawValue) {
+      let registry = jobs
+      let observe: @Sendable (String) -> Void = { registry.note(identifier, step: $0) }
+      return try await InstallerTimingRecorder.attempt(operation.rawValue, observe: observe) {
         try await executeSubmittedPackage(
           packageDirectory: packageDirectory, authorization: authorization, operation: operation,
           progress: nil, jobIdentifier: identifier, installConf: installConf)
@@ -481,8 +483,10 @@
     func retryRegisteredJob(identifier: UUID, authorization: MachineOwnerAuthorization) async throws
       -> (Data, InstallConfHandoff)
     {
-      try await InstallerTimingRecorder.attempt(
-        EngineHandoffOperation.retryRecoveryAuthorization.rawValue
+      let registry = jobs
+      let observe: @Sendable (String) -> Void = { registry.note(identifier, step: $0) }
+      return try await InstallerTimingRecorder.attempt(
+        EngineHandoffOperation.retryRecoveryAuthorization.rawValue, observe: observe
       ) {
         try await retryRegisteredJobAttempt(identifier: identifier, authorization: authorization)
       }
