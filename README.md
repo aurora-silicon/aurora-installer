@@ -4,6 +4,12 @@ The native Aurora Linux installer is in [`macOS/`](macOS/README.md). It selects 
 
 The command-line installer at the repository root is the existing Windows-on-Apple-Silicon work described in [`README.aurora.md`](README.aurora.md). Its code is preserved. The upstream Asahi description below records the original installer and reusable boot/firmware groundwork.
 
+An experimental **J604 / Mac16,1 terminal installer** is in [`j604/`](j604/README.md).
+It signs into GitHub to fetch a pinned private hardware kit, customizes a
+downloaded Fedora Asahi image with compiled J604 components, validates the
+boot chain, and launches interactive disk installation. It is separate from
+the native GUI and does not expand the GUI's supported-device catalog.
+
 ## Upstream Asahi Linux installer
 The Asahi Linux installer provides a way to install [Asahi Linux](https://asahilinux.org)
 on Apple Silicon Macs. These systems have a bespoke [boot process](https://asahilinux.org/docs/platform/introduction/)
