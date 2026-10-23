@@ -274,13 +274,100 @@
 
       orchestrator.begin(payload: payload)
       try await orchestrator.waitForRetirement()
-      // Planning awaits retirement instead of blocking the UI in begin.
-      XCTAssertFalse(FileManager.default.fileExists(atPath: abandoned.path))
+      // Planning awaits retirement instead of blocking the UI in begin. A file
+      // that is no verified part is gone before the next attempt starts.
+      XCTAssertFalse(
+        FileManager.default.fileExists(atPath: abandoned.appendingPathComponent("part-1").path))
       try await orchestrator.waitUntilVerified { _ in }
       XCTAssertEqual(orchestrator.currentState(), .verified)
       XCTAssertEqual(attempts.values.count, 2)
       XCTAssertFalse(FileManager.default.fileExists(atPath: abandoned.path))
       XCTAssertEqual(try Data(contentsOf: canonical), data)
+    }
+
+    func testVerifiedPartsOutliveQuittingAndTheNextLaunchContinues() async throws {
+      let (artifact, chunks) = try pinnedParts(Data("two-part payload bytes".utf8))
+      let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+        "prefetch-parts-\(UUID().uuidString)", isDirectory: true)
+      try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: root) }
+      let payload = StagedInstallerArtifact(
+        artifact: artifact, fileURL: root.appendingPathComponent(artifact.fileName),
+        reusedExistingFile: false)
+      let other = root.appendingPathComponent("prefetch-" + String(repeating: "c", count: 64))
+      try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+      try Data("an older payload's part".utf8).write(to: other.appendingPathComponent("old"))
+      let directories = RecordingBox<URL>()
+      let first = orchestrator { artifact, directory, _ in
+        try chunks[0].write(to: directory.appendingPathComponent(artifact.parts[0].fileName))
+        try Data("resume".utf8).write(
+          to: directory.appendingPathComponent(artifact.parts[1].fileName + ".resume"))
+        try Data("unverified".utf8).write(to: directory.appendingPathComponent(".pending-1"))
+        directories.append(directory)
+        try await Task.sleep(for: .seconds(30))
+        throw CancellationError()
+      }
+      first.begin(payload: payload)
+      for _ in 0..<200 where directories.values.isEmpty {
+        try await Task.sleep(for: .milliseconds(10))
+      }
+      let work = try XCTUnwrap(directories.values.first)
+      XCTAssertEqual(
+        work.lastPathComponent,
+        PayloadPrefetchOrchestrator.workDirectoryName(for: artifact.expectedDigest))
+      XCTAssertFalse(
+        FileManager.default.fileExists(atPath: other.path), "Another payload's parts are removed")
+      first.cancelAndDrainForQuit()
+      let kept = try FileManager.default.contentsOfDirectory(atPath: work.path).sorted()
+      XCTAssertEqual(
+        kept,
+        [".lock", artifact.parts[0].fileName, artifact.parts[1].fileName + ".resume"].sorted())
+
+      let found = RecordingBox<[String]>()
+      let next = orchestrator { artifact, directory, _ in
+        directories.append(directory)
+        found.append(try FileManager.default.contentsOfDirectory(atPath: directory.path))
+        let file = directory.appendingPathComponent(artifact.fileName)
+        try (chunks[0] + chunks[1]).write(to: file)
+        return StagedInstallerArtifact(artifact: artifact, fileURL: file, reusedExistingFile: false)
+      }
+      next.begin(payload: payload)
+      try await next.waitUntilVerified { _ in }
+      XCTAssertEqual(directories.values.last, work)
+      XCTAssertTrue(try XCTUnwrap(found.values.first).contains(artifact.parts[0].fileName))
+      XCTAssertFalse(FileManager.default.fileExists(atPath: work.path), "Success removes the parts")
+    }
+
+    func testAPartThatFailsItsDigestIsNotKept() async throws {
+      let (artifact, chunks) = try pinnedParts(Data("two-part payload bytes".utf8))
+      let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+        "prefetch-discard-\(UUID().uuidString)", isDirectory: true)
+      try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: root) }
+      let payload = StagedInstallerArtifact(
+        artifact: artifact, fileURL: root.appendingPathComponent(artifact.fileName),
+        reusedExistingFile: false)
+      let found = RecordingBox<[String]>()
+      let attempts = orchestrator { artifact, directory, _ in
+        found.append(try FileManager.default.contentsOfDirectory(atPath: directory.path))
+        if found.values.count == 1 {
+          try chunks[0].write(to: directory.appendingPathComponent(artifact.parts[0].fileName))
+          throw ArtifactStageError.digestMismatch(expected: "sha256:aa", actual: "sha256:bb")
+        }
+        let file = directory.appendingPathComponent(artifact.fileName)
+        try (chunks[0] + chunks[1]).write(to: file)
+        return StagedInstallerArtifact(artifact: artifact, fileURL: file, reusedExistingFile: false)
+      }
+      attempts.begin(payload: payload)
+      do {
+        try await attempts.waitUntilVerified { _ in }
+        XCTFail("Expected the first attempt to fail")
+      } catch {}
+      attempts.begin(payload: payload)
+      try await attempts.waitUntilVerified { _ in }
+      XCTAssertFalse(
+        try XCTUnwrap(found.values.last).contains(artifact.parts[0].fileName),
+        "A failed digest starts the next attempt from nothing")
     }
 
     func testANewWindowLeavesAnotherWindowsDownloadAlone() async throws {
@@ -862,6 +949,37 @@
       try await orchestrator.waitForRetirement()
       XCTAssertTrue(hashes.values.isEmpty)
       XCTAssertEqual(orchestrator.currentState(), .idle)
+    }
+
+    private func orchestrator(
+      _ stage: @escaping PayloadPrefetchOrchestrator.StageHandler
+    ) -> PayloadPrefetchOrchestrator {
+      PayloadPrefetchOrchestrator(
+        makeNetwork: { MockNetworkPath(Self.unmetered) },
+        makeKeepAwake: { MockKeepAwake() },
+        makeFreeSpace: { _ in MockFreeSpace(bytes: 8_000_000_000) },
+        matchesPinned: { _, _ in false },
+        requiredFreeBytes: { VerifiedArtifactStager.requiredFreeBytes(forPayloadSize: $0) },
+        stage: stage)
+    }
+
+    private func pinnedParts(_ data: Data) throws -> (PinnedInstallerArtifact, [Data]) {
+      func digest(_ bytes: Data) -> String {
+        "sha256:" + SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+      }
+      let half = data.count / 2
+      let chunks = [data.prefix(half), data.suffix(from: half)].map { Data($0) }
+      let parts = try chunks.enumerated().map { index, chunk in
+        try PinnedArtifactPart(
+          sourceURL: URL(string: "https://example.com/os.bin.part0\(index)")!,
+          fileName: "os.bin.part0\(index)", expectedDigest: digest(chunk),
+          expectedSizeBytes: UInt64(chunk.count))
+      }
+      let artifact = try PinnedInstallerArtifact(
+        role: "payload", sourceURL: URL(string: "https://example.com/os.bin")!,
+        fileName: "os.bin", expectedDigest: digest(data), expectedSizeBytes: UInt64(data.count),
+        parts: parts)
+      return (artifact, chunks)
     }
 
     private func pinnedPayload(_ data: Data, fileName: String = "os.bin") throws

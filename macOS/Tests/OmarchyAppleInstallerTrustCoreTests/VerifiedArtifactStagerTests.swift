@@ -390,8 +390,10 @@ final class VerifiedArtifactStagerTests: XCTestCase {
     XCTAssertFalse(result.reusedExistingFile)
     let downloadCount = await downloader.downloadCount
     XCTAssertEqual(downloadCount, 2)
+    // Parts download together, so they may start in either order.
     let requestedURLs = await downloader.requestedURLs
-    XCTAssertEqual(requestedURLs, fixture.artifact.parts.map(\.sourceURL))
+    XCTAssertEqual(
+      Set(requestedURLs), Set(fixture.artifact.parts.map(\.sourceURL)))
     XCTAssertEqual(
       try FileManager.default.contentsOfDirectory(atPath: directory.path),
       [fixture.artifact.fileName]
@@ -412,6 +414,86 @@ final class VerifiedArtifactStagerTests: XCTestCase {
       events.compactMap(\.partCount).allSatisfy { $0 == 2 },
       true
     )
+  }
+
+  func testPartsDownloadSeveralAtATime() async throws {
+    let data = Data((0..<5000).map { UInt8(truncatingIfNeeded: $0 &* 13) })
+    let fixture = try partsFixture(data: data, count: 7)
+    let downloader = ConcurrentFixtureDownloader(responses: fixture.responses)
+    let directory = temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let recorder = ProgressRecorder()
+
+    let result = try await VerifiedArtifactStager(downloader: downloader).stage(
+      fixture.artifact, in: directory, progress: recorder.handler)
+
+    XCTAssertEqual(try Data(contentsOf: result.fileURL), data)
+    let most = await downloader.mostInFlight
+    XCTAssertEqual(most, VerifiedArtifactStager.partsInFlight)
+    let downloads = await downloader.downloadCount
+    XCTAssertEqual(downloads, 7)
+    let totals = recorder.events.filter { $0.phase == .downloading }.map(\.bytesCompleted)
+    XCTAssertEqual(totals, totals.sorted(), "Progress never goes backwards")
+    XCTAssertEqual(totals.last, UInt64(data.count))
+  }
+
+  func testAFailedPartLetsThePartsInFlightFinishAndStartsNoMore() async throws {
+    let data = Data((0..<4000).map { UInt8(truncatingIfNeeded: $0 &* 7) })
+    let fixture = try partsFixture(data: data, count: 5)
+    var responses = fixture.responses
+    let tampered = fixture.artifact.parts[1]
+    responses[tampered.sourceURL] = Data(
+      repeating: 0x21, count: Int(tampered.expectedSizeBytes))
+    let downloader = ConcurrentFixtureDownloader(responses: responses, failing: tampered.sourceURL)
+    let directory = temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    await assertThrows(
+      try await VerifiedArtifactStager(downloader: downloader).stage(
+        fixture.artifact, in: directory)
+    ) { error in
+      guard case .digestMismatch = error as? ArtifactStageError else {
+        return XCTFail("Expected digestMismatch, got \(error)")
+      }
+    }
+
+    let kept = try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted()
+    XCTAssertEqual(
+      kept, [fixture.artifact.parts[0].fileName, fixture.artifact.parts[2].fileName].sorted())
+    let downloads = await downloader.downloadCount
+    XCTAssertEqual(downloads, VerifiedArtifactStager.partsInFlight)
+  }
+
+  func testAnInterruptedDownloadResumesWhereItStopped() async throws {
+    let image = Data((0..<(4 << 20)).map { UInt8(truncatingIfNeeded: $0 &* 31 &+ $0 >> 12) })
+    let server = try ResumingHTTPServer(image: image, dropAfter: 1 << 20)
+    let url = try await server.start()
+    defer { server.stop() }
+    let directory = temporaryDirectory()
+    try FileManager.default.createDirectory(
+      at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let resumeData = directory.appendingPathComponent(
+      VerifiedArtifactStager.resumeDataName(for: "payload.bin"))
+    let downloader = ProgressReportingArtifactDownloader()
+
+    do {
+      _ = try await downloader.download(
+        from: url, expectedSizeBytes: UInt64(image.count), resumeData: resumeData, onBytes: nil)
+      XCTFail("The dropped connection must fail the first transfer")
+    } catch {}
+    XCTAssertTrue(FileManager.default.fileExists(atPath: resumeData.path))
+
+    let file = try await downloader.download(
+      from: url, expectedSizeBytes: UInt64(image.count), resumeData: resumeData, onBytes: nil)
+    defer { try? FileManager.default.removeItem(at: file) }
+    XCTAssertEqual(try Data(contentsOf: file), image)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: resumeData.path))
+    let requests = server.requests()
+    XCTAssertEqual(requests.count, 2)
+    let ranged = try XCTUnwrap(requests.last).lowercased()
+    XCTAssertTrue(ranged.contains("range: bytes="), ranged)
+    XCTAssertFalse(ranged.contains("range: bytes=0-"), ranged)
   }
 
   func testPartDigestMismatchKeepsEarlierVerifiedPart() async throws {
@@ -803,6 +885,157 @@ private actor RoutedFixtureDownloader: ArtifactDownloading {
     )
     try data.write(to: fileURL, options: .withoutOverwriting)
     return fileURL
+  }
+}
+
+/// Answers each part after a short wait and records how many were in flight.
+private actor ConcurrentFixtureDownloader: ArtifactDownloading {
+  private let responses: [URL: Data]
+  private let failing: URL?
+  private(set) var downloadCount = 0
+  private(set) var mostInFlight = 0
+  private var inFlight = 0
+
+  init(responses: [URL: Data], failing: URL? = nil) {
+    self.responses = responses
+    self.failing = failing
+  }
+
+  func download(from sourceURL: URL) async throws -> URL {
+    try await download(from: sourceURL, expectedSizeBytes: UInt64.max, onBytes: nil)
+  }
+
+  func download(
+    from sourceURL: URL,
+    expectedSizeBytes: UInt64,
+    onBytes: ArtifactByteProgressHandler?
+  ) async throws -> URL {
+    guard let data = responses[sourceURL] else { throw URLError(.fileDoesNotExist) }
+    downloadCount += 1
+    inFlight += 1
+    mostInFlight = max(mostInFlight, inFlight)
+    defer { inFlight -= 1 }
+    // The failing part answers first; the others are still in flight.
+    try await Task.sleep(for: .milliseconds(sourceURL == failing ? 50 : 300))
+    onBytes?(UInt64(data.count))
+    let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "omarchy-concurrent-download-\(UUID().uuidString.lowercased())")
+    try data.write(to: fileURL, options: .withoutOverwriting)
+    return fileURL
+  }
+}
+
+/// Serves `image`, dropping the first connection after `dropAfter` body bytes,
+/// and answers a ranged request with the rest.
+private final class ResumingHTTPServer: @unchecked Sendable {
+  private let listener: NWListener
+  private let image: Data
+  private let dropAfter: Int
+  private let lock = NSLock()
+  private var connections: [NWConnection] = []
+  private var received: [String] = []
+  private var startContinuation: CheckedContinuation<URL, any Error>?
+
+  init(image: Data, dropAfter: Int) throws {
+    listener = try NWListener(using: .tcp, on: .any)
+    self.image = image
+    self.dropAfter = dropAfter
+  }
+
+  func start() async throws -> URL {
+    try await withCheckedThrowingContinuation { continuation in
+      lock.withLock { startContinuation = continuation }
+      listener.stateUpdateHandler = { [weak self] state in
+        guard let self else { return }
+        switch state {
+        case .ready:
+          guard let port = self.listener.port else { return }
+          self.resumeStart(.success(URL(string: "http://127.0.0.1:\(port.rawValue)/payload.bin")!))
+        case .failed(let error):
+          self.resumeStart(.failure(error))
+        default:
+          break
+        }
+      }
+      listener.newConnectionHandler = { [weak self] connection in
+        guard let self else { return }
+        self.lock.withLock { self.connections.append(connection) }
+        connection.start(queue: .global())
+        self.readRequest(connection, buffered: Data())
+      }
+      listener.start(queue: .global())
+    }
+  }
+
+  private func readRequest(_ connection: NWConnection, buffered: Data) {
+    connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) {
+      [weak self] data, _, _, error in
+      guard let self, error == nil, let data else { return }
+      let request = buffered + data
+      guard let end = request.range(of: Data("\r\n\r\n".utf8)) else {
+        self.readRequest(connection, buffered: request)
+        return
+      }
+      let head = String(decoding: request[..<end.lowerBound], as: UTF8.self)
+      let first = self.lock.withLock {
+        self.received.append(head)
+        return self.received.count == 1
+      }
+      self.respond(head, first: first, on: connection)
+    }
+  }
+
+  private func respond(_ head: String, first: Bool, on connection: NWConnection) {
+    let total = image.count
+    let validators =
+      "Accept-Ranges: bytes\r\nETag: \"fixture\"\r\n"
+      + "Last-Modified: Wed, 21 Oct 2026 07:28:00 GMT\r\n"
+    let range = head.lowercased().components(separatedBy: "\r\n").first {
+      $0.hasPrefix("range: bytes=")
+    }
+    if let range, let start = Int(range.dropFirst("range: bytes=".count).prefix { $0 != "-" }),
+      start < total
+    {
+      let header =
+        "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes \(start)-\(total - 1)/\(total)\r\n"
+        + "Content-Length: \(total - start)\r\n\(validators)Connection: close\r\n\r\n"
+      connection.send(
+        content: Data(header.utf8) + image[start...],
+        completion: .contentProcessed { _ in connection.cancel() })
+      return
+    }
+    let header =
+      "HTTP/1.1 200 OK\r\nContent-Length: \(total)\r\n\(validators)Connection: close\r\n\r\n"
+    let body = first ? image.prefix(dropAfter) : image[...]
+    connection.send(
+      content: Data(header.utf8) + body,
+      completion: .contentProcessed { _ in
+        // Closing before the declared length is a lost connection.
+        DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(200)) {
+          connection.cancel()
+        }
+      })
+  }
+
+  func requests() -> [String] { lock.withLock { received } }
+
+  func stop() {
+    let pending = lock.withLock { () -> [NWConnection] in
+      let current = connections
+      connections.removeAll()
+      return current
+    }
+    for connection in pending { connection.cancel() }
+    listener.cancel()
+  }
+
+  private func resumeStart(_ result: Result<URL, any Error>) {
+    let pending = lock.withLock { () -> CheckedContinuation<URL, any Error>? in
+      let value = startContinuation
+      startContinuation = nil
+      return value
+    }
+    pending?.resume(with: result)
   }
 }
 
