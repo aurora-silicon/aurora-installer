@@ -352,7 +352,8 @@
 
     public var canPreparePreservedReinstall: Bool {
       guard case .existingInstallRefused(let host) = phase else { return false }
-      return host.existingInstalls.count == 1 && host.supported
+      return host.existingInstalls.count == 1 && !host.existingInstalls[0].partial
+        && host.supported
         && !isBusy && !isExecuting && !hasExecutionStarted
         && !environment.installationBlocked && environment.engineSupported
     }

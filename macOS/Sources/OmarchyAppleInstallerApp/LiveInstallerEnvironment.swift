@@ -931,7 +931,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       result.append(
         ExistingInstallDisplay(
           sourceIdentifier: known.sourceIdentifier,
-          sizeDescription: PlainLanguage.bytes(known.lengthBytes)))
+          sizeDescription: PlainLanguage.bytes(known.lengthBytes), partial: known.partial))
     }
     return result
   }

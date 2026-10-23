@@ -1619,6 +1619,27 @@
       XCTAssertFalse(session.canStartInstallation)
     }
 
+    func testAnUnfinishedInstallationCanOnlyBeErased() async throws {
+      let environment = MockInstallerEnvironment()
+      environment.host = HostDisplay(
+        chipAndSpace: MockInstallerEnvironment.supportedHost.chipAndSpace,
+        supported: true,
+        existingInstalls: [
+          ExistingInstallDisplay(
+            sourceIdentifier: "disk0s3", sizeDescription: "6 GB", partial: true)
+        ])
+      environment.accountReply = nil
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      guard case .existingInstallRefused = session.phase else {
+        return XCTFail("Expected the unfinished installation to stop a fresh install")
+      }
+      XCTAssertFalse(session.canPreparePreservedReinstall)
+      await session.reinstallPreservingStage1()
+      XCTAssertEqual(environment.preservedPrepareCount, 0)
+      XCTAssertEqual(environment.prepareCount, 0)
+    }
+
     func testExistingInstallCanReviewAnExplicitPreservedReinstall() async throws {
       let environment = MockInstallerEnvironment()
       environment.host = HostDisplay(

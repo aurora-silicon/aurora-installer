@@ -321,7 +321,7 @@ struct OnePageInstallerView: View {
           .omarchySecondaryButton()
           .disabled(session.isBusy)
       }
-      if host.existingInstalls.count == 1 {
+      if host.existingInstalls.count == 1, !host.existingInstalls[0].partial {
         Button("Reset Linux") {
           Task { await session.reinstallPreservingStage1() }
         }
@@ -474,7 +474,11 @@ struct OnePageInstallerView: View {
   }
 
   private func existingInstallRefusedPanel() -> some View {
-    ExistingInstallationContent()
+    guard case .existingInstallRefused(let host) = session.phase else {
+      return ExistingInstallationContent(partial: false)
+    }
+    return ExistingInstallationContent(
+      partial: !host.existingInstalls.isEmpty && host.existingInstalls.allSatisfy(\.partial))
   }
 
   private func acknowledgement(_ acknowledged: Bool, plan: PlanDisplay) -> some View {
@@ -631,12 +635,16 @@ struct PrefetchStrip: View {
 }
 
 struct ExistingInstallationContent: View {
+  var partial = false
+
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      Text(PlainLanguage.existingInstallHeadline)
+      Text(partial ? PlainLanguage.partialInstallHeadline : PlainLanguage.existingInstallHeadline)
         .font(OmarchyTheme.heading)
       Text(
-        "Reset Linux in its current space while keeping Stage 1, or erase Linux and return its space to macOS."
+        partial
+          ? PlainLanguage.partialInstallDetail
+          : "Reset Linux in its current space while keeping Stage 1, or erase Linux and return its space to macOS."
       )
       .font(OmarchyTheme.body)
       .foregroundStyle(OmarchyTheme.secondaryText)

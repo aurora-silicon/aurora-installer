@@ -92,12 +92,16 @@
   public struct ExistingInstallDisplay: Equatable, Sendable, Identifiable {
     public let sourceIdentifier: String
     public let sizeDescription: String
+    /// Only the startup container an unfinished installation left; it can be
+    /// erased but not reset.
+    public let partial: Bool
 
     public var id: String { sourceIdentifier }
 
-    public init(sourceIdentifier: String, sizeDescription: String) {
+    public init(sourceIdentifier: String, sizeDescription: String, partial: Bool = false) {
       self.sourceIdentifier = sourceIdentifier
       self.sizeDescription = sizeDescription
+      self.partial = partial
     }
   }
 

@@ -153,6 +153,9 @@
       "The installer rechecks the original plan, disk location, saved files and last completed step. It continues in the space you already approved. macOS won’t be resized again."
     public static let recoveryRetryConfirmationAction =
       "Continue installation"
+    public static let partialInstallHeadline = "An unfinished installation is on this Mac"
+    public static let partialInstallDetail =
+      "An installation stopped after it created its startup container. Erase Linux deletes that container and returns its space, with any unallocated space after it, to macOS. Then you can install again."
     public static let startOverConfirmationTitle =
       "Set this installation aside?"
     public static let startOverConfirmationBody =
