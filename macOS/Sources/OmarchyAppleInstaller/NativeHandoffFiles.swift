@@ -217,6 +217,15 @@
       let source = try existing(active: active, inactive: inactive)
       let destination = activate ? active : inactive
       if source == destination { return }
+      if try !isAbsent(destination) {
+        // An identical pair: the destination already holds the bytes.
+        try withParent(source) { parent, leaf in
+          guard unlinkat(parent, leaf, 0) == 0, fsync(parent) == 0 else {
+            throw NativeHandoffValidationError.unsafePath
+          }
+        }
+        return
+      }
       try withParent(source) { parent, leaf in
         try withParent(destination) { targetParent, targetLeaf in
           guard renameatx_np(parent, leaf, targetParent, targetLeaf, UInt32(RENAME_EXCL)) == 0,
@@ -228,12 +237,17 @@
       }
     }
 
+    /// The deferred Recovery launcher restores the media marker by copying its
+    /// disabled name, so both names may exist when they hold identical bytes.
+    /// The active name is then the current one.
     private func existing(active: String, inactive: String) throws -> String {
       let activeAbsent = try isAbsent(active)
       let inactiveAbsent = try isAbsent(inactive)
-      guard activeAbsent != inactiveAbsent else { throw NativeHandoffValidationError.unsafePath }
+      guard !activeAbsent || !inactiveAbsent else { throw NativeHandoffValidationError.unsafePath }
       let source = activeAbsent ? inactive : active
-      guard try !read(source, maximum: 65_536).isEmpty else {
+      let bytes = try read(source, maximum: 65_536)
+      guard !bytes.isEmpty else { throw NativeHandoffValidationError.unsafePath }
+      if !activeAbsent, !inactiveAbsent, try read(inactive, maximum: 65_536) != bytes {
         throw NativeHandoffValidationError.unsafePath
       }
       return source
