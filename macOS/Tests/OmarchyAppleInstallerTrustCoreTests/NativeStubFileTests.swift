@@ -402,16 +402,21 @@
     }
 
     actor CountingSource: FirmwareRangeReading {
-      nonisolated let sizeBytes = 65536
+      nonisolated let sizeBytes: Int
       var calls = 0
+      var reads: [(offset: Int, count: Int)] = []
+      init(sizeBytes: Int = 65536) { self.sizeBytes = sizeBytes }
       func read(offset: Int, count: Int) async throws -> Data {
         calls += 1
-        return Data(repeating: 0x31, count: count)
+        reads.append((offset, count))
+        return Data((offset..<(offset + count)).map { UInt8(truncatingIfNeeded: $0 &* 7 &+ 0x31) })
       }
       func count() -> Int { calls }
     }
 
-    func testRangeCacheDeduplicatesConcurrentReadsAndRejectsChangedRetainedBytes() async throws {
+    func testRangeCacheDeduplicatesConcurrentReadsAndNeverUsesChangedRetainedBytes()
+      async throws
+    {
       let directory = try root()
       defer { try? FileManager.default.removeItem(at: directory) }
       let source = CountingSource()
@@ -426,96 +431,144 @@
       XCTAssertEqual(count, 1)
       try Data(repeating: 0x32, count: 65536).write(
         to: location.appendingPathComponent("0-65536.bin"))
-      do {
-        _ = try await cache.read(offset: 0, count: 65536)
-        XCTFail("Corrupt cache accepted")
-      } catch {}
-      try await cache.retire()
-      XCTAssertFalse(FileManager.default.fileExists(atPath: location.path))
-    }
-
-    func testRestoreCacheOutlivesAFailedAttemptAndServesTheNextOne() async throws {
-      let directory = try root()
-      defer { try? FileManager.default.removeItem(at: directory) }
-      let identity = Data(#"{"bytes":65536,"url":"image","version":"26.6.2"}"#.utf8)
-      let location = NativeStubRestoreCache.root(in: directory, identity: identity)
-      XCTAssertTrue(location.lastPathComponent.hasPrefix(NativeStubRestoreCache.prefix))
-      let first = CountingSource()
-      let failed = try NativeStubRestoreCache(
-        source: first, root: location, owner: geteuid(), identity: identity)
-      let bytes = try await failed.read(offset: 0, count: 65536)
-      // The attempt fails here; the next one has a new plan but the same image.
-      NativeStubRestoreCache.prune(
-        in: directory, keeping: (location, identity), owner: geteuid(), freeBytes: { _ in 0 })
-      let second = CountingSource()
       let next = try NativeStubRestoreCache(
-        source: second, root: location, owner: geteuid(), identity: identity)
-      let reused = try await next.read(offset: 0, count: 65536)
-      XCTAssertEqual(reused, bytes)
-      let downloads = await second.count()
-      XCTAssertEqual(downloads, 0)
+        source: source, root: location, owner: geteuid(), identity: Data("source-identity".utf8))
+      // The changed range is dropped and read again, never returned.
+      let reread = try await next.read(offset: 0, count: 65536)
+      XCTAssertEqual(reread, results[0])
+      let again = await source.count()
+      XCTAssertEqual(again, 2)
       try await next.retire()
       XCTAssertFalse(FileManager.default.fileExists(atPath: location.path))
     }
 
-    func testRestoreCachesArePrunedByAgeKindAndSpace() throws {
+    func testSmallReadsShareWindowsThatTheNextAttemptReuses() async throws {
       let directory = try root()
       defer { try? FileManager.default.removeItem(at: directory) }
-      let now = Date()
-      let identity = Data("current".utf8)
-      let current = NativeStubRestoreCache.root(in: directory, identity: identity)
-      func cache(_ name: String, daysAgo: Double, identity: Data? = nil) throws -> URL {
-        let url = directory.appendingPathComponent(name)
+      let window = NativeStubRestoreCache.windowBytes
+      let image = try XCTUnwrap(URL(string: "https://updates.cdn-apple.com/fixture.ipsw"))
+      let identity = try NativeStubRestoreCache.identity(url: image, bytes: 3 * window)
+      let location = NativeStubRestoreCache.root(in: directory, identity: identity)
+      let source = CountingSource(sizeBytes: 3 * window)
+      let cache = try NativeStubRestoreCache(
+        source: source, root: location, owner: geteuid(), identity: identity)
+      // ZIP local headers of small neighbouring members, and one across a window edge.
+      let reads = [(30, 76), (4096, 120), (70_000, 46), (900_000, 30), (window - 10, 40)]
+      var answers = [Data]()
+      for (offset, count) in reads {
+        answers.append(try await cache.read(offset: offset, count: count))
+      }
+      let expected = reads.map { offset, count in
+        Data((offset..<(offset + count)).map { UInt8(truncatingIfNeeded: $0 &* 7 &+ 0x31) })
+      }
+      XCTAssertEqual(answers, expected)
+      let windows = await source.reads
+      XCTAssertEqual(windows.map(\.offset), [0, window])
+      XCTAssertTrue(windows.allSatisfy { $0.count == window })
+
+      // The next attempt has another plan but the same image.
+      let second = CountingSource(sizeBytes: 3 * window)
+      let next = try NativeStubRestoreCache(
+        source: second, root: location, owner: geteuid(), identity: identity)
+      for (offset, count) in reads {
+        _ = try await next.read(offset: offset, count: count)
+      }
+      let downloads = await second.count()
+      XCTAssertEqual(downloads, 0)
+    }
+
+    func testPlanKeyedCachesAreAdoptedUnderTheirImage() async throws {
+      let directory = try root()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let image = try XCTUnwrap(URL(string: "https://updates.cdn-apple.com/fixture.ipsw"))
+      func legacy(_ plan: String) throws -> URL {
+        let url = directory.appendingPathComponent(NativeStubRestoreCache.planPrefix + plan)
         try FileManager.default.createDirectory(
           at: url, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
-        if let identity {
-          try identity.write(to: url.appendingPathComponent("identity.json"))
-          chmod(url.appendingPathComponent("identity.json").path, 0o600)
-        }
-        try FileManager.default.setAttributes(
-          [.modificationDate: now.addingTimeInterval(-daysAgo * 86400)], ofItemAtPath: url.path)
+        let marker = url.appendingPathComponent("identity.json")
+        try JSONSerialization.data(
+          withJSONObject: ["plan": plan, "url": image.absoluteString, "bytes": 65536],
+          options: [.sortedKeys]
+        ).write(to: marker)
+        chmod(marker.path, 0o600)
         return url
       }
-      let plan = try cache(NativeStubRestoreCache.planPrefix + "plan", daysAgo: 0)
-      let stale = try cache(NativeStubRestoreCache.prefix + "stale", daysAgo: 8)
-      let recent = try cache(NativeStubRestoreCache.prefix + "recent", daysAgo: 1)
-      let older = try cache(NativeStubRestoreCache.prefix + "older", daysAgo: 2)
-      _ = try cache(current.lastPathComponent, daysAgo: 30, identity: identity)
-      let unrelated = try cache("native-stub-decode-plan", daysAgo: 30)
+      // An earlier installer's attempt kept a range under its plan.
+      let first = try legacy(String(repeating: "9", count: 64))
+      let source = CountingSource()
+      let kept = try NativeStubRestoreCache(
+        source: source, root: first, owner: geteuid(),
+        identity: try Data(contentsOf: first.appendingPathComponent("identity.json")))
+      let bytes = try await kept.read(offset: 0, count: 65536)
+      let second = try legacy(String(repeating: "b", count: 64))
+
+      NativeStubRestoreCache.prune(
+        in: directory, selectable: [image.absoluteString], owner: geteuid())
+      XCTAssertFalse(FileManager.default.fileExists(atPath: first.path))
+      XCTAssertFalse(FileManager.default.fileExists(atPath: second.path))
+      let identity = try NativeStubRestoreCache.identity(url: image, bytes: 65536)
+      let adopted = NativeStubRestoreCache.root(in: directory, identity: identity)
+      XCTAssertEqual(
+        try Data(contentsOf: adopted.appendingPathComponent("identity.json")), identity)
+      let fresh = CountingSource()
+      let cache = try NativeStubRestoreCache(
+        source: fresh, root: adopted, owner: geteuid(), identity: identity)
+      let reused = try await cache.read(offset: 0, count: 65536)
+      XCTAssertEqual(reused, bytes)
+      let downloads = await fresh.count()
+      XCTAssertEqual(downloads, 0)
+    }
+
+    func testCachesLeaveOnlyWhenTheirImageIsGoneOrTheCapIsExceeded() throws {
+      let directory = try root()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      func cache(_ name: String, bytes: Int, daysAgo: Double) throws -> URL {
+        let image = try XCTUnwrap(URL(string: "https://updates.cdn-apple.com/\(name).ipsw"))
+        let identity = try NativeStubRestoreCache.identity(url: image, bytes: 1 << 30)
+        let url = NativeStubRestoreCache.root(in: directory, identity: identity)
+        try FileManager.default.createDirectory(
+          at: url, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        let marker = url.appendingPathComponent("identity.json")
+        try identity.write(to: marker)
+        chmod(marker.path, 0o600)
+        try Data(count: bytes).write(to: url.appendingPathComponent("0-\(bytes).bin"))
+        try FileManager.default.setAttributes(
+          [.modificationDate: Date().addingTimeInterval(-daysAgo * 86400)], ofItemAtPath: url.path)
+        return url
+      }
       func exists(_ url: URL) -> Bool { FileManager.default.fileExists(atPath: url.path) }
-
-      NativeStubRestoreCache.prune(
-        in: directory, keeping: (current, identity), owner: geteuid(), now: now,
-        freeBytes: { _ in 100 << 30 })
-      XCTAssertFalse(exists(plan), "Plan-keyed caches are never reused")
-      XCTAssertFalse(exists(stale))
-      XCTAssertTrue(exists(recent))
-      XCTAssertTrue(exists(older))
-      XCTAssertTrue(exists(current), "The image being installed keeps its cache at any age")
-      XCTAssertTrue(exists(unrelated))
-
-      // Low space removes other images' caches, least recently used first.
-      var free: UInt64 = 1 << 30
-      NativeStubRestoreCache.prune(
-        in: directory, keeping: (current, identity), owner: geteuid(), now: now,
-        freeBytes: { _ in
-          defer { free += 20 << 30 }
-          return free
+      let current = try cache("current", bytes: 4000, daysAgo: 90)
+      let old = try cache("old", bytes: 3000, daysAgo: 30)
+      let recent = try cache("recent", bytes: 3000, daysAgo: 1)
+      let retired = try cache("retired", bytes: 10, daysAgo: 0)
+      let forged = directory.appendingPathComponent(
+        NativeStubRestoreCache.prefix + String(repeating: "f", count: 64))
+      try FileManager.default.createDirectory(
+        at: forged, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+      let selectable = Set(
+        ["current", "old", "recent"].map {
+          "https://updates.cdn-apple.com/\($0).ipsw"
         })
-      XCTAssertFalse(exists(older))
-      XCTAssertTrue(exists(recent))
-      XCTAssertTrue(exists(current))
 
-      // A cache under the current name for another identity is replaced.
+      // Age alone removes nothing: a cache outlives jobs.
       NativeStubRestoreCache.prune(
-        in: directory, keeping: (current, Data("another".utf8)), owner: geteuid(), now: now,
-        freeBytes: { _ in 100 << 30 })
-      XCTAssertFalse(exists(current))
+        in: directory, current: current, selectable: selectable, owner: geteuid(),
+        capacity: 10_000)
+      XCTAssertTrue(exists(current) && exists(old) && exists(recent))
+      XCTAssertFalse(exists(retired), "Its image can no longer be selected")
+      XCTAssertFalse(exists(forged), "Its identity doesn't match its name")
 
-      // The helper's start-up pass applies the same age and kind rules.
-      let left = try cache(NativeStubRestoreCache.planPrefix + "left", daysAgo: 0)
-      RestoreImageCacheHousekeeping.run(in: directory)
-      XCTAssertFalse(exists(left))
+      // Over the cap, the least recently used other cache goes first.
+      NativeStubRestoreCache.prune(
+        in: directory, current: current, selectable: selectable, owner: geteuid(),
+        capacity: 7500)
+      XCTAssertTrue(exists(current), "The cache in use is never removed for size")
+      XCTAssertFalse(exists(old))
+      XCTAssertTrue(exists(recent))
+
+      // Without knowing what is selectable, only the cap applies.
+      NativeStubRestoreCache.prune(in: directory, selectable: nil, owner: geteuid(), capacity: 0)
+      XCTAssertFalse(exists(current) || exists(recent))
     }
 
     func testLiveNestedDecoderWorkspaceIsNeverRetired() throws {

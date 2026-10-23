@@ -448,7 +448,8 @@ private final class RangeExchangeFixture: @unchecked Sendable {
               "Content-Length": String(end - start + 1),
             ]))
         try validate(response)
-        for byte in self.image[start...end].prefix(answer.bytes) { try receive(byte) }
+        let body = Data(self.image[start...end].prefix(answer.bytes))
+        if !body.isEmpty { try receive(body) }
         if let error = answer.error { throw error }
       },
       sleep: { self.waits.append($0) })

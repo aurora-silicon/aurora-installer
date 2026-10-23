@@ -51,55 +51,58 @@ func httpBytes(
 ) async throws -> Data {
   var data = Data()
   data.reserveCapacity(maximum)
-  try await httpStream(request, keyPath: keyPath, validate: validate) { byte in
-    try require(data.count < maximum, "HTTP response exceeds its admitted length.")
-    data.append(byte)
+  try await httpStream(request, keyPath: keyPath, validate: validate) { chunk in
+    try require(chunk.count <= maximum - data.count, "HTTP response exceeds its admitted length.")
+    data.append(chunk)
   }
   return data
 }
 
-/// Requests that may not redirect share one session, so consecutive and
+/// One long-lived session carries every request, so consecutive and
 /// concurrent ranges reuse its connections instead of paying a TCP and TLS
-/// handshake, and a fresh TCP slow start, for every range. A request still
-/// times out after its own `timeoutInterval` without data; the whole
-/// transfer may take longer, since ranges in flight together share the link.
-let rangeSession: URLSession = {
+/// handshake, and a fresh TCP slow start, for every range. Each request
+/// brings its own redirect rules as its task delegate. A request still times
+/// out after its own `timeoutInterval` without data; the whole transfer may
+/// take longer, since ranges in flight together share the link.
+let transportSession: URLSession = {
   let config = URLSessionConfiguration.ephemeral
   config.httpCookieStorage = nil
   config.urlCache = nil
   config.httpMaximumConnectionsPerHost = IPSWArchive.rangesInFlight
   config.timeoutIntervalForResource = 600
-  return URLSession(
-    configuration: config, delegate: RedirectPolicy(keyPath: nil), delegateQueue: nil)
+  return URLSession(configuration: config)
 }()
 
-/// Validates the response head before handing on any body byte.
+/// Validates the response head before handing on any body byte. The body
+/// arrives in chunks of up to 64 KiB; what arrived before a failure is
+/// handed on first, so a resumed request continues after it.
 func httpStream(
   _ request: URLRequest, keyPath: String? = nil,
-  validate: (HTTPURLResponse) throws -> Void, receive: (UInt8) throws -> Void
+  validate: (HTTPURLResponse) throws -> Void, receive: (Data) throws -> Void
 ) async throws {
-  let session: URLSession
-  if keyPath == nil {
-    session = rangeSession
-  } else {
-    let config = URLSessionConfiguration.ephemeral
-    config.timeoutIntervalForRequest = request.timeoutInterval
-    config.timeoutIntervalForResource = request.timeoutInterval
-    config.httpCookieStorage = nil
-    config.urlCache = nil
-    session = URLSession(
-      configuration: config, delegate: RedirectPolicy(keyPath: keyPath), delegateQueue: nil)
-  }
-  defer { if keyPath != nil { session.invalidateAndCancel() } }
-  let (bytes, response) = try await session.bytes(for: request)
+  let (bytes, response) = try await transportSession.bytes(
+    for: request, delegate: RedirectPolicy(keyPath: keyPath))
   guard let response = response as? HTTPURLResponse else {
     throw RestoreFailure("Invalid HTTP response.")
   }
   try validate(response)
-  for try await byte in bytes {
-    try Task.checkCancellation()
-    try receive(byte)
+  let chunkBytes = 65_536
+  var buffer = [UInt8]()
+  buffer.reserveCapacity(chunkBytes)
+  do {
+    for try await byte in bytes {
+      buffer.append(byte)
+      if buffer.count == chunkBytes {
+        try Task.checkCancellation()
+        try receive(Data(buffer))
+        buffer.removeAll(keepingCapacity: true)
+      }
+    }
+  } catch {
+    if !buffer.isEmpty, !(error is CancellationError) { try receive(Data(buffer)) }
+    throw error
   }
+  if !buffer.isEmpty { try receive(Data(buffer)) }
 }
 
 /// A server error answer; a later attempt may succeed.
@@ -129,7 +132,7 @@ public enum TransientTransport {
 /// One HTTP exchange; fixtures replace the live session.
 struct HTTPExchange: Sendable {
   var perform:
-    @Sendable (URLRequest, (HTTPURLResponse) throws -> Void, (UInt8) throws -> Void) async throws
+    @Sendable (URLRequest, (HTTPURLResponse) throws -> Void, (Data) throws -> Void) async throws
       -> Void
   var sleep: @Sendable (Duration) async throws -> Void
 

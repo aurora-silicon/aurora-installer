@@ -53,9 +53,9 @@ public struct IPSWHTTPRangeReader: FirmwareRangeReading {
           try serverError(response)
           size = try discoveredSize(response)
         },
-        { byte in
-          try require(bytes.isEmpty, "HTTP response exceeds its admitted length.")
-          bytes.append(byte)
+        { chunk in
+          try require(bytes.count + chunk.count <= 1, "HTTP response exceeds its admitted length.")
+          bytes.append(chunk)
         })
       // A connection that closed early without an error is retried too.
       if bytes.isEmpty { throw URLError(.networkConnectionLost) }
@@ -112,9 +112,10 @@ public struct IPSWHTTPRangeReader: FirmwareRangeReading {
               && (encoding.isEmpty || encoding == "identity"),
             "Restore-image server did not return the exact requested range.")
         },
-        { byte in
-          try require(data.count < count, "HTTP response exceeds its admitted length.")
-          data.append(byte)
+        { chunk in
+          try require(
+            chunk.count <= count - data.count, "HTTP response exceeds its admitted length.")
+          data.append(chunk)
         })
       // A connection that closed early without an error resumes too.
       if data.count < count { throw URLError(.networkConnectionLost) }
