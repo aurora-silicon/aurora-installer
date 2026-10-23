@@ -362,6 +362,9 @@
     public let feed: [JournalFeedLine]
     public let degraded: Bool
     public let startedAt: Date
+    /// The checks before anything changes, while no journal record has
+    /// arrived yet. Nil once the installation itself is under way.
+    public let preparation: InstallPreparationDisplay?
 
     public init(
       phaseTitle: String,
@@ -370,7 +373,8 @@
       stageLabels: [String],
       feed: [JournalFeedLine],
       degraded: Bool,
-      startedAt: Date
+      startedAt: Date,
+      preparation: InstallPreparationDisplay? = nil
     ) {
       self.phaseTitle = phaseTitle
       self.stageIndex = stageIndex
@@ -379,6 +383,19 @@
       self.feed = feed
       self.degraded = degraded
       self.startedAt = startedAt
+      self.preparation = preparation
+    }
+  }
+
+  /// The preparation checks in the order they run, and the one under way.
+  public struct InstallPreparationDisplay: Equatable, Sendable {
+    public let stepLabels: [String]
+    /// The step under way; every earlier step is done.
+    public let stepIndex: Int
+
+    public init(stepLabels: [String], stepIndex: Int) {
+      self.stepLabels = stepLabels
+      self.stepIndex = stepIndex
     }
   }
 
@@ -639,6 +656,16 @@
       encryptLinuxDisk: Bool,
       journal: @escaping @Sendable (Data) -> Void
     ) async throws -> CompletionDisplay
+    /// `execute`, also reporting each step the helper starts, such as
+    /// `source_owner`, so the Install screen can show the preparation before
+    /// the first journal record.
+    func execute(
+      operation: InstallOperationKind,
+      authorization: MachineOwnerAuthorization,
+      encryptLinuxDisk: Bool,
+      journal: @escaping @Sendable (Data) -> Void,
+      preparation: @escaping @Sendable (String) -> Void
+    ) async throws -> CompletionDisplay
 
     /// Fail-closed gates preserved verbatim from the previous view model.
     var installationBlocked: Bool { get }
@@ -670,6 +697,18 @@
   }
 
   extension InstallerEnvironment {
+    /// Environments without helper steps report none.
+    public func execute(
+      operation: InstallOperationKind,
+      authorization: MachineOwnerAuthorization,
+      encryptLinuxDisk: Bool,
+      journal: @escaping @Sendable (Data) -> Void,
+      preparation: @escaping @Sendable (String) -> Void
+    ) async throws -> CompletionDisplay {
+      try await execute(
+        operation: operation, authorization: authorization, encryptLinuxDisk: encryptLinuxDisk,
+        journal: journal)
+    }
     public func cancelPayloadPrefetchOnQuit() { cancelPayloadPrefetch() }
     public func preparePreservedReinstallPlan(
       progress _: @escaping @Sendable (AssetProgressUpdate) -> Void

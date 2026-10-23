@@ -177,6 +177,41 @@
       "Preparing final setup",
     ]
 
+    /// The checks the installer makes before it changes anything, in the
+    /// order they run. The Install screen lists them until the helper writes
+    /// the installation's first journal record.
+    public static let installPreparationSteps = [
+      "Checking the installer helper",
+      "Handing the download to the helper",
+      "Checking your macOS account",
+      "Checking the Linux image",
+      "Preparing firmware for this Mac",
+      "Checking Apple’s restore image",
+      "Planning the disk changes",
+    ]
+
+    /// The preparation step that a step the helper reported starting belongs
+    /// to. A step after the preparation, or one this app doesn't know, such
+    /// as one a newer helper adds, belongs to none.
+    public static func installPreparationStep(forHelperStep name: String) -> Int? {
+      switch name {
+      case "credential_validation", "helper_import", "recovery_template", "restore_helper_check":
+        1
+      case "source_owner", "owner_device", "owner_snapshot", "owner_resolve", "owner_recheck": 2
+      case "payload_preflight": 3
+      case "firmware_preparation", "peripheral_inputs": 4
+      case "apfs_preflight", "stub_files_preflight": 5
+      case "os_partitions_preflight", "payload_images_preflight", "esp_files_preflight",
+        "finishing_preflight":
+        6
+      default: nil
+      }
+    }
+
+    /// The step the app reaches itself once the helper is ready: it hands
+    /// the downloaded files to the helper.
+    public static let installPreparationHandoffStep = 1
+
     public static func installPhaseTitle(forPhase phase: String?) -> String {
       switch phase {
       case "preflight": "Checking the disk…"

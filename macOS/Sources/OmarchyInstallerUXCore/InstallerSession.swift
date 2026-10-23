@@ -783,6 +783,7 @@
         // then prepares the disk and Apple's files, which can take a while:
         // show that on the install screen instead of a waiting sheet. A late
         // refusal of the credentials reopens the sheet.
+        journal.prepare(step: PlainLanguage.installPreparationHandoffStep)
         beginInstallingIfNeeded()
         // Recovery retry revalidates the original helper-owned package. A
         // reopened app has no download to wait for and must not start one.
@@ -800,6 +801,13 @@
               guard let self, self.operationID == currentOperation else { return }
               self.drainJournal(receivedJournal)
             }
+          },
+          preparation: { [weak self] step in
+            Task { @MainActor in
+              guard let self, self.operationID == currentOperation else { return }
+              self.journal.prepare(helperStep: step)
+              self.showPreparation()
+            }
           }
         )
         guard operationID == currentOperation else { return }
@@ -814,6 +822,12 @@
         handleExecutionFailure(error, context: context, plan: plan, helper: helper)
         await refreshPendingOptions(after: error)
       }
+    }
+
+    /// Shows the preparation's current step on the Install screen.
+    private func showPreparation() {
+      guard case .installing = phase else { return }
+      phase = .installing(journal.display(startedAt: installStartedAt))
     }
 
     /// Leaves the credential sheet behind and shows the Install screen. Safe

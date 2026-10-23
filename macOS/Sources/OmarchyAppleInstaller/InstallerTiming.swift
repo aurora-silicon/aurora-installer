@@ -31,12 +31,17 @@
     private var unwritten: [Data] = []
     private var sidecar: URL?
     private var written = false
+    /// Told the name of each measured step as it starts, so a person can see
+    /// what the attempt is doing before its first journal record.
+    private let observer: (@Sendable (String) -> Void)?
 
     init(
       operation: String, origin: UInt64 = InstallerTimingRecorder.now(), started: Date = Date(),
-      bootSession: String = InstallerTimingRecorder.currentBootSession()
+      bootSession: String = InstallerTimingRecorder.currentBootSession(),
+      observer: (@Sendable (String) -> Void)? = nil
     ) {
       self.operation = operation
+      self.observer = observer
       self.origin = origin
       self.started = started
       self.bootSession = bootSession
@@ -63,13 +68,21 @@
     }
 
     /// Runs `body` with a fresh recorder for one attempt of `operation`.
+    /// `observe` is told the name of each measured step as it starts.
     static func attempt<T>(
       _ operation: String, isolation: isolated (any Actor)? = #isolation,
+      observe: (@Sendable (String) -> Void)? = nil,
       _ body: () async throws -> T
     ) async rethrows -> T {
-      try await $current.withValue(InstallerTimingRecorder(operation: operation)) {
+      let recorder = InstallerTimingRecorder(operation: operation, observer: observe)
+      return try await $current.withValue(recorder) {
         try await body()
       }
+    }
+
+    /// A measured step starts.
+    func begin(_ name: String) {
+      observer?(name)
     }
 
     var entries: [Entry] { lock.withLock { recorded } }

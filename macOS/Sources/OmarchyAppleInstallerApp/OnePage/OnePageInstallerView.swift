@@ -919,23 +919,25 @@ struct InstallPanel: View {
           Text("Installing Aurora").font(.system(size: 24, weight: .semibold))
           Text(progress.phaseTitle).font(OmarchyTheme.body).foregroundStyle(.secondary)
         }
-        VStack(alignment: .leading, spacing: 18) {
-          ForEach(Array(progress.stageLabels.enumerated()), id: \.offset) { index, label in
-            HStack(spacing: 13) {
-              stageMark(index).frame(width: 22, height: 22)
-              Text(label).font(
-                .system(size: 14, weight: index == progress.stageIndex ? .medium : .regular)
-              )
-              .foregroundStyle(
-                index <= progress.stageIndex ? OmarchyTheme.text : OmarchyTheme.secondaryText)
+        if let preparation = progress.preparation {
+          preparationSteps(preparation)
+        } else {
+          VStack(alignment: .leading, spacing: 18) {
+            ForEach(Array(progress.stageLabels.enumerated()), id: \.offset) { index, label in
+              HStack(spacing: 13) {
+                stageMark(index).frame(width: 22, height: 22)
+                Text(label).font(
+                  .system(size: 14, weight: index == progress.stageIndex ? .medium : .regular)
+                )
+                .foregroundStyle(
+                  index <= progress.stageIndex ? OmarchyTheme.text : OmarchyTheme.secondaryText)
+              }
             }
           }
         }
         TimelineView(.periodic(from: progress.startedAt, by: 1)) { context in
           HStack {
-            Text(
-              "Step \(min(progress.stageIndex + 1, progress.stageLabels.count)) of \(progress.stageLabels.count)"
-            )
+            Text(stepCount)
             Spacer()
             Text("\(elapsed(at: context.date)) elapsed").monospacedDigit()
           }
@@ -950,6 +952,43 @@ struct InstallPanel: View {
         }
       }
       .padding(.vertical, 12)
+    }
+  }
+
+  private var stepCount: String {
+    if let preparation = progress.preparation {
+      let count = preparation.stepLabels.count
+      return "Check \(min(preparation.stepIndex + 1, count)) of \(count)"
+    }
+    let count = progress.stageLabels.count
+    return "Step \(min(progress.stageIndex + 1, count)) of \(count)"
+  }
+
+  /// Each check before the installation changes anything, in order: done,
+  /// under way, or still to come.
+  private func preparationSteps(_ preparation: InstallPreparationDisplay) -> some View {
+    VStack(alignment: .leading, spacing: 10) {
+      ForEach(Array(preparation.stepLabels.enumerated()), id: \.offset) { index, label in
+        HStack(spacing: 12) {
+          preparationMark(index, current: preparation.stepIndex).frame(width: 18, height: 18)
+          Text(label).font(
+            .system(size: 13, weight: index == preparation.stepIndex ? .medium : .regular)
+          )
+          .foregroundStyle(
+            index <= preparation.stepIndex ? OmarchyTheme.text : OmarchyTheme.secondaryText)
+        }
+      }
+    }
+  }
+
+  @ViewBuilder private func preparationMark(_ index: Int, current: Int) -> some View {
+    if index < current {
+      Image(systemName: "checkmark.circle.fill").font(.system(size: 16))
+        .foregroundStyle(OmarchyTheme.success)
+    } else if index == current {
+      NativeSpinner().controlSize(.small)
+    } else {
+      Image(systemName: "circle").font(.system(size: 16)).foregroundStyle(.tertiary)
     }
   }
 

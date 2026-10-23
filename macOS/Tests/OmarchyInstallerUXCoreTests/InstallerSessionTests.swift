@@ -923,6 +923,32 @@
       await operation.value
     }
 
+    func testTheInstallScreenListsThePreparationAndTheStepTheHelperIsOn() async throws {
+      let environment = MockInstallerEnvironment()
+      let session = await ready(environment)
+      let gate = OperationGate()
+      environment.executeGate = gate
+      environment.preparationSteps = ["credential_validation", "owner_snapshot", "a_newer_step"]
+      session.presentInstallCredentials()
+      let authorization = try authorization()
+      let operation = Task { await session.submit(authorization) }
+      await gate.waitUntilEntered()
+      await waitUntil {
+        guard case .installing(let progress) = session.phase else { return false }
+        return progress.preparation?.stepIndex == 2
+      }
+      guard case .installing(let progress) = session.phase,
+        let preparation = progress.preparation
+      else {
+        return XCTFail("Expected the preparation on the install screen, got \(session.phase)")
+      }
+      XCTAssertEqual(progress.phaseTitle, PlainLanguage.installPreparing)
+      XCTAssertEqual(preparation.stepLabels, PlainLanguage.installPreparationSteps)
+      XCTAssertEqual(preparation.stepIndex, 2, "The account check, after the helper and handoff.")
+      await gate.release()
+      await operation.value
+    }
+
     func testCredentialRejectionReopensTheSheet() async throws {
       let environment = MockInstallerEnvironment()
       environment.executeResults = [
@@ -2172,6 +2198,20 @@
     private(set) var prefetchRestartCount = 0
     func restartPayloadPrefetch() {
       prefetchRestartCount += 1
+    }
+
+    var preparationSteps: [String] = []
+    func execute(
+      operation: InstallOperationKind,
+      authorization: MachineOwnerAuthorization,
+      encryptLinuxDisk: Bool,
+      journal: @escaping @Sendable (Data) -> Void,
+      preparation: @escaping @Sendable (String) -> Void
+    ) async throws -> CompletionDisplay {
+      for step in preparationSteps { preparation(step) }
+      return try await execute(
+        operation: operation, authorization: authorization, encryptLinuxDisk: encryptLinuxDisk,
+        journal: journal)
     }
 
     func execute(

@@ -773,6 +773,18 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     encryptLinuxDisk: Bool,
     journal: @escaping @Sendable (Data) -> Void
   ) async throws -> CompletionDisplay {
+    try await execute(
+      operation: operation, authorization: authorization, encryptLinuxDisk: encryptLinuxDisk,
+      journal: journal, preparation: { _ in })
+  }
+
+  func execute(
+    operation: InstallOperationKind,
+    authorization: MachineOwnerAuthorization,
+    encryptLinuxDisk: Bool,
+    journal: @escaping @Sendable (Data) -> Void,
+    preparation: @escaping @Sendable (String) -> Void
+  ) async throws -> CompletionDisplay {
     if operation == .retryRecoveryAuthorization {
       return try await retryPendingRecovery(authorization: authorization, journal: journal)
     }
@@ -808,7 +820,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     let jobContext = InstallerJobExecutionContext(
       bindingDigest: prepared.review.identity.bindingDigest, selection: selection,
       store: pendingStore,
-      installConf: try InstallConf(encrypt: encryptLinuxDisk, lane: lane))
+      installConf: try InstallConf(encrypt: encryptLinuxDisk, lane: lane),
+      preparation: preparation)
     let coordinator = InstallerExecutionCoordinator()
     let progress: InstallerExecutionProgress
     do {

@@ -33,8 +33,32 @@
     public private(set) var completion: EngineCompletionOutcome?
     public private(set) var lastEventName: String?
     public private(set) var feed = [JournalFeedLine]()
+    /// The preparation step under way, an index into
+    /// `PlainLanguage.installPreparationSteps`.
+    public private(set) var preparationStep = 0
 
     public init() {}
+
+    /// Moves the preparation on to `step`. Steps only move forward, so a late
+    /// report never undoes a later step.
+    public mutating func prepare(step: Int) {
+      preparationStep = max(
+        preparationStep, min(max(step, 0), PlainLanguage.installPreparationSteps.count - 1))
+    }
+
+    /// A step the helper reported starting. Steps outside the preparation,
+    /// and steps this app doesn't know, change nothing.
+    public mutating func prepare(helperStep name: String) {
+      guard let step = PlainLanguage.installPreparationStep(forHelperStep: name) else { return }
+      prepare(step: step)
+    }
+
+    /// The preparation, until the helper writes the first journal record.
+    public var preparation: InstallPreparationDisplay? {
+      guard raw.isEmpty, completion == nil else { return nil }
+      return InstallPreparationDisplay(
+        stepLabels: PlainLanguage.installPreparationSteps, stepIndex: preparationStep)
+    }
 
     public var currentPhase: String? {
       if let highest = checkpoints.max(by: { left, right in
@@ -69,6 +93,7 @@
       completion = nil
       lastEventName = nil
       feed = []
+      preparationStep = 0
     }
 
     /// The number of the stage currently being worked on (0-based), derived
@@ -127,7 +152,8 @@
           ? ["Replacing Linux and boot files"] : PlainLanguage.installStageLabels,
         feed: feed,
         degraded: degraded,
-        startedAt: startedAt
+        startedAt: startedAt,
+        preparation: preparation
       )
     }
 
