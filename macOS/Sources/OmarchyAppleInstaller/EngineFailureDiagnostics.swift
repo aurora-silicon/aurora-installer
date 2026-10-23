@@ -425,10 +425,14 @@
   }
 
   /// Root-only, credential-free diagnostics next to the helper's journals:
-  /// `<helper working directory>/diagnostics/engine-failure-<time>.log`.
+  /// `<helper working directory>/diagnostics/engine-failure-<time>.log`, and
+  /// `installation-timing-<time>.log` after each attempt that reached its
+  /// execution journal.
   public enum EngineFailureDiagnosticsStore {
     public static let directoryName = "diagnostics"
     static let maximumRetainedReports = 20
+    static let failurePrefix = "engine-failure-"
+    static let timingPrefix = "installation-timing-"
 
     @discardableResult
     public static func write(
@@ -436,6 +440,40 @@
       operation: String,
       in workingDirectory: URL,
       now: Date = Date()
+    ) -> URL? {
+      let notice = report.notice
+      return write(
+        """
+        Aurora installer engine failure
+        time: \(timestamp(now))
+        operation: \(operation)
+        reason: \(notice.reason)
+        exit status: \(notice.exitStatus)
+        disk unchanged (journal has no mutation record): \(notice.diskUnchanged)
+        summary: \(notice.summary)
+        --- engine stderr (redacted tail) ---
+        \(report.redactedStandardErrorTail)
+
+        """, prefix: failurePrefix, in: workingDirectory, now: now)
+    }
+
+    /// Where an attempt spent its time, step by step.
+    @discardableResult
+    static func writeTiming(
+      _ timing: InstallerTimingRecorder, outcome: String, in workingDirectory: URL,
+      now: Date = Date()
+    ) -> URL? {
+      write(
+        """
+        Aurora installer timing
+        time: \(timestamp(now))
+        outcome: \(outcome)
+        \(timing.summary)
+        """, prefix: timingPrefix, in: workingDirectory, now: now)
+    }
+
+    private static func write(
+      _ body: String, prefix: String, in workingDirectory: URL, now: Date
     ) -> URL? {
       let directory = workingDirectory.appendingPathComponent(
         directoryName, isDirectory: true)
@@ -451,31 +489,18 @@
         return nil
       }
       let url = directory.appendingPathComponent(
-        "engine-failure-\(timestamp(now)).log", isDirectory: false)
+        "\(prefix)\(timestamp(now)).log", isDirectory: false)
       let descriptor = Darwin.open(
         url.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, S_IRUSR | S_IWUSR)
       guard descriptor >= 0 else { return nil }
       let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-      let notice = report.notice
-      let body = """
-        Aurora installer engine failure
-        time: \(timestamp(now))
-        operation: \(operation)
-        reason: \(notice.reason)
-        exit status: \(notice.exitStatus)
-        disk unchanged (journal has no mutation record): \(notice.diskUnchanged)
-        summary: \(notice.summary)
-        --- engine stderr (redacted tail) ---
-        \(report.redactedStandardErrorTail)
-
-        """
       do {
         try handle.write(contentsOf: Data(body.utf8))
         try handle.synchronize()
       } catch {
         return nil
       }
-      pruneOldReports(in: directory)
+      pruneOldReports(in: directory, prefix: prefix)
       return url
     }
 
@@ -486,13 +511,13 @@
       return formatter.string(from: date).replacingOccurrences(of: ":", with: "-")
     }
 
-    static func pruneOldReports(in directory: URL) {
+    static func pruneOldReports(in directory: URL, prefix: String = failurePrefix) {
       guard
         let entries = try? FileManager.default.contentsOfDirectory(
           at: directory, includingPropertiesForKeys: nil)
       else { return }
       let reports = entries.filter {
-        $0.lastPathComponent.hasPrefix("engine-failure-") && $0.pathExtension == "log"
+        $0.lastPathComponent.hasPrefix(prefix) && $0.pathExtension == "log"
       }.sorted { $0.lastPathComponent < $1.lastPathComponent }
       guard reports.count > maximumRetainedReports else { return }
       for stale in reports.prefix(reports.count - maximumRetainedReports) {

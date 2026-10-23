@@ -232,6 +232,42 @@
       XCTAssertTrue(try importedEntries(in: fixture.destination).isEmpty)
     }
 
+    func testEveryAttemptThatReachesItsJournalReportsWhereItsTimeWent() async throws {
+      for fails in [false, true] {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let source = try openDirectory(fixture.source)
+        defer { try? source.close() }
+        let server = ClosedEngineHelperServer(
+          workingDirectory: fixture.destination,
+          executor: TimedHandoffExecutor(result: fixture.transcript, fails: fails),
+          credentialValidator: AcceptingMachineOwnerCredentialValidator())
+        do {
+          _ = try await server.submit(
+            packageDirectory: source, authorization: try machineOwnerAuthorization())
+          XCTAssertFalse(fails)
+        } catch {
+          XCTAssertTrue(fails)
+        }
+        let diagnostics = fixture.destination.appendingPathComponent("diagnostics")
+        let reports = try FileManager.default.contentsOfDirectory(atPath: diagnostics.path)
+          .filter { $0.hasPrefix("installation-timing-") }
+        XCTAssertEqual(reports.count, 1)
+        let body = try String(
+          contentsOf: diagnostics.appendingPathComponent(try XCTUnwrap(reports.first)),
+          encoding: .utf8)
+        XCTAssertTrue(body.contains(fails ? "outcome: stopped" : "outcome: finished"), body)
+        for step in ["credential_validation", "helper_import", "stub_files"] {
+          XCTAssertTrue(body.contains(step), body)
+        }
+        XCTAssertFalse(body.contains("owner-password"))
+        let journals = fixture.destination.appendingPathComponent("execution-journals")
+        XCTAssertEqual(
+          try FileManager.default.contentsOfDirectory(atPath: journals.path)
+            .filter { $0.hasSuffix(InstallerTimingRecorder.fileSuffix) }.count, 1)
+      }
+    }
+
     func testEngineFailureIsKeptInRootDiagnosticsAndRethrown() async throws {
       let fixture = try makeFixture()
       defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -891,6 +927,28 @@
       operation: EngineHandoffOperation
     ) async throws -> Data {
       operations.append(operation)
+      return result
+    }
+  }
+
+  /// Reaches its journal's directory and measures one step, as the real
+  /// executor does.
+  private struct TimedHandoffExecutor: ImportedEngineHandoffExecuting {
+    let result: Data
+    let fails: Bool
+
+    func execute(
+      _ package: ImportedEngineHandoffPackage,
+      authorization: MachineOwnerAuthorization,
+      operation: EngineHandoffOperation
+    ) async throws -> Data {
+      try FileManager.default.createDirectory(
+        at: package.packageURL.deletingLastPathComponent()
+          .appendingPathComponent("execution-journals", isDirectory: true),
+        withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+      try InstallerPerformance.measure("stub_files") {
+        if fails { throw PinnedAsahiEngineExecutionError.launchFailed }
+      }
       return result
     }
   }
