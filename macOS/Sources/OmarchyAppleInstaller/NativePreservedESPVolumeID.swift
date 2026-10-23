@@ -204,7 +204,7 @@
     ) throws {
       guard let installed = prepared.espVolumeID else { return }
       _ = try admitted(journal, states: [.started])
-      try disks.verifySourceOwner(package, authorization, bootstrap)
+      try disks.verifySourceOwner(package, authorization, bootstrap, nil)
       let esp = prepared.target.esp
       let saved = try recorded(journal)
       let sectors = try current(saved)
@@ -236,7 +236,7 @@
       guard prepared.espVolumeID != nil else { return }
       _ = try admitted(journal, states: [.started, .written])
       guard let saved = try recorded(journal) else { return }
-      try disks.verifySourceOwner(package, authorization, bootstrap)
+      try disks.verifySourceOwner(package, authorization, bootstrap, nil)
       try apply(saved.previous, saved: saved)
     }
 

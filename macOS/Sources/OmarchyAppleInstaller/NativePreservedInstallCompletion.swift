@@ -54,7 +54,7 @@
         espFiles.last?.installed == configurationIdentity,
         espDigest == calculatedESPDigest
       else { throw NativePreservedInstallError.changedLayout }
-      try platform.disks.verifySourceOwner(package, authorization, bootstrap)
+      try platform.disks.verifySourceOwner(package, authorization, bootstrap, nil)
       let store = try NativeESPFileStore(
         root: espRoot, volumeDevice: target.esp.identifier,
         namespace: approved.planDigest + "-preserve",

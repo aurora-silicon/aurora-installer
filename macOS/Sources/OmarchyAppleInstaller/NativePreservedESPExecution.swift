@@ -39,7 +39,7 @@
         boot.partitionSizeBytes == target.boot.size,
         root.partitionSizeBytes == target.root.size
       else { throw NativePreservedInstallError.changedLayout }
-      try disks.verifySourceOwner(package, authorization, bootstrap)
+      try disks.verifySourceOwner(package, authorization, bootstrap, nil)
       let verify: @Sendable () throws -> Void = {
         guard try disks.snapshot() == baseline else {
           throw NativePreservedInstallError.changedLayout
@@ -121,7 +121,7 @@
         receipts.append(receipt)
       }
       try verify()
-      try disks.verifySourceOwner(package, authorization, bootstrap)
+      try disks.verifySourceOwner(package, authorization, bootstrap, nil)
       receipts.append(
         try await recordConfiguration(
           installConf, journal: journal, store: store))

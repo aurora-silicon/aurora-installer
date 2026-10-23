@@ -198,7 +198,8 @@
       let volumes = try NativeStubVolumes.read(
         file.readEvidence(NativeStubVolumes.evidenceIdentifier))
       try volumes.validate(plan: approved.planDigest, target: stub, snapshot: current)
-      try platform.disks.verifySourceOwner(package, authorization, sourceBootstrap)
+      // The owner is resolved from this pass's layout, read again right after.
+      try platform.disks.verifySourceOwner(package, authorization, sourceBootstrap, current)
       guard try platform.disks.snapshot() == current else {
         throw NativeOSPartitionError.changedLayout
       }

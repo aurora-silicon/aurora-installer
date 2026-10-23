@@ -59,7 +59,8 @@
       guard espReceipt.plan == approved.planDigest, espReceipt.groupUUID == group,
         espReceipt.espUUID == esp.uuid
       else { throw NativeHandoffValidationError.invalidEvidence }
-      try disks.verifySourceOwner(package, authorization, bootstrap)
+      // The owner is resolved from this pass's layout, read again right after.
+      try disks.verifySourceOwner(package, authorization, bootstrap, snapshot)
       try disks.verifyPartition(esp, snapshot.disk)
       guard try disks.snapshot() == snapshot else {
         throw NativeHandoffValidationError.changedLayout

@@ -44,8 +44,15 @@
     let environment: NativeHandoffEnvironment
     init(environment: NativeHandoffEnvironment = .live) { self.environment = environment }
 
+    /// Reading the disk layout takes a dozen disk utility queries. A caller
+    /// that read the layout for its own pass and reads it again before it
+    /// relies on the owner or changes the disk passes that layout as
+    /// `layout`: the check then works from it and reads none of its own.
+    /// Without it, the check reads the layout before and after resolving the
+    /// owner, so the owner always comes from one unchanged layout.
     func check(
-      package: ImportedEngineHandoffPackage, authorization: MachineOwnerAuthorization
+      package: ImportedEngineHandoffPackage, authorization: MachineOwnerAuthorization,
+      layout: RemovalSnapshot? = nil
     ) throws -> NativeSourceBootstrap {
       try Task.checkCancellation()
       guard
@@ -53,9 +60,9 @@
           == package.deviceIdentifier,
         !AppleSiliconHostInspector.isExplicitlyUnsupported(package.deviceIdentifier)
       else { throw NativeHandoffValidationError.invalidOwner }
-      let before = try InstallerPerformance.measure("owner_snapshot") {
-        try environment.snapshot()
-      }
+      let before =
+        try layout
+        ?? InstallerPerformance.measure("owner_snapshot") { try environment.snapshot() }
       guard before.disk == package.storeIdentifier else {
         throw NativeHandoffValidationError.invalidOwner
       }
@@ -65,7 +72,7 @@
       }
       try Task.checkCancellation()
       try InstallerPerformance.measure("owner_recheck") {
-        guard try environment.snapshot() == before,
+        guard try layout != nil || environment.snapshot() == before,
           try NativeSourceBootstrap.uuid(rootGroup()) == bootstrap.groupUUID
         else { throw NativeHandoffValidationError.changedLayout }
       }

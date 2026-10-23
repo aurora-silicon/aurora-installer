@@ -18,9 +18,13 @@
     var collect: @Sendable () throws -> NativeAPFSFacts
     var snapshot: @Sendable () throws -> RemovalSnapshot
     var verifyPartition: @Sendable (RemovalPartition, String) throws -> Void
+    /// The layout, when given, is one the caller read in the same pass and
+    /// reads again before it changes the disk; see `NativeSourceOwnerAdmission`.
     var verifySourceOwner:
-      @Sendable (ImportedEngineHandoffPackage, MachineOwnerAuthorization, NativeSourceBootstrap)
-        throws -> Void
+      @Sendable (
+        ImportedEngineHandoffPackage, MachineOwnerAuthorization, NativeSourceBootstrap,
+        RemovalSnapshot?
+      ) throws -> Void
     var command: @Sendable ([String]) throws -> Void
     var containerReference: @Sendable (RemovalPartition, RemovalContainer) throws -> String
 
@@ -46,10 +50,10 @@
             try number(info, "Size") == part.size
           else { throw NativeAPFSError.changedLayout }
         },
-        verifySourceOwner: { package, authorization, expected in
+        verifySourceOwner: { package, authorization, expected, layout in
           guard
-            try NativeSourceOwnerAdmission().check(package: package, authorization: authorization)
-              == expected
+            try NativeSourceOwnerAdmission().check(
+              package: package, authorization: authorization, layout: layout) == expected
           else {
             throw NativeHandoffValidationError.invalidOwner
           }
@@ -201,7 +205,8 @@
           validated.plan == approved, saved.split(separator: 10).count > 3
         {
           try requireSourceOwner(
-            file: file, authorization: authorization, bootstrap: sourceBootstrap, existing: true)
+            file: file, authorization: authorization, bootstrap: sourceBootstrap, existing: true,
+            layout: nil)
           try resume(file: file, transcript: saved)
           return
         }
@@ -241,8 +246,11 @@
           _ = try freeExtent(before)
         }
         try Task.checkCancellation()
+        // The owner is resolved from the collected layout, which is read
+        // again here before anything changes.
         try requireSourceOwner(
-          file: file, authorization: authorization, bootstrap: sourceBootstrap, existing: false)
+          file: file, authorization: authorization, bootstrap: sourceBootstrap, existing: false,
+          layout: before)
         guard try platform.snapshot() == before else { throw NativeAPFSError.changedLayout }
         try file.append(
           type: "event",
@@ -295,7 +303,7 @@
 
     private func requireSourceOwner(
       file: NativeInstallJournalFile, authorization: MachineOwnerAuthorization,
-      bootstrap: NativeSourceBootstrap, existing: Bool
+      bootstrap: NativeSourceBootstrap, existing: Bool, layout: RemovalSnapshot?
     ) throws {
       let bytes = try JSONSerialization.data(
         withJSONObject: [
@@ -306,7 +314,7 @@
           throw NativeHandoffValidationError.invalidOwner
         }
       }
-      try platform.verifySourceOwner(package, authorization, bootstrap)
+      try platform.verifySourceOwner(package, authorization, bootstrap, layout)
       if !existing { try file.publishEvidence(bytes, identifier: "native-source-owner") }
     }
 
