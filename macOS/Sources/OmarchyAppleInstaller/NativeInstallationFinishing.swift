@@ -64,18 +64,24 @@
       journal: URL, authorization: MachineOwnerAuthorization,
       sourceBootstrap: NativeSourceBootstrap, recovery: PreparedNativeRecoveryTemplate
     ) async throws {
-      _ = try await NativeVendorFirmware(
-        package: package, approved: approved, plan: stub, peripherals: peripherals,
-        owner: owner, environment: environment, disks: disks, ambientLight: { self.ambientLight }
-      ).prepare(journal: journal, authorization: authorization, bootstrap: sourceBootstrap)
-      try await NativeRecoveryInstallation(
-        package: package, approved: approved, template: recovery,
-        owner: owner, environment: environment, disks: disks
-      ).prepare(journal: journal, authorization: authorization, bootstrap: sourceBootstrap)
-      try await NativeInstallationCompletion(
-        package: package, approved: approved,
-        owner: owner, environment: environment, disks: disks
-      ).prepare(journal: journal, authorization: authorization, bootstrap: sourceBootstrap)
+      _ = try await InstallerPerformance.measuring("vendor_firmware") {
+        try await NativeVendorFirmware(
+          package: package, approved: approved, plan: stub, peripherals: peripherals,
+          owner: owner, environment: environment, disks: disks, ambientLight: { self.ambientLight }
+        ).prepare(journal: journal, authorization: authorization, bootstrap: sourceBootstrap)
+      }
+      try await InstallerPerformance.measuring("recovery_installation") {
+        try await NativeRecoveryInstallation(
+          package: package, approved: approved, template: recovery,
+          owner: owner, environment: environment, disks: disks
+        ).prepare(journal: journal, authorization: authorization, bootstrap: sourceBootstrap)
+      }
+      try await InstallerPerformance.measuring("installation_completion") {
+        try await NativeInstallationCompletion(
+          package: package, approved: approved,
+          owner: owner, environment: environment, disks: disks
+        ).prepare(journal: journal, authorization: authorization, bootstrap: sourceBootstrap)
+      }
     }
   }
 

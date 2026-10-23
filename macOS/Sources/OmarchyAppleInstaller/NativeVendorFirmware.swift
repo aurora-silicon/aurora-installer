@@ -104,7 +104,9 @@
         recipeSHA256: peripherals?.recipeSHA256 ?? NativeStubFileStore.hash(plan.manifest),
         owner: owner)
       return try await PreparedNativePeripheralInputs.withCleanup(cleanup) {
-        let sourceRecords = try self.sourceRecords(file, binding: binding, target: target)
+        let sourceRecords = try InstallerPerformance.measure("vendor_source_records") {
+          try self.sourceRecords(file, binding: binding, target: target)
+        }
         let preboot = try target.tree("Preboot")
         let recovery = try target.tree("Recovery")
         var fallback = [String: Data]()
@@ -137,10 +139,12 @@
           guard let trackpad = outputs[NeoFirmwareConversions.trackpadName], !trackpad.isEmpty
           else { throw NativeFirmwareInputFailure.invalidSource }
         }
-        let kernel = try read("Preboot", restore + source.kernel, maximum: 256 << 20)
-        let decoded = try FirmwareImage.decode(kernel)
-        guard decoded.type == "krnl" else { throw NativeFirmwareInputFailure.invalidSource }
-        try merge(FirmwareImage.controllerFirmware(in: decoded.bytes), into: &outputs)
+        try InstallerPerformance.measure("vendor_kernel") {
+          let kernel = try read("Preboot", restore + source.kernel, maximum: 256 << 20)
+          let decoded = try FirmwareImage.decode(kernel)
+          guard decoded.type == "krnl" else { throw NativeFirmwareInputFailure.invalidSource }
+          try merge(FirmwareImage.controllerFirmware(in: decoded.bytes), into: &outputs)
+        }
         let recoveryPath = target.group + "/usr/standalone/firmware/arm64eBaseSystem.dmg"
         guard
           let imageRecord = sourceRecords.first(where: {
@@ -151,15 +155,22 @@
         guard try recoveryStore.identity(recoveryPath) == imageRecord.identity else {
           throw NativeFirmwareInputFailure.invalidSource
         }
-        let image = try openImage(
-          target.root("Recovery").appendingPathComponent(recoveryPath),
-          package.packageURL.deletingLastPathComponent())
+        let image = try InstallerPerformance.measure("vendor_mount") {
+          try openImage(
+            target.root("Recovery").appendingPathComponent(recoveryPath),
+            package.packageURL.deletingLastPathComponent())
+        }
         try await NativeFirmwareMountedImage.withCleanup(image) {
-          let imageTree = try NativeHandoffFileTree(
-            image.root, protected: true, owner: owner,
-            volumeRoot: true, volumeDevice: image.device, verifyMount: environment.verifyMount)
-          let radio = try NativeFirmwareInputFiles.snapshot(
-            root: image.root, prefix: "usr/share/firmware", tree: imageTree, owner: owner)
+          let imageTree = try InstallerPerformance.measure("vendor_image_tree") {
+            try NativeHandoffFileTree(
+              image.root, protected: true, owner: owner,
+              volumeRoot: true, volumeDevice: image.device, readOnlyVolume: true,
+              verifyMount: environment.verifyMount)
+          }
+          let radio = try InstallerPerformance.measure("vendor_radio_snapshot") {
+            try NativeFirmwareInputFiles.snapshot(
+              root: image.root, prefix: "usr/share/firmware", tree: imageTree, owner: owner)
+          }
           for (name, data) in radio.files { fallback["firmware/" + name] = data }
           // The image's radio aliases stay links in the fallback archive.
           for (name, target) in radio.links {
@@ -173,18 +184,23 @@
           else { throw NativeFirmwareInputFailure.invalidSource }
           try merge(wifi, into: &outputs)
           try merge(bluetooth, into: &outputs)
-          for name in ["appleh13camerad", "appleh16camerad"] {
-            let path = "usr/sbin/" + name
-            if try !imageTree.isAbsent(path) {
-              let data = try imageTree.read(path, maximum: 16 << 20)
-              fallback[name] = data
-              if package.deviceIdentifier != "apple,j700" {
-                try merge(NeoFirmwareConversions.camera(data, requireNeoSet: false), into: &outputs)
+          try InstallerPerformance.measure("vendor_cameras") {
+            for name in ["appleh13camerad", "appleh16camerad"] {
+              let path = "usr/sbin/" + name
+              if try !imageTree.isAbsent(path) {
+                let data = try imageTree.read(path, maximum: 16 << 20)
+                fallback[name] = data
+                if package.deviceIdentifier != "apple,j700" {
+                  try merge(
+                    NeoFirmwareConversions.camera(data, requireNeoSet: false), into: &outputs)
+                }
               }
             }
           }
         }
-        let factory = try factoryFiles(package.storeIdentifier)
+        let factory = try InstallerPerformance.measure("vendor_factory") {
+          try factoryFiles(package.storeIdentifier)
+        }
         for (name, data) in factory {
           fallback["com.apple.factorydata/" + name] = data
         }
@@ -197,67 +213,84 @@
           try merge(calibration, into: &outputs)
           try merge(calibration, into: &fallback)
         }
-        let archives = try FirmwarePackageBuilder.build(
-          outputs.keys.sorted().map { FirmwarePackageInput(name: $0, bytes: outputs[$0]!) })
+        let archives = try InstallerPerformance.measure("vendor_package") {
+          try FirmwarePackageBuilder.build(
+            outputs.keys.sorted().map { FirmwarePackageInput(name: $0, bytes: outputs[$0]!) })
+        }
         let published: [String: Data] = [
           "vendorfw/firmware.tar": archives.tar, "vendorfw/firmware.cpio": archives.cpio,
           "vendorfw/manifest.txt": archives.manifest,
           "vendorfw/u-boot/asmedia/asm2214a-apple.bin": outputs["asmedia/asm2214a-apple.bin"]!,
         ]
         var files = [String: NativeStubFileIdentity]()
-        for (name, bytes) in published {
-          try NativeFirmwareInputFiles.write(bytes, to: work.appendingPathComponent(name))
-          files[name] = NativeStubFileIdentity(
-            bytes: bytes.count, sha256: NativeStubFileStore.hash(bytes))
+        try InstallerPerformance.measure("vendor_write") {
+          for (name, bytes) in published {
+            try NativeFirmwareInputFiles.write(bytes, to: work.appendingPathComponent(name))
+            files[name] = NativeStubFileIdentity(
+              bytes: bytes.count, sha256: NativeStubFileStore.hash(bytes))
+          }
         }
         let aliases = Dictionary(
           uniqueKeysWithValues: source.fud.map {
             ("fud_firmware/" + source.machine + "/" + $0.component + ".im4p", "../" + $0.member)
           }
         ).merging(radioLinks) { first, _ in first }
-        let fallbackArchive = try FirmwarePackageBuilder.fallback(
-          fallback.keys.sorted().map { FirmwarePackageInput(name: $0, bytes: fallback[$0]!) },
-          symbolicLinks: aliases)
-        try NativeFirmwareInputFiles.write(
-          fallbackArchive, to: work.appendingPathComponent("asahi/all_firmware.tar.gz"))
-        let workTree = try NativeHandoffFileTree(work, protected: true, owner: owner)
+        try InstallerPerformance.measure("vendor_fallback") {
+          let fallbackArchive = try FirmwarePackageBuilder.fallback(
+            fallback.keys.sorted().map { FirmwarePackageInput(name: $0, bytes: fallback[$0]!) },
+            symbolicLinks: aliases)
+          try NativeFirmwareInputFiles.write(
+            fallbackArchive, to: work.appendingPathComponent("asahi/all_firmware.tar.gz"))
+        }
+        let workTree = try InstallerPerformance.measure("vendor_work_tree") {
+          try NativeHandoffFileTree(work, protected: true, owner: owner)
+        }
         let workStore = NativeStubFileStore(tree: workTree, owner: owner)
-        let fallbackIdentity = try workStore.identity(
-          "asahi/all_firmware.tar.gz", maximum: 256 << 20)
+        let fallbackIdentity = try InstallerPerformance.measure("vendor_fallback_identity") {
+          try workStore.identity("asahi/all_firmware.tar.gz", maximum: 256 << 20)
+        }
         var installerData = ["asahi/all_firmware.tar.gz": fallbackIdentity]
-        let sourceReceipt =
-          try JSONSerialization.jsonObject(
-            with: file.readEvidence("native-stub-files")) as! [String: Any]
-        try NativeFirmwareInputFiles.write(
-          JSONSerialization.data(
-            withJSONObject: sourceReceipt["stub_info"]!, options: [.sortedKeys]),
-          to: work.appendingPathComponent("asahi/stub_info.json"))
-        installerData["asahi/stub_info.json"] = try workStore.identity(
-          "asahi/stub_info.json", maximum: 1 << 20)
-        for record in sourceRecords where record.installerDataName != nil {
-          let name = record.installerDataName!
-          guard NativeHandoffEvidence.safeRelative(name), !name.contains("/") else {
-            throw NativeFirmwareInputFailure.invalidSource
-          }
-          let inputTree = try target.tree(record.role)
-          let descriptor = try inputTree.fileDescriptor(record.path)
-          defer { close(descriptor) }
-          var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
-          guard fcntl(descriptor, F_GETPATH, &path) == 0 else {
-            throw NativeFirmwareInputFailure.invalidSource
-          }
-          let identity = try await workStore.local(
-            URL(fileURLWithPath: String(cString: path)), at: "asahi/" + name, compressed: false)
-          guard identity == record.identity else { throw NativeFirmwareInputFailure.invalidSource }
-          installerData["asahi/" + name] = identity
+        try InstallerPerformance.measure("vendor_stub_info") {
+          let sourceReceipt =
+            try JSONSerialization.jsonObject(
+              with: file.readEvidence("native-stub-files")) as! [String: Any]
+          try NativeFirmwareInputFiles.write(
+            JSONSerialization.data(
+              withJSONObject: sourceReceipt["stub_info"]!, options: [.sortedKeys]),
+            to: work.appendingPathComponent("asahi/stub_info.json"))
+          installerData["asahi/stub_info.json"] = try workStore.identity(
+            "asahi/stub_info.json", maximum: 1 << 20)
         }
-        for (name, identity) in files.merging(
-          installerData, uniquingKeysWith: { first, _ in first })
-        {
-          _ = try await espStore.file(
-            workTree, path: name, identity: identity, owner: owner, at: name)
+        try await InstallerPerformance.measuring("vendor_installer_data") {
+          for record in sourceRecords where record.installerDataName != nil {
+            let name = record.installerDataName!
+            guard NativeHandoffEvidence.safeRelative(name), !name.contains("/") else {
+              throw NativeFirmwareInputFailure.invalidSource
+            }
+            let inputTree = try target.tree(record.role)
+            let descriptor = try inputTree.fileDescriptor(record.path)
+            defer { close(descriptor) }
+            var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+            guard fcntl(descriptor, F_GETPATH, &path) == 0 else {
+              throw NativeFirmwareInputFailure.invalidSource
+            }
+            let identity = try await workStore.local(
+              URL(fileURLWithPath: String(cString: path)), at: "asahi/" + name, compressed: false)
+            guard identity == record.identity else {
+              throw NativeFirmwareInputFailure.invalidSource
+            }
+            installerData["asahi/" + name] = identity
+          }
         }
-        try target.verifyUnchanged()
+        try await InstallerPerformance.measuring("vendor_esp_publish") {
+          for (name, identity) in files.merging(
+            installerData, uniquingKeysWith: { first, _ in first })
+          {
+            _ = try await espStore.file(
+              workTree, path: name, identity: identity, owner: owner, at: name)
+          }
+        }
+        try InstallerPerformance.measure("vendor_verify") { try target.verifyUnchanged() }
         let receipt = Receipt(
           plan: approved.planDigest, groupUUID: target.group, espUUID: target.esp.uuid,
           sourceBinding: NativeStubFileStore.hash(binding), files: files,
