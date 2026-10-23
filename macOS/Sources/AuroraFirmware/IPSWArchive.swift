@@ -417,6 +417,38 @@ public struct IPSWArchive: Sendable {
       symbolicLink: false, consume: consume)
   }
 
+  /// Like `stream`, for a long member: the CRC, length and SHA-256 checks and
+  /// `consume` each run on a thread of their own while the member is still
+  /// being decoded. Each sees every chunk in order, with at most a few chunks
+  /// waiting, so decoding, hashing and the consumer's work overlap instead of
+  /// adding up. The same checks complete before this method returns.
+  @discardableResult
+  public func streamOverlapped(
+    _ member: IPSWArchiveMember, maximumBytes: Int, maximumCompressedBytes: Int,
+    expectedSHA256: String? = nil, consume: @escaping @Sendable (Data) throws -> Void
+  ) async throws -> String {
+    let offset = try await admitStream(
+      member, maximumBytes: maximumBytes, maximumCompressedBytes: maximumCompressedBytes,
+      expectedSHA256: expectedSHA256, symbolicLink: false)
+    let checks = MemberChecks(member)
+    let checking = OrderedChunkWorker { try checks.add($0) }
+    let consuming = OrderedChunkWorker(work: consume)
+    do {
+      try await decode(member, at: offset) { bytes in
+        try checking.submit(bytes)
+        try consuming.submit(bytes)
+      }
+      try checking.finish()
+      try consuming.finish()
+    } catch {
+      checking.cancel()
+      consuming.cancel()
+      throw error
+    }
+    try Task.checkCancellation()
+    return try checks.finish(expectedSHA256)
+  }
+
   /// Read link metadata as bounded UTF-8 data. Regular extraction still rejects
   /// links; the caller must admit the target graph before publishing any link.
   public func symbolicLinkTarget(_ member: IPSWArchiveMember) async throws -> String {
@@ -437,6 +469,23 @@ public struct IPSWArchive: Sendable {
     _ member: IPSWArchiveMember, maximumBytes: Int, maximumCompressedBytes: Int,
     expectedSHA256: String?, symbolicLink: Bool, consume: (Data) throws -> Void
   ) async throws -> String {
+    let offset = try await admitStream(
+      member, maximumBytes: maximumBytes, maximumCompressedBytes: maximumCompressedBytes,
+      expectedSHA256: expectedSHA256, symbolicLink: symbolicLink)
+    let checks = MemberChecks(member)
+    try await decode(member, at: offset) { bytes in
+      try checks.add(bytes)
+      try consume(bytes)
+    }
+    try Task.checkCancellation()
+    return try checks.finish(expectedSHA256)
+  }
+
+  /// The budgets and the member's local record, before any body byte is read.
+  private func admitStream(
+    _ member: IPSWArchiveMember, maximumBytes: Int, maximumCompressedBytes: Int,
+    expectedSHA256: String?, symbolicLink: Bool
+  ) async throws -> Int {
     try require(
       (0...(128 << 30)).contains(maximumBytes)
         && (0...(128 << 30)).contains(maximumCompressedBytes)
@@ -444,20 +493,20 @@ public struct IPSWArchive: Sendable {
       "IPSW member exceeds its streaming budget.")
     if let expectedSHA256 { try require(validHash(expectedSHA256), "Invalid member digest.") }
     try require(!member.isDirectory, "A directory has no readable file body.")
-    let offset = try await recordOffset(for: member, symbolicLink: symbolicLink)
-    var digest = SHA256()
-    var checksum: uLong = 0
+    return try await recordOffset(for: member, symbolicLink: symbolicLink)
+  }
+
+  /// Decodes the member's body in bounded chunks and hands each to `deliver`.
+  private func decode(
+    _ member: IPSWArchiveMember, at offset: Int, deliver: (Data) throws -> Void
+  ) async throws {
     var produced = 0
     func emit(_ bytes: Data) throws {
       try Task.checkCancellation()
       try require(
         bytes.count <= member.sizeBytes - produced, "IPSW output exceeds its declared size.")
-      digest.update(data: bytes)
-      checksum = bytes.withUnsafeBytes {
-        zlib.crc32(checksum, $0.bindMemory(to: Bytef.self).baseAddress, uInt(bytes.count))
-      }
       produced += bytes.count
-      try consume(bytes)
+      try deliver(bytes)
     }
     let body = RangesAhead(source: source, offset: offset, count: member.compressedSize)
     defer { body.cancel() }
@@ -514,13 +563,37 @@ public struct IPSWArchive: Sendable {
         }
       }
     }
-    try Task.checkCancellation()
-    try require(
-      produced == member.sizeBytes && UInt32(checksum) == member.crc32,
-      "IPSW member length or CRC mismatch.")
-    let hash = digest.finalize().map { String(format: "%02x", $0) }.joined()
-    if let expectedSHA256 { try require(hash == expectedSHA256, "IPSW member digest mismatch.") }
-    return hash
+  }
+
+  /// A member's length, CRC and SHA-256, in the order its chunks arrive.
+  private final class MemberChecks: @unchecked Sendable {
+    private let member: IPSWArchiveMember
+    private var digest = SHA256()
+    private var checksum: uLong = 0
+    private var produced = 0
+
+    init(_ member: IPSWArchiveMember) { self.member = member }
+
+    func add(_ bytes: Data) throws {
+      try require(
+        bytes.count <= member.sizeBytes - produced, "IPSW output exceeds its declared size.")
+      digest.update(data: bytes)
+      checksum = bytes.withUnsafeBytes {
+        zlib.crc32(checksum, $0.bindMemory(to: Bytef.self).baseAddress, uInt(bytes.count))
+      }
+      produced += bytes.count
+    }
+
+    func finish(_ expectedSHA256: String?) throws -> String {
+      try require(
+        produced == member.sizeBytes && UInt32(checksum) == member.crc32,
+        "IPSW member length or CRC mismatch.")
+      let hash = digest.finalize().map { String(format: "%02x", $0) }.joined()
+      if let expectedSHA256 {
+        try require(hash == expectedSHA256, "IPSW member digest mismatch.")
+      }
+      return hash
+    }
   }
 
   private static func verifyCRC(_ bytes: Data, member: IPSWArchiveMember) throws {

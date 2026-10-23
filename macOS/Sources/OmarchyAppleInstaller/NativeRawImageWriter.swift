@@ -140,6 +140,11 @@
       }
     }
 
+    private final class SinkBox: @unchecked Sendable {
+      var sink: AlignedSink
+      init(_ sink: AlignedSink) { self.sink = sink }
+    }
+
     /// Archive CRC, output length and SHA-256 are completed before a successful
     /// device-cache flush can produce a receipt. No extracted image is retained.
     static func write(
@@ -160,16 +165,19 @@
       let descriptor = try platform.openTarget(partition)
       defer { close(descriptor) }
       try verify(partition)
-      var sink = AlignedSink(expected: UInt64(member.sizeBytes)) { bytes, offset in
-        try platform.writeChunk(descriptor, bytes, offset)
-      }
-      let digest = try await archive.stream(
+      // Device writes run on their own thread while the image is decoded and
+      // hashed; the sink is only touched there until the stream returns.
+      let writes = SinkBox(
+        AlignedSink(expected: UInt64(member.sizeBytes)) { bytes, offset in
+          try platform.writeChunk(descriptor, bytes, offset)
+        })
+      let digest = try await archive.streamOverlapped(
         member, maximumBytes: member.sizeBytes,
         maximumCompressedBytes: member.compressedSize
       ) { bytes in
-        try sink.append(bytes)
+        try writes.sink.append(bytes)
       }
-      try sink.finish()
+      try writes.sink.finish()
       try Task.checkCancellation()
       try platform.flush(descriptor)
       try verify(partition)

@@ -156,6 +156,98 @@ final class IPSWArchiveTests: XCTestCase, @unchecked Sendable {
     XCTAssertEqual(digest, expected)
   }
 
+  func testOverlappedStreamingMatchesInlineStreamingAndStopsOnAConsumerFailure() async throws {
+    final class Collected: @unchecked Sendable {
+      let lock = NSLock()
+      var data = Data()
+      var deliveries = 0
+    }
+    let expected = Data("<plist>synthetic</plist>".utf8)
+    for record in try fixture().archives {
+      let archive = try await IPSWArchive.open(
+        ZIPSource(data: XCTUnwrap(Data(base64Encoded: record.data))))
+      let member = try XCTUnwrap(archive.members.first)
+      let collected = Collected()
+      let digest = try await archive.streamOverlapped(
+        member, maximumBytes: 1024, maximumCompressedBytes: 1024, expectedSHA256: expected.sha256
+      ) { bytes in collected.lock.withLock { collected.data.append(bytes) } }
+      XCTAssertEqual(collected.data, expected, record.name)
+      XCTAssertEqual(digest, expected.sha256, record.name)
+      do {
+        try await archive.streamOverlapped(
+          member, maximumBytes: 1024, maximumCompressedBytes: 1024,
+          expectedSHA256: Data("other".utf8).sha256
+        ) { _ in }
+        XCTFail("A changed member passed its digest")
+      } catch is RestoreFailure {}
+    }
+
+    let archive = try await IPSWArchive.open(ZIPSource(data: try largeBytes()))
+    let member = try XCTUnwrap(archive.members.first)
+    var whole = Data()
+    let inline = try await archive.stream(
+      member, maximumBytes: 64 << 20, maximumCompressedBytes: 1 << 20
+    ) { whole.append($0) }
+    let collected = Collected()
+    let overlapped = try await archive.streamOverlapped(
+      member, maximumBytes: 64 << 20, maximumCompressedBytes: 1 << 20
+    ) { bytes in collected.lock.withLock { collected.data.append(bytes) } }
+    XCTAssertEqual(overlapped, inline)
+    XCTAssertEqual(collected.data, whole)
+
+    let failing = Collected()
+    do {
+      try await archive.streamOverlapped(
+        member, maximumBytes: 64 << 20, maximumCompressedBytes: 1 << 20
+      ) { _ in
+        try failing.lock.withLock {
+          failing.deliveries += 1
+          if failing.deliveries == 2 { throw CancellationError() }
+        }
+      }
+      XCTFail("A failed consumer let the stream finish")
+    } catch is CancellationError {}
+    XCTAssertEqual(failing.lock.withLock { failing.deliveries }, 2, "Nothing after the failure")
+  }
+
+  func testOrderedWorkerKeepsOrderBoundsWaitingAndReportsTheFirstFailure() throws {
+    final class Seen: @unchecked Sendable {
+      let lock = NSLock()
+      var values: [UInt8] = []
+      let release = DispatchSemaphore(value: 0)
+    }
+    let seen = Seen()
+    let worker = OrderedChunkWorker(depth: 2) { bytes in
+      if bytes.first == 0 { seen.release.wait() }
+      seen.lock.withLock { seen.values.append(bytes.first ?? 255) }
+    }
+    try worker.submit(Data([0]))
+    // The first chunk is in hand; two more may wait, and the next submit blocks.
+    try worker.submit(Data([1]))
+    try worker.submit(Data([2]))
+    let blocked = DispatchSemaphore(value: 0)
+    DispatchQueue.global().async {
+      try? worker.submit(Data([3]))
+      blocked.signal()
+    }
+    XCTAssertEqual(blocked.wait(timeout: .now() + .milliseconds(200)), .timedOut)
+    seen.release.signal()
+    XCTAssertEqual(blocked.wait(timeout: .now() + 5), .success)
+    try worker.finish()
+    XCTAssertEqual(seen.lock.withLock { seen.values }, [0, 1, 2, 3])
+
+    let failing = OrderedChunkWorker(depth: 2) { bytes in
+      if bytes.first == 1 { throw RestoreFailure("first failure") }
+    }
+    try failing.submit(Data([1]))
+    XCTAssertThrowsError(try failing.finish()) {
+      XCTAssertEqual(($0 as? RestoreFailure)?.message, "first failure")
+    }
+    let cancelled = OrderedChunkWorker { _ in }
+    cancelled.cancel()
+    XCTAssertThrowsError(try cancelled.submit(Data([1])))
+  }
+
   func testStreamingBudgetsFailBeforeReadingAMemberAndSinkFailureStopsDelivery() async throws {
     let source = ZIPSource(data: try largeBytes())
     let archive = try await IPSWArchive.open(source)
