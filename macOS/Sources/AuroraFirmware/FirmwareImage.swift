@@ -16,20 +16,25 @@ public enum FirmwareImage {
       "Invalid firmware image envelope.")
     let fields = try FirmwareDER.children(input, outer)
     try require(
-      (4...5).contains(fields.count) && FirmwareDER.text(input, fields[0], "IM4P")
+      (4...6).contains(fields.count) && FirmwareDER.text(input, fields[0], "IM4P")
         && fields[1].tag == 0x16 && fields[1].content.count == 4
         && fields[2].tag == 0x16 && fields[3].tag == 4,
       "Invalid firmware image fields.")
+    // After the payload: optional compression metadata, then optional [0]
+    // payload properties (current kernel caches carry them), in that order.
+    var trailing = fields.dropFirst(4)
+    if trailing.last?.tag == 0xA0 { trailing = trailing.dropLast() }
+    try require(trailing.count <= 1, "Invalid firmware image fields.")
     let typeBytes = input[fields[1].content]
     try require(typeBytes.allSatisfy { (33...126).contains($0) }, "Invalid firmware image type.")
     let type = String(decoding: typeBytes, as: UTF8.self)
     let data = input.subdata(in: fields[3].content)
-    if fields.count == 4 {
+    guard let metadata = trailing.first else {
       try require(data.count <= maximumBytes, "Firmware payload exceeds its budget.")
       return (type, data)
     }
-    try require(fields[4].tag == 0x30, "Invalid firmware compression metadata.")
-    let compression = try FirmwareDER.children(input, fields[4])
+    try require(metadata.tag == 0x30, "Invalid firmware compression metadata.")
+    let compression = try FirmwareDER.children(input, metadata)
     try require(
       compression.count == 2 && compression.allSatisfy { $0.tag == 2 },
       "Invalid firmware compression fields.")
