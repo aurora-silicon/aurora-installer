@@ -273,6 +273,7 @@
       XCTAssertEqual(prepared.boot.name, "boot.img")
       XCTAssertEqual(prepared.root.name, "root.img")
       XCTAssertEqual(prepared.stage1.sha256, NativeStubFileStore.hash(installed))
+      XCTAssertNil(prepared.espVolumeID)
 
       var changed = installed
       changed[0] ^= 1
@@ -283,6 +284,63 @@
           installedStage1: changed, legacyStage1: { NativeESPFileTests.legacyBase })
         XCTFail("Changed Stage 1 was admitted")
       } catch {}
+    }
+
+    func testPreflightCarriesThePayloadESPVolumeID() async throws {
+      let disk = try fixture()
+      let (baseMetadata, payload, _) = try NativeESPFileTests.inputs()
+      let archive = try await IPSWArchive.open(NativeRawImageWriterTests.Source(bytes: payload))
+      func admit(_ volumeID: String) async throws -> NativePreservedInstallAdmission.Prepared {
+        var document = try XCTUnwrap(
+          JSONSerialization.jsonObject(with: baseMetadata) as? [String: Any])
+        var templates = try XCTUnwrap(document["os_list"] as? [[String: Any]])
+        var rows = try XCTUnwrap(templates[0]["partitions"] as? [[String: Any]])
+        rows[0]["volume_id"] = volumeID
+        templates[0]["partitions"] = rows
+        templates[0]["default_os_name"] = AuroraDistribution.nixos.title
+        document["os_list"] = templates
+        let metadata = try JSONSerialization.data(withJSONObject: document)
+        let inspection = try AppleInstallerTrustCore().validateEngineTranscript(
+          NativeDiskInventory.transcript(
+            device: "apple,j314s", snapshot: disk.snapshot, containers: disk.containers,
+            metadata: try NativeInstallationMetadata(data: metadata), stubBytes: 2_499_805_184))
+        let inventory = try XCTUnwrap(inspection.inventory)
+        let candidate = try XCTUnwrap(inventory.candidates.first { $0.kind == "reinstall" })
+        let transcript = try NativeInstallerPlanner.transcript(
+          inspection: inspection,
+          request: PinnedAsahiPlanRequest(
+            inventory: inventory, candidate: candidate,
+            requestedLengthBytes: candidate.lengthBytes),
+          identity: PinnedAsahiPlanIdentity(
+            engineVersion: "test", engineDigest: "sha256:" + String(repeating: "a", count: 64),
+            metadataDigest: SHA256Digest(hashing: metadata).rawValue,
+            payloadDigest: SHA256Digest(hashing: payload).rawValue))
+        let approved = try XCTUnwrap(
+          AppleInstallerTrustCore().validateEngineTranscript(transcript).plan)
+        let target = try NativePreservedInstallTarget.recognize(
+          disk, sourceIdentifier: candidate.sourceIdentifier,
+          title: AuroraDistribution.nixos.title)
+        let possibleESP = try await NativeESPPayloadPlan.make(
+          metadata: metadata, archive: archive, device: "apple,j314s", firmware: "26.6.2",
+          legacyStage1: { NativeESPFileTests.legacyBase })
+        let installed = try NativeLegacyStage1.fill(
+          XCTUnwrap(possibleESP).stage1, uuid: target.esp.uuid.lowercased(),
+          path: "m1n1/boot.bin")
+        return try await NativePreservedInstallAdmission.check(
+          approved: approved, metadata: metadata, archive: archive, disk: disk,
+          stubBytes: 2_499_805_184, firmwareVersion: "26.6.2",
+          installedStage1: installed, legacyStage1: { NativeESPFileTests.legacyBase })
+      }
+      let fedora = try await admit("0x4866d833")
+      XCTAssertEqual(fedora.espVolumeID, 0x4866_D833)
+      let omarchy = try await admit("0X4F4D5801")
+      XCTAssertEqual(omarchy.espVolumeID, 0x4F4D_5801)
+      do {
+        _ = try await admit("4866D833")
+        XCTFail("A volume ID a fresh install couldn't format was admitted")
+      } catch {
+        XCTAssertEqual(error as? NativePreservedInstallError, .unavailable)
+      }
     }
   }
 #endif

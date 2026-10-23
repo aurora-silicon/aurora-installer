@@ -97,9 +97,18 @@
       let espFiles: [NativePreservedESPEntryReceipt]
       let espDigest: String
       if state.state == .ready || state.state == .started {
+        // The ESP keeps its file system, so it takes the payload's volume
+        // serial through the raw device while it is still unmounted. Its boot
+        // sectors are admitted before the first image write.
+        let espVolumeID = NativePreservedESPVolumeIDExecution(
+          package: package, approved: approved, prepared: prepared,
+          disks: platform.disks, device: .live(environment))
+        try espVolumeID.admit(journal: nativeJournal)
         let imageWriter = NativePreservedPayloadImagesExecution(
           package: package, approved: approved, prepared: prepared, platform: platform)
         images = try await imageWriter.prepare(
+          journal: nativeJournal, authorization: authorization, bootstrap: bootstrap)
+        try espVolumeID.prepare(
           journal: nativeJournal, authorization: authorization, bootstrap: bootstrap)
       } else {
         guard let receipt = state.receipt else { throw NativeRecoveryJournalError.invalidState }

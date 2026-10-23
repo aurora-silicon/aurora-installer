@@ -13,6 +13,8 @@
       let boot: IPSWArchiveMember
       let root: IPSWArchiveMember
       let esp: NativeESPPayloadPlan
+      /// The FAT volume serial a fresh install would format the ESP with.
+      let espVolumeID: UInt32?
       let stage1: NativeStubFileIdentity
     }
 
@@ -42,6 +44,12 @@
         layout.parts[1].bytes <= target.boot.size,
         layout.parts[2].bytes <= target.root.size
       else { throw NativePreservedInstallError.imageTooLarge }
+      let espVolumeID: UInt32? = try layout.parts[0].volumeID.map { text in
+        guard let serial = NativeFATBootSectors.serial(volumeID: text) else {
+          throw NativePreservedInstallError.unavailable
+        }
+        return serial
+      }
       let names = ["boot.img", "root.img"]
       let members = try names.map { name in
         let matches = archive.members.filter { $0.name == name && !$0.isDirectory }
@@ -93,7 +101,8 @@
       else { throw NativePreservedInstallError.changedLayout }
       return Prepared(
         target: target, diskSnapshot: disk.snapshot, transcript: transcript, archive: archive,
-        boot: members[0], root: members[1], esp: esp, stage1: stage1)
+        boot: members[0], root: members[1], esp: esp, espVolumeID: espVolumeID,
+        stage1: stage1)
     }
   }
 #endif

@@ -73,7 +73,7 @@
       let espPlan = try await NativeESPFileTests.plan()
       let prepared = NativePreservedInstallAdmission.Prepared(
         target: target, diskSnapshot: baseline, transcript: transcript, archive: archive,
-        boot: bootMember, root: rootMember, esp: espPlan,
+        boot: bootMember, root: rootMember, esp: espPlan, espVolumeID: nil,
         stage1: NativeStubFileIdentity(bytes: 1, sha256: String(repeating: "0", count: 64)))
       let bootFile = try NativeRawImageWriterTests.Target(capacity: boot.size)
       let rootFile = try NativeRawImageWriterTests.Target(capacity: linuxRoot.size)
