@@ -282,12 +282,14 @@
         withIntermediateDirectories: true,
         attributes: [.posixPermissions: 0o700]
       )
-      FileManager.default.createFile(
-        atPath: journal.path,
-        contents: nil,
-        attributes: [.posixPermissions: 0o600]
-      )
-      let handle = try FileHandle(forWritingTo: journal)
+      // Created private in one step, as the real executor does. Creating the
+      // file and then narrowing its mode leaves a moment in which the
+      // tailer, which polls from the start, sees a readable journal and
+      // stops forwarding for good.
+      let descriptor = open(
+        journal.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, S_IRUSR | S_IWUSR)
+      guard descriptor >= 0 else { throw StubExecutorError.stopped }
+      let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
       defer { try? handle.close() }
 
       for line in Self.lines(in: transcript) {

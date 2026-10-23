@@ -1600,13 +1600,21 @@
       )
     }
 
+    /// Polls `predicate` until it holds, for up to ten seconds of wall time.
+    /// A fixed count of short sleeps gave up after about two seconds, which a
+    /// loaded CI runner can spend before the session's task is scheduled.
     private func waitUntil(
+      file: StaticString = #filePath,
+      line: UInt = #line,
       _ predicate: @escaping @MainActor () -> Bool
     ) async {
-      for _ in 0..<200 {
+      let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+      while ContinuousClock.now < deadline {
         if predicate() { return }
         try? await Task.sleep(for: .milliseconds(10))
       }
+      if predicate() { return }
+      XCTFail("The condition did not hold within ten seconds.", file: file, line: line)
     }
 
     // MARK: Existing install
