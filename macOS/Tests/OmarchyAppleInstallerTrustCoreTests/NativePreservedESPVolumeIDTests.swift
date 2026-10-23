@@ -243,7 +243,7 @@
           guard disk == baseline.disk, partition.identifier == esp.identifier, partition == esp
           else { throw NativePreservedInstallError.changedLayout }
         },
-        verifySourceOwner: { _, _, expected in
+        verifySourceOwner: { _, _, expected, _ in
           guard expected == bootstrap else { throw NativeHandoffValidationError.invalidOwner }
         },
         command: { _ in throw NativePreservedInstallError.changedLayout },

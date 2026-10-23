@@ -44,7 +44,7 @@
           }
         })
       else { throw NativePreservedInstallError.changedLayout }
-      try platform.disks.verifySourceOwner(package, authorization, bootstrap)
+      try platform.disks.verifySourceOwner(package, authorization, bootstrap, nil)
       let disks = platform.disks
       let verify: @Sendable (RemovalPartition) throws -> Void = { partition in
         guard try disks.snapshot() == baseline else {

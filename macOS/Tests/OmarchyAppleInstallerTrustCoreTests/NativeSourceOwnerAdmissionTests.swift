@@ -151,6 +151,39 @@
       }
     }
 
+    func testAStandaloneCheckReadsTheLayoutBeforeAndAfterResolvingTheOwner() throws {
+      let fixture = try OwnerFixture()
+      defer { fixture.base.remove() }
+      _ = try fixture.admit()
+      XCTAssertEqual(fixture.snapshots, 2)
+    }
+
+    func testACallersLayoutIsUsedInsteadOfReadingOneButTheOwnerIsStillChecked() throws {
+      let fixture = try OwnerFixture()
+      defer { fixture.base.remove() }
+      let bootstrap = try fixture.admit(layout: fixture.snapshot)
+      XCTAssertEqual(bootstrap.ownerUUID, fixture.owner)
+      XCTAssertEqual(fixture.snapshots, 0, "The caller reads the layout again itself.")
+      XCTAssertTrue(fixture.commands.allSatisfy(fixture.permitted))
+
+      for fault in ["root-group", "volume-owner", "device"] {
+        let faulty = try OwnerFixture()
+        defer { faulty.base.remove() }
+        faulty.fault = fault
+        XCTAssertThrowsError(try faulty.admit(layout: faulty.snapshot), fault)
+        XCTAssertEqual(faulty.snapshots, 0, fault)
+      }
+      // A layout of another disk is refused as a read one is.
+      let other = try OwnerFixture()
+      defer { other.base.remove() }
+      let disk = other.snapshot
+      let moved = RemovalSnapshot(
+        disk: "disk9", devicePath: disk.devicePath, diskSize: disk.diskSize,
+        macOSStoreUUID: disk.macOSStoreUUID, macOSContainerUUID: disk.macOSContainerUUID,
+        partitions: disk.partitions, containers: disk.containers)
+      XCTAssertThrowsError(try other.admit(layout: moved))
+    }
+
     func testProtectedPrebootMetadataRejectsMissingWrongWritableAndLinkedOwners() throws {
       for fault in ["missing", "wrong-guid", "wrong-user", "writable", "symlink"] {
         let fixture = try OwnerFixture()
@@ -250,9 +283,9 @@
         uuid: container.uuid, storeUUID: container.storeUUID, volumes: volumes)
     }
 
-    func admit() throws -> NativeSourceBootstrap {
+    func admit(layout: RemovalSnapshot? = nil) throws -> NativeSourceBootstrap {
       try NativeSourceOwnerAdmission(environment: environment()).check(
-        package: base.package, authorization: base.authorization())
+        package: base.package, authorization: base.authorization(), layout: layout)
     }
 
     func writeAdmins(_ value: Any) throws {

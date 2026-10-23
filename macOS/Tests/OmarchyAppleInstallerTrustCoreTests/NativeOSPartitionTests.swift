@@ -209,8 +209,9 @@
                 self.snapshot.partitions.contains { $0.identifier == part.identifier && $0 == part }
               )
             },
-            verifySourceOwner: { _, _, bootstrap in
+            verifySourceOwner: { _, _, bootstrap, layout in
               XCTAssertEqual(bootstrap, self.base.bootstrap)
+              XCTAssertNotNil(layout, "The stage shares the layout it reads again.")
               if self.fault == "owner" { throw NativeHandoffValidationError.invalidOwner }
             }, command: { _ in XCTFail("Unleased disk command") },
             containerReference: { _, _ in throw NativeOSPartitionError.changedLayout }),

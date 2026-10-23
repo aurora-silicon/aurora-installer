@@ -98,7 +98,9 @@
         offset = live.end
       }
       guard offset == end else { throw NativeOSPartitionError.changedLayout }
-      try platform.disks.verifySourceOwner(package, authorization, sourceBootstrap)
+      // The owner is resolved from the baseline, which `verify` reads again
+      // before each image is checked or written.
+      try platform.disks.verifySourceOwner(package, authorization, sourceBootstrap, baseline)
       let verify: @Sendable (RemovalPartition) throws -> Void = { partition in
         guard try self.platform.disks.snapshot() == baseline else {
           throw NativeOSPartitionError.changedLayout

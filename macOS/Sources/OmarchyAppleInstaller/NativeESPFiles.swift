@@ -246,7 +246,8 @@
           saved.verification == "source-sha256-write-flushed-v1"
         else { throw NativeRawImageError.invalidTarget }
       }
-      try disks.verifySourceOwner(package, authorization, sourceBootstrap)
+      // The owner is resolved from this pass's layout, read again right after.
+      try disks.verifySourceOwner(package, authorization, sourceBootstrap, snapshot)
       try disks.verifyPartition(esp, snapshot.disk)
       guard
         NativeESPLabelAdmission.matches(

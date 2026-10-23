@@ -448,7 +448,7 @@
               throw NativeAPFSError.changedLayout
             }
           },
-          verifySourceOwner: { _, _, expected in
+          verifySourceOwner: { _, _, expected, _ in
             guard self.fault != "source-owner", expected == self.sourceBootstrap else {
               throw NativeHandoffValidationError.invalidOwner
             }

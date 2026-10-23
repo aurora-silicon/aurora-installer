@@ -80,8 +80,9 @@
                       partition, saved: $0, label: self.espLabel)
                 })
             },
-            verifySourceOwner: { _, _, bootstrap in
+            verifySourceOwner: { _, _, bootstrap, layout in
               XCTAssertEqual(bootstrap, self.base.bootstrap)
+              XCTAssertNotNil(layout, "The stage shares the layout it reads again.")
               if self.changedOwner { throw NativeHandoffValidationError.invalidOwner }
             }, command: { _ in XCTFail("Image stage must never run disk commands") },
             containerReference: { _, _ in throw NativeOSPartitionError.changedLayout }),

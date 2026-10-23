@@ -180,9 +180,11 @@
       let volumes = try NativeStubVolumes.read(
         file.readEvidence(NativeStubVolumes.evidenceIdentifier))
       try volumes.validate(plan: approved.planDigest, target: partition, snapshot: snapshot)
+      // The owner is resolved from this pass's layout, which is read again
+      // right after.
       guard
         try NativeSourceOwnerAdmission(environment: platform.environment).check(
-          package: package, authorization: authorization) == sourceBootstrap,
+          package: package, authorization: authorization, layout: snapshot) == sourceBootstrap,
         try platform.environment.snapshot() == snapshot
       else { throw NativeHandoffValidationError.invalidOwner }
       let mounts = NativeHandoffMounts(platform.environment)
