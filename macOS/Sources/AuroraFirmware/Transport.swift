@@ -49,6 +49,20 @@ func httpBytes(
   _ request: URLRequest, maximum: Int, keyPath: String? = nil,
   validate: (HTTPURLResponse) throws -> Void
 ) async throws -> Data {
+  var data = Data()
+  data.reserveCapacity(maximum)
+  try await httpStream(request, keyPath: keyPath, validate: validate) { byte in
+    try require(data.count < maximum, "HTTP response exceeds its admitted length.")
+    data.append(byte)
+  }
+  return data
+}
+
+/// Validates the response head before handing on any body byte.
+func httpStream(
+  _ request: URLRequest, keyPath: String? = nil,
+  validate: (HTTPURLResponse) throws -> Void, receive: (UInt8) throws -> Void
+) async throws {
   let config = URLSessionConfiguration.ephemeral
   config.timeoutIntervalForRequest = request.timeoutInterval
   config.timeoutIntervalForResource = request.timeoutInterval
@@ -62,14 +76,64 @@ func httpBytes(
     throw RestoreFailure("Invalid HTTP response.")
   }
   try validate(response)
-  var data = Data()
-  data.reserveCapacity(maximum)
   for try await byte in bytes {
     try Task.checkCancellation()
-    try require(data.count < maximum, "HTTP response exceeds its admitted length.")
-    data.append(byte)
+    try receive(byte)
   }
-  return data
+}
+
+/// A server error answer; a later attempt may succeed.
+public struct HTTPServerError: Error, Equatable, Sendable {
+  public let status: Int
+}
+
+/// Failures a later attempt can get past: the connection was lost or timed
+/// out, there is no network yet, the host can't be reached right now, or the
+/// server answered with an error. Anything else is final.
+public enum TransientTransport {
+  static let codes: [URLError.Code] = [
+    .timedOut, .cannotFindHost, .cannotConnectToHost, .networkConnectionLost,
+    .dnsLookupFailed, .notConnectedToInternet,
+  ]
+  /// Waits before attempts 2 through 6.
+  static let delays: [Duration] = [
+    .seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(16),
+  ]
+
+  public static func isTransient(_ error: any Error) -> Bool {
+    if let error = error as? URLError { return codes.contains(error.code) }
+    return error is HTTPServerError
+  }
+}
+
+/// One HTTP exchange; fixtures replace the live session.
+struct HTTPExchange: Sendable {
+  var perform:
+    @Sendable (URLRequest, (HTTPURLResponse) throws -> Void, (UInt8) throws -> Void) async throws
+      -> Void
+  var sleep: @Sendable (Duration) async throws -> Void
+
+  static let live = HTTPExchange(
+    perform: { request, validate, receive in
+      try await httpStream(request, validate: validate, receive: receive)
+    }, sleep: { try await Task.sleep(for: $0) })
+
+  /// Retries transient failures with backoff. Cancellation and every other
+  /// failure, and the last transient one, are thrown as they are.
+  func retrying(_ attempt: () async throws -> Void) async throws {
+    var waited = 0
+    while true {
+      try Task.checkCancellation()
+      do {
+        return try await attempt()
+      } catch {
+        guard TransientTransport.isTransient(error), waited < TransientTransport.delays.count
+        else { throw error }
+        try await sleep(TransientTransport.delays[waited])
+        waited += 1
+      }
+    }
+  }
 }
 
 func fetchKey(_ raw: String) async throws -> Data {
