@@ -509,6 +509,12 @@
       XCTAssertEqual(earlyExit.status, 0)
       XCTAssertThrowsError(try AccountNativeCommand.run("/bin/sleep", ["5"], timeout: 1))
       XCTAssertThrowsError(try AccountNativeCommand.run("/usr/bin/yes", [], timeout: 3))
+      // A limit the runner refuses names the limit, not a status.
+      XCTAssertThrowsError(try AccountNativeCommand.run("/usr/bin/true", [], timeout: 91)) {
+        XCTAssertEqual(
+          ($0 as? AccountSetupFailure)?.message,
+          "The native command time limit must be 1 to 90 seconds.")
+      }
     }
 
     func testCompletedCheckpointBindsTargetAndRejectsDamage() throws {
