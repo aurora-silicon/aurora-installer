@@ -636,12 +636,34 @@
       }
     }
 
-    public func jobStatus(_ hint: PendingInstallerJob, journalOffset: UInt64 = 0) async throws
-      -> InstallerJobSnapshot
-    {
-      guard hint.helperMachServiceName == machServiceName,
-        hint.helperCodeSigningRequirement == helperCodeSigningRequirement
+    /// Whether a lookup hint belongs to this connection's helper. A hint
+    /// recorded by another build of this installer names the same service
+    /// with that build's exact helper requirement; `otherBuild` admits it.
+    /// The connection itself only ever talks to a helper that meets this
+    /// build's requirement, whatever the hint says.
+    static func admits(
+      _ hint: PendingInstallerJob, machServiceName: String, helperCodeSigningRequirement: String,
+      otherBuild: Bool
+    ) -> Bool {
+      hint.helperMachServiceName == machServiceName
+        && (otherBuild || hint.helperCodeSigningRequirement == helperCodeSigningRequirement)
+    }
+
+    private func admit(_ hint: PendingInstallerJob, otherBuild: Bool) throws {
+      guard
+        Self.admits(
+          hint, machServiceName: machServiceName,
+          helperCodeSigningRequirement: helperCodeSigningRequirement, otherBuild: otherBuild)
       else { throw InstallerJobError.identityMismatch }
+    }
+
+    /// Read-only. `otherBuild` looks up a job another build of this installer
+    /// recorded, for example before the installer was updated; the lookup
+    /// hint itself is left as it is.
+    public func jobStatus(
+      _ hint: PendingInstallerJob, journalOffset: UInt64 = 0, otherBuild: Bool = false
+    ) async throws -> InstallerJobSnapshot {
+      try admit(hint, otherBuild: otherBuild)
       try hint.ticket.validate()
       let request = try JSONEncoder().encode(
         InstallerJobStatusRequest(
@@ -662,12 +684,12 @@
 
     /// The helper decides whether the job may be set aside. A job it keeps no
     /// record of is already gone, so only the lookup hint remains to clear.
-    public func abandonJob(_ hint: PendingInstallerJob, store: PendingInstallerJobStore)
-      async throws
-    {
-      guard hint.helperMachServiceName == machServiceName,
-        hint.helperCodeSigningRequirement == helperCodeSigningRequirement
-      else { throw InstallerJobError.identityMismatch }
+    /// `otherBuild` sets aside a job another build of this installer
+    /// recorded; the helper still decides whether it may.
+    public func abandonJob(
+      _ hint: PendingInstallerJob, store: PendingInstallerJobStore, otherBuild: Bool = false
+    ) async throws {
+      try admit(hint, otherBuild: otherBuild)
       try hint.ticket.validate()
       let request = try JSONEncoder().encode(InstallerJobAbandonRequest(ticket: hint.ticket))
       do {
@@ -684,17 +706,18 @@
       try store.clear(ifMatching: hint)
     }
 
+    /// `adoptingOtherBuild` continues a job another build of this installer
+    /// recorded, once the person has authorized the retry with the
+    /// machine-owner password. The saved hint then names this build's helper.
+    /// If the helper doesn't admit the retry, the original hint is restored.
     public func retryRecoveryJob(
       _ hint: PendingInstallerJob, store: PendingInstallerJobStore,
-      authorization: MachineOwnerAuthorization
+      authorization: MachineOwnerAuthorization, adoptingOtherBuild: Bool = false
     ) async throws -> InstallerJobSnapshot {
-      guard hint.helperMachServiceName == machServiceName,
-        hint.helperCodeSigningRequirement == helperCodeSigningRequirement
-      else { throw InstallerJobError.identityMismatch }
+      try admit(hint, otherBuild: adoptingOtherBuild)
       let attempt = UUID()
-      let pending = PendingInstallerJob(
-        ticket: hint.ticket, helperMachServiceName: hint.helperMachServiceName,
-        helperCodeSigningRequirement: hint.helperCodeSigningRequirement, recoveryAttempt: attempt)
+      let pending = hint.rebound(
+        toHelperCodeSigningRequirement: helperCodeSigningRequirement, recoveryAttempt: attempt)
       try store.save(pending)
       let request = try JSONEncoder().encode(
         InstallerJobRecoveryRequest(ticket: hint.ticket, attempt: attempt))
@@ -713,10 +736,22 @@
       return try await observeJob(pending)
     }
 
+    /// Waits for the helper to answer before a pending job is looked up, as
+    /// it may still be starting after the installer package replaced it.
+    public func waitForHelper(attempts: Int = 20) async throws {
+      try await InstallerJobObservation.waitForHelper(
+        attempts: attempts, ping: { try await self.ping(timeout: .seconds(3)) })
+    }
+
     /// Read-only polling needs no credential and survives replacing the GUI.
-    public func observeJob(_ hint: PendingInstallerJob) async throws -> InstallerJobSnapshot {
+    /// `otherBuild` observes a job another build of this installer recorded.
+    public func observeJob(_ hint: PendingInstallerJob, otherBuild: Bool = false) async throws
+      -> InstallerJobSnapshot
+    {
       try await InstallerJobObservation.wait(
-        fetch: { offset in try await self.jobStatus(hint, journalOffset: offset) },
+        fetch: { offset in
+          try await self.jobStatus(hint, journalOffset: offset, otherBuild: otherBuild)
+        },
         journal: journalProgress)
     }
 

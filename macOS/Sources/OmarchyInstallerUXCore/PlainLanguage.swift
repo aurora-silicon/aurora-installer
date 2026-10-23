@@ -712,6 +712,10 @@
         }
       }
 
+      if let job = error as? InstallerJobError {
+        return savedInstallationFailure(job, technicalDetail: technical)
+      }
+
       if let helper = error as? ClosedEngineHelperError {
         switch helper {
         case .beingReplaced:
@@ -950,6 +954,43 @@
         remedy:
           "If installation has started, keep your Mac connected to power and check the verified installation record before trying again."
       )
+    }
+
+    /// A saved installation the app couldn't look up or use. It names what
+    /// happened instead of falling back to a generic error.
+    private static func savedInstallationFailure(
+      _ error: InstallerJobError, technicalDetail: String
+    ) -> FailureDisplay {
+      switch error {
+      case .unavailable:
+        FailureDisplay(
+          headline: "The installer helper isn’t answering",
+          plainDetail:
+            "The saved installation is kept. Right after the installer is updated, its helper can take a little while to start.",
+          technicalDetail: technicalDetail,
+          remedy: "Quit \(windowTitle) and open it again to reconnect to the saved installation.")
+      case .identityMismatch:
+        FailureDisplay(
+          headline: "The saved installation doesn’t match this installer",
+          plainDetail:
+            "It was recorded for another installer helper or release channel. Nothing was changed.",
+          technicalDetail: technicalDetail,
+          remedy: "Open the installer and release channel that started this installation.")
+      case .interrupted:
+        FailureDisplay(
+          headline: "The installer helper stopped before the installation finished",
+          plainDetail: error.errorDescription ?? "",
+          technicalDetail: technicalDetail,
+          remedy:
+            "Keep your Mac connected to power and review the saved installation record before continuing."
+        )
+      case .invalidRequest, .unsafeState, .historyFull, .notAdmitted:
+        FailureDisplay(
+          headline: "The saved installation couldn’t be used",
+          plainDetail: error.errorDescription ?? "",
+          technicalDetail: technicalDetail,
+          remedy: "Save the error details and review the installation record before trying again.")
+      }
     }
 
     // MARK: Formatting
