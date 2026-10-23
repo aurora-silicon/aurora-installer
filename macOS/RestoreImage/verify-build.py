@@ -2,25 +2,24 @@
 # SPDX-License-Identifier: MIT
 """Verify that the Swift restore-image helper matches its recorded source build.
 
-The app ships the helper in Contents/Helpers (Packaging/build-app.sh); the
-engine archive does not carry it. The tracked unsigned build,
-RestoreImage/bin/omarchy-restore-image, and any copy given as an argument
-(the one in an unsigned app) must be the exact bytes build-record.json pins.
-Signing changes those bytes, so a signed copy is identified by its code
-signature instead (Packaging/release/sign-app).
+This build-time check runs on the packaging host; it is not part of the app.
+The app ships the helper in Contents/Helpers (Packaging/build-app.sh). The
+tracked unsigned build, bin/omarchy-restore-image, and any copy given as an
+argument (the one in an unsigned app) must be the exact bytes build-record.json
+pins. Signing changes those bytes, so a signed copy is identified by its code
+signature instead.
 
-Usage: verify-restore-image.py [UNSIGNED_COPY...]
+Usage: verify-build.py [UNSIGNED_COPY...]
 """
 import hashlib
 import json
 from pathlib import Path
 import sys
 
-BINARY = 'RestoreImage/bin/omarchy-restore-image'
+BINARY = 'bin/omarchy-restore-image'
 
 
-def record(engine: Path) -> dict:
-    root = engine / 'RestoreImage'
+def record(root: Path) -> dict:
     value = json.loads((root / 'build-record.json').read_text())
     if (value.get('schema') != 1
             or value.get('reference_repository') != 'https://github.com/erykwieliczko/macos-firmware-extract'
@@ -37,23 +36,23 @@ def record(engine: Path) -> dict:
     return value
 
 
-def verify_binary(engine: Path, binary: Path) -> None:
-    pinned = record(engine)
+def verify_binary(root: Path, binary: Path) -> None:
+    pinned = record(root)
     if (binary.is_symlink() or not binary.is_file() or binary.stat().st_size != pinned.get('binary_size')
             or hashlib.sha256(binary.read_bytes()).hexdigest() != pinned.get('binary_sha256')):
         raise ValueError(f'{binary} differs from the Swift restore-image build')
 
 
-def verify(engine: Path) -> None:
-    verify_binary(engine, engine / BINARY)
+def verify(root: Path) -> None:
+    verify_binary(root, root / BINARY)
 
 
 if __name__ == '__main__':
-    engine = Path(__file__).resolve().parent
+    root = Path(__file__).resolve().parent
     try:
-        verify(engine)
+        verify(root)
         for argument in sys.argv[1:]:
-            verify_binary(engine, Path(argument))
+            verify_binary(root, Path(argument))
     except (OSError, ValueError) as error:
         raise SystemExit(f'verify-restore-image: {error}')
     print('Swift restore-image source and unsigned build identity verified')

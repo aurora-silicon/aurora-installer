@@ -12,7 +12,6 @@ profile=$(private_bundle_profile "$app")
 package_identifier=$INSTALLER_APP_IDENTIFIER.private-m3-test.pkg
 if [[ $profile == "limine" ]]; then
   package_identifier=$INSTALLER_APP_IDENTIFIER.private-limine-test.pkg
-  python3 "$root/Packaging/private-test/prepare-limine-assets.py" --verify-release "$app/Contents/Resources/Release" >/dev/null
 fi
 [[ $(/usr/bin/plutil -extract OmarchyPrivateExactBuild raw -o - "$app/Contents/Info.plist") == "true" ]] || exit 1
 /usr/bin/codesign --verify --deep --strict "$app"

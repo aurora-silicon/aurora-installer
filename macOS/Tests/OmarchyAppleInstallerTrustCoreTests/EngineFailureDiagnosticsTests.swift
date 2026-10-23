@@ -82,11 +82,9 @@
       XCTAssertTrue(result.truncated)
     }
 
-    func testSummaryIsRedactedAfterItsOwnNormalization() {
+    func testDetailIsRedactedAfterEscapeRemoval() {
       let secret = Data("alpha-S3cret!".utf8)
-      let line = "omarchy_asahi.AsahiAdapterError: alpha-\u{202E}S3cret! and alpha-\u{E9}S3cret!"
-      let summary = EngineStandardErrorRedactor.summary(from: line, secrets: [secret])
-      XCTAssertFalse(summary.contains("S3cret"), summary)
+      let line = "stage failed: alpha-\u{202E}S3cret! and alpha-\u{E9}S3cret!"
       let tail = EngineStandardErrorRedactor.redact(
         Data(line.utf8), truncated: false, secrets: [secret])
       XCTAssertFalse(tail.contains("alpha-S3cret!"), tail)
@@ -100,20 +98,6 @@
       XCTAssertFalse(redacted.contains("dTpw"))
       XCTAssertFalse(redacted.contains("abc123"))
       XCTAssertFalse(redacted.contains("eHl6"))
-      XCTAssertFalse(
-        EngineStandardErrorRedactor.summary(
-          from: "omarchy_asahi.AsahiAdapterError: basic dTpw", secrets: []
-        ).contains("dTpw"))
-    }
-
-    func testSummaryLimitIsAppliedOnlyAfterRedaction() {
-      let secret = Data("ABCDEFGHIJ0123456789Z".utf8)
-      let prefix = "omarchy_asahi.AsahiAdapterError: "
-      let padding = String(repeating: "p", count: 180 - prefix.count)
-      let line = prefix + padding + "ABCDE\u{E9}FGHIJ0123456789Z"
-      let summary = EngineStandardErrorRedactor.summary(from: line, secrets: [secret])
-      XCTAssertFalse(summary.contains("FGHIJ0123"), summary)
-      XCTAssertLessThanOrEqual(summary.count, EngineFailureNotice.maximumSummaryCharacters)
     }
 
     func testTruncatedTailDropsItsPartialFirstLine() {
@@ -132,46 +116,6 @@
       let raw = Data("\u{1B}[31mred\u{1B}[0m\u{07}bell\r\n".utf8)
       XCTAssertEqual(
         EngineStandardErrorRedactor.redact(raw, truncated: false, secrets: []), "redbell\n")
-    }
-
-    func testFinalExceptionIsTheLastNonEmptyLine() throws {
-      let text = """
-        Traceback (most recent call last):
-          File "x.py", line 1
-        omarchy_execution.ExecutionAdmissionError: approved extent changed
-
-        """
-      let final = try XCTUnwrap(EngineStandardErrorRedactor.finalException(in: text))
-      XCTAssertEqual(final.exception, "ExecutionAdmissionError")
-      XCTAssertEqual(final.message, "approved extent changed")
-      XCTAssertNil(EngineStandardErrorRedactor.finalException(in: "just output\n"))
-      XCTAssertNil(EngineStandardErrorRedactor.finalException(in: "Note: not an exception\n"))
-    }
-
-    func testClassificationNeedsAKnownExceptionAndAnExactMessage() {
-      XCTAssertEqual(
-        EngineFailureReason.classify(
-          exception: "ExecutionAdmissionError", message: "approved extent changed"),
-        .approvedSpaceChanged)
-      XCTAssertEqual(
-        EngineFailureReason.classify(
-          exception: "ExecutionAdmissionError", message: "disk layout changed"),
-        .diskLayoutChanged)
-      XCTAssertEqual(
-        EngineFailureReason.classify(
-          exception: "ExecutionAdmissionError", message: "device is explicitly unsupported"),
-        .deviceUnsupported)
-      XCTAssertEqual(
-        EngineFailureReason.classify(
-          exception: "ExecutionAdmissionError", message: "plan digest mismatch"),
-        .planIntegrity)
-      XCTAssertEqual(
-        EngineFailureReason.classify(exception: "ValueError", message: "approved extent changed"),
-        .unclassified)
-      XCTAssertEqual(
-        EngineFailureReason.classify(
-          exception: "ExecutionAdmissionError", message: "approved extent changed!"),
-        .unclassified)
     }
 
     func testMacOSUpdateSummaryCarriesOnlyAPlainVersion() throws {

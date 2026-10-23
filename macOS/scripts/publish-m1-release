@@ -12,8 +12,8 @@ RELEASE_LOGIN="$INSTALLER_GITHUB_RELEASE_LOGIN"
 usage() {
   cat >&2 <<'EOF'
 Usage:
-  publish-m1-release prepare --payload FILE --engine FILE --metadata FILE \
-      --tag TAG --repo OWNER/REPO [--repair-manifest FILE] [--out-dir DIR] \
+  publish-m1-release prepare --payload FILE --metadata FILE \
+      --tag TAG --repo OWNER/REPO [--out-dir DIR] \
       [--split-bytes N] [--no-split] [--base-url URL] [--force]
   publish-m1-release publish --dir DIR --app FILE --tag TAG --repo OWNER/REPO \
       --notes-file FILE [--title TITLE]
@@ -145,16 +145,14 @@ split_payload() {
 }
 
 prepare_release() {
-  local payload="" engine="" metadata="" repair_manifest=""
+  local payload="" metadata=""
   local tag="" repo="" out_dir="" force="no" no_split="no" base_url=""
   local split_bytes=$DEFAULT_SPLIT_BYTES
 
   while (( $# > 0 )); do
     case $1 in
       --payload) payload=${2:-}; shift 2 ;;
-      --engine) engine=${2:-}; shift 2 ;;
       --metadata) metadata=${2:-}; shift 2 ;;
-      --repair-manifest) repair_manifest=${2:-}; shift 2 ;;
       --tag) tag=${2:-}; shift 2 ;;
       --repo) repo=${2:-}; shift 2 ;;
       --out-dir) out_dir=${2:-}; shift 2 ;;
@@ -166,30 +164,23 @@ prepare_release() {
     esac
   done
 
-  [[ -n $payload && -n $engine && -n $metadata && -n $tag && -n $repo ]] || usage
+  [[ -n $payload && -n $metadata && -n $tag && -n $repo ]] || usage
   validate_tag "$tag"
   validate_repo "$repo"
   [[ $split_bytes =~ ^[1-9][0-9]*$ ]] || die "--split-bytes must be a positive integer"
   require_file "$payload"
-  require_file "$engine"
   require_file "$metadata"
-  [[ -z $repair_manifest ]] || require_file "$repair_manifest"
   [[ -n $out_dir ]] || out_dir="dist/m1-release/$tag"
   [[ ! -L $out_dir ]] || die "unsafe output directory: $out_dir"
   mkdir -p "$out_dir"
 
-  local payload_name engine_name metadata_name repair_name=""
+  local payload_name metadata_name
   payload_name=$(basename "$payload")
-  engine_name=$(basename "$engine")
   metadata_name=$(basename "$metadata")
-  [[ -z $repair_manifest ]] || repair_name=$(basename "$repair_manifest")
 
   echo "Staging assets into $out_dir"
-  stage_asset "$engine" "$out_dir/$engine_name" "$force"
   stage_asset "$metadata" "$out_dir/$metadata_name" "$force"
   stage_asset "$payload" "$out_dir/$payload_name" "$force"
-  [[ -z $repair_name ]] ||
-    stage_asset "$repair_manifest" "$out_dir/$repair_name" "$force"
 
   local payload_bytes payload_digest part_names="" part_count=0
   payload_bytes=$(file_size "$out_dir/$payload_name")
@@ -210,18 +201,16 @@ prepare_release() {
     rm -f "$out_dir/$payload_name".part[0-9][0-9]
   fi
 
-  local release_assets="$engine_name $metadata_name"
+  local release_assets="$metadata_name"
   if (( part_count > 0 )); then
     release_assets="$release_assets $part_names"
   else
     release_assets="$release_assets $payload_name"
   fi
-  [[ -z $repair_name ]] || release_assets="$release_assets $repair_name"
   release_assets="$release_assets SHA256SUMS"
 
-  local sums_inputs="$engine_name $metadata_name $payload_name"
+  local sums_inputs="$metadata_name $payload_name"
   [[ -z $part_names ]] || sums_inputs="$sums_inputs $part_names"
-  [[ -z $repair_name ]] || sums_inputs="$sums_inputs $repair_name"
   ( cd "$out_dir" && shasum -a 256 $sums_inputs >SHA256SUMS )
 
   if [[ -n $base_url ]]; then
@@ -235,12 +224,10 @@ prepare_release() {
 BASE_URL=$base_url
 REPO=$repo
 TAG=$tag
-ENGINE_ASSET=$engine_name
 METADATA_ASSET=$metadata_name
 PAYLOAD_FILE=$payload_name
 PAYLOAD_PART_COUNT=$part_count
 PAYLOAD_PART_ASSETS="$part_names"
-REPAIR_MANIFEST_ASSET=$repair_name
 RELEASE_ASSETS="$release_assets"
 EOF
 

@@ -125,7 +125,7 @@ import sys
 
 sequence, output = int(sys.argv[1]), sys.argv[2]
 catalog = {
-    "schemaVersion": 4,
+    "schemaVersion": 5,
     "sequence": sequence,
     "issuedAt": datetime.datetime.now(datetime.timezone.utc)
     .replace(microsecond=0)
@@ -219,7 +219,7 @@ import sys
 catalog = json.load(open(sys.argv[1]))
 seen = set()
 for model in catalog["models"]:
-    for role in ("engineArtifact", "metadataArtifact", "payloadArtifact"):
+    for role in ("metadataArtifact", "payloadArtifact"):
         artifact = model.get(role)
         if not artifact:
             continue
@@ -686,7 +686,7 @@ import json, re, sys
 catalog = json.load(open(sys.argv[1]))
 seen = set()
 for model in catalog["models"]:
-    for role in ("engineArtifact", "metadataArtifact", "payloadArtifact", "repairManifestArtifact"):
+    for role in ("metadataArtifact", "payloadArtifact"):
         artifact = model.get(role)
         if not artifact:
             continue

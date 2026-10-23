@@ -145,9 +145,15 @@ public struct ClosedEngineProcessAdapter: Sendable {
     guard let plan = transcript.plan else {
       throw ClosedEngineProcessError.planUnavailable
     }
+    // Only the built-in native engine executes. A record naming any other
+    // engine is never handed to the helper.
+    guard pinnedInstaller.engineVersion == NativeExecutionIdentity.version,
+      pinnedInstaller.engineDigest == NativeExecutionIdentity.digest
+    else {
+      throw ClosedEngineProcessError.catalogPlanMismatch
+    }
     guard plan.deviceIdentifier == transcript.deviceIdentifier,
-      pinnedInstaller.engineVersion == nil
-        || plan.engineVersion == pinnedInstaller.engineVersion,
+      plan.engineVersion == pinnedInstaller.engineVersion,
       plan.engineDigest == pinnedInstaller.engineDigest,
       plan.metadataDigest == pinnedInstaller.metadataDigest,
       plan.payloadDigest == pinnedInstaller.payloadDigest

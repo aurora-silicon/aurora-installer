@@ -21,7 +21,7 @@ This separate preview is marked `AuroraPreviewOnly` and runs the in-memory simul
 
 ## Developer application and package
 
-The [native developer build workflow](https://github.com/aurora-silicon/aurora-distributions/blob/main/.github/workflows/native-developer-build.yml) authenticates the current profile catalogs and pinned engine/Recovery runtime, builds through XcodeBuildMCP on macOS ARM and packages the result. Its [release procedure](https://github.com/aurora-silicon/aurora-distributions/blob/main/docs/RELEASING.md) separates candidate artifacts from live download publication.
+The [native developer build workflow](https://github.com/aurora-silicon/aurora-distributions/blob/main/.github/workflows/native-developer-build.yml) authenticates the current profile catalogs and Recovery template, builds through XcodeBuildMCP on macOS ARM and packages the result. Its [release procedure](https://github.com/aurora-silicon/aurora-distributions/blob/main/docs/RELEASING.md) separates candidate artifacts from live download publication.
 
 For an explicitly marked developer app with sealed catalogs, `Packaging/build-developer-pkg.sh APP OUTPUT.pkg` builds the unsigned package. The app's embedded ad-hoc daemon configuration denies clients and has no self-registration declaration. The package derives the final signed app's code hash and writes its exact client requirement into the external system LaunchDaemon. The app's root and all profile descriptors pin the signed helper's code hash before app signing. See [packaging](Packaging/README.md) and `test/macos-developer-peer-binding.sh` for the macOS acceptance/rejection checks.
 
@@ -41,7 +41,7 @@ For an explicitly marked developer app with sealed catalogs, `Packaging/build-de
 
 Each profile has a separate release descriptor, public key and catalog under `Release/Profiles/<profile>/`. Every enabled model in its signed catalog must carry the matching `installationProfile`. The GUI verifies the signature, profile binding and artifact identities before planning. Download state, accepted catalog sequence and scratch files are separated by profile.
 
-Current payloads use explicit `fedora-btrfs-v1`, `alarm-btrfs-v1` and `nixos-btrfs-v1` contracts: a FAT ESP, ext4 Boot, and Btrfs root/home subvolumes. The engine checks filesystem signatures before disk changes. Native Recovery retains the external install-data inventory, hash and paired-Recovery checks. The shared [aurora-platform](https://github.com/aurora-silicon/aurora-platform) first-boot adapter handles in-place encryption and owner setup on the first Linux boot.
+Current payloads use explicit `fedora-btrfs-v1`, `alarm-btrfs-v1` and `nixos-btrfs-v1` contracts: a FAT ESP, ext4 Boot, and Btrfs root/home subvolumes. The installer checks filesystem signatures before disk changes. Native Recovery retains the external install-data inventory, hash and paired-Recovery checks. The shared [aurora-platform](https://github.com/aurora-silicon/aurora-platform) first-boot adapter handles in-place encryption and owner setup on the first Linux boot.
 
 ## Images, packages and updates
 
@@ -51,8 +51,12 @@ The native AArch64 producers and signed update repositories live in [fedora-auro
 
 Target firmware and calibration are collected from the target Mac. On the MacBook Neo, the native installer also fetches the model's firmware through its authenticated range recipe, reads the Mac's own radio, light-sensor and Touch ID records, and derives the Wi-Fi country policies before any disk change. The boot gate requires `world-XZ.bin`. Payloads and catalogs carry none of these inputs. Each of the nine profiles is one image for every supported Mac, the Neo included, and payload assembly has no board-only or privately supplied-input variant.
 
+## Native execution
+
+Inspection, planning, disk preparation, image writing, firmware and Recovery handoff, retry and preserved reset are all Swift, run by the app and its privileged helper. The installer has no Python engine or runtime, and its signed app and DMG contain no Python. It accepts only signed schema-5 catalogs, which name the built-in `native-v1` engine; an older catalog that pins an engine archive is refused with a message to choose another channel. A job an older installer left awaiting Recovery authorization continues natively from its retained package; a job that relied on the retired engine's repair operation asks the person to start over.
+
 ## Provenance and checks
 
 The native code was imported from `aurora-silicon/omarchy-mac` at `55c855ce3f8dbdbfc5393aa4d929352142a0d1dc`, retaining its MIT license and upstream attribution. Internal module/protocol names preserve the engine contract. The Aurora mark comes from the supplied brand kit; project artwork sources and hashes remain in `Resources/BrandSources/manifest.json`.
 
-`./test/all` runs unprivileged portable source, engine and packaging-fixture checks. The native CI workflow runs strict Swift formatting and Debug/Release tests through XcodeBuildMCP, plus actual macOS code-signing/package fixtures. Historical preview results remain in [aurora-preview-validation.md](docs/aurora-preview-validation.md). Build and VM results do not qualify a physical installation.
+`./test/all` runs unprivileged portable source, script and packaging-fixture checks. The native CI workflow runs strict Swift formatting and Debug/Release tests through XcodeBuildMCP, plus actual macOS code-signing/package fixtures. Historical preview results remain in [aurora-preview-validation.md](docs/aurora-preview-validation.md). Build and VM results do not qualify a physical installation.

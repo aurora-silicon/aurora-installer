@@ -36,7 +36,6 @@
       let snapshot = try XCTUnwrap(recordedSnapshot)
       XCTAssertEqual(snapshot.packageMode, 0o700)
       XCTAssertTrue(snapshot.fileModes.allSatisfy { $0 == 0o400 })
-      XCTAssertEqual(snapshot.engine, fixture.engine)
       XCTAssertEqual(snapshot.metadata, fixture.metadata)
       XCTAssertEqual(snapshot.payload, fixture.payload)
       XCTAssertFalse(
@@ -61,13 +60,18 @@
         try JSONSerialization.jsonObject(with: snapshot.manifest)
           as? [String: Any]
       )
-      let manifestEngine = try XCTUnwrap(
-        manifest["engine"] as? [String: Any]
-      )
+      // The helper runs its built-in native engine: the package names no archive.
+      XCTAssertEqual(manifest["format"] as? Int, 2)
+      XCTAssertNil(manifest["engine"])
+      XCTAssertNil(manifest["repair_manifest"])
       XCTAssertEqual(
-        manifestEngine["file_name"] as? String,
-        fixture.assets.engine?.artifact.fileName
-      )
+        snapshot.packageFileNames,
+        [
+          "identity.json", "installer-data.json", "manifest.json",
+          RestoreImageHelper.fileName, "omarchy.img.zst", "request.json",
+        ])
+      XCTAssertEqual(identity["engine_digest"] as? String, NativeExecutionIdentity.digest)
+      XCTAssertEqual(request["engine_version"] as? String, NativeExecutionIdentity.version)
       // The app's own decoder travels with the package, executable by its owner only.
       XCTAssertEqual(snapshot.restoreImage, fixture.restoreImageBytes)
       XCTAssertEqual(snapshot.restoreImageMode, 0o500)
@@ -115,8 +119,8 @@
       }
     }
 
-    func testChangedEngineBytesStopBeforeSubmission() async throws {
-      let fixture = try makeFixture(corruptEngine: true)
+    func testChangedPayloadBytesStopBeforeSubmission() async throws {
+      let fixture = try makeFixture(corruptPayload: true)
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let submitter = RecordingHandoffSubmitter(
         transcript: fixture.executionTranscript
@@ -139,56 +143,11 @@
       ) {
         XCTAssertEqual(
           ($0 as? InstallerPreSubmissionFailure)?.underlying as? ClosedEngineHandoffError,
-          .artifactDigestMismatch("engine")
+          .artifactDigestMismatch("payload")
         )
       }
       let submissionCount = await submitter.submissionCount
       XCTAssertEqual(submissionCount, 0)
-    }
-
-    func testRepairInvocationCarriesSignedManifestThroughHandoff() async throws {
-      let fixture = try makeFixture(repair: true)
-      defer { try? FileManager.default.removeItem(at: fixture.root) }
-      let submitter = RecordingHandoffSubmitter(
-        transcript: fixture.executionTranscript
-      )
-
-      _ = try await ClosedEngineProcessAdapter().execute(
-        fixture.request,
-        approval: fixture.approval,
-        authorization: GrantedEngineAuthorization(),
-        process: ClosedEngineHandoffProcess(
-          assets: fixture.assets,
-          handoffDirectory: fixture.handoffDirectory,
-          submitter: submitter,
-          authorization: try machineOwnerAuthorization(),
-          restoreImage: fixture.restoreImage,
-          recoveryTemplate: nil
-        )
-      )
-
-      let recordedSnapshot = await submitter.snapshot
-      let snapshot = try XCTUnwrap(recordedSnapshot)
-      let repairManifest = try XCTUnwrap(fixture.repairManifest)
-      XCTAssertEqual(snapshot.repairManifest, repairManifest)
-      let request = try XCTUnwrap(
-        try JSONSerialization.jsonObject(with: snapshot.request)
-          as? [String: Any]
-      )
-      XCTAssertEqual(request["operation"] as? String, "repair-installed-system")
-      let identity = try XCTUnwrap(
-        try JSONSerialization.jsonObject(with: snapshot.identity)
-          as? [String: Any]
-      )
-      XCTAssertEqual(
-        identity["repair_manifest_digest"] as? String,
-        fixture.assets.installer.repairManifestDigest
-      )
-      let manifest = try XCTUnwrap(
-        try JSONSerialization.jsonObject(with: snapshot.manifest)
-          as? [String: Any]
-      )
-      XCTAssertNotNil(manifest["repair_manifest"])
     }
 
     func testReplaceInvocationRunsUnderInstallOperationWithoutManifest()
@@ -217,7 +176,6 @@
       XCTAssertEqual(result.completion, .awaitingRecovery)
       let recordedSnapshot = await submitter.snapshot
       let snapshot = try XCTUnwrap(recordedSnapshot)
-      XCTAssertNil(snapshot.repairManifest)
       let request = try XCTUnwrap(
         try JSONSerialization.jsonObject(with: snapshot.request)
           as? [String: Any]
@@ -255,43 +213,6 @@
       XCTAssertEqual(request["operation"] as? String, ImportedInstallationIntent.reinstallOperation)
       XCTAssertEqual(request["candidate_kind"] as? String, "reinstall")
       XCTAssertEqual(request["required_human_steps"] as? [String], ["authenticateMachineOwner"])
-      XCTAssertNil(snapshot.repairManifest)
-    }
-
-    func testReplacePlanWithRepairManifestAssetStopsBeforeSubmission()
-      async throws
-    {
-      let fixture = try makeFixture(
-        replace: true,
-        strayRepairManifestAsset: true
-      )
-      defer { try? FileManager.default.removeItem(at: fixture.root) }
-      let submitter = RecordingHandoffSubmitter(
-        transcript: fixture.executionTranscript
-      )
-
-      await assertThrows(
-        try await ClosedEngineProcessAdapter().execute(
-          fixture.request,
-          approval: fixture.approval,
-          authorization: GrantedEngineAuthorization(),
-          process: ClosedEngineHandoffProcess(
-            assets: fixture.assets,
-            handoffDirectory: fixture.handoffDirectory,
-            submitter: submitter,
-            authorization: try machineOwnerAuthorization(),
-            restoreImage: fixture.restoreImage,
-            recoveryTemplate: nil
-          )
-        )
-      ) {
-        XCTAssertEqual(
-          ($0 as? InstallerPreSubmissionFailure)?.underlying as? ClosedEngineHandoffError,
-          .assetBindingMismatch
-        )
-      }
-      let submissionCount = await submitter.submissionCount
-      XCTAssertEqual(submissionCount, 0)
     }
 
     func testRecoveryRetryPreservesInstallRequestAndSelectsRetryOperation()
@@ -362,12 +283,10 @@
     }
 
     private func makeFixture(
-      corruptEngine: Bool = false,
+      corruptPayload: Bool = false,
       symlinkPayload: Bool = false,
-      repair: Bool = false,
       replace: Bool = false,
-      reinstall: Bool = false,
-      strayRepairManifestAsset: Bool = false
+      reinstall: Bool = false
     ) throws -> HandoffFixture {
       let root = FileManager.default.temporaryDirectory.appendingPathComponent(
         "omarchy-handoff-tests-\(UUID().uuidString.lowercased())",
@@ -388,7 +307,6 @@
         attributes: [.posixPermissions: 0o700]
       )
 
-      let engine = Data("engine-a".utf8)
       let metadata = Data("metadata".utf8)
       let payload = Data("payload".utf8)
       let restoreImageBytes = Data("signed decoder".utf8)
@@ -398,12 +316,6 @@
       try restoreImageBytes.write(to: restoreImage)
       try FileManager.default.setAttributes(
         [.posixPermissions: 0o755], ofItemAtPath: restoreImage.path)
-      let repairManifest = Data("{\"operation\":\"repair-installed-system\"}".utf8)
-      let engineArtifact = try artifact(
-        role: "engine",
-        name: "engine.tar.gz",
-        data: engine
-      )
       let metadataArtifact = try artifact(
         role: "metadata",
         name: "installer-data.json",
@@ -414,19 +326,8 @@
         name: "omarchy.img.zst",
         data: payload
       )
-      let repairArtifact = try artifact(
-        role: "repair-manifest",
-        name: "repair.json",
-        data: repairManifest
-      )
-      let engineURL = root.appendingPathComponent(engineArtifact.fileName)
       let metadataURL = root.appendingPathComponent(metadataArtifact.fileName)
       let payloadURL = root.appendingPathComponent(payloadArtifact.fileName)
-      let repairURL = root.appendingPathComponent(repairArtifact.fileName)
-      try writePrivate(
-        corruptEngine ? Data("engine-b".utf8) : engine,
-        to: engineURL
-      )
       try writePrivate(metadata, to: metadataURL)
       if symlinkPayload {
         let target = root.appendingPathComponent("payload-target")
@@ -436,39 +337,30 @@
           withDestinationURL: target
         )
       } else {
-        try writePrivate(payload, to: payloadURL)
-      }
-      if repair || strayRepairManifestAsset {
-        try writePrivate(repairManifest, to: repairURL)
+        try writePrivate(corruptPayload ? Data("payloab".utf8) : payload, to: payloadURL)
       }
 
       let delivery = PinnedInstallerDelivery(
-        engine: engineArtifact,
         metadata: metadataArtifact,
-        payload: payloadArtifact,
-        repairManifest: repair ? repairArtifact : nil
+        payload: payloadArtifact
       )
       let record = PinnedInstallerRecord(
         deviceIdentifier: "apple,j314s",
-        operation: repair ? "repair-installed-system" : "install",
         asahiInstallerTag: "v0.9.0",
         asahiInstallerRevision: String(repeating: "a", count: 40),
         asahiInstallerDataRevision: String(repeating: "b", count: 40),
         downstreamRevision: String(repeating: "c", count: 40),
-        engineVersion: "v0.9.0-omarchy.2",
-        engineDigest: engineArtifact.expectedDigest,
+        engineVersion: NativeExecutionIdentity.version,
+        engineDigest: NativeExecutionIdentity.digest,
         metadataDigest: metadataArtifact.expectedDigest,
         payloadDigest: payloadArtifact.expectedDigest,
-        repairManifestDigest: repair ? repairArtifact.expectedDigest : nil,
         evidenceRevision: "evidence-handoff",
         delivery: delivery
       )
       let catalog = catalogPayload(
         record: record,
-        engine: engineArtifact,
         metadata: metadataArtifact,
-        payload: payloadArtifact,
-        repairManifest: repair ? repairArtifact : nil
+        payload: payloadArtifact
       )
       let privateKey = Curve25519.Signing.PrivateKey()
       let signature = try privateKey.signature(for: catalog)
@@ -482,11 +374,9 @@
         payloadDigest: digest(catalog)
       )
       let transcript = transcript(
-        candidateKind: repair ? "repair" : reinstall ? "reinstall" : replace ? "replace" : "free",
-        engineDigest: record.engineDigest,
+        candidateKind: reinstall ? "reinstall" : replace ? "replace" : "free",
         metadataDigest: record.metadataDigest,
-        payloadDigest: record.payloadDigest,
-        repairManifestDigest: record.repairManifestDigest
+        payloadDigest: record.payloadDigest
       )
       let request = ClosedEngineCandidateRequest(
         planningTranscript: transcript.planning,
@@ -501,11 +391,6 @@
       let assets = PreparedInstallerAssets(
         catalogIdentity: catalogIdentity,
         installer: record,
-        engine: StagedInstallerArtifact(
-          artifact: engineArtifact,
-          fileURL: engineURL,
-          reusedExistingFile: false
-        ),
         metadata: StagedInstallerArtifact(
           artifact: metadataArtifact,
           fileURL: metadataURL,
@@ -515,14 +400,7 @@
           artifact: payloadArtifact,
           fileURL: payloadURL,
           reusedExistingFile: false
-        ),
-        repairManifest: repair || strayRepairManifestAsset
-          ? StagedInstallerArtifact(
-            artifact: repairArtifact,
-            fileURL: repairURL,
-            reusedExistingFile: false
-          )
-          : nil
+        )
       )
       return HandoffFixture(
         root: root,
@@ -535,10 +413,8 @@
         assets: assets,
         executionTranscript: transcript.execution,
         planDigest: transcript.planDigest,
-        engine: engine,
         metadata: metadata,
         payload: payload,
-        repairManifest: repair ? repairManifest : nil,
         restoreImage: restoreImage,
         restoreImageBytes: restoreImageBytes
       )
@@ -562,10 +438,8 @@
 
     private func catalogPayload(
       record: PinnedInstallerRecord,
-      engine: PinnedInstallerArtifact,
       metadata: PinnedInstallerArtifact,
-      payload: PinnedInstallerArtifact,
-      repairManifest: PinnedInstallerArtifact?
+      payload: PinnedInstallerArtifact
     ) -> Data {
       let issued = ISO8601DateFormatter().string(
         from: now.addingTimeInterval(-3_600)
@@ -573,39 +447,20 @@
       let expires = ISO8601DateFormatter().string(
         from: now.addingTimeInterval(86_400)
       )
-      let schemaVersion = repairManifest == nil ? 2 : 3
-      let operation =
-        repairManifest == nil
-        ? ""
-        : ",\"operation\":\"repair-installed-system\""
-      let repairFields =
-        repairManifest.map {
-          ",\"repairManifestDigest\":\"\($0.expectedDigest)\",\"repairManifestArtifact\":{\"sourceURL\":\"\($0.sourceURL.absoluteString)\",\"fileName\":\"\($0.fileName)\",\"sizeBytes\":\($0.expectedSizeBytes)}"
-        } ?? ""
-      let catalog = Data(
-        """
-        {"schemaVersion":\(schemaVersion),"sequence":40,"issuedAt":"\(issued)","expiresAt":"\(expires)","models":[{"deviceIdentifier":"\(record.deviceIdentifier)","status":"enabled"\(operation),"asahiInstallerTag":"\(record.asahiInstallerTag)","asahiInstallerRevision":"\(record.asahiInstallerRevision)","asahiInstallerDataRevision":"\(record.asahiInstallerDataRevision)","downstreamRevision":"\(record.downstreamRevision)","engineDigest":"\(record.engineDigest)","metadataDigest":"\(record.metadataDigest)","payloadDigest":"\(record.payloadDigest)"\(repairFields),"evidenceRevision":"\(record.evidenceRevision)","engineArtifact":{"sourceURL":"\(engine.sourceURL.absoluteString)","fileName":"\(engine.fileName)","sizeBytes":\(engine.expectedSizeBytes)},"metadataArtifact":{"sourceURL":"\(metadata.sourceURL.absoluteString)","fileName":"\(metadata.fileName)","sizeBytes":\(metadata.expectedSizeBytes)},"payloadArtifact":{"sourceURL":"\(payload.sourceURL.absoluteString)","fileName":"\(payload.fileName)","sizeBytes":\(payload.expectedSizeBytes)}}]}
-        """.utf8
-      )
-      let text = String(decoding: catalog, as: UTF8.self)
-      let marker = ",\"engineDigest\":"
-      let engineVersion = record.engineVersion ?? ""
-      let replacement =
-        ",\"engineVersion\":\"\(engineVersion)\",\"engineDigest\":"
       return Data(
-        text.replacingOccurrences(of: marker, with: replacement).utf8
+        """
+        {"schemaVersion":5,"sequence":40,"issuedAt":"\(issued)","expiresAt":"\(expires)","models":[{"deviceIdentifier":"\(record.deviceIdentifier)","status":"enabled","asahiInstallerTag":"\(record.asahiInstallerTag)","asahiInstallerRevision":"\(record.asahiInstallerRevision)","asahiInstallerDataRevision":"\(record.asahiInstallerDataRevision)","downstreamRevision":"\(record.downstreamRevision)","metadataDigest":"\(record.metadataDigest)","payloadDigest":"\(record.payloadDigest)","evidenceRevision":"\(record.evidenceRevision)","metadataArtifact":{"sourceURL":"\(metadata.sourceURL.absoluteString)","fileName":"\(metadata.fileName)","sizeBytes":\(metadata.expectedSizeBytes)},"payloadArtifact":{"sourceURL":"\(payload.sourceURL.absoluteString)","fileName":"\(payload.fileName)","sizeBytes":\(payload.expectedSizeBytes)}}]}
+        """.utf8
       )
     }
 
     private func transcript(
       candidateKind: String,
-      engineDigest: String,
       metadataDigest: String,
-      payloadDigest: String,
-      repairManifestDigest: String?
+      payloadDigest: String
     ) -> HandoffTranscript {
       let identityDigest = "sha256:" + String(repeating: "9", count: 64)
-      let identityBoundKind = ["repair", "replace", "reinstall"].contains(candidateKind)
+      let identityBoundKind = ["replace", "reinstall"].contains(candidateKind)
       var layoutFields = ["disk0", candidateKind, "disk0s3", "2000", "1000"]
       if identityBoundKind {
         layoutFields.append(identityDigest)
@@ -617,12 +472,9 @@
         : ["enterOneTrueRecovery", "authenticateMachineOwner"]
       var planFields = [
         "apple,j314s", "disk0", layoutDigest, candidateKind, "disk0s3",
-        "2000", "1000", "v0.9.0-omarchy.2", engineDigest,
+        "2000", "1000", NativeExecutionIdentity.version, NativeExecutionIdentity.digest,
         metadataDigest, payloadDigest,
       ]
-      if let repairManifestDigest {
-        planFields.append(repairManifestDigest)
-      }
       planFields.append(humanSteps.joined(separator: ","))
       let planDigest = lengthPrefixedDigest(
         planFields,
@@ -632,12 +484,8 @@
         identityBoundKind
         ? ",\"identity_digest\":\"\(identityDigest)\""
         : ""
-      let repairPlanField =
-        repairManifestDigest.map {
-          ",\"repair_manifest_digest\":\"\($0)\""
-        } ?? ""
       let minimumInstallBytes =
-        ["repair", "reinstall"].contains(candidateKind)
+        candidateKind == "reinstall"
         ? 1000 : candidateKind == "replace" ? 800 : 100
       let humanStepsJSON =
         candidateKind == "reinstall"
@@ -646,7 +494,7 @@
       let records = [
         #"{"schema_version":1,"sequence":1,"type":"inspection","payload":{"device_identifier":"apple,j314s","support":"supported"}}"#,
         #"{"schema_version":1,"sequence":2,"type":"inventory","payload":{"layout_digest":"\#(layoutDigest)","system_store_identifier":"disk0","candidates":[{"kind":"\#(candidateKind)","source_identifier":"disk0s3","offset_bytes":2000,"length_bytes":1000,"minimum_install_bytes":\#(minimumInstallBytes),"minimum_container_bytes":0\#(identityInventoryField)}]}}"#,
-        #"{"schema_version":1,"sequence":3,"type":"plan","payload":{"plan_digest":"\#(planDigest)","device_identifier":"apple,j314s","store_identifier":"disk0","layout_digest":"\#(layoutDigest)","candidate_kind":"\#(candidateKind)","source_identifier":"disk0s3","offset_bytes":2000,"length_bytes":1000,"engine_version":"v0.9.0-omarchy.2","engine_digest":"\#(engineDigest)","metadata_digest":"\#(metadataDigest)","payload_digest":"\#(payloadDigest)"\#(repairPlanField),"required_human_steps":\#(humanStepsJSON)}}"#,
+        #"{"schema_version":1,"sequence":3,"type":"plan","payload":{"plan_digest":"\#(planDigest)","device_identifier":"apple,j314s","store_identifier":"disk0","layout_digest":"\#(layoutDigest)","candidate_kind":"\#(candidateKind)","source_identifier":"disk0s3","offset_bytes":2000,"length_bytes":1000,"engine_version":"\#(NativeExecutionIdentity.version)","engine_digest":"\#(NativeExecutionIdentity.digest)","metadata_digest":"\#(metadataDigest)","payload_digest":"\#(payloadDigest)","required_human_steps":\#(humanStepsJSON)}}"#,
       ]
       let planning = Data((records.joined(separator: "\n") + "\n").utf8)
       let outcome = candidateKind == "reinstall" ? "installed" : "awaiting_recovery"
@@ -738,22 +586,19 @@
     let manifest: Data
     let request: Data
     let identity: Data
-    let engine: Data
     let metadata: Data
     let payload: Data
-    let repairManifest: Data?
+    let packageFileNames: [String]
     let restoreImage: Data
     let restoreImageMode: mode_t
 
     init(handoff: PreparedEngineHandoff) throws {
-      let engineURL = try XCTUnwrap(handoff.engineURL)
       packageURL = handoff.packageURL
       packageMode = try Self.mode(handoff.packageURL)
       let files = [
         handoff.manifestURL,
         handoff.requestURL,
         handoff.identityURL,
-        engineURL,
         handoff.metadataURL,
         handoff.payloadURL,
       ]
@@ -761,12 +606,11 @@
       manifest = try Data(contentsOf: handoff.manifestURL)
       request = try Data(contentsOf: handoff.requestURL)
       identity = try Data(contentsOf: handoff.identityURL)
-      engine = try Data(contentsOf: engineURL)
       metadata = try Data(contentsOf: handoff.metadataURL)
       payload = try Data(contentsOf: handoff.payloadURL)
-      repairManifest = try handoff.repairManifestURL.map {
-        try Data(contentsOf: $0)
-      }
+      packageFileNames = try FileManager.default.contentsOfDirectory(
+        atPath: handoff.packageURL.path
+      ).sorted()
       restoreImage = try Data(contentsOf: handoff.restoreImageURL)
       restoreImageMode = try Self.mode(handoff.restoreImageURL)
     }
@@ -788,10 +632,8 @@
     let assets: PreparedInstallerAssets
     let executionTranscript: Data
     let planDigest: String
-    let engine: Data
     let metadata: Data
     let payload: Data
-    let repairManifest: Data?
     let restoreImage: URL
     let restoreImageBytes: Data
   }

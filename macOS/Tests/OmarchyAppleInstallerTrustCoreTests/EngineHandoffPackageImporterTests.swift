@@ -23,29 +23,27 @@
 
   final class EngineHandoffPackageImporterTests: XCTestCase {
     func testNativePackageImportsAndReopensWithoutAnExecutionArchive() throws {
-      let fixture = try makeFixture(native: true)
+      let fixture = try makeFixture()
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let source = try openDirectory(fixture.source)
       defer { try? source.close() }
       let importer = EngineHandoffPackageImporter()
       let imported = try importer.prepare(from: source, in: fixture.destination)
-      XCTAssertNil(imported.engineURL)
       XCTAssertEqual(
         try importer.executionPlan(imported, owner: geteuid()).engineDigest,
         NativeExecutionIdentity.digest)
       let reopened = try importer.reopenRetained(
         named: imported.packageURL.lastPathComponent, in: fixture.destination)
-      XCTAssertNil(reopened.engineURL)
+      XCTAssertEqual(reopened.installationIntent, .fresh)
       XCTAssertFalse(
         try FileManager.default.contentsOfDirectory(atPath: imported.packageURL.path)
           .contains("engine.tar.gz"))
     }
 
-    func testFreshRepairReplacementAndReinstallIntentSurvivesRetainedRevalidation() throws {
-      for intent in [ImportedInstallationIntent.fresh, .repair, .replace, .reinstall] {
+    func testFreshReplacementAndReinstallIntentSurvivesRetainedRevalidation() throws {
+      for intent in [ImportedInstallationIntent.fresh, .replace, .reinstall] {
         let fixture = try makeFixture(
-          repair: intent == .repair, replace: intent == .replace,
-          reinstall: intent == .reinstall)
+          replace: intent == .replace, reinstall: intent == .reinstall)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let source = try openDirectory(fixture.source)
         defer { try? source.close() }
@@ -62,6 +60,43 @@
           XCTAssertEqual(plan.candidateKind, "reinstall")
           XCTAssertEqual(plan.requiredHumanSteps, ["authenticateMachineOwner"])
         }
+      }
+    }
+
+    func testNewPackagesNamingTheRetiredEngineOrRepairAreRefused() throws {
+      for repair in [false, true] {
+        let fixture = try makeFixture(legacyEngine: true, repair: repair)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let source = try openDirectory(fixture.source)
+        defer { try? source.close() }
+        XCTAssertThrowsError(
+          try EngineHandoffPackageImporter().prepare(from: source, in: fixture.destination)
+        ) {
+          XCTAssertEqual($0 as? EngineHandoffImportError, .nativeEngineRequired)
+        }
+        XCTAssertTrue(try importedEntries(in: fixture.destination).isEmpty)
+      }
+    }
+
+    func testOlderRetainedPackagesReopenSoTheirJobsContinueNatively() throws {
+      // An older helper retained these with its engine archive. They are still
+      // verified file by file; the archive itself is never run.
+      for intent in [ImportedInstallationIntent.fresh, .repair] {
+        let fixture = try makeFixture(legacyEngine: true, repair: intent == .repair)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let name = try retainAsOlderHelperWould(fixture)
+        let importer = EngineHandoffPackageImporter()
+        let reopened = try importer.reopenRetained(named: name, in: fixture.destination)
+        XCTAssertEqual(reopened.installationIntent, intent)
+        if intent == .fresh {
+          XCTAssertEqual(
+            try importer.executionPlan(reopened, owner: geteuid()).engineVersion,
+            "v0.9.0-omarchy.2")
+        }
+        let engine = reopened.packageURL.appendingPathComponent("engine.tar.gz")
+        XCTAssertEqual(chmod(engine.path, 0o600), 0)
+        try Data("changed".utf8).write(to: engine)
+        XCTAssertThrowsError(try importer.reopenRetained(named: name, in: fixture.destination))
       }
     }
 
@@ -177,14 +212,14 @@
         XCTAssertThrowsError(try importer.reopenRetained(named: name, in: fixture.destination))
       }
       let alias = fixture.root.appendingPathComponent("hardlink")
-      XCTAssertEqual(link(try XCTUnwrap(imported.engineURL).path, alias.path), 0)
+      XCTAssertEqual(link(imported.payloadURL.path, alias.path), 0)
       XCTAssertThrowsError(
         try importer.reopenRetained(
           named: imported.packageURL.lastPathComponent, in: fixture.destination))
       XCTAssertEqual(unlink(alias.path), 0)
       try FileManager.default.removeItem(at: imported.metadataURL)
       try FileManager.default.createSymbolicLink(
-        at: imported.metadataURL, withDestinationURL: fixture.engineURL)
+        at: imported.metadataURL, withDestinationURL: fixture.metadataURL)
       XCTAssertThrowsError(
         try importer.reopenRetained(
           named: imported.packageURL.lastPathComponent, in: fixture.destination))
@@ -233,7 +268,7 @@
         case "symlink":
           try FileManager.default.removeItem(at: archive)
           try FileManager.default.createSymbolicLink(
-            at: archive, withDestinationURL: fixture.engineURL)
+            at: archive, withDestinationURL: fixture.metadataURL)
         case "fifo":
           try FileManager.default.removeItem(at: archive)
           XCTAssertEqual(mkfifo(archive.path, 0o600), 0)
@@ -325,8 +360,7 @@
       defer { try? FileManager.default.removeItem(at: imported.packageURL) }
 
       XCTAssertEqual(try mode(imported.packageURL), 0o700)
-      XCTAssertEqual(try mode(XCTUnwrap(imported.engineURL)), 0o400)
-      XCTAssertEqual(try Data(contentsOf: XCTUnwrap(imported.engineURL)), fixture.engine)
+      XCTAssertEqual(try mode(imported.metadataURL), 0o400)
       XCTAssertEqual(
         try Data(contentsOf: imported.metadataURL),
         fixture.metadata
@@ -336,9 +370,9 @@
         fixture.payload
       )
 
-      try FileManager.default.removeItem(at: fixture.engineURL)
-      try writePrivate(Data("changed!".utf8), to: fixture.engineURL)
-      XCTAssertEqual(try Data(contentsOf: XCTUnwrap(imported.engineURL)), fixture.engine)
+      try FileManager.default.removeItem(at: fixture.metadataURL)
+      try writePrivate(Data("changed!".utf8), to: fixture.metadataURL)
+      XCTAssertEqual(try Data(contentsOf: imported.metadataURL), fixture.metadata)
     }
 
     func testUnknownManifestFieldIsRejectedBeforeImport() throws {
@@ -361,24 +395,6 @@
       XCTAssertTrue(try importedEntries(in: fixture.destination).isEmpty)
     }
 
-    func testRepairPackageImportsManifestBoundToPlanIdentity() throws {
-      let fixture = try makeFixture(repair: true)
-      defer { try? FileManager.default.removeItem(at: fixture.root) }
-      let source = try openDirectory(fixture.source)
-      defer { try? source.close() }
-
-      let imported = try EngineHandoffPackageImporter().prepare(
-        from: source,
-        in: fixture.destination
-      )
-      defer { try? FileManager.default.removeItem(at: imported.packageURL) }
-
-      XCTAssertEqual(
-        try Data(contentsOf: try XCTUnwrap(imported.repairManifestURL)),
-        try XCTUnwrap(fixture.repairManifest)
-      )
-    }
-
     func testReplacePackageImportsUnderInstallOperation() throws {
       let fixture = try makeFixture(replace: true)
       defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -391,8 +407,8 @@
       )
       defer { try? FileManager.default.removeItem(at: imported.packageURL) }
 
-      XCTAssertNil(imported.repairManifestURL)
-      XCTAssertEqual(try Data(contentsOf: XCTUnwrap(imported.engineURL)), fixture.engine)
+      XCTAssertEqual(imported.installationIntent, .replace)
+      XCTAssertEqual(try Data(contentsOf: imported.payloadURL), fixture.payload)
     }
 
     func testReplacePackageWithRepairManifestIsRejected() throws {
@@ -446,7 +462,7 @@
     }
 
     func testNulArtifactFileNameIsRejectedBeforeImport() throws {
-      let fixture = try makeFixture(nulEngineFileName: true)
+      let fixture = try makeFixture(nulMetadataFileName: true)
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let source = try openDirectory(fixture.source)
       defer { try? source.close() }
@@ -515,8 +531,8 @@
       XCTAssertTrue(try importedEntries(in: fixture.destination).isEmpty)
     }
 
-    func testSymlinkedEngineIsRejectedAndPartialImportIsRemoved() throws {
-      let fixture = try makeFixture(symlinkEngine: true)
+    func testSymlinkedMetadataIsRejectedAndPartialImportIsRemoved() throws {
+      let fixture = try makeFixture(symlinkMetadata: true)
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let source = try openDirectory(fixture.source)
       defer { try? source.close() }
@@ -529,7 +545,7 @@
       ) {
         XCTAssertEqual(
           $0 as? EngineHandoffImportError,
-          .unsafeFile("engine")
+          .unsafeFile("metadata")
         )
       }
       XCTAssertTrue(try importedEntries(in: fixture.destination).isEmpty)
@@ -538,14 +554,17 @@
     private func makeFixture(
       extraManifestField: Bool = false,
       corruptPayload: Bool = false,
-      symlinkEngine: Bool = false,
-      nulEngineFileName: Bool = false,
+      symlinkMetadata: Bool = false,
+      nulMetadataFileName: Bool = false,
+      legacyEngine: Bool = false,
       repair: Bool = false,
       replace: Bool = false,
       reinstall: Bool = false,
-      strayRepairManifest: Bool = false,
-      native: Bool = false
+      strayRepairManifest: Bool = false
     ) throws -> ImportFixture {
+      // New packages are format 2 and name the built-in native engine. A
+      // `legacyEngine` package is the format-1 shape older helpers retained.
+      let native = !legacyEngine
       let root = FileManager.default.temporaryDirectory.appendingPathComponent(
         "omarchy-helper-import-\(UUID().uuidString.lowercased())",
         isDirectory: true
@@ -574,17 +593,19 @@
       let metadataURL = source.appendingPathComponent("installer-data.json")
       let payloadURL = source.appendingPathComponent("omarchy.img.zst")
       let repairURL = source.appendingPathComponent("repair.json")
-      if symlinkEngine {
-        let target = source.appendingPathComponent("engine-target")
-        try writePrivate(engine, to: target)
-        try FileManager.default.createSymbolicLink(
-          at: engineURL,
-          withDestinationURL: target
-        )
-      } else if !native {
+      if !native {
         try writePrivate(engine, to: engineURL)
       }
-      try writePrivate(metadata, to: metadataURL)
+      if symlinkMetadata {
+        let target = source.appendingPathComponent("metadata-target")
+        try writePrivate(metadata, to: target)
+        try FileManager.default.createSymbolicLink(
+          at: metadataURL,
+          withDestinationURL: target
+        )
+      } else {
+        try writePrivate(metadata, to: metadataURL)
+      }
       try writePrivate(
         corruptPayload ? Data("payload-b".utf8) : payload,
         to: payloadURL
@@ -616,14 +637,14 @@
       planFields.append(humanSteps)
       let planDigest = lengthPrefixedDigest(planFields)
       let extraField = extraManifestField ? #","unexpected":true"# : ""
-      let engineFileName =
-        nulEngineFileName
-        ? #"engine\u0000ignored.tar.gz"#
-        : "engine.tar.gz"
+      let metadataFileName =
+        nulMetadataFileName
+        ? #"installer-data\u0000ignored.json"#
+        : "installer-data.json"
       let engineField =
         native
         ? ""
-        : ",\"engine\":{\"file_name\":\"\(engineFileName)\",\"digest\":\"\(engineDigest)\",\"size_bytes\":\(engine.count)}"
+        : ",\"engine\":{\"file_name\":\"engine.tar.gz\",\"digest\":\"\(engineDigest)\",\"size_bytes\":\(engine.count)}"
       let repairManifestField =
         includeRepairManifest
         ? ",\"repair_manifest\":{\"file_name\":\"repair.json\",\"digest\":\"\(repairDigest)\",\"size_bytes\":\(repairManifest.count)}"
@@ -632,7 +653,7 @@
       try writePrivate(decoder, to: source.appendingPathComponent(RestoreImageHelper.fileName))
       let manifest = Data(
         """
-        {"format":\(native ? 2 : 1),"binding_digest":"\(bindingDigest)","request_file":"request.json","identity_file":"identity.json"\(engineField),"metadata":{"file_name":"installer-data.json","digest":"\(metadataDigest)","size_bytes":\(metadata.count)},"payload":{"file_name":"omarchy.img.zst","digest":"\(payloadDigest)","size_bytes":\(payload.count)},"restore_image":{"file_name":"\(RestoreImageHelper.fileName)","digest":"\(digest(decoder))","size_bytes":\(decoder.count)}\(repairManifestField)\(extraField)}
+        {"format":\(native ? 2 : 1),"binding_digest":"\(bindingDigest)","request_file":"request.json","identity_file":"identity.json"\(engineField),"metadata":{"file_name":"\(metadataFileName)","digest":"\(metadataDigest)","size_bytes":\(metadata.count)},"payload":{"file_name":"omarchy.img.zst","digest":"\(payloadDigest)","size_bytes":\(payload.count)},"restore_image":{"file_name":"\(RestoreImageHelper.fileName)","digest":"\(digest(decoder))","size_bytes":\(decoder.count)}\(repairManifestField)\(extraField)}
         """.utf8
       )
       let operation: String
@@ -674,13 +695,30 @@
         root: root,
         source: source,
         destination: destination,
-        engineURL: engineURL,
+        metadataURL: metadataURL,
         requestURL: source.appendingPathComponent("request.json"),
-        engine: engine,
         metadata: metadata,
-        payload: payload,
-        repairManifest: includeRepairManifest ? repairManifest : nil
+        payload: payload
       )
+    }
+
+    /// Places the fixture's source files where an older helper kept a
+    /// retained package: a private directory of owner-only copies.
+    private func retainAsOlderHelperWould(_ fixture: ImportFixture) throws -> String {
+      let name = "imported-handoff-" + UUID().uuidString.lowercased()
+      let package = fixture.destination.appendingPathComponent(name, isDirectory: true)
+      try FileManager.default.createDirectory(
+        at: package, withIntermediateDirectories: false,
+        attributes: [.posixPermissions: 0o700])
+      for file in try FileManager.default.contentsOfDirectory(atPath: fixture.source.path) {
+        let target = package.appendingPathComponent(file)
+        try FileManager.default.copyItem(
+          at: fixture.source.appendingPathComponent(file), to: target)
+        try FileManager.default.setAttributes(
+          [.posixPermissions: file == RestoreImageHelper.fileName ? 0o500 : 0o400],
+          ofItemAtPath: target.path)
+      }
+      return name
     }
 
     private func openDirectory(_ url: URL) throws -> FileHandle {
@@ -739,11 +777,9 @@
     let root: URL
     let source: URL
     let destination: URL
-    let engineURL: URL
+    let metadataURL: URL
     let requestURL: URL
-    let engine: Data
     let metadata: Data
     let payload: Data
-    let repairManifest: Data?
   }
 #endif

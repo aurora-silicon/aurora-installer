@@ -303,7 +303,7 @@
         packageURL: directory, manifestURL: directory.appendingPathComponent("manifest.json"),
         requestURL: directory.appendingPathComponent("request.json"),
         identityURL: directory.appendingPathComponent("identity.json"),
-        engineURL: directory.appendingPathComponent("engine.tar.gz"), metadataURL: metadata,
+        metadataURL: metadata,
         payloadURL: payload,
         bindingDigest: "sha256:" + String(repeating: "a", count: 64),
         planDigest: "sha256:" + String(repeating: "b", count: 64),

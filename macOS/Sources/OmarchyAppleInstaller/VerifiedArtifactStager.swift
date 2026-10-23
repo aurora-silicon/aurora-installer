@@ -255,14 +255,12 @@ public struct VerifiedArtifactStager: Sendable {
 
   private let downloader: any ArtifactDownloading
   private let promoter: AtomicArtifactFilePromoter
-  private let bundledEngineDirectory: URL?
   private let bundledArtifactDirectory: URL?
   private let requiresBundledArtifacts: Bool
 
   public init() {
     downloader = ProgressReportingArtifactDownloader()
     promoter = AtomicArtifactFilePromoter()
-    bundledEngineDirectory = Bundle.main.resourceURL?.appendingPathComponent("Engine/artifacts")
     bundledArtifactDirectory = Bundle.main.resourceURL?.appendingPathComponent("Artifacts")
     requiresBundledArtifacts =
       Bundle.main.object(forInfoDictionaryKey: "OmarchyOfflineBundle") as? Bool == true
@@ -271,13 +269,11 @@ public struct VerifiedArtifactStager: Sendable {
   init(
     downloader: any ArtifactDownloading,
     promoter: AtomicArtifactFilePromoter = AtomicArtifactFilePromoter(),
-    bundledEngineDirectory: URL? = nil,
     bundledArtifactDirectory: URL? = nil,
     requiresBundledArtifacts: Bool = false
   ) {
     self.downloader = downloader
     self.promoter = promoter
-    self.bundledEngineDirectory = bundledEngineDirectory
     self.bundledArtifactDirectory = bundledArtifactDirectory
     self.requiresBundledArtifacts = requiresBundledArtifacts
   }
@@ -291,12 +287,10 @@ public struct VerifiedArtifactStager: Sendable {
   }
 
   private func bundledSource(for artifact: PinnedInstallerArtifact) -> URL? {
-    var directories = [bundledArtifactDirectory].compactMap { $0 }
-    if artifact.role == "engine", artifact.parts.isEmpty, let bundledEngineDirectory {
-      directories.append(bundledEngineDirectory)
-    }
-    return directories.map { $0.appendingPathComponent(artifact.fileName) }
-      .first { FileManager.default.fileExists(atPath: $0.path) }
+    guard let source = bundledArtifactDirectory?.appendingPathComponent(artifact.fileName),
+      FileManager.default.fileExists(atPath: source.path)
+    else { return nil }
+    return source
   }
 
   public func stage(

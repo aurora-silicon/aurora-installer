@@ -98,7 +98,7 @@
       let url = URL(fileURLWithPath: "/fixture")
       return ImportedEngineHandoffPackage(
         packageURL: url, manifestURL: url, requestURL: url,
-        identityURL: url, engineURL: url, metadataURL: url, payloadURL: url,
+        identityURL: url, metadataURL: url, payloadURL: url,
         bindingDigest: "sha256:" + String(repeating: "b", count: 64), planDigest: plan.planDigest,
         deviceIdentifier: "apple,j314s", storeIdentifier: "disk0", installationIntent: intent)
     }

@@ -24,11 +24,11 @@ The generated `Aurora Installer.app` contains:
   `Contents/Resources/Release`;
 - the native Recovery template in `Contents/Resources/RecoveryTemplate`.
 
-Disk inspection and plan construction are compiled into the Swift app. The normal on-demand application contains no validation runtime or OS payload. It retrieves the selected metadata, installation backend and OS resources through its signed catalog. An explicitly sealed private or offline build can also bundle authenticated execution engines in `Contents/Resources/Engine/artifacts`; these remain subject to the runtime inventory and notarization checks.
+Disk inspection, planning and every installation stage are compiled into the Swift app and its helper. The application contains no interpreter, script runtime, engine archive or OS payload; it retrieves the selected metadata and OS resources through its signed schema-5 catalog. Packaging and the release preflight refuse an app bundle that contains Python code or an engine archive.
 
-The engine producer checks every native file against the authenticated runtime inventory. The auxiliary decoder is excluded from that archive so application signing can cover it directly. Packaging verifies its unsigned build record, signs the nested executable before the enclosing app, and pins its requirement in the helper's launchd configuration. See [native prepared inputs](../docs/native-prepared-inputs.md) for admission and retained-job retry behavior.
+The restore-image decoder (`RestoreImage/`) is a separate Swift executable in `Contents/Helpers`. Packaging verifies its unsigned build record, signs the nested executable before the enclosing app, and pins its requirement in the helper's launchd configuration. See [native prepared inputs](../docs/native-prepared-inputs.md) for admission and retained-job retry behavior.
 
-Optional private engines and catalog-selected offline engines both pass that runtime check. The release preflight also checks every archived runtime signature and requires the app, privileged helper, decoder and Recovery template to have matching Developer ID teams, secure timestamps and hardened runtime enabled.
+The release preflight requires the app, privileged helper, decoder and Recovery template to have matching Developer ID teams, secure timestamps and hardened runtime enabled.
 
 The helper and application use reciprocal code-signing requirements. The helper
 also authenticates each XPC client before accepting a request. A release
@@ -50,7 +50,7 @@ the signature is exactly 64 bytes. The app verifies this sealed catalog with
 the same bundled Ed25519 trust root; when the pair is absent, it fetches the
 configured HTTPS catalog as normal.
 
-For a single-download offline preview, place every enabled model's engine,
+For a single-download offline preview, place every enabled model's
 metadata and complete OS payload in `offline-artifacts/` beside that sealed
 catalog, using the catalog's exact filenames, sizes and SHA-256 digests. Then
 build with `OMARCHY_OFFLINE_BUILD=1` (and `OMARCHY_DEVELOPER_BUILD=1` for the
@@ -58,7 +58,7 @@ developer preview). The packager verifies and embeds those files in the app.
 The normal package builder includes them in the resulting single `.pkg`.
 At runtime the app verifies the embedded files before staging them; a missing
 or damaged embedded file fails locally instead of falling back to a download.
-Firmware that the engine needs from Apple can still be downloaded separately.
+Firmware the installer needs from Apple can still be downloaded separately.
 
 Build concurrency defaults to 10 workers so a 14-core Mac retains four cores for
 responsiveness. Override it with `OMARCHY_BUILD_JOBS`; the same value is exported

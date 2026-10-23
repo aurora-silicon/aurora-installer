@@ -9,8 +9,10 @@ or would cross a safety boundary below.
 
 ## Language conventions
 
-- Format Python with conventional four-space indentation and validate it with
-  `py_compile` plus the focused engine tests.
+- The installer app and helper are Swift only. Never add an interpreter,
+  script engine or engine archive to the app or its execution path. Build- and
+  CI-only Python stays outside the app; format it with conventional four-space
+  indentation and validate it with `py_compile` plus its focused tests.
 - Format Swift with Xcode's bundled `swift-format`, require strict lint for the
   package, and validate macOS builds and tests through XcodeBuildMCP.
 - Keep shell scripts compatible with the root repository rules. Build workers
@@ -20,7 +22,7 @@ or would cross a safety boundary below.
 
 ## Completion evidence
 
-For installer changes, verify the focused Python tests, Swift tests in debug
+For installer changes, verify the focused script tests, Swift tests in debug
 and release, packaging structure, code-signing requirements, and unsupported
 host rejection as applicable. A source build is not physical installation
 proof.
@@ -61,6 +63,6 @@ This directory is now the repository root. The original parent repository is not
 
 - Use two-space shell indentation, Bash 5 conditionals (`[[ ]]` and `(( ))`) and `#!/bin/bash` shebangs.
 - Keep Markdown lines unwrapped except at structural boundaries.
-- Run `./test/all` for portable source, engine and packaging-fixture checks. It must remain unprivileged and must never invoke live disk, helper registration, signing, publication or deployment operations.
-- Preserve the imported engine lock, release trust configuration and host restrictions during extraction. Changes to those contracts require separate review and validation.
+- Run `./test/all` for portable source, script and packaging-fixture checks. It must remain unprivileged and must never invoke live disk, helper registration, signing, publication or deployment operations.
+- Preserve the release trust configuration, catalog verification and host restrictions. Changes to those contracts require separate review and validation.
 - Record validation against the exact candidate commit, with toolchain and host details. Linux checks do not satisfy the macOS completion requirements above.

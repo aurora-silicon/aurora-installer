@@ -46,8 +46,8 @@ final class VerifiedArtifactStagerTests: XCTestCase {
     )
   }
 
-  func testBundledEngineIsVerifiedWithoutDownloadAndRemainsInBundle() async throws {
-    let data = Data("bundled engine".utf8)
+  func testBundledArtifactIsVerifiedWithoutDownloadAndRemainsInBundle() async throws {
+    let data = Data("bundled metadata".utf8)
     let artifact = try descriptor(data: data)
     let root = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: root) }
@@ -57,7 +57,7 @@ final class VerifiedArtifactStagerTests: XCTestCase {
     try data.write(to: source)
     let downloader = FixtureArtifactDownloader(data: Data("must not download".utf8))
     let result = try await VerifiedArtifactStager(
-      downloader: downloader, bundledEngineDirectory: bundle
+      downloader: downloader, bundledArtifactDirectory: bundle
     ).stage(artifact, in: root.appendingPathComponent("staging"))
     XCTAssertEqual(try Data(contentsOf: result.fileURL), data)
     XCTAssertEqual(try Data(contentsOf: source), data)
@@ -65,32 +65,13 @@ final class VerifiedArtifactStagerTests: XCTestCase {
     XCTAssertEqual(count, 0)
     try Data("tampered bytes".utf8).write(to: source)
     await assertThrows(
-      try await VerifiedArtifactStager(downloader: downloader, bundledEngineDirectory: bundle)
+      try await VerifiedArtifactStager(downloader: downloader, bundledArtifactDirectory: bundle)
         .stage(artifact, in: root.appendingPathComponent("other-staging"))
     ) { error in
       guard case .digestMismatch = error as? ArtifactStageError else {
         return XCTFail("Expected digest mismatch, got \(error)")
       }
     }
-  }
-
-  func testPayloadStillDownloadsWhenSameNamedFileIsBundled() async throws {
-    let data = Data("OS payload".utf8)
-    let root = temporaryDirectory()
-    defer { try? FileManager.default.removeItem(at: root) }
-    let artifact = try PinnedInstallerArtifact(
-      role: "payload", sourceURL: URL(string: "https://example.com/os.zip")!,
-      fileName: "os.zip", expectedDigest: digest(data), expectedSizeBytes: UInt64(data.count)
-    )
-    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-    try data.write(to: root.appendingPathComponent("os.zip"))
-    let downloader = FixtureArtifactDownloader(data: data)
-    let result = try await VerifiedArtifactStager(
-      downloader: downloader, bundledEngineDirectory: root
-    ).stage(artifact, in: root.appendingPathComponent("staging"))
-    XCTAssertEqual(try Data(contentsOf: result.fileURL), data)
-    let count = await downloader.downloadCount
-    XCTAssertEqual(count, 1)
   }
 
   func testExactExistingArtifactIsReusedWithoutDownload() async throws {
@@ -118,7 +99,7 @@ final class VerifiedArtifactStagerTests: XCTestCase {
     let downloader = FixtureArtifactDownloader(data: Data("must not download".utf8))
     let stager = VerifiedArtifactStager(
       downloader: downloader, bundledArtifactDirectory: bundle, requiresBundledArtifacts: true)
-    for role in ["engine", "metadata", "payload"] {
+    for role in ["metadata", "payload"] {
       let data = Data("bundled \(role)".utf8)
       let artifact = try PinnedInstallerArtifact(
         role: role, sourceURL: URL(string: "https://example.invalid/\(role)")!,
@@ -219,7 +200,7 @@ final class VerifiedArtifactStagerTests: XCTestCase {
     let directory = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
     let artifact = try PinnedInstallerArtifact(
-      role: "engine",
+      role: "payload",
       sourceURL: URL(string: "https://example.com/installer.tar.gz")!,
       fileName: "installer.tar.gz",
       expectedDigest: digest(data),
@@ -404,7 +385,7 @@ final class VerifiedArtifactStagerTests: XCTestCase {
     )
     XCTAssertTrue(events.contains { $0.phase == .assembling })
     XCTAssertTrue(
-      events.allSatisfy { $0.role == "engine" && $0.totalBytes == UInt64(data.count) }
+      events.allSatisfy { $0.role == "payload" && $0.totalBytes == UInt64(data.count) }
     )
     XCTAssertEqual(events.last?.phase, .verified)
     XCTAssertEqual(events.last?.bytesCompleted, UInt64(data.count))
@@ -672,7 +653,7 @@ final class VerifiedArtifactStagerTests: XCTestCase {
     parts: [PinnedArtifactPart] = []
   ) throws -> PinnedInstallerArtifact {
     try PinnedInstallerArtifact(
-      role: "engine",
+      role: "payload",
       sourceURL: URL(string: source)!,
       fileName: fileName,
       expectedDigest: digest ?? self.digest(data),

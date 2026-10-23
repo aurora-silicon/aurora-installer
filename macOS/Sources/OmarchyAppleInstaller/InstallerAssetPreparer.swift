@@ -35,21 +35,16 @@
   public struct PreparedInstallerAssets: Sendable {
     public let catalogIdentity: AcceptedCatalogIdentity
     public let installer: PinnedInstallerRecord
-    public let engine: StagedInstallerArtifact?
     public let metadata: StagedInstallerArtifact
     public let payload: StagedInstallerArtifact
-    public let repairManifest: StagedInstallerArtifact?
     public let installerCompatibility: InstallerCompatibility?
 
     /// Room beyond the staged downloads for the app handoff's full-copy
     /// fallback and the helper's verified copy, both of which remain on macOS
     /// while the engine checks resize limits.
     public var additionalHandoffBytes: UInt64 {
-      let artifacts =
-        [metadata, payload] + (engine.map { [$0] } ?? [])
-        + (repairManifest.map { [$0] } ?? [])
       var total: UInt64 = 0
-      for staged in artifacts {
+      for staged in [metadata, payload] {
         let (copies, copyOverflow) = staged.artifact.expectedSizeBytes.multipliedReportingOverflow(
           by: 2)
         let (sum, sumOverflow) = total.addingReportingOverflow(copies)
@@ -74,18 +69,14 @@
     public init(
       catalogIdentity: AcceptedCatalogIdentity,
       installer: PinnedInstallerRecord,
-      engine: StagedInstallerArtifact?,
       metadata: StagedInstallerArtifact,
       payload: StagedInstallerArtifact,
-      repairManifest: StagedInstallerArtifact? = nil,
       installerCompatibility: InstallerCompatibility? = nil
     ) {
       self.catalogIdentity = catalogIdentity
       self.installer = installer
-      self.engine = engine
       self.metadata = metadata
       self.payload = payload
-      self.repairManifest = repairManifest
       self.installerCompatibility = installerCompatibility
     }
   }
@@ -179,11 +170,10 @@
       )
 
       if let previous = previouslyPrepared, previous.installer == installer {
-        var artifacts = [previous.metadata] + (previous.engine.map { [$0] } ?? [])
+        var artifacts = [previous.metadata]
         if includePayload {
           artifacts.append(previous.payload)
         }
-        artifacts += previous.repairManifest.map { [$0] } ?? []
         let available = artifacts.allSatisfy { staged in
           guard
             staged.fileURL.deletingLastPathComponent().standardizedFileURL
@@ -200,22 +190,14 @@
           // Reuse for planning only. Handoff and root import still verify bytes.
           return PreparedInstallerAssets(
             catalogIdentity: catalog.acceptedIdentity, installer: installer,
-            engine: previous.engine, metadata: previous.metadata, payload: previous.payload,
-            repairManifest: previous.repairManifest,
+            metadata: previous.metadata, payload: previous.payload,
             installerCompatibility: catalog.installerCompatibility
           )
         }
       }
 
-      async let engine = stageOptionalArtifact(
-        delivery.engine, in: stagingDirectory, progress: progress)
       async let metadata = stager.stage(
         delivery.metadata,
-        in: stagingDirectory,
-        progress: progress
-      )
-      async let repairManifest = stageOptionalArtifact(
-        delivery.repairManifest,
         in: stagingDirectory,
         progress: progress
       )
@@ -228,10 +210,8 @@
         return PreparedInstallerAssets(
           catalogIdentity: catalog.acceptedIdentity,
           installer: installer,
-          engine: try await engine,
           metadata: try await metadata,
           payload: try await payload,
-          repairManifest: try await repairManifest,
           installerCompatibility: catalog.installerCompatibility
         )
       }
@@ -254,10 +234,8 @@
       return PreparedInstallerAssets(
         catalogIdentity: catalog.acceptedIdentity,
         installer: installer,
-        engine: try await engine,
         metadata: try await metadata,
         payload: stagedPayload,
-        repairManifest: try await repairManifest,
         installerCompatibility: catalog.installerCompatibility
       )
     }
@@ -273,21 +251,6 @@
         throw InstallerAssetPreparationError.deliveryMetadataUnavailable
       }
       return stagingDirectory.appendingPathComponent(revision, isDirectory: true)
-    }
-
-    private func stageOptionalArtifact(
-      _ artifact: PinnedInstallerArtifact?,
-      in stagingDirectory: URL,
-      progress: ArtifactStagingProgressHandler?
-    ) async throws -> StagedInstallerArtifact? {
-      guard let artifact else {
-        return nil
-      }
-      return try await stager.stage(
-        artifact,
-        in: stagingDirectory,
-        progress: progress
-      )
     }
 
     public func stagePayload(
