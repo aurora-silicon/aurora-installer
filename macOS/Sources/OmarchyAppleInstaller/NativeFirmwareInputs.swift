@@ -24,12 +24,14 @@
       let root = directory.appendingPathComponent("recovery")
       try FileManager.default.createDirectory(
         at: root, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+      // The command runner refuses any limit above 90 seconds before starting
+      // the process. Without hdiutil's checksum pass an attach takes seconds.
       let command: @Sendable (String, [String]) throws -> Data = {
-        try AccountNativeCommand.checked($0, $1, timeout: 600)
+        try AccountNativeCommand.checked($0, $1, timeout: 90)
       }
       do {
         // The image's SHA-256 was verified against the signed plan when it was
-        // staged; hdiutil's own checksum pass over 1.5 GB can outlast the limit.
+        // staged, so hdiutil's own checksum pass over 1.5 GB is skipped.
         let response = try command(
           "/usr/bin/hdiutil",
           [

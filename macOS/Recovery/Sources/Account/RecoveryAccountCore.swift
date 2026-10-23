@@ -74,6 +74,10 @@ public enum AccountNativeCommand {
     guard input.count <= 8192 else {
       throw AccountSetupFailure("The supplied account input is too long.")
     }
+    // The native runner refuses these limits before starting the process.
+    guard (1...90).contains(timeout) else {
+      throw AccountSetupFailure("The native command time limit must be 1 to 90 seconds.")
+    }
     let strings = ([executable] + arguments).map { strdup($0) }
     defer { for string in strings { free(string) } }
     var pointers: [UnsafePointer<CChar>?] = strings.map { pointer in
