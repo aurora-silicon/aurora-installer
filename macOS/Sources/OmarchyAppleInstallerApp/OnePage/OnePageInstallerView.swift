@@ -763,10 +763,11 @@ struct DiskSplitPanel: View {
         isFrozen: sizeInput.isEditing
       )
       .transaction { $0.animation = nil }
-      if isBusy {
-        Text("Checking available space…")
-          .font(OmarchyTheme.detail).foregroundStyle(.secondary)
-      }
+      // Always laid out so the controls below never move while sizes are checked.
+      Text("Checking available space…")
+        .font(OmarchyTheme.detail).foregroundStyle(.secondary)
+        .opacity(isBusy ? 1 : 0)
+        .accessibilityHidden(!isBusy)
       ForEach(plan.spaceCautions(for: displayedOmarchyBytes), id: \.self) { caution in
         Text(caution).font(OmarchyTheme.body).foregroundStyle(OmarchyTheme.caution)
       }
