@@ -105,6 +105,32 @@
         }
     }
 
+    /// Every file's allocation is a whole number of clusters.
+    var allocationUnit: Int { clusterBytes }
+
+    /// Bytes in free clusters, counted from the active FAT itself: the FSInfo
+    /// hint can be stale after an unclean unmount.
+    func freeBytes() throws -> UInt64 {
+      let tableBytes = (Int(highestCluster) + 1) * 4
+      let run = Self.maximumRun / sectorBytes * sectorBytes
+      var free: UInt64 = 0
+      var offset = 0
+      while offset < tableBytes {
+        let count = min(run, (tableBytes - offset + sectorBytes - 1) / sectorBytes * sectorBytes)
+        let bytes = try reader(fatOffset + UInt64(offset), count)
+        for at in stride(from: 0, to: count, by: 4) {
+          let cluster = (offset + at) / 4
+          guard cluster >= 2, cluster <= Int(highestCluster) else { continue }
+          let value =
+            UInt32(bytes[at]) | UInt32(bytes[at + 1]) << 8 | UInt32(bytes[at + 2]) << 16
+            | UInt32(bytes[at + 3]) << 24
+          if value & 0x0FFF_FFFF == 0 { free += 1 }
+        }
+        offset += count
+      }
+      return free * UInt64(clusterBytes)
+    }
+
     func read(_ components: [String], limit: Int) throws -> Data? {
       let path = components.joined(separator: "/")
       var directory = rootCluster

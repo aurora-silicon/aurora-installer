@@ -104,6 +104,9 @@
           package: package, approved: approved, prepared: prepared,
           disks: platform.disks, device: .live(environment))
         try espVolumeID.admit(journal: nativeJournal)
+        try await NativePreservedESPCapacity(
+          prepared: prepared, disks: platform.disks, device: .live(environment)
+        ).admit(installConf: installConf)
         let imageWriter = NativePreservedPayloadImagesExecution(
           package: package, approved: approved, prepared: prepared, platform: platform)
         images = try await imageWriter.prepare(

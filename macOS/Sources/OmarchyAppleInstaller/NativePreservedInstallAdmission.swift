@@ -40,7 +40,10 @@
           total, NativeInspectionMath.alignUp(NativeInstallationMetadata.bytes(part.size)))
       }
       let layout = try NativeOSPartitionPlan(metadata: metadata, available: minimum)
-      guard layout.parts.count == 3, layout.parts[0].bytes <= target.esp.size,
+      // The existing ESP is kept and only its payload files are replaced, so
+      // the image's ESP size doesn't apply; NativePreservedESPCapacity checks
+      // its free space before the first write.
+      guard layout.parts.count == 3,
         layout.parts[1].bytes <= target.boot.size,
         layout.parts[2].bytes <= target.root.size
       else { throw NativePreservedInstallError.imageTooLarge }
