@@ -50,6 +50,20 @@ final class FirmwareImagePropertiesTests: XCTestCase {
     XCTAssertEqual(decoded.bytes, payload)
   }
 
+  func testMatchHeavyLZFSEWithinItsDeclaredSizeDecodes() throws {
+    // Kernel caches decode to about 110 MB through millions of short matches.
+    let words = (0..<64).map { "w\($0 * 7919 % 1000)-" }
+    var state: UInt32 = 1
+    var text = ""
+    while text.utf8.count < 16 << 20 {
+      state = state &* 1_664_525 &+ 1_013_904_223
+      text += words[Int(state >> 26)]
+    }
+    let plain = Data(text.utf8)
+    let compressed = try (plain as NSData).compressed(using: .lzfse) as Data
+    XCTAssertEqual(try boundedLZFSE(compressed, maximum: plain.count), plain)
+  }
+
   func testMisplacedOrUnknownTrailingFieldsAreRefused() {
     let payload = Data("raw firmware".utf8)
     XCTAssertThrowsError(

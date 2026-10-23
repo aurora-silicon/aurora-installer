@@ -19,7 +19,6 @@ func nativeLZFSE(_ data: Data, expected: Int) throws -> Data {
 func boundedLZFSE(_ data: Data, maximum: Int) throws -> Data {
   var offset = 0
   var total = 0
-  var expansion = 0
   while true {
     let magic = try data.part(offset, 4)
     if magic == Data("bvx$".utf8) {
@@ -31,7 +30,6 @@ func boundedLZFSE(_ data: Data, maximum: Int) throws -> Data {
     try require(raw <= maximum && total <= maximum, "LZFSE output budget exceeded.")
     var header: Int
     var payload: Int
-    var matches = 0
     switch String(data: magic, encoding: .ascii) {
     case "bvx-":
       header = 8
@@ -43,7 +41,6 @@ func boundedLZFSE(_ data: Data, maximum: Int) throws -> Data {
       _ = try data.part(offset, 772)
       try require(
         try data.little(offset + 12, 4) <= segmentBytes + 4, "LZFSE literal budget exceeded.")
-      matches = try data.little(offset + 16, 4)
       header = 772
       payload = try data.little(offset + 20, 4) + data.little(offset + 24, 4)
     case "bvx2":
@@ -56,16 +53,14 @@ func boundedLZFSE(_ data: Data, maximum: Int) throws -> Data {
       }
       let v0 = try packed(offset + 8)
       let v1 = try packed(offset + 16)
-      matches = Int((v0 >> 40) & 0xfffff)
       header = try data.little(offset + 24, 4)
       payload = Int((v0 >> 20) & 0xfffff) + Int((v1 >> 40) & 0xfffff)
       try require(header >= 32, "Invalid LZFSE V2 header length.")
     default: throw RestoreFailure("Unsupported LZFSE block.")
     }
-    expansion += raw + matches * (315 + 2359)
-    try require(
-      expansion <= 512 * 1024 * 1024 && header + payload <= data.count - offset,
-      "LZFSE expansion or payload bounds exceeded.")
+    // The declared block sizes above bound the output, and the native decoder
+    // writes into a buffer of exactly that size, so match counts need no budget.
+    try require(header + payload <= data.count - offset, "LZFSE payload bounds exceeded.")
     offset += header + payload
   }
 }
