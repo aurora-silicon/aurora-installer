@@ -181,6 +181,9 @@
     let snapshot: RemovalSnapshot
     let installation: RemovalInstallation?
     let evidence: RemovalEvidence?
+    /// A fresh install that stopped after creating its startup container,
+    /// proved by the installer's own journal.
+    let partial: RemovalPartialInstallation?
     let members: [RemovalPartition]
     let macOS: RemovalPartition
     let targetMacOSBytes: UInt64
@@ -189,7 +192,7 @@
     let startup: RemovalStartup?
 
     /// Read-only. Every check that can refuse happens here, before a ticket exists.
-    init(disks: any RemovalDiskOperating) throws {
+    init(disks: any RemovalDiskOperating, journals: (any RemovalInstallJournals)? = nil) throws {
       let snapshot = try disks.snapshot()
       self.snapshot = snapshot
       switch try RemovalLayout.recognize(snapshot) {
@@ -202,6 +205,7 @@
         kind = .freeSpace
         installation = nil
         evidence = nil
+        partial = nil
         members = []
         self.macOS = macOS
         targetMacOSBytes = target
@@ -219,7 +223,24 @@
         kind = .installation
         installation = found
         self.evidence = evidence
+        partial = nil
         members = found.members
+        self.macOS = macOS
+        targetMacOSBytes = target
+        self.startup = startup == .macOS ? nil : startup
+      case .partialInstallation(let stub, let macOS, let target, let refusal):
+        guard let journals, let journal = try journals.creator(of: stub, in: snapshot) else {
+          throw RemovalFailure(message: refusal)
+        }
+        let system = snapshot.containers.first { $0.storeUUID == stub.uuid }?.volumes
+          .first { $0.roles == ["System"] }
+        let startup = try disks.startup(snapshot)
+        kind = .installation
+        installation = nil
+        evidence = nil
+        partial = RemovalPartialInstallation(
+          name: system?.name ?? stub.name, stub: stub, journal: journal)
+        members = [stub]
         self.macOS = macOS
         targetMacOSBytes = target
         self.startup = startup == .macOS ? nil : startup
@@ -229,6 +250,11 @@
     var reclaimBytes: UInt64 { targetMacOSBytes - macOS.size }
 
     var summary: String {
+      if let partial {
+        let first = startup == nil ? "" : "Removal first sets macOS as the startup disk. "
+        return
+          "Found “\(partial.name)”, a startup container an installation left when it stopped before finishing. The installer’s own record shows it created it. \(first)Removal permanently deletes it and returns its space to macOS."
+      }
       if let installation {
         if startup != nil {
           return
@@ -264,6 +290,15 @@
             "This installation has no Linux partitions of its own. If a Linux system elsewhere, for example on an external disk, starts through it, that system won’t start after removal. Its data isn’t touched."
           )
         }
+      } else if let partial {
+        deletions.append(
+          OmarchyRemovalItem(
+            title: "Startup container “\(partial.name)”",
+            detail: "\(partial.stub.identifier) · APFS · left by an unfinished installation",
+            bytes: partial.stub.size))
+        notes.append(
+          "The installation stopped after it created this startup container. Nothing else of it is on the disk, and nothing else is deleted."
+        )
       } else {
         notes.append(
           "macOS takes all the unallocated space directly after it, whatever put it there.")
@@ -361,6 +396,7 @@
 
   struct OmarchyRemovalExecutor: Sendable {
     let disks: any RemovalDiskOperating
+    var journals: (any RemovalInstallJournals)? = nil
 
     func execute(
       _ plan: OmarchyRemovalPlan, authorization: MachineOwnerAuthorization? = nil,
@@ -368,17 +404,25 @@
     ) throws {
       let first = try disks.snapshot()
       try plan.validate(first, removed: [])
+      let changed = RemovalFailure(
+        message:
+          "The installation changed since you reviewed it. Close this window and review removal again."
+      )
       if let installation = plan.installation {
         // The ticket may be minutes old: the files that proved this is one
         // installation, and the startup choice, must still be exactly as approved.
         guard let live = installation.live(in: first),
           try disks.evidence(for: live, disk: first.disk) == plan.evidence
-        else {
-          throw RemovalFailure(
-            message:
-              "The installation changed since you reviewed it. Close this window and review removal again."
-          )
-        }
+        else { throw changed }
+      }
+      if let partial = plan.partial {
+        // The same journal must still prove it created this container and
+        // went no further.
+        guard let journals, let stub = first.partitions.first(where: { $0 == partial.stub }),
+          try journals.creator(of: stub, in: first) == partial.journal
+        else { throw changed }
+      }
+      if plan.installation != nil || plan.partial != nil {
         let startup = try disks.startup(first)
         if startup != .macOS {
           guard let reviewed = plan.startup, startup == reviewed else {

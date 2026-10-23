@@ -7,6 +7,11 @@
   enum RemovalLayout {
     case freeSpace(macOS: RemovalPartition, target: UInt64)
     case installation(RemovalInstallation, macOS: RemovalPartition, target: UInt64)
+    /// Only a startup container, directly after macOS: an installation that
+    /// stopped early. It is removed only when the installer's own journal
+    /// shows it created it; otherwise `refusal` says why nothing changes.
+    case partialInstallation(
+      stub: RemovalPartition, macOS: RemovalPartition, target: UInt64, refusal: String)
 
     static let minimumFreeSpace: UInt64 = 1 << 30
     static let memberGap: UInt64 = 16 << 20
@@ -64,6 +69,11 @@
         let first = middle.first, first.offset - macOS.end >= minimumFreeSpace
       {
         return .freeSpace(macOS: macOS, target: first.offset - macOS.offset)
+      }
+      if kinds == [.stub], middle[0].offset - macOS.end < memberGap {
+        return .partialInstallation(
+          stub: middle[0], macOS: macOS, target: recovery.offset - macOS.offset,
+          refusal: refuse(RemovalText.shape(middle, snapshot)).message)
       }
       let boundary = kinds.dropFirst().firstIndex(of: .stub) ?? middle.count
       let preservedTail = boundary < middle.count && kinds[boundary...].allSatisfy { $0 == .stub }

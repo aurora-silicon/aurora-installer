@@ -273,10 +273,13 @@
       try requireNoInterruptedRemoval()
       let disks = removalDisks
       let validateAdministrator = removalAdminValidator
+      // A partial fresh install is removed only on its own journal's proof.
+      let journals = NativeRemovalInstallJournals(
+        workingDirectory: workingDirectory, owner: geteuid())
       if ticketID == nil {
         removalPlan = nil
         let plan = try await Task.detached {
-          try OmarchyRemovalPlan(disks: disks)
+          try OmarchyRemovalPlan(disks: disks, journals: journals)
         }.value
         let ticket = plan.ticket(id: UUID())
         removalPlan = (ticket, plan, Date().addingTimeInterval(300))
@@ -304,7 +307,7 @@
             throw RemovalFailure(message: "The macOS account or password was not accepted.")
           }
           try validateAdministrator(authorization)
-          let executor = OmarchyRemovalExecutor(disks: disks)
+          let executor = OmarchyRemovalExecutor(disks: disks, journals: journals)
           try executor.execute(approved.plan, authorization: authorization) { next in
             // The private journal is durable before each mutation, without credentials.
             let journal = RemovalJournal(plan: approved.plan, phase: next)
@@ -322,7 +325,7 @@
             }
             phase = next
           }
-          let name = approved.plan.installation?.name
+          let name = approved.plan.installation?.name ?? approved.plan.partial?.name
           var message =
             name.map {
               "“\($0)” and its data have been removed. The freed space is now part of macOS."
@@ -346,10 +349,10 @@
               "macOS couldn’t confirm it took the free space. The space may still be unallocated. \(detail) Don’t start again; the removal record was kept for recovery."
           } else if phase == "returning-space-to-macos" || phase == "complete" {
             message =
-              "“\(approved.plan.installation?.name ?? "Aurora")” was removed, but the installer couldn’t confirm its space went back to macOS. The space may still be unallocated. \(detail) Don’t start removal again; the removal record was kept for recovery."
+              "“\(approved.plan.installation?.name ?? approved.plan.partial?.name ?? "Aurora")” was removed, but the installer couldn’t confirm its space went back to macOS. The space may still be unallocated. \(detail) Don’t start removal again; the removal record was kept for recovery."
           } else {
             message =
-              "Removal stopped, and some data in “\(approved.plan.installation?.name ?? "Aurora")” may already be deleted. \(detail) Don’t start removal again; the removal record was kept for recovery."
+              "Removal stopped, and some data in “\(approved.plan.installation?.name ?? approved.plan.partial?.name ?? "Aurora")” may already be deleted. \(detail) Don’t start removal again; the removal record was kept for recovery."
           }
           return OmarchyRemovalReply(requiresReview: phase != "checking", message: message)
         }
