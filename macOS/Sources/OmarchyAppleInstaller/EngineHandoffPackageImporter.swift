@@ -77,6 +77,7 @@
   }
 
   public struct EngineHandoffPackageImporter: Sendable {
+    static let importedPrefix = "imported-handoff-"
     private static let maximumControlFileBytes = 65_536
 
     private let readArtifactChunk: @Sendable (String, FileHandle, Int) throws -> Data?
@@ -181,7 +182,7 @@
 
       let identifier = UUID().uuidString.lowercased()
       let package = destinationDirectory.appendingPathComponent(
-        "imported-handoff-\(identifier)",
+        Self.importedPrefix + identifier,
         isDirectory: true
       )
       try FileManager.default.createDirectory(
@@ -276,7 +277,7 @@
     func reopenRetained(named name: String, in directory: URL) throws
       -> ImportedEngineHandoffPackage
     {
-      let prefix = "imported-handoff-"
+      let prefix = Self.importedPrefix
       guard name.hasPrefix(prefix),
         let identifier = UUID(uuidString: String(name.dropFirst(prefix.count))),
         name == prefix + identifier.uuidString.lowercased()
@@ -459,6 +460,21 @@
         throw EngineHandoffImportError.sizeMismatch(role)
       }
 
+      // On APFS a clone shares the app's verified blocks instead of copying
+      // several gigabytes for every attempt. The clone is the helper's own
+      // file from here on, so reading it once checks exactly what is kept.
+      if fclonefileat(
+        source, AT_FDCWD, destination.path, UInt32(CLONE_NOFOLLOW | CLONE_NOOWNERCOPY)) == 0
+      {
+        do {
+          try verifyClone(artifact, role: role, at: destination)
+        } catch {
+          unlink(destination.path)
+          throw error
+        }
+        return
+      }
+
       let target = Darwin.open(
         destination.path,
         O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC,
@@ -506,6 +522,34 @@
       }
       let digest = SHA256Digest.prefixedHex(hasher.finalize())
       guard digest == artifact.digest else {
+        throw EngineHandoffImportError.digestMismatch(role)
+      }
+    }
+
+    private func verifyClone(_ artifact: ImportedArtifactRecord, role: String, at url: URL)
+      throws
+    {
+      let descriptor = Darwin.open(url.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)
+      guard descriptor >= 0 else { throw EngineHandoffImportError.unsafeFile(role) }
+      defer { Darwin.close(descriptor) }
+      var status = stat()
+      // A clone keeps the source's mode and flags; the import's own are set
+      // before anything is read.
+      guard fchflags(descriptor, 0) == 0, fchmod(descriptor, S_IRUSR) == 0,
+        fstat(descriptor, &status) == 0, status.st_mode & S_IFMT == S_IFREG,
+        status.st_uid == geteuid(), status.st_nlink == 1,
+        UInt64(status.st_size) == artifact.sizeBytes
+      else { throw EngineHandoffImportError.unsafeFile(role) }
+      let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
+      var hasher = SHA256()
+      var size: UInt64 = 0
+      while let chunk = try readArtifactChunk(role, handle, 4 * 1_048_576), !chunk.isEmpty {
+        size += UInt64(chunk.count)
+        guard size <= artifact.sizeBytes else { throw EngineHandoffImportError.sizeMismatch(role) }
+        hasher.update(data: chunk)
+      }
+      guard size == artifact.sizeBytes else { throw EngineHandoffImportError.sizeMismatch(role) }
+      guard SHA256Digest.prefixedHex(hasher.finalize()) == artifact.digest else {
         throw EngineHandoffImportError.digestMismatch(role)
       }
     }

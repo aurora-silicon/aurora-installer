@@ -452,6 +452,9 @@
             record.phase = .interrupted
           } else if record.failure?.diskUnchanged == true && record.recoveryAttempt == nil {
             record.retainedPackageName = nil
+          } else if !retryAvailable(record) {
+            // Only a retry reads the imported package again.
+            record.retainedPackageName = nil
           }
         }
         do {
@@ -577,6 +580,40 @@
     }
 
     func canRetryNow(_ identity: InstallerJobPlanIdentity) -> Bool { retryEligibility(identity) }
+
+    /// Imported packages hold a full payload. Before any request, keep only
+    /// those a job can still retry or inspect: a finished job that can no
+    /// longer be retried gives up its package, and a package no job names is
+    /// removed. Interrupted jobs keep theirs.
+    func removeUnusedPackages() {
+      // Unknown persistent state never authorizes removing anything.
+      let referenced: Set<String>? = lock.withLock {
+        guard (try? load()) != nil else { return nil }
+        for (identifier, var record) in records {
+          guard let name = record.retainedPackageName,
+            record.phase == .succeeded || (record.phase == .failed && !retryAvailable(record))
+          else { continue }
+          record.retainedPackageName = nil
+          guard (try? persist(record)) != nil else { continue }
+          records[identifier] = record
+          try? FileManager.default.removeItem(
+            at: workingDirectory.appendingPathComponent(name, isDirectory: true))
+        }
+        return Set(records.values.compactMap(\.retainedPackageName))
+      }
+      guard let referenced,
+        let names = try? FileManager.default.contentsOfDirectory(atPath: workingDirectory.path)
+      else { return }
+      for name in names
+      where name.hasPrefix(EngineHandoffPackageImporter.importedPrefix)
+        && !referenced.contains(name)
+      {
+        let url = workingDirectory.appendingPathComponent(name, isDirectory: true)
+        var info = stat()
+        guard lstat(url.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { continue }
+        try? FileManager.default.removeItem(at: url)
+      }
+    }
 
     private func retryAvailable(_ record: InstallerJobRecord) -> Bool {
       guard record.retainedPackageName != nil, let identity = record.plan else { return false }

@@ -308,7 +308,8 @@
       XCTAssertThrowsError(try importer.prepare(from: source, in: destination)) {
         XCTAssertEqual($0 as? EngineHandoffImportError, .sizeMismatch("recovery-template"))
       }
-      XCTAssertEqual(observed.maximum, 0)
+      // A clone holds exactly the declared bytes; nothing grows past them.
+      XCTAssertLessThanOrEqual(observed.maximum, bytes.count)
       XCTAssertTrue(try importedEntries(in: destination).isEmpty)
     }
 
