@@ -25,13 +25,15 @@
       try FileManager.default.createDirectory(
         at: root, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
       let command: @Sendable (String, [String]) throws -> Data = {
-        try AccountNativeCommand.checked($0, $1, timeout: 180)
+        try AccountNativeCommand.checked($0, $1, timeout: 600)
       }
       do {
+        // The image's SHA-256 was verified against the signed plan when it was
+        // staged; hdiutil's own checksum pass over 1.5 GB can outlast the limit.
         let response = try command(
           "/usr/bin/hdiutil",
           [
-            "attach", "-plist", "-readonly", "-nobrowse", "-owners", "on",
+            "attach", "-plist", "-readonly", "-nobrowse", "-noverify", "-owners", "on",
             "-mountpoint", root.path, image.path,
           ])
         guard
