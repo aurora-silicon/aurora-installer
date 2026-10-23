@@ -440,7 +440,8 @@
         ) { response, error in
           defer { handle.invalidate() }
           if let error {
-            gate.resume(throwing: error)
+            // A busy, retiring or replaced helper arrives as helperRejected.
+            gate.resume(throwing: EngineXPCErrorBridge.submissionError(error))
           } else if let response {
             gate.resume(returning: response)
           } else {
