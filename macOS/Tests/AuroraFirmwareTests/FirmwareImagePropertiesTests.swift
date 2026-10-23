@@ -31,8 +31,14 @@ final class FirmwareImagePropertiesTests: XCTestCase {
   }
 
   private func compression(_ length: Int) -> Data {
-    der(0x30, der(0x02, Data([1])) + der(0x02, withUnsafeBytes(of: UInt32(length).bigEndian) {
-      Data($0) }.drop(while: { $0 == 0 })))
+    der(
+      0x30,
+      der(0x02, Data([1]))
+        + der(
+          0x02,
+          withUnsafeBytes(of: UInt32(length).bigEndian) {
+            Data($0)
+          }.drop(while: { $0 == 0 })))
   }
 
   func testPayloadPropertiesAfterTheCompressionMetadataAreAccepted() throws {
