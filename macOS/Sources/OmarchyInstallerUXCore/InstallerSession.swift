@@ -1014,14 +1014,24 @@
             return
           }
           do {
-            guard let found = try await environment.inspectRecoveryAccount(),
+            if let found = try await environment.inspectRecoveryAccount(),
               found.target != nil, found.ticket != nil
-            else {
+            {
+              recoveryAccount = found
+            } else if await environment.probeHelperStatus().isCurrent {
               throw AccountSetupFailure(
                 "The completion record does not match an installation on disk. It may belong to a removed installation. Run the installation again."
               )
+            } else {
+              // No helper was there to look. Shutting down inspects again.
+              recoveryAccount = nil
             }
-            recoveryAccount = found
+            phase = .awaitingRecovery(handoff)
+          } catch let error where Self.helperUnavailable(error) {
+            // The installation finished. The helper that checks it is only
+            // retiring, being replaced or busy, which is no failure of the
+            // installation; shutting down inspects it again.
+            recoveryAccount = nil
             phase = .awaitingRecovery(handoff)
           } catch {
             recoveryAccount = nil
@@ -1044,6 +1054,24 @@
             remedy: "Check the last verified installation step before continuing."
           )
         )
+      }
+    }
+
+    /// The helper can't take a request right now: it is retiring after a
+    /// completed operation, being replaced, busy, or can't be reached.
+    static func helperUnavailable(_ error: any Error) -> Bool {
+      let states: [ClosedEngineHelperError] = [.retiring, .beingReplaced, .busy]
+      if let helper = error as? ClosedEngineHelperError { return states.contains(helper) }
+      switch error as? EngineXPCSubmissionError {
+      case .connectionFailed, .helperUnresponsive:
+        return true
+      case .helperRejected(let domain, let code):
+        return states.contains { state in
+          let known = state as NSError
+          return known.domain == domain && known.code == code
+        }
+      default:
+        return false
       }
     }
 

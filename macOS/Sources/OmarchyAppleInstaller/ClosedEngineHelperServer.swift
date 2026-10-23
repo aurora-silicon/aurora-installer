@@ -130,6 +130,14 @@
     }
   }
 
+  /// Whether the helper has started retiring; read without the server's actor.
+  final class HelperRetirementFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    var isSet: Bool { lock.withLock { value } }
+    func set() { lock.withLock { value = true } }
+  }
+
   public actor ClosedEngineHelperServer {
     private static let explicitlyUnsupportedDevices = ["apple,j614s"]
 
@@ -144,9 +152,11 @@
     /// Jobs and replacement share this state; see `HelperWorkState`.
     nonisolated let work: HelperWorkState
     nonisolated let jobs: InstallerJobRegistry
-    /// Compatibility signal for existing XPC clients. The replacement gate
-    /// prevents new work while a completed operation retires the helper.
-    public nonisolated var isRetiring: Bool { false }
+    /// Set once a completed operation starts retiring the helper. A retiring
+    /// helper answers pings with no, so the app treats it as gone, and the
+    /// replacement gate already refuses new work.
+    public nonisolated var isRetiring: Bool { retirement.isSet }
+    private nonisolated let retirement = HelperRetirementFlag()
     private var completedInstallPlan: CompletedEngineInstallPlan?
     private var installConfConsumed = false
     private var recoveryAccountTargets: [String: (CompletedRecoveryInstallation, Date)] = [:]
@@ -208,6 +218,7 @@
     func retireAfterCompletion() {
       guard selfUninstaller.shouldRetire else { return }
       guard work.beginReplacement(token: UUID().uuidString) else { return }
+      retirement.set()
       selfUninstaller.uninstallAfterRemoval()
     }
 
@@ -744,6 +755,11 @@
             action: action, ticket: ticket, username: username, password: password,
             recoveryTemplate: recoveryTemplate)
           reply(try JSONEncoder().encode(result), nil)
+        } catch let error as ClosedEngineHelperError {
+          // A busy, retiring or replaced helper says so, so the app can tell
+          // it from a failed account step and never reports the installation
+          // as failed because of it.
+          reply(nil, EngineXPCErrorBridge.serviceError(for: error))
         } catch {
           let message =
             (error as? AccountSetupFailure)?.message
@@ -903,7 +919,7 @@
         let request = try JSONDecoder().decode(InstallerJobStatusRequest.self, from: request)
         let snapshot = try server.jobs.status(request, initiatingUID: initiatingUID)
         reply(try JSONEncoder().encode(snapshot), nil)
-        if snapshot.phase == .succeeded {
+        if snapshot.endsHelperWork {
           let server = server
           Task { await server.retireAfterCompletion() }
         }

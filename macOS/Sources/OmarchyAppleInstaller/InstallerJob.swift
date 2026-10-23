@@ -265,6 +265,18 @@
       }
     }
 
+    /// Whether the helper has nothing left to do for this job. An
+    /// installation that hands over to Recovery, or waits for installation
+    /// media, still needs the helper: the app inspects the installed target
+    /// and prepares the Recovery handoff before the Mac shuts down. Only a
+    /// fully installed system lets the helper retire.
+    public var endsHelperWork: Bool {
+      guard phase == .succeeded, let transcript,
+        let validated = try? AppleInstallerTrustCore().validateEngineTranscript(transcript)
+      else { return false }
+      return validated.completion == .installed
+    }
+
     public func requireResult() throws -> (Data, InstallConfHandoff) {
       switch phase {
       case .succeeded:

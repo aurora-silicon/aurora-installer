@@ -597,6 +597,32 @@
       )
     }
 
+    func testOnlyAFullyInstalledSystemLetsTheHelperRetireAfterItsJob() throws {
+      func snapshot(_ kind: String, phase: InstallerJobPhase = .succeeded) -> InstallerJobSnapshot {
+        let built = transcript(
+          candidateKind: kind, engineDigest: digest(Data("engine".utf8)),
+          metadataDigest: digest(Data("metadata".utf8)),
+          payloadDigest: digest(Data("payload".utf8)), repairManifestDigest: nil)
+        return InstallerJobSnapshot(
+          identifier: UUID(), bindingDigest: String(repeating: "a", count: 64),
+          selection: AuroraInstallationSelection(), phase: phase, plan: nil,
+          transcript: built.execution, installConf: nil, failure: nil, journal: Data(),
+          journalOffset: 0, recoveryAttempt: nil, recoveryRetryAvailable: false,
+          startOverAvailable: nil)
+      }
+      let handoff = snapshot("free")
+      XCTAssertEqual(
+        try AppleInstallerTrustCore().validateEngineTranscript(XCTUnwrap(handoff.transcript))
+          .completion, .awaitingRecovery)
+      XCTAssertFalse(handoff.endsHelperWork, "The Recovery handoff still needs the helper.")
+      let installed = snapshot("reinstall")
+      XCTAssertEqual(
+        try AppleInstallerTrustCore().validateEngineTranscript(XCTUnwrap(installed.transcript))
+          .completion, .installed)
+      XCTAssertTrue(installed.endsHelperWork)
+      XCTAssertFalse(snapshot("reinstall", phase: .failed).endsHelperWork)
+    }
+
     private func transcript(
       candidateKind: String,
       engineDigest: String,

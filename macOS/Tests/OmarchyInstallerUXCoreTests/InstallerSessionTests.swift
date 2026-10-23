@@ -455,6 +455,51 @@
       XCTAssertEqual(environment.requestShutdownCount, 0)
     }
 
+    func testAHelperThatIsAwayAfterACompletedInstallationNeverFailsIt() async throws {
+      let retiring = ClosedEngineHelperError.retiring as NSError
+      let replaced = ClosedEngineHelperError.beingReplaced as NSError
+      let unavailable: [any Error] = [
+        EngineXPCSubmissionError.helperRejected(domain: retiring.domain, code: retiring.code),
+        EngineXPCSubmissionError.helperRejected(domain: replaced.domain, code: replaced.code),
+        EngineXPCSubmissionError.connectionFailed, ClosedEngineHelperError.retiring,
+      ]
+      for error in unavailable {
+        let environment = MockInstallerEnvironment()
+        environment.completedAccountError = error
+        let session = await ready(environment)
+        session.presentInstallCredentials()
+        await session.submit(try authorization())
+        guard case .awaitingRecovery = session.phase else {
+          return XCTFail("\(error) failed the installation: \(session.phase)")
+        }
+        XCTAssertNil(session.recoveryAccount)
+        XCTAssertEqual(environment.executeCount, 1)
+      }
+
+      // A helper that isn't there to look, as when it unregistered, doesn't
+      // fail it either.
+      let gone = MockInstallerEnvironment()
+      gone.accountReply = nil
+      gone.probedHelper = HelperDisplay(status: .missing)
+      let session = await ready(gone)
+      session.presentInstallCredentials()
+      await session.submit(try authorization())
+      guard case .awaitingRecovery = session.phase else {
+        return XCTFail("A missing helper failed the installation: \(session.phase)")
+      }
+
+      // A failed account step still fails, as before.
+      let failing = MockInstallerEnvironment()
+      failing.completedAccountError = AccountSetupFailure("The target changed.")
+      let other = await ready(failing)
+      other.presentInstallCredentials()
+      await other.submit(try authorization())
+      guard case .failed(let failure) = other.phase else {
+        return XCTFail("Expected the account failure, got \(other.phase)")
+      }
+      XCTAssertEqual(failure.headline, "Installation could not be verified")
+    }
+
     func testHappyPathFollowsTheTransitionTable() async throws {
       let environment = MockInstallerEnvironment()
       let session = InstallerSession(environment: environment)
@@ -1891,8 +1936,11 @@
       if handoffFails { throw AccountSetupFailure("fixture failure") }
       return handoffOverride ?? accountReply!
     }
+    /// Thrown by inspection once an installation has run.
+    var completedAccountError: (any Error)?
     func inspectRecoveryAccount() async throws -> RecoveryAccountReply? {
       accountCalls.append("inspect")
+      if executeCount > 0, let completedAccountError { throw completedAccountError }
       // A fresh mock has no completed target until execution, just like the
       // helper's on-disk discovery. Existing-install fixtures remain resumable.
       guard hasCompletedInstallation || executeCount > 0 || !host.existingInstalls.isEmpty else {
