@@ -281,6 +281,28 @@
       XCTAssertTrue(FileManager.default.fileExists(atPath: active.path))
       XCTAssertFalse(FileManager.default.fileExists(atPath: inactive.path))
     }
+
+    func testIdenticalNamePairsFromTheDeferredRecoveryLauncherAreAccepted() throws {
+      let fixture = try NativeRecoveryHandoffFixture()
+      defer { fixture.remove() }
+      let inactive = fixture.system.appendingPathComponent("IAPhysicalMedia-disabled.plist")
+      let active = fixture.system.appendingPathComponent(".IAPhysicalMedia")
+      try FileManager.default.copyItem(at: active, to: inactive)
+      try FileManager.default.copyItem(at: fixture.activeVersion, to: fixture.disabledVersion)
+      let tree = try NativeHandoffFileTree(
+        fixture.system, protected: true, owner: geteuid(), volumeRoot: true,
+        volumeDevice: "disk8s1", verifyMount: fixture.environment().verifyMount)
+      _ = try tree.handoffVersion()
+      try tree.prepareForRecovery()
+      XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.activeVersion.path))
+      XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.disabledVersion.path))
+      XCTAssertEqual(try Data(contentsOf: active), try Data(contentsOf: inactive))
+      try tree.prepareForAuthorization()
+      XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.activeVersion.path))
+      XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.disabledVersion.path))
+      try tree.prepareForRecovery()
+      XCTAssertEqual(try Data(contentsOf: active), try Data(contentsOf: inactive))
+    }
   }
 
   final class NativeRecoveryHandoffFixture: @unchecked Sendable {
