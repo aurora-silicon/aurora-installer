@@ -255,7 +255,7 @@
       else { throw NativeOSPartitionError.changedLayout }
       let mounts = NativeHandoffMounts(environment)
       let espURL = try mounts.mounted(
-        esp.identifier, uuid: esp.uuid, key: "DiskUUID", writable: true)
+        esp.identifier, uuid: esp.uuid, key: "DiskUUID", writable: true, browsable: false)
       let systemURL = try mounts.mounted(system.identifier, uuid: system.uuid, writable: true)
       func store(_ root: URL, device: String) throws -> NativeStubFileStore {
         try NativeStubFileStore(

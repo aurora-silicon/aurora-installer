@@ -79,7 +79,9 @@
         if let mountPoint { info["MountPoint"] = mountPoint }
         return try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
       case "mount":
-        if mountPoint == nil { mountPoint = forcedMountPoint ?? arguments[2] }
+        XCTAssertEqual(arguments[1], "nobrowse")
+        let requested = arguments.firstIndex(of: "-mountPoint").map { arguments[$0 + 1] }
+        if mountPoint == nil { mountPoint = forcedMountPoint ?? requested }
         if failsAfterMount { throw InstallConfESPError.mountFailed }
       case "unmount":
         if refusesUnmount { throw InstallConfESPError.mountFailed }

@@ -95,7 +95,8 @@
     }
 
     func espRoot() throws -> URL {
-      try mounts.mounted(esp.identifier, uuid: esp.uuid, key: "DiskUUID", writable: true)
+      try mounts.mounted(
+        esp.identifier, uuid: esp.uuid, key: "DiskUUID", writable: true, browsable: false)
     }
 
     func verifyUnchanged() throws {
