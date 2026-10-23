@@ -5,6 +5,8 @@
     case unavailable
     case changedLayout
     case imageTooLarge
+    /// The kept ESP lacks room for the payload's files and their rollback copies.
+    case espFull(requiredBytes: UInt64, availableBytes: UInt64)
   }
 
   /// Read-only admission of an existing compatible installation for a future

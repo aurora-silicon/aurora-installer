@@ -330,9 +330,37 @@
       return (group.uppercased(), esp.uppercased())
     }
 
-    static func discover(in workingDirectory: URL, binding: String? = nil, owner: uid_t = 0) throws
-      -> CompletedRecoveryInstallation?
-    {
+    /// A reset rewrites an installation that an earlier journal created and
+    /// keeps its Stage 1, so it carries no account handoff of its own. A
+    /// journal is recognised as a reset only after it verifies as a completed
+    /// one; a reset record that doesn't verify is refused, never skipped.
+    static func completedReset(
+      transcript: Data, binding: String, evidence: (String) throws -> Data
+    ) throws -> Bool {
+      guard let validated = try? AppleInstallerTrustCore().validateEngineTranscript(transcript),
+        let plan = validated.plan, plan.candidateKind == "reinstall"
+      else { return false }
+      do {
+        let snapshot = try NativePreservedInstallJournalSnapshot.decode(
+          transcript,
+          identity: InstallerJobPlanIdentity(
+            bindingDigest: "sha256:" + binding, planDigest: plan.planDigest,
+            deviceIdentifier: validated.deviceIdentifier, storeIdentifier: plan.storeIdentifier),
+          evidence: evidence)
+        guard snapshot.state == .complete else { throw NativeRecoveryJournalError.invalidState }
+      } catch {
+        throw AccountSetupFailure("A completed reset record did not verify.")
+      }
+      return true
+    }
+
+    static func discover(
+      in workingDirectory: URL, binding: String? = nil, owner: uid_t = 0,
+      read: (URL, Int) throws -> Data = RecoveryAccountInstaller.protectedRead,
+      partitions: () throws -> [String: Any] = RecoveryAccountHandoff.partitionList,
+      liveTarget: (String, String) throws -> RecoveryAccountTarget =
+        RecoveryAccountHandoff.liveTarget(group:esp:)
+    ) throws -> CompletedRecoveryInstallation? {
       let directory = workingDirectory.appendingPathComponent(
         "execution-journals", isDirectory: true)
       guard FileManager.default.fileExists(atPath: directory.path) else { return nil }
@@ -357,15 +385,13 @@
           try? JSONSerialization.jsonObject(with: Data($0)) as? [String: Any]
         }
         guard ended?["type"] as? String == "completion" else { continue }
-        if diskList == nil {
-          let diskBytes = try AccountNativeCommand.checked(
-            "/usr/sbin/diskutil", ["list", "-plist"])
-          guard
-            let listing = try PropertyListSerialization.propertyList(
-              from: diskBytes, format: nil) as? [String: Any]
-          else { throw AccountSetupFailure("Couldn’t inspect the installed partitions.") }
-          diskList = listing
+        if try completedReset(
+          transcript: bytes, binding: file.deletingPathExtension().lastPathComponent,
+          evidence: { try read(URL(fileURLWithPath: file.path + ".\($0).evidence"), 1 << 20) })
+        {
+          continue
         }
+        if diskList == nil { diskList = try partitions() }
         guard let listing = diskList else {
           throw AccountSetupFailure("Couldn’t inspect the installed partitions.")
         }
@@ -373,11 +399,11 @@
         for identifier in [
           "apfs-target-prepared", "stub-and-esp-installed", "recovery-handoff-prepared",
         ] {
-          evidence[identifier] = try RecoveryAccountInstaller.protectedRead(
-            URL(fileURLWithPath: file.path + ".\(identifier).evidence"), limit: 65536)
+          evidence[identifier] = try read(
+            URL(fileURLWithPath: file.path + ".\(identifier).evidence"), 65536)
         }
         let identity = try completedEvidence(transcript: bytes, evidence: evidence)
-        if let current = try? liveTarget(group: identity.group, esp: identity.esp) {
+        if let current = try? liveTarget(identity.group, identity.esp) {
           do {
             try requireLivePartitions(evidence: evidence, listing: listing)
           } catch { continue }
@@ -394,6 +420,15 @@
           "Choose which completed installation should receive a recovery account.")
       }
       return found.first
+    }
+
+    static func partitionList() throws -> [String: Any] {
+      let bytes = try AccountNativeCommand.checked("/usr/sbin/diskutil", ["list", "-plist"])
+      guard
+        let listing = try PropertyListSerialization.propertyList(from: bytes, format: nil)
+          as? [String: Any]
+      else { throw AccountSetupFailure("Couldn’t inspect the installed partitions.") }
+      return listing
     }
 
     static func requireLivePartitions(evidence: [String: Data], listing: [String: Any]) throws {
@@ -426,7 +461,7 @@
       }
     }
 
-    private static func liveTarget(group: String, esp: String) throws -> RecoveryAccountTarget {
+    static func liveTarget(group: String, esp: String) throws -> RecoveryAccountTarget {
       let bytes = try AccountNativeCommand.checked(
         "/usr/sbin/diskutil", ["apfs", "list", "-plist"])
       guard

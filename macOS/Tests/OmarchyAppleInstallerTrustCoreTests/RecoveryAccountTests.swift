@@ -22,6 +22,151 @@
       XCTAssertThrowsError(try RecoveryAccountHandoff.discover(in: root, owner: getuid()))
     }
 
+    func testStartupDiscoveryKeepsTheFreshInstallBesideItsCompletedReset() throws {
+      let fm = FileManager.default
+      let root = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      defer { try? fm.removeItem(at: root) }
+      let journals = root.appendingPathComponent("execution-journals")
+      try fm.createDirectory(
+        at: journals, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+
+      // The fresh install that created the installation and handed off to Recovery.
+      let ids = (1...4).map { String(format: "%08d-2222-4222-8222-222222222222", $0) }
+      let digest = String(repeating: "b", count: 64)
+      let freshHex = String(repeating: "f", count: 64)
+      let fresh = journals.appendingPathComponent(freshHex + ".jsonl")
+      let evidence: [String: Data] = [
+        "apfs-target-prepared": try JSONSerialization.data(withJSONObject: [
+          "plan_digest": digest, "uuid": ids[0], "size_bytes": 6000,
+        ]),
+        "stub-and-esp-installed": try JSONSerialization.data(withJSONObject: [
+          "plan_digest": digest, "apfs_vgid": target.groupUUID, "efi_partition": ids[1],
+          "populated_partitions": zip(["EFI", "Boot", "Root"], ids.dropFirst()).map {
+            ["name": $0, "partition_uuid": $1, "partition_size_bytes": 1000] as [String: Any]
+          },
+        ]),
+        "recovery-handoff-prepared": try JSONSerialization.data(withJSONObject: [
+          "plan_digest": digest
+        ]),
+      ]
+      var rows: [[String: Any]] = []
+      func add(_ type: String, _ payload: [String: Any]) {
+        rows.append([
+          "schema_version": 1, "sequence": rows.count + 1, "type": type, "payload": payload,
+        ])
+      }
+      add("inspection", ["device_identifier": "apple,j700", "support": "supported"])
+      add("inventory", [:])
+      add("plan", ["plan_digest": digest])
+      for id in ["apfs-target-prepared", "stub-and-esp-installed", "recovery-handoff-prepared"] {
+        add("event", ["name": id, "plan_digest": digest])
+        let hash = SHA256.hash(data: evidence[id]!).map { String(format: "%02x", $0) }.joined()
+        add(
+          "checkpoint",
+          ["identifier": id, "plan_digest": digest, "evidence_digest": "sha256:" + hash])
+        try evidence[id]!.write(to: URL(fileURLWithPath: fresh.path + ".\(id).evidence"))
+      }
+      add("completion", ["plan_digest": digest, "outcome": "awaiting_recovery"])
+      var transcript = Data()
+      for row in rows {
+        transcript.append(try JSONSerialization.data(withJSONObject: row))
+        transcript.append(10)
+      }
+      try transcript.write(to: fresh)
+      XCTAssertEqual(chmod(fresh.path, 0o600), 0)
+
+      // A completed reset of that installation, recorded through its own journal.
+      let resetHex = String(repeating: "c", count: 64)
+      let reset = journals.appendingPathComponent(resetHex + ".jsonl")
+      try Data().write(to: reset)
+      XCTAssertEqual(chmod(reset.path, 0o600), 0)
+      let (resetTranscript, approved) = try NativePreservedInstallJournalTests.transcript()
+      let package = ImportedEngineHandoffPackage(
+        packageURL: root, manifestURL: root.appendingPathComponent("manifest.json"),
+        requestURL: root.appendingPathComponent("request.json"),
+        identityURL: root.appendingPathComponent("identity.json"),
+        engineURL: root.appendingPathComponent("engine"),
+        metadataURL: root.appendingPathComponent("metadata"),
+        payloadURL: root.appendingPathComponent("payload"),
+        bindingDigest: "sha256:" + resetHex, planDigest: approved.planDigest,
+        deviceIdentifier: approved.deviceIdentifier, storeIdentifier: approved.storeIdentifier,
+        installationIntent: .reinstall)
+      do {
+        let journal = try NativePreservedInstallJournal(
+          url: reset, package: package, transcript: resetTranscript, owner: geteuid())
+        try journal.bindInstallConf(InstallConf(encrypt: false, lane: "edge"))
+        try journal.begin()
+        let image = NativeRawImageReceipt(
+          partitionIdentifier: "disk0s5", partitionUUID: ids[2].lowercased(),
+          partitionSizeBytes: 1 << 20, installedBytes: 4096,
+          contentSHA256: String(repeating: "d", count: 64),
+          verification: "source-sha256-write-flushed-v1")
+        try journal.recordWritten(
+          NativePreservedInstallReceipt(
+            planDigest: approved.planDigest,
+            targetIdentity: "sha256:" + String(repeating: "a", count: 64),
+            espUUID: ids[1].lowercased(), boot: image, root: image,
+            espDigest: String(repeating: "e", count: 64)))
+        try journal.complete { _ in }
+        XCTAssertEqual(try journal.snapshot().state, .complete)
+      }
+
+      let listingBytes = try PropertyListSerialization.data(
+        fromPropertyList: [
+          "AllDisksAndPartitions": [
+            [
+              "Partitions": ids.enumerated().map {
+                ["DiskUUID": $0.element, "Size": $0.offset == 0 ? 6000 : 1000] as [String: Any]
+              }
+            ]
+          ]
+        ], format: .xml, options: 0)
+      let listing = try XCTUnwrap(
+        PropertyListSerialization.propertyList(from: listingBytes, format: nil) as? [String: Any])
+      var listed = 0
+      func discover(_ binding: String? = nil) throws -> CompletedRecoveryInstallation? {
+        try RecoveryAccountHandoff.discover(
+          in: root, binding: binding, owner: getuid(),
+          read: { url, limit in
+            let bytes = try Data(contentsOf: url)
+            guard bytes.count <= limit else { throw AccountSetupFailure("Too large.") }
+            return bytes
+          },
+          partitions: {
+            listed += 1
+            return listing
+          },
+          liveTarget: { group, esp in
+            guard group == self.target.groupUUID.uppercased(), esp == ids[1].uppercased() else {
+              throw AccountSetupFailure("Absent.")
+            }
+            return self.target
+          })
+      }
+
+      XCTAssertEqual(
+        try discover(),
+        CompletedRecoveryInstallation(binding: freshHex, target: target, espUUID: ids[1]))
+      listed = 0
+      XCTAssertNil(try discover(resetHex))
+      XCTAssertEqual(listed, 0, "a completed reset needs no account target of its own")
+
+      // A fresh-install record that lost its evidence is refused, not skipped.
+      let handoff = URL(fileURLWithPath: fresh.path + ".recovery-handoff-prepared.evidence")
+      try fm.removeItem(at: handoff)
+      XCTAssertThrowsError(try discover())
+      try evidence["recovery-handoff-prepared"]!.write(to: handoff)
+
+      // A reset record that doesn't verify is refused, not skipped.
+      let written = URL(fileURLWithPath: reset.path + ".preserved-install-written.evidence")
+      let receipt = try Data(contentsOf: written)
+      try (receipt + Data(" ".utf8)).write(to: written)
+      XCTAssertThrowsError(try discover(resetHex))
+      XCTAssertThrowsError(try discover())
+      try receipt.write(to: written)
+      XCTAssertNotNil(try discover())
+    }
+
     func testInterruptedRecoveryAppUpdatesRestoreOrKeepOnlyTheCommittedVersion() throws {
       let fm = FileManager.default
       for boundary in ["before-rename", "old-renamed", "new-renamed", "committed"] {

@@ -49,7 +49,9 @@
 
     struct Fixture {
       let journal: NativePreservedInstallJournal
+      let prepared: NativePreservedInstallAdmission.Prepared
       let execution: NativePreservedESPVolumeIDExecution
+      let capacity: NativePreservedESPCapacity
       let device: Device
       let espUUID: String
       let authorization: MachineOwnerAuthorization
@@ -114,6 +116,44 @@
       if dirty { boot[0x41] = 1 }
       image.replaceSubrange(0..<sectorBytes, with: boot)
       return image
+    }
+
+    /// The same ESP with a working FAT: the root directory, `bootBin` at
+    /// m1n1/boot.bin when given, and `used` more allocated clusters.
+    static func formatted(used: Int, bootBin: Data? = nil) -> Data {
+      var bytes = image(serial: 0x4866_D833, dirty: false)
+      func link(_ cluster: Int, to value: UInt32) {
+        for index in 0..<4 {
+          bytes[32 * 4096 + cluster * 4 + index] = UInt8(truncatingIfNeeded: value >> (8 * index))
+        }
+      }
+      func data(_ cluster: Int) -> Int { (38 + cluster - 2) * 4096 }
+      func entry(_ name: String, directory: Bool, first: Int, size: Int, at offset: Int) {
+        bytes.replaceSubrange(offset..<offset + 11, with: Array(name.utf8))
+        bytes[offset + 11] = directory ? 0x10 : 0x20
+        bytes[offset + 26] = UInt8(first & 0xFF)
+        bytes[offset + 27] = UInt8(first >> 8 & 0xFF)
+        for index in 0..<4 {
+          bytes[offset + 28 + index] = UInt8(truncatingIfNeeded: size >> (8 * index))
+        }
+      }
+      link(0, to: 0x0FFF_FFF8)
+      link(1, to: 0x0FFF_FFFF)
+      link(2, to: 0x0FFF_FFFF)
+      var next = 3
+      if let bootBin {
+        entry("M1N1       ", directory: true, first: 3, size: 0, at: data(2))
+        link(3, to: 0x0FFF_FFFF)
+        entry("BOOT    BIN", directory: false, first: 4, size: bootBin.count, at: data(3))
+        let clusters = max(1, (bootBin.count + 4095) / 4096)
+        for cluster in 4..<4 + clusters {
+          link(cluster, to: cluster == 3 + clusters ? 0x0FFF_FFFF : UInt32(cluster + 1))
+        }
+        bytes.replaceSubrange(data(4)..<data(4) + bootBin.count, with: bootBin)
+        next = 4 + clusters
+      }
+      for cluster in next..<next + used { link(cluster, to: 0x0FFF_FFFF) }
+      return bytes
     }
 
     static func setting(_ serial: UInt32, sectors: [Int], in image: Data) -> Data {
@@ -212,10 +252,12 @@
       let authorization = try MachineOwnerAuthorization(
         username: "mina", password: Data("synthetic".utf8))
       return Fixture(
-        journal: journal,
+        journal: journal, prepared: prepared,
         execution: NativePreservedESPVolumeIDExecution(
           package: package, approved: approved, prepared: prepared,
           disks: disks, device: device.platform),
+        capacity: NativePreservedESPCapacity(
+          prepared: prepared, disks: disks, device: device.platform),
         device: device, espUUID: esp.uuid, authorization: authorization, bootstrap: bootstrap)
     }
 
@@ -366,6 +408,58 @@
       XCTAssertEqual(fixture.device.bytes, original)
       XCTAssertNil(try fixture.journal.espVolumeIDBaseline())
       XCTAssertNil(try fixture.journal.espVolumeIDReceipt())
+    }
+
+    func testSmallerKeptESPIsAdmittedOnlyWithRoomForThePayloadAndRollbackCopies() async throws {
+      let fixture = try await makeFixture(image: Self.formatted(used: 0), volumeID: 0x4866_D833)
+      let conf = try InstallConf(encrypt: false, lane: "edge")
+      var files = [(path: String, bytes: Data)]()
+      for entry in fixture.prepared.esp.entries {
+        let bytes = try await fixture.prepared.esp.archive.read(
+          entry.member, maximumBytes: 64 << 20)
+        files.append((entry.path, bytes))
+      }
+      files.append((InstallConf.relativePath, conf.serializedData))
+      func cost(_ bytes: Data) -> UInt64 { UInt64((bytes.count + 4095) / 4096 * 4096 + 4096) }
+      let required = files.reduce(UInt64(0)) { $0 + cost($1.bytes) }
+      // The 8 MiB ESP is far smaller than the image's, yet has room to spare.
+      try await fixture.capacity.admit(installConf: conf)
+      // Exactly enough room is enough; one cluster less is refused.
+      let unused = 2010 - 1
+      try fixture.device.replace(with: Self.formatted(used: unused - Int(required / 4096)))
+      try await fixture.capacity.admit(installConf: conf)
+      let full = Self.formatted(used: unused - Int(required / 4096) + 1)
+      try fixture.device.replace(with: full)
+      do {
+        try await fixture.capacity.admit(installConf: conf)
+        XCTFail("An ESP without room for the payload was admitted")
+      } catch {
+        XCTAssertEqual(
+          error as? NativePreservedInstallError,
+          .espFull(requiredBytes: required, availableBytes: required - 4096))
+        let summary = try XCTUnwrap(PinnedAsahiEngineExecutor.preservedSummary(for: error))
+        XCTAssertTrue(summary.hasPrefix("The EFI partition has "), summary)
+        XCTAssertLessThanOrEqual(summary.count, EngineFailureNotice.maximumSummaryCharacters)
+      }
+      XCTAssertEqual(fixture.device.bytes, full)
+      XCTAssertEqual(fixture.device.writable, 0)
+
+      // A file already identical to the payload needs no room; the file a
+      // payload member replaces stays as its rollback copy and frees none.
+      func volume(_ image: Data) throws -> RemovalFATVolume {
+        try RemovalFATVolume(size: UInt64(image.count)) { offset, count in
+          image.subdata(in: Int(offset)..<Int(offset) + count)
+        }
+      }
+      let boot = try XCTUnwrap(files.first { $0.path == "m1n1/boot.bin" }).bytes
+      let same = try volume(Self.formatted(used: 0, bootBin: boot))
+      let other = try volume(Self.formatted(used: 0, bootBin: boot + Data([0])))
+      XCTAssertEqual(
+        try NativePreservedESPCapacity.requiredBytes(files, on: same), required - cost(boot))
+      XCTAssertEqual(try NativePreservedESPCapacity.requiredBytes(files, on: other), required)
+      XCTAssertEqual(
+        try volume(Self.formatted(used: 0)).freeBytes()
+          - other.freeBytes(), UInt64(1 + (boot.count + 4096) / 4096) * 4096)
     }
 
     func testPayloadVolumeIDIsReadAsAFreshInstallFormatsIt() {

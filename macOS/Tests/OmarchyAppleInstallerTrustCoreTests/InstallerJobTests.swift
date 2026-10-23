@@ -56,6 +56,111 @@
         }
       }
     }
+    func testOnlyAFinishedFailedResetCanBeSetAsideAndItsRecordIsKept() throws {
+      for eligible in [false, true] {
+        let root = try workspace()
+        let jobs = InstallerJobRegistry(
+          workingDirectory: root, work: HelperWorkState(), retryEligibility: { _ in true },
+          abandonEligibility: { _ in eligible })
+        let request = try request()
+        let abandon = InstallerJobAbandonRequest(ticket: request.ticket)
+        let status = InstallerJobStatusRequest(ticket: request.ticket, journalOffset: 0)
+        XCTAssertTrue(try jobs.begin(request, initiatingUID: 501))
+        XCTAssertThrowsError(try jobs.abandon(abandon, initiatingUID: 501)) {
+          XCTAssertEqual($0 as? InstallerJobError, .invalidRequest)
+        }
+        let packageURL = root.appendingPathComponent(
+          "imported-handoff-" + UUID().uuidString.lowercased())
+        try FileManager.default.createDirectory(
+          at: packageURL, withIntermediateDirectories: false,
+          attributes: [.posixPermissions: 0o700])
+        let package = ImportedEngineHandoffPackage(
+          packageURL: packageURL, manifestURL: packageURL,
+          requestURL: packageURL, identityURL: packageURL, engineURL: packageURL,
+          metadataURL: packageURL,
+          payloadURL: packageURL, bindingDigest: request.ticket.bindingDigest,
+          planDigest: String(repeating: "a", count: 64), deviceIdentifier: "apple,j700",
+          storeIdentifier: "disk0", installationIntent: .reinstall)
+        try jobs.admitted(request.ticket.identifier, package: package)
+        // A running job is never set aside.
+        XCTAssertThrowsError(try jobs.abandon(abandon, initiatingUID: 501)) {
+          XCTAssertEqual($0 as? InstallerJobError, .invalidRequest)
+        }
+        XCTAssertEqual(try jobs.status(status, initiatingUID: 501).startOverAvailable, false)
+        let failure = PinnedAsahiEngineExecutionError.engineFailed(
+          EngineFailureReport(
+            notice: EngineFailureNotice(
+              reason: .unclassified, exitStatus: 1, diskUnchanged: false,
+              summary: "The preserved installation did not complete."),
+            redactedStandardErrorTail: ""))
+        XCTAssertNil(jobs.finish(request.ticket.identifier, result: .failure(failure)))
+        XCTAssertEqual(try jobs.status(status, initiatingUID: 501).startOverAvailable, eligible)
+        XCTAssertThrowsError(try jobs.abandon(abandon, initiatingUID: 502)) {
+          XCTAssertEqual($0 as? InstallerJobError, .identityMismatch)
+        }
+        let name = request.ticket.identifier.uuidString.lowercased() + ".json"
+        let record = root.appendingPathComponent("installation-jobs").appendingPathComponent(name)
+        guard eligible else {
+          // A held or unverified reset stays exactly as it was, still resumable.
+          XCTAssertThrowsError(try jobs.abandon(abandon, initiatingUID: 501)) {
+            XCTAssertEqual($0 as? InstallerJobError, .invalidRequest)
+          }
+          XCTAssertTrue(FileManager.default.fileExists(atPath: record.path))
+          XCTAssertTrue(FileManager.default.fileExists(atPath: packageURL.path))
+          XCTAssertTrue(try jobs.status(status, initiatingUID: 501).recoveryRetryAvailable)
+          continue
+        }
+        XCTAssertEqual(try jobs.abandon(abandon, initiatingUID: 501)?.path, packageURL.path)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: record.path))
+        let kept = try XCTUnwrap(
+          JSONSerialization.jsonObject(
+            with: Data(
+              contentsOf: root.appendingPathComponent("abandoned-installation-jobs")
+                .appendingPathComponent(name))) as? [String: Any])
+        XCTAssertEqual(kept["phase"] as? String, "failed")
+        XCTAssertNotNil(kept["failure"])
+        XCTAssertNotNil(kept["abandonedAt"])
+        XCTAssertThrowsError(try jobs.status(status, initiatingUID: 501)) {
+          XCTAssertEqual($0 as? InstallerJobError, .unavailable)
+        }
+        XCTAssertThrowsError(try jobs.abandon(abandon, initiatingUID: 501)) {
+          XCTAssertEqual($0 as? InstallerJobError, .unavailable)
+        }
+        let restarted = InstallerJobRegistry(workingDirectory: root, work: HelperWorkState())
+        XCTAssertThrowsError(try restarted.status(status, initiatingUID: 501))
+        XCTAssertTrue(try restarted.begin(try self.request(), initiatingUID: 501))
+      }
+    }
+
+    func testAnInterruptedJobIsNeverSetAsideButAnUnadmittedFailureIs() throws {
+      let root = try workspace()
+      let request = try request()
+      let abandon = InstallerJobAbandonRequest(ticket: request.ticket)
+      let first = InstallerJobRegistry(
+        workingDirectory: root, work: HelperWorkState(), abandonEligibility: { _ in true })
+      XCTAssertTrue(try first.begin(request, initiatingUID: 501))
+      // The helper stopped before the job finished; a child may still run.
+      let restarted = InstallerJobRegistry(
+        workingDirectory: root, work: HelperWorkState(), abandonEligibility: { _ in true })
+      let snapshot = try restarted.status(
+        InstallerJobStatusRequest(ticket: request.ticket, journalOffset: 0), initiatingUID: 501)
+      XCTAssertEqual(snapshot.phase, .interrupted)
+      XCTAssertEqual(snapshot.startOverAvailable, false)
+      XCTAssertThrowsError(try restarted.abandon(abandon, initiatingUID: 501)) {
+        XCTAssertEqual($0 as? InstallerJobError, .invalidRequest)
+      }
+
+      // A job that failed before the helper admitted it never reached the disk.
+      let jobs = InstallerJobRegistry(
+        workingDirectory: try workspace(), work: HelperWorkState(),
+        abandonEligibility: { _ in false })
+      let unadmitted = try self.request()
+      XCTAssertTrue(try jobs.begin(unadmitted, initiatingUID: 501))
+      jobs.finish(unadmitted.ticket.identifier, result: .failure(InstallerJobError.unsafeState))
+      XCTAssertNil(
+        try jobs.abandon(InstallerJobAbandonRequest(ticket: unadmitted.ticket), initiatingUID: 501))
+    }
+
     private func workspace() throws -> URL {
       let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
       try FileManager.default.createDirectory(
@@ -89,7 +194,7 @@
               bindingDigest: request.ticket.bindingDigest, selection: request.ticket.selection,
               phase: phase, plan: nil, transcript: nil, installConf: nil, failure: failure,
               journal: Data(), journalOffset: 0, recoveryAttempt: attempt,
-              recoveryRetryAvailable: false)
+              recoveryRetryAvailable: false, startOverAvailable: nil)
             XCTAssertEqual(
               snapshot.initialFailureWithoutDiskChanges != nil,
               phase == .failed && attempt == nil && unchanged)
@@ -250,7 +355,8 @@
         identifier: request.ticket.identifier, bindingDigest: request.ticket.bindingDigest,
         selection: request.ticket.selection, phase: .succeeded, plan: nil,
         transcript: Data("result\n".utf8), installConf: .recorded, failure: nil,
-        journal: Data(), journalOffset: 0, recoveryAttempt: nil, recoveryRetryAvailable: false)
+        journal: Data(), journalOffset: 0, recoveryAttempt: nil, recoveryRetryAvailable: false,
+        startOverAvailable: nil)
       let source = JobObservationFixture(responses: [
         .failure(InstallerJobError.unavailable),
         .failure(EngineXPCSubmissionError.connectionFailed),

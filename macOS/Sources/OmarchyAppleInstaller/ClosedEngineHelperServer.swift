@@ -879,6 +879,25 @@
       }
     }
 
+    public func abandonJob(request: Data, reply: @escaping @Sendable (Data?, NSError?) -> Void) {
+      do {
+        guard let initiatingUID, request.count <= 65_536 else {
+          throw InstallerJobError.invalidRequest
+        }
+        let request = try JSONDecoder().decode(InstallerJobAbandonRequest.self, from: request)
+        let jobs = server.jobs
+        let snapshot = try jobs.status(
+          InstallerJobStatusRequest(ticket: request.ticket, journalOffset: 0),
+          initiatingUID: initiatingUID)
+        if let cleanup = try jobs.abandon(request, initiatingUID: initiatingUID) {
+          try? FileManager.default.removeItem(at: cleanup)
+        }
+        reply(try JSONEncoder().encode(snapshot), nil)
+      } catch {
+        reply(nil, InstallerJobXPCCodec.serviceError(error))
+      }
+    }
+
     public func retryRecoveryJob(
       request: Data, machineOwner: String, password: Data,
       reply: @escaping @Sendable (Data?, NSError?) -> Void

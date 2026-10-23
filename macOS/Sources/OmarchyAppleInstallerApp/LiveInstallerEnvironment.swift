@@ -683,6 +683,35 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     return .completed(completion)
   }
 
+  func pendingInstallationCanStartOver() async -> Bool {
+    guard let store = try? Self.pendingJobStore(), let hint = try? store.load(),
+      hint.ticket.selection == selection, let configuration = try? loadConfiguration(),
+      let client = try? AuthenticatedEngineXPCSubmitter(
+        machServiceName: configuration.helperMachServiceName,
+        helperCodeSigningRequirement: configuration.helperCodeSigningRequirement)
+    else { return false }
+    do {
+      return try await client.jobStatus(hint).startOverAvailable == true
+    } catch let error as InstallerJobError where error == .unavailable {
+      // The helper keeps no record of this job: only the hint is left.
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  func startOverPendingInstallation() async throws {
+    let store = try Self.pendingJobStore()
+    guard let hint = try store.load(), hint.ticket.selection == selection else {
+      throw InstallerJobError.identityMismatch
+    }
+    let configuration = try loadConfiguration()
+    let client = try AuthenticatedEngineXPCSubmitter(
+      machServiceName: configuration.helperMachServiceName,
+      helperCodeSigningRequirement: configuration.helperCodeSigningRequirement)
+    try await client.abandonJob(hint, store: store)
+  }
+
   private func requireMatchingJobDevice(_ snapshot: InstallerJobSnapshot) throws
     -> InstallerJobPlanIdentity
   {

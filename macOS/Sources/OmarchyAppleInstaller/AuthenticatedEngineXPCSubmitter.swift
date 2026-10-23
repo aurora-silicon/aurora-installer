@@ -53,6 +53,10 @@
 
     func jobStatus(request: Data, reply: @escaping @Sendable (Data?, NSError?) -> Void)
 
+    /// Sets a failed job aside after the person chose Start over and replies
+    /// with its last snapshot. Helpers older than this call never answer it.
+    func abandonJob(request: Data, reply: @escaping @Sendable (Data?, NSError?) -> Void)
+
     func retryRecoveryJob(
       request: Data, machineOwner: String, password: Data,
       reply: @escaping @Sendable (Data?, NSError?) -> Void
@@ -653,6 +657,30 @@
         throw InstallerJobError.unavailable
       }
       return snapshot
+    }
+
+    /// The helper decides whether the job may be set aside. A job it keeps no
+    /// record of is already gone, so only the lookup hint remains to clear.
+    public func abandonJob(_ hint: PendingInstallerJob, store: PendingInstallerJobStore)
+      async throws
+    {
+      guard hint.helperMachServiceName == machServiceName,
+        hint.helperCodeSigningRequirement == helperCodeSigningRequirement
+      else { throw InstallerJobError.identityMismatch }
+      try hint.ticket.validate()
+      let request = try JSONEncoder().encode(InstallerJobAbandonRequest(ticket: hint.ticket))
+      do {
+        let snapshot = try await jobCall { proxy, reply in
+          proxy.abandonJob(request: request, reply: reply)
+        }
+        guard snapshot.identifier == hint.ticket.identifier,
+          snapshot.bindingDigest == hint.ticket.bindingDigest,
+          snapshot.selection == hint.ticket.selection
+        else { throw InstallerJobError.identityMismatch }
+      } catch let error as InstallerJobError where error == .unavailable {
+        // The helper has no record of this job.
+      }
+      try store.clear(ifMatching: hint)
     }
 
     public func retryRecoveryJob(

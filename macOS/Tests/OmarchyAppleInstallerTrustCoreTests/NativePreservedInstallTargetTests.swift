@@ -286,16 +286,19 @@
       } catch {}
     }
 
-    func testPreflightCarriesThePayloadESPVolumeID() async throws {
+    func testPreflightCarriesTheESPVolumeIDAndKeepsASmallerExistingESP() async throws {
       let disk = try fixture()
       let (baseMetadata, payload, _) = try NativeESPFileTests.inputs()
       let archive = try await IPSWArchive.open(NativeRawImageWriterTests.Source(bytes: payload))
-      func admit(_ volumeID: String) async throws -> NativePreservedInstallAdmission.Prepared {
+      func admit(_ volumeID: String, espSize: String = "8MiB") async throws
+        -> NativePreservedInstallAdmission.Prepared
+      {
         var document = try XCTUnwrap(
           JSONSerialization.jsonObject(with: baseMetadata) as? [String: Any])
         var templates = try XCTUnwrap(document["os_list"] as? [[String: Any]])
         var rows = try XCTUnwrap(templates[0]["partitions"] as? [[String: Any]])
         rows[0]["volume_id"] = volumeID
+        rows[0]["size"] = espSize
         templates[0]["partitions"] = rows
         templates[0]["default_os_name"] = AuroraDistribution.nixos.title
         document["os_list"] = templates
@@ -335,6 +338,11 @@
       XCTAssertEqual(fedora.espVolumeID, 0x4866_D833)
       let omarchy = try await admit("0X4F4D5801")
       XCTAssertEqual(omarchy.espVolumeID, 0x4F4D_5801)
+      // A reset keeps the existing 512 MiB ESP even when the image's ESP is
+      // larger; its free space is checked before the first write instead.
+      let larger = try await admit("0x4866d833", espSize: "1GiB")
+      XCTAssertLessThan(larger.target.esp.size, 1 << 30)
+      XCTAssertEqual(larger.espVolumeID, 0x4866_D833)
       do {
         _ = try await admit("4866D833")
         XCTFail("A volume ID a fresh install couldn't format was admitted")

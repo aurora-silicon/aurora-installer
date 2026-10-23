@@ -169,6 +169,15 @@
       deviceIdentifier = package.deviceIdentifier
       storeIdentifier = package.storeIdentifier
     }
+
+    init(
+      bindingDigest: String, planDigest: String, deviceIdentifier: String, storeIdentifier: String
+    ) {
+      self.bindingDigest = bindingDigest
+      self.planDigest = planDigest
+      self.deviceIdentifier = deviceIdentifier
+      self.storeIdentifier = storeIdentifier
+    }
   }
 
   public enum InstallerJobPhase: String, Codable, Sendable {
@@ -241,6 +250,9 @@
     public let journalOffset: UInt64
     public let recoveryAttempt: UUID?
     public let recoveryRetryAvailable: Bool
+    /// The helper may set this failed job aside if the person chooses Start
+    /// over. Older helpers never report it.
+    public let startOverAvailable: Bool?
 
     public var initialFailureWithoutDiskChanges: EngineXPCSubmissionError? {
       guard phase == .failed, recoveryAttempt == nil, let failure, failure.diskUnchanged else {
@@ -284,6 +296,10 @@
     let attempt: UUID
   }
 
+  struct InstallerJobAbandonRequest: Codable, Sendable {
+    let ticket: InstallerJobTicket
+  }
+
   struct InstallerJobRecoveryContext: Sendable {
     let packageName: String
     let identity: InstallerJobPlanIdentity
@@ -308,6 +324,7 @@
     var retainedPackageName: String?
     var recoveryAttempt: UUID?
     var recoveryAttempts: [UUID]?
+    var abandonedAt: Date?
   }
 
   /// Independent synchronization keeps observation responsive while the engine
@@ -321,6 +338,7 @@
     private let work: HelperWorkState
     private let retryEligibility: @Sendable (InstallerJobPlanIdentity) -> Bool
     private let interruptedRetryEligibility: @Sendable (InstallerJobPlanIdentity) -> Bool
+    private let abandonEligibility: @Sendable (InstallerJobPlanIdentity) -> Bool
     private var records = [UUID: InstallerJobRecord]()
     private var loaded = false
     private var loadError: (any Error)?
@@ -330,7 +348,8 @@
     init(
       workingDirectory: URL, work: HelperWorkState,
       retryEligibility: (@Sendable (InstallerJobPlanIdentity) -> Bool)? = nil,
-      interruptedRetryEligibility: (@Sendable (InstallerJobPlanIdentity) -> Bool)? = nil
+      interruptedRetryEligibility: (@Sendable (InstallerJobPlanIdentity) -> Bool)? = nil,
+      abandonEligibility: (@Sendable (InstallerJobPlanIdentity) -> Bool)? = nil
     ) {
       self.workingDirectory = workingDirectory
       directory = workingDirectory.appendingPathComponent("installation-jobs", isDirectory: true)
@@ -343,6 +362,10 @@
         interruptedRetryEligibility ?? { identity in
           PinnedAsahiEngineExecutor().canResumeInterruptedRecoveryAuthorization(
             identity, in: workingDirectory)
+        }
+      self.abandonEligibility =
+        abandonEligibility ?? { identity in
+          PinnedAsahiEngineExecutor().canAbandonFailedReset(identity, in: workingDirectory)
         }
       do { try load() } catch {
         loadError = error
@@ -469,7 +492,37 @@
         selection: record.selection, phase: record.phase, plan: record.plan,
         transcript: record.transcript, installConf: record.installConf, failure: record.failure,
         journal: journal, journalOffset: offset, recoveryAttempt: record.recoveryAttempt,
-        recoveryRetryAvailable: retryAvailable(record))
+        recoveryRetryAvailable: retryAvailable(record),
+        startOverAvailable: abandonAvailable(record))
+    }
+
+    /// Start over: sets a failed job aside once the person chose to. Only a
+    /// finished failure qualifies, and only one that never reached the disk
+    /// or a reset whose journal verifies and that no process still holds. A
+    /// preparing, running or interrupted job is never set aside. The record
+    /// moves to `abandoned-installation-jobs`; the journal and its evidence
+    /// stay where they are. Returns the retained package for cleanup.
+    func abandon(_ request: InstallerJobAbandonRequest, initiatingUID: UInt32) throws -> URL? {
+      try request.ticket.validate()
+      return try lock.withLock {
+        try load()
+        guard var record = records[request.ticket.identifier] else {
+          throw InstallerJobError.unavailable
+        }
+        try authorize(record, ticket: request.ticket, uid: initiatingUID)
+        guard abandonAvailable(record) else { throw InstallerJobError.invalidRequest }
+        let name = record.identifier.uuidString.lowercased() + ".json"
+        record.abandonedAt = Date()
+        try PrivateInstallerJobFiles(
+          directory: workingDirectory.appendingPathComponent(
+            "abandoned-installation-jobs", isDirectory: true)
+        ).write(JSONEncoder().encode(record), name: name, maximumBytes: Self.maximumRecordBytes)
+        try PrivateInstallerJobFiles(directory: directory).remove(name)
+        records.removeValue(forKey: record.identifier)
+        return record.retainedPackageName.map {
+          workingDirectory.appendingPathComponent($0, isDirectory: true)
+        }
+      }
     }
 
     func beginRecoveryRetry(_ request: InstallerJobRecoveryRequest, initiatingUID: UInt32) throws
@@ -533,6 +586,12 @@
           || (record.recoveryAttempt != nil && record.failure?.code == "credentials")
       else { return false }
       return retryEligibility(identity)
+    }
+
+    private func abandonAvailable(_ record: InstallerJobRecord) -> Bool {
+      guard record.phase == .failed else { return false }
+      guard let identity = record.plan else { return true }
+      return abandonEligibility(identity)
     }
 
     private func authorize(_ record: InstallerJobRecord, ticket: InstallerJobTicket, uid: UInt32)

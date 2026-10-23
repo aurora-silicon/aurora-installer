@@ -153,6 +153,13 @@
       "The installer rechecks the original plan, disk location, saved files and last completed step. It continues in the space you already approved. macOS won’t be resized again."
     public static let recoveryRetryConfirmationAction =
       "Continue installation"
+    public static let startOverConfirmationTitle =
+      "Set this installation aside?"
+    public static let startOverConfirmationBody =
+      "The installer stops trying to finish it and lets you choose a system again. Its record and diagnostics are kept. The Linux partitions keep whatever this attempt wrote, so Linux may not start until you install or reset it again."
+    public static let startOverConfirmationAction = "Start over"
+    public static let startOverFailed =
+      "The installation couldn’t be set aside. Nothing was changed. If it is still running, let it finish."
     public static let cancel = "Cancel"
 
     // MARK: Screen D — Install

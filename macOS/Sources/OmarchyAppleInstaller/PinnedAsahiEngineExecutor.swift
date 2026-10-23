@@ -203,7 +203,8 @@
             error, reason: update == nil ? .unclassified : .macOSUpdateRequired,
             operation: operation, journal: journal, package: package,
             password: authorization.password,
-            summary: update ?? "The preserved installation did not complete.")
+            summary: update ?? Self.preservedSummary(for: error)
+              ?? "The preserved installation did not complete.")
         }
       }
       let resumesNativePreparation =
@@ -508,6 +509,17 @@
         return nil
       }
       return EngineFailureReason.macOSUpdateSummary(version: version)
+    }
+
+    static func preservedSummary(for error: any Error) -> String? {
+      guard
+        case NativePreservedInstallError.espFull(let required, let available) = error
+      else { return nil }
+      func megabytes(_ bytes: UInt64) -> String {
+        String(format: "%.1f MB", Double(bytes) / 1_000_000)
+      }
+      return "The EFI partition has \(megabytes(available)) free, but the new boot files need "
+        + "\(megabytes(required)). Erase Linux and install it again to recreate the partition."
     }
 
     private func preparationFailure(
@@ -828,6 +840,16 @@
       return preservedRetryEligible(journal: journal, identity: identity)
         || nativeDiskPreparationRetryEligible(journal: journal, identity: retryIdentity)
         || isRecoveryAuthorizationRetryEligible(journal: journal, identity: retryIdentity)
+    }
+
+    /// A failed reset may be set aside only when its journal verifies as this
+    /// reset's and no process still holds the journal lease.
+    func canAbandonFailedReset(_ identity: InstallerJobPlanIdentity, in directory: URL) -> Bool {
+      guard
+        let journal = EngineJournalLocator.journalURL(
+          workingDirectory: directory, bindingDigest: identity.bindingDigest)
+      else { return false }
+      return preservedRetryEligible(journal: journal, identity: identity)
     }
 
     /// A helper lost during Recovery can resume only after both disk stages
