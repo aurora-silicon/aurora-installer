@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "kit": {
+    "repository": "shirty445/j604-remix",
+    "revision": "ac3db856a0d98ec642f64b98fd913dca9bf46b39",
+    "tree": "d4559a7209c93f77bd24afd3f8f89bf36fbbaea9"
+  },
+  "github_cli": {
+    "url": "https://github.com/cli/cli/releases/download/v2.103.0/gh_2.103.0_macOS_arm64.zip",
+    "sha256": "54be566e9f614bea5de8021e95b9ad33dfee3b9d2ea120c9c294c00defaa5014"
+  },
+  "python": {
+    "provider": "astral-sh/python-build-standalone",
+    "version": "3.13.16",
+    "release": "20261013",
+    "target": "aarch64-apple-darwin",
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261013/cpython-3.13.16%2B20261013-aarch64-apple-darwin-install_only.tar.gz",
+    "sha256": "ca0e6a70fb75a0984751bd75493e3de77680aef7fbd0fea9b903c299537b3423"
+  }
+}
