@@ -108,6 +108,7 @@
         let preboot = try target.tree("Preboot")
         let recovery = try target.tree("Recovery")
         var fallback = [String: Data]()
+        var radioLinks = [String: String]()
         func read(_ role: String, _ path: String, maximum: Int) throws -> Data {
           guard let record = sourceRecords.first(where: { $0.role == role && $0.path == path })
           else {
@@ -159,9 +160,15 @@
             volumeRoot: true, volumeDevice: image.device, verifyMount: environment.verifyMount)
           let radio = try NativeFirmwareInputFiles.snapshot(
             root: image.root, prefix: "usr/share/firmware", tree: imageTree, owner: owner)
-          for (name, data) in radio { fallback["firmware/" + name] = data }
-          let wifi = try BroadcomFirmware.wifi(subtree(radio, "wifi/"))
-          let bluetooth = try BroadcomFirmware.bluetooth(subtree(radio, "bluetooth/"))
+          for (name, data) in radio.files { fallback["firmware/" + name] = data }
+          // The image's radio aliases stay links in the fallback archive.
+          for (name, target) in radio.links {
+            radioLinks["firmware/" + name] = String(target.split(separator: "/").last!)
+          }
+          let wifi = try BroadcomFirmware.wifi(
+            subtree(radio.files, "wifi/"), links: sublinks(radio.links, "wifi/"))
+          let bluetooth = try BroadcomFirmware.bluetooth(
+            subtree(radio.files, "bluetooth/"), links: sublinks(radio.links, "bluetooth/"))
           guard package.deviceIdentifier == "apple,j700" || (!wifi.isEmpty && !bluetooth.isEmpty)
           else { throw NativeFirmwareInputFailure.invalidSource }
           try merge(wifi, into: &outputs)
@@ -206,7 +213,8 @@
         let aliases = Dictionary(
           uniqueKeysWithValues: source.fud.map {
             ("fud_firmware/" + source.machine + "/" + $0.component + ".im4p", "../" + $0.member)
-          })
+          }
+        ).merging(radioLinks) { first, _ in first }
         let fallbackArchive = try FirmwarePackageBuilder.fallback(
           fallback.keys.sorted().map { FirmwarePackageInput(name: $0, bytes: fallback[$0]!) },
           symbolicLinks: aliases)
@@ -277,6 +285,15 @@
       return try JSONDecoder().decode(
         [NativeStubFilesExecution.Installed].self,
         from: JSONSerialization.data(withJSONObject: records))
+    }
+
+    /// Links below `prefix`, with both names relative to it.
+    private func sublinks(_ links: [String: String], _ prefix: String) -> [String: String] {
+      Dictionary(
+        uniqueKeysWithValues: links.filter {
+          $0.key.hasPrefix(prefix) && $0.value.hasPrefix(prefix)
+        }
+        .map { (String($0.key.dropFirst(prefix.count)), String($0.value.dropFirst(prefix.count))) })
     }
 
     private func subtree(_ files: [String: Data], _ prefix: String) -> [String: Data] {

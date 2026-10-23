@@ -88,13 +88,17 @@ public enum FirmwarePackageBuilder {
       try require(total <= 256 << 20, "Fallback inputs exceed their budget.")
     }
     for (name, target) in symbolicLinks {
+      // An alias names a file in its parent directory ("../name") or, as the
+      // Recovery image's radio links do, in its own directory ("name").
+      let parent = target.hasPrefix("../")
+      let leaf = parent ? String(target.dropFirst(3)) : target
       try require(
         safeRelative(name) && name.utf8.count <= 255 && names.insert(name).inserted
           && name.split(separator: "/").count >= 2
-          && target.hasPrefix("../") && safeRelative(String(target.dropFirst(3)))
+          && safeRelative(leaf) && (parent || !leaf.contains("/"))
           && target.utf8.count <= 100, "Invalid fallback alias.")
-      let components = name.split(separator: "/").dropLast().dropLast().map(String.init)
-      let resolved = (components + [String(target.dropFirst(3))]).joined(separator: "/")
+      let components = name.split(separator: "/").dropLast(parent ? 2 : 1).map(String.init)
+      let resolved = (components + [leaf]).joined(separator: "/")
       try require(inputs.contains(where: { $0.name == resolved }), "Missing fallback alias target.")
     }
     let sorted = names.sorted()

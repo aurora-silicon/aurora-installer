@@ -70,6 +70,27 @@ final class GenericFirmwareConversionTests: XCTestCase {
     XCTAssertThrowsError(try FirmwarePlist.decode(Data(wrongType.utf8)))
   }
 
+  func testRadioAliasesReadTheirTargetAndCountOnce() throws {
+    // Each alias reads its target, as following the image's link would.
+    let firmware = Data(repeating: 0x5a, count: 60 << 20)
+    var copies = ["C-4378__s-B3/kyushu.trx": firmware]
+    var links = [String: String]()
+    for variant in ["X0", "X1", "X2", "X3", "ID"] {
+      copies["C-4378__s-B3/kyushu-\(variant).trx"] = firmware
+      links["C-4378__s-B3/kyushu-\(variant).trx"] = "C-4378__s-B3/kyushu.trx"
+    }
+    // Six 60 MiB names would exceed the budget; one file and five aliases do not.
+    XCTAssertThrowsError(try BroadcomFirmware.wifi(copies))
+    let aliased = try BroadcomFirmware.wifi(
+      ["C-4378__s-B3/kyushu.trx": firmware], links: links)
+    XCTAssertFalse(aliased.isEmpty)
+    XCTAssertTrue(aliased.values.allSatisfy { $0 == firmware })
+    XCTAssertThrowsError(
+      try BroadcomFirmware.wifi(
+        ["C-4378__s-B3/kyushu.trx": firmware],
+        links: ["C-4378__s-B3/kyushu-X0.trx": "C-4378__s-B3/missing.trx"]))
+  }
+
   func testConflictingRadioInputsAndUnsafeNamesAreRejected() throws {
     XCTAssertThrowsError(try BroadcomFirmware.wifi(["../outside": Data()]))
     XCTAssertThrowsError(try BroadcomFirmware.bluetooth(["/outside": Data()]))

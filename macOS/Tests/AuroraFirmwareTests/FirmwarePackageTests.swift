@@ -61,6 +61,26 @@ final class FirmwarePackageTests: XCTestCase {
     XCTAssertThrowsError(
       try FirmwarePackageBuilder.fallback(
         files, symbolicLinks: ["link": "../com.apple.factorydata/local"]))
+    // Radio aliases name a file in their own directory, and nothing else.
+    let radio = [FirmwarePackageInput(name: "firmware/wifi/C-1/a.trx", bytes: Data("trx".utf8))]
+    let aliased = try FirmwarePackageBuilder.fallback(
+      radio, symbolicLinks: ["firmware/wifi/C-1/a-X0.trx": "a.trx"])
+    try aliased.write(to: archive)
+    let radioProcess = Process()
+    radioProcess.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+    radioProcess.arguments = ["-xzf", archive.path, "-C", root.path]
+    try radioProcess.run()
+    radioProcess.waitUntilExit()
+    XCTAssertEqual(radioProcess.terminationStatus, 0)
+    XCTAssertEqual(
+      try FileManager.default.destinationOfSymbolicLink(
+        atPath: root.appendingPathComponent("firmware/wifi/C-1/a-X0.trx").path), "a.trx")
+    XCTAssertThrowsError(
+      try FirmwarePackageBuilder.fallback(
+        radio, symbolicLinks: ["firmware/wifi/C-1/b.trx": "C-1/a.trx"]))
+    XCTAssertThrowsError(
+      try FirmwarePackageBuilder.fallback(
+        radio, symbolicLinks: ["firmware/wifi/C-1/b.trx": "missing.trx"]))
     XCTAssertThrowsError(
       try FirmwarePackageBuilder.fallback(
         files, symbolicLinks: ["fud_firmware/j700/link": "../../outside"]))
