@@ -237,13 +237,21 @@
       let nativeFinalization = package.installationIntent != .repair
       let sourceBootstrap: NativeSourceBootstrap?
       if operation == .install, nativeFinalization {
-        do { sourceBootstrap = try validateSourceOwner(package, authorization) } catch {
+        do {
+          sourceBootstrap = try InstallerPerformance.measure("source_owner") {
+            try validateSourceOwner(package, authorization)
+          }
+        } catch {
           throw preparationFailure(
             error, reason: .recoveryPreparation, operation: operation, journal: journal,
             package: package, password: authorization.password,
             summary: "The current macOS volume owner could not be verified.")
         }
-        do { try await validatePayload(package) } catch {
+        do {
+          try await InstallerPerformance.measuring("payload_preflight") {
+            try await validatePayload(package)
+          }
+        } catch {
           let (reason, summary) = Self.payloadFailure(error)
           throw preparationFailure(
             error, reason: reason, operation: operation, journal: journal,
@@ -262,14 +270,19 @@
       var preparedPeripherals: PreparedNativePeripheralInputs?
       if operation == .install {
         do {
-          if let raw = try await firmwarePreparer.prepare(
-            deviceIdentifier: package.deviceIdentifier,
-            in: package.packageURL.deletingLastPathComponent())
+          if let raw = try await InstallerPerformance.measuring(
+            "firmware_preparation",
+            {
+              try await firmwarePreparer.prepare(
+                deviceIdentifier: package.deviceIdentifier,
+                in: package.packageURL.deletingLastPathComponent())
+            })
           {
             environment["OMARCHY_NATIVE_FIRMWARE_ROOT"] = raw.path
             if nativeFinalization {
-              let prepared = try await peripheralPreparer.prepare(
-                package: package, rawDirectory: raw)
+              let prepared = try await InstallerPerformance.measuring("peripheral_inputs") {
+                try await peripheralPreparer.prepare(package: package, rawDirectory: raw)
+              }
               preparedPeripherals = prepared
               environment.merge(prepared.environment) { _, new in new }
             }
@@ -297,21 +310,41 @@
         do {
           preparedAPFS =
             operation == .install && nativeFinalization
-            ? try await apfsPreparer.preflight(package) : nil
+            ? try await InstallerPerformance.measuring("apfs_preflight") {
+              try await apfsPreparer.preflight(package)
+            } : nil
           preparedStubFiles =
-            preparedAPFS == nil ? nil : try await stubFilesPreparer.preflight(package)
+            preparedAPFS == nil
+            ? nil
+            : try await InstallerPerformance.measuring("stub_files_preflight") {
+              try await stubFilesPreparer.preflight(package)
+            }
           preparedOSPartitions =
-            preparedStubFiles == nil ? nil : try osPartitionsPreparer.preflight(package)
+            preparedStubFiles == nil
+            ? nil
+            : try InstallerPerformance.measure("os_partitions_preflight") {
+              try osPartitionsPreparer.preflight(package)
+            }
           preparedPayloadImages =
-            preparedOSPartitions == nil ? nil : try await payloadImagesPreparer.preflight(package)
+            preparedOSPartitions == nil
+            ? nil
+            : try await InstallerPerformance.measuring("payload_images_preflight") {
+              try await payloadImagesPreparer.preflight(package)
+            }
           preparedESPFiles =
-            preparedPayloadImages == nil ? nil : try await espFilesPreparer.preflight(package)
+            preparedPayloadImages == nil
+            ? nil
+            : try await InstallerPerformance.measuring("esp_files_preflight") {
+              try await espFilesPreparer.preflight(package)
+            }
           preparedFinishing =
             preparedESPFiles == nil
             ? nil
-            : try installationFinisher.preflight(
-              package: package, stub: preparedStubFiles?.firmwarePlan,
-              peripherals: preparedPeripherals)
+            : try InstallerPerformance.measure("finishing_preflight") {
+              try installationFinisher.preflight(
+                package: package, stub: preparedStubFiles?.firmwarePlan,
+                peripherals: preparedPeripherals)
+            }
           if operation == .install, nativeFinalization {
             guard package.installationIntent == .fresh,
               preparedAPFS != nil, preparedStubFiles != nil, preparedOSPartitions != nil,
@@ -359,9 +392,11 @@
           do {
             if let preparedAPFS {
               guard let sourceBootstrap else { throw NativeHandoffValidationError.invalidOwner }
-              try preparedAPFS.prepareTarget(
-                journal: journal, authorization: authorization, sourceBootstrap: sourceBootstrap
-              )
+              try InstallerPerformance.measure("apfs_preparation") {
+                try preparedAPFS.prepareTarget(
+                  journal: journal, authorization: authorization, sourceBootstrap: sourceBootstrap
+                )
+              }
               try await preparedStubFiles?.prepare(
                 journal: journal, authorization: authorization,
                 sourceBootstrap: sourceBootstrap)

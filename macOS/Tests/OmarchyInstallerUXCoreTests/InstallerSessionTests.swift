@@ -820,6 +820,29 @@
       }
     }
 
+    func testTheHelpersPreparationShowsOnTheInstallScreenNotTheSheet() async throws {
+      let environment = MockInstallerEnvironment()
+      let session = await ready(environment)
+      let gate = OperationGate()
+      environment.executeGate = gate
+      session.presentInstallCredentials()
+      let authorization = try authorization()
+      let operation = Task { await session.submit(authorization) }
+      await gate.waitUntilEntered()
+      // The app has checked the account; the helper is still preparing and
+      // no journal record has arrived.
+      XCTAssertNil(session.credentialSheet.context)
+      guard case .installing(let progress) = session.phase else {
+        return XCTFail("Expected the install screen, got \(session.phase)")
+      }
+      XCTAssertEqual(progress.phaseTitle, PlainLanguage.installPreparing)
+      XCTAssertEqual(environment.calls.count, 2)
+      XCTAssertTrue(environment.calls.first?.hasPrefix("ensureHelper") == true)
+      XCTAssertEqual(environment.calls.last, "execute")
+      await gate.release()
+      await operation.value
+    }
+
     func testCredentialRejectionReopensTheSheet() async throws {
       let environment = MockInstallerEnvironment()
       environment.executeResults = [

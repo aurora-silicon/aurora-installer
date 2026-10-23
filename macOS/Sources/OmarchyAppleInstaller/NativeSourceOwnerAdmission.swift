@@ -48,19 +48,27 @@
       package: ImportedEngineHandoffPackage, authorization: MachineOwnerAuthorization
     ) throws -> NativeSourceBootstrap {
       try Task.checkCancellation()
-      guard try environment.device() == package.deviceIdentifier,
+      guard
+        try InstallerPerformance.measure("owner_device", { try environment.device() })
+          == package.deviceIdentifier,
         !AppleSiliconHostInspector.isExplicitlyUnsupported(package.deviceIdentifier)
       else { throw NativeHandoffValidationError.invalidOwner }
-      let before = try environment.snapshot()
+      let before = try InstallerPerformance.measure("owner_snapshot") {
+        try environment.snapshot()
+      }
       guard before.disk == package.storeIdentifier else {
         throw NativeHandoffValidationError.invalidOwner
       }
       let mounts = NativeHandoffMounts(environment)
-      let bootstrap = try resolve(snapshot: before, authorization: authorization, mounts: mounts)
+      let bootstrap = try InstallerPerformance.measure("owner_resolve") {
+        try resolve(snapshot: before, authorization: authorization, mounts: mounts)
+      }
       try Task.checkCancellation()
-      guard try environment.snapshot() == before,
-        try NativeSourceBootstrap.uuid(rootGroup()) == bootstrap.groupUUID
-      else { throw NativeHandoffValidationError.changedLayout }
+      try InstallerPerformance.measure("owner_recheck") {
+        guard try environment.snapshot() == before,
+          try NativeSourceBootstrap.uuid(rootGroup()) == bootstrap.groupUUID
+        else { throw NativeHandoffValidationError.changedLayout }
+      }
       return bootstrap
     }
 

@@ -322,7 +322,7 @@
       XCTAssertTrue(titles.allSatisfy { !$0.isEmpty })
       XCTAssertEqual(
         PlainLanguage.installPhaseTitle(forPhase: nil),
-        PlainLanguage.installVerifyingOwner
+        PlainLanguage.installPreparing
       )
     }
 
