@@ -68,6 +68,19 @@
     }
   }
 
+  /// The preserved ESP's FAT volume serial before and after the payload's
+  /// volume ID is applied. The same record is the baseline and the receipt.
+  struct NativePreservedESPVolumeID: Codable, Equatable, Sendable {
+    let partitionUUID: String
+    let previous: UInt32
+    let installed: UInt32
+
+    func validate() throws {
+      guard UUID(uuidString: partitionUUID) != nil, partitionUUID == partitionUUID.lowercased()
+      else { throw NativeRecoveryJournalError.invalidState }
+    }
+  }
+
   struct NativePreservedInstallJournalSnapshot: Sendable {
     let transcript: Data
     let plan: ValidatedEnginePlan
@@ -303,6 +316,57 @@
         try file.publishEvidence(
           Self.encode(receipt),
           identifier: Self.espIdentifier("preserved-esp-new-", path: receipt.path))
+      }
+    }
+
+    func espVolumeIDBaseline() throws -> NativePreservedESPVolumeID? {
+      try espVolumeID("preserved-esp-volume-id-old")
+    }
+
+    /// The previous serial is published before the first boot sector write.
+    func recordESPVolumeIDBaseline(_ baseline: NativePreservedESPVolumeID) throws {
+      try baseline.validate()
+      try file.transaction {
+        guard try current().state == .started else {
+          throw NativeRecoveryJournalError.invalidState
+        }
+        try file.publishEvidence(
+          Self.encode(baseline), identifier: "preserved-esp-volume-id-old")
+      }
+    }
+
+    func espVolumeIDReceipt() throws -> NativePreservedESPVolumeID? {
+      guard let receipt = try espVolumeID("preserved-esp-volume-id-new") else { return nil }
+      guard try espVolumeIDBaseline() == receipt else {
+        throw NativeRecoveryJournalError.evidenceChanged
+      }
+      return receipt
+    }
+
+    func recordESPVolumeID(_ receipt: NativePreservedESPVolumeID) throws {
+      try receipt.validate()
+      try file.transaction {
+        guard try current().state == .started else {
+          throw NativeRecoveryJournalError.invalidState
+        }
+        let baseline = try JSONDecoder().decode(
+          NativePreservedESPVolumeID.self,
+          from: file.readEvidence("preserved-esp-volume-id-old"))
+        guard baseline == receipt else { throw NativeRecoveryJournalError.evidenceChanged }
+        try file.publishEvidence(Self.encode(receipt), identifier: "preserved-esp-volume-id-new")
+      }
+    }
+
+    private func espVolumeID(_ identifier: String) throws -> NativePreservedESPVolumeID? {
+      try file.transaction {
+        guard try current().state != .ready else {
+          throw NativeRecoveryJournalError.invalidState
+        }
+        guard try file.containsEvidence(identifier) else { return nil }
+        let saved = try JSONDecoder().decode(
+          NativePreservedESPVolumeID.self, from: file.readEvidence(identifier))
+        try saved.validate()
+        return saved
       }
     }
 

@@ -33,34 +33,7 @@
 
     static var live: Self {
       Self(
-        openTarget: { partition in
-          let descriptor = open(
-            "/dev/r" + partition.identifier,
-            O_RDWR | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
-          guard descriptor >= 0 else { throw NativeRawImageError.invalidTarget }
-          do {
-            var info = stat()
-            var named = stat()
-            var blockSize: UInt32 = 0
-            var blockCount: UInt64 = 0
-            guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFCHR,
-              lstat("/dev/r" + partition.identifier, &named) == 0,
-              named.st_mode & S_IFMT == S_IFCHR, named.st_ino == info.st_ino,
-              named.st_dev == info.st_dev, named.st_rdev == info.st_rdev,
-              ioctl(descriptor, 0x4004_6418, &blockSize) == 0,
-              ioctl(descriptor, 0x4008_6419, &blockCount) == 0,
-              blockSize > 0, blockCount > 0
-            else { throw NativeRawImageError.invalidTarget }
-            let size = blockCount.multipliedReportingOverflow(by: UInt64(blockSize))
-            guard !size.overflow, size.partialValue == partition.size else {
-              throw NativeRawImageError.invalidTarget
-            }
-            return descriptor
-          } catch {
-            close(descriptor)
-            throw error
-          }
-        }, writeChunk: write,
+        openTarget: { try openPartition($0, flags: O_RDWR).descriptor }, writeChunk: write,
         flush: { descriptor in
           // Synchronize the device cache, preserving the production streaming
           // path without introducing a full root-image readback on first write.
@@ -71,6 +44,39 @@
             throw NativeRawImageError.flushFailed
           }
         })
+    }
+
+    /// Opens the raw character device of a verified partition and confirms
+    /// that the descriptor covers exactly that partition.
+    static func openPartition(_ partition: RemovalPartition, flags: Int32) throws
+      -> (descriptor: Int32, blockSize: Int)
+    {
+      let descriptor = open(
+        "/dev/r" + partition.identifier,
+        flags | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
+      guard descriptor >= 0 else { throw NativeRawImageError.invalidTarget }
+      do {
+        var info = stat()
+        var named = stat()
+        var blockSize: UInt32 = 0
+        var blockCount: UInt64 = 0
+        guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFCHR,
+          lstat("/dev/r" + partition.identifier, &named) == 0,
+          named.st_mode & S_IFMT == S_IFCHR, named.st_ino == info.st_ino,
+          named.st_dev == info.st_dev, named.st_rdev == info.st_rdev,
+          ioctl(descriptor, 0x4004_6418, &blockSize) == 0,
+          ioctl(descriptor, 0x4008_6419, &blockCount) == 0,
+          blockSize > 0, blockCount > 0
+        else { throw NativeRawImageError.invalidTarget }
+        let size = blockCount.multipliedReportingOverflow(by: UInt64(blockSize))
+        guard !size.overflow, size.partialValue == partition.size else {
+          throw NativeRawImageError.invalidTarget
+        }
+        return (descriptor, Int(blockSize))
+      } catch {
+        close(descriptor)
+        throw error
+      }
     }
 
     static func write(_ descriptor: Int32, _ bytes: Data, _ offset: UInt64) throws {
