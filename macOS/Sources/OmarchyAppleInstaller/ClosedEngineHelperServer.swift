@@ -196,6 +196,13 @@
       self.espDisks = espDisks
     }
 
+    /// Run once when the helper starts, before it accepts a connection:
+    /// imported packages that no job can retry, and those no job names, are
+    /// removed. Each holds a full payload.
+    public nonisolated func removeUnusedImports() {
+      jobs.removeUnusedPackages()
+    }
+
     /// Called only after a successful completion reply has been sent. A
     /// replacement hold refuses new work until the helper unregisters.
     func retireAfterCompletion() {

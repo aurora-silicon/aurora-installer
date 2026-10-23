@@ -57,6 +57,7 @@ do {
     executor: PinnedAsahiEngineExecutor(),
     selfUninstaller: LaunchdHelperSelfUninstaller()
   )
+  server.removeUnusedImports()
   let delegate = try AuthenticatedEngineXPCListenerDelegate(
     clientCodeSigningRequirement: clientRequirement,
     server: server

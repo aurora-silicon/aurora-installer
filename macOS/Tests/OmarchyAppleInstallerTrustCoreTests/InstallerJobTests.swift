@@ -36,7 +36,8 @@
                 diskUnchanged: unchanged, summary: "Handoff did not complete"),
               redactedStandardErrorTail: ""))
           let cleanup = jobs.finish(request.ticket.identifier, result: .failure(failure))
-          XCTAssertEqual(cleanup?.path, unchanged ? packageURL.path : nil)
+          // Only a job that can still be retried keeps its imported package.
+          XCTAssertEqual(cleanup?.path, unchanged || !eligible ? packageURL.path : nil)
           let restarted = InstallerJobRegistry(
             workingDirectory: root, work: HelperWorkState(),
             retryEligibility: { _ in eligible })
@@ -56,6 +57,69 @@
         }
       }
     }
+    func testStartUpRemovesImportsThatNoJobCanUse() throws {
+      final class Eligibility: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored = true
+        var value: Bool {
+          get { lock.withLock { stored } }
+          set { lock.withLock { stored = newValue } }
+        }
+      }
+      let root = try workspace()
+      let eligibility = Eligibility()
+      let jobs = InstallerJobRegistry(
+        workingDirectory: root, work: HelperWorkState(),
+        retryEligibility: { _ in eligibility.value })
+      func imported() throws -> URL {
+        let url = root.appendingPathComponent(
+          "imported-handoff-" + UUID().uuidString.lowercased())
+        try FileManager.default.createDirectory(
+          at: url, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        try Data("payload".utf8).write(to: url.appendingPathComponent("payload.zip"))
+        return url
+      }
+      let request = try request()
+      XCTAssertTrue(try jobs.begin(request, initiatingUID: 501))
+      let retained = try imported()
+      try jobs.admitted(
+        request.ticket.identifier,
+        package: ImportedEngineHandoffPackage(
+          packageURL: retained, manifestURL: retained, requestURL: retained,
+          identityURL: retained, engineURL: retained, metadataURL: retained,
+          payloadURL: retained, bindingDigest: request.ticket.bindingDigest,
+          planDigest: String(repeating: "a", count: 64), deviceIdentifier: "apple,j314s",
+          storeIdentifier: "disk0"))
+      let failure = PinnedAsahiEngineExecutionError.engineFailed(
+        EngineFailureReport(
+          notice: EngineFailureNotice(
+            reason: .recoveryPreparation, exitStatus: 1, diskUnchanged: false,
+            summary: "Handoff did not complete"),
+          redactedStandardErrorTail: ""))
+      XCTAssertNil(jobs.finish(request.ticket.identifier, result: .failure(failure)))
+      let orphan = try imported()
+      let unrelated = root.appendingPathComponent("native-stub-cache-plan")
+      try FileManager.default.createDirectory(at: unrelated, withIntermediateDirectories: false)
+      let status = InstallerJobStatusRequest(ticket: request.ticket, journalOffset: 0)
+
+      jobs.removeUnusedPackages()
+      XCTAssertFalse(FileManager.default.fileExists(atPath: orphan.path), "No job names it")
+      XCTAssertTrue(FileManager.default.fileExists(atPath: retained.path), "A retry can use it")
+      XCTAssertTrue(FileManager.default.fileExists(atPath: unrelated.path))
+      XCTAssertTrue(try jobs.status(status, initiatingUID: 501).recoveryRetryAvailable)
+
+      // Once no retry can use it, for example after a later attempt changed
+      // the disk, the next start removes it too.
+      eligibility.value = false
+      let restarted = InstallerJobRegistry(
+        workingDirectory: root, work: HelperWorkState(),
+        retryEligibility: { _ in eligibility.value })
+      restarted.removeUnusedPackages()
+      XCTAssertFalse(FileManager.default.fileExists(atPath: retained.path))
+      XCTAssertFalse(try restarted.status(status, initiatingUID: 501).recoveryRetryAvailable)
+      XCTAssertTrue(FileManager.default.fileExists(atPath: unrelated.path))
+    }
+
     func testOnlyAFinishedFailedResetCanBeSetAsideAndItsRecordIsKept() throws {
       for eligible in [false, true] {
         let root = try workspace()
