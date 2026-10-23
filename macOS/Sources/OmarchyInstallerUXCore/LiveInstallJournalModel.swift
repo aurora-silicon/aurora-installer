@@ -115,7 +115,7 @@
       if let checkpointPhase {
         return PlainLanguage.installPhaseTitle(forPhase: checkpointPhase)
       }
-      return PlainLanguage.installVerifyingOwner
+      return PlainLanguage.installPreparing
     }
 
     public func display(startedAt: Date) -> InstallProgressDisplay {

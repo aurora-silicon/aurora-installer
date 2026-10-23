@@ -168,7 +168,7 @@
       "Keep this Mac open and plugged in."
     public static let installDegraded =
       "Live progress isn’t available. The installer will check the installation record when complete."
-    public static let installVerifyingOwner = "Checking your macOS account…"
+    public static let installPreparing = "Preparing the installation…"
     public static let installStageLabels = [
       "Preparing disk space", "Installing boot files",
       "Preparing final setup",
@@ -184,7 +184,7 @@
       case "boot_policy": "Authorizing startup…"
       case "media_handoff": "Preparing installation media…"
       case "omarchy_install": "Installing Aurora…"
-      default: installVerifyingOwner
+      default: installPreparing
       }
     }
 

@@ -16,5 +16,17 @@
       completed = true
       return result
     }
+
+    static func measuring<T>(_ phase: String, _ action: () async throws -> T) async rethrows -> T {
+      let start = ProcessInfo.processInfo.systemUptime
+      var completed = false
+      defer {
+        let seconds = ProcessInfo.processInfo.systemUptime - start
+        logger.notice("phase=\(phase, privacy: .public) seconds=\(seconds) completed=\(completed)")
+      }
+      let result = try await action()
+      completed = true
+      return result
+    }
   }
 #endif

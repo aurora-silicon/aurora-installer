@@ -205,8 +205,10 @@
           try resume(file: file, transcript: saved)
           return
         }
-        let facts = try platform.collect()
-        let currentPlan = try freshPlan(facts)
+        let facts = try InstallerPerformance.measure("apfs_collect") { try platform.collect() }
+        let currentPlan = try InstallerPerformance.measure("apfs_fresh_plan") {
+          try freshPlan(facts)
+        }
         let transcript: Data
         if let validated = try? AppleInstallerTrustCore().validateEngineTranscript(saved),
           validated.plan == approved, saved.split(separator: 10).count == 3

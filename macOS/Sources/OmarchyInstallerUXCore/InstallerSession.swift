@@ -770,6 +770,11 @@
         // installs or replaces the helper, before anything is submitted.
         try await environment.ensureHelper(
           authorization, reenablingSwitchedOff: context.helperSwitchedOff)
+        // The app has verified the account. The helper checks it again and
+        // then prepares the disk and Apple's files, which can take a while:
+        // show that on the install screen instead of a waiting sheet. A late
+        // refusal of the credentials reopens the sheet.
+        beginInstallingIfNeeded()
         // Recovery retry revalidates the original helper-owned package. A
         // reopened app has no download to wait for and must not start one.
         if context.kind != .retryRecoveryAuthorization, prefetchState != .verified {

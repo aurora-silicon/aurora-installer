@@ -74,8 +74,25 @@
         entry["Content"] as? String == "GUID_partition_scheme",
         let records = entry["Partitions"] as? [[String: Any]], records.count <= maximumPartitions
       else { throw invalid() }
-      let parts = try records.map { item -> RemovalPartition in
-        let info = try plist(["info", "-plist", try string(item, "DeviceIdentifier")])
+      // Each partition's record and the two APFS listings are independent
+      // reads, so they run in parallel instead of one by one.
+      let identifiers = try records.map { try string($0, "DeviceIdentifier") }
+      let groupsIndex = identifiers.count
+      let apfsIndex = identifiers.count + 1
+      let reads = ParallelReads(count: identifiers.count + 2)
+      DispatchQueue.concurrentPerform(iterations: identifiers.count + 2) { index in
+        reads.set(
+          index,
+          Result { () throws -> Any in
+            switch index {
+            case groupsIndex: return try volumeGroups()
+            case apfsIndex: return try plist(["apfs", "list", "-plist"])
+            default: return try plist(["info", "-plist", identifiers[index]])
+            }
+          })
+      }
+      let parts = try records.indices.map { index -> RemovalPartition in
+        guard let info = try reads.value(index) as? [String: Any] else { throw invalid() }
         guard try string(info, "ParentWholeDisk") == disk else { throw invalid() }
         let offset = try number(info, "PartitionMapPartitionOffset")
         let size = try number(info, "Size")
@@ -85,9 +102,10 @@
           type: try string(info, "Content"), offset: offset, size: size,
           name: info["VolumeName"] as? String ?? "")
       }.sorted { $0.offset < $1.offset }
-      let groups = try volumeGroups()
-      let apfs = try plist(["apfs", "list", "-plist"])
-      guard let rawContainers = apfs["Containers"] as? [[String: Any]] else { throw invalid() }
+      guard let groups = try reads.value(groupsIndex) as? [String: String],
+        let apfs = try reads.value(apfsIndex) as? [String: Any],
+        let rawContainers = apfs["Containers"] as? [[String: Any]]
+      else { throw invalid() }
       var containers = [RemovalContainer]()
       var rootUUID: String?
       for raw in rawContainers {
@@ -637,6 +655,22 @@
     let admin = try node.record(withRecordType: kODRecordTypeGroups, name: "admin", attributes: nil)
     do { try admin.isMemberRecord(user) } catch {
       throw RemovalFailure(message: "Use a macOS administrator account to remove Aurora.")
+    }
+  }
+
+  /// Results of independent reads made on several threads at once.
+  private final class ParallelReads: @unchecked Sendable {
+    private let lock = NSLock()
+    private var results: [Result<Any, any Error>?]
+    init(count: Int) { results = Array(repeating: nil, count: count) }
+    func set(_ index: Int, _ result: Result<Any, any Error>) {
+      lock.withLock { results[index] = result }
+    }
+    func value(_ index: Int) throws -> Any {
+      guard let result = lock.withLock({ results[index] }) else {
+        throw RemovalFailure(message: "The disk layout couldn’t be read.")
+      }
+      return try result.get()
     }
   }
 #endif
