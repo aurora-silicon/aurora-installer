@@ -135,7 +135,7 @@
       try NativeRecoveryTemplate.publishApp(
         template,
         to: systemRoot.appendingPathComponent(InstallerProductIdentity.recoveryAppBundleName),
-        owner: owner, verify: { try verifyApp($0, template.requirement) })
+        owner: owner, parentIsVolumeRoot: true, verify: { try verifyApp($0, template.requirement) })
       let launcher = try system.read(
         "Finish Installation.app/Contents/Resources/step2.sh", maximum: 65536)
       guard

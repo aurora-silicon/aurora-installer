@@ -122,5 +122,73 @@
       }
       XCTAssertTrue(FileManager.default.fileExists(atPath: root.path))
     }
+
+    func testRadioSnapshotKeepsLinksWithinTheirDirectory() throws {
+      let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      let wifi = root.appendingPathComponent("usr/share/firmware/wifi/C-4378__s-B3")
+      try FileManager.default.createDirectory(at: wifi, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: root) }
+      try Data("trx".utf8).write(to: wifi.appendingPathComponent("kyushu.trx"))
+      let fm = FileManager.default
+      try fm.createSymbolicLink(
+        atPath: wifi.appendingPathComponent("kyushu-X0.trx").path, withDestinationPath: "kyushu.trx"
+      )
+      try fm.createSymbolicLink(
+        atPath: wifi.appendingPathComponent("kyushu-X1.trx").path,
+        withDestinationPath: "kyushu-X0.trx")
+      try fm.createSymbolicLink(
+        atPath: wifi.appendingPathComponent("aruba.trx").path, withDestinationPath: "missing.trx")
+      let tree = try NativeHandoffFileTree(root, protected: true, owner: geteuid())
+      let snapshot = try NativeFirmwareInputFiles.snapshot(
+        root: root, prefix: "usr/share/firmware", tree: tree, owner: geteuid())
+      XCTAssertEqual(snapshot.files, ["wifi/C-4378__s-B3/kyushu.trx": Data("trx".utf8)])
+      XCTAssertEqual(
+        snapshot.links,
+        [
+          "wifi/C-4378__s-B3/kyushu-X0.trx": "wifi/C-4378__s-B3/kyushu.trx",
+          "wifi/C-4378__s-B3/kyushu-X1.trx": "wifi/C-4378__s-B3/kyushu.trx",
+        ])
+      // A link that leaves its directory is refused, not followed.
+      try fm.createSymbolicLink(
+        atPath: wifi.appendingPathComponent("outside.trx").path,
+        withDestinationPath: "../../../outside")
+      XCTAssertThrowsError(
+        try NativeFirmwareInputFiles.snapshot(
+          root: root, prefix: "usr/share/firmware", tree: tree, owner: geteuid()))
+      // Directory walks that never admit links still refuse them.
+      XCTAssertThrowsError(try NativeFirmwareInputFiles.relativeEntries(root: wifi, maximum: 10))
+    }
+
+    func testMountpointUsesTheRealPathThatHdiutilReports() throws {
+      // /var is a symlink to /private/var, as for the helper's working directory.
+      let parent = URL(fileURLWithPath: "/var/tmp", isDirectory: true)
+      XCTAssertEqual(parent.resolvingSymlinksInPath().path, "/var/tmp")
+      let real = try NativeFirmwareMountedImage.realDirectory(parent)
+      XCTAssertEqual(real.path, "/private/var/tmp")
+
+      let root = real.appendingPathComponent("firmware-image-test/recovery")
+      func response(mountPoint: String) throws -> Data {
+        try PropertyListSerialization.data(
+          fromPropertyList: [
+            "system-entities": [
+              ["dev-entry": "/dev/disk11", "content-hint": "GUID_partition_scheme"],
+              [
+                "dev-entry": "/dev/disk11s1", "mount-point": mountPoint,
+                "content-hint": "41504653-0000-11AA-AA11-00306543ECAC",
+              ],
+            ]
+          ], format: .xml, options: 0)
+      }
+      XCTAssertEqual(
+        try NativeFirmwareMountedImage.attachedDevice(
+          response(mountPoint: "/private/var/tmp/firmware-image-test/recovery"), root: root),
+        "disk11s1")
+      // The Foundation spelling never matches what hdiutil reports.
+      XCTAssertThrowsError(
+        try NativeFirmwareMountedImage.attachedDevice(
+          response(mountPoint: "/private/var/tmp/firmware-image-test/recovery"),
+          root: parent.resolvingSymlinksInPath()
+            .appendingPathComponent("firmware-image-test/recovery")))
+    }
   }
 #endif

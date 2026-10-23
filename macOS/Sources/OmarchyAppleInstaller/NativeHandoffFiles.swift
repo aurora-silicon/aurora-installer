@@ -12,15 +12,20 @@
     private let protected: Bool
     private let owner: uid_t
     private let verifiedVolumeRoot: Bool
+    /// Files in a hash-verified image may carry several names. Such a file is
+    /// read only when its own filesystem is mounted read-only, where no link
+    /// can be added; the single-link rule still guards every writable volume.
+    private let readOnlyVolume: Bool
 
     init(
       _ url: URL, protected: Bool, owner: uid_t = 0, volumeRoot: Bool = false,
-      volumeDevice: String? = nil,
+      volumeDevice: String? = nil, readOnlyVolume: Bool = false,
       verifyMount: @Sendable (Int32, URL, String) throws -> Void = NativeHandoffFileTree
         .verifyVolumeRoot
     ) throws {
       self.protected = protected
       self.owner = owner
+      self.readOnlyVolume = readOnlyVolume
       verifiedVolumeRoot = volumeRoot
       let descriptor = open(url.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
       guard descriptor >= 0 else { throw NativeHandoffValidationError.unsafePath }
@@ -43,6 +48,11 @@
       root = descriptor
     }
     deinit { close(root) }
+
+    static func isReadOnly(_ fd: Int32) -> Bool {
+      var filesystem = statfs()
+      return fstatfs(fd, &filesystem) == 0 && filesystem.f_flags & UInt32(MNT_RDONLY) != 0
+    }
 
     static func verifyVolumeRoot(_ fd: Int32, url: URL, device: String) throws {
       var filesystem = statfs()
@@ -87,7 +97,9 @@
         var info = stat()
         guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
           info.st_size >= 0, info.st_size <= maximum,
-          !protected || (info.st_uid == owner && info.st_mode & 0o022 == 0 && info.st_nlink == 1)
+          !protected
+            || (info.st_uid == owner && info.st_mode & 0o022 == 0
+              && (info.st_nlink == 1 || (readOnlyVolume && Self.isReadOnly(fd))))
         else { throw NativeHandoffValidationError.unsafePath }
         let file = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
         var bytes = Data()

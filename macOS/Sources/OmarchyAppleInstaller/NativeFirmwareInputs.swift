@@ -17,7 +17,7 @@
     let command: @Sendable (String, [String]) throws -> Data
 
     static func open(image: URL, parent: URL) throws -> Self {
-      let directory = parent.resolvingSymlinksInPath()
+      let directory = try realDirectory(parent)
         .appendingPathComponent("firmware-image-" + UUID().uuidString)
       try FileManager.default.createDirectory(
         at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
@@ -38,17 +38,7 @@
             "attach", "-plist", "-readonly", "-nobrowse", "-noverify", "-owners", "on",
             "-mountpoint", root.path, image.path,
           ])
-        guard
-          let plist = try PropertyListSerialization.propertyList(
-            from: response, format: nil) as? [String: Any],
-          let entries = plist["system-entities"] as? [[String: Any]],
-          entries.filter({ $0["mount-point"] != nil }).count == 1,
-          let mounted = entries.first(where: { $0["mount-point"] as? String == root.path }),
-          let name = mounted["dev-entry"] as? String, name.hasPrefix("/dev/disk"),
-          String(name.dropFirst(5)).range(
-            of: #"\Adisk[0-9]+s[0-9]+\z"#, options: .regularExpression) != nil
-        else { throw NativeFirmwareInputFailure.invalidSource }
-        let device = String(name.dropFirst(5))
+        let device = try attachedDevice(response, root: root)
         _ = try NativeHandoffFileTree(
           root, protected: true, volumeRoot: true, volumeDevice: device)
         return Self(directory: directory, root: root, device: device, command: command)
@@ -71,6 +61,32 @@
         }
         throw operation
       }
+    }
+
+    /// The directory's real path. Foundation's symlink resolution drops the
+    /// `/private` prefix of /var and /tmp, but hdiutil and the kernel report
+    /// mount points with it, so every comparison below would fail.
+    static func realDirectory(_ url: URL) throws -> URL {
+      guard let resolved = realpath(url.path, nil) else {
+        throw NativeFirmwareInputFailure.invalidSource
+      }
+      defer { free(resolved) }
+      return URL(fileURLWithPath: String(cString: resolved), isDirectory: true)
+    }
+
+    /// The one volume hdiutil mounted, exactly at this attempt's mountpoint.
+    static func attachedDevice(_ response: Data, root: URL) throws -> String {
+      guard
+        let plist = try PropertyListSerialization.propertyList(
+          from: response, format: nil) as? [String: Any],
+        let entries = plist["system-entities"] as? [[String: Any]],
+        entries.filter({ $0["mount-point"] != nil }).count == 1,
+        let mounted = entries.first(where: { $0["mount-point"] as? String == root.path }),
+        let name = mounted["dev-entry"] as? String, name.hasPrefix("/dev/disk"),
+        String(name.dropFirst(5)).range(
+          of: #"\Adisk[0-9]+s[0-9]+\z"#, options: .regularExpression) != nil
+      else { throw NativeFirmwareInputFailure.invalidSource }
+      return String(name.dropFirst(5))
     }
 
     func close() throws {
@@ -120,9 +136,16 @@
       return data
     }
 
+    /// Regular files by relative path, and the image's symbolic links, each
+    /// resolved to the regular file it names in its own directory.
+    struct Snapshot: Sendable {
+      var files: [String: Data]
+      var links: [String: String]
+    }
+
     static func snapshot(
       root: URL, prefix: String, tree: NativeHandoffFileTree, owner: uid_t
-    ) throws -> [String: Data] {
+    ) throws -> Snapshot {
       let root = root.resolvingSymlinksInPath()
       guard NativeHandoffEvidence.safeRelative(prefix) else {
         throw NativeFirmwareInputFailure.invalidSource
@@ -137,13 +160,18 @@
       }
       let source = root.appendingPathComponent(prefix)
       var files = [String: Data]()
+      var named = [String: String]()
       var total = 0
-      for relative in try relativeEntries(root: source, maximum: 20000) {
+      for relative in try relativeEntries(root: source, maximum: 20000, allowLinks: true) {
         try Task.checkCancellation()
         let url = source.appendingPathComponent(relative)
         var info = stat()
         guard lstat(url.path, &info) == 0 else { throw NativeFirmwareInputFailure.invalidSource }
         if info.st_mode & S_IFMT == S_IFDIR { continue }
+        if info.st_mode & S_IFMT == S_IFLNK {
+          named[relative] = try sibling(of: relative, linkAt: url)
+          continue
+        }
         guard info.st_mode & S_IFMT == S_IFREG, info.st_size >= 0,
           info.st_size <= 64 << 20, info.st_size <= (256 << 20) - total,
           files.count < 10000
@@ -153,12 +181,41 @@
         total += data.count
         files[relative] = data
       }
-      return files
+      // Follow each link through at most a few other links to a regular file.
+      // A link that ends nowhere is left out, like a file the image lacks.
+      var links = [String: String]()
+      for (alias, first) in named {
+        var target = first
+        var hops = 1
+        while let next = named[target] {
+          hops += 1
+          guard hops <= 8 else { throw NativeFirmwareInputFailure.invalidSource }
+          target = next
+        }
+        if files[target] != nil { links[alias] = target }
+      }
+      return Snapshot(files: files, links: links)
+    }
+
+    /// A link may only name another entry in its own directory.
+    static func sibling(of relative: String, linkAt url: URL) throws -> String {
+      var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+      let count = readlink(url.path, &buffer, buffer.count - 1)
+      guard count > 0 else { throw NativeFirmwareInputFailure.invalidSource }
+      let target = String(
+        decoding: buffer.prefix(count).map { UInt8(bitPattern: $0) }, as: UTF8.self)
+      guard !target.contains("/"), target != ".", target != "..",
+        NativeHandoffEvidence.safeRelative(target)
+      else { throw NativeFirmwareInputFailure.invalidSource }
+      let directory = relative.split(separator: "/").dropLast().joined(separator: "/")
+      return directory.isEmpty ? target : directory + "/" + target
     }
 
     /// Keep enumeration relative to its root. Foundation may spell absolute
     /// temporary URLs differently, and unreadable directories must fail closed.
-    static func relativeEntries(root: URL, maximum: Int) throws -> [String] {
+    static func relativeEntries(
+      root: URL, maximum: Int, allowLinks: Bool = false
+    ) throws -> [String] {
       var pending = [""]
       var entries = [String]()
       while let parent = pending.popLast() {
@@ -175,7 +232,8 @@
           }
           var info = stat()
           guard lstat(root.appendingPathComponent(relative).path, &info) == 0,
-            info.st_mode & S_IFMT == S_IFREG || info.st_mode & S_IFMT == S_IFDIR
+            [S_IFREG, S_IFDIR].contains(info.st_mode & S_IFMT)
+              || (allowLinks && info.st_mode & S_IFMT == S_IFLNK)
           else { throw NativeFirmwareInputFailure.invalidSource }
           entries.append(relative)
           if info.st_mode & S_IFMT == S_IFDIR { pending.append(relative) }

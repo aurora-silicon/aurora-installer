@@ -92,6 +92,66 @@ private actor MeasuredIPSWReader: FirmwareRangeReading {
             withJSONObject: report, options: [.sortedKeys]) + Data([10]))
         return
       }
+      if CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "radio" {
+        // A mounted Recovery image's usr/share/firmware: regular files, and
+        // links resolved within their own directory as the installer does.
+        let root = URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)
+        var files = [String: Data]()
+        var named = [String: String]()
+        guard let walker = FileManager.default.enumerator(atPath: root.path) else {
+          throw RestoreFailure("Cannot read the radio firmware directory.")
+        }
+        while let relative = walker.nextObject() as? String {
+          let path = root.appendingPathComponent(relative).path
+          var info = stat()
+          guard lstat(path, &info) == 0 else { throw RestoreFailure("Cannot stat \(relative).") }
+          if info.st_mode & S_IFMT == S_IFLNK {
+            let target = try FileManager.default.destinationOfSymbolicLink(atPath: path)
+            guard !target.contains("/") else { throw RestoreFailure("Link leaves \(relative).") }
+            let directory = relative.split(separator: "/").dropLast().joined(separator: "/")
+            named[relative] = directory.isEmpty ? target : directory + "/" + target
+          } else if info.st_mode & S_IFMT == S_IFREG {
+            files[relative] = try Data(contentsOf: URL(fileURLWithPath: path))
+          }
+        }
+        var links = [String: String]()
+        for (alias, first) in named {
+          var target = first
+          while let next = named[target] { target = next }
+          if files[target] != nil { links[alias] = target }
+        }
+        func scoped<T>(_ map: [String: T], _ prefix: String) -> [String: T] {
+          Dictionary(
+            uniqueKeysWithValues: map.filter { $0.key.hasPrefix(prefix) }.map {
+              (String($0.key.dropFirst(prefix.count)), $0.value)
+            })
+        }
+        let wifiLinks = scoped(links, "wifi/").mapValues { String($0.dropFirst(5)) }
+        let bluetoothLinks = scoped(links, "bluetooth/").mapValues { String($0.dropFirst(10)) }
+        let wifi = try BroadcomFirmware.wifi(scoped(files, "wifi/"), links: wifiLinks)
+        let bluetooth = try BroadcomFirmware.bluetooth(
+          scoped(files, "bluetooth/"), links: bluetoothLinks)
+        let outputs = wifi.merging(bluetooth) { first, _ in first }
+        let package = try FirmwarePackageBuilder.build(
+          outputs.keys.sorted().map { FirmwarePackageInput(name: $0, bytes: outputs[$0]!) })
+        let fallback = try FirmwarePackageBuilder.fallback(
+          files.keys.sorted().map {
+            FirmwarePackageInput(name: "firmware/" + $0, bytes: files[$0]!)
+          },
+          symbolicLinks: Dictionary(
+            uniqueKeysWithValues: links.map {
+              ("firmware/" + $0.key, String($0.value.split(separator: "/").last!))
+            }))
+        let report: [String: Any] = [
+          "files": files.count, "links": links.count, "danglingLinks": named.count - links.count,
+          "wifiOutputs": wifi.count, "bluetoothOutputs": bluetooth.count,
+          "tarBytes": package.tar.count, "fallbackBytes": fallback.count,
+        ]
+        FileHandle.standardOutput.write(
+          try JSONSerialization.data(
+            withJSONObject: report, options: [.sortedKeys]) + Data([10]))
+        return
+      }
       if CommandLine.arguments == [CommandLine.arguments[0], "plan"] {
         let plan = try FirmwareExtractionPlan.bundled(for: "apple,j700")
         let report: [String: Any] = [

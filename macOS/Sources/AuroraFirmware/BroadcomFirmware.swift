@@ -13,8 +13,12 @@ public enum BroadcomFirmware {
     }
   }
 
-  private static func validate(_ inputs: [String: Data]) throws {
-    try require(inputs.count <= 10000, "Too many radio firmware inputs.")
+  /// Aliases name another input, as the Recovery image's symbolic links do.
+  /// Each one reads its target's bytes, so only real files count toward the
+  /// memory budget.
+  private static func validate(_ inputs: [String: Data], links: [String: String]) throws {
+    try require(
+      inputs.count <= 10000 && links.count <= 10000, "Too many radio firmware inputs.")
     var total = 0
     for (name, data) in inputs {
       try require(
@@ -23,17 +27,24 @@ public enum BroadcomFirmware {
       total += data.count
       try require(total <= 256 << 20, "Radio inputs exceed their memory budget.")
     }
+    for (name, target) in links {
+      try require(
+        safeRelative(name) && name.utf8.count <= 4096 && inputs[name] == nil
+          && inputs[target] != nil, "Invalid radio firmware alias.")
+    }
   }
 
-  public static func wifi(_ inputs: [String: Data]) throws -> [String: Data] {
-    try validate(inputs)
+  public static func wifi(
+    _ inputs: [String: Data], links: [String: String] = [:]
+  ) throws -> [String: Data] {
+    try validate(inputs, links: links)
     let extensions = [
       "trx": "bin", "txt": "txt", "clmb": "clm_blob",
       "txcb": "txcap_blob", "sig": "sig",
     ]
     let dimensions = ["C", "s", "P", "M", "V", "m", "A"]
     let root = Node()
-    for path in inputs.keys.sorted() {
+    for path in (Array(inputs.keys) + Array(links.keys)).sorted() {
       try Task.checkCancellation()
       let pieces = path.split(separator: "/").map(String.init)
       guard let filename = pieces.last, !filename.contains("_gen"),
@@ -68,7 +79,8 @@ public enum BroadcomFirmware {
         if node.children[key] == nil { node.children[key] = Node() }
         node = node.children[key]!
       }
-      let bytes = try ext == "txt" ? nvram(inputs[path]!) : inputs[path]!
+      let input = inputs[links[path] ?? path]!
+      let bytes = try ext == "txt" ? nvram(input) : input
       try require(node.bytes == nil || node.bytes == bytes, "Conflicting radio firmware input.")
       node.bytes = bytes
     }
@@ -118,12 +130,14 @@ public enum BroadcomFirmware {
     return Data(result.utf8)
   }
 
-  public static func bluetooth(_ inputs: [String: Data]) throws -> [String: Data] {
-    try validate(inputs)
+  public static func bluetooth(
+    _ inputs: [String: Data], links: [String: String] = [:]
+  ) throws -> [String: Data] {
+    try validate(inputs, links: links)
     let vendors = ["AMKOR": "a", "MUR": "m", "USI": "u", "GEN": ""]
     var result = [String: Data]()
     var selected = Set<String>()
-    for path in inputs.keys.sorted() {
+    for path in (Array(inputs.keys) + Array(links.keys)).sorted() {
       try Task.checkCancellation()
       let filename = URL(fileURLWithPath: path).lastPathComponent
       guard let dot = filename.lastIndex(of: ".") else { continue }
@@ -148,12 +162,13 @@ public enum BroadcomFirmware {
       let name =
         "brcm/brcmbt" + chip + "-apple," + board.lowercased()
         + (vendor.isEmpty ? "" : "-" + vendor) + "." + ext
+      let input = inputs[links[path] ?? path]!
       try require(
-        safeRelative(name) && (result[name] == nil || result[name] == inputs[path]),
+        safeRelative(name) && (result[name] == nil || result[name] == input),
         "Conflicting Bluetooth firmware output.")
       // A .ptb without the corresponding .bin is not a usable selection.
       if ext == "bin" { selected.insert(String(name.dropLast(4))) }
-      result[name] = inputs[path]!
+      result[name] = input
     }
     return result.filter {
       !$0.key.hasSuffix(".ptb") || selected.contains(String($0.key.dropLast(4)))
