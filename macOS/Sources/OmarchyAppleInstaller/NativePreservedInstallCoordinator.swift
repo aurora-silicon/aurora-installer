@@ -120,7 +120,7 @@
       let mounts = NativeHandoffMounts(environment)
       let espURL = try mounts.mounted(
         prepared.target.esp.identifier, uuid: prepared.target.esp.uuid,
-        key: "DiskUUID", writable: true)
+        key: "DiskUUID", writable: true, browsable: false)
       if state.state == .ready || state.state == .started {
         let espWriter = NativePreservedESPExecution(
           package: package, approved: approved, prepared: prepared,

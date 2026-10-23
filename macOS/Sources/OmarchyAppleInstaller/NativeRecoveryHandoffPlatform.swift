@@ -17,6 +17,9 @@
     let mountRoot: URL
     let sourcePrebootMount: URL
     let verifyMount: @Sendable (Int32, URL, String) throws -> Void
+    /// Whether a volume mounted at this directory is one Finder, Spotlight
+    /// and the Trash can reach. Fixtures mount nothing, so they say no.
+    var mountIsBrowsable: @Sendable (URL) -> Bool = { _ in false }
 
     static var live: Self {
       Self(
@@ -39,7 +42,8 @@
         verifyRecovery: { try NativeRecoveryTemplate.verify($0, requirement: $1) }, owner: 0,
         mountRoot: URL(fileURLWithPath: "/Volumes"),
         sourcePrebootMount: URL(fileURLWithPath: "/System/Volumes/Preboot"),
-        verifyMount: NativeHandoffFileTree.verifyVolumeRoot)
+        verifyMount: NativeHandoffFileTree.verifyVolumeRoot,
+        mountIsBrowsable: NativeHandoffMounts.isBrowsable)
     }
 
     func plist(_ arguments: [String]) throws -> [String: Any] {
@@ -65,19 +69,31 @@
         _ = try? environment.command("/usr/sbin/diskutil", ["unmount", identifier])
       }
     }
+    /// `browsable: false` mounts the volume out of sight of Finder,
+    /// Spotlight, the Trash and fseventsd, so none of them writes its own
+    /// files onto it, as for the Linux ESP. A volume already mounted where
+    /// they can reach it, as Disk Arbitration mounts a newly formatted one,
+    /// is mounted again that way first; if it can't be unmounted, it is
+    /// used where it is, as before.
     func mounted(
       _ identifier: String, uuid: String, key: String = "VolumeUUID", sourcePreboot: Bool = false,
-      writable: Bool = false
+      writable: Bool = false, browsable: Bool = true
     ) throws -> URL {
       var info = try environment.disk(identifier)
       guard (info[key] as? String)?.uppercased() == uuid.uppercased() else {
         throw NativeHandoffValidationError.invalidTarget
       }
+      if !browsable, let existing = info["MountPoint"] as? String, !existing.isEmpty,
+        environment.mountIsBrowsable(URL(fileURLWithPath: existing, isDirectory: true))
+      {
+        _ = try? environment.command("/usr/sbin/diskutil", ["unmount", identifier])
+        info = try environment.disk(identifier)
+      }
       if (info["MountPoint"] as? String)?.isEmpty != false {
-        _ = try environment.command(
-          "/usr/sbin/diskutil",
-          writable
-            ? ["mount", identifier] : ["mount", "readOnly", identifier])
+        var arguments = ["mount"]
+        if !writable { arguments.append("readOnly") }
+        if !browsable { arguments.append("nobrowse") }
+        _ = try environment.command("/usr/sbin/diskutil", arguments + [identifier])
         owned.append(identifier)
         info = try environment.disk(identifier)
       }
@@ -96,6 +112,14 @@
         }
       }
       return URL(fileURLWithPath: mount, isDirectory: true)
+    }
+
+    /// Whether the volume at `mountPoint` was mounted without `nobrowse`.
+    /// Anything that can't be checked counts as browsable.
+    static func isBrowsable(_ mountPoint: URL) -> Bool {
+      var status = statfs()
+      guard statfs(mountPoint.path, &status) == 0 else { return true }
+      return status.f_flags & UInt32(MNT_DONTBROWSE) == 0
     }
   }
 

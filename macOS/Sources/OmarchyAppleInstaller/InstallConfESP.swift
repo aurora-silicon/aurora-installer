@@ -408,7 +408,9 @@
         try unmount(identifier)
       }
       do {
-        _ = try run(["mount", "-mountPoint", mountPoint.path, identifier])
+        // Out of sight of Finder, Spotlight, the Trash and fseventsd, so
+        // none of them writes onto the Linux ESP.
+        _ = try run(["mount", "nobrowse", "-mountPoint", mountPoint.path, identifier])
         let mounted = try plist(["info", "-plist", identifier])
         guard mounted["DeviceIdentifier"] as? String == identifier,
           mounted["WritableVolume"] as? Bool == true,
