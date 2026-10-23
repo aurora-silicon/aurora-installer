@@ -119,6 +119,10 @@
     public private(set) var hasExecutionStarted = false
     public private(set) var recoveryRetryAvailable = false
     private var restoredRecoveryRetry = false
+    /// The helper reported that the failed installation may be set aside.
+    /// Only the person's confirmed Start over acts on it.
+    public private(set) var startOverAvailable = false
+    public private(set) var startOverMessage: String?
 
     private let environment: any InstallerEnvironment
     private var retrySheet = CredentialSheetState.hidden
@@ -203,6 +207,40 @@
         && environment.helperStatus.isReady
     }
 
+    public var canStartOver: Bool {
+      guard case .failed = phase else { return false }
+      return startOverAvailable && hasExecutionStarted && !isBusy && !isExecuting
+        && credentialSheet.context == nil
+    }
+
+    /// Sets the failed installation aside after the person confirmed Start
+    /// over. The helper refuses a job that is still running or could not be
+    /// confirmed stopped, and keeps the journal and evidence. Returns true
+    /// once another system may be chosen.
+    public func startOver() async -> Bool {
+      guard canStartOver else { return false }
+      isBusy = true
+      defer { isBusy = false }
+      startOverMessage = nil
+      do {
+        try await environment.startOverPendingInstallation()
+      } catch {
+        startOverMessage = PlainLanguage.startOverFailed
+        await refreshStartOver()
+        return false
+      }
+      restoredRecoveryRetry = false
+      resetForInspection()
+      phase = .inspecting
+      return true
+    }
+
+    private func refreshStartOver() async {
+      startOverAvailable = false
+      guard case .failed = phase, hasExecutionStarted else { return }
+      startOverAvailable = await environment.pendingInstallationCanStartOver()
+    }
+
     // MARK: Inspection
 
     public func inspect() async {
@@ -239,6 +277,7 @@
               PlainLanguage.failure(
                 for: EngineXPCSubmissionError.recoveryAuthorizationFailed,
                 retryRecoveryAvailable: true))
+            await refreshStartOver()
           }
           return
         }
@@ -286,6 +325,7 @@
         }
         if hasExecutionStarted {
           phase = .failed(PlainLanguage.failure(for: error))
+          await refreshStartOver()
         } else {
           phase = .unsupported(PlainLanguage.failure(for: error))
         }
@@ -758,6 +798,7 @@
         drainJournal(receivedJournal)
         operationID = UUID()
         handleExecutionFailure(error, context: context, plan: plan, helper: helper)
+        await refreshStartOver()
       }
     }
 
@@ -1114,6 +1155,8 @@
       retrySheet = .hidden
       hasExecutionStarted = false
       recoveryRetryAvailable = false
+      startOverAvailable = false
+      startOverMessage = nil
       isExecuting = false
       lastHost = nil
       preservingStage1 = false
@@ -1134,6 +1177,8 @@
       retrySheet = .hidden
       hasExecutionStarted = false
       recoveryRetryAvailable = false
+      startOverAvailable = false
+      startOverMessage = nil
       isExecuting = false
       refusedPlan = nil
       if !keepingPrefetch {

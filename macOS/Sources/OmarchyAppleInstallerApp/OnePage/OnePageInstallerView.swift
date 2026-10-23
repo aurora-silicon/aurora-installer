@@ -13,6 +13,7 @@ struct OnePageInstallerView: View {
   @State private var session: InstallerSession
   @State private var showsShutdownConfirmation = false
   @State private var showsRecoveryRetryConfirmation = false
+  @State private var showsStartOverConfirmation = false
   private let device: MacHeaderDisplay
   /// Which channel this Mac reads. Owned by the scene so the banner always
   /// names the channel the next preparation will actually fetch; `nil` when
@@ -128,6 +129,21 @@ struct OnePageInstallerView: View {
           session.presentRecoveryRetryCredentials()
         },
         onCancel: { showsRecoveryRetryConfirmation = false }
+      )
+    }
+    .sheet(isPresented: $showsStartOverConfirmation) {
+      ConfirmationSheet(
+        title: PlainLanguage.startOverConfirmationTitle,
+        message: PlainLanguage.startOverConfirmationBody,
+        action: PlainLanguage.startOverConfirmationAction,
+        onConfirm: {
+          showsStartOverConfirmation = false
+          Task {
+            guard await session.startOver() else { return }
+            if let onChooseSystem { onChooseSystem() } else { await recheck() }
+          }
+        },
+        onCancel: { showsStartOverConfirmation = false }
       )
     }
   }
@@ -381,6 +397,10 @@ struct OnePageInstallerView: View {
         Button("Check again") { Task { await recheck() } }
           .omarchySecondaryButton()
       }
+      if session.canStartOver {
+        Button(PlainLanguage.startOver) { showsStartOverConfirmation = true }
+          .omarchySecondaryButton()
+      }
       if failure.retryRecoveryAvailable {
         Button(PlainLanguage.retry) { showsRecoveryRetryConfirmation = true }
           .omarchyPrimaryButton()
@@ -441,6 +461,12 @@ struct OnePageInstallerView: View {
                 ? ["No completed disk step was confirmed. Disk changes may still have started."]
                 : session.journal.feed.map(\.text)))
               .joined(separator: "\n"))
+        }
+        if let message = session.startOverMessage {
+          Text(message)
+            .font(OmarchyTheme.body)
+            .foregroundStyle(OmarchyTheme.danger)
+            .fixedSize(horizontal: false, vertical: true)
         }
       }
       .padding(.vertical, 2)

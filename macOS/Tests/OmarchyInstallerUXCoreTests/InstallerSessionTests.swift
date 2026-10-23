@@ -111,6 +111,110 @@
       XCTAssertEqual(environment.executeCount, 0)
     }
 
+    func testFailedResetIsSetAsideOnlyWhenThePersonStartsOver() async throws {
+      let environment = MockInstallerEnvironment()
+      environment.pendingInstallation = true
+      environment.resumeError = EngineXPCSubmissionError.engineFailed(
+        EngineFailureNotice(
+          reason: .unclassified, exitStatus: 1, diskUnchanged: false,
+          summary: "The preserved installation did not complete."))
+      environment.startOverAvailable = true
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      // Reopening the app never sets the job aside on its own.
+      XCTAssertEqual(environment.startOverCount, 0)
+      XCTAssertTrue(session.hasExecutionStarted)
+      XCTAssertFalse(session.canInspect)
+      XCTAssertTrue(session.canStartOver)
+      guard case .failed = session.phase else { return XCTFail("Expected the failed reset") }
+      let started = await session.startOver()
+      XCTAssertTrue(started)
+      XCTAssertEqual(environment.startOverCount, 1)
+      XCTAssertFalse(session.hasExecutionStarted)
+      XCTAssertFalse(session.canStartOver)
+      XCTAssertTrue(session.canInspect)
+      XCTAssertTrue(session.canChangeChannel)
+      environment.resumeError = nil
+      await session.inspect()
+      XCTAssertEqual(environment.resumeCount, 1)
+      XCTAssertEqual(environment.executeCount, 0)
+      guard case .welcome = session.phase else { return XCTFail("Expected a fresh choice") }
+    }
+
+    func testResumableResetKeepsItsRetryAndStartsOverOnlyWhenChosen() async throws {
+      let environment = MockInstallerEnvironment()
+      environment.pendingInstallation = true
+      environment.pendingRecoveryRetry = true
+      environment.startOverAvailable = true
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      XCTAssertTrue(session.canRetryRecoveryAuthorization)
+      XCTAssertTrue(session.canStartOver)
+      XCTAssertEqual(environment.startOverCount, 0)
+      session.presentRecoveryRetryCredentials()
+      XCTAssertFalse(session.canStartOver)
+      let started = await session.startOver()
+      XCTAssertFalse(started)
+      XCTAssertEqual(environment.startOverCount, 0)
+      session.dismissCredentials()
+      XCTAssertTrue(session.canStartOver)
+    }
+
+    func testUnconfirmedOrRefusedJobIsNeverSetAside() async throws {
+      let environment = MockInstallerEnvironment()
+      environment.pendingInstallation = true
+      environment.resumeError = InstallerJobError.interrupted
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      XCTAssertFalse(session.canStartOver)
+      let ignored = await session.startOver()
+      XCTAssertFalse(ignored)
+      XCTAssertEqual(environment.startOverCount, 0)
+      XCTAssertTrue(session.hasExecutionStarted)
+
+      // The helper refuses when the job no longer qualifies; nothing changes.
+      let refusing = MockInstallerEnvironment()
+      refusing.pendingInstallation = true
+      refusing.resumeError = EngineXPCSubmissionError.engineFailed(
+        EngineFailureNotice(
+          reason: .unclassified, exitStatus: 1, diskUnchanged: false, summary: "Stopped"))
+      refusing.startOverAvailable = true
+      refusing.startOverError = InstallerJobError.invalidRequest
+      let other = InstallerSession(environment: refusing)
+      await other.inspect()
+      refusing.startOverAvailable = false
+      let refused = await other.startOver()
+      XCTAssertFalse(refused)
+      XCTAssertEqual(refusing.startOverCount, 1)
+      XCTAssertTrue(other.hasExecutionStarted)
+      XCTAssertFalse(other.canStartOver)
+      XCTAssertNotNil(other.startOverMessage)
+      guard case .failed = other.phase else { return XCTFail("Expected the failure to remain") }
+    }
+
+    func testLiveResetFailureOffersStartOverWhenTheHelperAllows() async throws {
+      let environment = MockInstallerEnvironment()
+      environment.startOverAvailable = true
+      environment.executeResults = [
+        .failure(
+          EngineXPCSubmissionError.engineFailed(
+            EngineFailureNotice(
+              reason: .unclassified, exitStatus: 1, diskUnchanged: false,
+              summary: "The preserved installation did not complete.")))
+      ]
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      await session.continueToPlan()
+      session.continueToPlanReview()
+      session.setAcknowledged(true)
+      session.approve()
+      session.presentInstallCredentials()
+      await session.submit(try authorization())
+      XCTAssertTrue(session.hasExecutionStarted)
+      XCTAssertTrue(session.canStartOver)
+      XCTAssertEqual(environment.startOverCount, 0)
+    }
+
     func testUnknownPendingJobOutcomeKeepsFreshExecutionBlocked() async throws {
       let environment = MockInstallerEnvironment()
       environment.pendingInstallation = true
@@ -1776,6 +1880,16 @@
     var pendingInitialFailure: EngineXPCSubmissionError?
     var resumeError: (any Error)?
     private(set) var resumeCount = 0
+    var startOverAvailable = false
+    var startOverError: (any Error)?
+    private(set) var startOverCount = 0
+
+    func pendingInstallationCanStartOver() async -> Bool { startOverAvailable }
+    func startOverPendingInstallation() async throws {
+      startOverCount += 1
+      if let startOverError { throw startOverError }
+      pendingInstallation = false
+    }
 
     func hasPendingInstallation() throws -> Bool { pendingInstallation }
     func resumeInstallation(journal: @escaping @Sendable (Data) -> Void) async throws

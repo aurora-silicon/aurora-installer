@@ -830,6 +830,16 @@
         || isRecoveryAuthorizationRetryEligible(journal: journal, identity: retryIdentity)
     }
 
+    /// A failed reset may be set aside only when its journal verifies as this
+    /// reset's and no process still holds the journal lease.
+    func canAbandonFailedReset(_ identity: InstallerJobPlanIdentity, in directory: URL) -> Bool {
+      guard
+        let journal = EngineJournalLocator.journalURL(
+          workingDirectory: directory, bindingDigest: identity.bindingDigest)
+      else { return false }
+      return preservedRetryEligible(journal: journal, identity: identity)
+    }
+
     /// A helper lost during Recovery can resume only after both disk stages
     /// have durable checkpoints and no prior child retains the journal lease.
     func canResumeInterruptedRecoveryAuthorization(
