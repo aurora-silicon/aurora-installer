@@ -390,10 +390,11 @@
       guard !isRetiring else { throw ClosedEngineHelperError.retiring }
       try work.beginJob()
       defer { work.endJob() }
-      return try await executeSubmittedPackage(
-        packageDirectory: packageDirectory, authorization: authorization, operation: operation,
-        progress: progress, jobIdentifier: nil, installConf: nil
-      ).0
+      return try await InstallerTimingRecorder.attempt(operation.rawValue) {
+        try await executeSubmittedPackage(
+          packageDirectory: packageDirectory, authorization: authorization, operation: operation,
+          progress: progress, jobIdentifier: nil, installConf: nil)
+      }.0
     }
 
     func executeRegisteredJob(
@@ -403,9 +404,11 @@
       identifier: UUID,
       installConf: InstallConf
     ) async throws -> (Data, InstallConfHandoff) {
-      try await executeSubmittedPackage(
-        packageDirectory: packageDirectory, authorization: authorization, operation: operation,
-        progress: nil, jobIdentifier: identifier, installConf: installConf)
+      try await InstallerTimingRecorder.attempt(operation.rawValue) {
+        try await executeSubmittedPackage(
+          packageDirectory: packageDirectory, authorization: authorization, operation: operation,
+          progress: nil, jobIdentifier: identifier, installConf: installConf)
+      }
     }
 
     private func executeSubmittedPackage(
@@ -457,6 +460,16 @@
     func retryRegisteredJob(identifier: UUID, authorization: MachineOwnerAuthorization) async throws
       -> (Data, InstallConfHandoff)
     {
+      try await InstallerTimingRecorder.attempt(
+        EngineHandoffOperation.retryRecoveryAuthorization.rawValue
+      ) {
+        try await retryRegisteredJobAttempt(identifier: identifier, authorization: authorization)
+      }
+    }
+
+    private func retryRegisteredJobAttempt(
+      identifier: UUID, authorization: MachineOwnerAuthorization
+    ) async throws -> (Data, InstallConfHandoff) {
       try requireNoInterruptedRemoval()
       do { try credentialValidator.validate(authorization) } catch {
         throw ClosedEngineHelperError.invalidMachineOwnerCredentials
@@ -483,6 +496,13 @@
       }
     }
 
+    /// Every attempt that reached its execution journal reports where its
+    /// time went, whether it finished or stopped.
+    private func writeTiming(_ timing: InstallerTimingRecorder?, outcome: String) {
+      guard let timing, timing.persisted else { return }
+      EngineFailureDiagnosticsStore.writeTiming(timing, outcome: outcome, in: workingDirectory)
+    }
+
     private func executeImportedPackage(
       _ package: ImportedEngineHandoffPackage, authorization: MachineOwnerAuthorization,
       operation: EngineHandoffOperation, progress: (any EngineJournalProgressSink)?,
@@ -491,13 +511,14 @@
       guard package.installationIntent != .reinstall || installConf != nil else {
         throw ClosedEngineHelperError.invalidOperation
       }
+      let journalURL = EngineJournalLocator.journalURL(
+        workingDirectory: workingDirectory,
+        bindingDigest: package.bindingDigest
+      )
+      let timing = InstallerTimingRecorder.current
+      if let journalURL { timing?.attach(journal: journalURL) }
       var tailer: EngineJournalTailer?
-      if let progress,
-        let journalURL = EngineJournalLocator.journalURL(
-          workingDirectory: workingDirectory,
-          bindingDigest: package.bindingDigest
-        )
-      {
+      if let progress, let journalURL {
         let started = EngineJournalTailer(
           journalURL: journalURL,
           expectedOwner: geteuid(),
@@ -526,9 +547,11 @@
             in: workingDirectory
           )
         }
+        writeTiming(timing, outcome: "stopped")
         throw error
       }
       await tailer?.stop()
+      writeTiming(timing, outcome: "finished")
 
       let transcript = try AppleInstallerTrustCore()
         .validateEngineTranscript(result)

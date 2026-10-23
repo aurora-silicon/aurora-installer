@@ -41,6 +41,34 @@
       }
     }
 
+    func testEveryJournalRecordIsTimedBesideTheJournal() throws {
+      let fixture = try InputFixture(kind: "resize")
+      defer { fixture.remove() }
+      let timing = InstallerTimingRecorder(operation: "install")
+      timing.attach(journal: fixture.journal)
+      try InstallerTimingRecorder.$current.withValue(timing) { try fixture.prepare() }
+      let records = timing.entries.compactMap { entry -> String? in
+        guard case .record(let sequence, let type, let name, _) = entry else { return nil }
+        return "\(sequence) \(type) \(name)"
+      }
+      XCTAssertEqual(
+        records,
+        [
+          "1 inspection ", "2 inventory ", "3 plan ", "4 event apfs_preparation_started",
+          "5 checkpoint apfs-target-prepared",
+        ])
+      let sidecar = try String(
+        contentsOfFile: fixture.journal.path + InstallerTimingRecorder.fileSuffix, encoding: .utf8)
+      let lines = sidecar.split(separator: "\n")
+      XCTAssertTrue(lines[0].contains(#""type":"attempt""#))
+      XCTAssertEqual(lines.filter { $0.contains(#""type":"record""#) }.count, 5)
+      XCTAssertTrue(lines.contains { $0.contains(#""name":"apfs_collect""#) })
+      // The journal itself keeps its exact contract.
+      let validated = try AppleInstallerTrustCore().validateEngineTranscript(
+        Data(contentsOf: fixture.journal))
+      XCTAssertEqual(validated.checkpoints.map(\.identifier), ["apfs-target-prepared"])
+    }
+
     func testChangedMinimumOrLayoutStopsBeforeIntentAndCommands() throws {
       for fault in ["minimum", "partition", "identity-check", "source-owner"] {
         let fixture = try InputFixture(kind: "resize")

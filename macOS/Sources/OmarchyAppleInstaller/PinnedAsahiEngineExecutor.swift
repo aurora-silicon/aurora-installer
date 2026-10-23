@@ -192,9 +192,11 @@
           throw PinnedAsahiEngineExecutionError.nativeReinstallUnavailable
         }
         do {
-          return try await preservedReinstall.execute(
-            package, journal: journal, authorization: authorization,
-            installConf: installConf)
+          return try await InstallerPerformance.measuring("preserved_reinstall") {
+            try await preservedReinstall.execute(
+              package, journal: journal, authorization: authorization,
+              installConf: installConf)
+          }
         } catch let error as PinnedAsahiEngineExecutionError {
           throw error
         } catch {
@@ -213,7 +215,11 @@
           journal: journal, identity: RecoveryRetryIdentity(package: package))
       let operation: EngineHandoffOperation = resumesNativePreparation ? .install : operation
       let recovery: PreparedNativeRecoveryTemplate
-      do { recovery = try prepareRecoveryTemplate(package) } catch {
+      do {
+        recovery = try InstallerPerformance.measure("recovery_template") {
+          try prepareRecoveryTemplate(package)
+        }
+      } catch {
         throw preparationFailure(
           error, reason: .recoveryPreparation, operation: operation,
           journal: journal, package: package, password: authorization.password)
@@ -228,7 +234,9 @@
         guard let restoreImageRequirement, let restoreImage = package.restoreImageURL else {
           throw PinnedAsahiEngineExecutionError.restoreImageUnavailable
         }
-        try verifyRestoreImage(restoreImage, restoreImageRequirement)
+        try InstallerPerformance.measure("restore_helper_check") {
+          try verifyRestoreImage(restoreImage, restoreImageRequirement)
+        }
       } catch {
         throw preparationFailure(
           error, reason: .recoveryPreparation, operation: operation,
@@ -397,18 +405,26 @@
                   journal: journal, authorization: authorization, sourceBootstrap: sourceBootstrap
                 )
               }
-              try await preparedStubFiles?.prepare(
-                journal: journal, authorization: authorization,
-                sourceBootstrap: sourceBootstrap)
-              try preparedOSPartitions?.prepare(
-                journal: journal, authorization: authorization,
-                sourceBootstrap: sourceBootstrap)
-              try await preparedPayloadImages?.prepare(
-                journal: journal, authorization: authorization,
-                sourceBootstrap: sourceBootstrap)
-              try await preparedESPFiles?.prepare(
-                journal: journal, authorization: authorization,
-                sourceBootstrap: sourceBootstrap)
+              try await InstallerPerformance.measuring("stub_files") {
+                try await preparedStubFiles?.prepare(
+                  journal: journal, authorization: authorization,
+                  sourceBootstrap: sourceBootstrap)
+              }
+              try InstallerPerformance.measure("os_partitions") {
+                try preparedOSPartitions?.prepare(
+                  journal: journal, authorization: authorization,
+                  sourceBootstrap: sourceBootstrap)
+              }
+              try await InstallerPerformance.measuring("payload_images") {
+                try await preparedPayloadImages?.prepare(
+                  journal: journal, authorization: authorization,
+                  sourceBootstrap: sourceBootstrap)
+              }
+              try await InstallerPerformance.measuring("esp_files") {
+                try await preparedESPFiles?.prepare(
+                  journal: journal, authorization: authorization,
+                  sourceBootstrap: sourceBootstrap)
+              }
             } else {
               let bytes = try self.readAdmissionJournal(journal)
               try NativeInstallAdmission.check(
@@ -445,9 +461,11 @@
             try await prepareDiskStages()
             guard let sourceBootstrap else { throw NativeHandoffValidationError.invalidOwner }
             do {
-              try await preparedFinishing.prepare(
-                journal: journal, authorization: authorization,
-                sourceBootstrap: sourceBootstrap, recovery: recovery)
+              try await InstallerPerformance.measuring("finishing") {
+                try await preparedFinishing.prepare(
+                  journal: journal, authorization: authorization,
+                  sourceBootstrap: sourceBootstrap, recovery: recovery)
+              }
             } catch {
               throw preparationFailure(
                 error, reason: .recoveryPreparation, operation: operation,
@@ -510,9 +528,11 @@
       authorization: MachineOwnerAuthorization, requirement: String, fullReadback: Bool
     ) async throws -> Data {
       do {
-        return try await nativeHandoff.execute(
-          package: package, journal: journal,
-          authorization: authorization, requirement: requirement, fullReadback: fullReadback)
+        return try await InstallerPerformance.measuring("recovery_handoff") {
+          try await nativeHandoff.execute(
+            package: package, journal: journal,
+            authorization: authorization, requirement: requirement, fullReadback: fullReadback)
+        }
       } catch let error as PinnedAsahiEngineExecutionError { throw error } catch {
         throw PinnedAsahiEngineExecutionError.engineFailed(
           EngineFailureReport(

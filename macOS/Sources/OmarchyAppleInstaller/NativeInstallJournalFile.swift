@@ -77,6 +77,11 @@
       guard fsync(file) == 0, try readJournal() == transcript else {
         throw NativeRecoveryJournalError.writeFailed
       }
+      for (index, record) in records.enumerated()
+      where index >= before.split(separator: 10).count {
+        InstallerTimingRecorder.current?.record(
+          sequence: index + 1, type: record.message.timingType, name: "")
+      }
     }
 
     func readJournal() throws -> Data {
@@ -166,6 +171,10 @@
       try write(file, bytes: line, offset: off_t(before.count))
       guard fsync(file) == 0 else { throw NativeRecoveryJournalError.writeFailed }
       guard try readJournal() == before + line else { throw NativeRecoveryJournalError.changed }
+      InstallerTimingRecorder.current?.record(
+        sequence: before.split(separator: 10).count + 1, type: type,
+        name: payload["name"] as? String ?? payload["identifier"] as? String
+          ?? payload["outcome"] as? String ?? "")
     }
 
     func publishEvidence(_ bytes: Data, identifier: String) throws {
