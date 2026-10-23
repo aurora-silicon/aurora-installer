@@ -926,16 +926,24 @@
           workingDirectory: fixture.package.packageURL.deletingLastPathComponent(),
           bindingDigest: fixture.package.bindingDigest))
       let identity = InstallerJobPlanIdentity(package: fixture.package)
+      let workingDirectory = fixture.package.packageURL.deletingLastPathComponent()
       XCTAssertTrue(
-        executor.canResumeInterruptedRecoveryAuthorization(
-          identity, in: fixture.package.packageURL.deletingLastPathComponent()))
+        executor.canResumeInterruptedRecoveryAuthorization(identity, in: workingDirectory))
+      // A failed fresh install may be set aside while nothing holds its journal.
+      XCTAssertTrue(executor.canAbandonFailedJob(identity, in: workingDirectory))
+      XCTAssertFalse(
+        executor.canAbandonFailedJob(
+          InstallerJobPlanIdentity(
+            bindingDigest: identity.bindingDigest, planDigest: String(repeating: "b", count: 64),
+            deviceIdentifier: identity.deviceIdentifier, storeIdentifier: identity.storeIdentifier),
+          in: workingDirectory))
       let descriptor = open(journal.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
       XCTAssertGreaterThanOrEqual(descriptor, 0)
       defer { close(descriptor) }
       XCTAssertEqual(flock(descriptor, LOCK_EX | LOCK_NB), 0)
       XCTAssertFalse(
-        executor.canResumeInterruptedRecoveryAuthorization(
-          identity, in: fixture.package.packageURL.deletingLastPathComponent()))
+        executor.canResumeInterruptedRecoveryAuthorization(identity, in: workingDirectory))
+      XCTAssertFalse(executor.canAbandonFailedJob(identity, in: workingDirectory))
       XCTAssertEqual(flock(descriptor, LOCK_UN), 0)
       let evidence = URL(fileURLWithPath: journal.path + ".stub-and-esp-installed.evidence")
       XCTAssertEqual(chmod(evidence.path, 0o600), 0)

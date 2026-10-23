@@ -853,14 +853,36 @@
         || isRecoveryAuthorizationRetryEligible(journal: journal, identity: retryIdentity)
     }
 
-    /// A failed reset may be set aside only when its journal verifies as this
-    /// reset's and no process still holds the journal lease.
-    func canAbandonFailedReset(_ identity: InstallerJobPlanIdentity, in directory: URL) -> Bool {
+    /// A failed job may be set aside only when its journal verifies as this
+    /// plan's and no process still holds the journal lease. A reset's journal
+    /// must also decode as a preserved reinstall. The journal itself is kept,
+    /// and with it the evidence that lets removal undo a partial install.
+    func canAbandonFailedJob(_ identity: InstallerJobPlanIdentity, in directory: URL) -> Bool {
       guard
         let journal = EngineJournalLocator.journalURL(
-          workingDirectory: directory, bindingDigest: identity.bindingDigest)
+          workingDirectory: directory, bindingDigest: identity.bindingDigest),
+        let transcript = try? readTranscript(journal),
+        let validated = try? AppleInstallerTrustCore().validateEngineTranscript(transcript),
+        let plan = validated.plan, plan.planDigest == identity.planDigest,
+        validated.deviceIdentifier == identity.deviceIdentifier,
+        plan.storeIdentifier == identity.storeIdentifier
       else { return false }
-      return preservedRetryEligible(journal: journal, identity: identity)
+      if plan.candidateKind == "reinstall" {
+        return preservedRetryEligible(journal: journal, identity: identity)
+      }
+      let descriptor = Darwin.open(journal.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
+      guard descriptor >= 0 else { return false }
+      defer { Darwin.close(descriptor) }
+      var opened = stat()
+      var named = stat()
+      guard fstat(descriptor, &opened) == 0, lstat(journal.path, &named) == 0,
+        opened.st_mode & S_IFMT == S_IFREG, opened.st_uid == expectedFileOwnerID(),
+        opened.st_mode & 0o077 == 0, opened.st_nlink == 1,
+        opened.st_dev == named.st_dev, opened.st_ino == named.st_ino,
+        flock(descriptor, LOCK_EX | LOCK_NB) == 0
+      else { return false }
+      defer { _ = flock(descriptor, LOCK_UN) }
+      return true
     }
 
     /// A helper lost during Recovery can resume only after both disk stages
