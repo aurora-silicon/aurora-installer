@@ -561,6 +561,74 @@
       }
     }
 
+    func testAHintFromAnotherBuildIsAdmittedOnlyWhenAskedAndOnlyForTheSameService() throws {
+      let service = InstallerProductIdentity.helperMachServiceName
+      let identifier = "identifier \"\(InstallerProductIdentity.helperIdentifier)\""
+      let current = identifier + " and cdhash H\"" + String(repeating: "1", count: 40) + "\""
+      let earlier = identifier + " and cdhash H\"" + String(repeating: "2", count: 40) + "\""
+      let hint = PendingInstallerJob(
+        ticket: try request().ticket, helperMachServiceName: service,
+        helperCodeSigningRequirement: earlier)
+      func admits(_ hint: PendingInstallerJob, otherBuild: Bool) -> Bool {
+        AuthenticatedEngineXPCSubmitter.admits(
+          hint, machServiceName: service, helperCodeSigningRequirement: current,
+          otherBuild: otherBuild)
+      }
+      XCTAssertFalse(admits(hint, otherBuild: false))
+      XCTAssertTrue(admits(hint, otherBuild: true))
+      let elsewhere = PendingInstallerJob(
+        ticket: hint.ticket, helperMachServiceName: service + ".other",
+        helperCodeSigningRequirement: current)
+      XCTAssertFalse(admits(elsewhere, otherBuild: false))
+      XCTAssertFalse(admits(elsewhere, otherBuild: true))
+
+      // Adopting keeps the job and service and names this build's helper.
+      let attempt = UUID()
+      let adopted = hint.rebound(toHelperCodeSigningRequirement: current, recoveryAttempt: attempt)
+      XCTAssertEqual(adopted.ticket, hint.ticket)
+      XCTAssertEqual(adopted.helperMachServiceName, service)
+      XCTAssertEqual(adopted.helperCodeSigningRequirement, current)
+      XCTAssertEqual(adopted.recoveryAttempt, attempt)
+      XCTAssertTrue(admits(adopted, otherBuild: false))
+      let store = PendingInstallerJobStore(directory: try workspace())
+      try store.save(adopted)
+      XCTAssertEqual(try store.load(), adopted)
+    }
+
+    func testTheHelperIsAwaitedOnlyWhileItIsStarting() async throws {
+      let pings = PingScript([
+        .connectionFailed, .helperUnresponsive, .connectionFailed, nil,
+      ])
+      let slept = Counter()
+      try await InstallerJobObservation.waitForHelper(
+        attempts: 5, ping: { try await pings.next() }, sleep: { _ in slept.add() })
+      let answered = await pings.calls
+      XCTAssertEqual(answered, 4)
+      XCTAssertEqual(slept.value, 3)
+
+      let refusing = PingScript([.helperRejected(domain: "Helper", code: 1)])
+      do {
+        try await InstallerJobObservation.waitForHelper(
+          attempts: 5, ping: { try await refusing.next() }, sleep: { _ in })
+        XCTFail("A refusing helper was waited for.")
+      } catch let error as EngineXPCSubmissionError {
+        XCTAssertEqual(error, .helperRejected(domain: "Helper", code: 1))
+      }
+      let refused = await refusing.calls
+      XCTAssertEqual(refused, 1)
+
+      let silent = PingScript(Array(repeating: .connectionFailed, count: 10))
+      do {
+        try await InstallerJobObservation.waitForHelper(
+          attempts: 3, ping: { try await silent.next() }, sleep: { _ in })
+        XCTFail("A helper that never answered was reported reachable.")
+      } catch let error as InstallerJobError {
+        XCTAssertEqual(error, .unavailable)
+      }
+      let unanswered = await silent.calls
+      XCTAssertEqual(unanswered, 3)
+    }
+
     func testPendingHintRejectsAFIFOWithoutWaitingForAWriter() throws {
       let root = try workspace()
       let fifo = root.appendingPathComponent("pending-installation.json")
@@ -598,5 +666,22 @@
       calls += 1
       return try responses.removeFirst().get()
     }
+  }
+  /// Answers each ping with the next scripted error, or nil for an answer.
+  private actor PingScript {
+    private var answers: [EngineXPCSubmissionError?]
+    private(set) var calls = 0
+    init(_ answers: [EngineXPCSubmissionError?]) { self.answers = answers }
+    func next() throws {
+      calls += 1
+      if let error = answers.removeFirst() { throw error }
+    }
+  }
+
+  private final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    var value: Int { lock.withLock { count } }
+    func add() { lock.withLock { count += 1 } }
   }
 #endif

@@ -63,6 +63,22 @@
       XCTAssertTrue(free.spaceCautions(for: 77_000_000_000).isEmpty)
     }
 
+    func testASavedInstallationTheAppCannotReachSaysWhatHappened() {
+      let generic = PlainLanguage.failure(for: CocoaError(.fileReadUnknown)).headline
+      for error: InstallerJobError in [
+        .unavailable, .identityMismatch, .interrupted, .invalidRequest, .unsafeState,
+        .historyFull, .notAdmitted,
+      ] {
+        let failure = PlainLanguage.failure(for: error)
+        XCTAssertNotEqual(failure.headline, generic, "\(error)")
+        XCTAssertFalse(failure.plainDetail.isEmpty, "\(error)")
+        XCTAssertEqual(failure.technicalDetail, String(describing: error))
+      }
+      let unreachable = PlainLanguage.failure(for: InstallerJobError.unavailable)
+      XCTAssertEqual(unreachable.headline, "The installer helper isn’t answering")
+      XCTAssertTrue(unreachable.remedy?.contains("open it again") == true)
+    }
+
     func testHeaderNamesTheChosenSizeOnceThereIsOne() {
       let host = HostDisplay(
         chipAndSpace: "Apple M2 Max · 375 GB free · up to 314 GB for Aurora",

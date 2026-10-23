@@ -660,7 +660,12 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       machServiceName: configuration.helperMachServiceName,
       helperCodeSigningRequirement: configuration.helperCodeSigningRequirement,
       journalProgress: journal)
-    let snapshot = try await client.observeJob(hint)
+    // A helper the installer package just replaced may still be starting.
+    try await client.waitForHelper()
+    // Observing is read-only, so a job an earlier build of this installer
+    // started can be looked up as it is. Continuing it waits for the
+    // machine-owner password; see retryPendingRecovery.
+    let snapshot = try await client.observeJob(hint, otherBuild: true)
     if snapshot.recoveryRetryAvailable {
       _ = try requireMatchingJobDevice(snapshot)
       return .requiresRecoveryAuthorization
@@ -691,7 +696,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
         helperCodeSigningRequirement: configuration.helperCodeSigningRequirement)
     else { return InstallerPendingOptions() }
     do {
-      let snapshot = try await client.jobStatus(hint)
+      try await client.waitForHelper(attempts: 10)
+      let snapshot = try await client.jobStatus(hint, otherBuild: true)
       if snapshot.recoveryRetryAvailable { _ = try requireMatchingJobDevice(snapshot) }
       return InstallerPendingOptions(
         retry: snapshot.recoveryRetryAvailable, startOver: snapshot.startOverAvailable == true)
@@ -712,7 +718,9 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     let client = try AuthenticatedEngineXPCSubmitter(
       machServiceName: configuration.helperMachServiceName,
       helperCodeSigningRequirement: configuration.helperCodeSigningRequirement)
-    try await client.abandonJob(hint, store: store)
+    // The helper decides whether the job may be set aside, whichever build
+    // of this installer started it, and the hint is then cleared.
+    try await client.abandonJob(hint, store: store, otherBuild: true)
   }
 
   private func requireMatchingJobDevice(_ snapshot: InstallerJobSnapshot) throws
@@ -747,8 +755,12 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       machServiceName: configuration.helperMachServiceName,
       helperCodeSigningRequirement: configuration.helperCodeSigningRequirement,
       journalProgress: journal)
+    // The machine-owner password was checked before this point, and the
+    // helper checks it again. A job an earlier build of this installer
+    // started is then bound to this build's helper, which installing the
+    // newer build put in place.
     let snapshot = try await client.retryRecoveryJob(
-      hint, store: store, authorization: authorization)
+      hint, store: store, authorization: authorization, adoptingOtherBuild: true)
     let (bytes, handoff) = try snapshot.requireResult()
     let completion = try completionFromJob(snapshot, bytes: bytes, handoff: handoff)
     try store.clear()

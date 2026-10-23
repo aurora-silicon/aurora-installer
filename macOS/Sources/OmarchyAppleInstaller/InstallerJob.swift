@@ -74,6 +74,16 @@
       self.helperCodeSigningRequirement = helperCodeSigningRequirement
       self.recoveryAttempt = recoveryAttempt
     }
+
+    /// The same job and service, looked up through the helper that meets
+    /// `requirement`, for one recovery attempt.
+    func rebound(toHelperCodeSigningRequirement requirement: String, recoveryAttempt: UUID?)
+      -> PendingInstallerJob
+    {
+      PendingInstallerJob(
+        ticket: ticket, helperMachServiceName: helperMachServiceName,
+        helperCodeSigningRequirement: requirement, recoveryAttempt: recoveryAttempt)
+    }
   }
 
   public final class InstallerJobExecutionContext: @unchecked Sendable {
@@ -794,6 +804,31 @@
     }
   }
   enum InstallerJobObservation {
+    /// Waits until the helper answers a ping. Right after the installer
+    /// package replaces the helper, a connection can fail at once, or go
+    /// unanswered, until launchd starts the new helper, and a pending job
+    /// looked up then seems lost. Any other error is thrown at once. After
+    /// `attempts` unanswered pings, a second apart, the helper is reported
+    /// unavailable.
+    static func waitForHelper(
+      attempts: Int = 20, ping: @escaping @Sendable () async throws -> Void,
+      sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    ) async throws {
+      var failed = 0
+      while true {
+        do {
+          try await ping()
+          return
+        } catch let error as EngineXPCSubmissionError
+          where error == .connectionFailed || error == .helperUnresponsive
+        {
+          failed += 1
+          guard failed < attempts else { throw InstallerJobError.unavailable }
+          try await sleep(.seconds(1))
+        }
+      }
+    }
+
     static func wait(
       fetch: @escaping @Sendable (UInt64) async throws -> InstallerJobSnapshot,
       journal: (@Sendable (Data) -> Void)? = nil,
