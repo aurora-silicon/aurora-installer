@@ -117,6 +117,137 @@ private final class RangeServer: @unchecked Sendable {
   func responseStarted() -> Bool { lock.withLock { headersSent } }
 }
 
+/// Serves exact ranges of `image` and keeps each connection open for the
+/// next request, as the restore-image CDN does.
+private final class KeepAliveRangeServer: @unchecked Sendable {
+  let fd: Int32
+  let port: UInt16
+  let image: Data
+  let lock = NSLock()
+  let workers = DispatchGroup()
+  var accepted = 0
+  var served = 0
+  var stopping = false
+  var clients: [Int32] = []
+
+  init(image: Data) throws {
+    self.image = image
+    let descriptor = socket(AF_INET, SOCK_STREAM, 0)
+    fd = descriptor
+    guard descriptor >= 0 else { throw RestoreFailure("Cannot create fixture socket.") }
+    var address = sockaddr_in()
+    address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    address.sin_family = sa_family_t(AF_INET)
+    address.sin_addr.s_addr = inet_addr("127.0.0.1")
+    let bound = withUnsafePointer(to: &address) {
+      $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+        bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+      }
+    }
+    guard bound == 0 && listen(descriptor, 16) == 0 else {
+      close(descriptor)
+      throw RestoreFailure("Cannot bind fixture socket.")
+    }
+    var size = socklen_t(MemoryLayout<sockaddr_in>.size)
+    _ = withUnsafeMutablePointer(to: &address) {
+      $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(descriptor, $0, &size) }
+    }
+    port = UInt16(bigEndian: address.sin_port)
+    workers.enter()
+    DispatchQueue.global().async { [self] in
+      defer { workers.leave() }
+      while true {
+        let client = accept(fd, nil, nil)
+        if client < 0 { break }
+        if lock.withLock({ stopping }) {
+          close(client)
+          break
+        }
+        lock.withLock {
+          accepted += 1
+          clients.append(client)
+        }
+        workers.enter()
+        DispatchQueue.global().async { [self] in
+          defer { workers.leave() }
+          serve(client)
+        }
+      }
+    }
+  }
+
+  private func serve(_ client: Int32) {
+    var enabled: Int32 = 1
+    _ = setsockopt(
+      client, SOL_SOCKET, SO_NOSIGPIPE, &enabled, socklen_t(MemoryLayout<Int32>.size))
+    var pending = Data()
+    var buffer = [UInt8](repeating: 0, count: 4096)
+    while true {
+      guard let end = pending.range(of: Data("\r\n\r\n".utf8)) else {
+        let count = recv(client, &buffer, buffer.count, 0)
+        if count <= 0 { break }
+        pending.append(contentsOf: buffer.prefix(count))
+        continue
+      }
+      let head = String(decoding: pending[..<end.lowerBound], as: UTF8.self).lowercased()
+      pending = Data(pending[end.upperBound...])
+      guard
+        let line = head.components(separatedBy: "\r\n").first(where: {
+          $0.hasPrefix("range: bytes=")
+        })
+      else { break }
+      let bounds = line.dropFirst("range: bytes=".count).split(separator: "-").compactMap {
+        Int($0)
+      }
+      guard bounds.count == 2, bounds[0] <= bounds[1], bounds[1] < image.count else { break }
+      lock.withLock { served += 1 }
+      let body = image[bounds[0]...bounds[1]]
+      var response = Data(
+        ("HTTP/1.1 206 Fixture\r\nContent-Range: bytes \(bounds[0])-\(bounds[1])/\(image.count)"
+          + "\r\nContent-Length: \(body.count)\r\n\r\n").utf8)
+      response.append(body)
+      let sent = response.withUnsafeBytes { bytes in
+        var offset = 0
+        while offset < response.count {
+          let count = send(
+            client, bytes.baseAddress!.advanced(by: offset), response.count - offset, 0)
+          if count <= 0 { return false }
+          offset += count
+        }
+        return true
+      }
+      if !sent { break }
+    }
+    close(client)
+  }
+
+  func stop() {
+    let connected = lock.withLock {
+      stopping = true
+      return clients
+    }
+    for client in connected { shutdown(client, SHUT_RDWR) }
+    let wake = socket(AF_INET, SOCK_STREAM, 0)
+    if wake >= 0 {
+      var address = sockaddr_in()
+      address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+      address.sin_family = sa_family_t(AF_INET)
+      address.sin_port = port.bigEndian
+      address.sin_addr.s_addr = inet_addr("127.0.0.1")
+      _ = withUnsafePointer(to: &address) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+          connect(wake, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+        }
+      }
+      close(wake)
+    }
+    workers.wait()
+    close(fd)
+  }
+  func connections() -> Int { lock.withLock { accepted } }
+  func requests() -> Int { lock.withLock { served } }
+}
+
 final class TransportTests: XCTestCase, @unchecked Sendable {
   func testRestoreArchiveDiscoveryRequiresOneExactBoundedRange() throws {
     let url = URL(string: "https://updates.cdn-apple.com/fixture.ipsw")!
@@ -182,6 +313,24 @@ final class TransportTests: XCTestCase, @unchecked Sendable {
       }
     }
   }
+  func testRangesReuseConnectionsInsteadOfOpeningOnePerRange() async throws {
+    let image = Data((0..<4096).map { UInt8(truncatingIfNeeded: $0 &* 7) })
+    let server = try KeepAliveRangeServer(image: image)
+    defer { server.stop() }
+    let source = SourceRecord(
+      sizeBytes: image.count, sha256: image.sha256, url: "http://127.0.0.1:\(server.port)/image")
+    for index in 0..<12 {
+      let expected = Data(image[(index * 256)..<(index * 256 + 256)])
+      let bytes = try await fetchRange(
+        source, record: RangeRecord(offset: index * 256, size: 256, sha256: expected.sha256),
+        base: 0)
+      XCTAssertEqual(bytes, expected)
+    }
+    XCTAssertEqual(server.requests(), 12)
+    // Every range used to open its own session, and so its own connection.
+    XCTAssertLessThanOrEqual(server.connections(), 2)
+  }
+
   func testCancellationDuringStreaming() async throws {
     let server = try RangeServer("slow")
     defer {
@@ -299,7 +448,8 @@ private final class RangeExchangeFixture: @unchecked Sendable {
               "Content-Length": String(end - start + 1),
             ]))
         try validate(response)
-        for byte in self.image[start...end].prefix(answer.bytes) { try receive(byte) }
+        let body = Data(self.image[start...end].prefix(answer.bytes))
+        if !body.isEmpty { try receive(body) }
         if let error = answer.error { throw error }
       },
       sleep: { self.waits.append($0) })

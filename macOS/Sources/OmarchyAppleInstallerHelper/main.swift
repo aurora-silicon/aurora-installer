@@ -52,6 +52,7 @@ do {
     throw HelperBootstrapError.missingClientRequirement
   }
   let workingDirectory = try prepareWorkingDirectory()
+  RestoreImageCacheHousekeeping.run(in: workingDirectory)
   let server = ClosedEngineHelperServer(
     workingDirectory: workingDirectory,
     executor: PinnedAsahiEngineExecutor(),
