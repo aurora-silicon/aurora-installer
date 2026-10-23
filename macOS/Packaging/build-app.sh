@@ -130,10 +130,6 @@ if [[ ${OMARCHY_OFFLINE_BUILD:-0} == "1" && $sealed_catalog_available != "true" 
   fail "offline builds require a sealed catalog"
 fi
 
-if [[ ${OMARCHY_PRIVATE_LIMINE_TEST:-0} == "1" ]]; then
-  python3 "$script_directory/private-test/prepare-limine-assets.py" --verify-release "$release_directory" >/dev/null
-fi
-
 descriptor_schema="$(plutil -extract schema_version raw -o - "$release_descriptor")"
 descriptor_service="$(plutil -extract helper_mach_service_name raw -o - "$release_descriptor")"
 descriptor_requirement="$(plutil -extract helper_code_signing_requirement raw -o - "$release_descriptor")"
@@ -174,8 +170,8 @@ if [[ $descriptor_fingerprint != "$actual_fingerprint" ]]; then
   fail "release.json trust root fingerprint does not match the public key"
 fi
 
-restore_image_source="$package_directory/Engine/RestoreImage/bin/omarchy-restore-image"
-python3 "$package_directory/Engine/verify-restore-image.py" >/dev/null \
+restore_image_source="$package_directory/RestoreImage/bin/omarchy-restore-image"
+python3 "$package_directory/RestoreImage/verify-build.py" >/dev/null \
   || fail "the restore-image decoder differs from its recorded build"
 
 mkdir -p "$output_directory"
@@ -262,9 +258,9 @@ mkdir -p \
 mkdir -p "$contents/Helpers"
 restore_image_path="$contents/Helpers/omarchy-restore-image"
 install -m 0755 "$restore_image_source" "$restore_image_path"
-python3 "$package_directory/Engine/verify-restore-image.py" "$restore_image_path" >/dev/null \
+python3 "$package_directory/RestoreImage/verify-build.py" "$restore_image_path" >/dev/null \
   || fail "the decoder copy differs from its recorded build"
-install -m 0444 "$package_directory/Engine/RestoreImage/LICENSE" "$resources/omarchy-restore-image.LICENSE"
+install -m 0444 "$package_directory/RestoreImage/LICENSE" "$resources/omarchy-restore-image.LICENSE"
 install -m 0755 "$app_binary" "$contents/MacOS/$packaged_executable_name"
 install -m 0755 "$helper_binary" "$helper_path"
 install -m 0444 "$release_descriptor" "$resources/Release/release.json"
@@ -279,49 +275,11 @@ mkdir -p "$resources/RecoveryTemplate"
 /usr/bin/ditto "$recovery_template" "$resources/RecoveryTemplate/Aurora Installer.app"
 codesign --force --sign "$signing_identity" "${timestamp_arguments[@]}" \
   --options runtime "$resources/RecoveryTemplate/Aurora Installer.app"
-if [[ ${OMARCHY_PRIVATE_LIMINE_TEST:-0} == "1" ]]; then
-  install -m 0444 "$release_directory/limine-inputs.json" "$resources/Release/limine-inputs.json"
-fi
 if [[ $sealed_catalog_available == "true" ]]; then
   install -m 0444 "$sealed_catalog" "$resources/Release/catalog.json"
   install -m 0444 \
     "$sealed_catalog_signature" \
     "$resources/Release/catalog.json.sig"
-fi
-# Optional execution engines belong to the signed app, not the download cache.
-# Admit only files whose name, size and hash match its sealed catalog.
-if [[ $sealed_catalog_available == "true" && -d "$release_directory/engine-artifacts" ]]; then
-  mkdir -p "$resources/Engine/artifacts"
-  python3 - "$sealed_catalog" "$release_directory/engine-artifacts" "$resources/Engine/artifacts" <<'PYCODE'
-import hashlib
-import json
-from pathlib import Path
-import shutil
-import sys
-catalog, sources, destination = map(Path, sys.argv[1:])
-for model in json.loads(catalog.read_text())["models"]:
-    artifact = model["engineArtifact"]
-    name = artifact["fileName"]
-    if Path(name).name != name or not name.endswith(".tar.gz"):
-        raise SystemExit("unsafe bundled engine name")
-    source = sources / name
-    if source.is_symlink():
-        raise SystemExit("bundled engine cannot be a symlink")
-    if not source.exists():
-        continue
-    expected = model["engineDigest"].removeprefix("sha256:")
-    if source.stat().st_size != artifact["sizeBytes"] or hashlib.sha256(source.read_bytes()).hexdigest() != expected:
-        raise SystemExit("bundled engine differs from signed catalog")
-    target = destination / name
-    if target.exists():
-        if hashlib.sha256(target.read_bytes()).hexdigest() != expected:
-            raise SystemExit("conflicting bundled execution engine")
-        # Several models can use the same authenticated execution engine.
-        continue
-    shutil.copyfile(source, target)
-    target.chmod(0o444)
-PYCODE
-
 fi
 install -m 0444 \
   "$script_directory/AuroraInstaller.icns" \
@@ -356,8 +314,11 @@ fi
 # runs as the desktop user, even when PackageKit makes the bundle root-owned.
 /usr/bin/find "$resources/Release" -type d -exec chmod 0755 {} +
 /usr/bin/find "$resources/Release" -type f -exec chmod 0444 {} +
-python3 "$script_directory/verify-bundled-engines.py" "$assembled_app" \
-  || fail "a bundled execution engine is unsafe or carries unexpected native code"
+# The app runs only its compiled native engine: no interpreter, script or
+# engine archive may be bundled.
+unexpected_engine=$(/usr/bin/find "$assembled_app" \( -name '*.py' -o -name '*.pyc' -o -name 'Python.framework' \
+  -o -name 'python3*' -o -name 'installer-*.tar.gz' -o -path "$resources/Engine" \) -print -quit)
+[[ -z $unexpected_engine ]] || fail "the app bundle contains Python or an engine archive: $unexpected_engine"
 plutil -replace CFBundleVersion \
   -string "$build_number" "$contents/Info.plist"
 plutil -replace CFBundleIdentifier \

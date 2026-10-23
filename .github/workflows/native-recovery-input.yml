@@ -53,18 +53,12 @@ jobs:
           set -euo pipefail
           bash Recovery/build-app.sh recovery "$RUNNER_TEMP/evidence/recovery-enrollment" 2>&1 | tee "$RUNNER_TEMP/evidence/recovery-enrollment.log"
           OMARCHY_RECOVERY_BUILD=preview xcodebuildmcp swift-package build --package-path "$PWD/Recovery" --configuration release 2>&1 | tee "$RUNNER_TEMP/evidence/recovery-preview.log"
-      - name: Reproduce the pinned engine
-        run: |
-          set -euo pipefail
-          python3 Engine/prepare-engine.py --output Engine/artifacts 2>&1 | tee "$RUNNER_TEMP/evidence/engine-reproduction.log"
-          python3 Engine/verify-engine-macho.py --signatures Engine/artifacts/*.tar.gz 2>&1 | tee "$RUNNER_TEMP/evidence/runtime-signatures.log"
       - name: Assemble and inspect the application
         run: |
           set -euo pipefail
           source Packaging/identity.conf
           export OMARCHY_RECOVERY_TEMPLATE="$RUNNER_TEMP/evidence/recovery-enrollment/$INSTALLER_RECOVERY_APP_NAME.app"
           bash Packaging/validate-app-assembly.sh "$RUNNER_TEMP/app-assembly" 2>&1 | tee "$RUNNER_TEMP/evidence/app-assembly.log"
-          python3 Engine/verify-engine-macho.py --signatures "$RUNNER_TEMP/app-assembly/app/$INSTALLER_APP_NAME.app/Contents/Resources/Engine/artifacts/"*.tar.gz
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:

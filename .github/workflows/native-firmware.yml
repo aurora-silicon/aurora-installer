@@ -53,8 +53,6 @@ jobs:
           git diff --exit-code
           xcrun swift-format lint --strict --recursive Package.swift Sources/AuroraFirmware Tests/AuroraFirmwareTests Development/NativeFirmwareCheck
           xcrun swift-format lint --strict Sources/OmarchyAppleInstaller/NativeNeoPeripheralInputs.swift Tests/OmarchyAppleInstallerTrustCoreTests/NativeNeoPeripheralInputTests.swift
-      - name: Validate generic firmware reference fixture identity
-        run: python3 test/native-generic-firmware-vectors.py
       - name: Test native crypto, transport, bounds and resume validation
         run: |
           set -euo pipefail

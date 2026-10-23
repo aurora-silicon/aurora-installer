@@ -19,7 +19,7 @@ class OfflineArtifactsTest(unittest.TestCase):
         self.destination = self.root / "result"
         self.catalog = self.root / "catalog.json"
         self.model = {"status": "enabled"}
-        for role in ("engine", "metadata", "payload"):
+        for role in ("metadata", "payload"):
             data = ("offline " + role).encode()
             (self.source / role).write_bytes(data)
             self.model[role + "Artifact"] = {"fileName": role, "sizeBytes": len(data)}
@@ -27,11 +27,11 @@ class OfflineArtifactsTest(unittest.TestCase):
         self.write_catalog()
 
     def write_catalog(self, models=None):
-        self.catalog.write_text(json.dumps({"models": models or [self.model]}))
+        self.catalog.write_text(json.dumps({"schemaVersion": 5, "models": models or [self.model]}))
 
     def test_complete_bundle_is_verified_and_sources_remain(self):
-        self.assertEqual(bundle(self.catalog, self.source, self.destination), 3)
-        for role in ("engine", "metadata", "payload"):
+        self.assertEqual(bundle(self.catalog, self.source, self.destination), 2)
+        for role in ("metadata", "payload"):
             self.assertEqual((self.source / role).read_bytes(), (self.destination / role).read_bytes())
             self.assertEqual((self.destination / role).stat().st_mode & 0o777, 0o444)
 
@@ -62,9 +62,15 @@ class OfflineArtifactsTest(unittest.TestCase):
             bundle(self.catalog, self.source, self.destination)
         self.assertFalse(self.destination.exists())
 
+    def test_engine_pinning_catalog_is_refused(self):
+        self.catalog.write_text(json.dumps({"schemaVersion": 4, "models": [self.model]}))
+        with self.assertRaisesRegex(ValueError, "schema 5"):
+            bundle(self.catalog, self.source, self.destination)
+        self.assertFalse(self.destination.exists())
+
     def test_disabled_model_needs_no_artifacts(self):
         self.write_catalog([self.model, {"status": "disabled"}])
-        self.assertEqual(bundle(self.catalog, self.source, self.destination), 3)
+        self.assertEqual(bundle(self.catalog, self.source, self.destination), 2)
 
 
 if __name__ == "__main__":

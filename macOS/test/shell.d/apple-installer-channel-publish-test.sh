@@ -213,7 +213,7 @@ import sys
 
 output, sequence, payload_url, payload_size, manifest = sys.argv[1:6]
 catalog = {
-    "schemaVersion": 4,
+    "schemaVersion": 5,
     "sequence": int(sequence),
     "issuedAt": "2026-09-04T00:00:00Z",
     "models": [
@@ -822,8 +822,8 @@ python3 -c '
 import json, sys
 catalog = json.load(open(sys.argv[1]))
 assert set(catalog) == {"schemaVersion", "sequence", "issuedAt", "models"}, catalog
-assert catalog["schemaVersion"] == 4 and catalog["sequence"] == 1000 and catalog["models"] == []
-' "$WORK/empty.catalog" || fail "the empty catalog is a schema-4 catalog without models"
+assert catalog["schemaVersion"] == 5 and catalog["sequence"] == 1000 and catalog["models"] == []
+' "$WORK/empty.catalog" || fail "the empty catalog is a schema-5 catalog without models"
 "$PUBLISHER" empty-catalog --sequence 1000 --output "$WORK/empty.catalog" >/dev/null 2>&1 &&
   fail "empty-catalog never overwrites"
 "$PUBLISHER" empty-catalog --sequence 0 --output "$WORK/zero.catalog" >/dev/null 2>&1 &&

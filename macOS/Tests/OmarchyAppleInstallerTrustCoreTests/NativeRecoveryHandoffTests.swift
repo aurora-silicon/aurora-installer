@@ -364,7 +364,6 @@
       package = ImportedEngineHandoffPackage(
         packageURL: imported, manifestURL: imported,
         requestURL: imported, identityURL: imported,
-        engineURL: imported.appendingPathComponent("missing-engine"),
         metadataURL: metadata, payloadURL: payload, bindingDigest: binding,
         planDigest: vector["planDigest"] as! String, deviceIdentifier: vector["device"] as! String,
         storeIdentifier: "disk0",

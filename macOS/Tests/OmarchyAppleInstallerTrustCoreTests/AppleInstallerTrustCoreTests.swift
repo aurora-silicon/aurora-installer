@@ -285,7 +285,6 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
     guard case .admitted(let record) = catalog.admission(for: "apple,j314s") else {
       return XCTFail("Expected the signed native catalog to admit this Mac")
     }
-    XCTAssertNil(record.delivery?.engine)
     XCTAssertEqual(record.engineVersion, NativeExecutionIdentity.version)
     XCTAssertEqual(record.engineDigest, NativeExecutionIdentity.digest)
 
@@ -313,55 +312,40 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
     }
   }
 
-  func testSignedSchemaThreeCatalogBindsRepairManifestArtifact() throws {
-    let privateKey = Curve25519.Signing.PrivateKey()
-    let issued = ISO8601DateFormatter().string(
-      from: now.addingTimeInterval(-3_600)
-    )
-    let expires = ISO8601DateFormatter().string(
-      from: now.addingTimeInterval(86_400)
-    )
-    let repairDigest = "sha256:" + String(repeating: "7", count: 64)
-    let payload = Data(
-      """
-      {"schemaVersion":3,"sequence":13,"issuedAt":"\(issued)","expiresAt":"\(expires)","models":[{"deviceIdentifier":"apple,j314s","status":"enabled","operation":"repair-installed-system","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","engineVersion":"v0.9.0-omarchy.7","engineDigest":"sha256:\(String(repeating: "d", count: 64))","metadataDigest":"sha256:\(String(repeating: "e", count: 64))","payloadDigest":"sha256:\(String(repeating: "f", count: 64))","repairManifestDigest":"\(repairDigest)","evidenceRevision":"evidence-repair-1","engineArtifact":{"sourceURL":"https://downloads.example.com/engine.tar.gz","fileName":"engine.tar.gz","sizeBytes":1},"metadataArtifact":{"sourceURL":"https://downloads.example.com/metadata.json","fileName":"metadata.json","sizeBytes":1},"payloadArtifact":{"sourceURL":"https://downloads.example.com/payload.zip","fileName":"payload.zip","sizeBytes":1},"repairManifestArtifact":{"sourceURL":"https://downloads.example.com/repair.json","fileName":"repair.json","sizeBytes":1}}]}
-      """.utf8
-    )
-    let publicKey = privateKey.publicKey.rawRepresentation
-    let fingerprint =
-      "sha256:"
-      + SHA256.hash(data: publicKey)
-      .map { String(format: "%02x", $0) }
-      .joined()
-    let catalog = try core.validateSupportCatalog(
-      payload: payload,
-      signature: try privateKey.signature(for: payload),
-      trustRoot: try AppOwnedTrustRoot(
-        rawRepresentation: publicKey,
-        expectedFingerprint: fingerprint
-      ),
-      now: now
-    )
-    guard case .admitted(let record) = catalog.admission(for: "apple,j314s")
-    else {
-      return XCTFail("Expected repair catalog admission")
+  func testCatalogsThatPinAnEngineArchiveAreRefused() throws {
+    // Schemas 1 to 4 name an engine archive the installer no longer runs.
+    for schema in 1...4 {
+      let fixture = try makeCatalog(sequence: 13, schemaVersion: schema)
+      XCTAssertThrowsError(
+        try core.validateSupportCatalog(
+          payload: fixture.payload,
+          signature: fixture.signature,
+          trustRoot: fixture.trustRoot,
+          now: now
+        ),
+        "schema \(schema)"
+      ) {
+        XCTAssertEqual($0 as? SupportCatalogError, .nativeEngineRequired(schemaVersion: schema))
+      }
     }
-
-    XCTAssertEqual(record.operation, "repair-installed-system")
-    XCTAssertEqual(record.repairManifestDigest, repairDigest)
-    XCTAssertEqual(record.delivery?.repairManifest?.role, "repair-manifest")
-    XCTAssertEqual(
-      record.delivery?.repairManifest?.expectedDigest,
-      repairDigest
-    )
+    let repair = try makeCatalog(sequence: 14, schemaVersion: 3, includeExpiry: false)
+    XCTAssertThrowsError(
+      try core.validateSupportCatalog(
+        payload: repair.payload,
+        signature: repair.signature,
+        trustRoot: repair.trustRoot,
+        now: now
+      )
+    ) {
+      XCTAssertEqual($0 as? SupportCatalogError, .nativeEngineRequired(schemaVersion: 3))
+    }
   }
 
-  // MARK: Schema 4 — no expiry
+  // MARK: No expiry
 
-  func testSchemaFourCatalogWithoutExpiryStaysValidFarInTheFuture() throws {
+  func testCatalogWithoutExpiryStaysValidFarInTheFuture() throws {
     let fixture = try makeCatalog(
       sequence: 40,
-      schemaVersion: 4,
       includeExpiry: false
     )
 
@@ -375,10 +359,9 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
     XCTAssertEqual(validated.sequence, 40)
   }
 
-  func testSchemaFourCatalogWithoutExpiryInstallsWhenTheClockIsBehind() throws {
+  func testCatalogWithoutExpiryInstallsWhenTheClockIsBehind() throws {
     let fixture = try makeCatalog(
       sequence: 41,
-      schemaVersion: 4,
       includeExpiry: false
     )
 
@@ -392,12 +375,11 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
     XCTAssertEqual(validated.sequence, 41)
   }
 
-  func testSchemaFourCatalogWithAnExpiryStillEnforcesIt() throws {
+  func testCatalogWithAnExpiryStillEnforcesIt() throws {
     let fixture = try makeCatalog(
       sequence: 42,
       issuedAt: now.addingTimeInterval(-7_200),
-      expiresAt: now.addingTimeInterval(-3_600),
-      schemaVersion: 4
+      expiresAt: now.addingTimeInterval(-3_600)
     )
 
     XCTAssertThrowsError(
@@ -409,25 +391,6 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
       )
     ) {
       XCTAssertEqual($0 as? SupportCatalogError, .expired)
-    }
-  }
-
-  func testLegacySchemaWithoutAnExpiryIsRejected() throws {
-    let fixture = try makeCatalog(
-      sequence: 43,
-      schemaVersion: 2,
-      includeExpiry: false
-    )
-
-    XCTAssertThrowsError(
-      try core.validateSupportCatalog(
-        payload: fixture.payload,
-        signature: fixture.signature,
-        trustRoot: fixture.trustRoot,
-        now: now
-      )
-    ) {
-      XCTAssertEqual($0 as? SupportCatalogError, .invalidField("expiresAt"))
     }
   }
 
@@ -468,7 +431,6 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
   func testInstallerCompatibilityIsExposedWhenPresent() throws {
     let fixture = try makeCatalog(
       sequence: 46,
-      schemaVersion: 4,
       includeExpiry: false,
       installer: installerBlock(minimum: "2.0.0", latest: "2.3.1")
     )
@@ -494,7 +456,6 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
   func testAMinimumNewerThanTheLatestIsRejected() throws {
     let fixture = try makeCatalog(
       sequence: 47,
-      schemaVersion: 4,
       includeExpiry: false,
       installer: installerBlock(minimum: "3.0.0", latest: "2.0.0")
     )
@@ -517,7 +478,6 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
   func testAMalformedInstallerVersionIsRejected() throws {
     let fixture = try makeCatalog(
       sequence: 48,
-      schemaVersion: 4,
       includeExpiry: false,
       installer: installerBlock(minimum: "2.0", latest: "2.0.0")
     )
@@ -540,7 +500,6 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
   func testAPlainHTTPInstallerDownloadURLIsRejected() throws {
     let fixture = try makeCatalog(
       sequence: 49,
-      schemaVersion: 4,
       includeExpiry: false,
       installer: installerBlock(
         minimum: "2.0.0",
@@ -569,7 +528,6 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
     // working when a newer publisher adds a field it does not know.
     let fixture = try makeCatalog(
       sequence: 50,
-      schemaVersion: 4,
       includeExpiry: false,
       installer: installerBlock(minimum: "2.0.0", latest: "2.0.0")
     )
@@ -715,18 +673,18 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
       parts.first?.expectedDigest,
       "sha256:" + String(repeating: "1", count: 64)
     )
-    XCTAssertEqual(record.delivery?.engine?.parts, [])
+    XCTAssertEqual(record.delivery?.metadata.parts, [])
   }
 
   func testCatalogRejectsPartsOutsidePayloadArtifact() {
     XCTAssertThrowsError(
       try validateSigned(
-        payload: partsCatalogPayload(engineParts: twoPartManifest)
+        payload: partsCatalogPayload(metadataParts: twoPartManifest)
       )
     ) {
       XCTAssertEqual(
         $0 as? SupportCatalogError,
-        .invalidField("models[0].engineArtifact.parts")
+        .invalidField("models[0].metadataArtifact.parts")
       )
     }
   }
@@ -795,7 +753,7 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
 
   private func partsCatalogPayload(
     payloadParts: String? = nil,
-    engineParts: String? = nil
+    metadataParts: String? = nil
   ) -> Data {
     let issued = ISO8601DateFormatter().string(
       from: now.addingTimeInterval(-3_600)
@@ -803,11 +761,11 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
     let expires = ISO8601DateFormatter().string(
       from: now.addingTimeInterval(86_400)
     )
-    let engineField = engineParts.map { ",\"parts\":\($0)" } ?? ""
+    let metadataField = metadataParts.map { ",\"parts\":\($0)" } ?? ""
     let payloadField = payloadParts.map { ",\"parts\":\($0)" } ?? ""
     return Data(
       """
-      {"schemaVersion":2,"sequence":21,"issuedAt":"\(issued)","expiresAt":"\(expires)","models":[{"deviceIdentifier":"apple,j314s","status":"enabled","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","engineVersion":"v0.9.0-omarchy.7","engineDigest":"sha256:\(String(repeating: "d", count: 64))","metadataDigest":"sha256:\(String(repeating: "e", count: 64))","payloadDigest":"sha256:\(String(repeating: "f", count: 64))","evidenceRevision":"evidence-parts-1","engineArtifact":{"sourceURL":"https://downloads.example.com/engine.tar.gz","fileName":"engine.tar.gz","sizeBytes":1\(engineField)},"metadataArtifact":{"sourceURL":"https://downloads.example.com/metadata.json","fileName":"metadata.json","sizeBytes":1},"payloadArtifact":{"sourceURL":"https://downloads.example.com/payload.zip","fileName":"payload.zip","sizeBytes":12\(payloadField)}}]}
+      {"schemaVersion":5,"sequence":21,"issuedAt":"\(issued)","expiresAt":"\(expires)","models":[{"deviceIdentifier":"apple,j314s","status":"enabled","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","metadataDigest":"sha256:\(String(repeating: "e", count: 64))","payloadDigest":"sha256:\(String(repeating: "f", count: 64))","evidenceRevision":"evidence-parts-1","metadataArtifact":{"sourceURL":"https://downloads.example.com/metadata.json","fileName":"metadata.json","sizeBytes":1\(metadataField)},"payloadArtifact":{"sourceURL":"https://downloads.example.com/payload.zip","fileName":"payload.zip","sizeBytes":12\(payloadField)}}]}
       """.utf8
     )
   }
@@ -847,7 +805,7 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
     evidence: String = "evidence-1",
     issuedAt: Date? = nil,
     expiresAt: Date? = nil,
-    schemaVersion: Int = 1,
+    schemaVersion: Int = 5,
     includeExpiry: Bool = true,
     installer: String? = nil
   ) throws -> CatalogFixture {
@@ -863,13 +821,13 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
         deviceIdentifier: "apple,j314s",
         status: "enabled",
         evidence: evidence,
-        withDelivery: schemaVersion >= 2
+        schemaVersion: schemaVersion
       ),
       catalogModel(
         deviceIdentifier: "apple,j614s",
         status: "disabled",
         evidence: evidence,
-        withDelivery: schemaVersion >= 2
+        schemaVersion: schemaVersion
       ),
     ].joined(separator: ",")
     let expiryField = includeExpiry ? ",\"expiresAt\":\"\(expires)\"" : ""
@@ -905,18 +863,24 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
     """
   }
 
+  /// A schema-5 model names only its metadata and payload. Older schemas
+  /// also pin an engine archive, which the verifier refuses.
   private func catalogModel(
     deviceIdentifier: String,
     status: String,
     evidence: String,
-    withDelivery: Bool = false
+    schemaVersion: Int = 5
   ) -> String {
-    let delivery =
-      withDelivery
-      ? #","engineVersion":"v0.9.0-omarchy.14","engineArtifact":{"sourceURL":"https://downloads.example.com/engine.tar.gz","fileName":"engine.tar.gz","sizeBytes":1},"metadataArtifact":{"sourceURL":"https://downloads.example.com/metadata.json","fileName":"metadata.json","sizeBytes":1},"payloadArtifact":{"sourceURL":"https://downloads.example.com/payload.zip","fileName":"payload.zip","sizeBytes":1}"#
-      : ""
+    let artifacts =
+      #","metadataArtifact":{"sourceURL":"https://downloads.example.com/metadata.json","fileName":"metadata.json","sizeBytes":1},"payloadArtifact":{"sourceURL":"https://downloads.example.com/payload.zip","fileName":"payload.zip","sizeBytes":1}"#
+    let engine =
+      schemaVersion == 5
+      ? ""
+      : #","engineVersion":"v0.9.0-omarchy.14","engineDigest":"sha256:"#
+        + String(repeating: "d", count: 64)
+        + #"","engineArtifact":{"sourceURL":"https://downloads.example.com/engine.tar.gz","fileName":"engine.tar.gz","sizeBytes":1}"#
     return """
-      {"deviceIdentifier":"\(deviceIdentifier)","status":"\(status)","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","engineDigest":"sha256:\(String(repeating: "d", count: 64))","metadataDigest":"sha256:\(String(repeating: "e", count: 64))","payloadDigest":"sha256:\(String(repeating: "f", count: 64))","evidenceRevision":"\(evidence)"\(delivery)}
+      {"deviceIdentifier":"\(deviceIdentifier)","status":"\(status)","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","metadataDigest":"sha256:\(String(repeating: "e", count: 64))","payloadDigest":"sha256:\(String(repeating: "f", count: 64))","evidenceRevision":"\(evidence)"\(engine)\(schemaVersion >= 2 ? artifacts : "")}
       """
   }
 

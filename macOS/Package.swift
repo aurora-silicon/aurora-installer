@@ -26,14 +26,6 @@ let package = Package(
       name: "OmarchyAppleInstallerHelper",
       targets: ["OmarchyAppleInstallerHelper"]
     ),
-    .executable(
-      name: "OmarchyCanaryCandidateTool",
-      targets: ["OmarchyCanaryCandidateTool"]
-    ),
-    .executable(
-      name: "OmarchyCanaryPhysicalTool",
-      targets: ["OmarchyCanaryPhysicalTool"]
-    ),
   ],
   targets: [
     .executableTarget(name: "AuroraFirmwareRecipeGenerator"),
@@ -105,16 +97,6 @@ let package = Package(
       name: "OmarchyAppleInstallerHelper",
       dependencies: ["OmarchyAppleInstallerTrustCore"],
       path: "Sources/OmarchyAppleInstallerHelper"
-    ),
-    .executableTarget(
-      name: "OmarchyCanaryCandidateTool",
-      dependencies: ["OmarchyAppleInstallerTrustCore"],
-      path: "Sources/OmarchyCanaryCandidateTool"
-    ),
-    .executableTarget(
-      name: "OmarchyCanaryPhysicalTool",
-      dependencies: ["OmarchyAppleInstallerTrustCore"],
-      path: "Sources/OmarchyCanaryPhysicalTool"
     ),
     .testTarget(
       name: "OmarchyAppleInstallerTrustCoreTests",

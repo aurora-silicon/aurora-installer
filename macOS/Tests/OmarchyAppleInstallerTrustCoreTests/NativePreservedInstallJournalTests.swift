@@ -120,7 +120,6 @@
         packageURL: root, manifestURL: root.appendingPathComponent("manifest.json"),
         requestURL: root.appendingPathComponent("request.json"),
         identityURL: root.appendingPathComponent("identity.json"),
-        engineURL: root.appendingPathComponent("engine"),
         metadataURL: root.appendingPathComponent("metadata"),
         payloadURL: root.appendingPathComponent("payload"),
         bindingDigest: binding, planDigest: plan.planDigest,

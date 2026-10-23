@@ -193,19 +193,19 @@
     private func emptyCatalog(sequence: Int) -> Data {
       Data(
         """
-        {"schemaVersion":4,"sequence":\(sequence),"issuedAt":"2026-09-01T00:00:00Z","models":[]}
+        {"schemaVersion":5,"sequence":\(sequence),"issuedAt":"2026-09-01T00:00:00Z","models":[]}
         """.utf8)
     }
 
     private func modelCatalog(devices: [String]) -> Data {
       let models = devices.map { device in
         """
-        {"deviceIdentifier":"\(device)","status":"enabled","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","engineDigest":"sha256:\(String(repeating: "1", count: 64))","metadataDigest":"sha256:\(String(repeating: "2", count: 64))","payloadDigest":"sha256:\(String(repeating: "3", count: 64))","evidenceRevision":"evidence-s4"}
+        {"deviceIdentifier":"\(device)","status":"enabled","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","metadataDigest":"sha256:\(String(repeating: "2", count: 64))","payloadDigest":"sha256:\(String(repeating: "3", count: 64))","evidenceRevision":"evidence-s4","metadataArtifact":{"sourceURL":"https://downloads.example.com/metadata.json","fileName":"metadata.json","sizeBytes":1},"payloadArtifact":{"sourceURL":"https://downloads.example.com/payload.zip","fileName":"payload.zip","sizeBytes":1}}
         """
       }
       return Data(
         """
-        {"schemaVersion":1,"sequence":7,"issuedAt":"2026-09-01T00:00:00Z","expiresAt":"2027-09-01T00:00:00Z","models":[\(models.joined(separator: ","))]}
+        {"schemaVersion":5,"sequence":7,"issuedAt":"2026-09-01T00:00:00Z","expiresAt":"2027-09-01T00:00:00Z","models":[\(models.joined(separator: ","))]}
         """.utf8)
     }
 

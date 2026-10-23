@@ -6,10 +6,8 @@
   @testable import OmarchyAppleInstallerTrustCore
 
   final class InstallerPlanReviewTests: XCTestCase {
-    func testTheDefaultAppCoordinatorPlansWithoutAnExecutableEngine() async throws {
-      let absent = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-      let fixture = try makeFixture(engineFileURL: absent)
-      XCTAssertFalse(FileManager.default.fileExists(atPath: absent.path))
+    func testTheDefaultAppCoordinatorPlansNatively() async throws {
+      let fixture = try makeFixture()
       let base = fixture.request
       let inspection = freshInspection(from: fixture.transcript)
       let decoded = try AppleInstallerTrustCore().validateEngineTranscript(inspection)
@@ -24,7 +22,6 @@
       XCTAssertEqual(prepared.review.plan, expected.plan)
       let approval = try prepared.review.approve(confirming: confirmation(for: prepared.review))
       XCTAssertEqual(approval.identity, prepared.review.identity)
-      XCTAssertFalse(FileManager.default.fileExists(atPath: absent.path))
     }
 
     private func freshInspection(from transcript: Data) -> Data {
@@ -112,7 +109,7 @@
     }
 
     func testStagedAssetsMustMatchCandidateBoundPlan() throws {
-      let fixture = try makeFixture(alterEngineArtifact: true)
+      let fixture = try makeFixture(alterPayloadArtifact: true)
 
       XCTAssertThrowsError(
         try InstallerPlanReviewCoordinator().prepare(fixture.request)
@@ -184,7 +181,7 @@
       )
       XCTAssertEqual(
         capturedIdentity?.engineVersion,
-        "v0.9.0-omarchy.2"
+        NativeExecutionIdentity.version
       )
       XCTAssertEqual(review.plan.lengthBytes, candidate.lengthBytes)
       XCTAssertEqual(
@@ -227,8 +224,7 @@
 
     private func makeFixture(
       hostDeviceIdentifier: String = "apple,j314s",
-      alterEngineArtifact: Bool = false,
-      engineFileURL: URL = URL(fileURLWithPath: "/private/tmp/engine.tar.gz")
+      alterPayloadArtifact: Bool = false
     ) throws -> PlanReviewFixture {
       let privateKey = Curve25519.Signing.PrivateKey()
       let publicKey = privateKey.publicKey.rawRepresentation
@@ -249,35 +245,28 @@
           for: "apple,j314s"
         ), let delivery = installer.delivery
       else {
-        XCTFail("Expected admitted schema-v2 installer")
+        XCTFail("Expected admitted schema-v5 installer")
         throw InstallerPlanReviewError.assetBindingMismatch
       }
-      let engine = try XCTUnwrap(delivery.engine)
-
-      let alteredEngine = try PinnedInstallerArtifact(
-        role: engine.role,
-        sourceURL: engine.sourceURL,
-        fileName: engine.fileName,
-        expectedDigest: alterEngineArtifact
+      let payload = try PinnedInstallerArtifact(
+        role: delivery.payload.role,
+        sourceURL: delivery.payload.sourceURL,
+        fileName: delivery.payload.fileName,
+        expectedDigest: alterPayloadArtifact
           ? "sha256:" + String(repeating: "0", count: 64)
-          : engine.expectedDigest,
-        expectedSizeBytes: engine.expectedSizeBytes
+          : delivery.payload.expectedDigest,
+        expectedSizeBytes: delivery.payload.expectedSizeBytes
       )
       let assets = PreparedInstallerAssets(
         catalogIdentity: accepted.acceptedIdentity,
         installer: installer,
-        engine: StagedInstallerArtifact(
-          artifact: alteredEngine,
-          fileURL: engineFileURL,
-          reusedExistingFile: false
-        ),
         metadata: StagedInstallerArtifact(
           artifact: delivery.metadata,
           fileURL: URL(fileURLWithPath: "/private/tmp/metadata.json"),
           reusedExistingFile: false
         ),
         payload: StagedInstallerArtifact(
-          artifact: delivery.payload,
+          artifact: payload,
           fileURL: URL(fileURLWithPath: "/private/tmp/payload.img.zst"),
           reusedExistingFile: false
         )
@@ -354,7 +343,7 @@
       )
       return Data(
         """
-        {"schemaVersion":2,"sequence":50,"issuedAt":"\(issued)","expiresAt":"\(expires)","models":[{"deviceIdentifier":"apple,j314s","status":"enabled","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","engineVersion":"v0.9.0-omarchy.2","engineDigest":"sha256:\(String(repeating: "d", count: 64))","metadataDigest":"sha256:\(String(repeating: "e", count: 64))","payloadDigest":"sha256:\(String(repeating: "f", count: 64))","evidenceRevision":"evidence-s5","engineArtifact":{"sourceURL":"https://downloads.example.com/engine.tar.gz","fileName":"engine.tar.gz","sizeBytes":1},"metadataArtifact":{"sourceURL":"https://downloads.example.com/metadata.json","fileName":"metadata.json","sizeBytes":1},"payloadArtifact":{"sourceURL":"https://downloads.example.com/payload.img.zst","fileName":"payload.img.zst","sizeBytes":1}}]}
+        {"schemaVersion":5,"sequence":50,"issuedAt":"\(issued)","expiresAt":"\(expires)","models":[{"deviceIdentifier":"apple,j314s","status":"enabled","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","metadataDigest":"sha256:\(String(repeating: "e", count: 64))","payloadDigest":"sha256:\(String(repeating: "f", count: 64))","evidenceRevision":"evidence-s5","metadataArtifact":{"sourceURL":"https://downloads.example.com/metadata.json","fileName":"metadata.json","sizeBytes":1},"payloadArtifact":{"sourceURL":"https://downloads.example.com/payload.img.zst","fileName":"payload.img.zst","sizeBytes":1}}]}
         """.utf8
       )
     }
@@ -375,8 +364,8 @@
       let planDigest = lengthPrefixedDigest(
         [
           "apple,j314s", "disk0", layoutDigest, "free", "disk0s3",
-          "447750000000", String(lengthBytes), "v0.9.0-omarchy.2",
-          "sha256:" + String(repeating: "d", count: 64),
+          "447750000000", String(lengthBytes), NativeExecutionIdentity.version,
+          NativeExecutionIdentity.digest,
           "sha256:" + String(repeating: "e", count: 64),
           "sha256:" + String(repeating: "f", count: 64),
           humanSteps.joined(separator: ","),
@@ -387,7 +376,7 @@
       let records = [
         #"{"schema_version":1,"sequence":1,"type":"inspection","payload":{"device_identifier":"apple,j314s","support":"supported"}}"#,
         #"{"schema_version":1,"sequence":2,"type":"inventory","payload":{"layout_digest":"\#(layoutDigest)","system_store_identifier":"disk0","candidates":[{"kind":"free","source_identifier":"disk0s3","offset_bytes":447750000000,"length_bytes":\#(lengthBytes),"minimum_install_bytes":67501226240,"minimum_container_bytes":0}]}}"#,
-        #"{"schema_version":1,"sequence":3,"type":"plan","payload":{"plan_digest":"\#(planDigest)","device_identifier":"apple,j314s","store_identifier":"disk0","layout_digest":"\#(layoutDigest)","candidate_kind":"free","source_identifier":"disk0s3","offset_bytes":447750000000,"length_bytes":\#(lengthBytes),"engine_version":"v0.9.0-omarchy.2","engine_digest":"sha256:\#(String(repeating: "d", count: 64))","metadata_digest":"sha256:\#(String(repeating: "e", count: 64))","payload_digest":"sha256:\#(String(repeating: "f", count: 64))","required_human_steps":["enterOneTrueRecovery","authenticateMachineOwner"]}}"#,
+        #"{"schema_version":1,"sequence":3,"type":"plan","payload":{"plan_digest":"\#(planDigest)","device_identifier":"apple,j314s","store_identifier":"disk0","layout_digest":"\#(layoutDigest)","candidate_kind":"free","source_identifier":"disk0s3","offset_bytes":447750000000,"length_bytes":\#(lengthBytes),"engine_version":"\#(NativeExecutionIdentity.version)","engine_digest":"\#(NativeExecutionIdentity.digest)","metadata_digest":"sha256:\#(String(repeating: "e", count: 64))","payload_digest":"sha256:\#(String(repeating: "f", count: 64))","required_human_steps":["enterOneTrueRecovery","authenticateMachineOwner"]}}"#,
         #"{"schema_version":1,"sequence":4,"type":"checkpoint","payload":{"plan_digest":"\#(planDigest)","identifier":"cp-1","phase":"apfs_preparation","evidence_digest":"\#(evidence)"}}"#,
         #"{"schema_version":1,"sequence":5,"type":"completion","payload":{"plan_digest":"\#(planDigest)","outcome":"awaiting_recovery"}}"#,
       ]

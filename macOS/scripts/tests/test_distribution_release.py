@@ -42,7 +42,7 @@ class DistributionReleaseTests(unittest.TestCase):
                                        for channel in ("stable", "rc", "edge")}}
             (directory / "release.json").write_text(json.dumps(descriptor))
             (directory / "trust-root.ed25519.pub").write_bytes(self.public)
-            (directory / "catalog.json").write_text(json.dumps({"schemaVersion": 4, "sequence": 1,
+            (directory / "catalog.json").write_text(json.dumps({"schemaVersion": 5, "sequence": 1,
                 "models": [{"status": "enabled", "installationProfile": profile}]}))
             self.sign(directory)
         (release / "release.json").write_text(json.dumps(descriptor))
@@ -63,7 +63,6 @@ class DistributionReleaseTests(unittest.TestCase):
         for profile in module.PROFILES:
             directory = self.profiles / profile
             catalog = json.loads((directory / "catalog.json").read_text())
-            catalog["schemaVersion"] = 5
             catalog["installer"] = {"minimumVersion": "0.1.0", "latestVersion": "0.1.0"}
             (directory / "catalog.json").write_text(json.dumps(catalog))
             self.sign(directory)
@@ -73,16 +72,17 @@ class DistributionReleaseTests(unittest.TestCase):
         self.assertEqual(len(list((output / "Profiles").iterdir())), 9)
         self.assertEqual(json.loads((output / "catalog.json").read_text())["schemaVersion"], 5)
 
-    def test_mixed_schemas_and_engine_bearing_native_catalogs_emit_no_release(self):
+    def test_engine_pinning_catalogs_emit_no_release(self):
         directory = self.profiles / "fedora-kde"
         catalog = json.loads((directory / "catalog.json").read_text())
-        catalog["schemaVersion"] = 5
+        catalog["schemaVersion"] = 4
         (directory / "catalog.json").write_text(json.dumps(catalog))
         self.sign(directory)
         output = self.root / "output"
-        with patch.object(module, "ROOT", self.root), self.assertRaisesRegex(ValueError, "mixed catalog"):
+        with patch.object(module, "ROOT", self.root), self.assertRaisesRegex(ValueError, "native-only schema 5"):
             module.prepare(self.profiles, output)
         self.assertFalse(output.exists())
+        catalog["schemaVersion"] = 5
         catalog["models"][0]["engineArtifact"] = {"fileName": "engine.tar.gz"}
         (directory / "catalog.json").write_text(json.dumps(catalog))
         self.sign(directory)

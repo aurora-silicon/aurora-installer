@@ -122,12 +122,6 @@
       device = info.st_dev
       inode = info.st_ino
     }
-    var environment: [String: String] {
-      [
-        "OMARCHY_NATIVE_PERIPHERALS": directory.path,
-        "OMARCHY_NATIVE_FIRMWARE_RECIPE": recipeSHA256,
-      ]
-    }
     /// Cleanup ignores task cancellation, but never ignores an I/O failure or
     /// deletes a different directory that has replaced this attempt's snapshot.
     func remove() throws {

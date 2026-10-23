@@ -7,10 +7,10 @@ The implementation and recipe format derive from [Eryk Wieliczko's macos-firmwar
 Build and test on macOS with Xcode. The shipped helper’s reproducibility build uses Xcode 26.5, Apple Swift 6.3.2 and the macOS 26.5 SDK, matching the CI producer:
 
 ```sh
-swift test --package-path Engine/RestoreImage
-swift test --package-path Engine/RestoreImage -c release
-swift build --package-path Engine/RestoreImage -c release
-DEVELOPER_DIR=/Applications/Xcode_26.5.app/Contents/Developer bash Engine/RestoreImage/build.sh out/restore-image
+swift test --package-path RestoreImage
+swift test --package-path RestoreImage -c release
+swift build --package-path RestoreImage -c release
+DEVELOPER_DIR=/Applications/Xcode_26.5.app/Contents/Developer bash RestoreImage/build.sh out/restore-image
 ```
 
 The command-line interface remains:
@@ -32,4 +32,4 @@ APFS LZVN chunks may contain padding after their end-of-stream instruction. The 
 
 The linker emits its content-derived UUID, which current macOS requires.
 
-`build.sh OUTPUT_DIRECTORY` rejects a compiler or SDK that differs from `build-record.json` before building. It invokes Swift through `xcrun`, selects SwiftPM's native build backend, queries its binary output path, performs two clean release builds using the same toolchain, requires byte identity, and writes the executable plus a source/toolchain/digest manifest. The engine's source lock records those inputs and the resulting binary. This establishes repeatability on that recorded toolchain; it does not claim reproducibility across different Xcode versions.
+`build.sh OUTPUT_DIRECTORY` rejects a compiler or SDK that differs from `build-record.json` before building. It invokes Swift through `xcrun`, selects SwiftPM's native build backend, queries its binary output path, performs two clean release builds using the same toolchain, requires byte identity, and writes the executable plus a source/toolchain/digest manifest. After a rebuild, copy the executable to `bin/` and the manifest's fields to `build-record.json`; `verify-build.py` checks both before packaging. This establishes repeatability on that recorded toolchain; it does not claim reproducibility across different Xcode versions.

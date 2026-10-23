@@ -13,14 +13,13 @@ tests_temp=$(mktemp -d "${TMPDIR:-/tmp}/omarchy-installer-tests.XXXXXX")
 trap 'rm -rf -- "$tests_temp"' EXIT
 export TMPDIR="$tests_temp"
 export PYTHONPYCACHEPREFIX="$tests_temp/pycache"
-export PYTHONPATH="$root/Engine/overlay/src"
 
 python3 - <<'PY'
 from pathlib import Path
 import py_compile
 import subprocess
 
-for directory in ("Engine", "scripts", "Packaging", "Development", "test"):
+for directory in ("RestoreImage", "scripts", "Packaging", "Development", "test"):
     for path in sorted(Path(directory).rglob("*")):
         if not path.is_file() or "__pycache__" in path.parts:
             continue
@@ -33,21 +32,9 @@ for directory in ("Engine", "scripts", "Packaging", "Development", "test"):
 print("Python compilation and shell syntax passed")
 PY
 
-python3 Packaging/read-validation-engine.py >/dev/null
-python3 test/native-plan-vectors.py
 python3 test/native-stub-file-vectors.py
-python3 test/native-inspection-vectors.py
-python3 test/native-handoff-vectors.py
-python3 test/native-payload-vectors.py
-python3 test/native-firmware-selection-vectors.py
-python3 test/native-source-owner-vectors.py
-python3 test/native-sensor-calibration-vectors.py
-python3 test/native-neo-firmware-vectors.py
-python3 test/native-generic-firmware-vectors.py
 python3 test/native-finishing-vectors.py
 
-python3 -m unittest discover -s Engine/tests -p 'test_*.py'
-python3 -m unittest discover -s Engine/overlay/tests -p 'test_*.py'
 python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 bash scripts/tests/preclean-m1-test.sh
 for test_file in test/shell.d/apple-installer-*-test.sh; do
