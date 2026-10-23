@@ -169,6 +169,15 @@
       deviceIdentifier = package.deviceIdentifier
       storeIdentifier = package.storeIdentifier
     }
+
+    init(
+      bindingDigest: String, planDigest: String, deviceIdentifier: String, storeIdentifier: String
+    ) {
+      self.bindingDigest = bindingDigest
+      self.planDigest = planDigest
+      self.deviceIdentifier = deviceIdentifier
+      self.storeIdentifier = storeIdentifier
+    }
   }
 
   public enum InstallerJobPhase: String, Codable, Sendable {
