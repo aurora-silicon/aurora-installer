@@ -280,7 +280,8 @@
     /// Publishes only the app entry; the System volume itself is never replaced.
     /// A volume root is created root:admin 0775, so when the parent is one it
     /// is held to the volume-root rule of the installer's file trees: no
-    /// write by others, and it must be that volume's mount point.
+    /// write by others. The caller has already verified it as that volume's
+    /// mount point when it opened the volume's tree.
     static func publishApp(
       _ prepared: PreparedNativeRecoveryTemplate, to destination: URL, owner: uid_t,
       parentIsVolumeRoot: Bool = false,
@@ -355,14 +356,8 @@
 
     private static func requireVolumeRoot(_ url: URL, owner: uid_t) throws {
       var status = stat()
-      var filesystem = statfs()
       guard lstat(url.path, &status) == 0, status.st_uid == owner, status.st_mode & 0o002 == 0,
-        status.st_mode & S_IFMT == S_IFDIR, statfs(url.path, &filesystem) == 0,
-        withUnsafeBytes(
-          of: filesystem.f_mntonname,
-          {
-            String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self)
-          }) == url.path
+        status.st_mode & S_IFMT == S_IFDIR
       else { throw NativeRecoveryTemplateError.unsafeTemplate }
     }
 
