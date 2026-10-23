@@ -434,6 +434,90 @@
       XCTAssertFalse(FileManager.default.fileExists(atPath: location.path))
     }
 
+    func testRestoreCacheOutlivesAFailedAttemptAndServesTheNextOne() async throws {
+      let directory = try root()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let identity = Data(#"{"bytes":65536,"url":"image","version":"26.6.2"}"#.utf8)
+      let location = NativeStubRestoreCache.root(in: directory, identity: identity)
+      XCTAssertTrue(location.lastPathComponent.hasPrefix(NativeStubRestoreCache.prefix))
+      let first = CountingSource()
+      let failed = try NativeStubRestoreCache(
+        source: first, root: location, owner: geteuid(), identity: identity)
+      let bytes = try await failed.read(offset: 0, count: 65536)
+      // The attempt fails here; the next one has a new plan but the same image.
+      NativeStubRestoreCache.prune(
+        in: directory, keeping: (location, identity), owner: geteuid(), freeBytes: { _ in 0 })
+      let second = CountingSource()
+      let next = try NativeStubRestoreCache(
+        source: second, root: location, owner: geteuid(), identity: identity)
+      let reused = try await next.read(offset: 0, count: 65536)
+      XCTAssertEqual(reused, bytes)
+      let downloads = await second.count()
+      XCTAssertEqual(downloads, 0)
+      try await next.retire()
+      XCTAssertFalse(FileManager.default.fileExists(atPath: location.path))
+    }
+
+    func testRestoreCachesArePrunedByAgeKindAndSpace() throws {
+      let directory = try root()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let now = Date()
+      let identity = Data("current".utf8)
+      let current = NativeStubRestoreCache.root(in: directory, identity: identity)
+      func cache(_ name: String, daysAgo: Double, identity: Data? = nil) throws -> URL {
+        let url = directory.appendingPathComponent(name)
+        try FileManager.default.createDirectory(
+          at: url, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        if let identity {
+          try identity.write(to: url.appendingPathComponent("identity.json"))
+          chmod(url.appendingPathComponent("identity.json").path, 0o600)
+        }
+        try FileManager.default.setAttributes(
+          [.modificationDate: now.addingTimeInterval(-daysAgo * 86400)], ofItemAtPath: url.path)
+        return url
+      }
+      let plan = try cache(NativeStubRestoreCache.planPrefix + "plan", daysAgo: 0)
+      let stale = try cache(NativeStubRestoreCache.prefix + "stale", daysAgo: 8)
+      let recent = try cache(NativeStubRestoreCache.prefix + "recent", daysAgo: 1)
+      let older = try cache(NativeStubRestoreCache.prefix + "older", daysAgo: 2)
+      _ = try cache(current.lastPathComponent, daysAgo: 30, identity: identity)
+      let unrelated = try cache("native-stub-decode-plan", daysAgo: 30)
+      func exists(_ url: URL) -> Bool { FileManager.default.fileExists(atPath: url.path) }
+
+      NativeStubRestoreCache.prune(
+        in: directory, keeping: (current, identity), owner: geteuid(), now: now,
+        freeBytes: { _ in 100 << 30 })
+      XCTAssertFalse(exists(plan), "Plan-keyed caches are never reused")
+      XCTAssertFalse(exists(stale))
+      XCTAssertTrue(exists(recent))
+      XCTAssertTrue(exists(older))
+      XCTAssertTrue(exists(current), "The image being installed keeps its cache at any age")
+      XCTAssertTrue(exists(unrelated))
+
+      // Low space removes other images' caches, least recently used first.
+      var free: UInt64 = 1 << 30
+      NativeStubRestoreCache.prune(
+        in: directory, keeping: (current, identity), owner: geteuid(), now: now,
+        freeBytes: { _ in
+          defer { free += 20 << 30 }
+          return free
+        })
+      XCTAssertFalse(exists(older))
+      XCTAssertTrue(exists(recent))
+      XCTAssertTrue(exists(current))
+
+      // A cache under the current name for another identity is replaced.
+      NativeStubRestoreCache.prune(
+        in: directory, keeping: (current, Data("another".utf8)), owner: geteuid(), now: now,
+        freeBytes: { _ in 100 << 30 })
+      XCTAssertFalse(exists(current))
+
+      // The helper's start-up pass applies the same age and kind rules.
+      let left = try cache(NativeStubRestoreCache.planPrefix + "left", daysAgo: 0)
+      RestoreImageCacheHousekeeping.run(in: directory)
+      XCTAssertFalse(exists(left))
+    }
+
     func testLiveNestedDecoderWorkspaceIsNeverRetired() throws {
       let directory = try root()
       defer { try? FileManager.default.removeItem(at: directory) }

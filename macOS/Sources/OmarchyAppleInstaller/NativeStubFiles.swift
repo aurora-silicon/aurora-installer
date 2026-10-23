@@ -112,13 +112,14 @@
       // is qualified. Never interpret an update archive as a restore IPSW.
       guard firmware.sourceURL.path.lowercased().hasSuffix(".ipsw") else { return nil }
       let source = try await IPSWHTTPRangeReader.discover(url: firmware.sourceURL)
-      let cache = package.packageURL.deletingLastPathComponent()
-        .appendingPathComponent("native-stub-cache-" + approved.planDigest)
       let identity = try JSONSerialization.data(
         withJSONObject: [
-          "plan": approved.planDigest,
           "url": firmware.sourceURL.absoluteString, "bytes": source.sizeBytes,
-        ], options: [.sortedKeys])
+          "version": firmware.version,
+        ], options: [.sortedKeys, .withoutEscapingSlashes])
+      let directory = package.packageURL.deletingLastPathComponent()
+      let cache = NativeStubRestoreCache.root(in: directory, identity: identity)
+      NativeStubRestoreCache.prune(in: directory, keeping: (cache, identity), owner: owner)
       let reader = try NativeStubRestoreCache(
         source: source, root: cache, owner: owner, identity: identity)
       let archive = try await IPSWArchive.open(reader)

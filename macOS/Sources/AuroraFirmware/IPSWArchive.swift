@@ -140,6 +140,11 @@ public struct IPSWArchiveMember: Equatable, Sendable {
 /// Single-disk ZIP/ZIP64 metadata and bounded stored/deflate member reads.
 /// No file extraction, process launch or whole-image fallback is performed.
 public struct IPSWArchive: Sendable {
+  /// A member body is read in ranges of this size, up to `rangesInFlight` at a
+  /// time, so one slow response does not leave the link idle.
+  static let rangeBytes = 4 << 20
+  public static let rangesInFlight = 8
+
   public let members: [IPSWArchiveMember]
   private let source: any FirmwareRangeReading
   private let directoryOffset: Int
@@ -453,12 +458,13 @@ public struct IPSWArchive: Sendable {
       produced += bytes.count
       try consume(bytes)
     }
+    let body = RangesAhead(source: source, offset: offset, count: member.compressedSize)
+    defer { body.cancel() }
     if member.compressionMethod == 0 {
       try require(member.compressedSize == member.sizeBytes, "Stored IPSW member size mismatch.")
       while produced < member.sizeBytes {
         try Task.checkCancellation()
-        let count = min(4 << 20, member.sizeBytes - produced)
-        let bytes = try await Self.exact(source, offset: offset + produced, count: count)
+        guard let bytes = try await body.next() else { break }
         try emit(bytes)
       }
     } else {
@@ -470,14 +476,11 @@ public struct IPSWArchive: Sendable {
       defer { inflateEnd(&inflater) }
       var input = Data()
       var cursor = 0
-      var fetched = 0
       while true {
         try Task.checkCancellation()
-        if cursor == input.count && fetched < member.compressedSize {
-          let count = min(4 << 20, member.compressedSize - fetched)
-          input = try await Self.exact(source, offset: offset + fetched, count: count)
+        if cursor == input.count, let next = try await body.next() {
+          input = next
           cursor = 0
-          fetched += count
         }
         let previousInput = inflater.total_in
         let previousOutput = inflater.total_out
@@ -524,6 +527,50 @@ public struct IPSWArchive: Sendable {
       zlib.crc32(0, $0.bindMemory(to: Bytef.self).baseAddress, uInt(bytes.count))
     }
     try require(UInt32(checksum) == member.crc32, "IPSW member CRC mismatch.")
+  }
+
+  /// Reads `count` bytes from `offset` in consecutive ranges ahead of the
+  /// consumer and hands them over in order. The first call has one range in
+  /// flight, and each later call doubles that up to `rangesInFlight`, so a
+  /// consumer that stops early leaves little unread, while a long member keeps
+  /// the link busy as the consumer works on each range. Ranges are only
+  /// requested when the consumer asks for the next one, so at most
+  /// `rangesInFlight` are in flight.
+  private final class RangesAhead {
+    private let source: any FirmwareRangeReading
+    private var offset: Int
+    private let end: Int
+    private var window = 1
+    private var pending: [Task<Data, any Error>] = []
+
+    init(source: any FirmwareRangeReading, offset: Int, count: Int) {
+      self.source = source
+      self.offset = offset
+      end = offset + count
+    }
+
+    func next() async throws -> Data? {
+      while pending.count < window, offset < end {
+        let reader = self.source
+        let start = self.offset
+        let count = min(IPSWArchive.rangeBytes, end - start)
+        pending.append(Task { try await IPSWArchive.exact(reader, offset: start, count: count) })
+        offset += count
+      }
+      guard !pending.isEmpty else { return nil }
+      window = min(window * 2, IPSWArchive.rangesInFlight)
+      let range = pending.removeFirst()
+      return try await withTaskCancellationHandler {
+        try await range.value
+      } onCancel: {
+        range.cancel()
+      }
+    }
+
+    func cancel() {
+      for range in pending { range.cancel() }
+      pending.removeAll()
+    }
   }
 
   private static func exact(_ source: any FirmwareRangeReading, offset: Int, count: Int)

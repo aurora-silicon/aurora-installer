@@ -1,7 +1,33 @@
 import Foundation
 import XCTest
+import zlib
 
 @testable import AuroraFirmware
+
+/// Answers each read after `delay`, and records how many were in flight.
+private actor SlowSource: FirmwareRangeReading {
+  nonisolated let sizeBytes: Int
+  let inner: ZIPSource
+  let delay: Duration
+  var inFlight = 0
+  var mostInFlight = 0
+  var reads: [(offset: Int, count: Int)] = []
+
+  init(_ inner: ZIPSource, delay: Duration) {
+    self.inner = inner
+    self.delay = delay
+    sizeBytes = inner.sizeBytes
+  }
+
+  func read(offset: Int, count: Int) async throws -> Data {
+    inFlight += 1
+    mostInFlight = max(mostInFlight, inFlight)
+    defer { inFlight -= 1 }
+    try await Task.sleep(for: delay)
+    reads.append((offset, count))
+    return try await inner.read(offset: offset, count: count)
+  }
+}
 
 private actor ZIPSource: FirmwareRangeReading {
   nonisolated let sizeBytes: Int
@@ -348,6 +374,54 @@ final class IPSWArchiveTests: XCTestCase, @unchecked Sendable {
     XCTAssertEqual(delivered, 4 << 20)
     let streamed = await source.transferred()
     XCTAssertLessThan(streamed, 5 << 20)
+  }
+
+  func testLongMembersKeepRangesInFlightAndDeliverThemInOrder() async throws {
+    let original = try largeBytes()
+    let cd = try central(original)
+    let range = 4 << 20
+    let size = 10 * range + 12345
+    var body = Data(count: size)
+    body.withUnsafeMutableBytes { (bytes: UnsafeMutableRawBufferPointer) in
+      for index in 0..<size {
+        bytes[index] = UInt8(truncatingIfNeeded: index / range * 31 + index % 7)
+      }
+    }
+    let crc = body.withUnsafeBytes {
+      Int(zlib.crc32(0, $0.bindMemory(to: Bytef.self).baseAddress, uInt(size)))
+    }
+    let start = 30 + "large.img".utf8.count
+    var header = Data(original.prefix(start))
+    set(&header, at: 8, value: 0, width: 2)
+    set(&header, at: 14, value: crc, width: 4)
+    set(&header, at: 18, value: size, width: 4)
+    set(&header, at: 22, value: size, width: 4)
+    var tail = Data(original.suffix(from: cd))
+    set(&tail, at: 10, value: 0, width: 2)
+    set(&tail, at: 16, value: crc, width: 4)
+    set(&tail, at: 20, value: size, width: 4)
+    set(&tail, at: 24, value: size, width: 4)
+    set(&tail, at: tail.count - 22 + 16, value: start + size, width: 4)
+    let source = SlowSource(
+      ZIPSource(
+        size: start + size + tail.count, spans: [(0, header), (start, body), (start + size, tail)]),
+      delay: .milliseconds(200))
+    let archive = try await IPSWArchive.open(source)
+    let member = try XCTUnwrap(archive.members.first)
+    // Opening read the directory at the end of the archive.
+    let opening = await source.reads.count
+    var delivered = Data()
+    try await archive.stream(member, maximumBytes: size, maximumCompressedBytes: size) {
+      delivered.append($0)
+    }
+    XCTAssertEqual(delivered, body)
+    let mostInFlight = await source.mostInFlight
+    let allReads = await source.reads
+    let reads = allReads.dropFirst(opening).filter { $0.offset >= start }
+    XCTAssertEqual(mostInFlight, IPSWArchive.rangesInFlight)
+    XCTAssertEqual(reads.map(\.count).reduce(0, +), size, "Each body byte is read once")
+    XCTAssertEqual(reads.count, 11)
+    XCTAssertTrue(reads.allSatisfy { $0.count <= range })
   }
 
   func testWholeDirectoryAdmissionRejectsUnusedUnsafeLocalRecords() async throws {

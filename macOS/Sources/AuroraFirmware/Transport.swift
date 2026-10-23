@@ -58,19 +58,39 @@ func httpBytes(
   return data
 }
 
+/// Requests that may not redirect share one session, so consecutive and
+/// concurrent ranges reuse its connections instead of paying a TCP and TLS
+/// handshake, and a fresh TCP slow start, for every range. A request still
+/// times out after its own `timeoutInterval` without data; the whole
+/// transfer may take longer, since ranges in flight together share the link.
+let rangeSession: URLSession = {
+  let config = URLSessionConfiguration.ephemeral
+  config.httpCookieStorage = nil
+  config.urlCache = nil
+  config.httpMaximumConnectionsPerHost = IPSWArchive.rangesInFlight
+  config.timeoutIntervalForResource = 600
+  return URLSession(
+    configuration: config, delegate: RedirectPolicy(keyPath: nil), delegateQueue: nil)
+}()
+
 /// Validates the response head before handing on any body byte.
 func httpStream(
   _ request: URLRequest, keyPath: String? = nil,
   validate: (HTTPURLResponse) throws -> Void, receive: (UInt8) throws -> Void
 ) async throws {
-  let config = URLSessionConfiguration.ephemeral
-  config.timeoutIntervalForRequest = request.timeoutInterval
-  config.timeoutIntervalForResource = request.timeoutInterval
-  config.httpCookieStorage = nil
-  config.urlCache = nil
-  let session = URLSession(
-    configuration: config, delegate: RedirectPolicy(keyPath: keyPath), delegateQueue: nil)
-  defer { session.invalidateAndCancel() }
+  let session: URLSession
+  if keyPath == nil {
+    session = rangeSession
+  } else {
+    let config = URLSessionConfiguration.ephemeral
+    config.timeoutIntervalForRequest = request.timeoutInterval
+    config.timeoutIntervalForResource = request.timeoutInterval
+    config.httpCookieStorage = nil
+    config.urlCache = nil
+    session = URLSession(
+      configuration: config, delegate: RedirectPolicy(keyPath: keyPath), delegateQueue: nil)
+  }
+  defer { if keyPath != nil { session.invalidateAndCancel() } }
   let (bytes, response) = try await session.bytes(for: request)
   guard let response = response as? HTTPURLResponse else {
     throw RestoreFailure("Invalid HTTP response.")
