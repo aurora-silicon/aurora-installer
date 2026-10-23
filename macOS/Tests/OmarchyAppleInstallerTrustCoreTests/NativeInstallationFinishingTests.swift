@@ -259,6 +259,32 @@
           atPath: fixture.system.appendingPathComponent("Aurora Installer.app").path))
     }
 
+    func testFATLabelReportedAfterPartitioningStillFinishes() async throws {
+      let fixture = try await Fixture()
+      fixture.esp.images.espLabel = "EFI - FEDOR"
+      _ = try await fixture.prepareVendor()
+      try await fixture.prepareRecovery()
+      try await fixture.completion.prepare(
+        journal: fixture.base.journal, authorization: fixture.base.authorization,
+        bootstrap: fixture.base.bootstrap)
+      let file = try NativeInstallJournalFile(
+        url: fixture.base.journal, package: fixture.base.package, owner: geteuid())
+      let snapshot = try NativeRecoveryJournalSnapshot.decode(
+        file.readJournal(), package: fixture.base.package, evidence: file.readEvidence)
+      XCTAssertEqual(snapshot.state, .ready)
+    }
+
+    func testForeignESPLabelStillRefusesFinishing() async throws {
+      let fixture = try await Fixture()
+      fixture.esp.images.espLabel = "FOREIGN EFI"
+      do {
+        _ = try await fixture.prepareVendor()
+        XCTFail("A foreign ESP label must refuse the installation target")
+      } catch let error as NativeHandoffValidationError {
+        XCTAssertEqual(error, .changedLayout)
+      }
+    }
+
     func testInterruptedVendorPublicationRebuildsExactlyAndAdoptsExistingFiles() async throws {
       let fixture = try await Fixture()
       let expected = try await fixture.prepareVendor()
