@@ -683,20 +683,23 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     return .completed(completion)
   }
 
-  func pendingInstallationCanStartOver() async -> Bool {
+  func pendingInstallationOptions() async -> InstallerPendingOptions {
     guard let store = try? Self.pendingJobStore(), let hint = try? store.load(),
       hint.ticket.selection == selection, let configuration = try? loadConfiguration(),
       let client = try? AuthenticatedEngineXPCSubmitter(
         machServiceName: configuration.helperMachServiceName,
         helperCodeSigningRequirement: configuration.helperCodeSigningRequirement)
-    else { return false }
+    else { return InstallerPendingOptions() }
     do {
-      return try await client.jobStatus(hint).startOverAvailable == true
+      let snapshot = try await client.jobStatus(hint)
+      if snapshot.recoveryRetryAvailable { _ = try requireMatchingJobDevice(snapshot) }
+      return InstallerPendingOptions(
+        retry: snapshot.recoveryRetryAvailable, startOver: snapshot.startOverAvailable == true)
     } catch let error as InstallerJobError where error == .unavailable {
       // The helper keeps no record of this job: only the hint is left.
-      return true
+      return InstallerPendingOptions(startOver: true)
     } catch {
-      return false
+      return InstallerPendingOptions()
     }
   }
 

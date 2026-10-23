@@ -275,13 +275,15 @@
             }
           }
         } catch {
+          let network = TransientTransport.isTransient(error)
           throw PinnedAsahiEngineExecutionError.engineFailed(
             EngineFailureReport(
               notice: EngineFailureNotice(
-                reason: .firmwarePreparation, exitStatus: 1,
+                reason: network ? .networkUnavailable : .firmwarePreparation, exitStatus: 1,
                 diskUnchanged: journalProvesNoMutation(
                   journal, identity: RecoveryRetryIdentity(package: package)),
-                summary: "Native firmware preparation did not complete."),
+                summary: network
+                  ? Self.networkSummary : "Native firmware preparation did not complete."),
               redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
                 Data(String(describing: error).utf8), truncated: false,
                 secrets: [authorization.password])))
@@ -383,23 +385,28 @@
                 })
             }
           } catch {
+            let network = TransientTransport.isTransient(error)
             throw PinnedAsahiEngineExecutionError.engineFailed(
               EngineFailureReport(
                 notice: EngineFailureNotice(
-                  reason: error is NativeRawImageError
-                    ? .unclassified
-                    : error is RestoreFailure
-                      ? .recoveryPreparation
-                      : error as? NativeInstallAdmissionError == .invalidJournal
-                        ? .planIntegrity : .diskLayoutChanged,
+                  reason: network
+                    ? .networkUnavailable
+                    : error is NativeRawImageError
+                      ? .unclassified
+                      : error is RestoreFailure
+                        ? .recoveryPreparation
+                        : error as? NativeInstallAdmissionError == .invalidJournal
+                          ? .planIntegrity : .diskLayoutChanged,
                   exitStatus: 1,
                   diskUnchanged: self.journalProvesNoMutation(
                     journal, identity: RecoveryRetryIdentity(package: package)),
-                  summary: error is NativeRawImageError
-                    ? "The Linux image could not be written."
-                    : error is RestoreFailure
-                      ? "The Recovery archive could not be prepared."
-                      : "The current disk could not be admitted for a fresh installation."),
+                  summary: network
+                    ? Self.networkSummary
+                    : error is NativeRawImageError
+                      ? "The Linux image could not be written."
+                      : error is RestoreFailure
+                        ? "The Recovery archive could not be prepared."
+                        : "The current disk could not be admitted for a fresh installation."),
                 redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
                   Data(String(describing: error).utf8), truncated: false,
                   secrets: [authorization.password])))
@@ -522,18 +529,22 @@
         + "\(megabytes(required)). Erase Linux and install it again to recreate the partition."
     }
 
+    static let networkSummary =
+      "The connection to Apple's servers was lost while the installer was downloading."
+
     private func preparationFailure(
       _ error: any Error, reason: EngineFailureReason, operation: EngineHandoffOperation,
       journal: URL, package: ImportedEngineHandoffPackage, password: Data,
       summary: String = "Native Recovery resources could not be verified."
     ) -> PinnedAsahiEngineExecutionError {
-      .engineFailed(
+      let network = TransientTransport.isTransient(error)
+      return .engineFailed(
         EngineFailureReport(
           notice: EngineFailureNotice(
-            reason: reason, exitStatus: 1,
+            reason: network ? .networkUnavailable : reason, exitStatus: 1,
             diskUnchanged: operation == .install
               && journalProvesNoMutation(journal, identity: RecoveryRetryIdentity(package: package)),
-            summary: summary),
+            summary: network ? Self.networkSummary : summary),
           redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
             Data(String(describing: error).utf8), truncated: false, secrets: [password])))
     }

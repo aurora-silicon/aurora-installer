@@ -226,7 +226,7 @@
         try await environment.startOverPendingInstallation()
       } catch {
         startOverMessage = PlainLanguage.startOverFailed
-        await refreshStartOver()
+        await refreshPendingOptions()
         return false
       }
       restoredRecoveryRetry = false
@@ -235,10 +235,18 @@
       return true
     }
 
-    private func refreshStartOver() async {
+    /// Asks the helper what the failed job allows. A job it can continue from
+    /// its last verified step offers Try again, as it would after reopening.
+    private func refreshPendingOptions(after error: (any Error)? = nil) async {
       startOverAvailable = false
       guard case .failed = phase, hasExecutionStarted else { return }
-      startOverAvailable = await environment.pendingInstallationCanStartOver()
+      let options = await environment.pendingInstallationOptions()
+      startOverAvailable = options.startOver
+      if options.retry, !recoveryRetryAvailable, let error {
+        restoredRecoveryRetry = true
+        recoveryRetryAvailable = true
+        phase = .failed(PlainLanguage.failure(for: error, retryRecoveryAvailable: true))
+      }
     }
 
     // MARK: Inspection
@@ -277,7 +285,7 @@
               PlainLanguage.failure(
                 for: EngineXPCSubmissionError.recoveryAuthorizationFailed,
                 retryRecoveryAvailable: true))
-            await refreshStartOver()
+            await refreshPendingOptions()
           }
           return
         }
@@ -325,7 +333,7 @@
         }
         if hasExecutionStarted {
           phase = .failed(PlainLanguage.failure(for: error))
-          await refreshStartOver()
+          await refreshPendingOptions(after: error)
         } else {
           phase = .unsupported(PlainLanguage.failure(for: error))
         }
@@ -798,7 +806,7 @@
         drainJournal(receivedJournal)
         operationID = UUID()
         handleExecutionFailure(error, context: context, plan: plan, helper: helper)
-        await refreshStartOver()
+        await refreshPendingOptions(after: error)
       }
     }
 

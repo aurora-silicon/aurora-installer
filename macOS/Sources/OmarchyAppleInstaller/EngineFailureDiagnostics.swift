@@ -27,6 +27,9 @@
     /// This Mac's boot firmware or macOS is older than every OS firmware the
     /// release allows. The summary names the macOS version to update to.
     case macOSUpdateRequired = 7
+    /// A download from Apple's servers failed after its transient retries.
+    /// Older apps read this as unclassified.
+    case networkUnavailable = 8
 
     /// Exact final-exception messages raised before the first mutation by
     /// `omarchy_execution.admit_execution`, `omarchy_runtime` and the Asahi

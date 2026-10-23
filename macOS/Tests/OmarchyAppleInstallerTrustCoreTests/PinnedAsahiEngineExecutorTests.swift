@@ -1030,6 +1030,31 @@
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
     }
 
+    private struct LostConnectionFirmware: NativeFirmwarePreparing {
+      func prepare(deviceIdentifier: String, in workingDirectory: URL) async throws -> URL? {
+        throw URLError(.networkConnectionLost)
+      }
+    }
+
+    func testALostDownloadIsReportedAsANetworkFailure() async throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let executor = fixtureExecutor(
+        effectiveUserID: { 0 }, firmwarePreparer: LostConnectionFirmware())
+      await assertThrowsErrorAsync(
+        try await executor.execute(
+          fixture.package, authorization: try machineOwnerAuthorization()
+        )
+      ) {
+        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+          return XCTFail("Expected a typed network failure")
+        }
+        XCTAssertEqual(report.notice.reason, .networkUnavailable)
+        XCTAssertEqual(report.notice.summary, PinnedAsahiEngineExecutor.networkSummary)
+        XCTAssertTrue(report.notice.diskUnchanged)
+      }
+    }
+
     func testRecoveryAuthorizationRetryDoesNotRepeatNativeFirmwareDownloads() async throws {
       let fixture = try makeFixture(expectedInstallMode: "retry-recovery-authorization")
       defer { try? FileManager.default.removeItem(at: fixture.root) }

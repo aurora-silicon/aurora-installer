@@ -531,6 +531,16 @@
           actionURL: unchanged ? softwareUpdateSettingsURL : nil,
           actionTitle: unchanged ? openSoftwareUpdate : nil
         )
+      case .networkUnavailable:
+        return FailureDisplay(
+          headline: "The download was interrupted",
+          plainDetail:
+            "The connection to Apple’s servers was lost while the installer was downloading, and retrying didn’t get through. \(diskState)",
+          technicalDetail: technicalDetail,
+          remedy: unchanged
+            ? "Check your internet connection, then choose Check again."
+            : "Check your internet connection, then choose \(retry) to continue from the last completed step. What already downloaded is reused."
+        )
       case .recoveryPreparation:
         return FailureDisplay(
           headline: "Recovery preparation didn’t finish",
@@ -594,6 +604,16 @@
       }
 
       if retryRecoveryAvailable {
+        // An interrupted download says so; Try again continues it.
+        if case .engineFailed(let notice) = error as? EngineXPCSubmissionError,
+          notice.reason == .networkUnavailable
+        {
+          let network = engineFailure(notice, technicalDetail: technical)
+          return FailureDisplay(
+            headline: network.headline, plainDetail: network.plainDetail,
+            technicalDetail: network.technicalDetail, remedy: network.remedy,
+            retryRecoveryAvailable: true)
+        }
         return FailureDisplay(
           headline: "Installation paused",
           plainDetail:
