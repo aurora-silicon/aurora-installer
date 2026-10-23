@@ -25,7 +25,7 @@ enum OmarchyTheme {
   static let buttonTracking: CGFloat = 0
   static let helpLineSpacing: CGFloat = 3
   static let title = Font.system(size: 28, weight: .semibold)
-  static let sheetTitle = Font.system(size: 24, weight: .semibold)
+  static let sheetTitle = Font.system(size: 20, weight: .semibold)
   static let heading = Font.system(size: 16, weight: .semibold)
   static let eyebrow = Font.system(size: 12, weight: .medium)
   static let body = Font.system(size: 14)
