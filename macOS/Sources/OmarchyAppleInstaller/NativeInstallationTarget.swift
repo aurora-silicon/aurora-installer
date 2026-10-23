@@ -36,8 +36,14 @@
         RemovalSnapshot.self, from: journal.readEvidence("native-os-partition-baseline"))
       expected.partitions.append(contentsOf: parts.partitions)
       expected.partitions.sort { $0.offset < $1.offset }
+      // Disk Arbitration reports the new ESP's FAT label only after the partition
+      // receipt was recorded, as the ESP and image stages already admit.
       guard parts.plan == approved.planDigest, parts.partitions.count == 3,
-        snapshot == expected, snapshot.disk == approved.storeIdentifier,
+        parts.layout.parts.count == 3,
+        NativeESPLabelAdmission.matches(
+          snapshot, recorded: expected, espUUID: parts.partitions[0].uuid,
+          label: parts.layout.parts[0].fatLabel),
+        snapshot.disk == approved.storeIdentifier,
         let stub = snapshot.partitions.first(where: { $0.uuid == parts.stubUUID }),
         let esp = snapshot.partitions.first(where: { $0.uuid == parts.partitions[0].uuid }),
         esp.type == "EFI", esp.offset == stub.end,
