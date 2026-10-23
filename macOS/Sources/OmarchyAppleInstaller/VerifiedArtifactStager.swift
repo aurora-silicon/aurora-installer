@@ -229,11 +229,22 @@ public enum ArtifactStageError: Error, Equatable, Sendable {
 /// Stages pinned artifacts into a private directory, accepting bytes only when
 /// the whole-file size and digest match the signed catalog.
 ///
-/// Multi-part payloads are downloaded part by part, then streamed together into
-/// a single pending file whose SHA-256 is computed in the same pass. Assembly
-/// therefore needs about twice the payload size on disk until the parts are
-/// deleted, and interrupted transfers resume at part granularity.
+/// Multi-part payloads download up to `partsInFlight` parts at a time, then are
+/// streamed together into a single pending file whose SHA-256 is computed in
+/// the same pass. Assembly therefore needs about twice the payload size on disk
+/// until the parts are deleted. A verified part is kept until the payload is
+/// assembled, and an interrupted part resumes from the bytes it already
+/// received when the server allows it.
 public struct VerifiedArtifactStager: Sendable {
+  /// Each part is its own transfer, so several share a link that one
+  /// connection can't fill.
+  static let partsInFlight = 3
+
+  /// Where an interrupted download keeps what its transfer needs to resume.
+  static func resumeDataName(for fileName: String) -> String {
+    fileName + ".resume"
+  }
+
   /// Disk room required while a payload is assembled from parts (payload plus
   /// the pending concatenation) before the parts are deleted.
   public static func requiredFreeBytes(forPayloadSize size: UInt64) -> UInt64 {
@@ -401,35 +412,80 @@ public struct VerifiedArtifactStager: Sendable {
     progress: ArtifactStagingProgressHandler?
   ) async throws -> StagedInstallerArtifact {
     let fileManager = FileManager.default
-    var partFileURLs = [URL]()
-    var completedBytes: UInt64 = 0
-
-    for (index, part) in artifact.parts.enumerated() {
-      let onBytes = byteHandler(
-        progress,
-        artifact: artifact,
-        partIndex: index,
-        partSizeBytes: part.expectedSizeBytes,
-        completedBytes: completedBytes
-      )
-      let staged = try await stageSingle(
-        url: part.sourceURL,
-        fileName: part.fileName,
-        expectedDigest: part.expectedDigest,
-        expectedSizeBytes: part.expectedSizeBytes,
-        in: stagingDirectory,
-        onBytes: onBytes
-      )
-      partFileURLs.append(staged.fileURL)
-      completedBytes += part.expectedSizeBytes
-      report(
-        progress,
-        artifact: artifact,
-        phase: .downloading,
-        partIndex: index,
-        bytesCompleted: completedBytes
-      )
+    let parts = artifact.parts
+    let received = PartProgress(sizes: parts.map(\.expectedSizeBytes))
+    var stagedParts = [URL?](repeating: nil, count: parts.count)
+    // A part already in the staging folder must match before anything
+    // downloads; a conflicting one fails closed.
+    for (index, part) in parts.enumerated() {
+      let existing = stagingDirectory.appendingPathComponent(part.fileName, isDirectory: false)
+      guard fileManager.fileExists(atPath: existing.path) else { continue }
+      do {
+        try verify(
+          fileName: part.fileName, expectedDigest: part.expectedDigest,
+          expectedSizeBytes: part.expectedSizeBytes, at: existing)
+      } catch {
+        throw ArtifactStageError.destinationConflict(part.fileName)
+      }
+      stagedParts[index] = existing
+      received.update(index, part.expectedSizeBytes) { completed in
+        progress?(
+          Self.progressEvent(
+            artifact, phase: .downloading, partIndex: index, bytesCompleted: completed))
+      }
     }
+    let missing = parts.indices.filter { stagedParts[$0] == nil }
+    // A failed part stops new parts from starting, but the ones in flight
+    // finish, so a retry keeps every part that was verified.
+    var failure: (any Error)?
+    await withThrowingTaskGroup(of: (Int, URL).self) { group in
+      var next = 0
+      func start() {
+        let index = missing[next]
+        let part = parts[index]
+        next += 1
+        let onBytes: ArtifactByteProgressHandler? = progress.map { handler in
+          let report: ArtifactByteProgressHandler = { bytes in
+            received.update(index, bytes) { total in
+              handler(
+                Self.progressEvent(
+                  artifact, phase: .downloading, partIndex: index, bytesCompleted: total))
+            }
+          }
+          return report
+        }
+        group.addTask {
+          let staged = try await self.stageSingle(
+            url: part.sourceURL,
+            fileName: part.fileName,
+            expectedDigest: part.expectedDigest,
+            expectedSizeBytes: part.expectedSizeBytes,
+            in: stagingDirectory,
+            onBytes: onBytes
+          )
+          return (index, staged.fileURL)
+        }
+      }
+      while next < min(Self.partsInFlight, missing.count) { start() }
+      while let result = await group.nextResult() {
+        switch result {
+        case .success(let (index, fileURL)):
+          stagedParts[index] = fileURL
+          received.update(index, parts[index].expectedSizeBytes) { completed in
+            progress?(
+              Self.progressEvent(
+                artifact, phase: .downloading, partIndex: index, bytesCompleted: completed))
+          }
+          if failure == nil, next < missing.count { start() }
+        case .failure(let error):
+          if failure == nil { failure = error }
+        }
+      }
+    }
+    if let failure { throw failure }
+    let partFileURLs = stagedParts.compactMap { $0 }
+    guard partFileURLs.count == parts.count else { throw CancellationError() }
+    let completedBytes = parts.reduce(UInt64(0)) { $0 + $1.expectedSizeBytes }
 
     report(
       progress,
@@ -515,6 +571,8 @@ public struct VerifiedArtifactStager: Sendable {
     let downloaded = try await downloader.download(
       from: url,
       expectedSizeBytes: expectedSizeBytes,
+      resumeData: stagingDirectory.appendingPathComponent(
+        Self.resumeDataName(for: fileName), isDirectory: false),
       onBytes: onBytes
     )
     defer { try? fileManager.removeItem(at: downloaded) }
@@ -627,6 +685,41 @@ public struct VerifiedArtifactStager: Sendable {
           isDirectory: false
         )
       )
+    }
+  }
+
+  private static func progressEvent(
+    _ artifact: PinnedInstallerArtifact, phase: ArtifactStagingProgress.Phase, partIndex: Int?,
+    bytesCompleted: UInt64
+  ) -> ArtifactStagingProgress {
+    ArtifactStagingProgress(
+      role: artifact.role,
+      fileName: artifact.fileName,
+      phase: phase,
+      partIndex: partIndex,
+      partCount: artifact.parts.isEmpty ? nil : artifact.parts.count,
+      bytesCompleted: bytesCompleted,
+      totalBytes: artifact.expectedSizeBytes
+    )
+  }
+
+  /// Bytes received by each part while several download at once. Totals are
+  /// reported under the lock, so they never go backwards.
+  private final class PartProgress: @unchecked Sendable {
+    private let lock = NSLock()
+    private let sizes: [UInt64]
+    private var received: [UInt64]
+
+    init(sizes: [UInt64]) {
+      self.sizes = sizes
+      received = Array(repeating: 0, count: sizes.count)
+    }
+
+    func update(_ index: Int, _ bytes: UInt64, report: (UInt64) -> Void) {
+      lock.withLock {
+        received[index] = max(received[index], min(bytes, sizes[index]))
+        report(received.reduce(0, +))
+      }
     }
   }
 
@@ -833,9 +926,27 @@ protocol ArtifactDownloading: Sendable {
     expectedSizeBytes: UInt64,
     onBytes: ArtifactByteProgressHandler?
   ) async throws -> URL
+  /// Resumes from, and on interruption saves, what the transfer needs to
+  /// continue at `resumeData`.
+  func download(
+    from sourceURL: URL,
+    expectedSizeBytes: UInt64,
+    resumeData: URL,
+    onBytes: ArtifactByteProgressHandler?
+  ) async throws -> URL
 }
 
 extension ArtifactDownloading {
+  /// Downloaders that can't resume start again from the first byte.
+  func download(
+    from sourceURL: URL,
+    expectedSizeBytes: UInt64,
+    resumeData: URL,
+    onBytes: ArtifactByteProgressHandler?
+  ) async throws -> URL {
+    try await download(from: sourceURL, expectedSizeBytes: expectedSizeBytes, onBytes: onBytes)
+  }
+
   /// Bridges downloaders that only implement the unmetered form; the stager
   /// always calls the metered one.
   func download(
@@ -866,6 +977,7 @@ final class ProgressReportingArtifactDownloader: NSObject, ArtifactDownloading,
     let continuation: CheckedContinuation<URL, any Error>
     let expectedSizeBytes: UInt64
     let onBytes: ArtifactByteProgressHandler?
+    let resumeData: URL?
     var lastReportedBytes: UInt64 = 0
     var lastReportedAt: Date?
     var failure: (any Error)?
@@ -887,6 +999,62 @@ final class ProgressReportingArtifactDownloader: NSObject, ArtifactDownloading,
     expectedSizeBytes: UInt64,
     onBytes: ArtifactByteProgressHandler?
   ) async throws -> URL {
+    try await transfer(
+      sourceURL, resuming: nil, expectedSizeBytes: expectedSizeBytes, resumeData: nil,
+      onBytes: onBytes)
+  }
+
+  /// An interrupted transfer leaves the system's resume data at `resumeData`.
+  /// The next call continues from there, and starts again from the first byte
+  /// only when the server refuses to continue, for example once a redirect's
+  /// signed address has expired. A download that is interrupted again keeps
+  /// its new resume data instead.
+  func download(
+    from sourceURL: URL,
+    expectedSizeBytes: UInt64,
+    resumeData: URL,
+    onBytes: ArtifactByteProgressHandler?
+  ) async throws -> URL {
+    if let saved = Self.takeResumeData(resumeData) {
+      do {
+        return try await transfer(
+          sourceURL, resuming: saved, expectedSizeBytes: expectedSizeBytes,
+          resumeData: resumeData, onBytes: onBytes)
+      } catch is CancellationError {
+        throw CancellationError()
+      } catch {
+        if FileManager.default.fileExists(atPath: resumeData.path) { throw error }
+      }
+    }
+    return try await transfer(
+      sourceURL, resuming: nil, expectedSizeBytes: expectedSizeBytes, resumeData: resumeData,
+      onBytes: onBytes)
+  }
+
+  private static func takeResumeData(_ url: URL) -> Data? {
+    defer { try? FileManager.default.removeItem(at: url) }
+    var info = stat()
+    guard lstat(url.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
+      info.st_uid == geteuid(), info.st_size > 0, info.st_size <= 1 << 20
+    else { return nil }
+    return try? Data(contentsOf: url)
+  }
+
+  private static func saveResumeData(_ data: Data?, to url: URL?) {
+    guard let data, !data.isEmpty, data.count <= 1 << 20, let url else { return }
+    let pending = url.deletingLastPathComponent().appendingPathComponent(
+      ".pending-resume-\(UUID().uuidString.lowercased())")
+    guard
+      FileManager.default.createFile(
+        atPath: pending.path, contents: data, attributes: [.posixPermissions: 0o600])
+    else { return }
+    if rename(pending.path, url.path) != 0 { try? FileManager.default.removeItem(at: pending) }
+  }
+
+  private func transfer(
+    _ sourceURL: URL, resuming saved: Data?, expectedSizeBytes: UInt64, resumeData: URL?,
+    onBytes: ArtifactByteProgressHandler?
+  ) async throws -> URL {
     try Task.checkCancellation()
     let session = URLSession(
       configuration: configuration,
@@ -895,7 +1063,9 @@ final class ProgressReportingArtifactDownloader: NSObject, ArtifactDownloading,
     )
     defer { session.finishTasksAndInvalidate() }
 
-    let task = session.downloadTask(with: sourceURL)
+    let task =
+      saved.map { session.downloadTask(withResumeData: $0) }
+      ?? session.downloadTask(with: sourceURL)
     let key = ObjectIdentifier(task)
 
     return try await withTaskCancellationHandler {
@@ -904,13 +1074,19 @@ final class ProgressReportingArtifactDownloader: NSObject, ArtifactDownloading,
         transfers[key] = Transfer(
           continuation: continuation,
           expectedSizeBytes: expectedSizeBytes,
-          onBytes: onBytes
+          onBytes: onBytes,
+          resumeData: resumeData
         )
         lock.unlock()
         task.resume()
       }
     } onCancel: {
-      task.cancel()
+      // Pausing on a metered network or quitting keeps what arrived.
+      if resumeData == nil {
+        task.cancel()
+      } else {
+        task.cancel { Self.saveResumeData($0, to: resumeData) }
+      }
     }
   }
 
@@ -1004,7 +1180,12 @@ final class ProgressReportingArtifactDownloader: NSObject, ArtifactDownloading,
     let key = ObjectIdentifier(task)
     lock.lock()
     let recordedFailure = transfers[key]?.failure
+    let resumeData = transfers[key]?.resumeData
     lock.unlock()
+    if recordedFailure == nil, let error {
+      Self.saveResumeData(
+        (error as NSError).userInfo[NSURLSessionDownloadTaskResumeData] as? Data, to: resumeData)
+    }
 
     if let recordedFailure {
       finish(key, with: .failure(recordedFailure))

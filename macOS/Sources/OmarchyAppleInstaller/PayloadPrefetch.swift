@@ -530,9 +530,78 @@
     }
   }
 
+  /// A prefetch work directory one generation holds, by an exclusive lock on
+  /// its `.lock` file, with the names a later attempt at the same payload can
+  /// use: verified parts and the resume data of interrupted transfers.
+  final class PrefetchWork: @unchecked Sendable {
+    static let lockName = ".lock"
+    let directory: URL
+    private let keeping: Set<String>
+    private let lock = NSLock()
+    private var descriptor: Int32
+    private var discard = false
+
+    private init(directory: URL, keeping: Set<String>, descriptor: Int32) {
+      self.directory = directory
+      self.keeping = keeping
+      self.descriptor = descriptor
+    }
+
+    deinit { if descriptor >= 0 { close(descriptor) } }
+
+    /// Nil when another window's generation holds the directory.
+    static func claim(_ directory: URL, keeping: Set<String>) -> PrefetchWork? {
+      let descriptor = open(
+        directory.appendingPathComponent(lockName).path,
+        O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, S_IRUSR | S_IWUSR)
+      guard descriptor >= 0 else { return nil }
+      guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+        close(descriptor)
+        return nil
+      }
+      return PrefetchWork(directory: directory, keeping: keeping, descriptor: descriptor)
+    }
+
+    /// A failed digest or a conflicting file keeps nothing for the next attempt.
+    func discardAll() {
+      lock.withLock { discard = true }
+    }
+
+    /// Removes everything the next attempt can't use, then the directory once
+    /// nothing is left, and gives up the lock.
+    func release() {
+      lock.withLock {
+        guard descriptor >= 0 else { return }
+        let fileManager = FileManager.default
+        if discard {
+          try? fileManager.removeItem(at: directory)
+        } else {
+          for name in (try? fileManager.contentsOfDirectory(atPath: directory.path)) ?? []
+          where name != Self.lockName && !keeping.contains(name) {
+            try? fileManager.removeItem(at: directory.appendingPathComponent(name))
+          }
+          if (try? fileManager.contentsOfDirectory(atPath: directory.path))?
+            .allSatisfy({ $0 == Self.lockName }) == true
+          {
+            try? fileManager.removeItem(at: directory)
+          }
+        }
+        close(descriptor)
+        descriptor = -1
+      }
+    }
+  }
+
   /// One live prefetch at a time: reuse the in-flight controller when the
-  /// artifact is unchanged, otherwise cancel it before starting a unique work
-  /// directory so staging filenames cannot collide.
+  /// artifact is unchanged, otherwise cancel it before starting the next.
+  ///
+  /// Each payload digest has one work directory. Its verified parts and the
+  /// resume data of an interrupted part outlive a failed attempt, a
+  /// cancellation and quitting, so Try again, a later preparation or the next
+  /// launch continues instead of downloading again. A directory for another
+  /// digest is removed when a generation starts, and another window that is
+  /// already downloading the same payload keeps its directory: this one then
+  /// works in a directory of its own.
   public final class PayloadPrefetchOrchestrator: @unchecked Sendable {
     public typealias StageHandler =
       @Sendable (
@@ -557,10 +626,10 @@
     private var observers: [UUID: @Sendable (PayloadPrefetchState) -> Void] = [:]
     private var waiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
     private var cancelEpoch: UInt64 = 0
-    /// Work directories this orchestrator created for earlier generations.
+    /// Work directories this orchestrator holds for earlier generations.
     /// Another window's orchestrator shares the staging folder, so only
     /// these are ever reclaimed.
-    private var ownedWorkDirectories: [URL] = []
+    private var ownedWorkDirectories: [PrefetchWork] = []
 
     public convenience init() {
       self.init(
@@ -643,7 +712,7 @@
 
     private static func retire(
       priorStartup: Task<Void, Never>?, priorRetirement: Task<Void, Never>?,
-      predecessor: PayloadPrefetchController?, directories: [URL]
+      predecessor: PayloadPrefetchController?, directories: [PrefetchWork]
     ) -> Task<Void, Never> {
       Task.detached(priority: .utility) {
         await priorRetirement?.value
@@ -652,8 +721,32 @@
         await priorStartup?.value
         await predecessor?.cancelAndWait()
         for directory in directories {
-          try? FileManager.default.removeItem(at: directory)
+          directory.release()
         }
+      }
+    }
+
+    static func workDirectoryName(for digest: String) -> String {
+      "prefetch-" + (SHA256Digest(rawValue: digest)?.hexadecimal ?? digest)
+    }
+
+    static func retainedNames(for artifact: PinnedInstallerArtifact) -> Set<String> {
+      let names = artifact.parts.map(\.fileName)
+      return Set(names + (names + [artifact.fileName]).map(VerifiedArtifactStager.resumeDataName))
+    }
+
+    /// Work directories no live generation holds: other payloads', and those
+    /// of earlier installers, which never kept anything.
+    private static func removeAbandonedWork(in parent: URL, except current: URL) {
+      for name in (try? FileManager.default.contentsOfDirectory(atPath: parent.path)) ?? []
+      where name.hasPrefix("prefetch-") && name != current.lastPathComponent {
+        let directory = parent.appendingPathComponent(name, isDirectory: true)
+        var info = stat()
+        guard lstat(directory.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
+          let abandoned = PrefetchWork.claim(directory, keeping: [])
+        else { continue }
+        abandoned.discardAll()
+        abandoned.release()
       }
     }
 
@@ -696,28 +789,23 @@
       }
 
       guard self.isCurrent(generation), !Task.isCancelled else { return }
-      let work = parent.appendingPathComponent(
-        "prefetch-\(generation.uuidString.lowercased())",
-        isDirectory: true
-      )
+      let claimed: PrefetchWork
       do {
-        try FileManager.default.createDirectory(
-          at: work,
-          withIntermediateDirectories: true,
-          attributes: [.posixPermissions: 0o700]
-        )
+        claimed = try Self.claimWork(for: artifact, in: parent, generation: generation)
       } catch {
         self.publish(
           .failed(PayloadPrefetchFailure.reason(for: error)), generation: generation)
         return
       }
+      let work = claimed.directory
+      Self.removeAbandonedWork(in: parent, except: work)
       let owned = self.lock.withLock { () -> Bool in
         guard self.generation == generation else { return false }
-        self.ownedWorkDirectories.append(work)
+        self.ownedWorkDirectories.append(claimed)
         return true
       }
       guard owned else {
-        try? FileManager.default.removeItem(at: work)
+        claimed.release()
         return
       }
 
@@ -742,21 +830,58 @@
       await controller.start(
         requiredBytes: required, admitted: { self.isCurrent(generation) },
         work: {
-          try self.requireCurrent(generation)
-          let staged = try await self.stage(artifact, work) { event in
-            Task {
-              await controller.reportDownload(
-                completed: event.bytesCompleted,
-                total: event.totalBytes
-              )
-              if event.phase == .verified || event.phase == .assembling {
-                await controller.reportVerifying()
+          do {
+            try self.requireCurrent(generation)
+            let staged = try await self.stage(artifact, work) { event in
+              Task {
+                await controller.reportDownload(
+                  completed: event.bytesCompleted,
+                  total: event.totalBytes
+                )
+                if event.phase == .verified || event.phase == .assembling {
+                  await controller.reportVerifying()
+                }
               }
             }
+            try self.promote(staged.fileURL, to: canonical, generation: generation)
+            try? FileManager.default.removeItem(at: work)
+          } catch {
+            if Self.failsIntegrity(error) { claimed.discardAll() }
+            throw error
           }
-          try self.promote(staged.fileURL, to: canonical, generation: generation)
-          try? FileManager.default.removeItem(at: work)
         })
+    }
+
+    /// The payload digest's own directory, or, while another window holds
+    /// it, one for this generation alone that keeps nothing.
+    private static func claimWork(
+      for artifact: PinnedInstallerArtifact, in parent: URL, generation: UUID
+    ) throws -> PrefetchWork {
+      let shared = parent.appendingPathComponent(
+        workDirectoryName(for: artifact.expectedDigest), isDirectory: true)
+      try FileManager.default.createDirectory(
+        at: shared, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+      if let claimed = PrefetchWork.claim(shared, keeping: retainedNames(for: artifact)) {
+        return claimed
+      }
+      let own = parent.appendingPathComponent(
+        "prefetch-\(generation.uuidString.lowercased())", isDirectory: true)
+      try FileManager.default.createDirectory(
+        at: own, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+      guard let claimed = PrefetchWork.claim(own, keeping: []) else {
+        throw ArtifactStageError.unsafeStagingDirectory
+      }
+      return claimed
+    }
+
+    private static func failsIntegrity(_ error: any Error) -> Bool {
+      switch error as? ArtifactStageError {
+      case .digestMismatch, .sizeMismatch, .destinationConflict, .unsafeStagedFile,
+        .unsafeStagingDirectory:
+        true
+      default:
+        false
+      }
     }
 
     /// Payload bytes already on the staging volume: the promoted file, or
@@ -772,8 +897,8 @@
       }
       let owned = lock.withLock { ownedWorkDirectories }
       var total: UInt64 = 0
-      for directory in owned {
-        total &+= Self.regularFileBytes(in: directory)
+      for work in owned {
+        total &+= Self.regularFileBytes(in: work.directory)
       }
       return min(size, total)
     }
