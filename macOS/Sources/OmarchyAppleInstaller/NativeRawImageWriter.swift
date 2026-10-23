@@ -140,8 +140,18 @@
       }
     }
 
+    /// The sink of one image write. Only the stream's consumer touches it
+    /// until the stream returns.
+    private final class WriteStage: @unchecked Sendable {
+      var sink: AlignedSink
+      init(_ sink: AlignedSink) { self.sink = sink }
+    }
+
     /// Archive CRC, output length and SHA-256 are completed before a successful
     /// device-cache flush can produce a receipt. No extracted image is retained.
+    /// Device writes and the checks run on queues of their own while the
+    /// image is decoded, so the slowest of the three sets the pace instead of
+    /// their sum.
     static func write(
       archive: IPSWArchive, member: IPSWArchiveMember,
       partition: RemovalPartition, platform: NativeRawImagePlatform = .live,
@@ -160,23 +170,24 @@
       let descriptor = try platform.openTarget(partition)
       defer { close(descriptor) }
       try verify(partition)
-      var sink = AlignedSink(expected: UInt64(member.sizeBytes)) { bytes, offset in
-        try platform.writeChunk(descriptor, bytes, offset)
-      }
-      let digest = try await archive.stream(
+      let writes = WriteStage(
+        AlignedSink(expected: UInt64(member.sizeBytes)) { bytes, offset in
+          try platform.writeChunk(descriptor, bytes, offset)
+        })
+      let digest = try await archive.streamPipelined(
         member, maximumBytes: member.sizeBytes,
         maximumCompressedBytes: member.compressedSize
       ) { bytes in
-        try sink.append(bytes)
+        try writes.sink.append(bytes)
       }
-      try sink.finish()
+      try writes.sink.finish()
       try Task.checkCancellation()
       try platform.flush(descriptor)
       try verify(partition)
       return NativeRawImageReceipt(
         partitionIdentifier: partition.identifier,
         partitionUUID: partition.uuid.lowercased(), partitionSizeBytes: partition.size,
-        installedBytes: sink.copied, contentSHA256: digest,
+        installedBytes: writes.sink.copied, contentSHA256: digest,
         verification: "source-sha256-write-flushed-v1")
     }
   }

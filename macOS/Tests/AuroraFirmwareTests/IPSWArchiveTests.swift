@@ -424,6 +424,76 @@ final class IPSWArchiveTests: XCTestCase, @unchecked Sendable {
     XCTAssertTrue(reads.allSatisfy { $0.count <= range })
   }
 
+  func testPipelinedStreamDeliversAndChecksWhatTheSerialStreamDoes() async throws {
+    for record in try fixture().archives {
+      let archive = try await IPSWArchive.open(
+        ZIPSource(data: XCTUnwrap(Data(base64Encoded: record.data))))
+      let member = try XCTUnwrap(archive.members.first)
+      let expected = Data("<plist>synthetic</plist>".utf8)
+      let output = CollectedChunks()
+      let digest = try await archive.streamPipelined(
+        member, maximumBytes: 1024, maximumCompressedBytes: 1024,
+        expectedSHA256: expected.sha256, consume: { output.append($0) })
+      XCTAssertEqual(output.data, expected, record.name)
+      XCTAssertEqual(digest, expected.sha256, record.name)
+    }
+    let original = try bytes()
+    var changed = original
+    changed[30 + "BuildManifest.plist".utf8.count] ^= 1
+    var shortened = try bytes("deflate")
+    let size = try shortened.little(22, 4)
+    set(&shortened, at: 22, value: size - 1, width: 4)
+    set(&shortened, at: try central(shortened) + 24, value: size - 1, width: 4)
+    for (data, digest) in [
+      (original, String(repeating: "0", count: 64)), (changed, nil), (shortened, nil),
+    ] {
+      let archive = try await IPSWArchive.open(ZIPSource(data: data))
+      let member = try XCTUnwrap(archive.members.first)
+      do {
+        try await archive.streamPipelined(
+          member, maximumBytes: 1024, maximumCompressedBytes: 1024, expectedSHA256: digest
+        ) { _ in }
+        XCTFail("A damaged member was accepted.")
+      } catch is RestoreFailure {}
+    }
+  }
+
+  func testPipelinedStreamOfALongDeflatedMemberDeliversEveryChunkOnceInOrder() async throws {
+    let raw = SingleMemberZIP.numbered(bytes: (24 << 20) + 4096)
+    let archive = try await IPSWArchive.open(
+      ZIPSource(data: SingleMemberZIP.archive(name: "root.img", raw: raw, deflate: true)))
+    let member = try XCTUnwrap(archive.members.first)
+    XCTAssertEqual(member.compressionMethod, 8)
+    let output = CollectedChunks()
+    let digest = try await archive.streamPipelined(
+      member, maximumBytes: raw.count, maximumCompressedBytes: member.compressedSize,
+      expectedSHA256: raw.sha256, consume: { output.append($0) })
+    XCTAssertEqual(digest, raw.sha256)
+    XCTAssertTrue(output.data == raw)
+    XCTAssertGreaterThanOrEqual(output.count, 25)
+  }
+
+  func testPipelinedConsumerFailureStopsDeliveryAndIsReported() async throws {
+    struct SinkFailure: Error {}
+    let raw = SingleMemberZIP.numbered(bytes: 16 << 20)
+    for deflate in [false, true] {
+      let archive = try await IPSWArchive.open(
+        ZIPSource(data: SingleMemberZIP.archive(name: "root.img", raw: raw, deflate: deflate)))
+      let member = try XCTUnwrap(archive.members.first)
+      let output = CollectedChunks()
+      do {
+        try await archive.streamPipelined(
+          member, maximumBytes: raw.count, maximumCompressedBytes: member.compressedSize
+        ) { chunk in
+          if output.append(chunk) == 2 { throw SinkFailure() }
+        }
+        XCTFail("A failed consumer let the stream complete.")
+      } catch is SinkFailure {}
+      XCTAssertEqual(output.count, 2, "Nothing reached the consumer after it failed.")
+      XCTAssertTrue(output.data == raw.prefix(output.data.count))
+    }
+  }
+
   func testWholeDirectoryAdmissionRejectsUnusedUnsafeLocalRecords() async throws {
     for change in [0, 1, 2] {
       var data = try bytes()
