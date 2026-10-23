@@ -17,7 +17,7 @@
     let command: @Sendable (String, [String]) throws -> Data
 
     static func open(image: URL, parent: URL) throws -> Self {
-      let directory = parent.resolvingSymlinksInPath()
+      let directory = try realDirectory(parent)
         .appendingPathComponent("firmware-image-" + UUID().uuidString)
       try FileManager.default.createDirectory(
         at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
@@ -38,17 +38,7 @@
             "attach", "-plist", "-readonly", "-nobrowse", "-noverify", "-owners", "on",
             "-mountpoint", root.path, image.path,
           ])
-        guard
-          let plist = try PropertyListSerialization.propertyList(
-            from: response, format: nil) as? [String: Any],
-          let entries = plist["system-entities"] as? [[String: Any]],
-          entries.filter({ $0["mount-point"] != nil }).count == 1,
-          let mounted = entries.first(where: { $0["mount-point"] as? String == root.path }),
-          let name = mounted["dev-entry"] as? String, name.hasPrefix("/dev/disk"),
-          String(name.dropFirst(5)).range(
-            of: #"\Adisk[0-9]+s[0-9]+\z"#, options: .regularExpression) != nil
-        else { throw NativeFirmwareInputFailure.invalidSource }
-        let device = String(name.dropFirst(5))
+        let device = try attachedDevice(response, root: root)
         _ = try NativeHandoffFileTree(
           root, protected: true, volumeRoot: true, volumeDevice: device)
         return Self(directory: directory, root: root, device: device, command: command)
@@ -71,6 +61,32 @@
         }
         throw operation
       }
+    }
+
+    /// The directory's real path. Foundation's symlink resolution drops the
+    /// `/private` prefix of /var and /tmp, but hdiutil and the kernel report
+    /// mount points with it, so every comparison below would fail.
+    static func realDirectory(_ url: URL) throws -> URL {
+      guard let resolved = realpath(url.path, nil) else {
+        throw NativeFirmwareInputFailure.invalidSource
+      }
+      defer { free(resolved) }
+      return URL(fileURLWithPath: String(cString: resolved), isDirectory: true)
+    }
+
+    /// The one volume hdiutil mounted, exactly at this attempt's mountpoint.
+    static func attachedDevice(_ response: Data, root: URL) throws -> String {
+      guard
+        let plist = try PropertyListSerialization.propertyList(
+          from: response, format: nil) as? [String: Any],
+        let entries = plist["system-entities"] as? [[String: Any]],
+        entries.filter({ $0["mount-point"] != nil }).count == 1,
+        let mounted = entries.first(where: { $0["mount-point"] as? String == root.path }),
+        let name = mounted["dev-entry"] as? String, name.hasPrefix("/dev/disk"),
+        String(name.dropFirst(5)).range(
+          of: #"\Adisk[0-9]+s[0-9]+\z"#, options: .regularExpression) != nil
+      else { throw NativeFirmwareInputFailure.invalidSource }
+      return String(name.dropFirst(5))
     }
 
     func close() throws {

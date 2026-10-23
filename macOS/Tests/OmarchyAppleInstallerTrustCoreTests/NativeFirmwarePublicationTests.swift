@@ -122,5 +122,37 @@
       }
       XCTAssertTrue(FileManager.default.fileExists(atPath: root.path))
     }
+
+    func testMountpointUsesTheRealPathThatHdiutilReports() throws {
+      // /var is a symlink to /private/var, as for the helper's working directory.
+      let parent = URL(fileURLWithPath: "/var/tmp", isDirectory: true)
+      XCTAssertEqual(parent.resolvingSymlinksInPath().path, "/var/tmp")
+      let real = try NativeFirmwareMountedImage.realDirectory(parent)
+      XCTAssertEqual(real.path, "/private/var/tmp")
+
+      let root = real.appendingPathComponent("firmware-image-test/recovery")
+      func response(mountPoint: String) throws -> Data {
+        try PropertyListSerialization.data(
+          fromPropertyList: [
+            "system-entities": [
+              ["dev-entry": "/dev/disk11", "content-hint": "GUID_partition_scheme"],
+              [
+                "dev-entry": "/dev/disk11s1", "mount-point": mountPoint,
+                "content-hint": "41504653-0000-11AA-AA11-00306543ECAC",
+              ],
+            ]
+          ], format: .xml, options: 0)
+      }
+      XCTAssertEqual(
+        try NativeFirmwareMountedImage.attachedDevice(
+          response(mountPoint: "/private/var/tmp/firmware-image-test/recovery"), root: root),
+        "disk11s1")
+      // The Foundation spelling never matches what hdiutil reports.
+      XCTAssertThrowsError(
+        try NativeFirmwareMountedImage.attachedDevice(
+          response(mountPoint: "/private/var/tmp/firmware-image-test/recovery"),
+          root: parent.resolvingSymlinksInPath()
+            .appendingPathComponent("firmware-image-test/recovery")))
+    }
   }
 #endif
