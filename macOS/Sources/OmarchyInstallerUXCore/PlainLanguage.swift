@@ -153,6 +153,9 @@
       "The installer rechecks the original plan, disk location, saved files and last completed step. It continues in the space you already approved. macOS won’t be resized again."
     public static let recoveryRetryConfirmationAction =
       "Continue installation"
+    public static let partialInstallHeadline = "An unfinished installation is on this Mac"
+    public static let partialInstallDetail =
+      "An installation stopped after it created its startup container. Erase Linux deletes that container and returns its space, with any unallocated space after it, to macOS. Then you can install again."
     public static let startOverConfirmationTitle =
       "Set this installation aside?"
     public static let startOverConfirmationBody =
@@ -531,6 +534,16 @@
           actionURL: unchanged ? softwareUpdateSettingsURL : nil,
           actionTitle: unchanged ? openSoftwareUpdate : nil
         )
+      case .networkUnavailable:
+        return FailureDisplay(
+          headline: "The download was interrupted",
+          plainDetail:
+            "The connection to Apple’s servers was lost while the installer was downloading, and retrying didn’t get through. \(diskState)",
+          technicalDetail: technicalDetail,
+          remedy: unchanged
+            ? "Check your internet connection, then choose Check again."
+            : "Check your internet connection, then choose \(retry) to continue from the last completed step. What already downloaded is reused."
+        )
       case .recoveryPreparation:
         return FailureDisplay(
           headline: "Recovery preparation didn’t finish",
@@ -594,6 +607,16 @@
       }
 
       if retryRecoveryAvailable {
+        // An interrupted download says so; Try again continues it.
+        if case .engineFailed(let notice) = error as? EngineXPCSubmissionError,
+          notice.reason == .networkUnavailable
+        {
+          let network = engineFailure(notice, technicalDetail: technical)
+          return FailureDisplay(
+            headline: network.headline, plainDetail: network.plainDetail,
+            technicalDetail: network.technicalDetail, remedy: network.remedy,
+            retryRecoveryAvailable: true)
+        }
         return FailureDisplay(
           headline: "Installation paused",
           plainDetail:

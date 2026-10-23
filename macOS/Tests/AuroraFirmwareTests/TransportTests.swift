@@ -208,4 +208,100 @@ final class TransportTests: XCTestCase, @unchecked Sendable {
     }
     XCTAssertEqual(server.received().count, 1)
   }
+
+  func testRestoreRangeResumesAfterTransientFailuresAndStopsOnFinalOnes() async throws {
+    let url = try XCTUnwrap(URL(string: "https://updates.cdn-apple.com/fixture.ipsw"))
+    let image = Data((0..<64).map { UInt8($0) })
+    // Each answer serves one request: a status, how many body bytes to send,
+    // and the error that ends the response early, if any.
+    let fixture = RangeExchangeFixture(image: image)
+    fixture.answers = [
+      (206, 3, URLError(.networkConnectionLost)), (503, 0, nil), (206, 2, URLError(.timedOut)),
+      (206, 99, nil),
+    ]
+    let reader = try IPSWHTTPRangeReader(url: url, sizeBytes: 64, exchange: fixture.exchange)
+    let bytes = try await reader.read(offset: 10, count: 8)
+    XCTAssertEqual(bytes, image[10..<18])
+    XCTAssertEqual(
+      fixture.ranges, ["bytes=10-17", "bytes=13-17", "bytes=13-17", "bytes=15-17"],
+      "each retry resumes after the bytes that arrived")
+    XCTAssertEqual(fixture.waits, [.seconds(1), .seconds(2), .seconds(4)])
+
+    // A connection that closes early without an error resumes as well.
+    fixture.answers = [(206, 5, nil), (206, 99, nil)]
+    fixture.ranges = []
+    let resumed = try await reader.read(offset: 0, count: 8)
+    XCTAssertEqual(resumed, image[0..<8])
+    XCTAssertEqual(fixture.ranges, ["bytes=0-7", "bytes=5-7"])
+
+    // Retrying is bounded: six attempts, then the last transient error.
+    fixture.answers = Array(repeating: (206, 1, URLError(.networkConnectionLost)), count: 9)
+    fixture.ranges = []
+    fixture.waits = []
+    do {
+      _ = try await reader.read(offset: 0, count: 64)
+      XCTFail("An endlessly failing range was accepted")
+    } catch {
+      XCTAssertEqual((error as? URLError)?.code, .networkConnectionLost)
+      XCTAssertTrue(TransientTransport.isTransient(error))
+    }
+    XCTAssertEqual(fixture.ranges.count, 6)
+    XCTAssertEqual(fixture.waits.count, 5)
+
+    // A wrong answer is final: no retry.
+    for answer in [(200, 99, nil), (416, 0, nil), (206, 2, URLError(.cancelled))]
+      as [(Int, Int, URLError?)]
+    {
+      fixture.answers = [answer, (206, 99, nil)]
+      fixture.ranges = []
+      do {
+        _ = try await reader.read(offset: 0, count: 8)
+        XCTFail("A final failure was retried into success: \(answer)")
+      } catch {
+        XCTAssertFalse(TransientTransport.isTransient(error), "\(error)")
+      }
+      XCTAssertEqual(fixture.ranges.count, 1)
+    }
+
+    // Discovery retries a lost connection too.
+    fixture.answers = [(206, 0, URLError(.notConnectedToInternet)), (206, 1, nil)]
+    fixture.ranges = []
+    let discovered = try await IPSWHTTPRangeReader.discover(url: url, exchange: fixture.exchange)
+    XCTAssertEqual(discovered.sizeBytes, 64)
+    XCTAssertEqual(fixture.ranges, ["bytes=0-0", "bytes=0-0"])
+    XCTAssertTrue(TransientTransport.isTransient(HTTPServerError(status: 502)))
+    XCTAssertFalse(TransientTransport.isTransient(RestoreFailure("final")))
+  }
+}
+
+/// Answers range requests from an in-memory image, as scripted.
+private final class RangeExchangeFixture: @unchecked Sendable {
+  let image: Data
+  var answers = [(status: Int, bytes: Int, error: URLError?)]()
+  var ranges = [String]()
+  var waits = [Duration]()
+  init(image: Data) { self.image = image }
+
+  var exchange: HTTPExchange {
+    HTTPExchange(
+      perform: { request, validate, receive in
+        let range = request.value(forHTTPHeaderField: "Range") ?? ""
+        self.ranges.append(range)
+        let answer = self.answers.removeFirst()
+        let bounds = range.dropFirst("bytes=".count).split(separator: "-").compactMap { Int($0) }
+        let start = bounds[0]
+        let end = bounds[1]
+        let response = try XCTUnwrap(
+          HTTPURLResponse(
+            url: XCTUnwrap(request.url), statusCode: answer.status, httpVersion: nil,
+            headerFields: [
+              "Content-Range": "bytes \(start)-\(end)/\(self.image.count)",
+              "Content-Length": String(end - start + 1),
+            ]))
+        try validate(response)
+        for byte in self.image[start...end].prefix(answer.bytes) { try receive(byte) }
+        if let error = answer.error { throw error }
+      },
+      sleep: { self.waits.append($0) })
+  }
 }

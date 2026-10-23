@@ -324,6 +324,82 @@
       )
     }
 
+    // MARK: Partial installations
+
+    /// A journal source that names one creator for one startup container.
+    final class FakeJournals: RemovalInstallJournals, @unchecked Sendable {
+      var creators: [String: String]
+      init(_ creators: [String: String]) { self.creators = creators }
+      func creator(of stub: RemovalPartition, in snapshot: RemovalSnapshot) throws -> String? {
+        creators[stub.uuid]
+      }
+    }
+
+    /// What the MacBook Neo was left with: a 6 GB startup container right
+    /// after a shrunk macOS, then the 38 GB the failed install never used.
+    private func neoPartial() -> RemovalSnapshot {
+      F.snapshot(
+        macOSSize: 195_100_000_256,
+        [.part(F.convergedInstall.stub, "Apple_APFS", 5_999_951_872), .free(38_000_001_024)],
+        installs: [F.convergedInstall])
+    }
+
+    func testAPartialInstallItsJournalCreatedIsRemovedAndMacOSGrowsBack() throws {
+      let snapshot = neoPartial()
+      let disk = FakeRemovalDisk(snapshot, install: nil)
+      let journals = FakeJournals([F.convergedInstall.stub: String(repeating: "c", count: 64)])
+      let plan = try OmarchyRemovalPlan(disks: disk, journals: journals)
+      let parts = snapshot.partitions.sorted { $0.offset < $1.offset }
+      XCTAssertEqual(plan.kind, .installation)
+      XCTAssertNil(plan.installation)
+      XCTAssertEqual(plan.partial?.name, "Aurora")
+      XCTAssertEqual(plan.members.map(\.uuid), [F.convergedInstall.stub])
+      XCTAssertEqual(plan.targetMacOSBytes, parts[parts.count - 1].offset - parts[1].offset)
+      XCTAssertEqual(plan.reclaimBytes, 5_999_951_872 + 38_000_001_024)
+      XCTAssertEqual(disk.evidenceReads, 0)
+      let ticket = plan.ticket(id: UUID())
+      XCTAssertEqual(ticket.confirmation, OmarchyRemovalTicket.confirmation)
+      XCTAssertEqual(ticket.deletions.map(\.title), ["Startup container “Aurora”"])
+      XCTAssertTrue(plan.summary.contains("The installer’s own record shows it created it."))
+
+      var phases = [String]()
+      try OmarchyRemovalExecutor(disks: disk, journals: journals).execute(plan) {
+        phases.append($0)
+      }
+      XCTAssertEqual(
+        disk.operations, ["container:\(F.convergedInstall.stub)", "grow:\(F.mac)"])
+      XCTAssertEqual(phases.last, "complete")
+      XCTAssertEqual(disk.state.partitions.map(\.uuid), [F.isc, F.mac, F.recovery])
+      XCTAssertEqual(
+        disk.state.partitions.first { $0.uuid == F.mac }?.size, plan.targetMacOSBytes)
+    }
+
+    func testAPartialInstallWithoutItsJournalIsLeftAlone() throws {
+      for journals in [nil, FakeJournals([:])] as [FakeJournals?] {
+        let disk = FakeRemovalDisk(neoPartial(), install: nil)
+        XCTAssertThrowsError(try OmarchyRemovalPlan(disks: disk, journals: journals)) { error in
+          XCTAssertTrue(
+            (error as? RemovalFailure)?.message.hasPrefix(
+              "Found a startup container, but the partitions with it don’t match one installation")
+              == true, "\(error)")
+        }
+        XCTAssertTrue(disk.operations.isEmpty)
+      }
+      // A journal that no longer proves the container by the time removal
+      // runs stops it before anything is deleted.
+      let disk = FakeRemovalDisk(neoPartial(), install: nil)
+      let journals = FakeJournals([F.convergedInstall.stub: String(repeating: "c", count: 64)])
+      let plan = try OmarchyRemovalPlan(disks: disk, journals: journals)
+      for creator in [nil, String(repeating: "d", count: 64)] {
+        journals.creators[F.convergedInstall.stub] = creator
+        XCTAssertThrowsError(
+          try OmarchyRemovalExecutor(disks: disk, journals: journals).execute(plan) { _ in })
+        XCTAssertTrue(disk.operations.isEmpty)
+      }
+      XCTAssertThrowsError(try OmarchyRemovalExecutor(disks: disk).execute(plan) { _ in })
+      XCTAssertTrue(disk.operations.isEmpty)
+    }
+
     func testUnexpectedPartitionShapesAreRefused() {
       let cases: [[F.Row]] = [
         // Startup container without its ESP.

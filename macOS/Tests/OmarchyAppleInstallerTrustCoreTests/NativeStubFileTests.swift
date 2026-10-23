@@ -206,6 +206,79 @@
           storeIdentifier: fixture.package.storeIdentifier, evidence: { _ in source }))
     }
 
+    func testOnlyTheJournalThatCreatedAPartialStartupContainerProvesIt() throws {
+      let fixture = try ExecutionFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.directory) }
+      let container = fixture.snapshot.containers[1]
+      let stub = try XCTUnwrap(
+        fixture.snapshot.partitions.first { $0.uuid == container.storeUUID })
+      let original = try Data(contentsOf: fixture.journal)
+      func created(
+        _ part: RemovalPartition, snapshot: RemovalSnapshot? = nil, transcript: Data? = nil,
+        changed: String? = nil
+      ) -> Bool {
+        NativeRemovalInstallJournals.created(
+          part, transcript: transcript ?? original,
+          snapshot: snapshot ?? fixture.snapshot,
+          evidence: { identifier in
+            if identifier == changed { return Data("changed".utf8) }
+            return try Data(
+              contentsOf: URL(
+                fileURLWithPath: fixture.journal.path + "." + identifier + ".evidence"))
+          })
+      }
+      XCTAssertTrue(created(stub))
+      // Another partition, changed evidence, changed volumes or a journal that
+      // went further prove nothing.
+      let macOS = try XCTUnwrap(
+        fixture.snapshot.partitions.first { $0.uuid == fixture.snapshot.macOSStoreUUID })
+      XCTAssertFalse(created(macOS))
+      for identifier in ["apfs-target-prepared", NativeStubVolumes.evidenceIdentifier] {
+        XCTAssertFalse(created(stub, changed: identifier), identifier)
+      }
+      var renamed = fixture.snapshot
+      renamed.containers[1] = RemovalContainer(
+        uuid: container.uuid, storeUUID: container.storeUUID,
+        volumes: container.volumes.map {
+          RemovalVolume(
+            uuid: $0.uuid, name: $0.name + " 2", roles: $0.roles, group: $0.group,
+            identifier: $0.identifier)
+        })
+      XCTAssertFalse(created(stub, snapshot: renamed))
+      let started = try JSONSerialization.data(
+        withJSONObject: [
+          "schema_version": 1, "sequence": 6, "type": "event",
+          "payload": ["plan_digest": fixture.approved.planDigest, "name": "stub_and_esp_started"],
+        ], options: [.sortedKeys])
+      XCTAssertTrue(created(stub, transcript: original + started + Data([10])))
+      let unfinished = Data(original.split(separator: 10).prefix(4).flatMap { Array($0) + [10] })
+      XCTAssertFalse(created(stub, transcript: unfinished))
+
+      // The installer's working directory holds the journal; one held by a
+      // running process proves nothing.
+      let working = fixture.directory.appendingPathComponent("working")
+      let journals = working.appendingPathComponent("execution-journals")
+      for path in [working, journals] {
+        try FileManager.default.createDirectory(
+          at: path, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+      }
+      let name = fixture.journal.lastPathComponent
+      for suffix in ["", ".apfs-target-prepared.evidence", ".native-stub-volumes.evidence"] {
+        let copy = journals.appendingPathComponent(name + suffix)
+        try FileManager.default.copyItem(
+          at: URL(fileURLWithPath: fixture.journal.path + suffix), to: copy)
+      }
+      let source = NativeRemovalInstallJournals(workingDirectory: working, owner: geteuid())
+      XCTAssertEqual(
+        try source.creator(of: stub, in: fixture.snapshot), String(name.dropLast(6)))
+      XCTAssertNil(try source.creator(of: macOS, in: fixture.snapshot))
+      let held = open(journals.appendingPathComponent(name).path, O_RDONLY | O_CLOEXEC)
+      XCTAssertGreaterThanOrEqual(held, 0)
+      defer { close(held) }
+      XCTAssertEqual(flock(held, LOCK_EX | LOCK_NB), 0)
+      XCTAssertNil(try source.creator(of: stub, in: fixture.snapshot))
+    }
+
     func testSavedRestoreImageIsVerifiedWithoutDownloadingItAgain() async throws {
       let fixture = try ExecutionFixture()
       defer { try? FileManager.default.removeItem(at: fixture.directory) }

@@ -926,16 +926,24 @@
           workingDirectory: fixture.package.packageURL.deletingLastPathComponent(),
           bindingDigest: fixture.package.bindingDigest))
       let identity = InstallerJobPlanIdentity(package: fixture.package)
+      let workingDirectory = fixture.package.packageURL.deletingLastPathComponent()
       XCTAssertTrue(
-        executor.canResumeInterruptedRecoveryAuthorization(
-          identity, in: fixture.package.packageURL.deletingLastPathComponent()))
+        executor.canResumeInterruptedRecoveryAuthorization(identity, in: workingDirectory))
+      // A failed fresh install may be set aside while nothing holds its journal.
+      XCTAssertTrue(executor.canAbandonFailedJob(identity, in: workingDirectory))
+      XCTAssertFalse(
+        executor.canAbandonFailedJob(
+          InstallerJobPlanIdentity(
+            bindingDigest: identity.bindingDigest, planDigest: String(repeating: "b", count: 64),
+            deviceIdentifier: identity.deviceIdentifier, storeIdentifier: identity.storeIdentifier),
+          in: workingDirectory))
       let descriptor = open(journal.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
       XCTAssertGreaterThanOrEqual(descriptor, 0)
       defer { close(descriptor) }
       XCTAssertEqual(flock(descriptor, LOCK_EX | LOCK_NB), 0)
       XCTAssertFalse(
-        executor.canResumeInterruptedRecoveryAuthorization(
-          identity, in: fixture.package.packageURL.deletingLastPathComponent()))
+        executor.canResumeInterruptedRecoveryAuthorization(identity, in: workingDirectory))
+      XCTAssertFalse(executor.canAbandonFailedJob(identity, in: workingDirectory))
       XCTAssertEqual(flock(descriptor, LOCK_UN), 0)
       let evidence = URL(fileURLWithPath: journal.path + ".stub-and-esp-installed.evidence")
       XCTAssertEqual(chmod(evidence.path, 0o600), 0)
@@ -1028,6 +1036,31 @@
         XCTAssertFalse(report.redactedStandardErrorTail.contains("owner-password"))
       }
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
+
+    private struct LostConnectionFirmware: NativeFirmwarePreparing {
+      func prepare(deviceIdentifier: String, in workingDirectory: URL) async throws -> URL? {
+        throw URLError(.networkConnectionLost)
+      }
+    }
+
+    func testALostDownloadIsReportedAsANetworkFailure() async throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let executor = fixtureExecutor(
+        effectiveUserID: { 0 }, firmwarePreparer: LostConnectionFirmware())
+      await assertThrowsErrorAsync(
+        try await executor.execute(
+          fixture.package, authorization: try machineOwnerAuthorization()
+        )
+      ) {
+        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+          return XCTFail("Expected a typed network failure")
+        }
+        XCTAssertEqual(report.notice.reason, .networkUnavailable)
+        XCTAssertEqual(report.notice.summary, PinnedAsahiEngineExecutor.networkSummary)
+        XCTAssertTrue(report.notice.diskUnchanged)
+      }
     }
 
     func testRecoveryAuthorizationRetryDoesNotRepeatNativeFirmwareDownloads() async throws {

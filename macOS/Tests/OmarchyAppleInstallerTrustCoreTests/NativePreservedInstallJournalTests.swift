@@ -150,6 +150,7 @@
       let identity = InstallerJobPlanIdentity(package: package)
       XCTAssertTrue(executor.canRetryRecoveryAuthorization(identity, in: root))
       XCTAssertTrue(executor.canResumeInterruptedRecoveryAuthorization(identity, in: root))
+      XCTAssertTrue(executor.canAbandonFailedJob(identity, in: root))
       do {
         let reopened = try NativePreservedInstallJournal(
           url: journalURL, package: package, transcript: transcript, owner: geteuid())

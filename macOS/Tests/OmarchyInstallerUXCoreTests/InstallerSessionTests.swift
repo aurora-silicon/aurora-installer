@@ -192,6 +192,41 @@
       guard case .failed = other.phase else { return XCTFail("Expected the failure to remain") }
     }
 
+    func testInterruptedDownloadOffersTryAgainWhenTheHelperCanContinue() async throws {
+      let environment = MockInstallerEnvironment()
+      environment.retryAfterFailure = true
+      environment.startOverAvailable = true
+      environment.executeResults = [
+        .failure(
+          EngineXPCSubmissionError.engineFailed(
+            EngineFailureNotice(
+              reason: .networkUnavailable, exitStatus: 1, diskUnchanged: false,
+              summary: "The connection to Apple's servers was lost.")))
+      ]
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      await session.continueToPlan()
+      session.continueToPlanReview()
+      session.setAcknowledged(true)
+      session.approve()
+      session.presentInstallCredentials()
+      await session.submit(try authorization())
+      guard case .failed(let failure) = session.phase else {
+        return XCTFail("Expected the interrupted download")
+      }
+      XCTAssertEqual(failure.headline, "The download was interrupted")
+      XCTAssertTrue(failure.retryRecoveryAvailable)
+      XCTAssertTrue(session.canRetryRecoveryAuthorization)
+      XCTAssertTrue(session.canStartOver)
+      XCTAssertEqual(environment.executeCount, 1)
+      // Try again continues the same job from its last verified step.
+      session.presentRecoveryRetryCredentials()
+      await session.submit(try authorization())
+      XCTAssertEqual(environment.executeCount, 2)
+      XCTAssertEqual(environment.lastOperation, .retryRecoveryAuthorization)
+      XCTAssertEqual(environment.prepareCount, 1)
+    }
+
     func testLiveResetFailureOffersStartOverWhenTheHelperAllows() async throws {
       let environment = MockInstallerEnvironment()
       environment.startOverAvailable = true
@@ -1607,6 +1642,27 @@
       XCTAssertFalse(session.canStartInstallation)
     }
 
+    func testAnUnfinishedInstallationCanOnlyBeErased() async throws {
+      let environment = MockInstallerEnvironment()
+      environment.host = HostDisplay(
+        chipAndSpace: MockInstallerEnvironment.supportedHost.chipAndSpace,
+        supported: true,
+        existingInstalls: [
+          ExistingInstallDisplay(
+            sourceIdentifier: "disk0s3", sizeDescription: "6 GB", partial: true)
+        ])
+      environment.accountReply = nil
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      guard case .existingInstallRefused = session.phase else {
+        return XCTFail("Expected the unfinished installation to stop a fresh install")
+      }
+      XCTAssertFalse(session.canPreparePreservedReinstall)
+      await session.reinstallPreservingStage1()
+      XCTAssertEqual(environment.preservedPrepareCount, 0)
+      XCTAssertEqual(environment.prepareCount, 0)
+    }
+
     func testExistingInstallCanReviewAnExplicitPreservedReinstall() async throws {
       let environment = MockInstallerEnvironment()
       environment.host = HostDisplay(
@@ -1907,7 +1963,10 @@
     var startOverError: (any Error)?
     private(set) var startOverCount = 0
 
-    func pendingInstallationCanStartOver() async -> Bool { startOverAvailable }
+    var retryAfterFailure = false
+    func pendingInstallationOptions() async -> InstallerPendingOptions {
+      InstallerPendingOptions(retry: retryAfterFailure, startOver: startOverAvailable)
+    }
     func startOverPendingInstallation() async throws {
       startOverCount += 1
       if let startOverError { throw startOverError }

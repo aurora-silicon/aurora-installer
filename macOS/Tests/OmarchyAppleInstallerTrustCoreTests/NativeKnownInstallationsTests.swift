@@ -82,6 +82,50 @@
         ).isEmpty)
     }
 
+    /// The fixture as a fresh install leaves it when it stops right after
+    /// creating its startup container: macOS shrunk up to that container,
+    /// and nothing after it.
+    private func partial(
+      _ title: String = "Aurora ALARM", stub: Bool = true, gap: UInt64 = 0, keepESP: Bool = false
+    ) throws -> NativeCollectedDisk {
+      let disk = try fixture(title, stub: stub)
+      var snapshot = disk.snapshot
+      let removed = keepESP ? ["disk0s6", "disk0s7"] : ["disk0s5", "disk0s6", "disk0s7"]
+      snapshot.partitions.removeAll { removed.contains($0.identifier) }
+      let start = try XCTUnwrap(snapshot.partitions.first { $0.identifier == "disk0s4" }).offset
+      let index = try XCTUnwrap(
+        snapshot.partitions.firstIndex { $0.uuid == snapshot.macOSStoreUUID })
+      snapshot.partitions[index].size = start - gap - snapshot.partitions[index].offset
+      let size = snapshot.partitions[index].size
+      let containers = disk.containers.map { facts in
+        guard facts.storeUUID == snapshot.macOSStoreUUID else { return facts }
+        return NativeContainerFacts(
+          storeUUID: facts.storeUUID, capacity: size, free: min(facts.free, size),
+          preferredMinimum: min(facts.preferredMinimum, size), systems: facts.systems)
+      }
+      return NativeCollectedDisk(snapshot: snapshot, containers: containers)
+    }
+
+    func testAnInstallationThatStoppedAfterItsStartupContainerIsPartial() throws {
+      let disk = try partial()
+      let stub = try XCTUnwrap(disk.snapshot.partitions.first { $0.identifier == "disk0s4" })
+      XCTAssertEqual(
+        try NativeKnownInstallations.recognize(disk),
+        [
+          NativeKnownInstallation(
+            sourceIdentifier: "disk0s4", offsetBytes: stub.offset, lengthBytes: stub.size,
+            partial: true)
+        ])
+      // Not directly after macOS, not one of ours, a full system, or followed
+      // by an EFI partition: not a partial installation.
+      for other in [
+        try partial(gap: 1 << 30), try partial("Macintosh HD"), try partial(stub: false),
+        try partial(keepESP: true),
+      ] {
+        XCTAssertTrue(try NativeKnownInstallations.recognize(other).isEmpty)
+      }
+    }
+
     func testMultipleInstallationsAndMultipleSystemGroupsAreNotLost() throws {
       let disk = try fixture("Fedora Aurora Remix")
       var snapshot = disk.snapshot

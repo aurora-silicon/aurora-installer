@@ -10,33 +10,58 @@ public protocol FirmwareRangeReading: Sendable {
 
 /// Exact HTTP ranges from an admitted restore-image URL. CRC validates ZIP
 /// transport integrity; source/file hashes and AEA authentication remain the
-/// caller's authority for firmware admission.
+/// caller's authority for firmware admission. A transient failure is retried
+/// with backoff, and a read resumes after the bytes that already arrived.
 public struct IPSWHTTPRangeReader: FirmwareRangeReading {
   public let sizeBytes: Int
   private let url: URL
+  private let exchange: HTTPExchange
 
   public init(url: URL, sizeBytes: Int) throws {
+    try self.init(url: url, sizeBytes: sizeBytes, exchange: .live)
+  }
+
+  init(url: URL, sizeBytes: Int, exchange: HTTPExchange) throws {
     try require(
       appleRangeURL(url.absoluteString) && sizeBytes >= 22 && sizeBytes <= 128 << 30,
       "Invalid restore-image range source.")
     self.url = url
     self.sizeBytes = sizeBytes
+    self.exchange = exchange
   }
 
   /// Discover the archive length through a one-byte range, without accepting a
   /// whole-image response or redirect. Subsequent reads remain exactly bounded.
   public static func discover(url: URL) async throws -> Self {
+    try await discover(url: url, exchange: .live)
+  }
+
+  static func discover(url: URL, exchange: HTTPExchange) async throws -> Self {
     try require(appleRangeURL(url.absoluteString), "Invalid restore-image source.")
     var request = URLRequest(url: url)
     request.timeoutInterval = 45
     request.setValue("bytes=0-0", forHTTPHeaderField: "Range")
     request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
     var size: Int?
-    let bytes = try await httpBytes(request, maximum: 1) { response in
-      size = try discoveredSize(response)
+    var bytes = Data()
+    try await exchange.retrying {
+      size = nil
+      bytes = Data()
+      try await exchange.perform(
+        request,
+        { response in
+          try serverError(response)
+          size = try discoveredSize(response)
+        },
+        { byte in
+          try require(bytes.isEmpty, "HTTP response exceeds its admitted length.")
+          bytes.append(byte)
+        })
+      // A connection that closed early without an error is retried too.
+      if bytes.isEmpty { throw URLError(.networkConnectionLost) }
     }
     guard bytes.count == 1, let size else { throw RestoreFailure("Invalid restore-image length.") }
-    return try Self(url: url, sizeBytes: size)
+    return try Self(url: url, sizeBytes: size, exchange: exchange)
   }
 
   static func discoveredSize(_ response: HTTPURLResponse) throws -> Int {
@@ -54,27 +79,48 @@ public struct IPSWHTTPRangeReader: FirmwareRangeReading {
     return size
   }
 
+  static func serverError(_ response: HTTPURLResponse) throws {
+    if (500...599).contains(response.statusCode) {
+      throw HTTPServerError(status: response.statusCode)
+    }
+  }
+
   public func read(offset: Int, count: Int) async throws -> Data {
     try require(
       offset >= 0 && count > 0 && count <= 8 * 1024 * 1024 && offset <= sizeBytes - count,
       "Restore-image range exceeds its budget.")
     let end = offset + count - 1
-    var request = URLRequest(url: url)
-    request.timeoutInterval = 45
-    request.setValue("bytes=\(offset)-\(end)", forHTTPHeaderField: "Range")
-    request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-    let bytes = try await httpBytes(request, maximum: count) { response in
-      let encoding = response.value(forHTTPHeaderField: "Content-Encoding") ?? ""
-      try require(
-        response.statusCode == 206
-          && response.value(forHTTPHeaderField: "Content-Range")
-            == "bytes \(offset)-\(end)/\(sizeBytes)"
-          && response.value(forHTTPHeaderField: "Content-Length") == String(count)
-          && (encoding.isEmpty || encoding == "identity"),
-        "Restore-image server did not return the exact requested range.")
+    var data = Data()
+    data.reserveCapacity(count)
+    try await exchange.retrying {
+      guard data.count < count else { return }
+      let start = offset + data.count
+      var request = URLRequest(url: url)
+      request.timeoutInterval = 45
+      request.setValue("bytes=\(start)-\(end)", forHTTPHeaderField: "Range")
+      request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+      try await exchange.perform(
+        request,
+        { response in
+          try Self.serverError(response)
+          let encoding = response.value(forHTTPHeaderField: "Content-Encoding") ?? ""
+          try require(
+            response.statusCode == 206
+              && response.value(forHTTPHeaderField: "Content-Range")
+                == "bytes \(start)-\(end)/\(sizeBytes)"
+              && response.value(forHTTPHeaderField: "Content-Length") == String(end - start + 1)
+              && (encoding.isEmpty || encoding == "identity"),
+            "Restore-image server did not return the exact requested range.")
+        },
+        { byte in
+          try require(data.count < count, "HTTP response exceeds its admitted length.")
+          data.append(byte)
+        })
+      // A connection that closed early without an error resumes too.
+      if data.count < count { throw URLError(.networkConnectionLost) }
     }
-    try require(bytes.count == count, "Restore-image range is truncated.")
-    return bytes
+    try require(data.count == count, "Restore-image range is truncated.")
+    return data
   }
 }
 

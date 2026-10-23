@@ -365,7 +365,7 @@
         }
       self.abandonEligibility =
         abandonEligibility ?? { identity in
-          PinnedAsahiEngineExecutor().canAbandonFailedReset(identity, in: workingDirectory)
+          PinnedAsahiEngineExecutor().canAbandonFailedJob(identity, in: workingDirectory)
         }
       do { try load() } catch {
         loadError = error
@@ -498,10 +498,11 @@
 
     /// Start over: sets a failed job aside once the person chose to. Only a
     /// finished failure qualifies, and only one that never reached the disk
-    /// or a reset whose journal verifies and that no process still holds. A
-    /// preparing, running or interrupted job is never set aside. The record
-    /// moves to `abandoned-installation-jobs`; the journal and its evidence
-    /// stay where they are. Returns the retained package for cleanup.
+    /// or whose journal verifies as this plan's and that no process still
+    /// holds. A preparing, running or interrupted job is never set aside. The
+    /// record moves to `abandoned-installation-jobs`; the journal and its
+    /// evidence stay where they are, so removal can still undo a partial
+    /// fresh install from them. Returns the retained package for cleanup.
     func abandon(_ request: InstallerJobAbandonRequest, initiatingUID: UInt32) throws -> URL? {
       try request.ticket.validate()
       return try lock.withLock {

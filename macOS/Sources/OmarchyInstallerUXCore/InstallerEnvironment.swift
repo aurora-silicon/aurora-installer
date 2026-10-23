@@ -92,12 +92,16 @@
   public struct ExistingInstallDisplay: Equatable, Sendable, Identifiable {
     public let sourceIdentifier: String
     public let sizeDescription: String
+    /// Only the startup container an unfinished installation left; it can be
+    /// erased but not reset.
+    public let partial: Bool
 
     public var id: String { sourceIdentifier }
 
-    public init(sourceIdentifier: String, sizeDescription: String) {
+    public init(sourceIdentifier: String, sizeDescription: String, partial: Bool = false) {
       self.sourceIdentifier = sourceIdentifier
       self.sizeDescription = sizeDescription
+      self.partial = partial
     }
   }
 
@@ -561,6 +565,15 @@
   /// implementation retains the trust objects (host inspection, prepared plan,
   /// review, approval, release configuration); the preview implementation
   /// replays a recorded journal. Neither ever hands a credential back.
+  public struct InstallerPendingOptions: Equatable, Sendable {
+    public let retry: Bool
+    public let startOver: Bool
+    public init(retry: Bool = false, startOver: Bool = false) {
+      self.retry = retry
+      self.startOver = startOver
+    }
+  }
+
   public enum InstallerRestorationResult: Sendable {
     case completed(CompletionDisplay)
     case requiresRecoveryAuthorization
@@ -582,10 +595,10 @@
     func hasPendingInstallation() throws -> Bool
     func resumeInstallation(journal: @escaping @Sendable (Data) -> Void) async throws
       -> InstallerRestorationResult
-    /// Whether the helper would set the saved, failed installation aside: a
-    /// job that never reached the disk, or a reset no process still holds.
-    /// Read only; it never needs a password.
-    func pendingInstallationCanStartOver() async -> Bool
+    /// What the helper allows for the saved, failed installation: continuing
+    /// it from its last verified step, or setting it aside. Read only; it
+    /// never needs a password.
+    func pendingInstallationOptions() async -> InstallerPendingOptions
     /// Sets the saved installation aside after the person chose Start over,
     /// then forgets its lookup hint. The helper keeps the journal and evidence.
     func startOverPendingInstallation() async throws
@@ -670,7 +683,9 @@
     {
       throw InstallerJobError.unavailable
     }
-    public func pendingInstallationCanStartOver() async -> Bool { false }
+    public func pendingInstallationOptions() async -> InstallerPendingOptions {
+      InstallerPendingOptions()
+    }
     public func startOverPendingInstallation() async throws {
       throw InstallerJobError.unavailable
     }
