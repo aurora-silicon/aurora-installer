@@ -53,7 +53,10 @@ verify_release_code() {
 
 verify_release_code "$app_path" "$INSTALLER_APP_IDENTIFIER"
 verify_release_code "$app_path/Contents/Library/LaunchServices/$INSTALLER_HELPER_IDENTIFIER" "$INSTALLER_HELPER_IDENTIFIER"
-python3 "$packaging_directory/verify-bundled-engines.py" --signatures "$app_path"
+unexpected_engine=$(/usr/bin/find "$app_path" \( -name '*.py' -o -name '*.pyc' -o -name 'Python.framework' \
+  -o -name 'python3*' -o -name 'installer-*.tar.gz' -o -path "$app_path/Contents/Resources/Engine" \) \
+  -print -quit)
+[[ -z $unexpected_engine ]] || fail "release app contains Python or an engine archive: $unexpected_engine"
 decoder="$app_path/Contents/Helpers/omarchy-restore-image"
 verify_release_code "$decoder" "$INSTALLER_RESTORE_IMAGE_IDENTIFIER"
 recovery="$app_path/Contents/Resources/RecoveryTemplate/$INSTALLER_APP_NAME.app"

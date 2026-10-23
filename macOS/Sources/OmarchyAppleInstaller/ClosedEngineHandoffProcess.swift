@@ -8,10 +8,8 @@
     public let manifestURL: URL
     public let requestURL: URL
     public let identityURL: URL
-    public let engineURL: URL?
     public let metadataURL: URL
     public let payloadURL: URL
-    public let repairManifestURL: URL?
     public let restoreImageURL: URL
   }
 
@@ -106,10 +104,7 @@
       try validateBindings(invocation: invocation, assets: assets)
       try ensurePrivateDirectory(handoffDirectory)
 
-      let artifactFileNames =
-        [assets.metadata.artifact.fileName, assets.payload.artifact.fileName]
-        + (assets.engine.map { [$0.artifact.fileName] } ?? [])
-        + (assets.repairManifest.map { [$0.artifact.fileName] } ?? [])
+      let artifactFileNames = [assets.metadata.artifact.fileName, assets.payload.artifact.fileName]
       guard Set(artifactFileNames).count == artifactFileNames.count,
         Set(artifactFileNames).isDisjoint(
           with: Self.reservedFileNames
@@ -139,16 +134,12 @@
         }
       }
 
-      let engineURL = assets.engine.map { pending.appendingPathComponent($0.artifact.fileName) }
       let metadataURL = pending.appendingPathComponent(
         assets.metadata.artifact.fileName
       )
       let payloadURL = pending.appendingPathComponent(
         assets.payload.artifact.fileName
       )
-      let repairManifestURL = assets.repairManifest.map {
-        pending.appendingPathComponent($0.artifact.fileName)
-      }
       let restoreImageURL = pending.appendingPathComponent(RestoreImageHelper.fileName)
       let restoreImageArtifact = try copyRestoreImage(restoreImage, to: restoreImageURL)
       let recoveryArtifact: EngineHandoffArtifact?
@@ -164,18 +155,8 @@
       } else {
         recoveryArtifact = nil
       }
-      if let staged = assets.engine, let engineURL {
-        try copyVerified(staged, role: "engine", to: engineURL)
-      }
       try copyVerified(assets.metadata, role: "metadata", to: metadataURL)
       try copyVerified(assets.payload, role: "payload", to: payloadURL)
-      if let staged = assets.repairManifest, let repairManifestURL {
-        try copyVerified(
-          staged,
-          role: "repair-manifest",
-          to: repairManifestURL
-        )
-      }
 
       let requestURL = pending.appendingPathComponent("request.json")
       let identityURL = pending.appendingPathComponent("identity.json")
@@ -205,16 +186,12 @@
         manifestURL: package.appendingPathComponent("manifest.json"),
         requestURL: package.appendingPathComponent("request.json"),
         identityURL: package.appendingPathComponent("identity.json"),
-        engineURL: assets.engine.map { package.appendingPathComponent($0.artifact.fileName) },
         metadataURL: package.appendingPathComponent(
           assets.metadata.artifact.fileName
         ),
         payloadURL: package.appendingPathComponent(
           assets.payload.artifact.fileName
         ),
-        repairManifestURL: assets.repairManifest.map {
-          package.appendingPathComponent($0.artifact.fileName)
-        },
         restoreImageURL: package.appendingPathComponent(RestoreImageHelper.fileName)
       )
     }
@@ -282,25 +259,18 @@
     ) throws {
       guard invocation.catalogIdentity == assets.catalogIdentity,
         invocation.pinnedInstaller == assets.installer,
+        invocation.plan.engineVersion == NativeExecutionIdentity.version,
+        invocation.plan.engineDigest == NativeExecutionIdentity.digest,
         invocation.plan.engineDigest == assets.installer.engineDigest,
         invocation.plan.metadataDigest == assets.metadata.artifact.expectedDigest,
         invocation.plan.payloadDigest == assets.payload.artifact.expectedDigest,
-        invocation.plan.repairManifestDigest
-          == assets.repairManifest?.artifact.expectedDigest,
+        invocation.plan.repairManifestDigest == nil,
         let delivery = invocation.pinnedInstaller.delivery,
-        delivery.engine == assets.engine?.artifact,
         delivery.metadata == assets.metadata.artifact,
         delivery.payload == assets.payload.artifact,
-        delivery.repairManifest == assets.repairManifest?.artifact,
-        invocation.pinnedInstaller.repairManifestDigest
-          == invocation.plan.repairManifestDigest,
-        (invocation.pinnedInstaller.operation == "repair-installed-system"
-          && invocation.plan.candidateKind == "repair"
-          && assets.repairManifest != nil)
-          || (invocation.pinnedInstaller.operation == "install"
-            && ["free", "resize", "replace", "reinstall"].contains(
-              invocation.plan.candidateKind)
-            && assets.repairManifest == nil)
+        invocation.pinnedInstaller.repairManifestDigest == nil,
+        invocation.pinnedInstaller.operation == "install",
+        ["free", "resize", "replace", "reinstall"].contains(invocation.plan.candidateKind)
       else {
         throw ClosedEngineHandoffError.assetBindingMismatch
       }
@@ -512,15 +482,15 @@
     }
   }
 
+  /// Format 2: the helper runs its built-in native engine, so the package
+  /// carries no engine archive.
   private struct EngineHandoffManifest: Encodable {
-    let format: Int
+    let format = 2
     let bindingDigest: String
     let requestFile = "request.json"
     let identityFile = "identity.json"
-    let engine: EngineHandoffArtifact?
     let metadata: EngineHandoffArtifact
     let payload: EngineHandoffArtifact
-    let repairManifest: EngineHandoffArtifact?
     let restoreImage: EngineHandoffArtifact
     let recoveryTemplate: EngineHandoffArtifact?
 
@@ -531,13 +501,8 @@
       recoveryTemplate: EngineHandoffArtifact?
     ) {
       bindingDigest = invocation.candidateIdentity.bindingDigest
-      format = assets.engine == nil ? 2 : 1
-      engine = assets.engine.map { EngineHandoffArtifact(staged: $0) }
       metadata = EngineHandoffArtifact(staged: assets.metadata)
       payload = EngineHandoffArtifact(staged: assets.payload)
-      repairManifest = assets.repairManifest.map {
-        EngineHandoffArtifact(staged: $0)
-      }
       self.restoreImage = restoreImage
       self.recoveryTemplate = recoveryTemplate
     }
@@ -547,10 +512,8 @@
       case bindingDigest = "binding_digest"
       case requestFile = "request_file"
       case identityFile = "identity_file"
-      case engine
       case metadata
       case payload
-      case repairManifest = "repair_manifest"
       case restoreImage = "restore_image"
       case recoveryTemplate = "recovery_template"
     }

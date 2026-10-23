@@ -14,7 +14,7 @@
       let unused = URL(fileURLWithPath: "/unused-source-owner-probe")
       let package = ImportedEngineHandoffPackage(
         packageURL: unused, manifestURL: unused, requestURL: unused, identityURL: unused,
-        engineURL: unused, metadataURL: unused, payloadURL: unused,
+        metadataURL: unused, payloadURL: unused,
         bindingDigest: String(repeating: "a", count: 64),
         planDigest: String(repeating: "b", count: 64),
         deviceIdentifier: identity.deviceIdentifier, storeIdentifier: disk.disk)

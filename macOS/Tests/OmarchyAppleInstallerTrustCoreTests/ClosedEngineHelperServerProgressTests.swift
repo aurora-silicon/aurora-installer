@@ -123,13 +123,12 @@
         attributes: [.posixPermissions: 0o700]
       )
 
-      let engine = Data("engine-a".utf8)
       let metadata = Data("metadata".utf8)
       let payload = Data("payload-a".utf8)
-      let engineDigest = digest(engine)
+      // Packages name the built-in native engine; none carries an archive.
+      let engineDigest = NativeExecutionIdentity.digest
       let metadataDigest = digest(metadata)
       let payloadDigest = digest(payload)
-      try writePrivate(engine, to: source.appendingPathComponent("engine.tar.gz"))
       try writePrivate(
         metadata,
         to: source.appendingPathComponent("installer-data.json")
@@ -146,7 +145,7 @@
       let requiredHumanSteps = [
         "enterOneTrueRecovery", "authenticateMachineOwner",
       ]
-      let engineVersion = "v0.9.0-omarchy.1"
+      let engineVersion = NativeExecutionIdentity.version
       let planDigest = lengthPrefixedDigest(
         [
           "apple,j314s", "disk0", layoutDigest, "free", "disk0s3",
@@ -161,7 +160,7 @@
       try writePrivate(decoder, to: source.appendingPathComponent(RestoreImageHelper.fileName))
       let manifest = Data(
         """
-        {"format":1,"binding_digest":"\(bindingDigest)","request_file":"request.json","identity_file":"identity.json","engine":{"file_name":"engine.tar.gz","digest":"\(engineDigest)","size_bytes":\(engine.count)},"metadata":{"file_name":"installer-data.json","digest":"\(metadataDigest)","size_bytes":\(metadata.count)},"payload":{"file_name":"omarchy.img.zst","digest":"\(payloadDigest)","size_bytes":\(payload.count)},"restore_image":{"file_name":"\(RestoreImageHelper.fileName)","digest":"\(digest(decoder))","size_bytes":\(decoder.count)}}
+        {"format":2,"binding_digest":"\(bindingDigest)","request_file":"request.json","identity_file":"identity.json","metadata":{"file_name":"installer-data.json","digest":"\(metadataDigest)","size_bytes":\(metadata.count)},"payload":{"file_name":"omarchy.img.zst","digest":"\(payloadDigest)","size_bytes":\(payload.count)},"restore_image":{"file_name":"\(RestoreImageHelper.fileName)","digest":"\(digest(decoder))","size_bytes":\(decoder.count)}}
         """.utf8
       )
       let request = Data(

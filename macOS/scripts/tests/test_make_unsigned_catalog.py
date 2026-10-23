@@ -30,7 +30,7 @@ class CatalogGeneratorTests(unittest.TestCase):
         self.assets = self.directory / "assets"
         self.assets.mkdir()
         self.inputs = json.loads(TEMPLATE.read_text())
-        for key in ("engine_name", "metadata_name", "payload_name"):
+        for key in ("metadata_name", "payload_name"):
             (self.assets / self.inputs[key]).write_bytes(key.encode() * 64)
 
     def write_inputs(self, document: dict | None = None) -> Path:
@@ -104,15 +104,11 @@ class CatalogGeneratorTests(unittest.TestCase):
         self.inputs["installation_profile"] = "fedora-unknown"
         self.assertRejected(self.inputs, "not an Aurora installer profile")
 
-    def test_recommendation_engine_rejects_old_installer_minimum(self):
-        self.inputs["installer"]["minimum_version"] = "2.0.10"
-        self.assertRejected(self.inputs, "requires installer.minimum_version >= 2.1.0")
-
-    def test_emits_schema_four_without_an_expiry(self) -> None:
+    def test_emits_schema_five_without_an_expiry(self) -> None:
         result = self.generate()
         self.assertEqual(result.returncode, 0, result.stderr)
         catalog = json.loads((self.directory / "catalog.json").read_text())
-        self.assertEqual(catalog["schemaVersion"], 4)
+        self.assertEqual(catalog["schemaVersion"], 5)
         self.assertNotIn("expiresAt", catalog)
         self.assertEqual(catalog["issuedAt"], NOW)
         self.assertEqual(catalog["sequence"], 1788480000)
@@ -121,9 +117,6 @@ class CatalogGeneratorTests(unittest.TestCase):
     def test_schema_five_binds_only_native_delivery_assets(self) -> None:
         document = self.with_neo()
         document["schema_version"] = 5
-        document.pop("engine_name")
-        document.pop("engine_version")
-        (self.assets / self.inputs["engine_name"]).unlink()
         result = self.generate(document, developer=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         catalog = json.loads((self.directory / "catalog.json").read_text())
@@ -135,9 +128,14 @@ class CatalogGeneratorTests(unittest.TestCase):
             self.assertEqual(set(model) & {"metadataArtifact", "payloadArtifact"},
                              {"metadataArtifact", "payloadArtifact"})
 
-    def test_schema_five_rejects_compatibility_artifact_fields(self) -> None:
-        self.inputs["schema_version"] = 5
+    def test_engine_inputs_are_refused(self) -> None:
+        self.inputs["engine_name"] = "installer-v0.9.2-aurora.14.tar.gz"
+        self.inputs["engine_version"] = "v0.9.2-aurora.14"
         self.assertRejected(self.inputs, "unknown keys: engine_name, engine_version")
+
+    def test_only_schema_five_is_produced(self) -> None:
+        self.inputs["schema_version"] = 4
+        self.assertRejected(self.inputs, "schema_version must be 5")
 
     def test_carries_the_installer_compatibility_block(self) -> None:
         self.inputs["installer"]["minimum_version"] = "2.1.0"
@@ -158,7 +156,7 @@ class CatalogGeneratorTests(unittest.TestCase):
         self.generate()
         catalog = json.loads((self.directory / "catalog.json").read_text())
         model = catalog["models"][0]
-        for role in ("engineArtifact", "metadataArtifact", "payloadArtifact"):
+        for role in ("metadataArtifact", "payloadArtifact"):
             self.assertTrue(model[role]["sourceURL"].startswith(f"{BASE_URL}/"))
 
     def test_the_same_inputs_produce_the_same_bytes(self) -> None:
@@ -202,7 +200,7 @@ class CatalogGeneratorTests(unittest.TestCase):
 
     def test_a_missing_inputs_key_is_rejected(self) -> None:
         document = dict(self.inputs)
-        del document["engine_version"]
+        del document["evidence_revision"]
         self.assertRejected(document, "missing keys")
 
     def test_a_minimum_newer_than_the_latest_is_rejected(self) -> None:
@@ -330,7 +328,6 @@ class CatalogGeneratorTests(unittest.TestCase):
         self.assertEqual(neo["payloadArtifact"]["fileName"], "neo-os-package.zip")
         self.assertEqual(neo["metadataArtifact"]["fileName"], "installer_data-neo.json")
         self.assertEqual(len(neo["payloadArtifact"]["parts"]), 2)
-        self.assertEqual(neo["engineArtifact"], main["engineArtifact"])
         neo_digest = hashlib.sha256((self.assets / "neo-os-package.zip").read_bytes()).hexdigest()
         self.assertEqual(neo["payloadDigest"], f"sha256:{neo_digest}")
 

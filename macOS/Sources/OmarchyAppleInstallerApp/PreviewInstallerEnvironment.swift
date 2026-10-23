@@ -216,11 +216,6 @@
         fileName: "installer_data.json",
         expectedBytes: 34_000_000
       ),
-      PreviewArtifact(
-        role: "engine",
-        fileName: "installer-v0.9.0-omarchy.14.tar.gz",
-        expectedBytes: 22_000_000
-      ),
     ]
 
     private func loadJournalLines() throws -> [Data] {

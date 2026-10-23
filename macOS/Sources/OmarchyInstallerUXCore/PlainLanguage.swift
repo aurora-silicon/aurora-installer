@@ -588,6 +588,16 @@
             ? "Update the installer and choose Check again."
             : "Save the error details and check the verified installation record before trying again."
         )
+      case .startOverRequired:
+        return FailureDisplay(
+          headline: "This installation can’t be continued",
+          plainDetail:
+            "An earlier version of \(windowTitle) started it with an installation method this version no longer includes. \(diskState)",
+          technicalDetail: technicalDetail,
+          remedy: unchanged
+            ? "Choose Check again to start over."
+            : "Remove the incomplete Linux installation, then choose Check again to start over. \(engineDiagnosticsLocation)"
+        )
       case .unclassified:
         return FailureDisplay(
           headline: "The installer engine stopped with an error",
@@ -969,6 +979,16 @@
             remedy: "Review the error details, then try again."
           )
         }
+      }
+
+      if case SupportCatalogError.nativeEngineRequired = error {
+        return FailureDisplay(
+          headline: "This channel isn’t ready for this installer",
+          plainDetail:
+            "Its signed release list was published for an older installer, so this version can’t use it. Installation has not started.",
+          technicalDetail: technical,
+          remedy: "Choose another release channel from the menu bar, or check again later."
+        )
       }
 
       if let catalog = error as? SupportCatalogError {

@@ -1,44 +1,10 @@
 #if os(macOS)
-  import Darwin
   import Foundation
-  import RecoveryAccountCore
 
   enum NativeLegacyStage1 {
     struct Receipt: Codable, Equatable, Sendable {
       let configuration: String
       let base: NativeStubFileIdentity
-    }
-
-    // The raw boot resource in the locked runtime. Its source and build
-    // provenance remain in Engine/source-lock.json.
-    static let pinnedBase = NativeStubFileIdentity(
-      bytes: 1_163_264,
-      sha256: "51eb189fa8132e7e510f3a5b402d8dbd858a9679af14846b4e7dcc973a7d06b6")
-
-    static func load(
-      archive: URL, expectedDigest: String, owner: uid_t = 0,
-      expectedBase: NativeStubFileIdentity = pinnedBase,
-      extract: @Sendable (URL) throws -> Data = {
-        try AccountNativeCommand.checked(
-          "/usr/bin/tar", ["-xOzf", $0.path, "./boot/m1n1.bin"], timeout: 60)
-      }
-    ) throws -> Data {
-      let tree = try NativeHandoffFileTree(
-        archive.deletingLastPathComponent(), protected: true, owner: owner)
-      func authenticateArchive() throws {
-        let bytes = try tree.read(archive.lastPathComponent, maximum: 64 << 20)
-        guard SHA256Digest(hashing: bytes).rawValue == expectedDigest else {
-          throw NativeBootChainError.invalidStage1
-        }
-      }
-      try authenticateArchive()
-      let base = try extract(archive)
-      try authenticateArchive()
-      try validate(base)
-      guard base.count == expectedBase.bytes,
-        NativeStubFileStore.hash(base) == expectedBase.sha256
-      else { throw NativeBootChainError.invalidStage1 }
-      return base
     }
 
     static func validate(_ base: Data) throws {

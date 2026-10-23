@@ -2,14 +2,12 @@
   import Darwin
   import Foundation
 
-  /// Why the pinned engine stopped, as far as the privileged helper can tell
-  /// from the engine's final exception line. Only a fixed set of exact engine
-  /// messages maps to a named reason; everything else is `unclassified`.
+  /// Why a native installation stage stopped, as the privileged helper
+  /// classifies it. Anything it does not name is `unclassified`.
   ///
   /// The reason chooses wording and offers in the app. It never feeds a
   /// security decision: a re-plan it offers runs the full signed plan flow,
-  /// and the disk-unchanged claim comes from the root-owned journal, not from
-  /// engine output.
+  /// and the disk-unchanged claim comes from the root-owned journal.
   public enum EngineFailureReason: Int, Equatable, Sendable, CaseIterable {
     case unclassified = 0
     /// The approved Linux allocation no longer fits what macOS can give up
@@ -21,7 +19,7 @@
     case deviceUnsupported = 3
     /// The plan, request, or identity failed an integrity check.
     case planIntegrity = 4
-    /// Native preparation stopped before the installation engine was launched.
+    /// Native firmware preparation stopped before any disk change.
     case firmwarePreparation = 5
     case recoveryPreparation = 6
     /// This Mac's boot firmware or macOS is older than every OS firmware the
@@ -30,36 +28,10 @@
     /// A download from Apple's servers failed after its transient retries.
     /// Older apps read this as unclassified.
     case networkUnavailable = 8
-
-    /// Exact final-exception messages raised before the first mutation by
-    /// `omarchy_execution.admit_execution`, `omarchy_runtime` and the Asahi
-    /// adapter preflight. Anything not listed stays unclassified.
-    static func classify(exception: String, message: String) -> EngineFailureReason {
-      guard knownExceptionTypes.contains(exception) else {
-        return .unclassified
-      }
-      switch message {
-      case "approved extent changed", "approved extent is too small",
-        "approved extent is smaller than Asahi minimum":
-        return .approvedSpaceChanged
-      case "disk layout changed", "system store changed",
-        "approved candidate is unavailable", "system store changed during resume",
-        "inventory changed during resume":
-        return .diskLayoutChanged
-      case "device is explicitly unsupported":
-        return .deviceUnsupported
-      case "plan digest mismatch", "helper environment binding mismatch",
-        "request identity mismatch":
-        return .planIntegrity
-      default:
-        return .unclassified
-      }
-    }
-
-    private static let knownExceptionTypes: Set<String> = [
-      "ExecutionAdmissionError", "EngineRuntimeError", "AsahiAdapterError",
-      "ContractError",
-    ]
+    /// The job was started by an older installer with an execution method
+    /// this one no longer has. It cannot be continued; the person starts a
+    /// new installation. Older apps show this as unclassified.
+    case startOverRequired = 9
 
     private static let macOSUpdatePrefix = "This Mac needs macOS "
     private static let macOSUpdateSuffix = " or later."
@@ -104,8 +76,7 @@
     /// or completion record, i.e. no disk mutation began. Every engine
     /// mutation stage journals its start event before it touches the disk.
     public let diskUnchanged: Bool
-    /// The engine's final exception line after redaction, printable ASCII,
-    /// display and diagnostics only.
+    /// One redacted line, printable ASCII, for display and diagnostics only.
     public let summary: String
 
     public init(
@@ -160,22 +131,18 @@
     }
   }
 
-  /// Turns captured engine stderr into something safe to keep.
+  /// Turns a native stage's error description into something safe to keep in
+  /// the helper's root-only diagnostics.
   ///
-  /// Why the engine's stderr should already be credential-free: the engine
-  /// reads the machine-owner password once from stdin, hands it to macOS
-  /// tools on their stdin (`--stdinpass`, their stderr discarded), and never
-  /// prints it. Python tracebacks show source lines and exception messages,
-  /// not local values. This redactor is defense in depth for a future engine
-  /// change or an unexpected library message:
+  /// Native stages hand the machine-owner password to macOS tools on their
+  /// stdin and never put it in an error. This redactor is defense in depth for
+  /// an unexpected tool or library message:
   /// - every occurrence of the exact password bytes is removed before the
   ///   bytes are decoded;
   /// - a tail that was truncated drops its first, partial line, so a password
-  ///   split by the cut cannot survive as a fragment (the engine rejects
-  ///   passwords containing a newline);
-  /// - Python bytes literals (the engine holds the password as bytes) and
-  ///   `key=value` / `key: value` pairs whose key names a credential are
-  ///   replaced;
+  ///   split by the cut cannot survive as a fragment;
+  /// - bytes literals and `key=value` / `key: value` pairs whose key names a
+  ///   credential are replaced;
   /// - terminal escapes and control characters are removed.
   public enum EngineStandardErrorRedactor {
     public static let redaction = "[redacted]"
@@ -236,52 +203,6 @@
         }
       }
       return text
-    }
-
-    /// The one line that may leave the helper. It is normalized to the
-    /// summary's printable-ASCII form first and redacted after that, so the
-    /// normalization cannot rejoin a secret that other characters had split.
-    public static func summary(from line: String, secrets: [Data]) -> String {
-      // Normalize without truncating: a cut before redaction could leave most
-      // of a secret that no longer matches in full. The limit comes last.
-      var text = EngineFailureNotice.sanitizedSummary(line, limit: nil)
-      for secret in secrets where !secret.isEmpty {
-        let raw = String(decoding: secret, as: UTF8.self)
-        for form in Set([raw, EngineFailureNotice.sanitizedSummary(raw, limit: nil)])
-        where !form.isEmpty {
-          text = text.replacingOccurrences(of: form, with: redaction)
-        }
-      }
-      text = redact(Data(text.utf8), truncated: false, secrets: [])
-      return EngineFailureNotice.sanitizedSummary(text)
-    }
-
-    /// The last Python exception line (`module.Name: message`) of an already
-    /// redacted stderr text, split into the bare class name and the message.
-    public static func finalException(in redacted: String) -> (
-      line: String, exception: String, message: String
-    )? {
-      for rawLine in redacted.split(separator: "\n").reversed() {
-        let line = rawLine.trimmingCharacters(in: .whitespaces)
-        guard !line.isEmpty else { continue }
-        guard
-          let match = line.firstMatch(
-            of: /^([A-Za-z_][A-Za-z0-9_.]*): (.+)$/
-          )
-        else {
-          return nil
-        }
-        let qualified = String(match.1)
-        let exception = qualified.split(separator: ".").last.map(String.init) ?? qualified
-        guard
-          exception.hasSuffix("Error") || exception.hasSuffix("Exception")
-            || exception.hasSuffix("State")
-        else {
-          return nil
-        }
-        return (line, exception, String(match.2))
-      }
-      return nil
     }
 
     static func removingTerminalEscapes(_ text: String) -> String {

@@ -9,19 +9,19 @@ import subprocess
 import tempfile
 import unittest
 
-ENGINE = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location('restore_provenance', ENGINE / 'verify-restore-image.py')
+HELPER = Path(__file__).resolve().parents[2] / 'RestoreImage'
+SPEC = importlib.util.spec_from_file_location('restore_provenance', HELPER / 'verify-build.py')
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 
 class RestoreProvenanceTests(unittest.TestCase):
     def test_producer_rejects_compiler_or_sdk_drift_before_building(self):
-        record = json.loads((ENGINE / 'RestoreImage/build-record.json').read_text())
+        record = json.loads((HELPER / 'build-record.json').read_text())
         for swift, sdk in [('wrong compiler', record['sdk']), (record['swift'], 'wrong SDK')]:
             with self.subTest(swift=swift, sdk=sdk), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
-                (root / 'build.sh').write_bytes((ENGINE / 'RestoreImage/build.sh').read_bytes())
+                (root / 'build.sh').write_bytes((HELPER / 'build.sh').read_bytes())
                 (root / 'build-record.json').write_text(json.dumps(record))
                 tools = root / 'tools'
                 tools.mkdir()
@@ -43,8 +43,7 @@ class RestoreProvenanceTests(unittest.TestCase):
 
     def test_source_and_binary_are_bound_to_build_record(self):
         with tempfile.TemporaryDirectory() as directory:
-            engine = Path(directory)
-            root = engine / 'RestoreImage'
+            root = Path(directory) / 'RestoreImage'
             (root / 'Sources').mkdir(parents=True)
             binary = root / 'bin/omarchy-restore-image'
             binary.parent.mkdir(parents=True)
@@ -65,31 +64,31 @@ class RestoreProvenanceTests(unittest.TestCase):
                 'binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
             }
             (root / 'build-record.json').write_text(json.dumps(record))
-            MODULE.verify(engine)
+            MODULE.verify(root)
             paths[-1].write_text('changed')
             with self.assertRaisesRegex(ValueError, 'source differs'):
-                MODULE.verify(engine)
+                MODULE.verify(root)
             paths[-1].write_text('synthetic source')
             binary.write_bytes(b'changed executable')
             with self.assertRaisesRegex(ValueError, 'differs from the Swift restore-image build'):
-                MODULE.verify(engine)
+                MODULE.verify(root)
             binary.write_bytes(b'synthetic executable')
             # An unsigned app's copy must be the same bytes; a link is not a copy.
-            copy = engine / 'Helpers/omarchy-restore-image'
+            copy = root.parent / 'Helpers/omarchy-restore-image'
             copy.parent.mkdir()
             copy.write_bytes(b'synthetic executable')
-            MODULE.verify_binary(engine, copy)
+            MODULE.verify_binary(root, copy)
             copy.write_bytes(b'synthetic executable, signed')
             with self.assertRaisesRegex(ValueError, 'differs from the Swift restore-image build'):
-                MODULE.verify_binary(engine, copy)
+                MODULE.verify_binary(root, copy)
             copy.unlink()
             copy.symlink_to(binary)
             with self.assertRaisesRegex(ValueError, 'differs from the Swift restore-image build'):
-                MODULE.verify_binary(engine, copy)
+                MODULE.verify_binary(root, copy)
 
     def test_production_helper_has_checked_in_source(self):
-        # This checks the actual source/build identity independently of the archive lock.
-        MODULE.verify(ENGINE)
+        # The checked-in helper must match its recorded source build.
+        MODULE.verify(HELPER)
 
 
 if __name__ == '__main__':

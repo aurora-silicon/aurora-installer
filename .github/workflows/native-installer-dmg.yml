@@ -93,8 +93,6 @@ jobs:
           python3 - "$RUNNER_TEMP/alpha-catalogs/Profiles" <<'PY'
           import json,os,sys
           from pathlib import Path
-          lock=json.loads(Path('Engine/source-lock.json').read_text())
-          pin=lock['validation_artifact']
           profiles=Path(sys.argv[1])
           expected={f'{d}-{s}' for d in ('fedora','arch','nixos') for s in ('kde','gnome','minimal')}
           assert {p.name for p in profiles.iterdir()} == expected
@@ -107,21 +105,15 @@ jobs:
               schemas.add(catalog['schemaVersion'])
               models_by_profile[profile.name]={m['deviceIdentifier'] for m in enabled}
               assert all(m['installationProfile']==profile.name for m in enabled)
+              # The installer runs only its built-in native engine: schema 5, no engine pins.
+              assert catalog['schemaVersion']==5, profile.name
               for model in enabled:
-                  if catalog['schemaVersion']==5:
-                      assert all(key not in model for key in ('engineVersion','engineDigest',
-                          'engineArtifact','repairManifestDigest','repairManifestArtifact'))
-                  else:
-                      assert catalog['schemaVersion']==4, profile.name
-                      assert model['engineVersion']==lock['downstream_overlay']['version'], profile.name
-                      assert model['engineDigest']=='sha256:'+pin['sha256'], profile.name
-                      assert model['engineArtifact']['fileName']==pin['filename'], profile.name
-                      assert model['engineArtifact']['sizeBytes']==pin['size_bytes'], profile.name
-              if catalog['schemaVersion']==5:
-                  installer=catalog['installer']
-                  assert installer['minimumVersion']==os.environ['APP_VERSION']
-                  assert installer['latestVersion']==os.environ['APP_VERSION']
-                  assert installer['downloadURL'].endswith('/releases/tag/'+os.environ['RELEASE_TAG'])
+                  assert all(key not in model for key in ('engineVersion','engineDigest',
+                      'engineArtifact','repairManifestDigest','repairManifestArtifact')), profile.name
+              installer=catalog['installer']
+              assert installer['minimumVersion']==os.environ['APP_VERSION']
+              assert installer['latestVersion']==os.environ['APP_VERSION']
+              assert installer['downloadURL'].endswith('/releases/tag/'+os.environ['RELEASE_TAG'])
           assert len(schemas)==1 and len(set(map(frozenset,models_by_profile.values())))==1
           # Every profile is one image for every supported Mac, the MacBook Neo included.
           supported=set(json.loads(Path('scripts/supported-models.json').read_text())['supported'])

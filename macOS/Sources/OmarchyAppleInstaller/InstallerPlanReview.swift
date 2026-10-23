@@ -76,7 +76,6 @@
       guard assets.installer.deviceIdentifier == expectedDevice,
         assets.installer.engineVersion == plan.engineVersion,
         assets.installer.engineDigest == plan.engineDigest,
-        assets.installer.delivery?.engine == assets.engine?.artifact,
         assets.metadata.artifact.expectedDigest == plan.metadataDigest,
         assets.payload.artifact.expectedDigest == plan.payloadDigest
       else {

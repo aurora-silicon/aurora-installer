@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Copy the complete, catalog-pinned runtime into an offline application."""
+"""Copy the catalog-pinned metadata and payloads into an offline application."""
 import hashlib
 import json
 import os
@@ -24,17 +24,17 @@ def bundle(catalog_path, source, destination):
     if destination.exists() or destination.is_symlink():
         raise ValueError("offline artifact destination already exists")
     artifacts = {}
-    models = json.loads(catalog_path.read_text())["models"]
+    catalog = json.loads(catalog_path.read_text())
+    if catalog.get("schemaVersion") != 5:
+        raise ValueError("offline catalog must be schema 5")
+    models = catalog["models"]
     if not models:
         raise ValueError("offline catalog has no models")
     for model in models:
         if model.get("status") != "enabled":
             continue
-        for role in ("engine", "metadata", "payload", "repairManifest"):
-            key = role + "Artifact"
-            if role == "repairManifest" and key not in model:
-                continue
-            artifact = model[key]
+        for role in ("metadata", "payload"):
+            artifact = model[role + "Artifact"]
             name = artifact["fileName"]
             expected = model[role + "Digest"]
             size = artifact["sizeBytes"]

@@ -8,20 +8,18 @@
     case signatureRejected
   }
 
-  /// The Swift decoder the engine runs for macOS 26 restore images and the
-  /// MacBook Neo's radio inputs (Engine/RestoreImage). It ships in the app's
-  /// sealed `Contents/Helpers`, never in the byte-pinned engine archive, so the
-  /// release signing gives it a Developer ID, the hardened runtime and a
-  /// secure timestamp like every other piece of the app's code.
+  /// The Swift decoder the native stages run for macOS 26 restore images and
+  /// the MacBook Neo's radio inputs (RestoreImage/). It ships in the app's
+  /// sealed `Contents/Helpers`, so the release signing gives it a Developer
+  /// ID, the hardened runtime and a secure timestamp like every other piece
+  /// of the app's code.
   ///
   /// The app hands its copy to the privileged helper in the handoff package;
-  /// the helper imports it into its root-only package directory, checks the
-  /// copy's signature against the requirement below and passes both to the
-  /// engine, which checks them again before every use.
+  /// the helper imports it into its root-only package directory and checks
+  /// the copy's signature against the requirement below before every use.
   public enum RestoreImageHelper {
     public static let fileName = "omarchy-restore-image"
     public static let identifier = InstallerBuildConfiguration.restoreImageIdentifier
-    public static let pathEnvironmentVariable = "OMARCHY_RESTORE_IMAGE"
     public static let requirementEnvironmentVariable = "OMARCHY_RESTORE_IMAGE_REQUIREMENT"
     /// The build is about 0.5 MB; anything near this is not the decoder.
     public static let maximumBytes: UInt64 = 33_554_432

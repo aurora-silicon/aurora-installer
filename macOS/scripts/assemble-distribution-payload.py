@@ -17,8 +17,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
-sys.path.insert(0, str(ROOT / 'Engine/overlay/src'))
-import omarchy_recovery
+import recovery_payload as omarchy_recovery
 
 DISTRIBUTION_ICONS = {
     distribution: ROOT / 'Packaging/DistributionIcons' / (distribution + '.icns')
@@ -132,7 +131,7 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
             {'name': 'Root', 'type': 'Linux', 'size': str(image['images']['root.img']['bytes']) + 'B', 'image': 'root.img', 'expand': True},
         ],
     }
-    # The manifest uses apple,jXXX identifiers; the engine uses jXXXap classes.
+    # The manifest uses apple,jXXX identifiers; Stage 1 qualification uses jXXXap classes.
     import supported_models
     identifiers, _ = supported_models.load()
     template['aurora_stage1'] = {'kind': 'common-raw-v1', 'qualified_machines': {
