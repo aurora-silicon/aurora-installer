@@ -55,22 +55,18 @@ public struct PinnedInstallerRecord: Equatable, Sendable {
   }
 }
 
+/// What a model downloads. The installer runs only its built-in native
+/// engine, so a catalog never delivers an engine archive.
 public struct PinnedInstallerDelivery: Equatable, Sendable {
-  public let engine: PinnedInstallerArtifact?
   public let metadata: PinnedInstallerArtifact
   public let payload: PinnedInstallerArtifact
-  public let repairManifest: PinnedInstallerArtifact?
 
   public init(
-    engine: PinnedInstallerArtifact?,
     metadata: PinnedInstallerArtifact,
-    payload: PinnedInstallerArtifact,
-    repairManifest: PinnedInstallerArtifact? = nil
+    payload: PinnedInstallerArtifact
   ) {
-    self.engine = engine
     self.metadata = metadata
     self.payload = payload
-    self.repairManifest = repairManifest
   }
 }
 
@@ -134,6 +130,10 @@ public enum SupportCatalogError: Error, Equatable, Sendable {
   case invalidField(String)
   case notYetValid
   case expired
+  /// A signed catalog of an older schema. Those pin an engine archive this
+  /// installer no longer runs; only schema 5, which names the built-in native
+  /// engine, is accepted.
+  case nativeEngineRequired(schemaVersion: Int)
 }
 
 struct SignedSupportCatalogVerifier: Sendable {
@@ -165,7 +165,10 @@ struct SignedSupportCatalogVerifier: Sendable {
       throw SupportCatalogError.invalidPayload
     }
 
-    guard [1, 2, 3, 4, 5].contains(manifest.schemaVersion) else {
+    guard manifest.schemaVersion == 5 else {
+      if (1...4).contains(manifest.schemaVersion) {
+        throw SupportCatalogError.nativeEngineRequired(schemaVersion: manifest.schemaVersion)
+      }
       throw SupportCatalogError.unsupportedSchema(manifest.schemaVersion)
     }
     guard manifest.sequence > 0 else {
@@ -181,14 +184,10 @@ struct SignedSupportCatalogVerifier: Sendable {
       guard now < expiresAt else {
         throw SupportCatalogError.expired
       }
-    } else {
-      // Schema 4 catalogs never expire, so a Mac whose clock is behind — one
-      // that has not reached a time server yet — must still install. The
-      // monotonic sequence is the guard that matters.
-      guard manifest.schemaVersion >= 4 else {
-        throw SupportCatalogError.invalidField("expiresAt")
-      }
     }
+    // A catalog without an expiry never expires, so a Mac whose clock is
+    // behind — one that has not reached a time server yet — must still
+    // install. The monotonic sequence is the guard that matters.
     let compatibility = try installerCompatibility(from: manifest.installer)
 
     var seenDeviceIdentifiers = Set<String>()
@@ -204,45 +203,16 @@ struct SignedSupportCatalogVerifier: Sendable {
       guard isSemanticVersionTag(model.asahiInstallerTag) else {
         throw SupportCatalogError.invalidField("models[\(index)].asahiInstallerTag")
       }
-      let engineDigest: String
-      if manifest.schemaVersion == 5 {
-        guard model.engineDigest == nil, model.engineVersion == nil,
-          model.engineArtifact == nil, model.repairManifestDigest == nil,
-          model.repairManifestArtifact == nil
-        else { throw SupportCatalogError.invalidField("models[\(index)].engineArtifact") }
-        engineDigest = NativeExecutionIdentity.digest
-      } else {
-        guard let digest = model.engineDigest, SHA256Digest(rawValue: digest) != nil else {
-          throw SupportCatalogError.invalidField("models[\(index)].engineDigest")
-        }
-        engineDigest = digest
-      }
+      // Schema 5 names no engine: every model runs the built-in native one.
+      guard model.engineDigest == nil, model.engineVersion == nil,
+        model.engineArtifact == nil, model.repairManifestDigest == nil,
+        model.repairManifestArtifact == nil
+      else { throw SupportCatalogError.invalidField("models[\(index)].engineArtifact") }
       guard SHA256Digest(rawValue: model.metadataDigest) != nil else {
         throw SupportCatalogError.invalidField("models[\(index)].metadataDigest")
       }
       guard SHA256Digest(rawValue: model.payloadDigest) != nil else {
         throw SupportCatalogError.invalidField("models[\(index)].payloadDigest")
-      }
-      let operation: String
-      let repairManifestDigest: String?
-      if manifest.schemaVersion == 3 {
-        guard model.operation == "repair-installed-system" else {
-          throw SupportCatalogError.invalidField(
-            "models[\(index)].operation"
-          )
-        }
-        guard let digest = model.repairManifestDigest,
-          SHA256Digest(rawValue: digest) != nil
-        else {
-          throw SupportCatalogError.invalidField(
-            "models[\(index)].repairManifestDigest"
-          )
-        }
-        operation = "repair-installed-system"
-        repairManifestDigest = digest
-      } else {
-        operation = "install"
-        repairManifestDigest = nil
       }
       guard isGitRevision(model.asahiInstallerRevision) else {
         throw SupportCatalogError.invalidField(
@@ -265,31 +235,11 @@ struct SignedSupportCatalogVerifier: Sendable {
         )
       }
 
-      let engineVersion: String?
-      if manifest.schemaVersion == 5 {
-        engineVersion = NativeExecutionIdentity.version
-      } else if manifest.schemaVersion >= 2 {
-        guard let candidate = model.engineVersion,
-          isEngineVersion(candidate)
-        else {
-          throw SupportCatalogError.invalidField(
-            "models[\(index)].engineVersion"
-          )
-        }
-        engineVersion = candidate
-      } else {
-        engineVersion = nil
-      }
-
       guard model.status == .enabled else {
         continue
       }
 
-      let delivery = try installerDelivery(
-        for: model,
-        schemaVersion: manifest.schemaVersion,
-        modelIndex: index
-      )
+      let delivery = try installerDelivery(for: model, modelIndex: index)
 
       if let profile = model.installationProfile,
         !AuroraInstallationSelection.allProfileIDs.contains(profile)
@@ -298,17 +248,17 @@ struct SignedSupportCatalogVerifier: Sendable {
       }
       records[model.deviceIdentifier] = PinnedInstallerRecord(
         deviceIdentifier: model.deviceIdentifier,
-        operation: operation,
+        operation: "install",
         installationProfile: model.installationProfile,
         asahiInstallerTag: model.asahiInstallerTag,
         asahiInstallerRevision: model.asahiInstallerRevision,
         asahiInstallerDataRevision: model.asahiInstallerDataRevision,
         downstreamRevision: model.downstreamRevision,
-        engineVersion: engineVersion,
-        engineDigest: engineDigest,
+        engineVersion: NativeExecutionIdentity.version,
+        engineDigest: NativeExecutionIdentity.digest,
         metadataDigest: model.metadataDigest,
         payloadDigest: model.payloadDigest,
-        repairManifestDigest: repairManifestDigest,
+        repairManifestDigest: nil,
         evidenceRevision: model.evidenceRevision,
         delivery: delivery
       )
@@ -354,12 +304,8 @@ struct SignedSupportCatalogVerifier: Sendable {
 
   private func installerDelivery(
     for model: ModelRecord,
-    schemaVersion: Int,
     modelIndex: Int
-  ) throws -> PinnedInstallerDelivery? {
-    guard schemaVersion >= 2 else {
-      return nil
-    }
+  ) throws -> PinnedInstallerDelivery {
     guard let metadata = model.metadataArtifact,
       let payload = model.payloadArtifact
     else {
@@ -369,36 +315,7 @@ struct SignedSupportCatalogVerifier: Sendable {
     }
 
     do {
-      let repairManifest: PinnedInstallerArtifact?
-      if schemaVersion == 3 {
-        guard let artifact = model.repairManifestArtifact,
-          let digest = model.repairManifestDigest
-        else {
-          throw SupportCatalogError.invalidField(
-            "models[\(modelIndex)].artifacts"
-          )
-        }
-        repairManifest = try artifact.descriptor(
-          role: "repair-manifest",
-          digest: digest,
-          field: "models[\(modelIndex)].repairManifestArtifact"
-        )
-      } else {
-        repairManifest = nil
-      }
-      let engine: PinnedInstallerArtifact?
-      if schemaVersion == 5 {
-        engine = nil
-      } else {
-        guard let artifact = model.engineArtifact, let digest = model.engineDigest else {
-          throw SupportCatalogError.invalidField("models[\(modelIndex)].engineArtifact")
-        }
-        engine = try artifact.descriptor(
-          role: "engine", digest: digest,
-          field: "models[\(modelIndex)].engineArtifact")
-      }
       return PinnedInstallerDelivery(
-        engine: engine,
         metadata: try metadata.descriptor(
           role: "metadata",
           digest: model.metadataDigest,
@@ -409,8 +326,7 @@ struct SignedSupportCatalogVerifier: Sendable {
           digest: model.payloadDigest,
           field: "models[\(modelIndex)].payloadArtifact",
           allowsParts: true
-        ),
-        repairManifest: repairManifest
+        )
       )
     } catch let error as SupportCatalogError {
       throw error
@@ -459,20 +375,6 @@ struct SignedSupportCatalogVerifier: Sendable {
           || (byte >= 97 && byte <= 122)
           || byte == 45
           || byte == 46
-      }
-  }
-
-  private func isEngineVersion(_ value: String) -> Bool {
-    value.hasPrefix("v")
-      && (2...128).contains(value.utf8.count)
-      && value.utf8.allSatisfy { byte in
-        (byte >= 48 && byte <= 57)
-          || (byte >= 65 && byte <= 90)
-          || (byte >= 97 && byte <= 122)
-          || byte == 43
-          || byte == 45
-          || byte == 46
-          || byte == 95
       }
   }
 

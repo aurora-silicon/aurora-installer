@@ -73,12 +73,6 @@ codesign --verify --deep --strict "$APP"
 xcrun clang -fobjc-arc -Wall -Wextra -Werror -framework Foundation -framework AppKit Tests/BundleLookupCheck.m -o "$OUT/bundle-lookup-check"
 "$OUT/bundle-lookup-check" "$(cd "$APP" && pwd)"
 if [[ "$MODE" == "recovery" ]]; then
-  PYTHONPATH=../Engine/overlay/src python3 - "$APP" "$OUT/omarchy-recovery-app.json" <<'PY'
-import json
-from pathlib import Path
-import sys
-from omarchy_recovery import app_inventory
-Path(sys.argv[2]).write_text(json.dumps(app_inventory(Path(sys.argv[1])), sort_keys=True, indent=2) + "\n")
-PY
+  python3 ../scripts/recovery_payload.py "$APP" "$OUT/omarchy-recovery-app.json"
 fi
 printf 'Built %s\n' "$APP"

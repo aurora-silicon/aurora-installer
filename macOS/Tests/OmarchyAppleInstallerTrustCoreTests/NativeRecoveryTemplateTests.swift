@@ -100,7 +100,7 @@
       let files = try XCTUnwrap(manifest["files"] as? [String: [String: Any]])
       XCTAssertEqual(Set(files.keys), ["Contents/Info.plist", "Contents/MacOS/OmarchyRecovery"])
       XCTAssertEqual(files["Contents/MacOS/OmarchyRecovery"]?["bytes"] as? Int, 20)
-      XCTAssertEqual(prepared.environment["OMARCHY_RECOVERY_REQUIREMENT"], "expected identity")
+      XCTAssertEqual(prepared.requirement, "expected identity")
       prepared.remove()
       XCTAssertTrue(FileManager.default.fileExists(atPath: app.path))
       XCTAssertFalse(FileManager.default.fileExists(atPath: prepared.directory.path))

@@ -17,10 +17,8 @@
     public let manifestURL: URL
     public let requestURL: URL
     public let identityURL: URL
-    public let engineURL: URL?
     public let metadataURL: URL
     public let payloadURL: URL
-    public let repairManifestURL: URL?
     public let restoreImageURL: URL?
     public let recoveryTemplateURL: URL?
     public let bindingDigest: String
@@ -34,10 +32,8 @@
       manifestURL: URL,
       requestURL: URL,
       identityURL: URL,
-      engineURL: URL?,
       metadataURL: URL,
       payloadURL: URL,
-      repairManifestURL: URL? = nil,
       restoreImageURL: URL? = nil,
       recoveryTemplateURL: URL? = nil,
       bindingDigest: String,
@@ -50,10 +46,8 @@
       self.manifestURL = manifestURL
       self.requestURL = requestURL
       self.identityURL = identityURL
-      self.engineURL = engineURL
       self.metadataURL = metadataURL
       self.payloadURL = payloadURL
-      self.repairManifestURL = repairManifestURL
       self.restoreImageURL = restoreImageURL
       self.recoveryTemplateURL = recoveryTemplateURL
       self.bindingDigest = bindingDigest
@@ -74,6 +68,9 @@
     case unsafeFile(String)
     case sizeMismatch(String)
     case digestMismatch(String)
+    /// A new package that names an engine archive or the retired repair
+    /// operation. Only the built-in native engine runs.
+    case nativeEngineRequired
   }
 
   public struct EngineHandoffPackageImporter: Sendable {
@@ -117,9 +114,6 @@
       let identity = try decodeIdentity(
         tree.read("identity.json", maximum: Self.maximumControlFileBytes))
       try validateBindings(manifest: manifest, request: request, identity: identity)
-      let expectedEngineURL = manifest.engine.map {
-        package.packageURL.appendingPathComponent($0.fileName)
-      }
       guard package.installationIntent == intent, request.operation == operation,
         package.manifestURL == package.packageURL.appendingPathComponent("manifest.json"),
         package.requestURL == package.packageURL.appendingPathComponent("request.json"),
@@ -128,7 +122,6 @@
         package.planDigest == request.planDigest, package.bindingDigest == identity.bindingDigest,
         package.deviceIdentifier == request.deviceIdentifier,
         package.storeIdentifier == request.storeIdentifier,
-        package.engineURL == expectedEngineURL,
         package.metadataURL
           == package.packageURL.appendingPathComponent(manifest.metadata.fileName),
         package.payloadURL == package.packageURL.appendingPathComponent(manifest.payload.fileName),
@@ -137,7 +130,7 @@
         identity.repairManifestDigest == nil
       else { throw EngineHandoffImportError.bindingMismatch }
       if intent == .reinstall {
-        guard package.repairManifestURL == nil, package.recoveryTemplateURL == nil,
+        guard package.recoveryTemplateURL == nil,
           manifest.repairManifest == nil, manifest.recoveryTemplate == nil
         else { throw EngineHandoffImportError.bindingMismatch }
       }
@@ -179,6 +172,13 @@
         request: request,
         identity: identity
       )
+      // Older packages carried an engine archive or a repair manifest for the
+      // retired engine. A new submission must name only native execution.
+      guard manifest.format == 2, manifest.engine == nil, manifest.repairManifest == nil,
+        identity.repairManifestDigest == nil, intent(for: request) != .repair
+      else {
+        throw EngineHandoffImportError.nativeEngineRequired
+      }
 
       let identifier = UUID().uuidString.lowercased()
       let package = destinationDirectory.appendingPathComponent(
@@ -204,17 +204,10 @@
       try writePrivate(requestData, to: requestURL)
       try writePrivate(identityData, to: identityURL)
 
-      let engineURL = manifest.engine.map { package.appendingPathComponent($0.fileName) }
       let metadataURL = package.appendingPathComponent(
         manifest.metadata.fileName
       )
       let payloadURL = package.appendingPathComponent(manifest.payload.fileName)
-      let repairManifestURL = manifest.repairManifest.map {
-        package.appendingPathComponent($0.fileName)
-      }
-      if let engine = manifest.engine, let engineURL {
-        try copyArtifact(engine, role: "engine", from: sourceDescriptor, to: engineURL)
-      }
       try copyArtifact(
         manifest.metadata,
         role: "metadata",
@@ -227,16 +220,6 @@
         from: sourceDescriptor,
         to: payloadURL
       )
-      if let repairManifest = manifest.repairManifest,
-        let repairManifestURL
-      {
-        try copyArtifact(
-          repairManifest,
-          role: "repair-manifest",
-          from: sourceDescriptor,
-          to: repairManifestURL
-        )
-      }
 
       let restoreImageURL = package.appendingPathComponent(manifest.restoreImage.fileName)
       try copyArtifact(
@@ -258,10 +241,8 @@
         manifestURL: manifestURL,
         requestURL: requestURL,
         identityURL: identityURL,
-        engineURL: engineURL,
         metadataURL: metadataURL,
         payloadURL: payloadURL,
-        repairManifestURL: repairManifestURL,
         restoreImageURL: restoreImageURL,
         recoveryTemplateURL: recoveryTemplateURL,
         bindingDigest: identity.bindingDigest,
@@ -273,7 +254,10 @@
     }
 
     /// Revalidates the original helper-owned snapshot in place. Recovery retry
-    /// cannot supply another package, and never duplicates its payload.
+    /// cannot supply another package, and never duplicates its payload. A
+    /// snapshot an older helper retained with an engine archive is still
+    /// verified file by file, so its job can continue natively; the archive
+    /// itself is never run.
     func reopenRetained(named name: String, in directory: URL) throws
       -> ImportedEngineHandoffPackage
     {
@@ -320,12 +304,8 @@
         packageURL: package, manifestURL: package.appendingPathComponent("manifest.json"),
         requestURL: package.appendingPathComponent("request.json"),
         identityURL: package.appendingPathComponent("identity.json"),
-        engineURL: manifest.engine.map { package.appendingPathComponent($0.fileName) },
         metadataURL: package.appendingPathComponent(manifest.metadata.fileName),
         payloadURL: package.appendingPathComponent(manifest.payload.fileName),
-        repairManifestURL: manifest.repairManifest.map {
-          package.appendingPathComponent($0.fileName)
-        },
         restoreImageURL: package.appendingPathComponent(manifest.restoreImage.fileName),
         recoveryTemplateURL: manifest.recoveryTemplate.map {
           package.appendingPathComponent($0.fileName)

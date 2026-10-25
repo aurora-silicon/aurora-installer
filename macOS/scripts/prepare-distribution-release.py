@@ -50,12 +50,14 @@ def prepare(source, output, sealed=False, signing_team=None):
                             "-rawin", "-in", str(directory / "catalog.json"), "-sigfile",
                             str(directory / "catalog.json.sig")], check=True)
             catalog = json.loads(data["catalog.json"])
-            if catalog["schemaVersion"] not in (4, 5) or not catalog["models"] or any(
+            if catalog["schemaVersion"] != 5:
+                raise ValueError(f"catalog is not a native-only schema 5 catalog: {profile}")
+            if not catalog["models"] or any(
                 model.get("installationProfile") != profile for model in catalog["models"]
                 if model["status"] == "enabled"
             ):
                 raise ValueError(f"catalog profile mismatch: {profile}")
-            if catalog["schemaVersion"] == 5 and any(
+            if any(
                 any(field in model for field in ("engineVersion", "engineDigest", "engineArtifact",
                                                  "repairManifestDigest", "repairManifestArtifact"))
                 for model in catalog["models"]

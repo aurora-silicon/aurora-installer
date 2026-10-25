@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Public synthetic restore archive; optional locked-source identity oracle."""
-import argparse,ast,base64,hashlib,io,json,logging,plistlib,tarfile,zipfile
+"""Public synthetic restore archive vectors."""
+import argparse,base64,hashlib,io,json,plistlib,zipfile
 from pathlib import Path
-from types import SimpleNamespace
 ROOT=Path(__file__).resolve().parents[1]
 OUTPUT=ROOT/'Tests/OmarchyAppleInstallerTrustCoreTests/Fixtures/native-stub-files.json'
 def vectors():
@@ -53,22 +52,9 @@ def vectors():
       expectedVersion=dict(version,ProductUserVisibleVersion=version['ProductUserVisibleVersion']+' (stub)'),
       recoveryBytes=len(recovery),recoverySHA256=hashlib.sha256(recovery).hexdigest())
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--write',action='store_true');p.add_argument('--runtime',type=Path);a=p.parse_args();value=vectors()
-    if a.runtime:
-        with tarfile.open(a.runtime) as archive:
-            member=next(x for x in archive.getmembers() if x.name.removeprefix('./')=='stub.py');source=archive.extractfile(member).read()
-        tree=ast.parse(source);cls=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='StubInstaller')
-        method=next(n for n in cls.body if isinstance(n,ast.FunctionDef) and n.name=='load_identity')
-        scope=dict(plistlib=plistlib,logging=logging)
-        exec(compile(ast.Module(body=[method],type_ignores=[]),'locked-stub-identity','exec'),scope)
-        for record in value['vectors']:
-            with zipfile.ZipFile(io.BytesIO(base64.b64decode(record['archive']))) as archive:
-                fake=SimpleNamespace(get_paths=lambda:None,open=lambda name:io.BytesIO(archive.read(name)),flush_progress=lambda:None,
-                  is_ota=False,sysinfo=SimpleNamespace(board_id=1,chip_id=2,device_class='j700ap'))
-                scope['load_identity'](fake)
-                assert fake.manifest==plistlib.loads(base64.b64decode(value['expectedManifest']))
+    p=argparse.ArgumentParser();p.add_argument('--write',action='store_true');a=p.parse_args();value=vectors()
     encoded=json.dumps(value,sort_keys=True,separators=(',',':'))+'\n'
     if a.write:OUTPUT.write_text(encoded)
     elif OUTPUT.read_text()!=encoded:raise SystemExit('stale native stub-file vectors')
-    print('Verified native stub-file identity oracle and restore vectors')
+    print('Verified native stub-file restore vectors')
 if __name__=='__main__':main()

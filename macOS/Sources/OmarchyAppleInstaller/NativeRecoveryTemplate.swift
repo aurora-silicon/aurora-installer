@@ -17,14 +17,6 @@
     let manifest: URL
     let requirement: String
 
-    var environment: [String: String] {
-      [
-        "OMARCHY_RECOVERY_APP": app.path,
-        "OMARCHY_RECOVERY_MANIFEST": manifest.path,
-        "OMARCHY_RECOVERY_REQUIREMENT": requirement,
-      ]
-    }
-
     func remove() {
       try? FileManager.default.removeItem(at: directory)
     }

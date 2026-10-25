@@ -38,13 +38,20 @@ final class InstallationSelectionTests: XCTestCase {
       "asahiInstallerTag": "v0.9.2", "asahiInstallerRevision": String(repeating: "a", count: 40),
       "asahiInstallerDataRevision": String(repeating: "b", count: 40),
       "downstreamRevision": String(repeating: "c", count: 40),
-      "engineDigest": "sha256:" + String(repeating: "d", count: 64),
       "metadataDigest": "sha256:" + String(repeating: "e", count: 64),
       "payloadDigest": "sha256:" + String(repeating: "f", count: 64),
       "evidenceRevision": "test-profile",
+      "metadataArtifact": [
+        "sourceURL": "https://downloads.example.com/metadata.json",
+        "fileName": "metadata.json", "sizeBytes": 1,
+      ],
+      "payloadArtifact": [
+        "sourceURL": "https://downloads.example.com/payload.zip",
+        "fileName": "payload.zip", "sizeBytes": 1,
+      ],
     ]
     let payload = try JSONSerialization.data(withJSONObject: [
-      "schemaVersion": 1, "sequence": 1, "issuedAt": "2026-01-01T00:00:00Z",
+      "schemaVersion": 5, "sequence": 1, "issuedAt": "2026-01-01T00:00:00Z",
       "expiresAt": "2027-01-01T00:00:00Z", "models": [model],
     ])
     let publicKey = key.publicKey.rawRepresentation

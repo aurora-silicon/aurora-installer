@@ -48,7 +48,7 @@ jobs:
             git --version
             id
           } | tee "$RUNNER_TEMP/installer-ci/toolchain.txt"
-      - name: Run portable engine and integration tests
+      - name: Run portable integration tests
         run: |
           set -euo pipefail
           bash ./test/all
@@ -159,20 +159,3 @@ jobs:
           name: image-builder-source-evidence
           path: ${{ runner.temp }}/image-builder-ci/
           retention-days: 14
-
-  engine:
-    name: Reproduce the native installer engine
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
-        with:
-          python-version: '3.12'
-      - name: Reproduce the locked engine twice
-        run: python3 Engine/prepare-engine.py --output Engine/artifacts
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: aurora-engine
-          path: macOS/Engine/artifacts/*.tar.gz
-          retention-days: 30

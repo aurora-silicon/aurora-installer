@@ -201,7 +201,6 @@
           packageURL: imported, manifestURL: imported.appendingPathComponent("manifest.json"),
           requestURL: imported.appendingPathComponent("request.json"),
           identityURL: imported.appendingPathComponent("identity.json"),
-          engineURL: imported.appendingPathComponent("engine.tar.gz"),
           metadataURL: imported.appendingPathComponent("metadata.json"),
           payloadURL: imported.appendingPathComponent("payload.zip"),
           bindingDigest: value.manifest.bindingDigest,

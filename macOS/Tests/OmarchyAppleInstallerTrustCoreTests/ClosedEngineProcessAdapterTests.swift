@@ -79,11 +79,19 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     XCTAssertEqual(executions, 0)
   }
 
-  func testSchemaTwoEngineVersionMismatchStopsBeforeAuthorization() throws {
-    let request = try makeRequest(
-      catalogSchemaVersion: 2,
-      catalogEngineVersion: "v0.9.0-omarchy.2"
-    )
+  func testCatalogPinningAnEngineArchiveStopsBeforeAuthorization() throws {
+    let request = try makeRequest(catalogPinsEngineArchive: true)
+
+    XCTAssertThrowsError(try adapter.candidateIdentity(for: request)) {
+      XCTAssertEqual(
+        $0 as? SupportCatalogError,
+        .nativeEngineRequired(schemaVersion: 4)
+      )
+    }
+  }
+
+  func testPlanNamingAnotherEngineStopsBeforeAuthorization() throws {
+    let request = try makeRequest(planEngineVersion: "v0.9.2-aurora.14")
 
     XCTAssertThrowsError(try adapter.candidateIdentity(for: request)) {
       XCTAssertEqual(
@@ -340,18 +348,18 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     catalogSequence: UInt64 = 20,
     privateKey: Curve25519.Signing.PrivateKey = .init(),
     mutateCatalogAfterSigning: Bool = false,
-    catalogSchemaVersion: Int = 1,
-    catalogEngineVersion: String? = nil
+    catalogPinsEngineArchive: Bool = false,
+    planEngineVersion: String = "native-v1"
   ) throws -> ClosedEngineCandidateRequest {
     let transcript = makeTranscript(
       deviceIdentifier: deviceIdentifier,
-      lengthBytes: lengthBytes
+      lengthBytes: lengthBytes,
+      engineVersion: planEngineVersion
     )
     let catalog = makeCatalog(
       deviceIdentifier: deviceIdentifier,
       sequence: catalogSequence,
-      schemaVersion: catalogSchemaVersion,
-      engineVersion: catalogEngineVersion
+      pinsEngineArchive: catalogPinsEngineArchive
     )
     let signature = try privateKey.signature(for: catalog)
     let deliveredCatalog =
@@ -372,11 +380,11 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     )
   }
 
+  /// A schema-5 catalog, or the schema-4 form that pinned an engine archive.
   private func makeCatalog(
     deviceIdentifier: String,
     sequence: UInt64,
-    schemaVersion: Int,
-    engineVersion: String?
+    pinsEngineArchive: Bool
   ) -> Data {
     let issued = ISO8601DateFormatter().string(
       from: now.addingTimeInterval(-3_600)
@@ -384,23 +392,29 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     let expires = ISO8601DateFormatter().string(
       from: now.addingTimeInterval(86_400)
     )
-    let delivery =
-      schemaVersion == 2
+    let engine =
+      pinsEngineArchive
       ? """
-      ,"engineVersion":"\(engineVersion ?? "")","engineArtifact":{"sourceURL":"https://downloads.example.com/engine.tar.gz","fileName":"engine.tar.gz","sizeBytes":1},"metadataArtifact":{"sourceURL":"https://downloads.example.com/metadata.json","fileName":"metadata.json","sizeBytes":1},"payloadArtifact":{"sourceURL":"https://downloads.example.com/payload.img.zst","fileName":"payload.img.zst","sizeBytes":1}
+      ,"engineVersion":"v0.9.2-aurora.14","engineDigest":"sha256:\(String(repeating: "d", count: 64))","engineArtifact":{"sourceURL":"https://downloads.example.com/engine.tar.gz","fileName":"engine.tar.gz","sizeBytes":1}
       """
       : ""
+    let delivery = """
+      ,"metadataArtifact":{"sourceURL":"https://downloads.example.com/metadata.json","fileName":"metadata.json","sizeBytes":1},"payloadArtifact":{"sourceURL":"https://downloads.example.com/payload.img.zst","fileName":"payload.img.zst","sizeBytes":1}
+      """
     return Data(
       """
-      {"schemaVersion":\(schemaVersion),"sequence":\(sequence),"issuedAt":"\(issued)","expiresAt":"\(expires)","models":[{"deviceIdentifier":"\(deviceIdentifier)","status":"enabled","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","engineDigest":"sha256:\(String(repeating: "d", count: 64))","metadataDigest":"sha256:\(String(repeating: "e", count: 64))","payloadDigest":"sha256:\(String(repeating: "f", count: 64))","evidenceRevision":"evidence-s3"\(delivery)}]}
+      {"schemaVersion":\(pinsEngineArchive ? 4 : 5),"sequence":\(sequence),"issuedAt":"\(issued)","expiresAt":"\(expires)","models":[{"deviceIdentifier":"\(deviceIdentifier)","status":"enabled","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","metadataDigest":"sha256:\(String(repeating: "e", count: 64))","payloadDigest":"sha256:\(String(repeating: "f", count: 64))","evidenceRevision":"evidence-s3"\(engine)\(delivery)}]}
       """.utf8
     )
   }
 
   private func makeTranscript(
     deviceIdentifier: String = "apple,j314s",
-    lengthBytes: UInt64 = 107_374_182_400
+    lengthBytes: UInt64 = 107_374_182_400,
+    engineVersion: String = "native-v1"
   ) -> TranscriptFixture {
+    // The built-in native engine's identity, as the signed catalog names it.
+    let engineDigest = sha256Digest(Data("aurora-native-execution-v1".utf8))
     let layoutDigest = lengthPrefixedDigest(
       [
         "disk0", "free", "disk0s3", "447750000000",
@@ -415,8 +429,7 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     let planDigest = lengthPrefixedDigest(
       [
         deviceIdentifier, "disk0", layoutDigest, "free", "disk0s3",
-        "447750000000", String(lengthBytes), "v0.9.0-omarchy.1",
-        "sha256:" + String(repeating: "d", count: 64),
+        "447750000000", String(lengthBytes), engineVersion, engineDigest,
         "sha256:" + String(repeating: "e", count: 64),
         "sha256:" + String(repeating: "f", count: 64),
         humanSteps.joined(separator: ","),
@@ -427,7 +440,7 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     let records = [
       #"{"schema_version":1,"sequence":1,"type":"inspection","payload":{"device_identifier":"\#(deviceIdentifier)","support":"supported"}}"#,
       #"{"schema_version":1,"sequence":2,"type":"inventory","payload":{"layout_digest":"\#(layoutDigest)","system_store_identifier":"disk0","candidates":[{"kind":"free","source_identifier":"disk0s3","offset_bytes":447750000000,"length_bytes":\#(lengthBytes),"minimum_install_bytes":67501226240,"minimum_container_bytes":0}]}}"#,
-      #"{"schema_version":1,"sequence":3,"type":"plan","payload":{"plan_digest":"\#(planDigest)","device_identifier":"\#(deviceIdentifier)","store_identifier":"disk0","layout_digest":"\#(layoutDigest)","candidate_kind":"free","source_identifier":"disk0s3","offset_bytes":447750000000,"length_bytes":\#(lengthBytes),"engine_version":"v0.9.0-omarchy.1","engine_digest":"sha256:\#(String(repeating: "d", count: 64))","metadata_digest":"sha256:\#(String(repeating: "e", count: 64))","payload_digest":"sha256:\#(String(repeating: "f", count: 64))","required_human_steps":["enterOneTrueRecovery","authenticateMachineOwner"]}}"#,
+      #"{"schema_version":1,"sequence":3,"type":"plan","payload":{"plan_digest":"\#(planDigest)","device_identifier":"\#(deviceIdentifier)","store_identifier":"disk0","layout_digest":"\#(layoutDigest)","candidate_kind":"free","source_identifier":"disk0s3","offset_bytes":447750000000,"length_bytes":\#(lengthBytes),"engine_version":"\#(engineVersion)","engine_digest":"\#(engineDigest)","metadata_digest":"sha256:\#(String(repeating: "e", count: 64))","payload_digest":"sha256:\#(String(repeating: "f", count: 64))","required_human_steps":["enterOneTrueRecovery","authenticateMachineOwner"]}}"#,
       #"{"schema_version":1,"sequence":4,"type":"event","payload":{"plan_digest":"\#(planDigest)","name":"apfs_preparation_started"}}"#,
       #"{"schema_version":1,"sequence":5,"type":"checkpoint","payload":{"plan_digest":"\#(planDigest)","identifier":"cp-1","phase":"apfs_preparation","evidence_digest":"\#(evidence)"}}"#,
       #"{"schema_version":1,"sequence":6,"type":"completion","payload":{"plan_digest":"\#(planDigest)","outcome":"awaiting_recovery"}}"#,

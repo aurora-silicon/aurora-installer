@@ -23,7 +23,7 @@
             attributes: [.posixPermissions: 0o700])
           let package = ImportedEngineHandoffPackage(
             packageURL: packageURL, manifestURL: packageURL,
-            requestURL: packageURL, identityURL: packageURL, engineURL: packageURL,
+            requestURL: packageURL, identityURL: packageURL,
             metadataURL: packageURL,
             payloadURL: packageURL, bindingDigest: request.ticket.bindingDigest,
             planDigest: String(repeating: "a", count: 64), deviceIdentifier: "apple,j314s",
@@ -86,7 +86,7 @@
         request.ticket.identifier,
         package: ImportedEngineHandoffPackage(
           packageURL: retained, manifestURL: retained, requestURL: retained,
-          identityURL: retained, engineURL: retained, metadataURL: retained,
+          identityURL: retained, metadataURL: retained,
           payloadURL: retained, bindingDigest: request.ticket.bindingDigest,
           planDigest: String(repeating: "a", count: 64), deviceIdentifier: "apple,j314s",
           storeIdentifier: "disk0"))
@@ -140,7 +140,7 @@
           attributes: [.posixPermissions: 0o700])
         let package = ImportedEngineHandoffPackage(
           packageURL: packageURL, manifestURL: packageURL,
-          requestURL: packageURL, identityURL: packageURL, engineURL: packageURL,
+          requestURL: packageURL, identityURL: packageURL,
           metadataURL: packageURL,
           payloadURL: packageURL, bindingDigest: request.ticket.bindingDigest,
           planDigest: String(repeating: "a", count: 64), deviceIdentifier: "apple,j700",
@@ -360,7 +360,7 @@
           attributes: [.posixPermissions: 0o700])
         let package = ImportedEngineHandoffPackage(
           packageURL: packageURL, manifestURL: packageURL,
-          requestURL: packageURL, identityURL: packageURL, engineURL: packageURL,
+          requestURL: packageURL, identityURL: packageURL,
           metadataURL: packageURL, payloadURL: packageURL,
           bindingDigest: request.ticket.bindingDigest,
           planDigest: String(repeating: "a", count: 64),
@@ -537,7 +537,7 @@
       let package = ImportedEngineHandoffPackage(
         packageURL: packageURL, manifestURL: packageURL, requestURL: packageURL,
         identityURL: packageURL,
-        engineURL: packageURL, metadataURL: packageURL, payloadURL: packageURL,
+        metadataURL: packageURL, payloadURL: packageURL,
         bindingDigest: request.ticket.bindingDigest, planDigest: String(repeating: "a", count: 64),
         deviceIdentifier: "apple,j314s", storeIdentifier: "disk0")
       try jobs.admitted(request.ticket.identifier, package: package)
@@ -598,7 +598,7 @@
         let package = ImportedEngineHandoffPackage(
           packageURL: packageURL, manifestURL: packageURL, requestURL: packageURL,
           identityURL: packageURL,
-          engineURL: packageURL, metadataURL: packageURL, payloadURL: packageURL,
+          metadataURL: packageURL, payloadURL: packageURL,
           bindingDigest: request.ticket.bindingDigest,
           planDigest: String(repeating: "a", count: 64),
           deviceIdentifier: "apple,j314s", storeIdentifier: "disk0")
