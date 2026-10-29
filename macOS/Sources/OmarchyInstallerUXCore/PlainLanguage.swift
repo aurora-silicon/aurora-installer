@@ -172,17 +172,28 @@
     public static let installDegraded =
       "Live progress isn’t available. The installer will check the installation record when complete."
     public static let installPreparing = "Preparing the installation…"
-    public static let installStageLabels = [
-      "Preparing disk space", "Installing boot files",
-      "Preparing final setup",
+    /// What the Install screen lists: a few plain steps, the same from the
+    /// first moment to the last. The checks before any disk change are the
+    /// first two; the stages that change the disk follow.
+    public static let installSteps = [
+      "Getting ready", "Checking your Mac", "Making room on the disk", "Copying Aurora",
+      "Preparing first startup",
     ]
 
-    /// The one stage of Reset Linux, which keeps Stage 1 and its partitions.
-    public static let installResetStage = "Replacing Linux and boot files"
+    /// Reset Linux keeps Stage 1 and its partitions: one stage replaces Linux.
+    public static let resetSteps = ["Getting ready", "Checking your Mac", "Replacing Linux"]
+
+    /// The listed step a preparation check belongs to: the helper, the
+    /// download and the account are getting ready; firmware, the restore
+    /// image and the disk plan check this Mac.
+    public static func installStep(forPreparationCheck check: Int) -> Int { check < 4 ? 0 : 1 }
+
+    /// The number of listed steps before the first disk change.
+    public static let installCheckSteps = 2
 
     /// The checks the installer makes before it changes anything, in the
-    /// order they run. The Install screen lists them first, followed by the
-    /// installation's stages, as one list.
+    /// order they run. The Install screen groups them into its first two
+    /// steps (`installStep(forPreparationCheck:)`).
     public static let installPreparationSteps = [
       "Checking the installer helper",
       "Handing the download to the helper",

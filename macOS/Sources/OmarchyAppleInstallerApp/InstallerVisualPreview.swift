@@ -103,10 +103,8 @@
       case "install":
         InstallPanel(
           progress: InstallProgressDisplay(
-            phaseTitle: "Writing boot files…",
-            stepIndex: PlainLanguage.installPreparationSteps.count + 1,
-            stepFractions: PlainLanguage.installPreparationSteps.map { _ in 1 } + [1, 0, 0],
-            stepLabels: PlainLanguage.installPreparationSteps + PlainLanguage.installStageLabels,
+            phaseTitle: "Writing boot files…", stepIndex: 3, stepFractions: [1, 1, 1, 0, 0],
+            stepLabels: PlainLanguage.installSteps,
             feed: [], degraded: false, startedAt: Date().addingTimeInterval(-83)))
       default:
         ContentUnavailableView("Unknown visual preview", systemImage: "questionmark")

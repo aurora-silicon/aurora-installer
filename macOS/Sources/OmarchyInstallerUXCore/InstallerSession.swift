@@ -716,10 +716,13 @@
     public func dismissCredentials() {
       guard !isExecuting else { return }
       retrySheet = .hidden
-      guard case .awaitingInstall(let plan, let helper, _) = phase else {
+      guard case .awaitingInstall(let plan, _, _) = phase else {
         return
       }
-      phase = .awaitingInstall(plan, helper: helper, sheet: .hidden)
+      // Back to the review, where the size can still change; Install asks
+      // for the password again.
+      environment.discardApproval()
+      phase = .planReview(plan, acknowledged: true)
     }
 
     // MARK: Execution

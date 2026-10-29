@@ -66,21 +66,19 @@
     /// changes, then the stages that change the disk. One fixed list for the
     /// whole run; the Install screen never swaps it for another.
     public var stepLabels: [String] {
-      PlainLanguage.installPreparationSteps
-        + (preservesStage1 || isPreservedReset
-          ? [PlainLanguage.installResetStage] : PlainLanguage.installStageLabels)
+      preservesStage1 || isPreservedReset ? PlainLanguage.resetSteps : PlainLanguage.installSteps
     }
 
     /// The step under way in `stepLabels`.
     public var stepIndex: Int {
-      isPreparing ? preparationStep : PlainLanguage.installPreparationSteps.count + stageIndex
+      isPreparing
+        ? PlainLanguage.installStep(forPreparationCheck: preparationStep)
+        : PlainLanguage.installCheckSteps + stageIndex
     }
 
     /// 1 for each step in `stepLabels` that is done, otherwise 0.
     public var stepFractions: [Double] {
-      PlainLanguage.installPreparationSteps.indices.map {
-        !isPreparing || $0 < preparationStep ? 1 : 0
-      } + stageFractions
+      (0..<PlainLanguage.installCheckSteps).map { $0 < stepIndex ? 1 : 0 } + stageFractions
     }
 
     public var currentPhase: String? {

@@ -358,11 +358,6 @@ struct OnePageInstallerView: View {
       .keyboardShortcut(.defaultAction)
 
     case .awaitingInstall(let plan, _, _):
-      Button(plan.preservesStage1 ? "Back to review" : "Change size") {
-        session.editPlan()
-      }
-      .omarchySecondaryButton()
-      .disabled(!session.canEditPlan)
       Button(plan.preservesStage1 ? "Reset Linux" : PlainLanguage.planInstall) {
         session.presentInstallCredentials()
       }
@@ -917,7 +912,7 @@ struct InstallPanel: View {
       VStack(alignment: .leading, spacing: 24) {
         VStack(alignment: .leading, spacing: 8) {
           Text("Installing Aurora").font(.system(size: 24, weight: .semibold))
-          Text(progress.phaseTitle).font(OmarchyTheme.body).foregroundStyle(.secondary)
+          Text(stepCount).font(OmarchyTheme.body).foregroundStyle(.secondary)
         }
         VStack(alignment: .leading, spacing: 10) {
           ForEach(Array(progress.stepLabels.enumerated()), id: \.offset) { index, label in
@@ -932,19 +927,16 @@ struct InstallPanel: View {
           }
         }
         TimelineView(.periodic(from: progress.startedAt, by: 1)) { context in
-          HStack {
-            Text(stepCount)
-            Spacer()
-            Text("\(elapsed(at: context.date)) elapsed").monospacedDigit()
-          }
-          .font(OmarchyTheme.detail).foregroundStyle(.secondary)
+          Text("\(elapsed(at: context.date)) elapsed").monospacedDigit()
+            .font(OmarchyTheme.detail).foregroundStyle(.secondary)
         }
-        InstallerDetailsButton(
-          title: "View activity",
-          text: progress.feed.isEmpty
-            ? "No activity recorded yet." : progress.feed.map(\.text).joined(separator: "\n"))
+        // The activity log is for when something is wrong.
         if progress.degraded {
           Text(PlainLanguage.installDegraded).omarchyHelpText()
+          InstallerDetailsButton(
+            title: "View activity",
+            text: progress.feed.isEmpty
+              ? "No activity recorded yet." : progress.feed.map(\.text).joined(separator: "\n"))
         }
       }
       .padding(.vertical, 12)
