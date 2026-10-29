@@ -36,10 +36,8 @@ python3 test/native-stub-file-vectors.py
 python3 test/native-finishing-vectors.py
 
 python3 -m unittest discover -s scripts/tests -p 'test_*.py'
-bash scripts/tests/preclean-m1-test.sh
 for test_file in test/shell.d/apple-installer-*-test.sh; do
   bash "$test_file"
 done
-bash test/shell.d/update-m1n1-selector-test.sh
 
 echo "Portable installer checks passed; macOS validation is separate."

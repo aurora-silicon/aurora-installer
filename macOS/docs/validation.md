@@ -6,7 +6,7 @@ The standalone extraction validated at `3f1e30bb265e77da04ce03533be0a7dddaa8c84c
 
 The subsequent CI integration adds a behavior-preserving Swift 6.2 compatibility change in `Sources/OmarchyAppleInstallerApp/InstallerComponents.swift`: both disk-bar drag callbacks explicitly convert the `CGFloat` ratio to `Double` before calculating the Omarchy fraction, resolving a compiler ambiguity. It also skips the live physical-Mac inspection test on `VirtualMac` hosts, as described below. These changes passed [CI run 35539039492](https://github.com/omacom/omarchy-mac-installer/actions/runs/35539039492) at merge revision `f2235e4ed823b31efd2c53306d7f9435ac1fd250`, separately from the earlier extraction validation.
 
-The Linux source checks are `bash test/all`. They compile the build- and CI-only Python scripts, check shell syntax, run the catalog, payload and packaging unit tests, and exercise the preclean, package-plist, branding and publication scripts with fixtures. They do not qualify a macOS app bundle or physical installation. Since the Python engine was removed, the installer runs only its Swift engine; the sections below that mention an engine, engine tests or an inspection engine are historical extraction records.
+The Linux source checks are `bash test/all`. They compile the build- and CI-only Python scripts, check shell syntax, run the catalog, payload and packaging unit tests, and exercise the package-plist, branding and publication scripts with fixtures. They do not qualify a macOS app bundle or physical installation. Since the Python engine was removed, the installer runs only its Swift engine; the sections below that mention an engine, engine tests or an inspection engine are historical extraction records.
 
 ## Continuous integration
 

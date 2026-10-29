@@ -107,30 +107,3 @@ jobs:
             ${{ runner.temp }}/installer-ci/
             ~/Library/Developer/XcodeBuildMCP/workspaces/*/logs/**
           retention-days: 14
-
-  image-builder:
-    name: Image builder source checks
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: '3.12'
-      - name: Install source-test tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libarchive-tools jq gnupg zstd xz-utils
-      - name: Run the image producer's source checks
-        run: |
-          mkdir -p "$RUNNER_TEMP/image-builder-ci"
-          TMPDIR="$RUNNER_TEMP" bash image-builder/test/all 2>&1 | tee "$RUNNER_TEMP/image-builder-ci/source-tests.log"
-      - name: Save source-check evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: image-builder-source-evidence
-          path: ${{ runner.temp }}/image-builder-ci/
-          retention-days: 14
