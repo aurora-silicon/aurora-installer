@@ -11,6 +11,9 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
   private let footer = NSView()
   private var renderedStage: Stage?
   private var primaryButton: NSButton?
+  private var restartButton: NSButton?
+  private var shiftHeld = false
+  private var modifierMonitor: Any?
   private var debugButton: NSButton?
   private var proxyButton: NSButton?
   private var progressIndicator: NSProgressIndicator?
@@ -48,6 +51,7 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
   deinit {
     model.onChange = nil
     log.onChange = nil
+    if let modifierMonitor { NSEvent.removeMonitor(modifierMonitor) }
   }
 
   override func loadView() {
@@ -92,6 +96,15 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
       footer.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -14),
       footer.heightAnchor.constraint(equalToConstant: 80),
     ])
+    modifierMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) {
+      [weak self] event in
+      let held = event.modifierFlags.contains(.shift)
+      if let self, self.shiftHeld != held {
+        self.shiftHeld = held
+        self.refresh()
+      }
+      return event
+    }
     refresh()
   }
 
@@ -108,6 +121,7 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
     titleLabel.stringValue = stageTitle
     titleLabel.alignment = model.stage == .account ? .left : .center
     titleWidthConstraint?.constant = model.stage == .account ? 380 : 600
+    restartButton?.title = offersAccount ? "Create Recovery Account" : "Restart"
     progressIndicator?.doubleValue = model.progress * 100
     operationLabel?.stringValue = model.currentOperation + "…"
     primaryButton?.isEnabled = !model.checkingEnvironment && !model.restartingCompletedSetup
@@ -172,6 +186,7 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
     for child in content.subviews { child.removeFromSuperview() }
     for child in footer.subviews { child.removeFromSuperview() }
     primaryButton = nil
+    restartButton = nil
     debugButton = nil
     proxyButton = nil
     progressIndicator = nil
@@ -350,6 +365,7 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
         title: "Restart", target: self, action: #selector(restartPressed))
       center.addArrangedSubview(restart)
       primaryButton = restart
+      restartButton = restart
     }
     footer.addSubview(center)
     NSLayoutConstraint.activate([
@@ -473,7 +489,18 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
     accountPasswordField?.stringValue = ""
     accountConfirmationField?.stringValue = ""
   }
-  @objc private func restartPressed() { model.finishSetup() }
+  @objc private func restartPressed() {
+    if offersAccount {
+      model.showRecoveryAccountSetup()
+    } else {
+      model.finishSetup()
+    }
+  }
+
+  /// Holding Shift on the completion screen offers the optional recovery account.
+  private var offersAccount: Bool {
+    shiftHeld && model.accountOptional && model.stage == .complete
+  }
 
   @discardableResult private func present(_ panel: RecoverySheet, focus: NSView? = nil) -> Bool {
     guard sheets.present(panel, on: view.window) else { return false }
@@ -508,23 +535,10 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
     field.bezelStyle = .roundedBezel
     field.focusRingType = .exterior
     field.translatesAutoresizingMaskIntoConstraints = false
-    field.widthAnchor.constraint(equalToConstant: 340).isActive = true
+    // As wide as the message above it: the sheet's 28 pt margins, no more.
+    field.widthAnchor.constraint(equalToConstant: 430 - 56).isActive = true
     field.heightAnchor.constraint(equalToConstant: 28).isActive = true
     authorizationField = field
-    let body = NSStackView()
-    body.orientation = .vertical
-    body.alignment = .leading
-    body.spacing = 8
-    body.addArrangedSubview(field)
-    let showBootArgumentNote = !repair && RecoveryActions.allowsCustomBootArguments
-    if showBootArgumentNote {
-      let note = label(
-        "Aurora will allow custom Aura boot arguments, including USB proxy mode.", size: 11,
-        alignment: .left)
-      note.preferredMaxLayoutWidth = 340
-      note.widthAnchor.constraint(equalToConstant: 340).isActive = true
-      body.addArrangedSubview(note)
-    }
     let cancel = RecoverySecondaryButton(
       title: "Cancel", target: self, action: #selector(cancelPanelPressed))
     cancel.keyEquivalent = "\u{1b}"
@@ -534,8 +548,8 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
     proceed.keyEquivalent = "\r"
     let panel = RecoverySheet(
       title: repair ? "Authorize startup disk" : "Authorize installation",
-      message: explanation, width: 430, height: showBootArgumentNote ? 270 : 230,
-      body: body, bodyHeight: showBootArgumentNote ? 72 : 32, buttons: [cancel, proceed])
+      message: explanation, width: 430, height: 230, body: field, bodyHeight: 28,
+      buttons: [cancel, proceed])
     present(panel, focus: field)
   }
 

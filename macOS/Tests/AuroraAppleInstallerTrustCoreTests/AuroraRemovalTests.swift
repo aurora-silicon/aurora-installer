@@ -344,21 +344,33 @@
 
     // MARK: Native installations
 
-    /// The native installer leaves no asahi/installer.log and no m1n1 step-2
-    /// object. Its own completed journal is the proof, checked again before
-    /// anything is deleted.
-    func testANativeInstallItsJournalInstalledIsRemovedWithoutAsahiFiles() throws {
+    /// An installation the native installer made: no asahi/installer.log and
+    /// no m1n1 step-2 object.
+    private func nativeInstallation() -> FakeRemovalDisk {
       let disk = FakeRemovalDisk(F.neoWithPreservedProxy())
-      disk.files!.installerLog = nil
-      disk.files!.stubBootObject = nil
-      for journals in [nil, FakeJournals([:])] as [FakeJournals?] {
-        XCTAssertThrowsError(try AuroraRemovalPlan(disks: disk, journals: journals)) { error in
-          XCTAssertTrue(
-            (error as? RemovalFailure)?.message.contains(
-              "its EFI partition has no installer record (asahi/installer.log)") == true,
-            "\(error)")
-        }
+      disk.files?.installerLog = nil
+      disk.files?.stubBootObject = nil
+      return disk
+    }
+
+    private func refusesWithoutInstallerRecord(_ journals: FakeJournals?) {
+      XCTAssertThrowsError(try AuroraRemovalPlan(disks: nativeInstallation(), journals: journals)) {
+        error in
+        let message = (error as? RemovalFailure)?.message ?? ""
+        XCTAssertTrue(
+          message.contains("its EFI partition has no installer record (asahi/installer.log)"),
+          message)
       }
+    }
+
+    func testANativeInstallWithoutItsJournalIsRefused() {
+      refusesWithoutInstallerRecord(nil)
+      refusesWithoutInstallerRecord(FakeJournals([:]))
+    }
+
+    /// Its own completed journal is the proof.
+    func testANativeInstallItsJournalInstalledIsRemovedWithoutAsahiFiles() throws {
+      let disk = nativeInstallation()
       let binding = String(repeating: "e", count: 64)
       let journals = FakeJournals([:], installers: [F.convergedInstall.stub: binding])
       let plan = try AuroraRemovalPlan(disks: disk, journals: journals)
@@ -367,17 +379,6 @@
       XCTAssertEqual(
         plan.members.map(\.uuid),
         [F.convergedInstall.stub, F.convergedInstall.esp] + F.convergedInstall.linux)
-
-      for installer in [nil, String(repeating: "f", count: 64)] {
-        journals.installers[F.convergedInstall.stub] = installer
-        XCTAssertThrowsError(
-          try AuroraRemovalExecutor(disks: disk, journals: journals).execute(plan) { _ in })
-        XCTAssertTrue(disk.operations.isEmpty)
-      }
-      XCTAssertThrowsError(try AuroraRemovalExecutor(disks: disk).execute(plan) { _ in })
-      XCTAssertTrue(disk.operations.isEmpty)
-
-      journals.installers[F.convergedInstall.stub] = binding
       try AuroraRemovalExecutor(disks: disk, journals: journals).execute(plan) { _ in }
       XCTAssertEqual(
         disk.operations,
@@ -386,6 +387,22 @@
           "erase:\(F.convergedInstall.linux[0])", "erase:\(F.convergedInstall.linux[1])",
           "grow:\(F.mac)",
         ])
+    }
+
+    /// The journal is checked again before anything is deleted.
+    func testANativeInstallWhoseJournalNoLongerProvesItIsKept() throws {
+      let disk = nativeInstallation()
+      let journals = FakeJournals(
+        [:], installers: [F.convergedInstall.stub: String(repeating: "e", count: 64)])
+      let plan = try AuroraRemovalPlan(disks: disk, journals: journals)
+      journals.installers = [F.convergedInstall.stub: String(repeating: "f", count: 64)]
+      XCTAssertThrowsError(
+        try AuroraRemovalExecutor(disks: disk, journals: journals).execute(plan) { _ in })
+      journals.installers = [:]
+      XCTAssertThrowsError(
+        try AuroraRemovalExecutor(disks: disk, journals: journals).execute(plan) { _ in })
+      XCTAssertThrowsError(try AuroraRemovalExecutor(disks: disk).execute(plan) { _ in })
+      XCTAssertTrue(disk.operations.isEmpty)
     }
 
     /// An installation whose asahi files prove it never needs a journal.
