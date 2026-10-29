@@ -3,7 +3,7 @@
 import os, os.path, shlex, subprocess, sys, time, termios, json, getpass, reporting
 from dataclasses import dataclass
 
-import system, osenum, stub, diskutil, osinstall, asahi_firmware, m1n1, bugs
+import system, osenum, stub, diskutil, osinstall, asahi_firmware, aura, bugs
 from util import *
 
 PART_ALIGN = psize("1MiB")
@@ -143,8 +143,8 @@ class InstallerMain:
         self.ipsw = None
         self.osins = None
         self.osi = None
-        self.m1n1 = "boot/m1n1.bin"
-        self.m1n1_ver = m1n1.get_version(self.m1n1)
+        self.stage1 = aura.stage1_path("boot", aura.STAGE1_NAME)
+        self.loader = aura.get_version(self.stage1)
         self.sys_disk = None
         self.cur_disk = None
 
@@ -432,8 +432,8 @@ class InstallerMain:
 
         if upgrade:
             p_progress(f"Upgrading installation {self.part.name} ({self.part.label})")
-            p_info(f"  Old m1n1 stage 1 version: {osi.m1n1_ver}")
-            p_info(f"  New m1n1 stage 1 version: {self.m1n1_ver}")
+            p_info(f"  Old stage 1 bootloader: {osi.loader}")
+            p_info(f"  New stage 1 bootloader: {self.loader}")
             print()
         else:
             p_progress(f"Resuming installation into {self.part.name} ({self.part.label})")
@@ -455,18 +455,18 @@ class InstallerMain:
             # actual installed fuOS. This is arguably the better option, since it allows
             # users to fix their install using this functionality if they messed up the boot
             # object.
-            vars = m1n1.extract_vars(self.ins.boot_obj_path)
+            vars = aura.extract_vars(self.ins.boot_obj_path)
             if vars is None:
-                p_error("Could not get variables from the installed m1n1")
+                p_error("Could not get variables from the installed bootloader")
                 p_message(f"Path: {self.ins.boot_obj_path}")
                 return False
 
-            p_progress(f"Transferring m1n1 variables:")
+            p_progress(f"Transferring bootloader variables:")
             for v in vars:
                 p_info(f"  {v}")
 
             print()
-            m1n1.build(self.m1n1, self.ins.boot_obj_path, vars)
+            aura.build(self.stage1, self.ins.boot_obj_path, vars)
 
         # Unhide the SystemVersion, if hidden
         self.ins.prepare_for_bless()
@@ -516,9 +516,9 @@ class InstallerMain:
             p_message( "delete the partitions manually and reinstall from scratch.")
             return False
 
-        vars = m1n1.extract_vars(self.ins.boot_obj_path)
+        vars = aura.extract_vars(self.ins.boot_obj_path)
         if vars is None:
-            p_error("Could not get variables from the installed m1n1")
+            p_error("Could not get variables from the installed bootloader")
             p_message(f"Path: {self.ins.boot_obj_path}")
             return False
 
@@ -530,7 +530,7 @@ class InstallerMain:
                 break
         if esp_id is None:
             p_error("Unable to determine the associated EFI system partition for this install.")
-            p_message("Is first stage m1n1 corrupted?")
+            p_message("Is the stage 1 bootloader corrupted?")
             return False
 
         target = self.dutil.get_partition_info(esp_id)
@@ -1119,11 +1119,11 @@ class InstallerMain:
                 p_plain(f"    OS: [{state}] {os}")
                 if os.attached_partitions:
                     p_plain(f"      Extra partitions: {' '.join('#' + str(i.index) for i in os.attached_partitions)}")
-                if os.stub and os.m1n1_ver:
+                if os.stub and os.loader:
                     oses_vendorfw.append((p, os))
                 if os.stub and not os.sys_vol_bootable:
                     oses_non_vol_boot.append((p, os))
-                if os.stub and os.m1n1_ver and os.m1n1_ver != self.m1n1_ver:
+                if os.stub and aura.needs_upgrade(os.loader, self.loader):
                     oses_upgradable.append((p, os))
                 elif os.stub and not (os.bp and os.bp.get("coih", None)):
                     oses_incomplete.append((p, os))
@@ -1158,7 +1158,7 @@ class InstallerMain:
             actions["d"] = "Select another disk for installation"
             default = default or "d"
         if oses_upgradable:
-            actions["m"] = "Upgrade m1n1 on an existing OS"
+            actions["m"] = "Upgrade the bootloader (aura) on an existing OS"
             default = default or "m"
         if oses_vendorfw:
             actions["v"] = "Rebuild vendor firmware package"

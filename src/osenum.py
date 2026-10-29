@@ -2,7 +2,7 @@
 import os, os.path, plistlib, subprocess, logging
 from dataclasses import dataclass
 
-import m1n1
+import aura
 from util import *
 
 UUID_SROS = "3D3287DE-280D-4619-AAAB-D97469CA9C71"
@@ -17,7 +17,7 @@ class OSInfo:
     data_volume: str = None
     stub: bool = False
     version: str = None
-    m1n1_ver: str = None
+    loader: aura.LoaderVersion = None
     system: object = None
     data: object = None
     preboot: object = None
@@ -48,15 +48,15 @@ class OSInfo:
         lbl = col(BRIGHT) + self.label + col()
         if not self.stub:
             macos = f"{col(BRIGHT, GREEN)}macOS v{self.version}{col()}"
-            if self.m1n1_ver is not None:
-                return f"[{lbl}] {macos} + {col(CYAN)}m1n1 {self.m1n1_ver}{col()} [{self.sys_volume}, {self.vgid}]"
+            if self.loader is not None:
+                return f"[{lbl}] {macos} + {col(CYAN)}{self.loader}{col()} [{self.sys_volume}, {self.vgid}]"
             elif self.bp and self.bp.get("coih", None):
                 return f"[{lbl}] {macos} + {col(YELLOW)}unknown fuOS{col()} [{self.sys_volume}, {self.vgid}]"
             else:
                 return f"[{lbl}] {macos} [{self.sys_volume}, {self.vgid}]"
         elif self.bp and self.bp.get("coih", None):
-            if self.m1n1_ver:
-                return f"[{lbl}] {col(BRIGHT, CYAN)}m1n1 {self.m1n1_ver}{col()} (macOS {self.version} stub) [{self.sys_volume}, {self.vgid}]"
+            if self.loader:
+                return f"[{lbl}] {col(BRIGHT, CYAN)}{self.loader}{col()} (macOS {self.version} stub) [{self.sys_volume}, {self.vgid}]"
             else:
                 return f"[{lbl}] {col(BRIGHT, YELLOW)}unknown fuOS{col()} (macOS {self.version} stub) [{self.sys_volume}, {self.vgid}]"
         else:
@@ -254,9 +254,9 @@ class OSEnum:
                                      "System/Library/Caches/com.apple.kernelcaches",
                                      "kernelcache.custom." + coih)
             if os.path.exists(fuos_path):
-                osi.m1n1_ver = m1n1.get_version(fuos_path)
-                if osi.m1n1_ver:
-                    logging.info(f"  m1n1 version found: {osi.m1n1_ver}")
+                osi.loader = aura.get_version(fuos_path)
+                if osi.loader:
+                    logging.info(f"  Bootloader version found: {osi.loader}")
 
         if b": Paired" in bps:
             osi.paired = True

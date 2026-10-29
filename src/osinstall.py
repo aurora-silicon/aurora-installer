@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 import os, shutil, sys, stat, subprocess, urlcache, zipfile, logging
 
-import m1n1
+import aura
 from util import *
 import unicodedata
 
@@ -184,17 +184,17 @@ class OSInstaller(PackageInstaller):
         logging.info(f"  Boot object: {boot_object}")
         logging.info(f"  Next object: {next_object}")
 
-        m1n1_vars = []
+        loader_vars = []
         if self.efi_part:
-            m1n1_vars.append(f"chosen.asahi,efi-system-partition={self.efi_part.uuid.lower()}")
+            loader_vars.append(f"chosen.asahi,efi-system-partition={self.efi_part.uuid.lower()}")
         if next_object is not None:
             assert self.efi_part is not None
-            m1n1_vars.append(f"chainload={self.efi_part.uuid.lower()};{next_object}")
+            loader_vars.append(f"chainload={self.efi_part.uuid.lower()};{next_object}")
 
-        logging.info(f"m1n1 vars:")
-        for i in m1n1_vars:
+        logging.info(f"Bootloader (aura) vars:")
+        for i in loader_vars:
             logging.info(f"  {i}")
 
-        m1n1.build(os.path.join("boot", boot_object), stub_ins.boot_obj_path, m1n1_vars)
+        aura.build(aura.stage1_path("boot", boot_object), stub_ins.boot_obj_path, loader_vars)
 
         logging.info(f"Built boot object at {stub_ins.boot_obj_path}")

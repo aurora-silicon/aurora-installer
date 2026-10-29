@@ -108,7 +108,7 @@
       XCTAssertEqual(
         evidence.stubVolumeGroup, plan.installation?.system.group, file: file, line: line)
       XCTAssertFalse(evidence.stubHasLibrary, file: file, line: line)
-      XCTAssertTrue(evidence.stubHasM1n1, file: file, line: line)
+      XCTAssertNotNil(evidence.stubBootLoader, file: file, line: line)
       XCTAssertEqual(evidence.stubEFIPartitions, [esp], file: file, line: line)
       XCTAssertEqual(plan.installation?.esp.uuid, esp.uppercased(), file: file, line: line)
     }
