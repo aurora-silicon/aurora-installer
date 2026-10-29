@@ -770,6 +770,7 @@
         retrySheet = .presented(context.verifying())
       }
       journal.reset()
+      journal.preservesStage1 = plan?.preservesStage1 ?? preservingStage1
       installStartedAt = Date()
       isExecuting = true
       defer { isExecuting = false }

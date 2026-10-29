@@ -177,9 +177,12 @@
       "Preparing final setup",
     ]
 
+    /// The one stage of Reset Linux, which keeps Stage 1 and its partitions.
+    public static let installResetStage = "Replacing Linux and boot files"
+
     /// The checks the installer makes before it changes anything, in the
-    /// order they run. The Install screen lists them until the helper writes
-    /// the installation's first journal record.
+    /// order they run. The Install screen lists them first, followed by the
+    /// installation's stages, as one list.
     public static let installPreparationSteps = [
       "Checking the installer helper",
       "Handing the download to the helper",

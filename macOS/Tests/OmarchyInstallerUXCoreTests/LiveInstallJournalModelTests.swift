@@ -34,30 +34,52 @@
       XCTAssertEqual(model.feed.last?.kind, .completion)
     }
 
-    func testPreparationOnlyMovesForwardAndEndsWithTheFirstJournalRecord() throws {
+    func testOneFixedListRunsFromTheFirstCheckToTheLastStage() throws {
       var model = LiveInstallJournalModel()
-      let steps = PlainLanguage.installPreparationSteps
-      XCTAssertEqual(
-        model.display(startedAt: Date()).preparation,
-        InstallPreparationDisplay(stepLabels: steps, stepIndex: 0))
+      let checks = PlainLanguage.installPreparationSteps
+      let steps = checks + PlainLanguage.installStageLabels
+      var display = model.display(startedAt: Date())
+      XCTAssertEqual(display.stepLabels, steps)
+      XCTAssertEqual(display.stepIndex, 0)
+      XCTAssertEqual(display.stepFractions, steps.map { _ in 0 })
       model.prepare(step: PlainLanguage.installPreparationHandoffStep)
       model.prepare(helperStep: "credential_validation")
-      XCTAssertEqual(model.preparation?.stepIndex, 1)
+      XCTAssertEqual(model.stepIndex, 1)
       model.prepare(helperStep: "stub_files_preflight")
-      XCTAssertEqual(model.preparation?.stepIndex, 5)
+      XCTAssertEqual(model.stepIndex, 5)
+      XCTAssertEqual(model.stepFractions.prefix(6), [1, 1, 1, 1, 1, 0])
       // A late report, a step after the preparation and an unknown step
       // change nothing.
       model.prepare(helperStep: "source_owner")
       model.prepare(helperStep: "apfs_preparation")
       model.prepare(helperStep: "a_step_from_a_newer_helper")
       model.prepare(step: 99)
-      XCTAssertEqual(model.preparation?.stepIndex, steps.count - 1)
+      XCTAssertEqual(model.stepIndex, checks.count - 1)
 
+      // The first journal record moves on to the stages in the same list.
       model.consume(try XCTUnwrap(JournalFixture.lines().first))
-      XCTAssertNil(model.preparation)
-      XCTAssertNil(model.display(startedAt: Date()).preparation)
+      display = model.display(startedAt: Date())
+      XCTAssertEqual(display.stepLabels, steps)
+      XCTAssertEqual(display.stepIndex, checks.count)
+      XCTAssertEqual(display.stepFractions, checks.map { _ in 1 } + [0, 0, 0])
+      for line in try JournalFixture.lines().dropFirst() { model.consume(line) }
+      display = model.display(startedAt: Date())
+      XCTAssertEqual(display.stepLabels, steps)
+      XCTAssertEqual(display.stepFractions, steps.map { _ in 1 })
       model.reset()
-      XCTAssertEqual(model.preparation?.stepIndex, 0)
+      XCTAssertEqual(model.stepIndex, 0)
+    }
+
+    func testResetLinuxListsItsOneStageFromTheStart() {
+      var model = LiveInstallJournalModel()
+      model.preservesStage1 = true
+      XCTAssertEqual(
+        model.display(startedAt: Date()).stepLabels,
+        PlainLanguage.installPreparationSteps + [PlainLanguage.installResetStage])
+      model.reset()
+      XCTAssertEqual(
+        model.stepLabels,
+        PlainLanguage.installPreparationSteps + PlainLanguage.installStageLabels)
     }
 
     func testPartialReplayTracksTheStageInFlight() throws {

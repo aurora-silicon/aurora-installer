@@ -935,16 +935,16 @@
       await gate.waitUntilEntered()
       await waitUntil {
         guard case .installing(let progress) = session.phase else { return false }
-        return progress.preparation?.stepIndex == 2
+        return progress.stepIndex == 2
       }
-      guard case .installing(let progress) = session.phase,
-        let preparation = progress.preparation
-      else {
+      guard case .installing(let progress) = session.phase else {
         return XCTFail("Expected the preparation on the install screen, got \(session.phase)")
       }
       XCTAssertEqual(progress.phaseTitle, PlainLanguage.installPreparing)
-      XCTAssertEqual(preparation.stepLabels, PlainLanguage.installPreparationSteps)
-      XCTAssertEqual(preparation.stepIndex, 2, "The account check, after the helper and handoff.")
+      XCTAssertEqual(
+        progress.stepLabels,
+        PlainLanguage.installPreparationSteps + PlainLanguage.installStageLabels)
+      XCTAssertEqual(progress.stepIndex, 2, "The account check, after the helper and handoff.")
       await gate.release()
       await operation.value
     }
