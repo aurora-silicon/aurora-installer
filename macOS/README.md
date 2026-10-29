@@ -57,6 +57,6 @@ Inspection, planning, disk preparation, image writing, firmware and Recovery han
 
 ## Provenance and checks
 
-The native code was imported from `aurora-silicon/omarchy-mac` at `55c855ce3f8dbdbfc5393aa4d929352142a0d1dc`, retaining its MIT license and upstream attribution. Internal module/protocol names preserve the engine contract. The Aurora mark comes from the supplied brand kit; project artwork sources and hashes remain in `Resources/BrandSources/manifest.json`.
+The native code was imported from `aurora-silicon/omarchy-mac` at `55c855ce3f8dbdbfc5393aa4d929352142a0d1dc`, retaining its MIT license and upstream attribution. Names fixed by published payloads, released Recovery templates, installed launchd jobs and existing installations keep their original spelling; `Sources/AuroraAppleInstaller/PublishedContractNames.swift` lists the payload and Recovery ones. The Aurora mark comes from the supplied brand kit; project artwork sources and hashes remain in `Resources/BrandSources/manifest.json`.
 
 `./test/all` runs unprivileged portable source, script and packaging-fixture checks. The native CI workflow runs strict Swift formatting and Debug/Release tests through XcodeBuildMCP, plus actual macOS code-signing/package fixtures. Historical preview results remain in [aurora-preview-validation.md](docs/aurora-preview-validation.md). Build and VM results do not qualify a physical installation.

@@ -70,7 +70,7 @@ ea9fe5c5b0eed141354ac2f9b8f88d06570a74372be90ccf046ff7f545a7b467 1001 installer_
 PINS
   echo "All three private-test assets verified and staged. No app or helper was installed or launched."
 }
-if [[ ${OMARCHY_STAGE_SOURCE_ONLY:-0} != "1" ]]; then
+if [[ ${AURORA_STAGE_SOURCE_ONLY:-0} != "1" ]]; then
   [[ $(uname -s) == "Darwin" ]] || { fail "macOS is required"; exit 64; }
   (( EUID != 0 )) || { fail "run as your normal macOS user, not with sudo"; exit 64; }
   umask 077

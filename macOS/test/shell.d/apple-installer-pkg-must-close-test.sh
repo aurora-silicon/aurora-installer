@@ -59,7 +59,7 @@ if bash "$add_must_close" "$distribution" "$INSTALLER_PKG_IDENTIFIER" "$INSTALLE
   fail "add-must-close refuses a distribution that already lists apps to close"
 fi
 write_distribution "$distribution"
-if bash "$add_must_close" "$distribution" "invalid.omarchy.other.pkg" "$INSTALLER_APP_IDENTIFIER" 2>"$test_tmp/log"; then
+if bash "$add_must_close" "$distribution" "invalid.aurora.other.pkg" "$INSTALLER_APP_IDENTIFIER" 2>"$test_tmp/log"; then
   fail "add-must-close refuses a distribution without the named package"
 fi
 printf '<plist/>\n' >"$test_tmp/other.xml"

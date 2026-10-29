@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The Macs every Omarchy Mac catalog must enable, and the ones it must refuse.
+"""The Macs every Aurora Mac catalog must enable, and the ones it must refuse.
 
 `supported-models.json` is the single list: every M1, M2 and M3 Mac the
 pinned engine can inspect, and the MacBook Neo, which the native installer

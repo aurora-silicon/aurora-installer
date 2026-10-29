@@ -89,17 +89,17 @@ public enum AccountNativeCommand {
     var commandInput = [UInt8](input)
     defer {
       commandInput.withUnsafeMutableBytes { bytes in
-        omarchy_account_wipe(bytes.baseAddress, bytes.count)
+        aurora_account_wipe(bytes.baseAddress, bytes.count)
       }
     }
     let status = pointers.withUnsafeBufferPointer { argv in
       commandInput.withUnsafeBytes { bytes in
-        omarchy_account_command(
+        aurora_account_command(
           executable, argv.baseAddress, bytes.bindMemory(to: UInt8.self).baseAddress, input.count,
           &output, &size, timeout)
       }
     }
-    defer { omarchy_account_free(output, size) }
+    defer { aurora_account_free(output, size) }
     guard status >= 0, status != 126, status != 127 else {
       throw AccountSetupFailure(
         "The native \(URL(fileURLWithPath: executable).lastPathComponent) command could not finish (status \(status)). Your installation has been preserved."
@@ -134,7 +134,10 @@ public enum AccountNativeCommand {
 }
 
 public enum RecoveryAccountInstaller {
-  public static let stateRelativePath = "private/var/db/omarchy-recovery-account/state.json"
+  /// Recovery apps already on installed systems keep their state here, so
+  /// the directory name is an on-disk contract and stays as is.
+  static let stateDirectory = "private/var/db/omarchy-recovery-account"
+  public static let stateRelativePath = stateDirectory + "/state.json"
   public static let pointerRelativePath = "Aurora/Recovery/account-target.json"
 
   public static func refreshMountedGroup(_ target: RecoveryAccountTarget) throws {
@@ -786,7 +789,7 @@ public enum RecoveryAccountInstaller {
         }
         let source = ctx.database.appendingPathComponent("users/\(record.username).plist")
         let backup = ctx.data.appendingPathComponent(
-          "private/var/db/omarchy-recovery-account/backups/\(UUID().uuidString)")
+          "\(RecoveryAccountInstaller.stateDirectory)/backups/\(UUID().uuidString)")
         try directory(backup)
         try FileManager.default.copyItem(
           at: source, to: backup.appendingPathComponent("user.plist"))
@@ -812,7 +815,7 @@ public enum RecoveryAccountInstaller {
       }
       if record.phase != "finalized" {
         let backup = ctx.data.appendingPathComponent(
-          "private/var/db/omarchy-recovery-account/backups/\(UUID().uuidString)")
+          "\(RecoveryAccountInstaller.stateDirectory)/backups/\(UUID().uuidString)")
         try directory(backup)
         for name in [
           "AdminUserRecoveryInfo.plist", "AllUsersInfo.plist", "CryptoUserInfo.plist",

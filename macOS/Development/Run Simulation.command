@@ -7,4 +7,4 @@ if ! command -v xcodebuildmcp >/dev/null; then
   exit 1
 fi
 xcodebuildmcp swift-package build --package-path "$package_root" --configuration debug
-exec "$package_root/.build/debug/OmarchyAppleInstallerApp" --simulate
+exec "$package_root/.build/debug/AuroraAppleInstallerApp" --simulate

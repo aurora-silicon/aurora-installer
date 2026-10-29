@@ -18,8 +18,8 @@ private_code_requirement() {
 # not accepted by this private installer path.
 private_bundle_profile() {
   local app=$1 plain limine file
-  plain=$(/usr/bin/plutil -extract OmarchyPrivatePlainTest raw -o - "$app/Contents/Info.plist" 2>/dev/null || true)
-  limine=$(/usr/bin/plutil -extract OmarchyPrivateLimineTest raw -o - "$app/Contents/Info.plist" 2>/dev/null || true)
+  plain=$(/usr/bin/plutil -extract AuroraPrivatePlainTest raw -o - "$app/Contents/Info.plist" 2>/dev/null || true)
+  limine=$(/usr/bin/plutil -extract AuroraPrivateLimineTest raw -o - "$app/Contents/Info.plist" 2>/dev/null || true)
   if [[ $plain == "true" && $limine != "true" ]]; then
     echo plain
   elif [[ $limine == "true" && $plain != "true" ]]; then

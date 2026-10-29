@@ -25,7 +25,7 @@ NOW = "2026-09-04T00:00:00Z"
 class CatalogGeneratorTests(unittest.TestCase):
     def setUp(self) -> None:
         self.directory = Path(
-            tempfile.mkdtemp(prefix="omarchy-catalog-test-")
+            tempfile.mkdtemp(prefix="aurora-catalog-test-")
         )
         self.assets = self.directory / "assets"
         self.assets.mkdir()

@@ -5,8 +5,8 @@ on:
     paths:
       - macOS/Sources/AuroraFirmware/**
       - macOS/Tests/AuroraFirmwareTests/**
-      - macOS/Sources/OmarchyAppleInstaller/NativeNeoPeripheralInputs.swift
-      - macOS/Tests/OmarchyAppleInstallerTrustCoreTests/NativeNeoPeripheralInputTests.swift
+      - macOS/Sources/AuroraAppleInstaller/NativeNeoPeripheralInputs.swift
+      - macOS/Tests/AuroraAppleInstallerTrustCoreTests/NativeNeoPeripheralInputTests.swift
       - macOS/Development/NativeFirmwareCheck/**
       - macOS/Package.swift
       - .github/workflows/native-firmware.yml
@@ -52,7 +52,7 @@ jobs:
           git diff --binary > "$RUNNER_TEMP/evidence/format.patch"
           git diff --exit-code
           xcrun swift-format lint --strict --recursive Package.swift Sources/AuroraFirmware Tests/AuroraFirmwareTests Development/NativeFirmwareCheck
-          xcrun swift-format lint --strict Sources/OmarchyAppleInstaller/NativeNeoPeripheralInputs.swift Tests/OmarchyAppleInstallerTrustCoreTests/NativeNeoPeripheralInputTests.swift
+          xcrun swift-format lint --strict Sources/AuroraAppleInstaller/NativeNeoPeripheralInputs.swift Tests/AuroraAppleInstallerTrustCoreTests/NativeNeoPeripheralInputTests.swift
       - name: Test native crypto, transport, bounds and resume validation
         run: |
           set -euo pipefail

@@ -14,6 +14,7 @@ enum SigningToolError: Error {
 // The signing key lives in the login keychain as a generic password whose data
 // is the 32 raw Ed25519 bytes. Every channel catalog is signed by this one
 // long-lived key, so a shipped app can accept catalogs published after it.
+// The account name predates the Aurora name; the stored key is found by it.
 let keychainAccount = "omarchy"
 
 func keychainQuery(service: String) -> [String: Any] {

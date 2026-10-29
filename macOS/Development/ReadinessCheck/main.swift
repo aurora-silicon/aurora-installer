@@ -1,6 +1,6 @@
 import Darwin
 import Foundation
-import OmarchyAppleInstallerTrustCore
+import AuroraAppleInstallerTrustCore
 
 @main struct InstallerReadinessCheck {
   static func main() async {

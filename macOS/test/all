@@ -9,7 +9,7 @@ fi
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$root"
-tests_temp=$(mktemp -d "${TMPDIR:-/tmp}/omarchy-installer-tests.XXXXXX")
+tests_temp=$(mktemp -d "${TMPDIR:-/tmp}/aurora-installer-tests.XXXXXX")
 trap 'rm -rf -- "$tests_temp"' EXIT
 export TMPDIR="$tests_temp"
 export PYTHONPYCACHEPREFIX="$tests_temp/pycache"

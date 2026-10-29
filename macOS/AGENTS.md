@@ -16,7 +16,7 @@ or would cross a safety boundary below.
 - Format Swift with Xcode's bundled `swift-format`, require strict lint for the
   package, and validate macOS builds and tests through XcodeBuildMCP.
 - Keep shell scripts compatible with the root repository rules. Build workers
-  come from `OMARCHY_BUILD_JOBS`, whose default is 10.
+  come from `AURORA_BUILD_JOBS`, whose default is 10.
 - For exact `[[ == ]]` or `[[ != ]]` string comparisons, quote a variable on
   the right-hand side so Bash treats metacharacters as literal text.
 
@@ -54,7 +54,7 @@ helper registration, privileged execution, disk or boot-policy mutation,
 signing or notarization with production credentials, publication, deployment,
 or physical-device work. Public builds keep unqualified boards such as
 `apple,j614s` fail-closed until official support and physical qualification
-both exist. Developer builds (`OmarchyDeveloperBuild`, sealed developer
+both exist. Developer builds (`AuroraDeveloperBuild`, sealed developer
 catalog only) may admit unqualified boards their engine supports.
 
 ## Standalone repository conventions

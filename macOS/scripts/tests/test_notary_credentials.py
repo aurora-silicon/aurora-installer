@@ -40,7 +40,7 @@ import json, os, sys
 from pathlib import Path
 assert all(name not in os.environ for name in ('APPLE_NOTARY_KEY_BASE64','APPLE_NOTARY_KEY_ID','APPLE_NOTARY_ISSUER_ID'))
 assert not list(Path(os.environ['RUNNER_TEMP']).glob('aurora-notary.*/key.p8'))
-Path(sys.argv[1]).write_text(json.dumps({'profile':os.environ['OMARCHY_NOTARY_PROFILE'],'keychain':os.environ['OMARCHY_NOTARY_KEYCHAIN']}))
+Path(sys.argv[1]).write_text(json.dumps({'profile':os.environ['AURORA_NOTARY_PROFILE'],'keychain':os.environ['AURORA_NOTARY_KEYCHAIN']}))
 raise SystemExit(int(sys.argv[2]))
 ''')
                 environment = dict(os.environ, PATH=str(tools) + os.pathsep + os.environ["PATH"],

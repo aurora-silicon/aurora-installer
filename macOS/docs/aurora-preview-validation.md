@@ -18,7 +18,7 @@ The native code starts from `aurora-silicon/omarchy-mac` revision `55c855ce3f8db
 | Portable branding and remaining packaging/publication fixtures | Passed |
 | Complete portable runner | Does not pass the inherited production-identity check: this preview deliberately has no Developer ID team/signing identity configured |
 
-The skipped Swift test requires a private M3 catalog fixture, which was not supplied. Tests initially caught stale identity/channel expectations after the Aurora rename; the expectations were updated and the relevant follow-up passed. Captured hardware fixtures retain their original Omarchy labels and bytes.
+The skipped Swift test requires a private M3 catalog fixture, which was not supplied. Tests initially caught stale identity/channel expectations after the Aurora rename; the expectations were updated and the relevant follow-up passed. Captured hardware fixtures retain their original labels and bytes.
 
 The large screenshots and two-screen selector were replaced after these full-suite runs. The final compact UI built successfully and its three desktop cards were tested through review using the explicit simulator. A final full-suite rerun was launched, but its terminal logs were not retrieved before the user rebooted into Linux. Its outcome is **unverified**; the earlier counts above must not be presented as results for that final rerun.
 

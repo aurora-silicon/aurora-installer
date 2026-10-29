@@ -8,7 +8,7 @@ OUT=$2
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 source "$ROOT/Packaging/identity.conf"
 source "$ROOT/Packaging/private-test/code-identity.sh"
-[[ $(/usr/bin/plutil -extract OmarchyPrivatePlainTest raw -o - "$APP/Contents/Info.plist") == "true" ]] || exit 1
+[[ $(/usr/bin/plutil -extract AuroraPrivatePlainTest raw -o - "$APP/Contents/Info.plist") == "true" ]] || exit 1
 app_version=$(/usr/bin/plutil -extract CFBundleShortVersionString raw -o - "$APP/Contents/Info.plist")
 app_build=$(/usr/bin/plutil -extract CFBundleVersion raw -o - "$APP/Contents/Info.plist")
 /usr/bin/codesign --verify --deep --strict "$APP"

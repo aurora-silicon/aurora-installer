@@ -124,13 +124,13 @@ pass "no code, script or test repeats an identity or hosting value, the image pr
 # A different configuration changes what the packaging scripts produce.
 cat >"$test_tmp/identity.conf" <<'CONF'
 INSTALLER_APP_NAME="Identity Probe Installer"
-INSTALLER_HELPER_IDENTIFIER="invalid.omarchy.identity-probe.helper"
+INSTALLER_HELPER_IDENTIFIER="invalid.aurora.identity-probe.helper"
 CONF
 cp "$ROOT/Packaging/pkg/scripts/postinstall" "$test_tmp/postinstall"
 if bash "$test_tmp/postinstall" >"$test_tmp/postinstall.log" 2>&1; then
   fail "postinstall fails when the configured daemon plist is absent"
 fi
-grep -Fq "daemon plist is missing: /Library/LaunchDaemons/invalid.omarchy.identity-probe.helper.plist" \
+grep -Fq "daemon plist is missing: /Library/LaunchDaemons/invalid.aurora.identity-probe.helper.plist" \
   "$test_tmp/postinstall.log" ||
   fail "postinstall takes the helper label from the identity shipped beside it" "$(cat "$test_tmp/postinstall.log")"
 grep -Fq '"$PKG_DIR/../identity.conf" "$scripts/identity.conf"' "$ROOT/Packaging/pkg/build-pkg.sh" ||
@@ -140,7 +140,7 @@ grep -Fq -- '--scripts "$scripts"' "$ROOT/Packaging/pkg/build-pkg.sh" ||
 
 mkdir -p "$test_tmp/tree/Packaging" "$test_tmp/tree/scripts"
 cp "$ROOT/scripts/make-release-descriptor" "$test_tmp/tree/scripts/"
-sed -e 's/^INSTALLER_HELPER_IDENTIFIER=.*/INSTALLER_HELPER_IDENTIFIER="invalid.omarchy.identity-probe.helper"/' \
+sed -e 's/^INSTALLER_HELPER_IDENTIFIER=.*/INSTALLER_HELPER_IDENTIFIER="invalid.aurora.identity-probe.helper"/' \
   -e 's/^INSTALLER_TEAM_ID=.*/INSTALLER_TEAM_ID="PROBE12345"/' \
   "$config" >"$test_tmp/tree/Packaging/identity.conf"
 bash "$test_tmp/tree/scripts/make-release-descriptor" \
@@ -149,9 +149,9 @@ bash "$test_tmp/tree/scripts/make-release-descriptor" \
 python3 - "$test_tmp/probe.json" <<'PY' || fail "make-release-descriptor takes the helper and team from identity.conf"
 import json, sys
 descriptor = json.load(open(sys.argv[1]))
-assert descriptor["helper_mach_service_name"] == "invalid.omarchy.identity-probe.helper"
+assert descriptor["helper_mach_service_name"] == "invalid.aurora.identity-probe.helper"
 assert descriptor["helper_code_signing_requirement"].endswith(
-    'identifier "invalid.omarchy.identity-probe.helper" and certificate leaf[subject.OU] = "PROBE12345"'
+    'identifier "invalid.aurora.identity-probe.helper" and certificate leaf[subject.OU] = "PROBE12345"'
 )
 PY
 pass "packaging scripts follow a changed identity.conf"

@@ -17,7 +17,7 @@ enum RecoveryActions {
         limit: 65536))
   }
   static var volume: URL {
-    #if OMARCHY_STEP2_PREVIEW
+    #if AURORA_STEP2_PREVIEW
       return URL(fileURLWithPath: "/Volumes/Aurora")
     #else
       // The launch contract puts the app directly in the target System volume.
@@ -34,21 +34,21 @@ enum RecoveryActions {
     (try? configuration.get().allowCustomBootArguments) == true
   }
   static var supportsMachO: Bool {
-    #if OMARCHY_STEP2_PREVIEW
+    #if AURORA_STEP2_PREVIEW
       return true
     #else
       return false
     #endif
   }
   static var inRecovery: Bool {
-    #if OMARCHY_STEP2_RECOVERY
+    #if AURORA_STEP2_RECOVERY
       return FileManager.default.fileExists(atPath: "/System/Installation/CDIS")
     #else
       return false
     #endif
   }
   static var isPreview: Bool {
-    #if OMARCHY_STEP2_PREVIEW
+    #if AURORA_STEP2_PREVIEW
       return CommandLine.arguments.contains("--preview")
         || CommandLine.arguments.contains("--recovery-preview")
     #else

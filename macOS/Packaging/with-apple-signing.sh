@@ -64,7 +64,7 @@ security list-keychains -d user -s "$keychain" "${previous[@]}"
 security find-identity -v -p codesigning "$keychain" | grep -Fi "$APPLE_SIGNING_IDENTITY" >/dev/null \
   || fail 'the configured signing identity is unavailable'
 export AURORA_SIGNING_KEYCHAIN="$keychain"
-export OMARCHY_APP_SIGNING_IDENTITY="$APPLE_SIGNING_IDENTITY"
-export OMARCHY_TEAM_ID="$APPLE_TEAM_ID"
+export AURORA_APP_SIGNING_IDENTITY="$APPLE_SIGNING_IDENTITY"
+export AURORA_TEAM_ID="$APPLE_TEAM_ID"
 unset APPLE_CERTIFICATE_P12_BASE64 APPLE_CERTIFICATE_PASSWORD keychain_password
 "$@"

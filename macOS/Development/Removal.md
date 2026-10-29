@@ -27,7 +27,7 @@ and next phase are written atomically, and the file and containing directory are
 synchronized before each mutation. A journal not marked `complete` prevents new
 installation/removal requests, including after a helper restart. Never delete or
 mark that journal complete merely to bypass the block: reconcile its approved
-UUIDs with the actual disk layout first. A failed resize can leave all Omarchy
+UUIDs with the actual disk layout first. A failed resize can leave all Aurora
 partitions removed with the space still unallocated. Do not replay deletion.
 
 Connection loss locks the app's further disk actions; it does not claim that the
@@ -45,7 +45,7 @@ interrupted, macOS resize failed and connection lost. The exact phrase is still
 required. Simulation uses no helper, disks, passwords or downloads. A simulation
 blocked by an uncertain outcome has a separate **Reset simulation** action.
 
-`OmarchyRemovalTests` exercises the real planner/executor with in-memory disk
+`AuroraRemovalTests` exercises the real planner/executor with in-memory disk
 operations, native plist parsing, every failed command position, journal failure,
 protected identity drift, no-op growth, administrator rejection, exact phrase,
 foreign/replayed tickets, interrupted-helper restart and concurrent install/removal

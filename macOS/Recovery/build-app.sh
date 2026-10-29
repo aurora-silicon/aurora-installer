@@ -4,7 +4,7 @@ cd "$(dirname "$0")"
 MODE="${1:?preview or recovery}"
 OUT="${2:-build}"
 [[ "$MODE" == "preview" || "$MODE" == "recovery" ]] || exit 2
-export OMARCHY_RECOVERY_BUILD="$MODE"
+export AURORA_RECOVERY_BUILD="$MODE"
 APP="$OUT/Aurora Installer.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Resources/AuroraLogo.png "$APP/Contents/Resources/AuroraLogo.png"
@@ -22,7 +22,9 @@ else
   xcrun swift build --package-path "$PWD" --configuration release
 fi
 ./test-all.sh "$OUT/checks"
-cp .build/release/OmarchyRecovery "$APP/Contents/MacOS/OmarchyRecovery"
+# Released templates and the payloads built from them name the executable
+# OmarchyRecovery, and installers check that name, so the bundle keeps it.
+cp .build/release/AuroraRecovery "$APP/Contents/MacOS/OmarchyRecovery"
 [[ "$("$APP/Contents/MacOS/OmarchyRecovery" --build-mode)" == "$MODE" ]]
 # The small Recovery OS may omit frameworks present in a full macOS install.
 # Recovery stubs can omit UI and hashing frameworks present in full macOS.

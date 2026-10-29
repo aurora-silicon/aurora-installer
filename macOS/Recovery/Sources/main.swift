@@ -680,9 +680,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 if CommandLine.arguments.dropFirst().first == "--build-mode" {
-  #if OMARCHY_STEP2_RECOVERY
+  #if AURORA_STEP2_RECOVERY
     print("recovery")
-  #elseif OMARCHY_STEP2_PREVIEW
+  #elseif AURORA_STEP2_PREVIEW
     print("preview")
   #else
     print("disabled")

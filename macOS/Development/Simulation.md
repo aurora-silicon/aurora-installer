@@ -20,7 +20,7 @@ All simulation controls live in the **Simulation** menu bar item. They are absen
 - **Reset simulation** abandons only the in-memory run, including a stopped or uncertain outcome.
 - **Slow events** makes each event take two seconds; changing speed resets the session.
 - **Test channel** offers Stable, Release candidate and Edge (the default), and is local to the simulator. The line under it shows the Release channel menu as the app words it for this scenario: stable and rc have no Mac release, and the three channel scenarios change the test channel's state. It locks while preparing, authorizing, executing, and after execution has started.
-- **Dark appearance** is on by default to match Omarchy. Turn it off to test light mode.
+- **Dark appearance** is on by default to match Aurora. Turn it off to test light mode.
 - **Install / Authorize** on the simulation sheet uses a dummy credential. There are no real account fields.
 
 ## Scenario matrix
@@ -80,7 +80,7 @@ layout, recovery behavior and test coverage.
 The **Disk alignment · whole GB unchanged** scenario reproduces normal 1 MiB
 partition alignment. Selecting 180 GB must keep 180 GB displayed without a
 capacity-limit warning. The acknowledgement still resets. Actual whole-GB changes
-use “Space for Omarchy changed from … to …” without assuming why it changed.
+use “Space for Aurora changed from … to …” without assuming why it changed.
 
 ## Recovery account preview
 

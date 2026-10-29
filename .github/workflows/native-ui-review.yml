@@ -3,7 +3,7 @@ on:
   push:
     branches: [feat/swift-native-installer, feat/native-ui-buttons]
     paths:
-      - macOS/Sources/OmarchyAppleInstallerApp/**
+      - macOS/Sources/AuroraAppleInstallerApp/**
       - macOS/Packaging/build-aurora-preview.sh
       - .github/workflows/native-ui-review.yml
   workflow_dispatch:
@@ -45,8 +45,8 @@ jobs:
       - name: Run focused application tests in debug and release
         run: |
           set -euo pipefail
-          xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug --filter OmarchyAppleInstallerAppTests 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
-          xcodebuildmcp swift-package test --package-path "$PWD" --configuration release --filter OmarchyAppleInstallerAppTests 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
+          xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug --filter AuroraAppleInstallerAppTests 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
+          xcodebuildmcp swift-package test --package-path "$PWD" --configuration release --filter AuroraAppleInstallerAppTests 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
       - name: Build the unprivileged native preview
         run: bash Packaging/build-aurora-preview.sh "$RUNNER_TEMP/preview"
       - name: Render actual native components in both appearances

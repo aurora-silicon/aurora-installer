@@ -2,7 +2,7 @@
 #include <dlfcn.h>
 #include <uuid/uuid.h>
 
-int omarchy_apfs_volume_group_uuid(const char *device, char *output, long capacity)
+int aurora_apfs_volume_group_uuid(const char *device, char *output, long capacity)
 {
     if (!device || !output || capacity < 37)
         return -1;

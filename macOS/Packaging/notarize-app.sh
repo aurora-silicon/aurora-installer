@@ -19,12 +19,12 @@ fi
   || fail "usage: notarize-app.sh [--verify-only] '/absolute/path/$INSTALLER_APP_NAME.app'"
 
 app_path="$1"
-notary_profile="${OMARCHY_NOTARY_PROFILE:-}"
+notary_profile="${AURORA_NOTARY_PROFILE:-}"
 
 [[ $app_path == /* && -d $app_path && ! -L $app_path ]] \
   || fail "application must be an absolute path to a real bundle"
 [[ $verify_only == true || -n $notary_profile ]] \
-  || fail "OMARCHY_NOTARY_PROFILE is required"
+  || fail "AURORA_NOTARY_PROFILE is required"
 [[ $app_path == *.app ]] \
   || fail "application path must end in .app"
 
@@ -74,8 +74,8 @@ archive_path="$archive_root/$INSTALLER_FILE_STEM.zip"
 
 ditto -c -k --keepParent "$app_path" "$archive_path"
 notary_arguments=(--keychain-profile "$notary_profile")
-if [[ -n ${OMARCHY_NOTARY_KEYCHAIN:-} ]]; then
-  notary_arguments+=(--keychain "$OMARCHY_NOTARY_KEYCHAIN")
+if [[ -n ${AURORA_NOTARY_KEYCHAIN:-} ]]; then
+  notary_arguments+=(--keychain "$AURORA_NOTARY_KEYCHAIN")
 fi
 xcrun notarytool submit "$archive_path" "${notary_arguments[@]}" --wait
 xcrun stapler staple "$app_path"

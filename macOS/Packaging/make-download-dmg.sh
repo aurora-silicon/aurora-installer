@@ -13,10 +13,10 @@ dmg_path=$2
    $(basename "$app_path") == "$INSTALLER_APP_NAME.app" ]] || fail "unsafe application path"
 [[ $dmg_path == /*.dmg && ! -e $dmg_path && ! -L $dmg_path &&
    -d ${dmg_path%/*} ]] || fail "output must be a new absolute .dmg path"
-: "${OMARCHY_APP_SIGNING_IDENTITY:?}" "${OMARCHY_NOTARY_PROFILE:?}" "${OMARCHY_TEAM_ID:?}"
-[[ $OMARCHY_APP_SIGNING_IDENTITY != - ]] || fail "a release signing identity is required"
-[[ $OMARCHY_TEAM_ID =~ ^[A-Z0-9]{10}$ ]] || fail "invalid release team"
-team_requirement="anchor apple generic and certificate leaf[subject.OU] = \"$OMARCHY_TEAM_ID\""
+: "${AURORA_APP_SIGNING_IDENTITY:?}" "${AURORA_NOTARY_PROFILE:?}" "${AURORA_TEAM_ID:?}"
+[[ $AURORA_APP_SIGNING_IDENTITY != - ]] || fail "a release signing identity is required"
+[[ $AURORA_TEAM_ID =~ ^[A-Z0-9]{10}$ ]] || fail "invalid release team"
+team_requirement="anchor apple generic and certificate leaf[subject.OU] = \"$AURORA_TEAM_ID\""
 for directory in Engine Artifacts; do
   [[ ! -e $app_path/Contents/Resources/$directory && ! -L $app_path/Contents/Resources/$directory ]] \
     || fail "the on-demand download must not bundle $directory"
@@ -50,12 +50,12 @@ mkdir "$scratch/content"
 ln -s /Applications "$scratch/content/Applications"
 hdiutil create -quiet -fs HFS+ -format UDZO -volname "$INSTALLER_APP_NAME" \
   -srcfolder "$scratch/content" "$scratch/download.dmg"
-codesign --sign "$OMARCHY_APP_SIGNING_IDENTITY" --timestamp \
+codesign --sign "$AURORA_APP_SIGNING_IDENTITY" --timestamp \
   --identifier "$INSTALLER_APP_IDENTIFIER.diskimage" "$scratch/download.dmg"
 codesign --verify --strict -R="$team_requirement" "$scratch/download.dmg"
-notary_arguments=(--keychain-profile "$OMARCHY_NOTARY_PROFILE")
-if [[ -n ${OMARCHY_NOTARY_KEYCHAIN:-} ]]; then
-  notary_arguments+=(--keychain "$OMARCHY_NOTARY_KEYCHAIN")
+notary_arguments=(--keychain-profile "$AURORA_NOTARY_PROFILE")
+if [[ -n ${AURORA_NOTARY_KEYCHAIN:-} ]]; then
+  notary_arguments+=(--keychain "$AURORA_NOTARY_KEYCHAIN")
 fi
 xcrun notarytool submit "$scratch/download.dmg" "${notary_arguments[@]}" --wait
 xcrun stapler staple "$scratch/download.dmg"
