@@ -4,7 +4,7 @@ name: uefi-only-build
 on:
   # Triggers the workflow only on pull-requests when this file is changed.
   # Intended use is to manually trigger runs after updating the repository
-  # variables `UEFI_DATE`, `UEFI_LINUX_TAG` or `UEFI_UBOOT_TAG`.
+  # variables `UEFI_DATE` or `UEFI_LINUX_TAG`. U-Boot is pinned below.
   pull_request:
     branches: [ main ]
     paths: [ .github/workflows/uefi-only-build.yaml ]
@@ -35,11 +35,13 @@ jobs:
           path: linux
           sparse-checkout: 'arch/arm64/boot/dts/apple/'
 
+      # Aurora U-Boot 2026.07-g2409ad5a25f8 (aurora-wip), the U-Boot that
+      # ships with aura 1.0.0b1.
       - name: Checkout u-boot
         uses: actions/checkout@v5
         with:
-          repository: AsahiLinux/u-boot
-          ref: ${{ vars.UEFI_UBOOT_TAG }}
+          repository: aurora-silicon/u-boot
+          ref: 2409ad5a25f88ec5ef42e1afdd6e29957a2fac96
           path: u-boot
 
       - name: Install aarch64-linux-gnu- toolchain

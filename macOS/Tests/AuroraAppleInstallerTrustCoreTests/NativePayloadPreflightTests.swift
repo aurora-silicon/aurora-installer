@@ -155,6 +155,31 @@
       }
     }
 
+    func testBootObjectMayNameAuraOrTheLegacyM1n1Stage1() async throws {
+      let fixture = try fixture()
+      let vector = try XCTUnwrap(fixture.vectors.first { $0.accepted })
+      let archive = try await IPSWArchive.open(
+        PayloadFixtureSource(
+          bytes: try XCTUnwrap(fixture.archives[vector.archive])))
+      for (name, accepted) in [
+        ("aura.bin", true), ("m1n1.bin", true), ("boot.bin", false), ("", false),
+      ] {
+        var document = try XCTUnwrap(
+          JSONSerialization.jsonObject(with: Data(vector.metadata.utf8)) as? [String: Any])
+        var templates = document["os_list"] as! [[String: Any]]
+        templates[0]["boot_object"] = name
+        document["os_list"] = templates
+        do {
+          try await NativePayloadPreflight.validate(
+            metadata: JSONSerialization.data(withJSONObject: document),
+            payloadName: "payload.zip", archive: archive)
+          XCTAssertTrue(accepted, "boot_object \(name) admitted")
+        } catch NativePayloadPreflightError.invalidMetadata {
+          XCTAssertFalse(accepted, "boot_object \(name) refused")
+        }
+      }
+    }
+
     func testMetadataBoundsAndTopLevelShapeFailClosed() async throws {
       let fixture = try fixture()
       let archive = try await IPSWArchive.open(

@@ -60,7 +60,9 @@
         filesystem = contract.1
       }
       guard template["package"] as? String == payloadName,
-        template["boot_object"] as? String == "m1n1.bin",
+        // aura.bin names aura's Stage 1; payloads made before aura name it
+        // m1n1.bin. The native engine reads Stage 1 from the payload's ESP.
+        ["aura.bin", "m1n1.bin"].contains(template["boot_object"] as? String ?? ""),
         template["next_object"] as? String == "m1n1/boot.bin",
         template["icon"] as? String == icon
       else { throw NativePayloadPreflightError.invalidMetadata }
