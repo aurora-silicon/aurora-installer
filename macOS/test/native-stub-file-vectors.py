@@ -3,7 +3,7 @@
 import argparse,base64,hashlib,io,json,plistlib,zipfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
-OUTPUT=ROOT/'Tests/OmarchyAppleInstallerTrustCoreTests/Fixtures/native-stub-files.json'
+OUTPUT=ROOT/'Tests/AuroraAppleInstallerTrustCoreTests/Fixtures/native-stub-files.json'
 def vectors():
     info=dict(BuildNumber='25G83',DeviceClass='j700ap',RestoreBehavior='Erase',Variant='macOS Customer')
     identity=dict(ApBoardID='0x01',ApChipID='0x0002',Info=info,Manifest={

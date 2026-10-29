@@ -23,7 +23,7 @@ static double monotonic_time(void)
 /* No controlling terminal: dscl's password prompt must read the supplied pipe.
  * Credentials are never argv or environment values. Capture is bounded and the
  * child is always reaped, including launch, timeout and output-limit failures. */
-int omarchy_account_command(const char *path, const char *const *arguments,
+int aurora_account_command(const char *path, const char *const *arguments,
                             const unsigned char *input, long input_size,
                             unsigned char **output, long *output_size,
                             unsigned timeout_seconds)
@@ -129,14 +129,14 @@ cleanup:
     return failure || !WIFEXITED(status) ? -1 : WEXITSTATUS(status);
 }
 
-void omarchy_account_wipe(void *buffer, long size)
+void aurora_account_wipe(void *buffer, long size)
 {
     volatile unsigned char *bytes=buffer;
     if(!bytes || size<=0)return;
     for(long i=0;i<size;i++)bytes[i]=0;
 }
-void omarchy_account_free(void *buffer, long size)
+void aurora_account_free(void *buffer, long size)
 {
-    omarchy_account_wipe(buffer,size);
+    aurora_account_wipe(buffer,size);
     free(buffer);
 }

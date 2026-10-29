@@ -79,7 +79,7 @@ elif tool != "spctl":
             (tools / name).symlink_to(mock.name)
         self.environment = dict(os.environ, PATH=str(tools) + os.pathsep + os.environ["PATH"],
                                 TMPDIR=str(self.root), FIXTURE_SIGNATURES=str(self.manifest),
-                                FIXTURE_NOTARY_CALLS=str(self.calls), OMARCHY_NOTARY_PROFILE="fixture")
+                                FIXTURE_NOTARY_CALLS=str(self.calls), AURORA_NOTARY_PROFILE="fixture")
 
     def run_preflight(self, verify_only=True):
         self.manifest.write_text(json.dumps(self.signatures))
@@ -122,14 +122,14 @@ elif tool != "spctl":
         self.assertEqual(self.calls.read_text(), "")
 
     def test_submission_and_stapling_remain_explicit_after_preflight(self):
-        self.environment["OMARCHY_NOTARY_KEYCHAIN"] = str(self.root / "private.keychain-db")
+        self.environment["AURORA_NOTARY_KEYCHAIN"] = str(self.root / "private.keychain-db")
         result = self.run_preflight(verify_only=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
         self.assertEqual([call[:2] for call in calls],
                          [["notarytool", "submit"], ["stapler", "staple"], ["stapler", "validate"]])
         self.assertIn("--keychain", calls[0])
-        self.assertEqual(calls[0][calls[0].index("--keychain") + 1], self.environment["OMARCHY_NOTARY_KEYCHAIN"])
+        self.assertEqual(calls[0][calls[0].index("--keychain") + 1], self.environment["AURORA_NOTARY_KEYCHAIN"])
         self.assertEqual(list(self.root.glob("aurora-notary.*")), [])
 
 

@@ -30,15 +30,15 @@ fi
 
 # The app holds a single-instance lease; a second launch quits immediately
 # with "refused a duplicate or unsafe launch". Surface that up front.
-if pgrep -f OmarchyAppleInstallerApp >/dev/null; then
+if pgrep -f AuroraAppleInstallerApp >/dev/null; then
   echo "an installer instance is already running (its lease blocks new launches):" >&2
-  pgrep -fl OmarchyAppleInstallerApp >&2
-  echo "quit it first, e.g.: pkill -f OmarchyAppleInstallerApp" >&2
+  pgrep -fl AuroraAppleInstallerApp >&2
+  echo "quit it first, e.g.: pkill -f AuroraAppleInstallerApp" >&2
   exit 1
 fi
 
 swift build --package-path "$package_root"
 
-OMARCHY_INSTALLER_UI_PREVIEW=$scenario \
-  OMARCHY_INSTALLER_UI_PREVIEW_JOURNAL=$journal \
-  exec "$package_root/.build/debug/OmarchyAppleInstallerApp"
+AURORA_INSTALLER_UI_PREVIEW=$scenario \
+  AURORA_INSTALLER_UI_PREVIEW_JOURNAL=$journal \
+  exec "$package_root/.build/debug/AuroraAppleInstallerApp"

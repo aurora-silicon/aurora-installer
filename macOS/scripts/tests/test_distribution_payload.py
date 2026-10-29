@@ -58,7 +58,7 @@ class DistributionPayloadTests(unittest.TestCase):
         self.assertEqual(metadata['installation_profile'], 'fedora-kde')
         self.assertEqual(metadata['partitions'][0]['volume_id'], '0xA1B2C3D4')
         with zipfile.ZipFile(output / metadata['package']) as archive:
-            payload.omarchy_recovery.validate_payload(archive)
+            payload.aurora_recovery.validate_payload(archive)
 
     def test_public_payload_admits_the_neo_with_its_own_stage_two(self):
         output = self.root / 'output'

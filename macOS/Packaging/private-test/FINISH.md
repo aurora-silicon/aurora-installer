@@ -5,7 +5,7 @@ The user explicitly chose a private test without Developer ID signing or notariz
 Build the private app and package on an arm64 Mac with Xcode, using the same pinned engine and sealed public release inputs from the maintainer handoff:
 
 ```bash
-OMARCHY_APP_BUILD_NUMBER=24 bash Packaging/private-test/build-adhoc-app.sh /absolute/release-inputs /absolute/new-app-directory
+AURORA_APP_BUILD_NUMBER=24 bash Packaging/private-test/build-adhoc-app.sh /absolute/release-inputs /absolute/new-app-directory
 bash Packaging/private-test/build-tester-pkg.sh '/absolute/new-app-directory/Aurora Installer.app' /absolute/new-package.pkg
 bash test/macos-private-package.sh '/absolute/new-app-directory/Aurora Installer.app' /absolute/new-package.pkg
 ```
@@ -22,4 +22,4 @@ The package refuses existing app/helper/state, an already registered service, ma
 
 ## Separate Limine candidate
 
-The encryption-capable private candidate uses the separately documented [Limine profile](../../docs/private-limine-packaging.md), `OMARCHY_PRIVATE_LIMINE_TEST=1`, a fresh sealed catalog/input receipt, and new outputs. It must not use this page's baseline staging pins, unencrypted instructions or Chris's existing bundle. The plain commands above retain their behavior.
+The encryption-capable private candidate uses the separately documented [Limine profile](../../docs/private-limine-packaging.md), `AURORA_PRIVATE_LIMINE_TEST=1`, a fresh sealed catalog/input receipt, and new outputs. It must not use this page's baseline staging pins, unencrypted instructions or Chris's existing bundle. The plain commands above retain their behavior.

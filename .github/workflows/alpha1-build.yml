@@ -45,7 +45,7 @@ jobs:
             2>&1 | tee "$RUNNER_TEMP/evidence/release-build.log"
           bin=$(xcrun swift build --configuration release --show-bin-path)
           mkdir "$RUNNER_TEMP/native-inputs/binaries"
-          for product in OmarchyAppleInstallerApp OmarchyAppleInstallerHelper AuroraFirmwareCheck; do
+          for product in AuroraAppleInstallerApp AuroraAppleInstallerHelper AuroraFirmwareCheck; do
             cp "$bin/$product" "$RUNNER_TEMP/native-inputs/binaries/"
           done
           bash Recovery/build-recovery.sh "$RUNNER_TEMP/recovery" \
@@ -62,12 +62,12 @@ jobs:
           #!/bin/bash
           set -euo pipefail
           app="$RUNNER_TEMP/recovery/Aurora Installer.app"
-          codesign --force --sign "$OMARCHY_APP_SIGNING_IDENTITY" --timestamp --options runtime "$app"
-          codesign --verify --deep --strict -R="anchor apple generic and certificate leaf[subject.OU] = \"$OMARCHY_TEAM_ID\"" "$app"
+          codesign --force --sign "$AURORA_APP_SIGNING_IDENTITY" --timestamp --options runtime "$app"
+          codesign --verify --deep --strict -R="anchor apple generic and certificate leaf[subject.OU] = \"$AURORA_TEAM_ID\"" "$app"
           codesign --display --verbose=4 "$app" 2> "$RUNNER_TEMP/evidence/recovery-signature.txt"
           grep -q 'flags=.*runtime' "$RUNNER_TEMP/evidence/recovery-signature.txt"
           grep -q '^Timestamp=' "$RUNNER_TEMP/evidence/recovery-signature.txt"
-          grep -q "^TeamIdentifier=$OMARCHY_TEAM_ID$" "$RUNNER_TEMP/evidence/recovery-signature.txt"
+          grep -q "^TeamIdentifier=$AURORA_TEAM_ID$" "$RUNNER_TEMP/evidence/recovery-signature.txt"
           tar -czf "$RUNNER_TEMP/native-inputs/aurora-recovery-template-alpha1.tar.gz" -C "$RUNNER_TEMP/recovery" 'Aurora Installer.app'
           SIGN
           bash Packaging/with-apple-signing.sh bash "$RUNNER_TEMP/sign-recovery.sh"

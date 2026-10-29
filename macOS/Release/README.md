@@ -16,7 +16,7 @@ python3 scripts/prepare-distribution-release.py \
 
 This verifies all nine catalog signatures and profile bindings before emitting any resources. Normal builds include descriptors and public keys and fetch current signed catalogs at runtime. Add `--sealed` for an explicit developer or offline build: it includes the exact verified catalog bytes and records their sequences and digests in `profile-manifest.json`. Sealed catalogs take precedence over network feeds.
 
-Then pass that release directory to `Packaging/build-app.sh`. Developer packages use `OMARCHY_DEVELOPER_BUILD=1`, a sealed catalog and the dedicated local developer package builder; they do not imply Developer ID signing or notarization.
+Then pass that release directory to `Packaging/build-app.sh`. Developer packages use `AURORA_DEVELOPER_BUILD=1`, a sealed catalog and the dedicated local developer package builder; they do not imply Developer ID signing or notarization.
 
 Private Neo policy inputs and device calibration are never included in public payloads or package feeds. A separately authenticated local developer delivery may admit Neo; public model admission remains governed by its signed catalog.
 

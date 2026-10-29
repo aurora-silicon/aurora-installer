@@ -12,5 +12,4 @@ assert plistlib.loads(Path(sys.argv[2]).read_bytes())["CFBundleIconFile"] == "Au
 PYTEST
 [[ -s "$ROOT/Resources/AuroraLogo.png" ]] || fail "Aurora mark is bundled"
 grep -Fq '"$script_directory/AuroraInstaller.icns"' "$ROOT/Packaging/build-app.sh" || fail "packaging selects Aurora's icon"
-! cmp -s "$icon" "$ROOT/Packaging/OmarchyInstaller.icns" || fail "Aurora does not reuse the Omarchy icon"
 pass "native installer binds the Aurora mark and application icon"

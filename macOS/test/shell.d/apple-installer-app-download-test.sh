@@ -60,18 +60,18 @@ if "$ROOT/Packaging/make-download-zip.sh" "$app" "$test_tmp/unstapled.zip" >/dev
   fail "an app without a stapled ticket is not packaged"
 fi
 [[ ! -e $test_tmp/unstapled.zip ]] || fail "no zip is left behind for an unstapled app"
-OMARCHY_DOWNLOAD_ZIP_UNSTAPLED=1 "$ROOT/Packaging/make-download-zip.sh" "$app" "$test_tmp/download.zip" >/dev/null ||
+AURORA_DOWNLOAD_ZIP_UNSTAPLED=1 "$ROOT/Packaging/make-download-zip.sh" "$app" "$test_tmp/download.zip" >/dev/null ||
   fail "a structural zip is built"
 entries=$(/usr/bin/zipinfo -1 "$test_tmp/download.zip" | awk -F/ '{print $1}' | sort -u)
 [[ $entries == "$INSTALLER_APP_NAME.app" ]] || fail "the zip holds only the app" "$entries"
 /usr/bin/zipinfo -1 "$test_tmp/download.zip" | grep -Fxq "$INSTALLER_APP_NAME.app/Contents/Library/LaunchServices/$helper_id" ||
   fail "the zip keeps the helper where SMJobBless looks"
-if OMARCHY_DOWNLOAD_ZIP_UNSTAPLED=1 "$ROOT/Packaging/make-download-zip.sh" "$app" "$test_tmp/download.zip" >/dev/null 2>&1; then
+if AURORA_DOWNLOAD_ZIP_UNSTAPLED=1 "$ROOT/Packaging/make-download-zip.sh" "$app" "$test_tmp/download.zip" >/dev/null 2>&1; then
   fail "an existing zip is never overwritten"
 fi
 other="$test_tmp/Other.app"
 mkdir -p "$other/Contents"
-if OMARCHY_DOWNLOAD_ZIP_UNSTAPLED=1 "$ROOT/Packaging/make-download-zip.sh" "$other" "$test_tmp/other.zip" >/dev/null 2>&1; then
+if AURORA_DOWNLOAD_ZIP_UNSTAPLED=1 "$ROOT/Packaging/make-download-zip.sh" "$other" "$test_tmp/other.zip" >/dev/null 2>&1; then
   fail "only the installer app is packaged"
 fi
 pass "the download zip holds exactly the installer app"

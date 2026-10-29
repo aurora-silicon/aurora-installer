@@ -13,7 +13,7 @@ package_identifier=$INSTALLER_APP_IDENTIFIER.private-m3-test.pkg
 if [[ $profile == "limine" ]]; then
   package_identifier=$INSTALLER_APP_IDENTIFIER.private-limine-test.pkg
 fi
-[[ $(/usr/bin/plutil -extract OmarchyPrivateExactBuild raw -o - "$app/Contents/Info.plist") == "true" ]] || exit 1
+[[ $(/usr/bin/plutil -extract AuroraPrivateExactBuild raw -o - "$app/Contents/Info.plist") == "true" ]] || exit 1
 /usr/bin/codesign --verify --deep --strict "$app"
 app_requirement=$(private_code_requirement "$app" "$INSTALLER_APP_IDENTIFIER")
 helper="$app/Contents/Library/LaunchServices/$INSTALLER_HELPER_IDENTIFIER"

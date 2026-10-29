@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
-OMARCHY_STAGE_SOURCE_ONLY=1 source "$ROOT/Packaging/private-test/Stage assets.command"
+AURORA_STAGE_SOURCE_ONLY=1 source "$ROOT/Packaging/private-test/Stage assets.command"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 umask 077

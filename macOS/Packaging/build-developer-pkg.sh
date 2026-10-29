@@ -11,13 +11,13 @@ app="$(cd "$1" && pwd -P)"
 output="$2"
 [[ $output == /* ]] || output="$PWD/$output"
 [[ ! -e $output ]] || fail "output already exists"
-[[ $(/usr/bin/plutil -extract OmarchyDeveloperBuild raw -o - "$app/Contents/Info.plist") == true ]] \
+[[ $(/usr/bin/plutil -extract AuroraDeveloperBuild raw -o - "$app/Contents/Info.plist") == true ]] \
   || fail "app is not an explicit developer build"
 [[ $(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "$app/Contents/Info.plist") == "$INSTALLER_APP_IDENTIFIER" ]] \
   || fail "unexpected app identifier"
 /usr/bin/codesign --verify --deep --strict "$app"
 version="$(/usr/bin/plutil -extract CFBundleShortVersionString raw -o - "$app/Contents/Info.plist")"
-work="$(mktemp -d "${TMPDIR:-/tmp}/omarchy-developer-pkg.XXXXXX")"
+work="$(mktemp -d "${TMPDIR:-/tmp}/aurora-developer-pkg.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/root/Applications" "$work/root/Library/LaunchDaemons"
 /usr/bin/ditto "$app" "$work/root/Applications/$INSTALLER_APP_NAME.app"

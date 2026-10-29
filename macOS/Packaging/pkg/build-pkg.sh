@@ -40,7 +40,7 @@ done
 }
 [[ -z "$PLIST" || -f "$PLIST" ]] || { echo "build-pkg.sh: --plist is not a file: $PLIST" >&2; exit 64; }
 
-work="$(mktemp -d /tmp/omarchy-pkg.XXXXXX)"
+work="$(mktemp -d /tmp/aurora-pkg.XXXXXX)"
 trap 'rm -rf "$work"' EXIT
 root="$work/root"
 mkdir -p "$root/Applications" "$root/Library/LaunchDaemons"

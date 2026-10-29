@@ -3,7 +3,7 @@ import Foundation
 @main struct InstallConfigurationCheck {
   static func main() throws {
     let value: [String: Any] = [
-      "schema": 2, "volumeName": "Omarchy Test", "bootstrap": NSNull(),
+      "schema": 2, "volumeName": "Aurora Test", "bootstrap": NSNull(),
       "systemUUID": "11111111-1111-4111-8111-111111111111",
       "groupUUID": "22222222-2222-4222-8222-222222222222",
       "prebootUUID": "33333333-3333-4333-8333-333333333333",
@@ -11,7 +11,7 @@ import Foundation
       "bootMode": "raw", "stage2Path": "m1n1/boot.bin",
     ]
     let config = try InstallConfiguration.decode(JSONSerialization.data(withJSONObject: value))
-    precondition(config.volumeName == "Omarchy Test" && config.bootMode == "raw")
+    precondition(config.volumeName == "Aurora Test" && config.bootMode == "raw")
     for (key, bad) in [
       ("schema", 1), ("schema", true), ("bootMode", "macho"),
       ("stage2Path", "../boot.bin"), ("systemUUID", "disk0s1"),

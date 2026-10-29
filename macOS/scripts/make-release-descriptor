@@ -57,7 +57,7 @@ done
 # shellcheck source=../Packaging/identity.conf
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../Packaging" && pwd)/identity.conf"
 helper_identifier="$INSTALLER_HELPER_IDENTIFIER"
-team_id="${OMARCHY_TEAM_ID:-$INSTALLER_TEAM_ID}"
+team_id="${AURORA_TEAM_ID:-$INSTALLER_TEAM_ID}"
 fingerprint="$(python3 - "$public_key" <<'PYHASH'
 import hashlib
 from pathlib import Path

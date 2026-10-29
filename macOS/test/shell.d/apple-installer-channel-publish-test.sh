@@ -176,11 +176,11 @@ export STAPLE_FAILS="$WORK/staple-fails"
 export CODESIGN_FAILS="$WORK/codesign-fails"
 export BUCKET_LOCKED="$WORK/bucket-locked"
 export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test
-export OMARCHY_R2_BUCKET=test-bucket
-export OMARCHY_R2_ENDPOINT=https://example.r2.cloudflarestorage.com
-export OMARCHY_PUBLIC_BASE=https://downloads.example.test
-export OMARCHY_TRUST_ROOT="$WORK/trust-root.pub"
-export OMARCHY_CATALOG_SIGNING_TOOL="$BIN_DIR/signing-tool"
+export AURORA_R2_BUCKET=test-bucket
+export AURORA_R2_ENDPOINT=https://example.r2.cloudflarestorage.com
+export AURORA_PUBLIC_BASE=https://downloads.example.test
+export AURORA_TRUST_ROOT="$WORK/trust-root.pub"
+export AURORA_CATALOG_SIGNING_TOOL="$BIN_DIR/signing-tool"
 
 # A stand-in for the Ed25519 tool: a signature is the catalog digest, which is
 # enough to prove the publisher refuses content whose signature does not match.
@@ -196,7 +196,7 @@ fi
 exit 64
 SHIM
 chmod +x "$BIN_DIR/signing-tool"
-printf 'trust root' >"$OMARCHY_TRUST_ROOT"
+printf 'trust root' >"$AURORA_TRUST_ROOT"
 
 sign_catalog() {
   # 64 hexadecimal characters, which is also the 64 bytes the envelope
@@ -312,7 +312,7 @@ refused_envelope "an-m4-mac" "models.append(dict(models[0], deviceIdentifier='ap
 pass "envelope refuses a catalog missing, disabling or overreaching any supported Mac"
 
 # --- promotion writes both channel objects and verifies them back -----------
-OMARCHY_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260902 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260902 --to stable \
+AURORA_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260902 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260902 --to stable \
   >"$WORK/promote.log" 2>&1 || fail "first promotion succeeds" "$(cat "$WORK/promote.log")"
 [[ -f $STREAM_DIR/channels/stable/catalog.signed.json ]] ||
   fail "the stable catalog is published"
@@ -328,7 +328,7 @@ pass "channel objects carry a no-cache header"
 
 # --- re-promoting identical bytes changes nothing ---------------------------
 : >"$CALLS"
-OMARCHY_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260902 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260902 --to stable \
+AURORA_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260902 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260902 --to stable \
   >"$WORK/repromote.log" 2>&1 || fail "re-promotion succeeds"
 grep -q "already serves these exact bytes" "$WORK/repromote.log" ||
   fail "an identical promotion is a no-op" "$(cat "$WORK/repromote.log")"
@@ -338,7 +338,7 @@ pass "promoting the same bytes twice uploads nothing"
 # --- a lower sequence is refused -------------------------------------------
 stage_payload "os-v4.0.2-mac.1.20260901" 128
 publish_candidate "os-v4.0.2-mac.1.20260901" 50 "$BASE/releases/os-v4.0.2-mac.1.20260901/payload.zip" 128
-if OMARCHY_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260901 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260901 --to stable \
+if AURORA_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260901 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260901 --to stable \
   >"$WORK/older.log" 2>&1; then
   fail "a lower sequence is refused"
 fi
@@ -347,7 +347,7 @@ grep -q "does not exceed the live stable sequence" "$WORK/older.log" ||
 pass "a catalog older than the live channel is refused"
 
 # --- a sequence below an explicit floor is refused --------------------------
-if OMARCHY_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260902 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260902 --to rc \
+if AURORA_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260902 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260902 --to rc \
   --minimum-sequence 500 >"$WORK/floor.log" 2>&1; then
   fail "a sequence below the floor is refused"
 fi
@@ -372,7 +372,7 @@ json.dump(
     open(output, "w"),
 )
 PY
-if OMARCHY_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260903 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260903 --to stable \
+if AURORA_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260903 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260903 --to stable \
   >"$WORK/badsig.log" 2>&1; then
   fail "a catalog whose signature does not verify is refused"
 fi
@@ -383,7 +383,7 @@ pass "a catalog whose signature does not verify is refused"
 # --- an artifact belonging to another tag is refused ------------------------
 stage_payload "os-v4.0.2-mac.1.20260904" 128
 publish_candidate "os-v4.0.2-mac.1.20260904" 300 "$BASE/releases/os-v4.0.2-mac.1.20260902/payload.zip" 128
-if OMARCHY_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260904 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260904 --to stable \
+if AURORA_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260904 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260904 --to stable \
   >"$WORK/foreign.log" 2>&1; then
   fail "an artifact outside the tag is refused"
 fi
@@ -394,7 +394,7 @@ pass "a catalog naming another tag's artifacts is refused"
 # --- an artifact whose size disagrees is refused ----------------------------
 stage_payload "os-v4.0.2-mac.1.20260905" 64
 publish_candidate "os-v4.0.2-mac.1.20260905" 400 "$BASE/releases/os-v4.0.2-mac.1.20260905/payload.zip" 128
-if OMARCHY_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260905 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260905 --to stable \
+if AURORA_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260905 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260905 --to stable \
   >"$WORK/size.log" 2>&1; then
   fail "a size mismatch is refused"
 fi
@@ -404,7 +404,7 @@ pass "a catalog whose artifact size disagrees is refused"
 
 # --- an unpublished artifact is refused -------------------------------------
 publish_candidate "os-v4.0.2-mac.1.20260906" 500 "$BASE/releases/os-v4.0.2-mac.1.20260906/missing.zip" 128
-if OMARCHY_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260906 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260906 --to stable \
+if AURORA_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260906 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260906 --to stable \
   >"$WORK/missing.log" 2>&1; then
   fail "an unpublished artifact is refused"
 fi
@@ -415,7 +415,7 @@ pass "a catalog naming an unpublished artifact is refused"
 # --- the rc channel is independent of stable ------------------------------
 stage_payload "os-v4.0.2-mac.1.20260907" 128
 publish_candidate "os-v4.0.2-mac.1.20260907" 600 "$BASE/releases/os-v4.0.2-mac.1.20260907/payload.zip" 128
-OMARCHY_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260907 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260907 --to rc \
+AURORA_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260907 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260907 --to rc \
   >"$WORK/rc.log" 2>&1 || fail "rc promotion succeeds" "$(cat "$WORK/rc.log")"
 stable_sequence=$(python3 -c '
 import base64, json, sys
@@ -454,7 +454,7 @@ PY
 }
 ZIP="$WORK/Installer.zip"
 make_app_zip "$ZIP"
-OMARCHY_PUBLISH_ASSUME_YES=installer-v2.0.0 "$PUBLISHER" app-publish \
+AURORA_PUBLISH_ASSUME_YES=installer-v2.0.0 "$PUBLISHER" app-publish \
   --zip "$ZIP" --version 2.0.0 >"$WORK/app.log" 2>&1 ||
   fail "app-publish succeeds" "$(cat "$WORK/app.log")"
 [[ -f $STREAM_DIR/installer/2.0.0/$INSTALLER_FILE_STEM-2.0.0.zip ]] ||
@@ -480,7 +480,7 @@ pass "the stable download is served under its readable name"
 
 # --- the installer package is no longer published ---------------------------
 : >"$CALLS"
-if OMARCHY_PUBLISH_ASSUME_YES=installer-v2.0.1 "$PUBLISHER" app-publish \
+if AURORA_PUBLISH_ASSUME_YES=installer-v2.0.1 "$PUBLISHER" app-publish \
   --pkg "$ZIP" --version 2.0.1 >"$WORK/pkg.log" 2>&1; then
   fail "publishing a package is refused"
 fi
@@ -497,7 +497,7 @@ for case in extra unsigned unstapled; do
   [[ $case == extra ]] && zip=$WORK/Extra.zip
   [[ $case == unsigned ]] && touch "$CODESIGN_FAILS"
   [[ $case == unstapled ]] && touch "$STAPLE_FAILS"
-  if OMARCHY_PUBLISH_ASSUME_YES=installer-v2.0.1 "$PUBLISHER" app-publish \
+  if AURORA_PUBLISH_ASSUME_YES=installer-v2.0.1 "$PUBLISHER" app-publish \
     --zip "$zip" --version 2.0.1 >"$WORK/$case.log" 2>&1; then
     fail "a $case zip is refused"
   fi
@@ -519,7 +519,7 @@ make_app_zip "$WORK/OldBuild.zip" 5000 "" 2.0.2 1
 for case in WrongVersion:2.0.2 NoHelper:2.0.2 OldBuild:2.0.2; do
   : >"$CALLS"
   name=${case%%:*} version=${case#*:}
-  if OMARCHY_PUBLISH_ASSUME_YES=installer-v$version "$PUBLISHER" app-publish \
+  if AURORA_PUBLISH_ASSUME_YES=installer-v$version "$PUBLISHER" app-publish \
     --zip "$WORK/$name.zip" --version "$version" >"$WORK/$name.log" 2>&1; then
     fail "a $name zip is refused"
   fi
@@ -536,7 +536,7 @@ pass "only this version, a newer build, with a helper it can install, is uploade
 # --- the build check is never skipped: only a 404 means no earlier release
 : >"$CALLS"
 make_app_zip "$WORK/Next.zip" 6000 "" 2.0.3 9
-if CURL_UNAVAILABLE=installer/stable/installer.json OMARCHY_PUBLISH_ASSUME_YES=installer-v2.0.3 \
+if CURL_UNAVAILABLE=installer/stable/installer.json AURORA_PUBLISH_ASSUME_YES=installer-v2.0.3 \
   "$PUBLISHER" app-publish --zip "$WORK/Next.zip" --version 2.0.3 >"$WORK/unavailable.log" 2>&1; then
   fail "an unreadable channel refuses the publish"
 fi
@@ -550,7 +550,7 @@ pass "a failed read of the channel never skips the build check"
 # overwrite the newer one.
 : >"$CALLS"
 cp "$WORK/Next.zip" "$STREAM_DIR/installer/stable/$INSTALLER_FILE_STEM.zip"
-if CURL_UNAVAILABLE=installer/stable/$INSTALLER_FILE_STEM.zip OMARCHY_PUBLISH_ASSUME_YES=installer-v2.0.0 \
+if CURL_UNAVAILABLE=installer/stable/$INSTALLER_FILE_STEM.zip AURORA_PUBLISH_ASSUME_YES=installer-v2.0.0 \
   "$PUBLISHER" app-publish --zip "$ZIP" --version 2.0.0 >"$WORK/zip-unavailable.log" 2>&1; then
   fail "an unreadable live zip refuses the retry"
 fi
@@ -559,7 +559,7 @@ grep -q "current zip" "$WORK/zip-unavailable.log" ||
 grep -q "^aws s3 cp" "$CALLS" && fail "an unreadable live zip uploads nothing"
 # A 200 that is cut short is a failed read too, not a smaller zip.
 : >"$CALLS"
-if CURL_TRUNCATED=installer/stable/$INSTALLER_FILE_STEM.zip OMARCHY_PUBLISH_ASSUME_YES=installer-v2.0.0 \
+if CURL_TRUNCATED=installer/stable/$INSTALLER_FILE_STEM.zip AURORA_PUBLISH_ASSUME_YES=installer-v2.0.0 \
   "$PUBLISHER" app-publish --zip "$ZIP" --version 2.0.0 >"$WORK/zip-truncated.log" 2>&1; then
   fail "a truncated live zip refuses the retry"
 fi
@@ -578,7 +578,7 @@ printf '{"schema_version": 1, "version": "2.0.10", "sha256": "old"}\n' \
 rm -f "$STREAM_DIR/installer/rc/$INSTALLER_FILE_STEM.zip"
 make_app_zip "$WORK/Low.zip" 6200 "" 2.0.7 20
 : >"$CALLS"
-if OMARCHY_PUBLISH_ASSUME_YES=installer-v2.0.7 "$PUBLISHER" app-publish \
+if AURORA_PUBLISH_ASSUME_YES=installer-v2.0.7 "$PUBLISHER" app-publish \
   --zip "$WORK/Low.zip" --version 2.0.7 --to rc >"$WORK/floor.log" 2>&1; then
   fail "a build at or below the package era's 27 is refused"
 fi
@@ -587,7 +587,7 @@ grep -q "build 20 is not above build 27" "$WORK/floor.log" ||
 grep -q "^aws s3 cp" "$CALLS" && fail "a build below the floor uploads nothing"
 printf '{"schema_version": 1, "version": "2.0.10", "sha256": "old", "build_number": "x7"}\n' \
   >"$STREAM_DIR/installer/rc/installer.json"
-if OMARCHY_PUBLISH_ASSUME_YES=installer-v2.0.7 "$PUBLISHER" app-publish \
+if AURORA_PUBLISH_ASSUME_YES=installer-v2.0.7 "$PUBLISHER" app-publish \
   --zip "$WORK/Low.zip" --version 2.0.7 --to rc >"$WORK/malformed.log" 2>&1; then
   fail "a malformed build_number stops the publish"
 fi
@@ -603,7 +603,7 @@ printf '{"schema_version": 1, "version": "2.0.8", "sha256": "old", "build_number
   >"$STREAM_DIR/installer/rc/installer.json"
 make_app_zip "$WORK/Middle.zip" 6400 "" 2.0.9 35
 : >"$CALLS"
-if OMARCHY_PUBLISH_ASSUME_YES=installer-v2.0.9 "$PUBLISHER" app-publish \
+if AURORA_PUBLISH_ASSUME_YES=installer-v2.0.9 "$PUBLISHER" app-publish \
   --zip "$WORK/Middle.zip" --version 2.0.9 --to rc >"$WORK/middle.log" 2>&1; then
   fail "a build between stale metadata and the served zip is refused"
 fi
@@ -618,7 +618,7 @@ pass "the zip a channel serves counts toward the build it must beat"
 # interrupted first publish never wrote installer.json.
 cp "$WORK/Served40.zip" "$STREAM_DIR/installer/rc/$INSTALLER_FILE_STEM.zip"
 : >"$CALLS"
-if OMARCHY_PUBLISH_ASSUME_YES=installer-v2.0.9 "$PUBLISHER" app-publish \
+if AURORA_PUBLISH_ASSUME_YES=installer-v2.0.9 "$PUBLISHER" app-publish \
   --zip "$WORK/Middle.zip" --version 2.0.9 --to rc >"$WORK/orphan.log" 2>&1; then
   fail "a build below a zip served without metadata is refused"
 fi
@@ -630,14 +630,14 @@ pass "a zip served without metadata counts toward the build it must beat"
 # --- an interrupted publish of this very zip may finish, but not past newer metadata
 printf '{"schema_version": 1, "version": "2.0.7", "sha256": "old", "build_number": 30}\n' \
   >"$STREAM_DIR/installer/rc/installer.json"
-OMARCHY_PUBLISH_ASSUME_YES=installer-v2.0.8 "$PUBLISHER" app-publish \
+AURORA_PUBLISH_ASSUME_YES=installer-v2.0.8 "$PUBLISHER" app-publish \
   --zip "$WORK/Served40.zip" --version 2.0.8 --to rc >"$WORK/resume.log" 2>&1 ||
   fail "the zip already served may finish publishing" "$(cat "$WORK/resume.log")"
 grep -q '"build_number": 40' "$STREAM_DIR/installer/rc/installer.json" ||
   fail "the finished publish records the zip's build" "$(cat "$STREAM_DIR/installer/rc/installer.json")"
 printf '{"schema_version": 1, "version": "2.0.9", "sha256": "other", "build_number": 50}\n' \
   >"$STREAM_DIR/installer/rc/installer.json"
-if OMARCHY_PUBLISH_ASSUME_YES=installer-v2.0.8 "$PUBLISHER" app-publish \
+if AURORA_PUBLISH_ASSUME_YES=installer-v2.0.8 "$PUBLISHER" app-publish \
   --zip "$WORK/Served40.zip" --version 2.0.8 --to rc >"$WORK/stale-resume.log" 2>&1; then
   fail "the served zip can't finish over metadata recording a newer build"
 fi
@@ -649,7 +649,7 @@ pass "an interrupted publish finishes only if it still beats the metadata"
 printf '{"schema_version": 1, "version": "2.0.8", "sha256": "%s", "build_number": "x7"}\n' \
   "$(shasum -a 256 "$WORK/Served40.zip" | cut -d' ' -f1)" >"$STREAM_DIR/installer/rc/installer.json"
 : >"$CALLS"
-if OMARCHY_PUBLISH_ASSUME_YES=installer-v2.0.8 "$PUBLISHER" app-publish \
+if AURORA_PUBLISH_ASSUME_YES=installer-v2.0.8 "$PUBLISHER" app-publish \
   --zip "$WORK/Served40.zip" --version 2.0.8 --to rc >"$WORK/same-malformed.log" 2>&1; then
   fail "an identical zip over malformed metadata is refused"
 fi
@@ -662,11 +662,11 @@ pass "an identical zip never skips the metadata check"
 # --- a build with a leading zero compares as decimal, not octal
 # (on edge, so the stable and rc checks below are undisturbed)
 make_app_zip "$WORK/Eight.zip" 6050 "" 2.0.4 8
-OMARCHY_PUBLISH_ASSUME_YES=installer-v2.0.4 "$PUBLISHER" app-publish \
+AURORA_PUBLISH_ASSUME_YES=installer-v2.0.4 "$PUBLISHER" app-publish \
   --zip "$WORK/Eight.zip" --version 2.0.4 --to edge >"$WORK/eight.log" 2>&1 ||
   fail "build 8 publishes to edge" "$(cat "$WORK/eight.log")"
 make_app_zip "$WORK/Octal.zip" 6100 "" 2.0.6 09
-OMARCHY_PUBLISH_ASSUME_YES=installer-v2.0.6 "$PUBLISHER" app-publish \
+AURORA_PUBLISH_ASSUME_YES=installer-v2.0.6 "$PUBLISHER" app-publish \
   --zip "$WORK/Octal.zip" --version 2.0.6 --to edge >"$WORK/octal.log" 2>&1 ||
   fail "build 09 is compared as nine, above eight" "$(cat "$WORK/octal.log")"
 pass "build numbers compare as decimal"
@@ -687,7 +687,7 @@ with zipfile.ZipFile(out, "w") as archive:
     entry.external_attr = 0o100755 << 16
     archive.writestr(entry, plistlib.dumps(helper_info) + plistlib.dumps(job))
 PY
-if OMARCHY_PUBLISH_ASSUME_YES=installer-v2.0.5 "$PUBLISHER" app-publish \
+if AURORA_PUBLISH_ASSUME_YES=installer-v2.0.5 "$PUBLISHER" app-publish \
   --zip "$WORK/BadHelper.zip" --version 2.0.5 >"$WORK/badhelper.log" 2>&1; then
   fail "a helper that doesn't authorize the app is refused"
 fi
@@ -697,7 +697,7 @@ pass "the helper's embedded plists must name this build and this app"
 
 # --- republishing the same immutable version with different bytes is refused -
 make_app_zip "$WORK/Different.zip" 8192 "" 2.0.0 99
-if OMARCHY_PUBLISH_ASSUME_YES=installer-v2.0.0 "$PUBLISHER" app-publish \
+if AURORA_PUBLISH_ASSUME_YES=installer-v2.0.0 "$PUBLISHER" app-publish \
   --zip "$WORK/Different.zip" --version 2.0.0 >"$WORK/clobber.log" 2>&1; then
   fail "rewriting an immutable version is refused"
 fi
@@ -731,7 +731,7 @@ pass "channel-status reports both channels and whether they agree"
 # 20260902 set is what stable served just before, so it stays for rollback, and
 # never-promoted sets go. Seed one such set first.
 mkdir -p "$STREAM_DIR/releases/os-v4.0.2-mac.1.20260801" && head -c 32 /dev/zero >"$STREAM_DIR/releases/os-v4.0.2-mac.1.20260801/payload.zip"
-OMARCHY_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260907 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260907 --to stable \
+AURORA_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260907 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260907 --to stable \
   >"$WORK/promote-prune.log" 2>&1 || fail "stable promotion with prune succeeds" "$(cat "$WORK/promote-prune.log")"
 grep -q "Pruning release sets" "$WORK/promote-prune.log" || fail "a stable promotion prunes afterwards" "$(cat "$WORK/promote-prune.log")"
 [[ ! -d $STREAM_DIR/releases/os-v4.0.2-mac.1.20260801 ]] || fail "the superseded older set is removed"
@@ -746,7 +746,7 @@ mkdir -p "$STREAM_DIR/releases/os-v4.0.2-mac.1.20260701" && head -c 32 /dev/zero
 touch "$BUCKET_LOCKED"
 stage_payload "os-v4.0.2-mac.1.20260908" 128
 publish_candidate "os-v4.0.2-mac.1.20260908" 800 "$BASE/releases/os-v4.0.2-mac.1.20260908/payload.zip" 128
-OMARCHY_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260908 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260908 --to stable \
+AURORA_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260908 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260908 --to stable \
   >"$WORK/promote-locked.log" 2>&1 || fail "promotion succeeds even when pruning is refused" "$(cat "$WORK/promote-locked.log")"
 grep -q "channel_sequence=800" "$WORK/promote-locked.log" || fail "the promotion completed" "$(cat "$WORK/promote-locked.log")"
 grep -q "pruning was refused" "$WORK/promote-locked.log" || fail "the refused prune is reported" "$(cat "$WORK/promote-locked.log")"
@@ -778,7 +778,7 @@ pass "prune plans around what the channels reference and leaves other lanes alon
 # --- a bucket lock stops prune with one clear message ----------------------
 mkdir -p "$STREAM_DIR/releases/v4.0.2-mac.1.10.090226" && cp "$WORK/old.pkg" "$STREAM_DIR/releases/v4.0.2-mac.1.10.090226/payload.zip"
 touch "$BUCKET_LOCKED"
-if OMARCHY_PUBLISH_ASSUME_YES=prune "$PUBLISHER" prune --confirm >"$WORK/locked.log" 2>&1; then
+if AURORA_PUBLISH_ASSUME_YES=prune "$PUBLISHER" prune --confirm >"$WORK/locked.log" 2>&1; then
   fail "prune stops when the bucket lock refuses"
 fi
 grep -q "protected by the bucket's lock rule" "$WORK/locked.log" || fail "prune explains the lock" "$(cat "$WORK/locked.log")"
@@ -789,7 +789,7 @@ rm -rf "$STREAM_DIR/releases/v4.0.2-mac.1.10.090226"
 pass "prune stops at a bucket lock with one message and no partial deletion"
 
 before=$(find "$STREAM_DIR/channels" "$STREAM_DIR/installer/stable" -type f | sort | shasum | cut -d" " -f1)
-OMARCHY_PUBLISH_ASSUME_YES=prune "$PUBLISHER" prune --confirm >"$WORK/prune.log" 2>&1 ||
+AURORA_PUBLISH_ASSUME_YES=prune "$PUBLISHER" prune --confirm >"$WORK/prune.log" 2>&1 ||
   fail "prune --confirm succeeds" "$(cat "$WORK/prune.log")"
 [[ ! -d $STREAM_DIR/installer/1.9.0 ]] || fail "prune removes the unreferenced installer version"
 [[ -d $STREAM_DIR/releases/os-v4.0.2-mac.1.20260902 ]] || fail "prune keeps the stable release set"
@@ -803,7 +803,7 @@ pass "prune deletes only unreferenced immutable sets and never a channel object"
 # --- edge is a channel; the retired rc-aurora lane is not ----------------------
 stage_payload "os-v4.0.2-mac.1.20260910" 128
 publish_candidate "os-v4.0.2-mac.1.20260910" 900 "$BASE/releases/os-v4.0.2-mac.1.20260910/payload.zip" 128
-OMARCHY_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260910 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260910 --to edge \
+AURORA_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260910 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260910 --to edge \
   >"$WORK/edge.log" 2>&1 || fail "edge promotion succeeds" "$(cat "$WORK/edge.log")"
 [[ -f $STREAM_DIR/channels/edge/catalog.signed.json ]] || fail "the edge catalog is published"
 if "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260910 --to rc-aurora >"$WORK/aurora.log" 2>&1; then
@@ -841,12 +841,12 @@ mkdir -p "$STREAM_DIR/releases/os-v4.0.2-mac.1.20260911-empty"
   fail "the empty catalog wraps into an envelope"
 # Stable prunes after promotion; the empty set must survive it, or rc could
 # no longer be promoted from the same tag.
-OMARCHY_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260911-empty "$PUBLISHER" os-promote \
+AURORA_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260911-empty "$PUBLISHER" os-promote \
   --tag os-v4.0.2-mac.1.20260911-empty --to stable >"$WORK/empty-stable.log" 2>&1 ||
   fail "the empty catalog promotes to stable" "$(cat "$WORK/empty-stable.log")"
 [[ -f $STREAM_DIR/releases/os-v4.0.2-mac.1.20260911-empty/catalog.signed.json ]] ||
   fail "the stable prune keeps the set stable now serves" "$(cat "$WORK/empty-stable.log")"
-OMARCHY_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260911-empty "$PUBLISHER" os-promote \
+AURORA_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260911-empty "$PUBLISHER" os-promote \
   --tag os-v4.0.2-mac.1.20260911-empty --to rc >"$WORK/empty-rc.log" 2>&1 ||
   fail "the empty catalog then promotes to rc" "$(cat "$WORK/empty-rc.log")"
 cmp -s "$STREAM_DIR/channels/stable/catalog.signed.json" "$STREAM_DIR/channels/rc/catalog.signed.json" ||
@@ -859,7 +859,7 @@ sign_catalog "$WORK/empty2.catalog" "$WORK/empty2.sig"
 mkdir -p "$STREAM_DIR/releases/os-v4.0.2-mac.1.20260912-empty"
 "$PUBLISHER" envelope --catalog "$WORK/empty2.catalog" --signature "$WORK/empty2.sig" \
   --output "$STREAM_DIR/releases/os-v4.0.2-mac.1.20260912-empty/catalog.signed.json" >/dev/null
-OMARCHY_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260912-empty "$PUBLISHER" os-promote \
+AURORA_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260912-empty "$PUBLISHER" os-promote \
   --tag os-v4.0.2-mac.1.20260912-empty --to rc >"$WORK/empty2-rc.log" 2>&1 ||
   fail "a newer empty catalog promotes to rc" "$(cat "$WORK/empty2-rc.log")"
 python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert d['previous_os_tag']=='os-v4.0.2-mac.1.20260911-empty', d" \

@@ -47,13 +47,13 @@ jobs:
       - name: Qualify cancellation, writer retirement and space accounting
         run: |
           set -euo pipefail
-          filter='OmarchyAppleInstallerAppTests|DiskSizeInputTests|PlanCheckCancellationTests|InstallerSessionTests|PayloadPrefetchTests'
+          filter='AuroraAppleInstallerAppTests|DiskSizeInputTests|PlanCheckCancellationTests|InstallerSessionTests|PayloadPrefetchTests'
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug \
             --filter "$filter" 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
       - name: Qualify cancellation and retirement in release
         run: |
           set -euo pipefail
-          filter='OmarchyAppleInstallerAppTests|DiskSizeInputTests|PlanCheckCancellationTests|InstallerSessionTests|PayloadPrefetchTests'
+          filter='AuroraAppleInstallerAppTests|DiskSizeInputTests|PlanCheckCancellationTests|InstallerSessionTests|PayloadPrefetchTests'
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration release \
             --filter "$filter" 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
       - name: Build the unprivileged native preview

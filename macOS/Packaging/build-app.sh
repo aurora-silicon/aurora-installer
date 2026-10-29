@@ -26,33 +26,33 @@ source "$script_directory/identity.conf"
 [[ $output_directory == /* ]] \
   || output_directory="$package_directory/$output_directory"
 
-build_jobs="${OMARCHY_BUILD_JOBS:-10}"
+build_jobs="${AURORA_BUILD_JOBS:-10}"
 [[ $build_jobs =~ ^[1-9][0-9]*$ ]] \
-  || fail "OMARCHY_BUILD_JOBS must be a positive integer"
+  || fail "AURORA_BUILD_JOBS must be a positive integer"
 export CARGO_BUILD_JOBS="$build_jobs"
 
-marketing_version="${OMARCHY_APP_VERSION:-0.1.0}"
+marketing_version="${AURORA_APP_VERSION:-0.1.0}"
 # SMJobBless never replaces a helper with a lower build, so a developer build
 # defaults to its UTC build minute (YYMMDDHHMM): each one installs over the
 # helper an earlier one left, without anyone tracking numbers by hand.
-if [[ ${OMARCHY_DEVELOPER_BUILD:-0} == "1" ]]; then
-  build_number="${OMARCHY_APP_BUILD_NUMBER:-$(date -u +%y%m%d%H%M)}"
+if [[ ${AURORA_DEVELOPER_BUILD:-0} == "1" ]]; then
+  build_number="${AURORA_APP_BUILD_NUMBER:-$(date -u +%y%m%d%H%M)}"
 else
-  build_number="${OMARCHY_APP_BUILD_NUMBER:-27}"
+  build_number="${AURORA_APP_BUILD_NUMBER:-27}"
 fi
-signing_identity="${OMARCHY_APP_SIGNING_IDENTITY:--}"
-team_identifier="${OMARCHY_TEAM_ID:-}"
+signing_identity="${AURORA_APP_SIGNING_IDENTITY:--}"
+team_identifier="${AURORA_TEAM_ID:-}"
 
 [[ $marketing_version =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9]+)*$ ]] \
-  || fail "OMARCHY_APP_VERSION has an invalid format"
+  || fail "AURORA_APP_VERSION has an invalid format"
 [[ $build_number =~ ^[1-9][0-9]*$ ]] \
-  || fail "OMARCHY_APP_BUILD_NUMBER must be a positive integer"
+  || fail "AURORA_APP_BUILD_NUMBER must be a positive integer"
 
 app_identifier="$INSTALLER_APP_IDENTIFIER"
 helper_identifier="$INSTALLER_HELPER_IDENTIFIER"
 restore_image_identifier="$INSTALLER_RESTORE_IMAGE_IDENTIFIER"
 app_name="$INSTALLER_APP_NAME.app"
-app_executable_name="OmarchyAppleInstallerApp"
+app_executable_name="AuroraAppleInstallerApp"
 packaged_executable_name="AuroraInstaller"
 daemon_plist_name="$helper_identifier.plist"
 
@@ -64,7 +64,7 @@ if [[ $signing_identity == "-" ]]; then
   timestamp_arguments=(--timestamp=none)
 else
   [[ $team_identifier =~ ^[A-Z0-9]{10}$ ]] \
-    || fail "OMARCHY_TEAM_ID is required for named signing identities"
+    || fail "AURORA_TEAM_ID is required for named signing identities"
   client_requirement="anchor apple generic and identifier \"$app_identifier\" and certificate leaf[subject.OU] = \"$team_identifier\""
   helper_requirement="anchor apple generic and identifier \"$helper_identifier\" and certificate leaf[subject.OU] = \"$team_identifier\""
   if [[ $signing_identity == "Developer ID Application:"* ]]; then
@@ -94,10 +94,10 @@ sealed_catalog_signature="$release_directory/catalog.json.sig"
 (( $(stat -f %z "$trust_root") == 32 )) \
   || fail "trust-root.ed25519.pub must contain exactly 32 bytes"
 
-[[ ${OMARCHY_PRIVATE_PLAIN_TEST:-0} != "1" || ${OMARCHY_PRIVATE_LIMINE_TEST:-0} != "1" ]] \
+[[ ${AURORA_PRIVATE_PLAIN_TEST:-0} != "1" || ${AURORA_PRIVATE_LIMINE_TEST:-0} != "1" ]] \
   || fail "private plain and Limine profiles are mutually exclusive"
-[[ ${OMARCHY_DEVELOPER_BUILD:-0} != "1" \
-  || ( ${OMARCHY_PRIVATE_PLAIN_TEST:-0} != "1" && ${OMARCHY_PRIVATE_LIMINE_TEST:-0} != "1" ) ]] \
+[[ ${AURORA_DEVELOPER_BUILD:-0} != "1" \
+  || ( ${AURORA_PRIVATE_PLAIN_TEST:-0} != "1" && ${AURORA_PRIVATE_LIMINE_TEST:-0} != "1" ) ]] \
   || fail "the developer build cannot also be a private profile"
 sealed_catalog_available=false
 if [[ -e $sealed_catalog || -L $sealed_catalog \
@@ -118,15 +118,15 @@ if [[ -e $sealed_catalog || -L $sealed_catalog \
   sealed_catalog_available=true
 fi
 
-if [[ ${OMARCHY_PRIVATE_LIMINE_TEST:-0} == "1" && $sealed_catalog_available != "true" ]]; then
+if [[ ${AURORA_PRIVATE_LIMINE_TEST:-0} == "1" && $sealed_catalog_available != "true" ]]; then
   fail "private Limine builds require a sealed private catalog"
 fi
 # A developer catalog can admit Macs no public catalog does, so it must never
 # reach a developer build over the network.
-if [[ ${OMARCHY_DEVELOPER_BUILD:-0} == "1" && $sealed_catalog_available != "true" ]]; then
+if [[ ${AURORA_DEVELOPER_BUILD:-0} == "1" && $sealed_catalog_available != "true" ]]; then
   fail "developer builds require a sealed developer catalog"
 fi
-if [[ ${OMARCHY_OFFLINE_BUILD:-0} == "1" && $sealed_catalog_available != "true" ]]; then
+if [[ ${AURORA_OFFLINE_BUILD:-0} == "1" && $sealed_catalog_available != "true" ]]; then
   fail "offline builds require a sealed catalog"
 fi
 
@@ -179,7 +179,7 @@ final_app="$output_directory/$app_name"
 [[ ! -e $final_app ]] \
   || fail "refusing to overwrite existing app: $final_app"
 
-recovery_template="${OMARCHY_RECOVERY_TEMPLATE:-}"
+recovery_template="${AURORA_RECOVERY_TEMPLATE:-}"
 if [[ -z $recovery_template ]]; then
   "$package_directory/Recovery/build-recovery.sh" "$output_directory/recovery-template"
   recovery_template="$output_directory/recovery-template/Aurora Installer.app"
@@ -204,7 +204,7 @@ binary_directory="$({
   "$swift_tool" build --configuration release --show-bin-path
 })"
 
-assembly_root="$(mktemp -d "$output_directory/.omarchy-app.XXXXXX")"
+assembly_root="$(mktemp -d "$output_directory/.aurora-app.XXXXXX")"
 trap 'rm -rf "$assembly_root"' EXIT
 
 # The helper carries its Info.plist and, for SMJobBless, its launchd job in
@@ -233,12 +233,12 @@ fi
   "$swift_tool" build \
     --configuration release \
     --jobs "$build_jobs" \
-    --product OmarchyAppleInstallerHelper \
+    --product AuroraAppleInstallerHelper \
     "${helper_link_arguments[@]}"
 )
 
 app_binary="$binary_directory/$app_executable_name"
-helper_binary="$binary_directory/OmarchyAppleInstallerHelper"
+helper_binary="$binary_directory/AuroraAppleInstallerHelper"
 [[ -x $app_binary ]] || fail "app executable was not built"
 [[ -x $helper_binary ]] || fail "helper executable was not built"
 assembled_app="$assembly_root/$app_name"
@@ -293,19 +293,19 @@ chmod 0644 "$contents/Info.plist"
 chmod 0644 "$contents/Library/LaunchDaemons/$daemon_plist_name"
 plutil -replace CFBundleShortVersionString \
   -string "$marketing_version" "$contents/Info.plist"
-if [[ ${OMARCHY_PRIVATE_PLAIN_TEST:-0} == "1" ]]; then
-  plutil -insert OmarchyPrivatePlainTest -bool true "$contents/Info.plist"
+if [[ ${AURORA_PRIVATE_PLAIN_TEST:-0} == "1" ]]; then
+  plutil -insert AuroraPrivatePlainTest -bool true "$contents/Info.plist"
 fi
-if [[ ${OMARCHY_PRIVATE_LIMINE_TEST:-0} == "1" ]]; then
-  plutil -insert OmarchyPrivateLimineTest -bool true "$contents/Info.plist"
+if [[ ${AURORA_PRIVATE_LIMINE_TEST:-0} == "1" ]]; then
+  plutil -insert AuroraPrivateLimineTest -bool true "$contents/Info.plist"
 fi
-if [[ ${OMARCHY_DEVELOPER_BUILD:-0} == "1" ]]; then
-  plutil -insert OmarchyDeveloperBuild -bool true "$contents/Info.plist"
+if [[ ${AURORA_DEVELOPER_BUILD:-0} == "1" ]]; then
+  plutil -insert AuroraDeveloperBuild -bool true "$contents/Info.plist"
 fi
-if [[ ${OMARCHY_OFFLINE_BUILD:-0} == "1" ]]; then
+if [[ ${AURORA_OFFLINE_BUILD:-0} == "1" ]]; then
   python3 "$script_directory/bundle-offline-artifacts.py" \
     "$sealed_catalog" "$release_directory/offline-artifacts" "$resources/Artifacts"
-  plutil -insert OmarchyOfflineBundle -bool true "$contents/Info.plist"
+  plutil -insert AuroraOfflineBundle -bool true "$contents/Info.plist"
 fi
 if [[ -d "$release_directory/Profiles" ]]; then
   /usr/bin/ditto "$release_directory/Profiles" "$resources/Release/Profiles"
@@ -350,6 +350,8 @@ else
   restore_image_requirement="anchor apple generic and identifier \"$restore_image_identifier\" and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = \"$team_identifier\""
 fi
 codesign --verify --strict -R="$restore_image_requirement" "$restore_image_path"
+# Launchd jobs that earlier packages installed carry these OMARCHY_ names and
+# the helper reads them, so they stay as they are.
 plutil -replace EnvironmentVariables.OMARCHY_RESTORE_IMAGE_REQUIREMENT \
   -string "$restore_image_requirement" "$contents/Library/LaunchDaemons/$daemon_plist_name"
 recovery_hash=$(codesign --display --verbose=4 "$resources/RecoveryTemplate/$INSTALLER_APP_NAME.app" 2>&1 | sed -n 's/^CDHash=//p')

@@ -24,10 +24,10 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 printf '%s' "$APPLE_NOTARY_KEY_BASE64" | base64 --decode > "$scratch/key.p8"
-export OMARCHY_NOTARY_PROFILE=aurora-release
-export OMARCHY_NOTARY_KEYCHAIN="$AURORA_SIGNING_KEYCHAIN"
-xcrun notarytool store-credentials "$OMARCHY_NOTARY_PROFILE" \
-  --keychain "$OMARCHY_NOTARY_KEYCHAIN" --key "$scratch/key.p8" \
+export AURORA_NOTARY_PROFILE=aurora-release
+export AURORA_NOTARY_KEYCHAIN="$AURORA_SIGNING_KEYCHAIN"
+xcrun notarytool store-credentials "$AURORA_NOTARY_PROFILE" \
+  --keychain "$AURORA_NOTARY_KEYCHAIN" --key "$scratch/key.p8" \
   --key-id "$APPLE_NOTARY_KEY_ID" --issuer "$APPLE_NOTARY_ISSUER_ID"
 rm "$scratch/key.p8"
 unset APPLE_NOTARY_KEY_BASE64 APPLE_NOTARY_KEY_ID APPLE_NOTARY_ISSUER_ID

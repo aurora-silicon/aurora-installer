@@ -17,7 +17,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
-import recovery_payload as omarchy_recovery
+import recovery_payload as aurora_recovery
 
 DISTRIBUTION_ICONS = {
     distribution: ROOT / 'Packaging/DistributionIcons' / (distribution + '.icns')
@@ -75,7 +75,7 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
         path = regular(bundle / name)
         if image['images'][name] != {'bytes': path.stat().st_size, 'sha256': digest(path)}:
             raise ValueError('filesystem image identity mismatch: ' + name)
-    recovery_manifest = omarchy_recovery.app_inventory(recovery)
+    recovery_manifest = aurora_recovery.app_inventory(recovery)
     info = plistlib.loads(regular(recovery / 'Contents/Info.plist').read_bytes())
     if info.get('OmarchyRecoveryBuildMode') != 'recovery' or info.get('OmarchyRecoveryDataLayout') != 'external-install-data-v1':
         raise ValueError('requires the real native Recovery build')
@@ -90,11 +90,11 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
             raise ValueError('ESP contains a symbolic link')
         if path.is_file():
             files['esp/' + path.relative_to(bundle / 'esp').as_posix()] = path
-    prefix = 'esp/' + omarchy_recovery.PAYLOAD_DIRECTORY + '/'
+    prefix = 'esp/' + aurora_recovery.PAYLOAD_DIRECTORY + '/'
     for path in sorted(recovery.rglob('*')):
         if path.is_file():
-            files[prefix + omarchy_recovery.APP_NAME + '/' + path.relative_to(recovery).as_posix()] = path
-    manifest_name = prefix + omarchy_recovery.MANIFEST_NAME
+            files[prefix + aurora_recovery.APP_NAME + '/' + path.relative_to(recovery).as_posix()] = path
+    manifest_name = prefix + aurora_recovery.MANIFEST_NAME
     manifest_data = (json.dumps(recovery_manifest, sort_keys=True, indent=2) + '\n').encode()
     if reuse_payload:
         # Interrupted metadata assembly can reuse only a closed, fully verified ZIP.
@@ -113,10 +113,12 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
             for name, path in sorted(files.items()):
                 regular(path)
                 archive.write(path, name)
-            archive.writestr(prefix + omarchy_recovery.MANIFEST_NAME, json.dumps(recovery_manifest, sort_keys=True, indent=2) + '\n')
+            archive.writestr(prefix + aurora_recovery.MANIFEST_NAME, json.dumps(recovery_manifest, sort_keys=True, indent=2) + '\n')
     with zipfile.ZipFile(payload) as archive:
-        omarchy_recovery.validate_payload(archive)
+        aurora_recovery.validate_payload(archive)
     title = {'fedora': 'Fedora Aurora Remix', 'arch': 'Aurora ALARM', 'nixos': 'Aurora NixOS'}[profile.split('-')[0]]
+    # omarchy_target and omarchy-native-v1 are the published metadata contract
+    # every released installer reads; they predate the Aurora name.
     template = {
         'omarchy_target': 'apple-silicon-full-os', 'name': title + ' (' + profile.split('-')[1] + ')',
         'default_os_name': title, 'boot_object': 'm1n1.bin', 'next_object': 'm1n1/boot.bin',

@@ -74,9 +74,9 @@ printf '\n' >> "$work/tampered.app/Contents/Resources/Release/catalog.json"
 if /usr/bin/codesign --verify --deep --strict "$work/tampered.app"; then exit 1; fi
 # Native XPC enforcement, no launchd service and no installer helper execution.
 xcrun clang -fobjc-arc -mmacosx-version-min=15.0 -framework Foundation "$root/test/private-xpc-pin-probe.m" -o "$work/xpc-probe"
-/usr/bin/codesign --sign - --identifier com.omarchy.private-pin-probe "$work/xpc-probe"
-correct=$(private_code_requirement "$work/xpc-probe" com.omarchy.private-pin-probe)
-wrong='identifier "com.omarchy.private-pin-probe" and cdhash H"0000000000000000000000000000000000000000"'
+/usr/bin/codesign --sign - --identifier invalid.aurora.private-pin-probe "$work/xpc-probe"
+correct=$(private_code_requirement "$work/xpc-probe" invalid.aurora.private-pin-probe)
+wrong='identifier "invalid.aurora.private-pin-probe" and cdhash H"0000000000000000000000000000000000000000"'
 "$work/xpc-probe" "$correct" "$correct" allow
 "$work/xpc-probe" "$wrong" "$correct" deny-client
 "$work/xpc-probe" "$correct" "$wrong" deny-server

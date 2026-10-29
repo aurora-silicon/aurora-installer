@@ -35,7 +35,7 @@
     "sha256": "4e6180a9a29404e71a257c0ab0084c2db131fba2672cdc33f80ffde386926bb2"
   },
   "desktopMockups": {
-    "source": "Sources/OmarchyAppleInstallerApp/DesktopPreview.swift",
+    "source": "Sources/AuroraAppleInstallerApp/DesktopPreview.swift",
     "description": "Minimal keeps its native shell illustration. KDE and GNOME use actual upstream desktop screenshots."
   },
   "NixOS.png": {

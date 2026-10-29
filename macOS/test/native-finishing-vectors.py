@@ -9,7 +9,7 @@ import plistlib
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = ROOT / 'Tests/OmarchyAppleInstallerTrustCoreTests/Fixtures/native-finishing.json'
+OUTPUT = ROOT / 'Tests/AuroraAppleInstallerTrustCoreTests/Fixtures/native-finishing.json'
 
 
 def der(tag, data):
@@ -19,7 +19,7 @@ def der(tag, data):
 
 
 def generate():
-    source = json.loads((ROOT / 'Tests/OmarchyAppleInstallerTrustCoreTests/Fixtures/native-stub-files.json').read_text())
+    source = json.loads((ROOT / 'Tests/AuroraAppleInstallerTrustCoreTests/Fixtures/native-stub-files.json').read_text())
     generic = json.loads((ROOT / 'Tests/AuroraFirmwareTests/Fixtures/generic-firmware.json').read_text())
     with zipfile.ZipFile(io.BytesIO(base64.b64decode(source['vectors'][0]['archive']))) as archive:
         files = {name: archive.read(name) for name in archive.namelist()}

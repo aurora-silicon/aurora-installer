@@ -246,8 +246,8 @@ confirm_publication() {
   # Explicit non-interactive opt-in for an owner-authorized publish. The value
   # must name the exact tag being published, so it cannot be a blanket setting
   # left on by accident.
-  if [[ ${OMARCHY_PUBLISH_ASSUME_YES:-} == "$tag" ]]; then
-    echo "publication confirmed for $repo tag $tag via OMARCHY_PUBLISH_ASSUME_YES" >&2
+  if [[ ${AURORA_PUBLISH_ASSUME_YES:-} == "$tag" ]]; then
+    echo "publication confirmed for $repo tag $tag via AURORA_PUBLISH_ASSUME_YES" >&2
     return 0
   fi
   [[ -t 0 || -e /dev/tty ]] || die "publication requires an interactive terminal"

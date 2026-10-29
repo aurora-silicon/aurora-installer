@@ -25,15 +25,15 @@ script_directory=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=../Packaging/identity.conf
 . "$script_directory/../Packaging/identity.conf"
 
-R2_BUCKET="${OMARCHY_R2_BUCKET:-$INSTALLER_R2_BUCKET}"
-R2_ENDPOINT="${OMARCHY_R2_ENDPOINT:-$INSTALLER_R2_ENDPOINT}"
-PUBLIC_BASE="${OMARCHY_PUBLIC_BASE:-$INSTALLER_PUBLIC_BASE}"
-STREAM_PATH="${OMARCHY_STREAM_PATH:-$INSTALLER_STREAM_PATH}"
+R2_BUCKET="${AURORA_R2_BUCKET:-$INSTALLER_R2_BUCKET}"
+R2_ENDPOINT="${AURORA_R2_ENDPOINT:-$INSTALLER_R2_ENDPOINT}"
+PUBLIC_BASE="${AURORA_PUBLIC_BASE:-$INSTALLER_PUBLIC_BASE}"
+STREAM_PATH="${AURORA_STREAM_PATH:-$INSTALLER_STREAM_PATH}"
 [[ $STREAM_PATH =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "the stream path must be one lowercase path segment: $STREAM_PATH"
 STREAM_BASE="$PUBLIC_BASE/$STREAM_PATH"
 CHANNELS="stable rc edge"
-TRUST_ROOT="${OMARCHY_TRUST_ROOT:-$script_directory/../Release/trust-root.ed25519.pub}"
-SIGNING_TOOL="${OMARCHY_CATALOG_SIGNING_TOOL:-xcrun swift $script_directory/catalog-signing.swift}"
+TRUST_ROOT="${AURORA_TRUST_ROOT:-$script_directory/../Release/trust-root.ed25519.pub}"
+SIGNING_TOOL="${AURORA_CATALOG_SIGNING_TOOL:-xcrun swift $script_directory/catalog-signing.swift}"
 # The download is the notarized app in a zip; the installer package is no
 # longer published.
 ZIP_FILE_NAME="$INSTALLER_FILE_STEM.zip"
@@ -411,7 +411,7 @@ PY
   if (( prune_after )) && [[ $channel == "stable" ]]; then
     echo
     echo "Pruning release sets nothing references any more"
-    if ! OMARCHY_PUBLISH_ASSUME_YES=prune prune --confirm; then
+    if ! AURORA_PUBLISH_ASSUME_YES=prune prune --confirm; then
       echo "  (pruning was refused; the promotion itself succeeded)" >&2
     fi
   fi

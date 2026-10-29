@@ -1,6 +1,6 @@
 # Native installation admission
 
-The native inspector reports known Fedora Aurora Remix, Aurora ALARM, Aurora NixOS and Omarchy installations independently of the selected profile. Recognition requires a collected stub System volume and its matching EFI, boot and root partition sequence. The report uses the actual partition extent without applying the new image's size floor or including nearby free space. It is a nondestructive report, never deletion or repair authority.
+The native inspector reports known Fedora Aurora Remix, Aurora ALARM and Aurora NixOS installations, and those earlier installers titled `Omarchy`, independently of the selected profile. Recognition requires a collected stub System volume and its matching EFI, boot and root partition sequence. The report uses the actual partition extent without applying the new image's size floor or including nearby free space. It is a nondestructive report, never deletion or repair authority.
 
 Welcome inspection and the fresh inspection before planning both consume this report. The existing inventory transcript, replacement candidates and layout digests retain their original contract. Collection failures are errors, rather than evidence that no installation exists.
 

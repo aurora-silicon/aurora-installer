@@ -36,7 +36,7 @@ identifier, helper, requirement = sys.argv[2:]
 with (app / "Contents/Info.plist").open("wb") as output:
     plistlib.dump({"CFBundleIdentifier": identifier, "CFBundleExecutable": "Peer",
                    "CFBundlePackageType": "APPL", "CFBundleShortVersionString": "2.1.1",
-                   "CFBundleVersion": "42", "OmarchyDeveloperBuild": True}, output)
+                   "CFBundleVersion": "42", "AuroraDeveloperBuild": True}, output)
 with (app / "Contents/Library/LaunchDaemons" / (helper + ".plist")).open("wb") as output:
     plistlib.dump({"Label": helper, "BundleProgram": "Contents/Library/LaunchServices/" + helper,
                    "MachServices": {helper: True}, "UserName": "root",
@@ -59,7 +59,7 @@ else
 fi
 
 /usr/bin/codesign --verify --deep --strict "$app"
-[[ $(/usr/bin/plutil -extract OmarchyDeveloperBuild raw -o - "$app/Contents/Info.plist") == "true" ]] \
+[[ $(/usr/bin/plutil -extract AuroraDeveloperBuild raw -o - "$app/Contents/Info.plist") == "true" ]] \
   || fail 'app is not a developer build'
 if /usr/bin/plutil -extract SMPrivilegedExecutables raw -o - "$app/Contents/Info.plist" >/dev/null 2>&1; then
   fail 'ad-hoc app must remain package-only'
@@ -143,8 +143,8 @@ fi
 
 # The older private review path also installs an external root daemon.
 /usr/bin/ditto "$app" "$work/Private.app"
-/usr/bin/plutil -remove OmarchyDeveloperBuild "$work/Private.app/Contents/Info.plist"
-/usr/bin/plutil -insert OmarchyPrivatePlainTest -bool true "$work/Private.app/Contents/Info.plist"
+/usr/bin/plutil -remove AuroraDeveloperBuild "$work/Private.app/Contents/Info.plist"
+/usr/bin/plutil -insert AuroraPrivatePlainTest -bool true "$work/Private.app/Contents/Info.plist"
 /usr/bin/codesign --force --sign - --timestamp=none --options runtime "$work/Private.app"
 bash "$root/Packaging/private-test/build-review-pkg.sh" "$work/Private.app" "$work/private-review.pkg"
 /usr/sbin/pkgutil --expand-full "$work/private-review.pkg" "$work/private-expanded"

@@ -30,7 +30,7 @@ remove_legacy_app() {
     echo "postinstall: leaving $legacy: could not tell whether it is running (pgrep exit $status)" >&2
   elif ! /bin/rm -rf "$legacy"; then
     echo "postinstall: could not remove $legacy" >&2
-    /usr/bin/logger -t omarchy-installer-pkg "could not remove $legacy" || true
+    /usr/bin/logger -t aurora-installer-pkg "could not remove $legacy" || true
   fi
   return 0
 }
@@ -55,7 +55,7 @@ if [[ -f "$PLIST" ]]; then
   done
   if [[ "$bootstrap_succeeded" != true ]]; then
     echo "postinstall: failed to load $LABEL from $PLIST: $bootstrap_error" >&2
-    /usr/bin/logger -t omarchy-installer-pkg "failed to load $LABEL: $bootstrap_error" || true
+    /usr/bin/logger -t aurora-installer-pkg "failed to load $LABEL: $bootstrap_error" || true
     exit 1
   fi
   if ! /bin/launchctl print system/"$LABEL" >/dev/null 2>&1; then

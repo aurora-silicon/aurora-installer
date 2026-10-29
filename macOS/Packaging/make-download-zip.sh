@@ -5,7 +5,7 @@
 # Usage: make-download-zip.sh /absolute/path/<app name>.app /absolute/path/out.zip
 #
 # The app must already carry a stapled notarization ticket (see
-# notarize-app.sh). OMARCHY_DOWNLOAD_ZIP_UNSTAPLED=1 skips that check for
+# notarize-app.sh). AURORA_DOWNLOAD_ZIP_UNSTAPLED=1 skips that check for
 # local structural tests only; such a zip must never be published.
 set -euo pipefail
 
@@ -28,7 +28,7 @@ zip_path=$2
 [[ $zip_path == /*.zip && ! -e $zip_path && ! -L $zip_path ]] \
   || fail "output must be a new absolute .zip path"
 
-if [[ ${OMARCHY_DOWNLOAD_ZIP_UNSTAPLED:-0} != "1" ]]; then
+if [[ ${AURORA_DOWNLOAD_ZIP_UNSTAPLED:-0} != "1" ]]; then
   xcrun stapler validate "$app_path" >/dev/null \
     || fail "application has no stapled notarization ticket"
   codesign --verify --deep --strict "$app_path" \

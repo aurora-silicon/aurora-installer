@@ -3,7 +3,7 @@
 import PackageDescription
 
 let package = Package(
-  name: "OmarchyAppleInstallerTrustCore",
+  name: "AuroraAppleInstallerTrustCore",
   platforms: [
     .macOS(.v15)
   ],
@@ -11,20 +11,20 @@ let package = Package(
     .library(name: "AuroraFirmware", targets: ["AuroraFirmware"]),
     .executable(name: "AuroraFirmwareCheck", targets: ["AuroraFirmwareCheck"]),
     .library(
-      name: "OmarchyAppleInstallerTrustCore",
-      targets: ["OmarchyAppleInstallerTrustCore"]
+      name: "AuroraAppleInstallerTrustCore",
+      targets: ["AuroraAppleInstallerTrustCore"]
     ),
     .library(
-      name: "OmarchyInstallerUXCore",
-      targets: ["OmarchyInstallerUXCore"]
+      name: "AuroraInstallerUXCore",
+      targets: ["AuroraInstallerUXCore"]
     ),
     .executable(
-      name: "OmarchyAppleInstallerApp",
-      targets: ["OmarchyAppleInstallerApp"]
+      name: "AuroraAppleInstallerApp",
+      targets: ["AuroraAppleInstallerApp"]
     ),
     .executable(
-      name: "OmarchyAppleInstallerHelper",
-      targets: ["OmarchyAppleInstallerHelper"]
+      name: "AuroraAppleInstallerHelper",
+      targets: ["AuroraAppleInstallerHelper"]
     ),
   ],
   targets: [
@@ -50,8 +50,8 @@ let package = Package(
       name: "RecoveryAccountCore", dependencies: ["RecoveryAuthorization"],
       path: "Recovery/Sources/Account"),
     .target(
-      name: "OmarchyInstallerSystem",
-      path: "Sources/OmarchyInstallerSystem",
+      name: "AuroraInstallerSystem",
+      path: "Sources/AuroraInstallerSystem",
       publicHeadersPath: "include"
     ),
     .executableTarget(
@@ -61,65 +61,65 @@ let package = Package(
     ),
     .executableTarget(
       name: "InstallerReadinessCheck",
-      dependencies: ["OmarchyAppleInstallerTrustCore"],
+      dependencies: ["AuroraAppleInstallerTrustCore"],
       path: "Development/ReadinessCheck"
     ),
     .executableTarget(
-      name: "OmarchyInstallerIdentityGenerator",
-      path: "Sources/OmarchyInstallerIdentityGenerator"
+      name: "AuroraInstallerIdentityGenerator",
+      path: "Sources/AuroraInstallerIdentityGenerator"
     ),
     .plugin(
-      name: "OmarchyInstallerIdentityPlugin",
+      name: "AuroraInstallerIdentityPlugin",
       capability: .buildTool(),
-      dependencies: ["OmarchyInstallerIdentityGenerator"]
+      dependencies: ["AuroraInstallerIdentityGenerator"]
     ),
     .target(
-      name: "OmarchyAppleInstallerTrustCore",
-      dependencies: ["OmarchyInstallerSystem", "RecoveryAccountCore", "AuroraFirmware"],
-      path: "Sources/OmarchyAppleInstaller",
-      plugins: ["OmarchyInstallerIdentityPlugin"]
+      name: "AuroraAppleInstallerTrustCore",
+      dependencies: ["AuroraInstallerSystem", "RecoveryAccountCore", "AuroraFirmware"],
+      path: "Sources/AuroraAppleInstaller",
+      plugins: ["AuroraInstallerIdentityPlugin"]
     ),
     .target(
-      name: "OmarchyInstallerUXCore",
-      dependencies: ["OmarchyAppleInstallerTrustCore", "RecoveryAccountCore"],
-      path: "Sources/OmarchyInstallerUXCore"
+      name: "AuroraInstallerUXCore",
+      dependencies: ["AuroraAppleInstallerTrustCore", "RecoveryAccountCore"],
+      path: "Sources/AuroraInstallerUXCore"
     ),
     .executableTarget(
-      name: "OmarchyAppleInstallerApp",
+      name: "AuroraAppleInstallerApp",
       dependencies: [
-        "OmarchyAppleInstallerTrustCore",
-        "OmarchyInstallerUXCore",
+        "AuroraAppleInstallerTrustCore",
+        "AuroraInstallerUXCore",
         "RecoveryAccountCore",
       ],
-      path: "Sources/OmarchyAppleInstallerApp"
+      path: "Sources/AuroraAppleInstallerApp"
     ),
     .executableTarget(
-      name: "OmarchyAppleInstallerHelper",
-      dependencies: ["OmarchyAppleInstallerTrustCore"],
-      path: "Sources/OmarchyAppleInstallerHelper"
+      name: "AuroraAppleInstallerHelper",
+      dependencies: ["AuroraAppleInstallerTrustCore"],
+      path: "Sources/AuroraAppleInstallerHelper"
     ),
     .testTarget(
-      name: "OmarchyAppleInstallerTrustCoreTests",
+      name: "AuroraAppleInstallerTrustCoreTests",
       dependencies: [
-        "OmarchyAppleInstallerTrustCore", "RecoveryAccountCore", "NativeFirmwareFixtureSupport",
+        "AuroraAppleInstallerTrustCore", "RecoveryAccountCore", "NativeFirmwareFixtureSupport",
       ],
-      path: "Tests/OmarchyAppleInstallerTrustCoreTests",
+      path: "Tests/AuroraAppleInstallerTrustCoreTests",
       resources: [.copy("Fixtures")]
     ),
     .testTarget(
-      name: "OmarchyInstallerLifecycleTests",
-      dependencies: ["OmarchyAppleInstallerTrustCore"],
-      path: "Tests/OmarchyInstallerLifecycleTests"
+      name: "AuroraInstallerLifecycleTests",
+      dependencies: ["AuroraAppleInstallerTrustCore"],
+      path: "Tests/AuroraInstallerLifecycleTests"
     ),
     .testTarget(
-      name: "OmarchyAppleInstallerAppTests",
-      dependencies: ["OmarchyAppleInstallerApp"],
-      path: "Tests/OmarchyAppleInstallerAppTests"
+      name: "AuroraAppleInstallerAppTests",
+      dependencies: ["AuroraAppleInstallerApp"],
+      path: "Tests/AuroraAppleInstallerAppTests"
     ),
     .testTarget(
-      name: "OmarchyInstallerUXCoreTests",
-      dependencies: ["OmarchyInstallerUXCore"],
-      path: "Tests/OmarchyInstallerUXCoreTests"
+      name: "AuroraInstallerUXCoreTests",
+      dependencies: ["AuroraInstallerUXCore"],
+      path: "Tests/AuroraInstallerUXCoreTests"
     ),
   ]
 )

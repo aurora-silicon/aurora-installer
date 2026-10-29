@@ -12,6 +12,8 @@ import plistlib
 
 APP_NAME = "Aurora Installer.app"
 PAYLOAD_DIRECTORY = "aurora/recovery"
+# Released Recovery templates and installers use these names, which predate
+# the Aurora name: the manifest, the executable and two Info.plist markers.
 MANIFEST_NAME = "omarchy-recovery-app.json"
 
 

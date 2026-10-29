@@ -31,7 +31,7 @@ jobs:
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
       XCODEBUILDMCP_SENTRY_DISABLED: 'true'
-      OMARCHY_DEVELOPER_BUILD: '1'
+      AURORA_DEVELOPER_BUILD: '1'
       AURORA_SIGNING_KEYCHAIN_TIMEOUT: '5400'
     defaults:
       run:
@@ -150,7 +150,7 @@ jobs:
           APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
           APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
           APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
-          OMARCHY_APP_VERSION: ${{ inputs.version }}
+          AURORA_APP_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           cat > "$RUNNER_TEMP/package.sh" <<'PACKAGE'
@@ -159,9 +159,9 @@ jobs:
           source Packaging/identity.conf
           python3 scripts/prepare-distribution-release.py \
             --profiles "$RUNNER_TEMP/alpha-catalogs/Profiles" \
-            --output "$RUNNER_TEMP/release" --sealed --signing-team "$OMARCHY_TEAM_ID"
-          export OMARCHY_APP_BUILD_NUMBER=$(date -u +%y%m%d%H%M)
-          export OMARCHY_RECOVERY_TEMPLATE="$RUNNER_TEMP/recovery-template/$INSTALLER_APP_NAME.app"
+            --output "$RUNNER_TEMP/release" --sealed --signing-team "$AURORA_TEAM_ID"
+          export AURORA_APP_BUILD_NUMBER=$(date -u +%y%m%d%H%M)
+          export AURORA_RECOVERY_TEMPLATE="$RUNNER_TEMP/recovery-template/$INSTALLER_APP_NAME.app"
           bash Packaging/build-app.sh "$RUNNER_TEMP/release" "$RUNNER_TEMP/application"
           app="$RUNNER_TEMP/application/$INSTALLER_APP_NAME.app"
           python3 - "$app/Contents/Resources/Release/Profiles" \
@@ -177,7 +177,7 @@ jobs:
               assert json.loads(data)['sequence']==record['sequence'],profile
           PYPROFILES
           bash Packaging/notarize-app.sh "$app"
-          bash Packaging/make-download-dmg.sh "$app" "$RUNNER_TEMP/download/Aurora-Installer-$OMARCHY_APP_VERSION.dmg"
+          bash Packaging/make-download-dmg.sh "$app" "$RUNNER_TEMP/download/Aurora-Installer-$AURORA_APP_VERSION.dmg"
           cp "$RUNNER_TEMP/release/profile-manifest.json" "$RUNNER_TEMP/evidence/"
           shasum -a 256 "$RUNNER_TEMP/download/"*.dmg > "$RUNNER_TEMP/evidence/dmg.sha256"
           PACKAGE

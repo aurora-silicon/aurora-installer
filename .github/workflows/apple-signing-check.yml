@@ -57,11 +57,11 @@ jobs:
           binary_dir=$(xcrun swift build --package-path "$RUNNER_TEMP/probe" --configuration release --show-bin-path)
           probe="$binary_dir/AuroraSigningProbe"
           [[ $(lipo -archs "$probe") == arm64 ]]
-          codesign --force --sign "$OMARCHY_APP_SIGNING_IDENTITY" --keychain "$AURORA_SIGNING_KEYCHAIN" \
+          codesign --force --sign "$AURORA_APP_SIGNING_IDENTITY" --keychain "$AURORA_SIGNING_KEYCHAIN" \
             --options runtime --timestamp "$probe"
           codesign --verify --strict "$probe"
           details=$(codesign --display --verbose=4 "$probe" 2>&1)
-          [[ $details == *"TeamIdentifier=$OMARCHY_TEAM_ID"* ]]
+          [[ $details == *"TeamIdentifier=$AURORA_TEAM_ID"* ]]
           [[ $details == *'Authority=Developer ID Application:'* ]]
           [[ $details == *'Timestamp='* ]]
           printf '%s\n' "$details" | grep -E '^CodeDirectory .*flags=[^ ]*\(runtime\)' > /dev/null

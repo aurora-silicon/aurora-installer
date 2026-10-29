@@ -33,6 +33,10 @@ final class InstallerModel {
   var restartingWithoutAccount = false { didSet { changed() } }
   var restartingCompletedSetup = false { didSet { changed() } }
   var accountNeedsAuthorization = false { didSet { changed() } }
+  /// A separate recovery account can be created but nothing of it exists
+  /// yet. It stays out of the way: Restart defers it, and holding Shift on
+  /// Restart or Utilities → Create Recovery Account… opens its setup.
+  var accountOptional = false { didSet { changed() } }
   var previewNotice: (title: String, message: String)? { didSet { changed() } }
   private var checkingAccount = false
   private var awaitingStartupDiskReturn = false
@@ -47,13 +51,21 @@ final class InstallerModel {
   private func showAccountStep(_ record: RecoveryAccountRecord?, required: Bool = true) {
     accountUsername = record?.username ?? ""
     accountAlreadyStarted = record != nil
-    accountNeedsAuthorization = required && record?.phase != "finalized"
     accountPassword = ""
     accountConfirmation = ""
-    stage =
-      !required
-        || record?.phase == "finalized"
-      ? .complete : .account
+    // Not started yet: finish without it unless the person asks for it. An
+    // account that was started resumes directly.
+    accountOptional = required && record == nil
+    accountNeedsAuthorization = required && record != nil && record?.phase != "finalized"
+    stage = accountNeedsAuthorization ? .account : .complete
+  }
+
+  /// Opens the optional recovery account setup from the completion screen.
+  func showRecoveryAccountSetup() {
+    guard accountOptional, stage == .complete, !restartingWithoutAccount,
+      !restartingCompletedSetup
+    else { return }
+    stage = .account
   }
 
   func resumeAccountSetup() {
@@ -94,6 +106,7 @@ final class InstallerModel {
     if RecoveryActions.isPreview {
       creatingAccount = false
       accountAlreadyStarted = true
+      accountOptional = false
       accountNeedsAuthorization = true
       stage = .complete
       return
@@ -108,6 +121,7 @@ final class InstallerModel {
         DispatchQueue.main.async {
           self.creatingAccount = false
           self.accountAlreadyStarted = true
+          self.accountOptional = false
           self.accountNeedsAuthorization = record.phase != "finalized"
           self.stage = .complete
         }
@@ -122,7 +136,9 @@ final class InstallerModel {
   }
 
   func skipRecoveryAccountAndRestart() {
-    guard stage == .account, !creatingAccount, !restartingWithoutAccount, !checkingAccount else {
+    guard stage == .account || (stage == .complete && accountOptional), !creatingAccount,
+      !restartingWithoutAccount, !checkingAccount
+    else {
       return
     }
     accountPassword = ""
@@ -340,11 +356,17 @@ final class InstallerModel {
         }
         self.operations.append("\(step) — simulated")
       }
-      self.stage = self.recoveryInterface ? .complete : .account
+      if !self.recoveryInterface { self.accountOptional = true }
+      self.stage = .complete
     }
   }
 
   func finishSetup() {
+    // Restart without the optional account defers it, as "Skip, Restart Now" does.
+    if accountOptional {
+      skipRecoveryAccountAndRestart()
+      return
+    }
     if !accountNeedsAuthorization {
       if RecoveryActions.isPreview {
         previewNotice = ("Restart simulated", "This preview does not restart your Mac.")
@@ -572,6 +594,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       withTitle: "Terminal", action: #selector(openTerminal(_:)), keyEquivalent: "t")
     terminal.keyEquivalentModifierMask = [.command, .option]
     terminal.target = self
+    let account = utilities.addItem(
+      withTitle: "Create Recovery Account…", action: #selector(createRecoveryAccount(_:)),
+      keyEquivalent: "")
+    account.target = self
 
     let windows = submenu("Window")
     windows.addItem(
@@ -642,6 +668,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     return true
   }
 
+  @objc private func createRecoveryAccount(_ sender: Any?) { model.showRecoveryAccountSetup() }
+
+  @objc func validateMenuItem(_ item: NSMenuItem) -> Bool {
+    guard item.action == #selector(createRecoveryAccount(_:)) else { return true }
+    return model.accountOptional && model.stage == .complete
+  }
+
   @objc private func openTerminal(_ sender: Any?) {
     let paths = [
       "/System/Applications/Utilities/Terminal.app", "/Applications/Utilities/Terminal.app",
@@ -680,9 +713,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 if CommandLine.arguments.dropFirst().first == "--build-mode" {
-  #if OMARCHY_STEP2_RECOVERY
+  #if AURORA_STEP2_RECOVERY
     print("recovery")
-  #elseif OMARCHY_STEP2_PREVIEW
+  #elseif AURORA_STEP2_PREVIEW
     print("preview")
   #else
     print("disabled")

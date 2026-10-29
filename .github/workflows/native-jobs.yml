@@ -51,7 +51,7 @@ jobs:
       - name: Test native inspection, mount cleanup and app routing
         run: |
           set -euo pipefail
-          filter='NativeInstallerInspectorTests|NativeDiskCollectorReplayTests|LiveNativeInspectionTests|MacHostInspectionTests|OmarchyRemovalDiskOperatorTests|OmarchyRemovalHardwareReplayTests|NativeInstallerPlannerTests|InstallerPlanReviewTests|PayloadPrefetchWiringTests'
+          filter='NativeInstallerInspectorTests|NativeDiskCollectorReplayTests|LiveNativeInspectionTests|MacHostInspectionTests|AuroraRemovalDiskOperatorTests|AuroraRemovalHardwareReplayTests|NativeInstallerPlannerTests|InstallerPlanReviewTests|PayloadPrefetchWiringTests'
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug \
             --filter "$filter" 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration release \

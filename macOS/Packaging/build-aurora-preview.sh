@@ -4,7 +4,7 @@ root="$(cd "$(dirname "$0")/.." && pwd -P)"
 output="${1:-$root/build-aurora-preview}"
 runner="${XCODEBUILDMCP:-xcodebuildmcp}"
 "$runner" swift-package build --package-path "$root" --configuration debug
-binary="$(cd "$root" && xcrun swift build --configuration debug --show-bin-path)/OmarchyAppleInstallerApp"
+binary="$(cd "$root" && xcrun swift build --configuration debug --show-bin-path)/AuroraAppleInstallerApp"
 app="$output/Aurora Installer.app"
 [[ ! -e $app ]] || { echo "Output already exists: $app" >&2; exit 1; }
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"

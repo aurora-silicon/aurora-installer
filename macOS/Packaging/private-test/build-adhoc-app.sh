@@ -8,13 +8,13 @@ source "$root/Packaging/private-test/code-identity.sh"
 release=$(cd "$1" && pwd -P)
 output=$2
 [[ $output == /* && ! -e $output && ! -L $output ]] || exit 64
-[[ ${OMARCHY_PRIVATE_PLAIN_TEST:-0} != "1" || ${OMARCHY_PRIVATE_LIMINE_TEST:-0} != "1" ]] || exit 64
+[[ ${AURORA_PRIVATE_PLAIN_TEST:-0} != "1" || ${AURORA_PRIVATE_LIMINE_TEST:-0} != "1" ]] || exit 64
 mkdir "$output"
-if [[ ${OMARCHY_PRIVATE_LIMINE_TEST:-0} == "1" ]]; then
-  OMARCHY_PRIVATE_PLAIN_TEST=0 OMARCHY_APP_SIGNING_IDENTITY=- \
+if [[ ${AURORA_PRIVATE_LIMINE_TEST:-0} == "1" ]]; then
+  AURORA_PRIVATE_PLAIN_TEST=0 AURORA_APP_SIGNING_IDENTITY=- \
     bash "$root/Packaging/build-app.sh" "$release" "$output"
 else
-  OMARCHY_PRIVATE_PLAIN_TEST=1 OMARCHY_APP_SIGNING_IDENTITY=- \
+  AURORA_PRIVATE_PLAIN_TEST=1 AURORA_APP_SIGNING_IDENTITY=- \
     bash "$root/Packaging/build-app.sh" "$release" "$output"
 fi
 app="$output/$INSTALLER_APP_NAME.app"
@@ -26,7 +26,7 @@ descriptor="$app/Contents/Resources/Release/release.json"
 chmod u+w "$descriptor"
 /usr/bin/plutil -replace helper_code_signing_requirement -string "$helper_requirement" "$descriptor"
 chmod 444 "$descriptor"
-/usr/bin/plutil -insert OmarchyPrivateExactBuild -bool true "$app/Contents/Info.plist"
+/usr/bin/plutil -insert AuroraPrivateExactBuild -bool true "$app/Contents/Info.plist"
 # The external system daemon is generated only after the app is sealed. Never
 # leave a usable identifier-only registration path inside the signed bundle.
 /usr/bin/plutil -replace EnvironmentVariables.OMARCHY_CLIENT_CODE_SIGNING_REQUIREMENT \
