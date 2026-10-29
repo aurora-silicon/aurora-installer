@@ -168,6 +168,30 @@ class CandidateSetTest(unittest.TestCase):
                     self.verify(directory, receipt)
                 shutil.rmtree(self.work / "output", ignore_errors=True)
 
+    def test_aura_fills_m1n1_aurora(self):
+        directory, receipt = self.variant(versions={"aura": fixtures.AURA_VERSION},
+                                          contents=fixtures.aura_contents(), names=fixtures.aura_names())
+        summary = self.verify(directory, receipt)
+        groups = {p["name"]: p["group"] for p in summary["packages"]}
+        self.assertEqual(groups["aura"], "boot")
+        self.assertNotIn("m1n1-aurora", groups)
+
+    def test_aura_and_m1n1_aurora_together_are_refused(self):
+        contents = fixtures.aura_contents()
+        contents["m1n1-aurora"] = {}
+        directory, receipt = self.variant(versions={"aura": fixtures.AURA_VERSION}, contents=contents,
+                                          names=[*fixtures.VERSIONS, "aura"])
+        with self.assertRaisesRegex(ValueError, "both m1n1-aurora and its replacement aura"):
+            self.verify(directory, receipt)
+
+    def test_aura_without_its_stage1_is_refused(self):
+        contents = fixtures.aura_contents()
+        del contents["aura"]["usr/share/aura/stage1/aura-raw.bin"]
+        directory, receipt = self.variant(versions={"aura": fixtures.AURA_VERSION}, contents=contents,
+                                          names=fixtures.aura_names())
+        with self.assertRaisesRegex(ValueError, "aura-raw.bin is not in aura"):
+            self.verify(directory, receipt)
+
     def test_file_with_two_owners(self):
         contents = fixtures.default_contents()
         contents["omarchy-mac"]["usr/lib/asahi-boot/m1n1.bin"] = b"another m1n1"
@@ -339,6 +363,40 @@ class VercmpTest(unittest.TestCase):
             with self.subTest(a=a, b=b):
                 self.assertEqual(c.vercmp(a, b), expected)
                 self.assertEqual(c.vercmp(b, a), -expected)
+
+
+class BootReplacementTest(unittest.TestCase):
+    """aura in m1n1-aurora's place, without a signed set (no GnuPG needed)."""
+
+    def test_boot_names(self):
+        boot = set(fixtures.POLICY["boot_packages"])
+        self.assertEqual(c.boot_names(boot, set(fixtures.VERSIONS)), boot)
+        resolved = c.boot_names(boot, set(fixtures.aura_names()))
+        self.assertIn("aura", resolved)
+        self.assertNotIn("m1n1-aurora", resolved)
+        with self.assertRaisesRegex(ValueError, "both m1n1-aurora and its replacement aura"):
+            c.boot_names(boot, {*fixtures.VERSIONS, "aura"})
+
+    def test_only_aura_replaces_m1n1_aurora(self):
+        self.assertEqual(c.BOOT_REPLACEMENTS, {"m1n1-aurora": "aura"})
+
+    def payloads(self, contents):
+        return {name: list(files) for name, files in contents.items()}
+
+    def test_verify_payloads_with_aura(self):
+        owners = c.verify_payloads(self.payloads(fixtures.aura_contents()))
+        self.assertEqual(owners["usr/lib/asahi-boot/m1n1.bin"], "aura")
+        self.assertEqual(owners["usr/share/aura/stage1/aura-raw.bin"], "aura")
+
+    def test_verify_payloads_legacy_m1n1_aurora(self):
+        owners = c.verify_payloads(self.payloads(fixtures.default_contents()))
+        self.assertEqual(owners["usr/lib/asahi-boot/m1n1.bin"], "m1n1-aurora")
+
+    def test_aura_must_carry_its_stage1(self):
+        contents = fixtures.aura_contents()
+        del contents["aura"]["usr/share/aura/stage1/aura-raw.bin"]
+        with self.assertRaisesRegex(ValueError, "aura-raw.bin is not in aura"):
+            c.verify_payloads(self.payloads(contents))
 
 
 if __name__ == "__main__":

@@ -93,6 +93,10 @@ class Candidates:
         self.packages = {p["name"]: p for p in self.summary["packages"]}
         self._listings: dict[str, list[str]] = {}
 
+    def stage2_owner(self) -> str:
+        """The package carrying the Stage 2 (m1n1.bin): aura, or legacy m1n1-aurora."""
+        return "aura" if "aura" in self.packages else "m1n1-aurora"
+
     def archive(self, name: str) -> Path:
         return self.directory / self.packages[name]["filename"]
 
@@ -194,24 +198,27 @@ def check_refused(root: Path, policy: dict) -> str:
 def check_installed_payloads(root: Path, candidates: Candidates) -> str:
     release = candidates.kernel_release()
     expected = {
-        "usr/lib/asahi-boot/m1n1.bin": "m1n1-aurora",
+        "usr/lib/asahi-boot/m1n1.bin": candidates.stage2_owner(),
         "usr/lib/asahi-boot/u-boot-nodtb.bin": "uboot-asahi",
         f"usr/lib/modules/{release}/vmlinuz": KERNEL,
     }
+    if candidates.stage2_owner() == "aura":
+        expected["usr/share/aura/stage1/aura-raw.bin"] = "aura"
     expected.update({path: KERNEL for path in candidates.dtbs()})
     for path, package in expected.items():
         installed = root / path
         require(installed.is_file() and not installed.is_symlink(), f"/{path} is missing")
         require(installed.read_bytes() == candidates.member(package, path), f"/{path} is not {package}'s from the set")
-    return f"m1n1, U-Boot, the kernel and {len(candidates.dtbs())} device trees match the set's archives"
+    loader = "aura" if candidates.stage2_owner() == "aura" else "m1n1"
+    return f"{loader}, U-Boot, the kernel and {len(candidates.dtbs())} device trees match the set's archives"
 
 
 def m1n1_stage2(root: Path, candidates: Candidates, report: dict) -> str:
     """m1n1/boot.bin is the set's m1n1, then every Aurora device tree in C
     order, then the set's U-Boot gzipped, then m1n1 options only."""
     data = limine.regular(root / "boot/efi/m1n1/boot.bin")
-    m1n1 = candidates.member("m1n1-aurora", "usr/lib/asahi-boot/m1n1.bin")
-    require(data.startswith(m1n1), "m1n1/boot.bin does not start with the set's m1n1")
+    m1n1 = candidates.member(candidates.stage2_owner(), "usr/lib/asahi-boot/m1n1.bin")
+    require(data.startswith(m1n1), "m1n1/boot.bin does not start with the set's Stage 2 (aura or m1n1)")
     offset = len(m1n1)
     names = candidates.dtbs()
     for path in names:

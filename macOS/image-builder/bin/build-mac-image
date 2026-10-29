@@ -671,9 +671,16 @@ runtime_lists() {
   fi
 }
 
+# A name the set carries resolves from it. m1n1-aurora resolves to aura, its
+# exact Aurora replacement, when the set carries aura instead (as
+# aurora-silicon/omarchy-mac-installer maps it).
 qualified() {
   local name
   for name in "$@"; do
+    if [[ $name == m1n1-aurora ]] &&
+      jq -e 'any(.packages[]; .name == "aura")' "$candidates/import.json" >/dev/null; then
+      name=aura
+    fi
     if jq -e --arg name "$name" 'any(.packages[]; .name == $name)' "$candidates/import.json" >/dev/null; then
       printf 'omarchy-candidates/%s\n' "$name"
     else

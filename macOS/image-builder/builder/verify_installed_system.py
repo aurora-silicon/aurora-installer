@@ -231,7 +231,15 @@ def check_enabled_units(verification: Verification, root: Path) -> None:
     )
 
 
+# Exact Aurora replacements only (aurora-silicon/omarchy-mac-installer's
+# mapping): aura fills m1n1-aurora when it provides it. An arbitrary package
+# claiming a required name must not satisfy the check.
+AURORA_REPLACEMENTS = {"aura": {"m1n1-aurora"}}
+
+
 def installed_package_names(root: Path) -> set[str]:
+    """Installed package names, plus the names an installed exact Aurora
+    replacement fills by providing them."""
     database = root / "var/lib/pacman/local"
     names: set[str] = set()
     if not database.is_dir():
@@ -240,7 +248,15 @@ def installed_package_names(root: Path) -> set[str]:
         desc = entry / "desc"
         if desc.is_file():
             lines = desc.read_text().splitlines()
-            names.add(lines[lines.index("%NAME%") + 1])
+            name = lines[lines.index("%NAME%") + 1]
+            names.add(name)
+            if name in AURORA_REPLACEMENTS and "%PROVIDES%" in lines:
+                provides = set()
+                for line in lines[lines.index("%PROVIDES%") + 1:]:
+                    if not line:
+                        break
+                    provides.add(re.split(r"[<>=]", line, maxsplit=1)[0])
+                names |= AURORA_REPLACEMENTS[name] & provides
     return names
 
 

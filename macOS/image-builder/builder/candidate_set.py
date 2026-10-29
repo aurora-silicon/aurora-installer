@@ -64,6 +64,19 @@ REQUIRED_OWNERS = {
     'usr/share/libalpm/scripts/limine-apple-gate': 'limine-mkinitcpio-hook',
     'usr/share/omarchy/default/limine/limine.conf': 'omarchy-settings',
 }
+# Exact Aurora replacements for a boot package the policy names, as
+# aurora-silicon/omarchy-mac-installer maps them: aura, Aurora's bootloader
+# (it provides m1n1, m1n1-aurora and m1n1-neo), fills m1n1-aurora's place.
+# No other package may stand in for a boot package, and a set carries the
+# policy's package or its replacement, never both.
+BOOT_REPLACEMENTS = {'m1n1-aurora': 'aura'}
+# The boot payloads a replacement carries instead, and owns.
+REPLACEMENT_OWNERS = {
+    'aura': {
+        'usr/lib/asahi-boot/m1n1.bin': 'aura',
+        'usr/share/aura/stage1/aura-raw.bin': 'aura',
+    },
+}
 # A package the set took from an Omarchy channel's aarch64 repository, by its own file name.
 CHANNEL_URL = re.compile(r'https://pkgs\.omarchy\.org/(edge|rc|stable)/aarch64/([^/]+)')
 BAD_STATUS = re.compile(r'\b(BADSIG|ERRSIG|REVKEYSIG|EXPKEYSIG|EXPSIG|KEYREVOKED|KEYEXPIRED|SIGEXPIRED)\b')
@@ -72,6 +85,29 @@ BAD_STATUS = re.compile(r'\b(BADSIG|ERRSIG|REVKEYSIG|EXPKEYSIG|EXPSIG|KEYREVOKED
 def require(ok, message):
     if not ok:
         raise ValueError(message)
+
+
+def boot_names(policy_boot, names):
+    """The policy's boot packages as this set carries them: each one, or its
+    exact Aurora replacement when the set carries that instead."""
+    resolved = set()
+    for name in policy_boot:
+        replacement = BOOT_REPLACEMENTS.get(name)
+        if replacement is not None and replacement in names:
+            require(name not in names, f'the set carries both {name} and its replacement {replacement}')
+            resolved.add(replacement)
+        else:
+            resolved.add(name)
+    return resolved
+
+
+def required_owners(names):
+    """REQUIRED_OWNERS, with a carried replacement owning its payloads."""
+    owners = dict(REQUIRED_OWNERS)
+    for name, paths in REPLACEMENT_OWNERS.items():
+        if name in names:
+            owners.update(paths)
+    return owners
 
 
 def digest(path):
@@ -215,7 +251,7 @@ def verify_payloads(payloads):
         for path in paths:
             require(path not in owners, f'candidate payload ownership conflict: {path} ({owners.get(path)}, {name})')
             owners[path] = name
-    for path, owner in REQUIRED_OWNERS.items():
+    for path, owner in required_owners(payloads).items():
         require(owners.get(path) == owner, f'{path} is not in {owner}')
     kernels = [p for p in payloads.get('linux-aurora', ()) if PurePosixPath(p).match('usr/lib/modules/*/vmlinuz')]
     require(len(kernels) == 1, 'linux-aurora does not carry one kernel')
@@ -261,6 +297,7 @@ def snapshot(root, destination, receipt_sha256, source_commit, manifest_sha256=N
         names = [p['name'] for p in packages]
         require(len(set(names)) == len(names), 'duplicate package in the set')
         require(not set(names) & set(policy['refused_packages']), 'refused package in the set')
+        boot = boot_names(boot, set(names))
         require(runtime | boot <= set(names), 'wrong package set: missing '
                 + ', '.join(sorted(runtime | boot - set(names))))
         declared = data.get('platform_sources', {})

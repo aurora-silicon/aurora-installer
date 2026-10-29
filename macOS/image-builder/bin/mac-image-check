@@ -282,7 +282,13 @@ def config_lines(path: Path) -> list[str]:
     return [line.strip() for line in path.read_text().splitlines() if line.strip() and not line.lstrip().startswith("#")]
 
 
+# Exact Aurora replacements only (aurora-silicon/omarchy-mac-installer's
+# mapping): aura fills m1n1-aurora when it provides it.
+AURORA_REPLACEMENTS = {"aura": {"m1n1-aurora"}}
+
+
 def installed_packages(root: Path) -> set[str]:
+    """Installed names, plus those an installed exact Aurora replacement provides."""
     names = set()
     local = root / "var/lib/pacman/local"
     require(local.is_dir(), "the image has no pacman database")
@@ -290,7 +296,15 @@ def installed_packages(root: Path) -> set[str]:
         desc = entry / "desc"
         if desc.is_file():
             lines = desc.read_text().splitlines()
-            names.add(lines[lines.index("%NAME%") + 1])
+            name = lines[lines.index("%NAME%") + 1]
+            names.add(name)
+            if name in AURORA_REPLACEMENTS and "%PROVIDES%" in lines:
+                provides = set()
+                for line in lines[lines.index("%PROVIDES%") + 1:]:
+                    if not line:
+                        break
+                    provides.add(re.split(r"[<>=]", line, maxsplit=1)[0])
+                names |= AURORA_REPLACEMENTS[name] & provides
     return names
 
 

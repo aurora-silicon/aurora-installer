@@ -92,6 +92,24 @@ def default_contents() -> dict[str, dict[str, bytes]]:
     return contents
 
 
+AURA_VERSION = "1.0b1-1"
+
+
+def aura_contents() -> dict[str, dict[str, bytes]]:
+    """default_contents with aura, Aurora's bootloader, in m1n1-aurora's place."""
+    contents = default_contents()
+    del contents["m1n1-aurora"]
+    contents["aura"] = {
+        "usr/lib/asahi-boot/m1n1.bin": b"aura stage 2 ##aura_ver##1.0b1\0",
+        "usr/share/aura/stage1/aura-raw.bin": b"aura stage 1 ##aura_ver##1.0b1\0AURORA-S1-CFG01\0",
+    }
+    return contents
+
+
+def aura_names() -> list[str]:
+    return [("aura" if name == "m1n1-aurora" else name) for name in VERSIONS]
+
+
 def depends(name: str, versions: dict[str, str]) -> list[str]:
     if name == "omarchy":
         return ["omarchy-settings=" + versions["omarchy-settings"].rsplit("-", 1)[0]]
@@ -169,7 +187,7 @@ def make_set(directory: Path, signer: Signer, *, versions=None, contents=None, n
         filename = f"{name}-{version.replace(':', '.')}-{arch}.pkg.tar.xz"
         write_archive(directory / filename, name, version, contents.get(name, {}), depends(name, versions), arch)
         runtime = name in POLICY["runtime_packages"]
-        planned = runtime or name in POLICY["boot_packages"]
+        planned = runtime or name in POLICY["boot_packages"] or name in candidate_set.BOOT_REPLACEMENTS.values()
         if name in channel or not planned:
             source = channel_source(f"{name}-{version}-{arch}.pkg.tar.xz")
         else:

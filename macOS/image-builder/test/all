@@ -29,6 +29,7 @@ python3 test/test_candidate_set.py
 python3 test/test_inspection.py
 python3 test/test_mac_image_check.py
 python3 test/test_lab_access.py
+python3 test/test_aura_replacement.py
 for test_file in test/*-test.sh; do
   "$BASH" "$test_file"
 done

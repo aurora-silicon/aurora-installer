@@ -1,14 +1,17 @@
 #!/bin/bash
 # Derive the one developer image for M1, M2 and M3 Macs and the MacBook Neo
 # (apple,j700) from the stock 2026.09.26 edge image, in one pass: install Aurora
-# 2026.10.11.14's kernel (omacom/linux-aurora) with both of Aurora's m1n1 Stage
-# 2s side by side, m1n1-aurora for M1-M3 and a co-installable m1n1-neo for the
-# Neo, then rebuild the UKI, the Limine menu and two Stage 2s:
-# esp/m1n1/boot.bin (m1n1-aurora, uboot-asahi) and esp/m1n1/boot-j700.bin
-# (m1n1-neo, the J700 U-Boot). Engine .33 puts boot-j700.bin in place of
-# boot.bin on a j700ap and drops it everywhere else. The ESP carries both
-# unfilled Aurora Stage 1s, esp/aurora/stage1-j613.bin (13-inch M3 Air on
-# 26.6.2) and esp/aurora/stage1-j700.bin, which engine .32 fills per board.
+# 2026.10.11.14's kernel (omacom/linux-aurora) with aura, Aurora's bootloader,
+# in place of the stock m1n1. The one aura package (pkgname aura, providing
+# m1n1, m1n1-aurora and m1n1-neo) carries the Stage 2 every board uses,
+# /usr/lib/asahi-boot/m1n1.bin (/usr/lib/m1n1-neo/m1n1.bin is a symlink to it),
+# and the unfilled Stage 1, /usr/share/aura/stage1/aura-raw.bin. The build then
+# rebuilds the UKI, the Limine menu and two Stage 2s: esp/m1n1/boot.bin (aura,
+# uboot-asahi) and esp/m1n1/boot-j700.bin (aura, the J700 U-Boot). Engine .33
+# puts boot-j700.bin in place of boot.bin on a j700ap and drops it everywhere
+# else. The ESP carries the package's unfilled Stage 1 as
+# esp/aurora/stage1-j613.bin (13-inch M3 Air on 26.6.2) and
+# esp/aurora/stage1-j700.bin, which engine .32 fills per board.
 #
 # Every Neo-only piece is inert on other Macs: the J700 U-Boot and the MT7932
 # regulatory policy are files only the Neo's chain reads, the Bluetooth
@@ -20,9 +23,9 @@
 # and leaves boot.bin alone. Unlike the dev5 Neo image there is no global
 # WIRELESS_REGDOM and no stale /usr/lib/asahi-boot-j700/m1n1.bin.
 #
-# Not runnable yet: m1n1-neo must come from an Aurora release that no longer
-# provides or conflicts with m1n1 (ticket 02, aurora-asks.md). Fill in the
-# TICKET-02 values below when it ships; until then the script stops at once.
+# Not runnable yet: the aura package must come from the release that ships
+# aura v1.0b1. Fill in the AURA-PLACEHOLDER values below when it is published;
+# until then the script stops at once.
 # Until Aurora packages the Neo support files (aurora-j700-support), the J700
 # U-Boot, the MT7932 policy and the Bluetooth unit are copied in unowned.
 #
@@ -38,37 +41,30 @@ OUT_ZIP=omarchy-2026.10.11-aarch64-apple-silicon-mac-edge-m123-neo-os-package.zi
 RELEASE_URL=https://github.com/omacom/linux-aurora/releases/download/aurora-2026.10.11.14
 KERNEL_VERSION=7.1.12.aurora2-20261011.14
 MODULES_VERSION=7.1.12-2-20261011.14-sep-ARCH
-M1N1_PACKAGE=m1n1-aurora-1.6.1.aurora17-5-aarch64.pkg.tar.zst
-# The m1n1.bin inside it; Aurora's installer reports the same digest.
-M1N1_SHA256=396cf3ec1774ca9d15ca1b6f71b5e8a3639b27f80b95d530722b35a5ea35141d
-# ---- TICKET-02 placeholders: Aurora's co-installable m1n1-neo. ----
+# ---- AURA-PLACEHOLDER: the aura v1.0b1 package. ----
 # The release that ships it (it may also carry a newer kernel; if so, move the
-# kernel pins above to it), the package file, GitHub's asset digest for it, and
-# the digest of /usr/lib/m1n1-neo/m1n1.bin inside it (Aurora's installer
-# reports the same). dev5's m1n1-neo-1.6.1.aurora16.neo.20261009-10 still
-# conflicts with m1n1 and cannot be used.
-M1N1_NEO_RELEASE_URL=TICKET-02-PLACEHOLDER-release-url
-M1N1_NEO_PACKAGE=TICKET-02-PLACEHOLDER-m1n1-neo-aarch64.pkg.tar.zst
-M1N1_NEO_PACKAGE_SHA256=TICKET-02-PLACEHOLDER-package-sha256
-M1N1_NEO_SHA256=TICKET-02-PLACEHOLDER-m1n1-bin-sha256
+# kernel pins above to it), the package file and GitHub's asset digest for it.
+# The Stage 1 and Stage 2 inside are not pinned separately: their digests are
+# computed from the verified package, printed, and checked against the ESP and
+# both boot.bins after the build. AURA_VERSION is what both images must carry
+# after their ##aura_ver## marker.
+AURA_RELEASE_URL=AURA-PLACEHOLDER-release-url
+AURA_PACKAGE=AURA-PLACEHOLDER-aura-aarch64.pkg.tar.zst
+AURA_PACKAGE_SHA256=AURA-PLACEHOLDER-package-sha256
+AURA_VERSION=1.0b1
+AURA_STAGE2_PATH=usr/lib/asahi-boot/m1n1.bin
+AURA_NEO_STAGE2_PATH=usr/lib/m1n1-neo/m1n1.bin
+AURA_STAGE1_PATH=usr/share/aura/stage1/aura-raw.bin
 # GitHub's published asset digests: file, digest, release.
 PACKAGES=(
   "linux-aurora-$KERNEL_VERSION-aarch64.pkg.tar.zst ea2dd7b92f90ddc4411932b5fff25ac1209509ddfb2986222ee5ee3bfe15d9be $RELEASE_URL"
   "linux-aurora-headers-$KERNEL_VERSION-aarch64.pkg.tar.zst 3c5eaf403820d74f7bfde4592d04aa2c7c246d7e53521f5e3e6866b8c2be877c $RELEASE_URL"
-  "$M1N1_PACKAGE fd72ec6c7ff514a2fb17141ccd8ff94268e4412fc5660fb0db62564a036e30ca $RELEASE_URL"
-  "$M1N1_NEO_PACKAGE $M1N1_NEO_PACKAGE_SHA256 $M1N1_NEO_RELEASE_URL"
+  "$AURA_PACKAGE $AURA_PACKAGE_SHA256 $AURA_RELEASE_URL"
 )
-# Satya's unfilled v1.6.1-m3next.stage1 (aurora-silicon/m1n1 a7f0b4583150), in
-# $in/j613. It boots only a J613 on 26.6.2 OS firmware and stays in proxy mode
-# anywhere else; engine .32 fills it with the ESP and a 0 ms proxy window.
-J613_STAGE1=m1n1-j613-stage1-v1.6.1-m3next.stage1.bin
-J613_STAGE1_SHA256=2cc65ed4dc01c3a7ae26846b1e330f463d5f9c27d5f74ecc80a5c7ff8dc6cc38
-# The J700 boot binaries in $in/j700 (also listed in its SHA256SUMS), as dev2
-# installed them and dev5 shipped them: the unfilled J700 Stage 1, which engine
-# .32 fills with a 5000 ms window, and aurora-silicon/u-boot j700. dev2's J700
-# m1n1 Stage 2 (m1n1-j700-stage2.bin) is superseded by m1n1-neo and not used.
-J700_STAGE1=m1n1-j700-stage1.bin
-J700_STAGE1_SHA256=68851212af8e3bc4ad30f7c9ddf6a3f6e83fb10383737172282c3150db288257
+# The J700 U-Boot in $in/j700 (also listed in its SHA256SUMS), as dev2
+# installed it and dev5 shipped it: aurora-silicon/u-boot j700. The J700 and
+# J613 Stage 1s and the J700 Stage 2 now come from the aura package; dev2's and
+# dev5's m1n1 Stage 1 and Stage 2 files in $in/j700 are not used.
 J700_UBOOT=u-boot-j700-nodtb.bin
 J700_UBOOT_SHA256=3b80e484ae0af137043c2e1ab9a333655b0916d4c5a15483908cf6e2f18c1092
 # MT7932 Wi-Fi regulatory policy from Chris, in $in/mt7932-policy, as the third
@@ -100,8 +96,8 @@ sha() { sha256sum "$1" | cut -d' ' -f1; }
 
 (( EUID == 0 )) || fail "run with sudo"
 [[ $(uname -m) == "aarch64" ]] || fail "this needs an aarch64 host"
-for value in "$M1N1_NEO_RELEASE_URL" "$M1N1_NEO_PACKAGE" "$M1N1_NEO_PACKAGE_SHA256" "$M1N1_NEO_SHA256"; do
-  [[ $value != *TICKET-02* ]] || fail "fill in Aurora's co-installable m1n1-neo (ticket 02) before building: $value"
+for value in "$AURA_RELEASE_URL" "$AURA_PACKAGE" "$AURA_PACKAGE_SHA256"; do
+  [[ $value != *AURA-PLACEHOLDER* ]] || fail "fill in the aura v1.0b1 package before building: $value"
 done
 script_dir=$(dirname "$(readlink -f "$0")")
 selector=$script_dir/update-m1n1-board
@@ -120,7 +116,7 @@ if [[ ${1:-} != --inside ]]; then
   done
   [[ ! -e $out/$OUT_ZIP ]] || fail "$out/$OUT_ZIP already exists; move it away to rebuild"
   mkdir -p "$in/pkgs" "$work" "$out" "$logs"
-  say "Fetching Aurora's $KERNEL_VERSION kernel and both m1n1s"
+  say "Fetching Aurora's $KERNEL_VERSION kernel and aura"
   for entry in "${PACKAGES[@]}"; do
     read -r file digest url <<<"$entry"
     if [[ ! -f $in/pkgs/$file ]]; then
@@ -129,33 +125,30 @@ if [[ ${1:-} != --inside ]]; then
     fi
     [[ $(sha "$in/pkgs/$file") == "$digest" ]] || fail "$file does not match GitHub's digest"
   done
-  say "Checking the stock image, both m1n1 packages, the boot binaries and the selector"
+  say "Checking the stock image, the aura package, the boot binaries and the selector"
   [[ $(sha "$in/$STOCK_ZIP") == "$STOCK_SHA256" ]] || fail "$STOCK_ZIP does not match its digest"
-  bsdtar -xOf "$in/pkgs/$M1N1_PACKAGE" usr/lib/asahi-boot/m1n1.bin >"$work/m1n1.bin"
-  [[ $(sha "$work/m1n1.bin") == "$M1N1_SHA256" ]] || fail "$M1N1_PACKAGE's m1n1.bin does not match Aurora's digest"
-  # m1n1-neo must install beside m1n1-aurora: pacman --noconfirm will not
-  # remove a conflicting package, and both still claiming m1n1 would make
-  # pacman -U stop (or, answered differently, drop m1n1-aurora).
-  bsdtar -xOf "$in/pkgs/$M1N1_NEO_PACKAGE" .PKGINFO >"$work/m1n1-neo.PKGINFO"
-  grep -qx 'pkgname = m1n1-neo' "$work/m1n1-neo.PKGINFO" || fail "$M1N1_NEO_PACKAGE is not m1n1-neo"
-  if grep -Eq '^(conflict|provides|replaces) = m1n1([<>=].*)?$' "$work/m1n1-neo.PKGINFO"; then
-    grep -E '^(conflict|provides|replaces) = ' "$work/m1n1-neo.PKGINFO" >&2
-    fail "$M1N1_NEO_PACKAGE still provides, conflicts with or replaces m1n1, so it cannot sit beside m1n1-aurora; wait for Aurora's co-installable build (ticket 02)"
-  fi
+  # The one aura package replaces the stock m1n1 and serves every board.
+  bsdtar -xOf "$in/pkgs/$AURA_PACKAGE" .PKGINFO >"$work/aura.PKGINFO"
+  grep -qx 'pkgname = aura' "$work/aura.PKGINFO" || fail "$AURA_PACKAGE is not aura"
+  for name in m1n1 m1n1-aurora m1n1-neo; do
+    grep -Eq "^provides = $name([<>=].*)?\$" "$work/aura.PKGINFO" || fail "$AURA_PACKAGE does not provide $name"
+  done
   # Listed to a file first: grep -q closing a pipe early would turn bsdtar's
   # SIGPIPE into a failure that the ! hides under pipefail.
-  bsdtar -tf "$in/pkgs/$M1N1_NEO_PACKAGE" >"$work/m1n1-neo.list"
-  ! grep -q '^usr/lib/asahi-boot/' "$work/m1n1-neo.list" ||
-    fail "$M1N1_NEO_PACKAGE ships files under usr/lib/asahi-boot, which m1n1-aurora owns"
-  bsdtar -xOf "$in/pkgs/$M1N1_NEO_PACKAGE" usr/lib/m1n1-neo/m1n1.bin >"$work/m1n1-neo.bin"
-  [[ $(sha "$work/m1n1-neo.bin") == "$M1N1_NEO_SHA256" ]] || fail "$M1N1_NEO_PACKAGE's m1n1.bin does not match Aurora's digest"
-  bsdtar -xOf "$in/pkgs/$M1N1_NEO_PACKAGE" usr/share/m1n1-neo/build-config.h >"$work/m1n1-neo.build-config.h"
-  grep -qx '#define ESP_STAGE2' "$work/m1n1-neo.build-config.h" ||
-    fail "$M1N1_NEO_PACKAGE is not an ESP Stage 2 build"
-  ! cmp -s "$work/m1n1.bin" "$work/m1n1-neo.bin" || fail "m1n1-aurora and m1n1-neo carry the same m1n1.bin"
-  [[ $(sha "$in/j613/$J613_STAGE1") == "$J613_STAGE1_SHA256" ]] || fail "$J613_STAGE1 does not match its digest"
-  (cd "$in/j700" && sha256sum -c --quiet SHA256SUMS) || fail "the J700 boot binaries do not match SHA256SUMS"
-  [[ $(sha "$in/j700/$J700_STAGE1") == "$J700_STAGE1_SHA256" ]] || fail "$J700_STAGE1 does not match dev5's J700 Stage 1"
+  bsdtar -tf "$in/pkgs/$AURA_PACKAGE" >"$work/aura.list"
+  for path in "$AURA_STAGE2_PATH" "$AURA_NEO_STAGE2_PATH" "$AURA_STAGE1_PATH"; do
+    grep -qx "$path" "$work/aura.list" || fail "$AURA_PACKAGE has no $path"
+  done
+  bsdtar -xOf "$in/pkgs/$AURA_PACKAGE" "$AURA_STAGE2_PATH" >"$work/aura-stage2.bin"
+  bsdtar -xOf "$in/pkgs/$AURA_PACKAGE" "$AURA_STAGE1_PATH" >"$work/aura-stage1.bin"
+  [[ -s $work/aura-stage2.bin && -s $work/aura-stage1.bin ]] || fail "$AURA_PACKAGE's Stage 1 or Stage 2 is empty"
+  grep -aqF "##aura_ver##$AURA_VERSION" "$work/aura-stage2.bin" || fail "$AURA_PACKAGE's Stage 2 is not aura $AURA_VERSION"
+  grep -aqF "##aura_ver##$AURA_VERSION" "$work/aura-stage1.bin" || fail "$AURA_PACKAGE's Stage 1 is not aura $AURA_VERSION"
+  grep -aqF 'AURORA-S1-CFG01' "$work/aura-stage1.bin" || fail "$AURA_PACKAGE's Stage 1 has no Aurora Stage 1 config block"
+  ! cmp -s "$work/aura-stage1.bin" "$work/aura-stage2.bin" || fail "$AURA_PACKAGE's Stage 1 and Stage 2 are the same image"
+  echo "aura $AURA_VERSION Stage 2 ($AURA_STAGE2_PATH): $(sha "$work/aura-stage2.bin")"
+  echo "aura $AURA_VERSION Stage 1 ($AURA_STAGE1_PATH): $(sha "$work/aura-stage1.bin")"
+  (cd "$in/j700" && sha256sum -c --quiet --ignore-missing SHA256SUMS) || fail "the J700 boot binaries do not match SHA256SUMS"
   [[ $(sha "$in/j700/$J700_UBOOT") == "$J700_UBOOT_SHA256" ]] || fail "$J700_UBOOT does not match dev5's J700 U-Boot"
   for entry in "${POLICY[@]}"; do
     read -r file digest <<<"$entry"
@@ -324,7 +317,9 @@ bt_admit=/usr/lib/aurora-j700/bluetooth-admit
 bt_unit=aurora-j700-bluetooth.service
 
 say "Before"
-guest pacman -Q linux-aurora m1n1-aurora || true
+guest pacman -Q linux-aurora || true
+old_m1n1=$(guest pacman -Qoq /usr/lib/asahi-boot/m1n1.bin 2>/dev/null || true)
+echo "Stage 2 owner: ${old_m1n1:-none}"
 old_modules=$(ls "$target/usr/lib/modules")
 echo "modules: $old_modules"
 snapshots_before=$(btrfs subvolume list -o "$target" 2>/dev/null | awk '{print $NF}' | sort)
@@ -351,10 +346,16 @@ cmp -s "$target/etc/default/update-m1n1" <(head -n "$PACKAGED_DEFAULT_LINES" "$d
   fail "/etc/default/update-m1n1 points update-m1n1 at its own files"
 ! grep -q '^chosen\.' "$target/etc/m1n1.conf" 2>/dev/null || fail "/etc/m1n1.conf arms switches"
 
-say "Installing Aurora's $KERNEL_VERSION kernel, m1n1-aurora and m1n1-neo"
-# One transaction. asahi-scripts' hook rebuilds boot.bin from the stock
-# configuration here (m1n1-aurora); both Stage 2s are rebuilt below anyway.
-install=(/tmp/neo-pkgs/linux-aurora-"$KERNEL_VERSION"-aarch64.pkg.tar.zst /tmp/neo-pkgs/"$M1N1_PACKAGE" /tmp/neo-pkgs/"$M1N1_NEO_PACKAGE")
+say "Replacing ${old_m1n1:-the stock m1n1} with aura and installing Aurora's $KERNEL_VERSION kernel"
+# aura conflicts with the m1n1 it replaces, and pacman --noconfirm will not
+# remove a conflicting package, so the old one goes first without dependency
+# checks; aura provides m1n1 and m1n1-aurora, which meets them again in the
+# next transaction. asahi-scripts' hook rebuilds boot.bin from the stock
+# configuration there; both Stage 2s are rebuilt below anyway.
+if [[ -n $old_m1n1 && $old_m1n1 != aura ]]; then
+  guest pacman -Rdd --noconfirm "$old_m1n1"
+fi
+install=(/tmp/neo-pkgs/linux-aurora-"$KERNEL_VERSION"-aarch64.pkg.tar.zst /tmp/neo-pkgs/"$AURA_PACKAGE")
 if guest pacman -Q linux-aurora-headers >/dev/null 2>&1; then
   install+=(/tmp/neo-pkgs/linux-aurora-headers-"$KERNEL_VERSION"-aarch64.pkg.tar.zst)
 fi
@@ -424,12 +425,12 @@ install -d -m 0755 "$target/usr/lib/omarchy-mac-image"
 install -m 0644 "$selector" "$target/usr/lib/omarchy-mac-image/update-m1n1-board"
 install -m 0644 "$default" "$target/etc/default/update-m1n1"
 
-say "Adding both unfilled Aurora Stage 1s"
+say "Adding aura's unfilled Stage 1 for both boards"
 install -d -m 0755 "$target/boot/efi/aurora"
-install -m 0644 "$in/j613/$J613_STAGE1" "$target/boot/efi/aurora/stage1-j613.bin"
-install -m 0644 "$in/j700/$J700_STAGE1" "$target/boot/efi/aurora/stage1-j700.bin"
+install -m 0644 "$target/$AURA_STAGE1_PATH" "$target/boot/efi/aurora/stage1-j613.bin"
+install -m 0644 "$target/$AURA_STAGE1_PATH" "$target/boot/efi/aurora/stage1-j700.bin"
 
-say "Rebuilding the Limine menu and both m1n1 Stage 2s"
+say "Rebuilding the Limine menu and both aura Stage 2s"
 guest limine-update
 # The Neo's first: update-m1n1 writes boot.bin, which becomes boot-j700.bin.
 guest env LC_ALL=C OMARCHY_M1N1_BOARD=j700 update-m1n1
@@ -455,24 +456,28 @@ snapshots_after=$(btrfs subvolume list -o "$target" 2>/dev/null | awk '{print $N
 say "After"
 modules=$(ls "$target/usr/lib/modules")
 echo "modules: $modules"
-guest pacman -Q linux-aurora linux-aurora-headers m1n1-aurora m1n1-neo || fail "a kernel or m1n1 package is missing"
+guest pacman -Q linux-aurora linux-aurora-headers aura || fail "a kernel or the aura package is missing"
+[[ $(guest pacman -Qoq /usr/lib/asahi-boot/m1n1.bin) == aura ]] || fail "aura does not own /usr/lib/asahi-boot/m1n1.bin"
+cmp -s "$target/$AURA_STAGE2_PATH" "$work/aura-stage2.bin" || fail "the installed Stage 2 is not the package's"
+cmp -s "$target/$AURA_STAGE1_PATH" "$work/aura-stage1.bin" || fail "the installed Stage 1 is not the package's"
+[[ $(guest readlink -f "/$AURA_NEO_STAGE2_PATH") == "/$AURA_STAGE2_PATH" ]] || fail "/$AURA_NEO_STAGE2_PATH is not aura's Stage 2"
 [[ $modules == "$MODULES_VERSION" ]] || fail "expected only $MODULES_VERSION modules, found: $modules"
 for module in kernel/drivers/net/wireless/mediatek/mt7932/mt7932-fullmac.ko kernel/drivers/bluetooth/mt7932_bt_pcie.ko; do
   ls "$target/usr/lib/modules/$MODULES_VERSION/$module"* >/dev/null 2>&1 || fail "the kernel has no $module"
 done
 grep -aq 'apple,j700' "$target/usr/lib/modules/$MODULES_VERSION/dtbs/t8140-j700.dtb" || fail "the kernel has no j700 device tree"
 # The M1-M3 Stage 2.
-cmp -s <(head -c "$(stat -c %s "$work/m1n1.bin")" "$boot_bin") "$work/m1n1.bin" ||
-  fail "boot.bin does not start with aurora17-5's m1n1"
+cmp -s <(head -c "$(stat -c %s "$work/aura-stage2.bin")" "$boot_bin") "$work/aura-stage2.bin" ||
+  fail "boot.bin does not start with aura $AURA_VERSION"
 for tree in "${REQUIRED_TREES[@]}"; do
   grep -aq "apple,$tree" "$boot_bin" || fail "boot.bin has no $tree device tree"
 done
-grep -aq 'mBoot-18000.161.9' "$boot_bin" || fail "boot.bin's m1n1 does not know macOS 26.6 firmware"
-grep -aq 'mBoot-18000.161.10' "$boot_bin" || fail "boot.bin's m1n1 does not know macOS 26.6.2 firmware"
+grep -aq 'mBoot-18000.161.9' "$boot_bin" || fail "boot.bin's aura does not know macOS 26.6 firmware"
+grep -aq 'mBoot-18000.161.10' "$boot_bin" || fail "boot.bin's aura does not know macOS 26.6.2 firmware"
 ends_with_gzip_of "$boot_bin" "$target/usr/lib/asahi-boot/u-boot-nodtb.bin" || fail "boot.bin does not end with uboot-asahi's U-Boot"
 # The Neo's Stage 2.
-cmp -s <(head -c "$(stat -c %s "$work/m1n1-neo.bin")" "$boot_j700") "$work/m1n1-neo.bin" ||
-  fail "boot-j700.bin does not start with m1n1-neo's m1n1"
+cmp -s <(head -c "$(stat -c %s "$work/aura-stage2.bin")" "$boot_j700") "$work/aura-stage2.bin" ||
+  fail "boot-j700.bin does not start with aura $AURA_VERSION"
 grep -aq 'apple,j700' "$boot_j700" || fail "boot-j700.bin has no j700 device tree"
 for tree in "${REQUIRED_TREES[@]}"; do
   grep -aq "apple,$tree" "$boot_j700" || fail "boot-j700.bin has no $tree device tree"
@@ -482,9 +487,9 @@ ls "$target/boot/efi/m1n1"
 for leftover in "$target"/boot/efi/m1n1/*.old "$target"/boot/efi/m1n1/*.new; do
   [[ ! -e $leftover ]] || fail "update-m1n1 left $leftover"
 done
-# Both Stage 1s.
-[[ $(sha "$target/boot/efi/aurora/stage1-j613.bin") == "$J613_STAGE1_SHA256" ]] || fail "the J613 Stage 1 on the ESP does not match its digest"
-[[ $(sha "$target/boot/efi/aurora/stage1-j700.bin") == "$J700_STAGE1_SHA256" ]] || fail "the J700 Stage 1 on the ESP does not match its digest"
+# Both Stage 1s are the package's.
+cmp -s "$target/boot/efi/aurora/stage1-j613.bin" "$work/aura-stage1.bin" || fail "the J613 Stage 1 on the ESP is not aura's"
+cmp -s "$target/boot/efi/aurora/stage1-j700.bin" "$work/aura-stage1.bin" || fail "the J700 Stage 1 on the ESP is not aura's"
 # The selector, and the packaged lines kept above it.
 cmp -s "$target/etc/default/update-m1n1" "$default" || fail "/etc/default/update-m1n1 is not the selector's default file"
 cmp -s "$target/usr/lib/omarchy-mac-image/update-m1n1-board" "$selector" || fail "the board selector is not installed"
