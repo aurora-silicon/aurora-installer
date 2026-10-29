@@ -66,7 +66,7 @@ jobs:
           cp -f linux/arch/arm64/boot/dts/apple/*.dts \
                 linux/arch/arm64/boot/dts/apple/*.dtsi \
                 linux/arch/arm64/boot/dts/apple/*.h \
-                u-boot/arch/arm/dts/
+                u-boot/dts/upstream/src/arm64/apple/
 
       - name: Build u-boot
         run: |
@@ -79,8 +79,8 @@ jobs:
           mkdir -p out/esp/m1n1/
           gzip -k u-boot/u-boot-nodtb.bin
           cat aura/build/aura.bin \
-              u-boot/arch/arm/dts/t60*.dtb \
-              u-boot/arch/arm/dts/t81*.dtb \
+              u-boot/dts/upstream/src/arm64/apple/t60*.dtb \
+              u-boot/dts/upstream/src/arm64/apple/t81*.dtb \
               u-boot/u-boot-nodtb.bin.gz \
               > out/esp/m1n1/boot.bin
           cd out
