@@ -56,7 +56,7 @@ jobs:
 
       - name: Build
         run: |
-          cd m1n1
+          cd aura
           make -k -j2 ARCH=aarch64-linux-gnu- RELEASE=1
 
       - name: Update u-boot apple device trees
@@ -72,11 +72,11 @@ jobs:
           make CROSS_COMPILE=aarch64-linux-gnu- apple_m1_defconfig
           make CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm -k -j2
 
-      - name: Create m1n1 uefi only boot.bin
+      - name: Create aura uefi only boot.bin
         run: |
           mkdir -p out/esp/m1n1/
           gzip -k u-boot/u-boot-nodtb.bin
-          cat m1n1/build/m1n1.bin \
+          cat aura/build/aura.bin \
               u-boot/arch/arm/dts/t60*.dtb \
               u-boot/arch/arm/dts/t81*.dtb \
               u-boot/u-boot-nodtb.bin.gz \

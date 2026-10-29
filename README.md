@@ -16,8 +16,9 @@ This repository provides the installer itself, supporting scripts, and the
 
 ## Building
 Run `./build.sh`, which will produce an installer tree under `releases/`. By
-default this will build m1n1 with chainloading support. You can optionally set
-`M1N1_STAGE1` to a prebuilt m1n1 stage 1 binary, and `LOGO` to a logo in icns format.
+default this will build aura (Aurora's bootloader, from the `aura` submodule) with
+chainloading support. You can optionally set `AURA_STAGE1` to a prebuilt aura stage 1
+binary (`M1N1_STAGE1` is still accepted), and `LOGO` to a logo in icns format.
 These are mostly useful for downstream distributions that would like to customize
 or brand the installer. By default, the build will fetch required dependencies from
 the Internet and cache them under `dl/`. If this isn't desired, place the required

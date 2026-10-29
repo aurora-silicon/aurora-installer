@@ -15,7 +15,7 @@ LIBFFI_BASE_URI="https://ghcr.io/v2/homebrew/core/libffi/blobs"
 LIBFFI_TARGET_OS="macOS 26"
 LIBFFI_PKG="libffi-$LIBFFI_VER-macos.tar.gz"
 
-M1N1="$PWD/m1n1"
+AURA="$PWD/aura"
 ARTWORK="$PWD/artwork"
 AFW="$PWD/asahi_firmware"
 SRC="$PWD/src"
@@ -81,19 +81,23 @@ else
         "$LIBFFI_BASE_URI/sha256:$digest"
 fi
 
-if [ -r "$M1N1_STAGE1" ]; then
-    echo "Using '$M1N1_STAGE1' as m1n1 stage1"
-elif [ ! -r "$M1N1/Makefile" ]; then
-    echo "m1n1 missing, did you forget to update the submodules?"
+# AURA_STAGE1 is a prebuilt aura Stage 1; M1N1_STAGE1 is still honoured for
+# older build setups.
+AURA_STAGE1="${AURA_STAGE1:-$M1N1_STAGE1}"
+
+if [ -r "$AURA_STAGE1" ]; then
+    echo "Using '$AURA_STAGE1' as aura stage1"
+elif [ ! -r "$AURA/Makefile" ]; then
+    echo "aura missing, did you forget to update the submodules?"
     exit 1
 else
-    echo "Building m1n1..."
+    echo "Building aura..."
 
     # Do it twice in case of build system shenanigans with versions
-    make -C "$M1N1" RELEASE=1 CHAINLOADING=1 -j4
-    make -C "$M1N1" RELEASE=1 CHAINLOADING=1 -j4
+    make -C "$AURA" RELEASE=1 CHAINLOADING=1 -j4
+    make -C "$AURA" RELEASE=1 CHAINLOADING=1 -j4
 
-    M1N1_STAGE1="$M1N1/build/m1n1.bin"
+    AURA_STAGE1="$AURA/build/aura.bin"
 fi
 
 echo "Copying files..."
@@ -110,7 +114,7 @@ else
     cp "$ARTWORK/logos/icns/AsahiLinux_logomark.icns" "$PACKAGE/logo.icns"
 fi
 mkdir -p "$PACKAGE/boot"
-cp "$M1N1_STAGE1" "$PACKAGE/boot/m1n1.bin"
+cp "$AURA_STAGE1" "$PACKAGE/boot/aura.bin"
 
 echo "Extracting libffi..."
 
