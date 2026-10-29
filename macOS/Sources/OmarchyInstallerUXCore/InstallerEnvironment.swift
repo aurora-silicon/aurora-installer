@@ -356,46 +356,33 @@
 
   public struct InstallProgressDisplay: Equatable, Sendable {
     public let phaseTitle: String
-    public let stageIndex: Int
-    public let stageFractions: [Double]
-    public let stageLabels: [String]
+    /// Every step of the run, from the first check to the last stage. The
+    /// list is fixed for the whole run.
+    public let stepLabels: [String]
+    /// The step under way; every step before it is done.
+    public let stepIndex: Int
+    /// 1 for each step that is done, otherwise 0.
+    public let stepFractions: [Double]
     public let feed: [JournalFeedLine]
     public let degraded: Bool
     public let startedAt: Date
-    /// The checks before anything changes, while no journal record has
-    /// arrived yet. Nil once the installation itself is under way.
-    public let preparation: InstallPreparationDisplay?
 
     public init(
       phaseTitle: String,
-      stageIndex: Int,
-      stageFractions: [Double],
-      stageLabels: [String],
+      stepIndex: Int,
+      stepFractions: [Double],
+      stepLabels: [String],
       feed: [JournalFeedLine],
       degraded: Bool,
-      startedAt: Date,
-      preparation: InstallPreparationDisplay? = nil
+      startedAt: Date
     ) {
       self.phaseTitle = phaseTitle
-      self.stageIndex = stageIndex
-      self.stageFractions = stageFractions
-      self.stageLabels = stageLabels
+      self.stepIndex = stepIndex
+      self.stepFractions = stepFractions
+      self.stepLabels = stepLabels
       self.feed = feed
       self.degraded = degraded
       self.startedAt = startedAt
-      self.preparation = preparation
-    }
-  }
-
-  /// The preparation checks in the order they run, and the one under way.
-  public struct InstallPreparationDisplay: Equatable, Sendable {
-    public let stepLabels: [String]
-    /// The step under way; every earlier step is done.
-    public let stepIndex: Int
-
-    public init(stepLabels: [String], stepIndex: Int) {
-      self.stepLabels = stepLabels
-      self.stepIndex = stepIndex
     }
   }
 

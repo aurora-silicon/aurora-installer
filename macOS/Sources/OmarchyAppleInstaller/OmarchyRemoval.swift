@@ -184,6 +184,9 @@
     /// A fresh install that stopped after creating its startup container,
     /// proved by the installer's own journal.
     let partial: RemovalPartialInstallation?
+    /// The binding of the native installer journal that proves `installation`
+    /// is its own, when the asahi installer's files on it don't.
+    let nativeJournal: String?
     let members: [RemovalPartition]
     let macOS: RemovalPartition
     let targetMacOSBytes: UInt64
@@ -206,6 +209,7 @@
         installation = nil
         evidence = nil
         partial = nil
+        nativeJournal = nil
         members = []
         self.macOS = macOS
         targetMacOSBytes = target
@@ -216,14 +220,21 @@
           let detail = (error as? RemovalFailure)?.message ?? "macOS couldn't read them"
           throw RemovalFailure(message: RemovalText.unreadable(found, detail: detail))
         }
+        // The native installer writes neither asahi/installer.log nor an m1n1
+        // step-2 object; its own journal is the proof for what it installed.
+        var nativeJournal: String?
         if let reason = evidence.problem(for: found) {
-          throw RemovalFailure(message: RemovalText.unconfirmed(found, reason: reason))
+          guard let journals, let journal = try journals.installer(of: found, in: snapshot) else {
+            throw RemovalFailure(message: RemovalText.unconfirmed(found, reason: reason))
+          }
+          nativeJournal = journal
         }
         let startup = try disks.startup(snapshot)
         kind = .installation
         installation = found
         self.evidence = evidence
         partial = nil
+        self.nativeJournal = nativeJournal
         members = found.members
         self.macOS = macOS
         targetMacOSBytes = target
@@ -238,6 +249,7 @@
         kind = .installation
         installation = nil
         evidence = nil
+        nativeJournal = nil
         partial = RemovalPartialInstallation(
           name: system?.name ?? stub.name, stub: stub, journal: journal)
         members = [stub]
@@ -414,6 +426,11 @@
         guard let live = installation.live(in: first),
           try disks.evidence(for: live, disk: first.disk) == plan.evidence
         else { throw changed }
+        if let journal = plan.nativeJournal {
+          guard let journals, try journals.installer(of: live, in: first) == journal else {
+            throw changed
+          }
+        }
       }
       if let partial = plan.partial {
         // The same journal must still prove it created this container and

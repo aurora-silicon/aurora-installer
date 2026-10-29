@@ -935,16 +935,14 @@
       await gate.waitUntilEntered()
       await waitUntil {
         guard case .installing(let progress) = session.phase else { return false }
-        return progress.preparation?.stepIndex == 2
+        return session.journal.preparationStep == 2 && progress.stepIndex == 0
       }
-      guard case .installing(let progress) = session.phase,
-        let preparation = progress.preparation
-      else {
+      guard case .installing(let progress) = session.phase else {
         return XCTFail("Expected the preparation on the install screen, got \(session.phase)")
       }
       XCTAssertEqual(progress.phaseTitle, PlainLanguage.installPreparing)
-      XCTAssertEqual(preparation.stepLabels, PlainLanguage.installPreparationSteps)
-      XCTAssertEqual(preparation.stepIndex, 2, "The account check, after the helper and handoff.")
+      XCTAssertEqual(progress.stepLabels, PlainLanguage.installSteps)
+      XCTAssertEqual(progress.stepIndex, 0, "The account check is part of getting ready.")
       await gate.release()
       await operation.value
     }
@@ -1355,19 +1353,21 @@
       XCTAssertFalse(session.canChangeChannel)
     }
 
-    func testCancellationAllowsEditingButRevokesApproval() async {
+    /// Cancelling the password goes back to the review, where the size can
+    /// change, and revokes the approval; Install approves again.
+    func testCancellingThePasswordReturnsToTheReviewAndRevokesApproval() async {
       let environment = MockInstallerEnvironment()
       let session = await ready(environment)
       session.presentInstallCredentials()
       session.dismissCredentials()
-      XCTAssertTrue(session.canEditPlan)
-      session.editPlan()
       XCTAssertFalse(environment.hasApprovedPlan)
       guard case .planReview(_, let acknowledged) = session.phase else {
         return XCTFail("Expected review")
       }
-      XCTAssertFalse(acknowledged)
+      XCTAssertTrue(acknowledged)
       XCTAssertFalse(session.canStartInstallation)
+      session.approve()
+      XCTAssertTrue(environment.hasApprovedPlan)
     }
 
     func testInspectionCannotOverlapInspection() async {

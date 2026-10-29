@@ -92,6 +92,46 @@
       XCTAssertFalse(NativePayloadPreflight.portableGRUB(bootHeader: header, efi: portable))
     }
 
+    /// Current Aurora NixOS images: GRUB has no built-in prefix and reads the
+    /// hardened grub.cfg beside it, which finds Boot by UUID on its own disk.
+    func testNixOSGRUBMayFindItsBootFilesystemThroughTheConfigBesideIt() {
+      var header = Data(repeating: 0, count: 0x478)
+      header.replaceSubrange(
+        0x468..<0x478,
+        with: Data([
+          0x41, 0xdc, 0x57, 0xcf, 0x2d, 0x07, 0x50, 0xf9,
+          0xba, 0x96, 0x7c, 0x95, 0xcd, 0xe8, 0x5a, 0xda,
+        ]))
+      let uuid = "41dc57cf-2d07-50f9-ba96-7c95cde85ada"
+      func config(_ uuid: String, prefix: Bool = true) -> Data {
+        Data(
+          """
+          if [ -n "$aurora_boot" ]; then
+            search --no-floppy --fs-uuid --set=root --hint="$aurora_boot" \(uuid)
+          \(prefix ? "  set prefix=($root)/grub\n" : "")  configfile ($root)/grub/grub.cfg
+          fi
+          """.utf8)
+      }
+      let grub = Data("MZ grub_search_fs_uuid partmap/gpt.c GPT entry %d".utf8)
+      XCTAssertTrue(
+        NativePayloadPreflight.portableGRUB(bootHeader: header, efi: grub, config: config(uuid)))
+      // No config, another filesystem's UUID, or no prefix from the search.
+      XCTAssertFalse(NativePayloadPreflight.portableGRUB(bootHeader: header, efi: grub))
+      XCTAssertFalse(
+        NativePayloadPreflight.portableGRUB(
+          bootHeader: header, efi: grub,
+          config: config("00000000-0000-0000-0000-000000000001")))
+      XCTAssertFalse(
+        NativePayloadPreflight.portableGRUB(
+          bootHeader: header, efi: grub, config: config(uuid, prefix: false)))
+      // A built-in slot prefix, or another built-in search, wins over the config.
+      for efi in ["MZ(,gpt2)/grub", "MZ(hd0,gpt2)/grub", "MZsearch.fs_uuid 0000 root\n"] {
+        XCTAssertFalse(
+          NativePayloadPreflight.portableGRUB(
+            bootHeader: header, efi: Data(efi.utf8), config: config(uuid)), efi)
+      }
+    }
+
     func testBooleanPartitionFieldsCannotBeStringsOrNumbers() async throws {
       let fixture = try fixture()
       let vector = try XCTUnwrap(fixture.vectors.first)

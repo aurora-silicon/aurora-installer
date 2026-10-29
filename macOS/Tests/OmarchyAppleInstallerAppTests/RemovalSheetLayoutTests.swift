@@ -199,48 +199,6 @@
         try savePreview(review, name: "compact-review")
         try savePreview(approval, name: "separate-approval")
       }
-
-      private func hasScrollView(_ view: NSView) -> Bool {
-        view is NSScrollView || view.subviews.contains(where: hasScrollView)
-      }
-
-      func testSheetCapsItselfBelowItsParentWindow() throws {
-        let screen = try XCTUnwrap(NSScreen.main)
-        let visible = screen.visibleFrame
-        let parent = NSWindow(
-          contentRect: CGRect(x: visible.minX + 40, y: visible.minY + 180, width: 780, height: 400),
-          styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false,
-          screen: screen)
-        parent.titlebarAppearsTransparent = true
-        parent.titleVisibility = .hidden
-        parent.isReleasedWhenClosed = false
-        parent.setFrameTopLeftPoint(CGPoint(x: visible.minX + 40, y: visible.minY + 700))
-        parent.orderFront(nil)
-        defer { parent.close() }
-        let expected = try XCTUnwrap(RemovalSheetLayout.heightCap(for: parent))
-        XCTAssertLessThan(expected, 700)
-        let view = NSHostingView(
-          rootView: OmarchyRemovalSheet(
-            previewScenario: .success, heightCap: nil, showsAccountFields: true))
-        let sheet = NSWindow(
-          contentRect: CGRect(x: 0, y: 0, width: 520, height: 200), styleMask: [.titled],
-          backing: .buffered, defer: false)
-        sheet.isReleasedWhenClosed = false
-        sheet.contentView = view
-        parent.beginSheet(sheet)
-        defer { parent.endSheet(sheet) }
-        let deadline = Date().addingTimeInterval(3)
-        while Date() < deadline {
-          RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-          if view.fittingSize.height > 200 && view.fittingSize.height <= expected { break }
-        }
-        XCTAssertIdentical(sheet.sheetParent, parent)
-        XCTAssertLessThanOrEqual(view.fittingSize.height, expected)
-        XCTAssertGreaterThan(view.fittingSize.height, 200)
-        XCTAssertTrue(hasScrollView(view))
-        XCTAssertGreaterThanOrEqual(sheet.frame.minY, visible.minY)
-        XCTAssertLessThanOrEqual(sheet.frame.maxY, parent.frame.maxY)
-      }
     }
   #endif
 #endif

@@ -53,11 +53,32 @@
       prepare(step: step)
     }
 
-    /// The preparation, until the helper writes the first journal record.
-    public var preparation: InstallPreparationDisplay? {
-      guard raw.isEmpty, completion == nil else { return nil }
-      return InstallPreparationDisplay(
-        stepLabels: PlainLanguage.installPreparationSteps, stepIndex: preparationStep)
+    /// Whether the checks are still under way: the helper hasn't written the
+    /// installation's first journal record.
+    public var isPreparing: Bool { raw.isEmpty && completion == nil }
+
+    /// Whether this run resets Linux in place, keeping Stage 1. The session
+    /// sets it from the approved plan before the run starts, so the list of
+    /// steps is known from the first moment.
+    public var preservesStage1 = false
+
+    /// Every step of the run, in order: the checks made before anything
+    /// changes, then the stages that change the disk. One fixed list for the
+    /// whole run; the Install screen never swaps it for another.
+    public var stepLabels: [String] {
+      preservesStage1 || isPreservedReset ? PlainLanguage.resetSteps : PlainLanguage.installSteps
+    }
+
+    /// The step under way in `stepLabels`.
+    public var stepIndex: Int {
+      isPreparing
+        ? PlainLanguage.installStep(forPreparationCheck: preparationStep)
+        : PlainLanguage.installCheckSteps + stageIndex
+    }
+
+    /// 1 for each step in `stepLabels` that is done, otherwise 0.
+    public var stepFractions: [Double] {
+      (0..<PlainLanguage.installCheckSteps).map { $0 < stepIndex ? 1 : 0 } + stageFractions
     }
 
     public var currentPhase: String? {
@@ -94,6 +115,7 @@
       lastEventName = nil
       feed = []
       preparationStep = 0
+      preservesStage1 = false
     }
 
     /// The number of the stage currently being worked on (0-based), derived
@@ -146,14 +168,12 @@
     public func display(startedAt: Date) -> InstallProgressDisplay {
       InstallProgressDisplay(
         phaseTitle: phaseTitle,
-        stageIndex: stageIndex,
-        stageFractions: stageFractions,
-        stageLabels: isPreservedReset
-          ? ["Replacing Linux and boot files"] : PlainLanguage.installStageLabels,
+        stepIndex: stepIndex,
+        stepFractions: stepFractions,
+        stepLabels: stepLabels,
         feed: feed,
         degraded: degraded,
-        startedAt: startedAt,
-        preparation: preparation
+        startedAt: startedAt
       )
     }
 
