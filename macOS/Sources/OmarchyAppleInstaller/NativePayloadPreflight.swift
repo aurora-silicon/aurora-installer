@@ -113,15 +113,28 @@
         // Installation moves Boot to another GPT slot. Its EFI loader must
         // locate the filesystem by UUID, not the source image's slot number.
         guard let bootHeader, let member = members["esp/EFI/BOOT/BOOTAA64.EFI"],
-          member.sizeBytes <= 16 << 20,
+          member.sizeBytes <= 16 << 20
+        else { throw NativePayloadPreflightError.invalidPayload }
+        // GRUB without a built-in prefix reads grub.cfg beside itself.
+        var config: Data?
+        if let entry = members["esp/EFI/BOOT/grub.cfg"], !entry.isDirectory,
+          entry.sizeBytes <= 64 << 10
+        {
+          config = try await archive.read(entry, maximumBytes: 64 << 10)
+        }
+        guard
           portableGRUB(
             bootHeader: bootHeader,
-            efi: try await archive.read(member, maximumBytes: 16 << 20))
+            efi: try await archive.read(member, maximumBytes: 16 << 20), config: config)
         else { throw NativePayloadPreflightError.invalidPayload }
       }
     }
 
-    static func portableGRUB(bootHeader: Data, efi: Data) -> Bool {
+    /// GRUB finds Boot by its filesystem UUID, never by a GPT slot number:
+    /// either through the script built into the EFI image, or, when the
+    /// image has no built-in prefix, through the grub.cfg beside it that
+    /// searches for that UUID and takes its prefix from the result.
+    static func portableGRUB(bootHeader: Data, efi: Data, config: Data? = nil) -> Bool {
       let uuidOffset = 0x468
       guard bootHeader.count >= uuidOffset + 16,
         efi.starts(with: Data([0x4d, 0x5a]))
@@ -136,7 +149,18 @@
       let fifth = String(hex.dropFirst(20))
       let uuid = [first, second, third, fourth, fifth].joined(separator: "-")
       let script = Data("search.fs_uuid \(uuid) root\nset prefix=($root)/grub\n".utf8)
-      return efi.range(of: script) != nil
+      if efi.range(of: script) != nil { return true }
+      guard let config, let text = String(data: config, encoding: .utf8),
+        efi.range(of: Data("search.fs_uuid ".utf8)) == nil,
+        String(decoding: efi, as: UTF8.self).range(
+          of: #"\([A-Za-z0-9]*,(gpt|msdos)[0-9]+\)"#, options: .regularExpression) == nil
+      else { return false }
+      let searches = text.split(separator: "\n").contains { line in
+        let words = line.split(separator: " ")
+        return words.first == "search" && words.contains("--fs-uuid")
+          && words.contains("--set=root") && words.last.map(String.init) == uuid
+      }
+      return searches && text.contains("set prefix=($root)/grub")
     }
 
     static func target(_ metadata: Data) throws -> [String: Any] {
