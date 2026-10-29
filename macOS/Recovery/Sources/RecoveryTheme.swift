@@ -21,10 +21,13 @@ final class RecoveryPrimaryButton: NSButton {
   required init?(coder: NSCoder) { fatalError("Use the programmatic initializer") }
 }
 
+/// The same native large rounded button as RecoveryPrimaryButton, without
+/// the default (Return) emphasis, so paired buttons match in shape and size.
 final class RecoverySecondaryButton: NSButton {
   override var intrinsicContentSize: NSSize {
     let size = super.intrinsicContentSize
-    return NSSize(width: size.width + 26, height: max(AuroraTheme.buttonHeight, size.height))
+    return NSSize(
+      width: max(92, size.width + 30), height: max(AuroraTheme.buttonHeight, size.height))
   }
 
   init(title: String, target: AnyObject?, action: Selector?) {
@@ -33,11 +36,9 @@ final class RecoverySecondaryButton: NSButton {
     self.target = target
     self.action = action
     bezelStyle = .rounded
-    font = AuroraTheme.control
-    contentTintColor = AuroraTheme.text
+    controlSize = .large
     isBordered = true
     translatesAutoresizingMaskIntoConstraints = false
-    heightAnchor.constraint(equalToConstant: AuroraTheme.buttonHeight).isActive = true
   }
 
   required init?(coder: NSCoder) { fatalError("Use the programmatic initializer") }
