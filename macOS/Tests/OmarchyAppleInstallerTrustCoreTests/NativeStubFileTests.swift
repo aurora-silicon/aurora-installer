@@ -279,6 +279,135 @@
       XCTAssertNil(try source.creator(of: stub, in: fixture.snapshot))
     }
 
+    func testOnlyTheJournalThatInstalledAnInstallationProvesIt() throws {
+      let fixture = try ExecutionFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.directory) }
+      let container = fixture.snapshot.containers[1]
+      let stub = try XCTUnwrap(
+        fixture.snapshot.partitions.first { $0.uuid == container.storeUUID })
+      let system = try XCTUnwrap(container.volumes.first { $0.roles == ["System"] })
+      func part(_ index: Int, _ type: String, _ offset: UInt64, _ size: UInt64) -> RemovalPartition
+      {
+        RemovalPartition(
+          identifier: "disk0s\(index)", uuid: UUID().uuidString, type: type, offset: offset,
+          size: size, name: "")
+      }
+      let esp = part(4, "EFI", stub.end, 524_288_000)
+      let boot = part(5, "Linux Filesystem", esp.end, 1_073_741_824)
+      let root = part(6, "Linux Filesystem", boot.end, 27_268_218_880)
+      let installation = RemovalInstallation(
+        name: system.name, stub: stub, system: system, esp: esp, linux: [boot, root])
+      // The receipt the native installer publishes before its checkpoint.
+      func receipt(_ parts: [RemovalPartition], group: String? = nil) throws -> Data {
+        try JSONSerialization.data(
+          withJSONObject: [
+            "plan_digest": fixture.approved.planDigest, "apfs_vgid": group ?? system.group!,
+            "system_volume": system.identifier, "efi_partition": esp.uuid.lowercased(),
+            "populated_partitions": zip(["EFI", "Boot", "Root"], parts).map { name, part in
+              [
+                "name": name, "partition_identifier": part.identifier,
+                "partition_uuid": part.uuid.lowercased(), "partition_size_bytes": part.size,
+              ] as [String: Any]
+            },
+          ], options: [.sortedKeys])
+      }
+      let installed = try receipt([esp, boot, root])
+      try fixture.writeEvidence(installed, name: "stub-and-esp-installed")
+      func record(_ sequence: Int, _ type: String, _ payload: [String: Any]) throws -> Data {
+        var payload = payload
+        payload["plan_digest"] = fixture.approved.planDigest
+        return try JSONSerialization.data(
+          withJSONObject: [
+            "schema_version": 1, "sequence": sequence, "type": type, "payload": payload,
+          ], options: [.sortedKeys]) + Data([10])
+      }
+      let prepared = try Data(contentsOf: fixture.journal)
+      let complete =
+        try prepared + record(6, "event", ["name": "stub_and_esp_started"])
+        + record(
+          7, "checkpoint",
+          [
+            "identifier": "stub-and-esp-installed", "phase": "stub_and_esp",
+            "evidence_digest": SHA256Digest(hashing: installed).rawValue,
+          ])
+      try complete.write(to: fixture.journal)
+      func proves(
+        _ installation: RemovalInstallation, transcript: Data? = nil,
+        replaced: (String, Data)? = nil
+      ) -> Bool {
+        NativeRemovalInstallJournals.installed(
+          installation, transcript: transcript ?? complete, snapshot: fixture.snapshot,
+          evidence: { identifier in
+            if let replaced, replaced.0 == identifier { return replaced.1 }
+            return try Data(
+              contentsOf: URL(
+                fileURLWithPath: fixture.journal.path + "." + identifier + ".evidence"))
+          })
+      }
+      XCTAssertTrue(proves(installation))
+      // Stopping before the ESP and images were installed proves nothing.
+      XCTAssertFalse(proves(installation, transcript: prepared))
+      // Changed evidence, even a well-formed receipt for other partitions, fails its digest.
+      let other = part(6, "Linux Filesystem", boot.end, 27_268_218_880)
+      for replaced in [
+        ("apfs-target-prepared", Data("changed".utf8)),
+        ("stub-and-esp-installed", try receipt([esp, boot, other])),
+        ("stub-and-esp-installed", try receipt([esp, boot, root], group: UUID().uuidString)),
+      ] {
+        XCTAssertFalse(proves(installation, replaced: replaced), replaced.0)
+      }
+      // Any member that isn't the one installed is refused.
+      func changing(
+        stub changedStub: RemovalPartition? = nil, esp changedESP: RemovalPartition? = nil,
+        linux: [RemovalPartition]? = nil, group: String? = nil
+      ) -> RemovalInstallation {
+        RemovalInstallation(
+          name: system.name, stub: changedStub ?? stub,
+          system: RemovalVolume(
+            uuid: system.uuid, name: system.name, roles: system.roles,
+            group: group ?? system.group, identifier: system.identifier),
+          esp: changedESP ?? esp, linux: linux ?? [boot, root])
+      }
+      var resized = root
+      resized.size += 4096
+      let macOS = try XCTUnwrap(
+        fixture.snapshot.partitions.first { $0.uuid == fixture.snapshot.macOSStoreUUID })
+      for changed in [
+        changing(stub: macOS), changing(esp: part(4, "EFI", stub.end, 524_288_000)),
+        changing(linux: [boot, other]), changing(linux: [boot, resized]),
+        changing(linux: [boot]), changing(group: UUID().uuidString),
+      ] {
+        XCTAssertFalse(proves(changed))
+      }
+
+      // Read from the installer's working directory; a held journal proves nothing.
+      let working = fixture.directory.appendingPathComponent("working")
+      let journals = working.appendingPathComponent("execution-journals")
+      for path in [working, journals] {
+        try FileManager.default.createDirectory(
+          at: path, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+      }
+      let name = fixture.journal.lastPathComponent
+      for suffix in [
+        "", ".apfs-target-prepared.evidence", ".native-stub-volumes.evidence",
+        ".stub-and-esp-installed.evidence",
+      ] {
+        try FileManager.default.copyItem(
+          at: URL(fileURLWithPath: fixture.journal.path + suffix),
+          to: journals.appendingPathComponent(name + suffix))
+      }
+      let source = NativeRemovalInstallJournals(workingDirectory: working, owner: geteuid())
+      XCTAssertEqual(
+        try source.installer(of: installation, in: fixture.snapshot), String(name.dropLast(6)))
+      // The same journal is not mistaken for a partial installation's.
+      XCTAssertNil(try source.creator(of: stub, in: fixture.snapshot))
+      let held = open(journals.appendingPathComponent(name).path, O_RDONLY | O_CLOEXEC)
+      XCTAssertGreaterThanOrEqual(held, 0)
+      defer { close(held) }
+      XCTAssertEqual(flock(held, LOCK_EX | LOCK_NB), 0)
+      XCTAssertNil(try source.installer(of: installation, in: fixture.snapshot))
+    }
+
     func testSavedRestoreImageIsVerifiedWithoutDownloadingItAgain() async throws {
       let fixture = try ExecutionFixture()
       defer { try? FileManager.default.removeItem(at: fixture.directory) }

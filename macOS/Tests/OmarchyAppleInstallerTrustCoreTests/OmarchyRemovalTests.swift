@@ -329,10 +329,70 @@
     /// A journal source that names one creator for one startup container.
     final class FakeJournals: RemovalInstallJournals, @unchecked Sendable {
       var creators: [String: String]
-      init(_ creators: [String: String]) { self.creators = creators }
+      var installers: [String: String]
+      init(_ creators: [String: String], installers: [String: String] = [:]) {
+        self.creators = creators
+        self.installers = installers
+      }
       func creator(of stub: RemovalPartition, in snapshot: RemovalSnapshot) throws -> String? {
         creators[stub.uuid]
       }
+      func installer(of installation: RemovalInstallation, in snapshot: RemovalSnapshot) throws
+        -> String?
+      { installers[installation.stub.uuid] }
+    }
+
+    // MARK: Native installations
+
+    /// The native installer leaves no asahi/installer.log and no m1n1 step-2
+    /// object. Its own completed journal is the proof, checked again before
+    /// anything is deleted.
+    func testANativeInstallItsJournalInstalledIsRemovedWithoutAsahiFiles() throws {
+      let disk = FakeRemovalDisk(F.neoWithPreservedProxy())
+      disk.files!.installerLog = nil
+      disk.files!.stubBootObject = nil
+      for journals in [nil, FakeJournals([:])] as [FakeJournals?] {
+        XCTAssertThrowsError(try OmarchyRemovalPlan(disks: disk, journals: journals)) { error in
+          XCTAssertTrue(
+            (error as? RemovalFailure)?.message.contains(
+              "its EFI partition has no installer record (asahi/installer.log)") == true,
+            "\(error)")
+        }
+      }
+      let binding = String(repeating: "e", count: 64)
+      let journals = FakeJournals([:], installers: [F.convergedInstall.stub: binding])
+      let plan = try OmarchyRemovalPlan(disks: disk, journals: journals)
+      XCTAssertEqual(plan.kind, .installation)
+      XCTAssertEqual(plan.nativeJournal, binding)
+      XCTAssertEqual(
+        plan.members.map(\.uuid),
+        [F.convergedInstall.stub, F.convergedInstall.esp] + F.convergedInstall.linux)
+
+      for installer in [nil, String(repeating: "f", count: 64)] {
+        journals.installers[F.convergedInstall.stub] = installer
+        XCTAssertThrowsError(
+          try OmarchyRemovalExecutor(disks: disk, journals: journals).execute(plan) { _ in })
+        XCTAssertTrue(disk.operations.isEmpty)
+      }
+      XCTAssertThrowsError(try OmarchyRemovalExecutor(disks: disk).execute(plan) { _ in })
+      XCTAssertTrue(disk.operations.isEmpty)
+
+      journals.installers[F.convergedInstall.stub] = binding
+      try OmarchyRemovalExecutor(disks: disk, journals: journals).execute(plan) { _ in }
+      XCTAssertEqual(
+        disk.operations,
+        [
+          "container:\(F.convergedInstall.stub)", "erase:\(F.convergedInstall.esp)",
+          "erase:\(F.convergedInstall.linux[0])", "erase:\(F.convergedInstall.linux[1])",
+          "grow:\(F.mac)",
+        ])
+    }
+
+    /// An installation whose asahi files prove it never needs a journal.
+    func testAnAsahiInstallIsNotTiedToANativeJournal() throws {
+      let journals = FakeJournals([:], installers: [F.convergedInstall.stub: "unused"])
+      let plan = try OmarchyRemovalPlan(disks: FakeRemovalDisk(), journals: journals)
+      XCTAssertNil(plan.nativeJournal)
     }
 
     /// What the MacBook Neo was left with: a 6 GB startup container right
