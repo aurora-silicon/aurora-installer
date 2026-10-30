@@ -89,6 +89,8 @@ class DistributionPayloadTests(unittest.TestCase):
             'aurora_stage1']['qualified_machines']
         self.assertNotIn('j316sap', qualified)
         self.assertNotIn('j314sap', qualified)
+        for board in ('j314cap', 'j316cap', 'j375cap', 'j375dap'):
+            self.assertNotIn(board, qualified)
         self.assertIn('j413ap', qualified)
         self.assertIn('j700ap', qualified)
 
