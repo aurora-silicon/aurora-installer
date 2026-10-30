@@ -18,20 +18,52 @@
   /// authenticated payload's metadata. It returns what the installer would do
   /// and never does any of it.
   public enum NativeInstallerDryRun {
+    /// `experimental` replays the owner's opt-in for a Mac this release does
+    /// not support: the same inspection, planner and 1TR step, run against the
+    /// policy the experimental assessment widens for this one Mac.
     public static func run(
       machine machineData: Data, metadata: Data, payloadDigest: String,
-      archive: IPSWArchive?
+      archive: IPSWArchive?, experimental: ExperimentalHardwareLevel? = nil
     ) async throws -> Data {
       let machine = try JSONDecoder().decode(NativeInstallerDryRunMachine.self, from: machineData)
-      let policy = try NativeInspectionPolicy.sealed()
+      var policy = try NativeInspectionPolicy.sealed()
       let device = machine.deviceIdentifier
       var result: [String: Any] = [
         "schema": 1, "device_identifier": device,
         "policy_runtime": policy.runtimeVersion,
       ]
-      let supported =
+      var supported =
         !AppleSiliconHostInspector.isExplicitlyUnsupported(device)
         && policy.supports(device, hardware: machine.hardware)
+      var assessment: NativeExperimentalAssessment?
+      if let experimental {
+        var row: [String: Any] = ["requested_level": experimental.rawValue]
+        switch NativeExperimentalHardware.refusal(
+          device, hardware: machine.hardware, policy: policy)
+        {
+        case .supported?:
+          row["offered"] = false
+          row["refusal"] = "supported Mac: the experimental path is never offered"
+        case .knownBroken(let reason)?:
+          row["offered"] = false
+          row["refusal"] = "known to fail: " + reason
+        default:
+          row["offered"] = true
+          do {
+            let widened = try NativeExperimentalHardware.assess(
+              device, hardware: machine.hardware, policy: policy,
+              metadata: NativeInstallationMetadata(data: metadata), level: experimental)
+            assessment = widened
+            policy = widened.policy
+            supported = true
+            row["stub_firmware"] = widened.firmwareVersion
+            row["warnings"] = widened.warnings
+          } catch {
+            row["refusal"] = String(describing: error)
+          }
+        }
+        result["experimental"] = row
+      }
       result["supported"] = supported
       result["one_true_recovery_boot_policy"] = RecoveryBootPolicyArguments.bootPolicy(
         deviceIdentifier: device)
@@ -53,7 +85,7 @@
         firmware = try NativeFirmwareSelection.choose(
           deviceIdentifier: device,
           facts: .init(deviceIdentifier: device, hardware: machine.hardware),
-          metadata: installation, policy: policy)
+          metadata: installation, policy: policy, experimental: assessment != nil)
         result["firmware"] = [
           "version": firmware!.version, "source_url": firmware!.sourceURL.absoluteString,
           "stub_bytes": firmware!.stubBytes,
@@ -118,7 +150,35 @@
           "length_bytes": $0.lengthBytes,
         ]
       }
-      if let archive, let firmware {
+      if let archive, firmware != nil, let assessment {
+        do {
+          let boot = try await NativeExperimentalBootChain.admit(
+            metadata: metadata, archive: archive, assessment: assessment)
+          var source: [String: Any] = ["kind": "none"]
+          switch boot.stage2 {
+          case .own(let member): source = ["kind": "own", "member": member]
+          case .sibling(let board, let member):
+            source = ["kind": "sibling", "board": "apple," + board, "member": member]
+          case .none: break
+          }
+          result["boot_chain"] =
+            [
+              "esp_layout": boot.espLayout, "window_milliseconds": 0,
+              "stage1_member": boot.stage1Member, "stage1_bytes": boot.stage1Bytes,
+              "stage1_sha256": boot.stage1SHA256, "stage2_source": source,
+              "stage2_bytes": boot.stage2Bytes, "stage2_sha256": boot.stage2SHA256,
+              "stage2_trees": boot.stage2Trees,
+              "extra_files": boot.extraFiles.keys.sorted(), "level": boot.assessment.level.rawValue,
+              "notes": boot.notes,
+              "record":
+                (try? JSONSerialization.jsonObject(
+                  with: boot.extraFiles[NativeExperimentalHardware.recordPath] ?? Data()))
+                ?? NSNull(),
+            ] as [String: Any]
+        } catch {
+          result["boot_chain_error"] = String(describing: error)
+        }
+      } else if let archive, let firmware {
         do {
           let boot = try await NativeBootChain.admit(
             metadata: metadata, archive: archive, deviceIdentifier: device,

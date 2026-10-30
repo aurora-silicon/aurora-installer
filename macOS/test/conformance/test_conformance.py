@@ -102,5 +102,24 @@ class RuleTests(unittest.TestCase):
         self.assertIn('free about', check['detail'])
 
 
+class ExpectationTests(unittest.TestCase):
+    def cell(self, opt_in, supported):
+        return {'machine': 'x', 'mode': 'fresh', 'distro': 'fedora', 'opt_in': opt_in, 'at_pin': 'FAIL',
+                'checks': [{'check': 'supported', 'ok': supported}]}
+
+    def test_an_unknown_board_that_stops_being_refused_by_default_is_a_regression(self):
+        expected = {'cells': {'x/fresh/fedora': {'verdict': 'FAIL', 'must_fail': ['supported']},
+                              'x/fresh/fedora/full-send': {'verdict': 'FAIL', 'must_ok': ['supported']}}}
+        self.assertEqual(conformance.compare_expected([self.cell(None, False), self.cell('full-send', True)],
+                                                      expected), 0)
+        self.assertEqual(conformance.compare_expected([self.cell(None, True)], expected), 1)
+        self.assertEqual(conformance.compare_expected([self.cell('full-send', False)], expected), 1)
+
+    def test_experimental_fixtures_declare_their_levels(self):
+        for name, machine in MACHINES.items():
+            for level in (machine.get('experimental') or {}).get('opt_in', []):
+                self.assertIn(level, ('bootloader-only', 'full-send'), name)
+
+
 if __name__ == '__main__':
     unittest.main()
