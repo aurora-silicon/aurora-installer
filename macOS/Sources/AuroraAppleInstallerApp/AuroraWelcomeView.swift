@@ -16,18 +16,17 @@ struct AuroraWelcomeView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 38).padding(.top, 28)
       VStack(alignment: .leading, spacing: 10) {
-        sectionTitle("Distribution")
+        sectionTitle("Base system")
         LazyVGrid(columns: columns, spacing: 18) {
           ForEach(AuroraDistribution.allCases) { distribution in
             SelectionCard(
-              selected: selection.distribution == distribution, label: distribution.title
+              selected: selection.distribution == distribution, label: distribution.displayName
             ) {
               selection.distribution = distribution
             } content: {
-              HStack(spacing: 9) {
-                distributionMark(distribution)
-                Text(distribution.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
-              }.frame(maxWidth: .infinity).frame(height: 66)
+              Text(distribution.displayName).font(.system(size: 13, weight: .medium))
+                .lineLimit(1).minimumScaleFactor(0.85)
+                .frame(maxWidth: .infinity).frame(height: 66)
             }
           }
         }
@@ -40,10 +39,7 @@ struct AuroraWelcomeView: View {
               } content: {
                 VStack(alignment: .leading, spacing: 10) {
                   DesktopPreview(desktop: desktop).clipShape(RoundedRectangle(cornerRadius: 9))
-                  HStack(spacing: 8) {
-                    desktopMark(desktop).frame(width: 20, height: 20)
-                    Text(desktop.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
-                  }
+                  Text(desktop.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
                   Text(desktopDescription(desktop)).font(.system(size: 11)).foregroundStyle(
                     .secondary)
                 }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
@@ -53,6 +49,10 @@ struct AuroraWelcomeView: View {
         }
       }.padding(.horizontal, 38).padding(.top, 26)
       Spacer(minLength: 18)
+      Text(Self.notice(for: selection.distribution))
+        .font(.system(size: 11)).foregroundStyle(.secondary)
+        .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity).padding(.horizontal, 38).padding(.bottom, 14)
       Button("Continue", action: onContinue)
         .auroraPrimaryButton().padding(.bottom, 28)
     }
@@ -60,22 +60,29 @@ struct AuroraWelcomeView: View {
     .background(Color(nsColor: .windowBackgroundColor))
   }
 
+  /// What each distribution's trademark terms ask a modified release to say.
+  static func noticeMarkdown(for distribution: AuroraDistribution) -> String {
+    switch distribution {
+    case .fedora:
+      "This Fedora Remix contains modified Fedora® software and is not provided or supported "
+        + "by the Fedora Project. Official Fedora is available at "
+        + "[fedoraproject.org](https://fedoraproject.org/). Fedora is a registered trademark of "
+        + "Red Hat, Inc., or its subsidiaries in the United States and other countries."
+    case .arch:
+      "This system is based on Arch Linux ARM and is not provided or endorsed by the "
+        + "Arch Linux or Arch Linux ARM projects."
+    case .nixos:
+      "This system is based on NixOS and is not provided or endorsed by the NixOS project."
+    }
+  }
+
+  static func notice(for distribution: AuroraDistribution) -> AttributedString {
+    let markdown = noticeMarkdown(for: distribution)
+    return (try? AttributedString(markdown: markdown)) ?? AttributedString(markdown)
+  }
+
   private func sectionTitle(_ text: String) -> some View {
     Text(text).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
-  }
-
-  @ViewBuilder
-  private func distributionMark(_ distribution: AuroraDistribution) -> some View {
-    DistributionMark(distribution: distribution).frame(width: 32, height: 32)
-  }
-
-  @ViewBuilder
-  private func desktopMark(_ desktop: AuroraDesktop) -> some View {
-    switch desktop {
-    case .kde: BrandImage("Plasma")
-    case .gnome: BrandImage("GNOME")
-    case .minimal: Image(systemName: "terminal")
-    }
   }
 
   private func desktopDescription(_ desktop: AuroraDesktop) -> String {
@@ -123,11 +130,9 @@ private struct SelectionCard<Content: View>: View {
 
 struct BrandImage: View {
   let name: String
-  @Environment(\.colorScheme) private var scheme
   init(_ name: String) { self.name = name }
   var body: some View {
-    let asset = name == "GNOME" && scheme == .dark ? "GNOME-Dark" : name
-    if let url = Bundle.main.url(forResource: asset, withExtension: "png"),
+    if let url = Bundle.main.url(forResource: name, withExtension: "png"),
       let image = NSImage(contentsOf: url)
     {
       Image(nsImage: image).resizable().interpolation(.high).scaledToFit()

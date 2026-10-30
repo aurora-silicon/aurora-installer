@@ -253,6 +253,13 @@ struct AuroraAppleInstallerApp: App {
     .windowResizability(.contentMinSize)
     .windowStyle(.hiddenTitleBar)
     .commands {
+      CommandGroup(replacing: .appInfo) {
+        Button("About Aurora Installer") {
+          NSApplication.shared.orderFrontStandardAboutPanel(options: [
+            .credits: TrademarkNotice.credits
+          ])
+        }
+      }
       #if DEBUG
         if isSimulation {
           CommandMenu("Simulation") {

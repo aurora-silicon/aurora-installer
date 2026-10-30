@@ -125,18 +125,23 @@ class DistributionPayloadTests(unittest.TestCase):
                     icon = archive.read(metadata['icon'])
                 self.assertEqual(icon[:4], b'icns')
                 self.assertEqual(int.from_bytes(icon[4:8], 'big'), len(icon))
-                self.assertEqual(hashlib.sha256(icon).hexdigest(), provenance[distribution]['sha256'])
+                self.assertIn(distribution, provenance['aurora']['used_by'])
+                self.assertEqual(hashlib.sha256(icon).hexdigest(), provenance['aurora']['sha256'])
                 self.assertEqual(icon, payload.DISTRIBUTION_ICONS[distribution].read_bytes())
                 if distribution in observed:
                     self.assertEqual(icon, observed[distribution])
                 observed[distribution] = icon
-        self.assertEqual(len(set(observed.values())), 3)
+        # Every system's startup volume shows the Aurora mark.
+        self.assertEqual(set(provenance), {'aurora'})
+        self.assertEqual(len(set(observed.values())), 1)
 
     def test_resume_rejects_an_icon_from_another_distribution(self):
         from unittest.mock import patch
         output = self.root / 'output'
         payload.assemble(self.bundle, self.app, output, release_id="fixture")
-        with patch.dict(payload.DISTRIBUTION_ICONS, fedora=payload.DISTRIBUTION_ICONS['nixos']):
+        other = self.root / 'other.icns'
+        other.write_bytes(b'icns' + (16).to_bytes(4, 'big') + b'not-aurora')
+        with patch.dict(payload.DISTRIBUTION_ICONS, fedora=other):
             with self.assertRaisesRegex(ValueError, 'content differs: aurora-volume.icns'):
                 payload.assemble(self.bundle, self.app, output, reuse_payload=True, release_id="fixture")
 
