@@ -19,27 +19,10 @@
       ],
       "used_by": [
         "fedora",
-        "arch"
-      ],
-      "reason": "The Fedora and Arch Linux marks are not used for Aurora remixes without their projects\u2019 permission."
-    },
-    "nixos": {
-      "source": "Resources/BrandSources/NixOS-Icon.svg",
-      "source_sha256": "e37b5a1c11e81496e9d46af04908951ada6babaa416d670aaae4934cce912eb2",
-      "sha256": "0050f67c6a902d56e70e65b9805f34f906b33df437fcf99c68c369e576a9b645",
-      "bytes": 139502,
-      "sizes": [
-        16,
-        32,
-        64,
-        128,
-        256,
-        512,
-        1024
-      ],
-      "used_by": [
+        "arch",
         "nixos"
-      ]
+      ],
+      "reason": "Fedora, Arch Linux (ARM) and NixOS marks are not used for Aurora releases without their owners\u2019 permission."
     }
   },
   "reproduction": "For each recorded size, render the source with rsvg-convert -w SIZE -h SIZE SOURCE; encode the seven PNGs as ICNS records icp4,icp5,icp6,ic07,ic08,ic09,ic10 using big-endian 32-bit record and file lengths. No background is added."

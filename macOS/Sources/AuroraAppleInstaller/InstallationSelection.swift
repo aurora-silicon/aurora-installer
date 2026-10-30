@@ -10,6 +10,16 @@ public enum AuroraDistribution: String, CaseIterable, Codable, Identifiable, Sen
     case .nixos: "Aurora NixOS"
     }
   }
+  /// What the installer shows. Upstream names appear only as their trademark
+  /// terms allow: Fedora's Remix mark, and "based on" for Arch Linux ARM and
+  /// NixOS. `title` stays the installed volume's name, which other code matches.
+  public var displayName: String {
+    switch self {
+    case .fedora: "Fedora Remix"
+    case .arch: "Based on Arch Linux ARM"
+    case .nixos: "Based on NixOS"
+    }
+  }
   public var supportsDesktop: Bool { true }
 }
 
@@ -43,7 +53,7 @@ public struct AuroraInstallationSelection: Equatable, Codable, Sendable {
     distribution.rawValue + "-" + desktop.rawValue
   }
   public var summary: String {
-    distribution.title + " · " + desktop.title
+    "Aurora (" + distribution.displayName + ") · " + desktop.title
   }
   public static var allProfileIDs: Set<String> {
     Set(

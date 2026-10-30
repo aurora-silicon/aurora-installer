@@ -1,54 +1,10 @@
 {
-  "Plasma.svg": {
-    "source": "https://kde.org/stuff/clipart/logo/plasma-logo-colorful.svg",
-    "attribution": "KDE e.V.; KDE clipart terms, LGPL",
-    "sha256": "f0da03938d0d87ad2135d9267e11d16adbb110ea2f22bb902955e151e511b4b8"
-  },
-  "GNOME.svg": {
-    "source": "https://brand.gnome.org/logos/gnome-logos.zip",
-    "attribution": "GNOME Project; CC BY-SA 4.0",
-    "sha256": "cfcc840d30cdd86f07e441bbaf921943623f38cdbfcf5f9287d1a1b81f2b4505"
-  },
-  "GNOME-Dark.svg": {
-    "source": "https://brand.gnome.org/logos/gnome-logos.zip",
-    "attribution": "GNOME Project; CC BY-SA 4.0",
-    "sha256": "ff92c10bb5d87e4153c7669d644cf341fb545cf2de1b225073898b7c6ffeb67d"
-  },
-  "UEFI.svg": {
-    "source": "https://commons.wikimedia.org/wiki/File:Logo_of_the_UEFI_Forum.svg",
-    "attribution": "UEFI Forum logo; identifies the UEFI boot environment.",
-    "sha256": "4e6180a9a29404e71a257c0ab0084c2db131fba2672cdc33f80ffde386926bb2"
+  "AuroraLogo.png": {
+    "source": "Aurora Silicon",
+    "description": "The only logo the installer and its startup volumes show."
   },
   "desktopMockups": {
     "source": "Sources/AuroraAppleInstallerApp/DesktopPreview.swift",
-    "description": "Minimal keeps its native shell illustration. KDE and GNOME use actual upstream desktop screenshots."
-  },
-  "NixOS.png": {
-    "source": "BrandSources/NixOS-Icon.svg",
-    "transformation": "rsvg-convert -w 128; transparent background",
-    "attribution": "NixOS contributors",
-    "sha256": "ab1db7991b6ffdd172668b4b20a0a6382005ea349c3937b166363a82fbc25103",
-    "license": "https://creativecommons.org/licenses/by/4.0/"
-  },
-  "NixOS-Icon.svg": {
-    "source": "https://raw.githubusercontent.com/NixOS/nixos-artwork/9d2cdedd73d64a068214482902adea3d02783ba8/logo/nix-snowflake-colours.svg",
-    "attribution": "NixOS contributors; official snowflake used to identify NixOS",
-    "sha256": "e37b5a1c11e81496e9d46af04908951ada6babaa416d670aaae4934cce912eb2",
-    "license": "https://creativecommons.org/licenses/by/4.0/"
-  },
-  "KDE-Desktop.png": {
-    "source": "https://kde.org/content/plasma-desktop/plasma-launcher.png",
-    "source_sha256": "79046ba02eda26c78b88f71a44c9c35eef03ce74ca38556c5a44f93608cd8dca",
-    "attribution": "KDE Community; Plasma desktop screenshot from kde.org",
-    "transformation": "Downscaled to 640x360, full screenshot retained; magick SOURCE -resize 640x -strip OUTPUT",
-    "sha256": "741eafc2c491e9b8270fcadb9b15b71233df4f1069eb4ce9dde1e29af0c6e56d"
-  },
-  "GNOME-Desktop.png": {
-    "source": "https://gitlab.gnome.org/Teams/Websites/www.gnome.org/-/raw/099e9130e16c633fc767dab14e5b85b9b0880167/src/tex/49/overview.png",
-    "source_sha256": "2f8798b128cb79b090dca738492cc6a8d19004a6b3f8e867e714a028347647f7",
-    "attribution": "The GNOME Project; CC BY-SA 4.0",
-    "license": "https://creativecommons.org/licenses/by-sa/4.0/",
-    "transformation": "Downscaled to 640x400, full screenshot retained; magick SOURCE -resize 640x -strip OUTPUT",
-    "sha256": "94a4fb9fc0c67fb13eb21ba7b10eeb3b218d88852a20b0374eaf4b576d8fe01c"
+    "description": "KDE Plasma, GNOME and the minimal shell are drawn illustrations. No project logos or screenshots are bundled: Fedora's Remix terms, Arch Linux's derivative terms and GNOME's and the UEFI Forum's logo terms do not cover this use, KDE's logo terms cover referring to KDE itself, NixOS's trademark policy is unpublished, and kde.org gives no licence for its screenshots."
   }
 }

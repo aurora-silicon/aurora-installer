@@ -41,12 +41,12 @@ struct InstallerMasthead: View {
   var body: some View {
     HStack(spacing: 16) {
       HStack(spacing: Self.markSpacing) {
+        AuroraMark().frame(width: 32, height: 32)
+        Text("Aurora").font(.system(size: 17, weight: .semibold)).lineLimit(1)
         if let distribution {
-          DistributionMark(distribution: distribution).frame(width: 30, height: 30)
-        } else {
-          AuroraMark().frame(width: 32, height: 32)
+          Text(distribution.displayName).font(.system(size: 13)).foregroundStyle(.secondary)
+            .lineLimit(1)
         }
-        Text(title).font(.system(size: 17, weight: .semibold)).lineLimit(1)
       }
       Spacer(minLength: 16)
       HStack(spacing: Self.deviceSymbolSpacing) {
@@ -64,30 +64,5 @@ struct InstallerMasthead: View {
       .fixedSize(horizontal: true, vertical: false)
     }
     .foregroundStyle(.primary)
-  }
-
-  private var title: String {
-    switch distribution {
-    case .some(.fedora): "Aurora Fedora Remix"
-    case .some(.arch): "Aurora ALARM"
-    case .some(.nixos): "Aurora NixOS"
-    case nil: "Aurora Linux"
-    }
-  }
-}
-
-struct DistributionMark: View {
-  let distribution: AuroraDistribution
-
-  var body: some View {
-    BrandImage(asset).accessibilityLabel(distribution.title)
-  }
-
-  private var asset: String {
-    switch distribution {
-    // Fedora's and Arch's logos are not used for Aurora's remixes.
-    case .fedora, .arch: "AuroraLogo"
-    case .nixos: "NixOS"
-    }
   }
 }

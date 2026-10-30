@@ -19,12 +19,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import recovery_payload as aurora_recovery
 
-# The startup volume shows the Aurora mark for Fedora and Arch: their logos
-# are not used for Aurora's modified releases without their projects' permission.
-# The NixOS snowflake is CC BY 4.0.
+# Every startup volume shows the Aurora mark: Fedora's, Arch Linux's and
+# NixOS's logos are not used for Aurora releases without their owners' permission.
 DISTRIBUTION_ICONS = {
-    distribution: ROOT / 'Packaging/DistributionIcons' / (icon + '.icns')
-    for distribution, icon in (('fedora', 'aurora'), ('arch', 'aurora'), ('nixos', 'nixos'))
+    distribution: ROOT / 'Packaging/DistributionIcons/aurora.icns'
+    for distribution in ('fedora', 'arch', 'nixos')
 }
 
 
