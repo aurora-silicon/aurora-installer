@@ -5,21 +5,14 @@ public enum AuroraDistribution: String, CaseIterable, Codable, Identifiable, Sen
   public var id: String { rawValue }
   public var title: String {
     switch self {
-    case .fedora: "Fedora Aurora Remix"
-    case .arch: "Aurora ALARM"
+    case .fedora: "Aurora Fedora Remix"
+    case .arch: "Aurora Alarm"
     case .nixos: "Aurora NixOS"
     }
   }
-  /// What the installer shows. Upstream names appear only as their trademark
-  /// terms allow: Fedora's Remix mark, and "based on" for Arch Linux ARM and
-  /// NixOS. `title` stays the installed volume's name, which other code matches.
-  public var displayName: String {
-    switch self {
-    case .fedora: "Fedora Remix"
-    case .arch: "Based on Arch Linux ARM"
-    case .nixos: "Based on NixOS"
-    }
-  }
+  /// Names earlier installers gave these installations. Erase Linux and
+  /// reinstall still recognize them.
+  public static let legacyTitles = ["Fedora Aurora Remix", "Aurora ALARM"]
   public var supportsDesktop: Bool { true }
 }
 
@@ -53,7 +46,7 @@ public struct AuroraInstallationSelection: Equatable, Codable, Sendable {
     distribution.rawValue + "-" + desktop.rawValue
   }
   public var summary: String {
-    "Aurora (" + distribution.displayName + ") · " + desktop.title
+    distribution.title + " · " + desktop.title
   }
   public static var allProfileIDs: Set<String> {
     Set(
