@@ -359,7 +359,8 @@
       read: (URL, Int) throws -> Data = RecoveryAccountInstaller.protectedRead,
       partitions: () throws -> [String: Any] = RecoveryAccountHandoff.partitionList,
       liveTarget: (String, String) throws -> RecoveryAccountTarget =
-        RecoveryAccountHandoff.liveTarget(group:esp:)
+        RecoveryAccountHandoff.liveTarget(group:esp:),
+      finished: (RecoveryAccountTarget) -> Bool = RecoveryAccountHandoff.recoveryFinished(_:)
     ) throws -> CompletedRecoveryInstallation? {
       let directory = workingDirectory.appendingPathComponent(
         "execution-journals", isDirectory: true)
@@ -407,6 +408,10 @@
           do {
             try requireLivePartitions(evidence: evidence, listing: listing)
           } catch { continue }
+          // Recovery already finished this installation. Skipping the optional
+          // recovery account there defers it; that is not an unfinished handoff,
+          // so leave the installation to the existing-install options.
+          if binding == nil, finished(current) { continue }
           found.append(
             CompletedRecoveryInstallation(
               binding: file.deletingPathExtension().lastPathComponent, target: current,
@@ -420,6 +425,30 @@
           "Choose which completed installation should receive a recovery account.")
       }
       return found.first
+    }
+
+    /// Recovery has finished when its receipt says so, no startup setup is
+    /// pending and the Finish Installation launcher is no longer active.
+    static func recoveryFinished(_ target: RecoveryAccountTarget) -> Bool {
+      guard let info = try? AccountNativeCommand.disk(target.systemUUID),
+        (info["VolumeUUID"] as? String)?.uppercased() == target.systemUUID,
+        let mount = info["MountPoint"] as? String, !mount.isEmpty
+      else { return false }
+      return recoveryFinished(system: URL(fileURLWithPath: mount, isDirectory: true))
+    }
+
+    static func recoveryFinished(
+      system: URL,
+      read: (URL, Int) throws -> Data = RecoveryAccountInstaller.protectedRead
+    ) -> Bool {
+      let fm = FileManager.default
+      let state = system.appendingPathComponent("Aurora/Recovery/State")
+      guard !fm.fileExists(atPath: system.appendingPathComponent(".IAPhysicalMedia").path),
+        !fm.fileExists(atPath: state.appendingPathComponent("installation.pending.json").path),
+        let bytes = try? read(state.appendingPathComponent("installation.json"), 65536),
+        let receipt = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]
+      else { return false }
+      return receipt["status"] as? String == "installed"
     }
 
     static func partitionList() throws -> [String: Any] {

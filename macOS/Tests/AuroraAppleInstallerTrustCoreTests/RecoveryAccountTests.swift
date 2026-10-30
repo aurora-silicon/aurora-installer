@@ -123,6 +123,7 @@
       let listing = try XCTUnwrap(
         PropertyListSerialization.propertyList(from: listingBytes, format: nil) as? [String: Any])
       var listed = 0
+      var recoveryFinished = false
       func discover(_ binding: String? = nil) throws -> CompletedRecoveryInstallation? {
         try RecoveryAccountHandoff.discover(
           in: root, binding: binding, owner: getuid(),
@@ -140,7 +141,8 @@
               throw AccountSetupFailure("Absent.")
             }
             return self.target
-          })
+          },
+          finished: { _ in recoveryFinished })
       }
 
       XCTAssertEqual(
@@ -164,6 +166,47 @@
       XCTAssertThrowsError(try discover())
       try receipt.write(to: written)
       XCTAssertNotNil(try discover())
+
+      // Once Recovery has finished the installation (the account skipped and
+      // deferred), startup discovery no longer offers the Recovery handoff.
+      recoveryFinished = true
+      XCTAssertNil(try discover())
+      XCTAssertEqual(
+        try discover(freshHex),
+        CompletedRecoveryInstallation(binding: freshHex, target: target, espUUID: ids[1]))
+    }
+
+    func testRecoveryIsFinishedOnlyWithAnInstalledReceiptAndNoActiveLauncher() throws {
+      let fm = FileManager.default
+      let system = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      defer { try? fm.removeItem(at: system) }
+      let state = system.appendingPathComponent("Aurora/Recovery/State")
+      try fm.createDirectory(at: state, withIntermediateDirectories: true)
+      let marker = system.appendingPathComponent(".IAPhysicalMedia")
+      let receipt = state.appendingPathComponent("installation.json")
+      let pending = state.appendingPathComponent("installation.pending.json")
+      func finished() -> Bool {
+        RecoveryAccountHandoff.recoveryFinished(system: system) { url, _ in
+          try Data(contentsOf: url)
+        }
+      }
+
+      // Stage 1 done, Recovery not yet run: the launcher is active, no receipt.
+      try Data().write(to: marker)
+      XCTAssertFalse(finished())
+      try JSONSerialization.data(withJSONObject: [
+        "status": "installed", "recoveryAccountDeferred": true,
+      ]).write(to: receipt)
+      XCTAssertFalse(finished(), "an active Finish Installation launcher is not finished")
+      try fm.removeItem(at: marker)
+      XCTAssertTrue(finished())
+      try Data("{}".utf8).write(to: pending)
+      XCTAssertFalse(finished(), "pending startup setup is not finished")
+      try fm.removeItem(at: pending)
+      try JSONSerialization.data(withJSONObject: ["status": "preparing"]).write(to: receipt)
+      XCTAssertFalse(finished())
+      try fm.removeItem(at: receipt)
+      XCTAssertFalse(finished())
     }
 
     func testInterruptedRecoveryAppUpdatesRestoreOrKeepOnlyTheCommittedVersion() throws {
