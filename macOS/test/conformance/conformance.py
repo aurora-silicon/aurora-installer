@@ -346,27 +346,58 @@ def check(name, ok, detail, hardware=None, scope=None):
     return {'check': name, 'ok': ok, 'detail': detail, 'hardware': hardware, 'scope': scope}
 
 
-def evaluate(machine, mode, distro, dry, context):
-    """Every check for one cell. `dry` maps desktop -> dry-run result."""
+def evaluate(machine, mode, distro, dry, context, opt_in=None):
+    """Every check for one cell. `dry` maps desktop -> dry-run result. `opt_in`
+    replays the owner's experimental hardware choice (bootloader-only or
+    full-send) for a Mac the release does not support."""
     checks = []
     board = machine['device_identifier'].removeprefix('apple,') + 'ap'
     sample = dry[DESKTOPS[0]]
     profiles = context['profiles'][distro]
+    experimental = sample.get('experimental') if opt_in else None
 
     # 1. machine support: native inspection policy and every signed catalog
     enabled = [d for d in DESKTOPS if machine['device_identifier'] in profiles[d]['enabled']]
     unsigned = [d for d in DESKTOPS if not profiles[d]['verified']]
-    ok = sample['supported'] and len(enabled) == len(DESKTOPS) and not unsigned
-    reason = []
-    if not sample['supported']:
-        reason.append('native inspection refuses %s: %s' % (machine['device_identifier'], sample.get('unsupported_reason')))
-    if len(enabled) != len(DESKTOPS):
-        reason.append('signed catalog enables it for %s of %s desktops' % (len(enabled), len(DESKTOPS)))
-    if unsigned:
-        reason.append('catalog signature did not verify for %s' % ', '.join(unsigned))
-    checks.append(check('supported', ok, '; '.join(reason) or 'inspection policy and all three signed catalogs admit it'))
-    if not sample['supported']:
-        return checks
+    if experimental is not None:
+        # The catalogs never list an unsupported Mac; the opt-in uses the one
+        # payload every supported Mac shares, so only the signatures matter.
+        offered = experimental.get('offered') and sample['supported']
+        reason = [] if offered else ['experimental path not offered: %s' % (
+            experimental.get('refusal') or sample.get('unsupported_reason'))]
+        if unsigned:
+            reason.append('catalog signature did not verify for %s' % ', '.join(unsigned))
+        checks.append(check('supported', bool(offered) and not unsigned, '; '.join(reason) or
+                            'not supported; offered only through the experimental opt-in (%s)' % opt_in))
+        if not offered:
+            return checks
+        checks.append(check('experimental', True, '%s, stub %s; untested: %s' % (
+            opt_in, experimental.get('stub_firmware'), ' '.join(experimental.get('warnings', []))),
+            'boot this board through a real experimental install'))
+        # The plan binds the record and the helper's re-run agrees.
+        record = experimental.get('admission_record')
+        planned = [c['plan'] for c in sample.get('candidates', []) if 'plan' in c]
+        bound = [p for p in planned if p.get('experimental_admission') == record
+                 and p.get('unbound_plan_digest') not in (None, p.get('plan_digest'))]
+        problems = []
+        if experimental.get('helper_recheck') != 'agrees':
+            problems.append('the helper re-check did not agree')
+        if planned and len(bound) != len(planned):
+            problems.append('%d of %d plans bind the record' % (len(bound), len(planned)))
+        checks.append(check('binding', not problems, '; '.join(problems) or
+                            'plan digest binds %s; helper re-check agrees' % record))
+    else:
+        ok = sample['supported'] and len(enabled) == len(DESKTOPS) and not unsigned
+        reason = []
+        if not sample['supported']:
+            reason.append('native inspection refuses %s: %s' % (machine['device_identifier'], sample.get('unsupported_reason')))
+        if len(enabled) != len(DESKTOPS):
+            reason.append('signed catalog enables it for %s of %s desktops' % (len(enabled), len(DESKTOPS)))
+        if unsigned:
+            reason.append('catalog signature did not verify for %s' % ', '.join(unsigned))
+        checks.append(check('supported', ok, '; '.join(reason) or 'inspection policy and all three signed catalogs admit it'))
+        if not sample['supported']:
+            return checks
 
     # 2. stub firmware selection
     fw = sample.get('firmware')
@@ -412,6 +443,10 @@ def evaluate(machine, mode, distro, dry, context):
         if not chain:
             continue
         selected = [k for k, v in chain['esp_layout'].items() if v == 'm1n1/boot.bin']
+        if experimental is not None:
+            problems += experimental_stage2(machine, opt_in, desktop, chain, selected, payload, notes2, published,
+                                            context)
+            continue
         if selected != ['esp/m1n1/boot-%s.bin' % board.removesuffix('ap')]:
             problems.append('%s: Stage 2 for %s is %s, not its board file' % (desktop, board, selected))
             continue
@@ -428,9 +463,12 @@ def evaluate(machine, mode, distro, dry, context):
         if not any(v.endswith('##' + context['pins']['aura_label']) for v in contents['versions']):
             published.append('%s %s with U-Boot %s' % (
                 desktop, ', '.join(v.split('##')[-1] for v in contents['versions']), contents['u_boot']))
-    checks.append(check('stage2', not problems, '; '.join(problems) or
-                        'board Stage 2 carries only %s device trees and U-Boot' % machine['device_identifier'] +
-                        ''.join('; ' + n for n in sorted(notes2))))
+    if experimental is not None:
+        detail = '; '.join(problems) or '; '.join(sorted(notes2))
+    else:
+        detail = '; '.join(problems) or ('board Stage 2 carries only %s device trees and U-Boot' %
+                                         machine['device_identifier'] + ''.join('; ' + n for n in sorted(notes2)))
+    checks.append(check('stage2', not problems, detail))
     checks.append(check('published stage2', not published, 'payload Stage 2 is not aura %s: %s' % (
         context['pins']['aura_label'], '; '.join(published)) if published else 'payload Stage 2 is aura ' +
         context['pins']['aura_label'], scope='published'))
@@ -470,8 +508,16 @@ def evaluate(machine, mode, distro, dry, context):
 
     # 7. kernel: built from the pinned source, with this board's device tree
     kernel = context['kernels'][distro]
-    checks.append(check('kernel', kernel['has_board'].get(machine['device_identifier'], False) and kernel['ok'],
-                        kernel['detail'] % {'board': machine['device_identifier']}))
+    tree = machine['device_identifier']
+    level = (sample.get('boot_chain') or {}).get('level') if experimental is not None else None
+    source = ((sample.get('boot_chain') or {}).get('stage2_source') or {}) if experimental is not None else {}
+    if level == 'bootloader-only':
+        checks.append(check('kernel', True, 'Bootloader only: the distribution is not booted'))
+    else:
+        if source.get('kind') == 'sibling':
+            tree = source['board']
+        checks.append(check('kernel', kernel['has_board'].get(tree, False) and kernel['ok'],
+                            kernel['detail'] % {'board': tree}))
 
     # 8. partition plan for this mode
     if machine['disk'] is None:
@@ -493,6 +539,66 @@ def evaluate(machine, mode, distro, dry, context):
                             sample['one_true_recovery_boot_policy'], expected, raw),
                         'run the paired 1TR step on this machine'))
     return checks
+
+
+def experimental_stage2(machine, opt_in, desktop, chain, selected, payload, notes, published, context):
+    """The Stage 2 an experimental opt-in chose: the board's own file, the
+    closest same-chip board's (retargeted by the installer), or none."""
+    problems = []
+    source = chain.get('stage2_source') or {}
+    level = chain.get('level')
+    if source.get('kind') == 'own':
+        want = source['member']
+    elif source.get('kind') == 'sibling':
+        want = source['member']
+    else:
+        want = 'esp/m1n1/boot.bin'
+        if level != 'bootloader-only':
+            problems.append('%s: no device tree on this chip, but the level stayed %s' % (desktop, level))
+    if selected != [want]:
+        problems.append('%s: Stage 2 is %s, not %s' % (desktop, selected, want))
+    if opt_in == 'bootloader-only' or level == 'bootloader-only':
+        if 'aura-proxy' not in chain.get('extra_files', []):
+            problems.append('%s: Bootloader only without the aura-proxy marker' % desktop)
+    elif 'aura-proxy' in chain.get('extra_files', []):
+        problems.append('%s: Full send leaves the proxy marker on' % desktop)
+    if 'aurora/experimental.json' not in chain.get('extra_files', []):
+        problems.append('%s: no experimental record on the ESP' % desktop)
+    if chain.get('window_milliseconds') != 0:
+        problems.append('%s: the Stage 1 config window is not 0' % desktop)
+    esp = chain.get('esp_plan') or {}
+    if 'error' in esp or not esp:
+        problems.append('%s: the ESP plan failed: %s' % (desktop, esp.get('error')))
+    else:
+        want_extra = {'aurora/experimental.json'} | ({'aura-proxy'} if 'aura-proxy' in chain.get('extra_files', []) else set())
+        if source.get('kind') == 'sibling':
+            want_extra.add('m1n1/boot.bin')
+        if set(esp.get('extra_files', [])) != want_extra:
+            problems.append('%s: ESP extra files %s, expected %s' % (desktop, esp.get('extra_files'), sorted(want_extra)))
+        if source.get('kind') == 'sibling' and source.get('member') in esp.get('members', []):
+            problems.append('%s: the sibling board file is copied as is' % desktop)
+    if source.get('kind') == 'none':
+        published.append('%s combined Stage 2 not inspected' % desktop)
+    if source.get('kind') in ('own', 'sibling'):
+        trees = chain.get('stage2_trees') or []
+        if not trees or any(tree[:1] != [machine['device_identifier']] for tree in trees
+                            if machine['device_identifier'] in tree or source['kind'] == 'own'):
+            problems.append('%s: the published Stage 2 trees %s do not name %s first' % (
+                desktop, trees, machine['device_identifier']))
+        elif not any(tree[:1] == [machine['device_identifier']] for tree in trees):
+            problems.append('%s: no published Stage 2 tree names %s' % (desktop, machine['device_identifier']))
+        else:
+            notes.add('published trees %s' % sorted({' '.join(t[:3]) for t in trees}))
+        owner = source.get('board', machine['device_identifier'])
+        contents = payload['stage2'].get(owner.removeprefix('apple,') + 'ap')
+        if contents:
+            trees = {t.get('compatible') for t in contents['device_trees']}
+            if trees != {owner}:
+                problems.append('%s: %s carries device trees %s' % (desktop, want, sorted(trees)))
+            if not any(v.endswith('##' + context['pins']['aura_label']) for v in contents['versions']):
+                published.append('%s %s' % (desktop, ', '.join(v.split('##')[-1] for v in contents['versions'])))
+    notes.add('%s: %s' % (level, '; '.join(chain.get('notes', []))))
+    return problems
 
 
 def plan_check(machine, mode, result, firmware):
@@ -549,7 +655,7 @@ def verdict(checks, at_pin=False):
 
 # ---------------------------------------------------------------- driver
 
-def run_dry(binary, machine, metadata, digest, archive):
+def run_dry(binary, machine, metadata, digest, archive, opt_in=None):
     with tempfile.TemporaryDirectory() as temporary:
         m, md = Path(temporary) / 'machine.json', Path(temporary) / 'metadata.json'
         m.write_text(json.dumps(machine))
@@ -557,6 +663,8 @@ def run_dry(binary, machine, metadata, digest, archive):
         arguments = [binary, '--machine', str(m), '--metadata', str(md), '--payload-digest', digest]
         if archive:
             arguments += ['--esp-archive', str(archive)]
+        if opt_in:
+            arguments += ['--experimental', opt_in]
         out = subprocess.run(arguments, capture_output=True, text=True)
         if out.returncode:
             raise RuntimeError('InstallerDryRun failed: ' + out.stderr.strip())
@@ -633,6 +741,8 @@ def main():
         branches[name] = distro_sources(path)
     machines = [json.loads(p.read_text()) for p in sorted(Path(args.machines).glob('*.json'))]
     boards = {m['device_identifier'].removeprefix('apple,') for m in machines}
+    # Same-chip boards an experimental fixture may borrow a Stage 2 from.
+    boards |= {b for m in machines for b in (m.get('experimental') or {}).get('stage2_family', [])}
 
     profiles, built, kernels, dry = {}, {}, {}, {}
     for distro, repo in DISTROS.items():
@@ -651,7 +761,8 @@ def main():
             if 'sha256:' + hashlib.sha256(metadata).hexdigest() != model['metadataDigest']:
                 raise SystemExit('metadata digest mismatch: ' + profile)
             wanted = {'esp/aurora/stage1.bin', 'aurora-volume.icns'} | {'esp/m1n1/boot-%s.bin' % b for b in boards}
-            archive = Path(args.cache) / (profile + '-' + model['payloadDigest'][7:19] + '-esp.zip')
+            archive = Path(args.cache) / (profile + '-' + model['payloadDigest'][7:19] + '-' + hashlib.sha256(
+                ' '.join(sorted(boards)).encode()).hexdigest()[:8] + '-esp.zip')
             if not archive.exists():
                 esp_archive(remote, members, wanted, archive)
             with zipfile.ZipFile(archive) as z:
@@ -687,16 +798,17 @@ def main():
                'built': built, 'kernels': kernels}
     cells = []
     for machine in machines:
-        for mode in MODES:
-            swift = swift_machine(machine, mode, constraints)
-            for distro in DISTROS:
-                results = {d: run_dry(args.dry_run, swift, profiles[distro][d]['metadata'],
-                                      profiles[distro][d]['digest_id'], profiles[distro][d]['archive'])
-                           for d in DESKTOPS}
-                checks = evaluate(machine, mode, distro, results, context)
-                cells.append({'machine': machine['name'], 'device': machine['device_identifier'], 'mode': mode,
-                              'distro': distro, 'verdict': verdict(checks), 'at_pin': verdict(checks, True),
-                              'checks': checks})
+        for opt_in in [None] + (machine.get('experimental') or {}).get('opt_in', []):
+            for mode in MODES:
+                swift = swift_machine(machine, mode, constraints)
+                for distro in DISTROS:
+                    results = {d: run_dry(args.dry_run, swift, profiles[distro][d]['metadata'],
+                                          profiles[distro][d]['digest_id'], profiles[distro][d]['archive'], opt_in)
+                               for d in DESKTOPS}
+                    checks = evaluate(machine, mode, distro, results, context, opt_in)
+                    cells.append({'machine': machine['name'], 'device': machine['device_identifier'], 'mode': mode,
+                                  'distro': distro, 'opt_in': opt_in, 'verdict': verdict(checks),
+                                  'at_pin': verdict(checks, True), 'checks': checks})
     report = {'pins': pins, 'branches': branches, 'built': built,
               'images': {d: {k: {'payload': v['payload_name'], 'source': v['image_source']} for k, v in p.items()}
                          for d, p in profiles.items()},
@@ -715,12 +827,25 @@ def main():
 RANK = {'PASS': 0, 'UNTESTED-ON-HW': 1, 'FAIL': 2}
 
 
+def cell_key(cell):
+    key = '%s/%s/%s' % (cell['machine'], cell['mode'], cell['distro'])
+    return key + '/' + cell['opt_in'] if cell.get('opt_in') else key
+
+
 def compare_expected(cells, expected):
     """Fail only on regressions against the recorded at-pin verdicts."""
     worse = []
     for cell in cells:
-        key = '%s/%s/%s' % (cell['machine'], cell['mode'], cell['distro'])
-        want = expected['cells'].get(key, {}).get('verdict', 'PASS')
+        key = cell_key(cell)
+        entry = expected['cells'].get(key, {})
+        want = entry.get('verdict', 'PASS')
+        state = {c['check']: c['ok'] for c in cell['checks']}
+        for name in entry.get('must_ok', []):
+            if state.get(name) is not True:
+                worse.append('%s: check %s must hold, got %s' % (key, name, state.get(name)))
+        for name in entry.get('must_fail', []):
+            if state.get(name) is not False:
+                worse.append('%s: check %s must fail, got %s' % (key, name, state.get(name)))
         if RANK[cell['at_pin']] > RANK[want]:
             worse.append('%s: %s, expected %s' % (key, cell['at_pin'], want))
         elif RANK[cell['at_pin']] < RANK[want]:
@@ -763,16 +888,18 @@ def markdown(report):
              'built from the pinned branches are published (checks of today\'s images left out).', '',
              '| Machine | Mode | Fedora (today / at pin) | Arch (today / at pin) | NixOS (today / at pin) |',
              '| --- | --- | --- | --- | --- |']
-    index = {(c['machine'], c['mode'], c['distro']): c for c in report['cells']}
-    for machine in dict.fromkeys(c['machine'] for c in report['cells']):
+    index = {(c['machine'], c.get('opt_in'), c['mode'], c['distro']): c for c in report['cells']}
+    for machine, opt_in in dict.fromkeys((c['machine'], c.get('opt_in')) for c in report['cells']):
         for mode in MODES:
-            row = [machine, mode] + ['%s / %s' % (index[(machine, mode, d)]['verdict'], index[(machine, mode, d)]['at_pin'])
-                                     for d in DISTROS]
+            label = machine + (' (opt-in %s)' % opt_in if opt_in else '')
+            row = [label, mode] + ['%s / %s' % (index[(machine, opt_in, mode, d)]['verdict'],
+                                                index[(machine, opt_in, mode, d)]['at_pin']) for d in DISTROS]
             lines.append('| ' + ' | '.join(row) + ' |')
     lines.append('')
     for cell in report['cells']:
-        lines.append('### %s, %s, %s: %s today, %s at the pin' % (
-            cell['machine'], cell['mode'], cell['distro'], cell['verdict'], cell['at_pin']))
+        lines.append('### %s%s, %s, %s: %s today, %s at the pin' % (
+            cell['machine'], ' (opt-in %s)' % cell['opt_in'] if cell.get('opt_in') else '', cell['mode'],
+            cell['distro'], cell['verdict'], cell['at_pin']))
         for c in cell['checks']:
             mark = {True: 'ok', False: 'FAIL', None: 'untested'}[c['ok']]
             lines.append('- %s %s: %s%s' % (mark, c['check'], c['detail'],

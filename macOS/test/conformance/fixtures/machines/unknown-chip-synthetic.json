@@ -1,0 +1,25 @@
+{
+ "captured": "2026-10-30",
+ "description": "Synthetic: a board on a chip no Aurora release knows (chip ID 0x9001), on current macOS 27.0 firmware, with no device tree anywhere. Full send must fall back to Bootloader only.",
+ "device_identifier": "apple,j999",
+ "disk": null,
+ "experimental": {
+  "opt_in": [
+   "bootloader-only",
+   "full-send"
+  ],
+  "stage2_family": []
+ },
+ "firmware": {
+  "stub_iboot": "mBoot-18000.161.10",
+  "stub_os": "26.6.2",
+  "system_iboot": "mBoot-20457.1.29",
+  "system_os": "27.0"
+ },
+ "model": "Synthetic unknown Mac",
+ "name": "unknown-chip-synthetic",
+ "running": null,
+ "schema": 1,
+ "soc": "t9001",
+ "source": "synthetic (test/conformance/fixtures/machines)"
+}

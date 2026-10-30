@@ -1,5 +1,215 @@
 {
  "cells": {
+  "j614s-synthetic/fresh/arch": {
+   "must_fail": [
+    "supported"
+   ],
+   "note": "Refused by default: offered only through the experimental opt-in.",
+   "verdict": "FAIL"
+  },
+  "j614s-synthetic/fresh/arch/bootloader-only": {
+   "must_ok": [
+    "supported",
+    "experimental",
+    "stage1",
+    "stage2",
+    "1tr",
+    "plan",
+    "binding"
+   ],
+   "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
+   "verdict": "FAIL"
+  },
+  "j614s-synthetic/fresh/arch/full-send": {
+   "must_ok": [
+    "supported",
+    "experimental",
+    "stage1",
+    "stage2",
+    "1tr",
+    "plan",
+    "binding"
+   ],
+   "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
+   "verdict": "FAIL"
+  },
+  "j614s-synthetic/fresh/fedora": {
+   "must_fail": [
+    "supported"
+   ],
+   "note": "Refused by default: offered only through the experimental opt-in.",
+   "verdict": "FAIL"
+  },
+  "j614s-synthetic/fresh/fedora/bootloader-only": {
+   "must_ok": [
+    "supported",
+    "experimental",
+    "stage1",
+    "stage2",
+    "1tr",
+    "plan",
+    "binding"
+   ],
+   "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
+   "verdict": "FAIL"
+  },
+  "j614s-synthetic/fresh/fedora/full-send": {
+   "must_ok": [
+    "supported",
+    "experimental",
+    "stage1",
+    "stage2",
+    "1tr",
+    "plan",
+    "binding"
+   ],
+   "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
+   "verdict": "FAIL"
+  },
+  "j614s-synthetic/fresh/nixos": {
+   "must_fail": [
+    "supported"
+   ],
+   "note": "Refused by default: offered only through the experimental opt-in.",
+   "verdict": "FAIL"
+  },
+  "j614s-synthetic/fresh/nixos/bootloader-only": {
+   "must_ok": [
+    "supported",
+    "experimental",
+    "stage1",
+    "stage2",
+    "1tr",
+    "plan",
+    "binding"
+   ],
+   "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
+   "verdict": "FAIL"
+  },
+  "j614s-synthetic/fresh/nixos/full-send": {
+   "must_ok": [
+    "supported",
+    "experimental",
+    "stage1",
+    "stage2",
+    "1tr",
+    "plan",
+    "binding"
+   ],
+   "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
+   "verdict": "FAIL"
+  },
+  "j614s-synthetic/side-by-side/arch": {
+   "must_fail": [
+    "supported"
+   ],
+   "note": "Refused by default: offered only through the experimental opt-in.",
+   "verdict": "FAIL"
+  },
+  "j614s-synthetic/side-by-side/arch/bootloader-only": {
+   "must_fail": [
+    "plan"
+   ],
+   "must_ok": [
+    "supported",
+    "experimental",
+    "stage1",
+    "stage2",
+    "1tr",
+    "binding"
+   ],
+   "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install. Side by side has no room on this disk, with or without the opt-in.",
+   "verdict": "FAIL"
+  },
+  "j614s-synthetic/side-by-side/arch/full-send": {
+   "must_fail": [
+    "plan"
+   ],
+   "must_ok": [
+    "supported",
+    "experimental",
+    "stage1",
+    "stage2",
+    "1tr",
+    "binding"
+   ],
+   "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install. Side by side has no room on this disk, with or without the opt-in.",
+   "verdict": "FAIL"
+  },
+  "j614s-synthetic/side-by-side/fedora": {
+   "must_fail": [
+    "supported"
+   ],
+   "note": "Refused by default: offered only through the experimental opt-in.",
+   "verdict": "FAIL"
+  },
+  "j614s-synthetic/side-by-side/fedora/bootloader-only": {
+   "must_fail": [
+    "plan"
+   ],
+   "must_ok": [
+    "supported",
+    "experimental",
+    "stage1",
+    "stage2",
+    "1tr",
+    "binding"
+   ],
+   "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install. Side by side has no room on this disk, with or without the opt-in.",
+   "verdict": "FAIL"
+  },
+  "j614s-synthetic/side-by-side/fedora/full-send": {
+   "must_fail": [
+    "plan"
+   ],
+   "must_ok": [
+    "supported",
+    "experimental",
+    "stage1",
+    "stage2",
+    "1tr",
+    "binding"
+   ],
+   "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install. Side by side has no room on this disk, with or without the opt-in.",
+   "verdict": "FAIL"
+  },
+  "j614s-synthetic/side-by-side/nixos": {
+   "must_fail": [
+    "supported"
+   ],
+   "note": "Refused by default: offered only through the experimental opt-in.",
+   "verdict": "FAIL"
+  },
+  "j614s-synthetic/side-by-side/nixos/bootloader-only": {
+   "must_fail": [
+    "plan"
+   ],
+   "must_ok": [
+    "supported",
+    "experimental",
+    "stage1",
+    "stage2",
+    "1tr",
+    "binding"
+   ],
+   "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install. Side by side has no room on this disk, with or without the opt-in.",
+   "verdict": "FAIL"
+  },
+  "j614s-synthetic/side-by-side/nixos/full-send": {
+   "must_fail": [
+    "plan"
+   ],
+   "must_ok": [
+    "supported",
+    "experimental",
+    "stage1",
+    "stage2",
+    "1tr",
+    "binding"
+   ],
+   "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install. Side by side has no room on this disk, with or without the opt-in.",
+   "verdict": "FAIL"
+  },
   "j616s/fresh/arch": {
    "failing": [
     "supported"
@@ -44,11 +254,25 @@
    ],
    "verdict": "FAIL"
   },
+  "m1pro/fresh/arch/full-send": {
+   "must_fail": [
+    "supported"
+   ],
+   "note": "Supported (M1 to M3 are supported): the experimental path is never offered. The Stage 1 rejection on this iBoot stays a FAIL in the normal path.",
+   "verdict": "FAIL"
+  },
   "m1pro/fresh/fedora": {
    "failing": [
     "branch pins",
     "stage1"
    ],
+   "verdict": "FAIL"
+  },
+  "m1pro/fresh/fedora/full-send": {
+   "must_fail": [
+    "supported"
+   ],
+   "note": "Supported (M1 to M3 are supported): the experimental path is never offered. The Stage 1 rejection on this iBoot stays a FAIL in the normal path.",
    "verdict": "FAIL"
   },
   "m1pro/fresh/nixos": {
@@ -59,12 +283,26 @@
    ],
    "verdict": "FAIL"
   },
+  "m1pro/fresh/nixos/full-send": {
+   "must_fail": [
+    "supported"
+   ],
+   "note": "Supported (M1 to M3 are supported): the experimental path is never offered. The Stage 1 rejection on this iBoot stays a FAIL in the normal path.",
+   "verdict": "FAIL"
+  },
   "m1pro/side-by-side/arch": {
    "failing": [
     "branch pins",
     "distro parity",
     "stage1"
    ],
+   "verdict": "FAIL"
+  },
+  "m1pro/side-by-side/arch/full-send": {
+   "must_fail": [
+    "supported"
+   ],
+   "note": "Supported (M1 to M3 are supported): the experimental path is never offered. The Stage 1 rejection on this iBoot stays a FAIL in the normal path.",
    "verdict": "FAIL"
   },
   "m1pro/side-by-side/fedora": {
@@ -74,12 +312,26 @@
    ],
    "verdict": "FAIL"
   },
+  "m1pro/side-by-side/fedora/full-send": {
+   "must_fail": [
+    "supported"
+   ],
+   "note": "Supported (M1 to M3 are supported): the experimental path is never offered. The Stage 1 rejection on this iBoot stays a FAIL in the normal path.",
+   "verdict": "FAIL"
+  },
   "m1pro/side-by-side/nixos": {
    "failing": [
     "branch pins",
     "distro parity",
     "stage1"
    ],
+   "verdict": "FAIL"
+  },
+  "m1pro/side-by-side/nixos/full-send": {
+   "must_fail": [
+    "supported"
+   ],
+   "note": "Supported (M1 to M3 are supported): the experimental path is never offered. The Stage 1 rejection on this iBoot stays a FAIL in the normal path.",
    "verdict": "FAIL"
   },
   "m2/fresh/arch": {
@@ -163,6 +415,192 @@
     "branch pins",
     "distro parity"
    ],
+   "verdict": "FAIL"
+  },
+  "unknown-chip-synthetic/fresh/arch": {
+   "must_fail": [
+    "supported"
+   ],
+   "note": "Refused by default: offered only through the experimental opt-in.",
+   "verdict": "FAIL"
+  },
+  "unknown-chip-synthetic/fresh/arch/bootloader-only": {
+   "must_ok": [
+    "supported",
+    "experimental",
+    "stage1",
+    "stage2",
+    "1tr",
+    "binding"
+   ],
+   "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
+   "verdict": "FAIL"
+  },
+  "unknown-chip-synthetic/fresh/arch/full-send": {
+   "must_ok": [
+    "supported",
+    "experimental",
+    "stage1",
+    "stage2",
+    "1tr",
+    "binding"
+   ],
+   "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
+   "verdict": "FAIL"
+  },
+  "unknown-chip-synthetic/fresh/fedora": {
+   "must_fail": [
+    "supported"
+   ],
+   "note": "Refused by default: offered only through the experimental opt-in.",
+   "verdict": "FAIL"
+  },
+  "unknown-chip-synthetic/fresh/fedora/bootloader-only": {
+   "must_ok": [
+    "supported",
+    "experimental",
+    "stage1",
+    "stage2",
+    "1tr",
+    "binding"
+   ],
+   "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
+   "verdict": "FAIL"
+  },
+  "unknown-chip-synthetic/fresh/fedora/full-send": {
+   "must_ok": [
+    "supported",
+    "experimental",
+    "stage1",
+    "stage2",
+    "1tr",
+    "binding"
+   ],
+   "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
+   "verdict": "FAIL"
+  },
+  "unknown-chip-synthetic/fresh/nixos": {
+   "must_fail": [
+    "supported"
+   ],
+   "note": "Refused by default: offered only through the experimental opt-in.",
+   "verdict": "FAIL"
+  },
+  "unknown-chip-synthetic/fresh/nixos/bootloader-only": {
+   "must_ok": [
+    "supported",
+    "experimental",
+    "stage1",
+    "stage2",
+    "1tr",
+    "binding"
+   ],
+   "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
+   "verdict": "FAIL"
+  },
+  "unknown-chip-synthetic/fresh/nixos/full-send": {
+   "must_ok": [
+    "supported",
+    "experimental",
+    "stage1",
+    "stage2",
+    "1tr",
+    "binding"
+   ],
+   "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
+   "verdict": "FAIL"
+  },
+  "unknown-chip-synthetic/side-by-side/arch": {
+   "must_fail": [
+    "supported"
+   ],
+   "note": "Refused by default: offered only through the experimental opt-in.",
+   "verdict": "FAIL"
+  },
+  "unknown-chip-synthetic/side-by-side/arch/bootloader-only": {
+   "must_ok": [
+    "supported",
+    "experimental",
+    "stage1",
+    "stage2",
+    "1tr",
+    "binding"
+   ],
+   "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
+   "verdict": "FAIL"
+  },
+  "unknown-chip-synthetic/side-by-side/arch/full-send": {
+   "must_ok": [
+    "supported",
+    "experimental",
+    "stage1",
+    "stage2",
+    "1tr",
+    "binding"
+   ],
+   "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
+   "verdict": "FAIL"
+  },
+  "unknown-chip-synthetic/side-by-side/fedora": {
+   "must_fail": [
+    "supported"
+   ],
+   "note": "Refused by default: offered only through the experimental opt-in.",
+   "verdict": "FAIL"
+  },
+  "unknown-chip-synthetic/side-by-side/fedora/bootloader-only": {
+   "must_ok": [
+    "supported",
+    "experimental",
+    "stage1",
+    "stage2",
+    "1tr",
+    "binding"
+   ],
+   "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
+   "verdict": "FAIL"
+  },
+  "unknown-chip-synthetic/side-by-side/fedora/full-send": {
+   "must_ok": [
+    "supported",
+    "experimental",
+    "stage1",
+    "stage2",
+    "1tr",
+    "binding"
+   ],
+   "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
+   "verdict": "FAIL"
+  },
+  "unknown-chip-synthetic/side-by-side/nixos": {
+   "must_fail": [
+    "supported"
+   ],
+   "note": "Refused by default: offered only through the experimental opt-in.",
+   "verdict": "FAIL"
+  },
+  "unknown-chip-synthetic/side-by-side/nixos/bootloader-only": {
+   "must_ok": [
+    "supported",
+    "experimental",
+    "stage1",
+    "stage2",
+    "1tr",
+    "binding"
+   ],
+   "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
+   "verdict": "FAIL"
+  },
+  "unknown-chip-synthetic/side-by-side/nixos/full-send": {
+   "must_ok": [
+    "supported",
+    "experimental",
+    "stage1",
+    "stage2",
+    "1tr",
+    "binding"
+   ],
+   "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
    "verdict": "FAIL"
   }
  },
