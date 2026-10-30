@@ -1,8 +1,189 @@
 {
  "captured": "2026-10-30",
- "description": "MacBook Pro 16-inch M1 Pro (J316s, T6000). Down on 2026-10-30, so this profile comes from its saved ADT and boot log: identity and firmware only, no disk capture.",
+ "description": "MacBook Pro 16-inch M1 Pro (J316s, T6000), 1 TB, one Aurora Fedora install next to macOS, booting m1n1 1.5.2 as Stage 1",
  "device_identifier": "apple,j316s",
- "disk": null,
+ "disk": {
+  "block_size": 4096,
+  "partitions": [
+   {
+    "apfs": {
+     "capacity": 524288000,
+     "free": 498974720,
+     "uuid": "00000000-0000-4000-8000-000000000002",
+     "volumes": [
+      {
+       "alloc_bytes": 5881856,
+       "files": 18,
+       "group": null,
+       "name": "iSCPreboot",
+       "role": "Preboot",
+       "uuid": "00000000-0000-4000-8000-000000000003"
+      },
+      {
+       "alloc_bytes": 6311936,
+       "files": 1,
+       "group": null,
+       "name": "xART",
+       "role": "xART",
+       "uuid": "00000000-0000-4000-8000-000000000004"
+      },
+      {
+       "alloc_bytes": 8056832,
+       "files": 59,
+       "group": null,
+       "name": "Hardware",
+       "role": "Hardware",
+       "uuid": "00000000-0000-4000-8000-000000000005"
+      },
+      {
+       "alloc_bytes": 20480,
+       "files": 0,
+       "group": null,
+       "name": "Recovery",
+       "role": "Recovery",
+       "uuid": "00000000-0000-4000-8000-000000000006"
+      }
+     ]
+    },
+    "index": 1,
+    "offset": 24576,
+    "size": 524288000,
+    "type": "69646961-6700-11aa-aa11-00306543ecac",
+    "uuid": "00000000-0000-4000-8000-000000000001"
+   },
+   {
+    "apfs": {
+     "capacity": 750024392704,
+     "free": 351876005888,
+     "uuid": "00000000-0000-4000-8000-000000000008",
+     "volumes": [
+      {
+       "alloc_bytes": 12262674432,
+       "files": 270446,
+       "group": "00000000-0000-4000-8000-00000000000a",
+       "name": "Macintosh HD",
+       "role": "System",
+       "uuid": "00000000-0000-4000-8000-000000000009"
+      },
+      {
+       "alloc_bytes": 8145063936,
+       "files": 944,
+       "group": null,
+       "name": "Preboot",
+       "role": "Preboot",
+       "uuid": "00000000-0000-4000-8000-00000000000b"
+      },
+      {
+       "alloc_bytes": 1240023040,
+       "files": 20,
+       "group": null,
+       "name": "Recovery",
+       "role": "Recovery",
+       "uuid": "00000000-0000-4000-8000-00000000000c"
+      },
+      {
+       "alloc_bytes": 28094464,
+       "files": 66,
+       "group": null,
+       "name": "Update",
+       "role": "Update",
+       "uuid": "00000000-0000-4000-8000-00000000000d"
+      },
+      {
+       "alloc_bytes": 375214690304,
+       "files": 1423707,
+       "group": "00000000-0000-4000-8000-00000000000a",
+       "name": "Data",
+       "role": "Data",
+       "uuid": "00000000-0000-4000-8000-00000000000a"
+      },
+      {
+       "alloc_bytes": 1073766400,
+       "files": 1,
+       "group": null,
+       "name": "VM",
+       "role": "VM",
+       "uuid": "00000000-0000-4000-8000-00000000000e"
+      }
+     ]
+    },
+    "index": 2,
+    "offset": 524312576,
+    "size": 750024392704,
+    "type": "7c3457ef-0000-11aa-aa11-00306543ecac",
+    "uuid": "00000000-0000-4000-8000-000000000007"
+   },
+   {
+    "apfs": {
+     "capacity": 2499805184,
+     "free": 1469272064,
+     "uuid": "00000000-0000-4000-8000-000000000010",
+     "volumes": [
+      {
+       "alloc_bytes": 1880064,
+       "files": 198,
+       "group": "00000000-0000-4000-8000-000000000011",
+       "name": "Aurora - Data",
+       "role": "Data",
+       "uuid": "00000000-0000-4000-8000-000000000011"
+      },
+      {
+       "alloc_bytes": 1507328,
+       "files": 13,
+       "group": "00000000-0000-4000-8000-000000000011",
+       "name": "Aurora",
+       "role": "System",
+       "uuid": "00000000-0000-4000-8000-000000000012"
+      },
+      {
+       "alloc_bytes": 207753216,
+       "files": 97,
+       "group": null,
+       "name": "Preboot",
+       "role": "Preboot",
+       "uuid": "00000000-0000-4000-8000-000000000013"
+      },
+      {
+       "alloc_bytes": 809156608,
+       "files": 38,
+       "group": null,
+       "name": "Recovery",
+       "role": "Recovery",
+       "uuid": "00000000-0000-4000-8000-000000000014"
+      }
+     ]
+    },
+    "index": 3,
+    "offset": 750548705280,
+    "size": 2499805184,
+    "type": "7c3457ef-0000-11aa-aa11-00306543ecac",
+    "uuid": "00000000-0000-4000-8000-00000000000f"
+   },
+   {
+    "fat_label": "EFI - FEDOR",
+    "index": 4,
+    "offset": 753048510464,
+    "size": 524288000,
+    "type": "c12a7328-f81f-11d2-ba4b-00a0c93ec93b",
+    "uuid": "00000000-0000-4000-8000-000000000015"
+   },
+   {
+    "index": 5,
+    "offset": 753572798464,
+    "size": 1073741824,
+    "type": "0fc63daf-8483-4772-8e79-3d69d8477de4",
+    "uuid": "00000000-0000-4000-8000-000000000016"
+   },
+   {
+    "index": 6,
+    "offset": 754646540288,
+    "size": 245908897792,
+    "type": "0fc63daf-8483-4772-8e79-3d69d8477de4",
+    "uuid": "00000000-0000-4000-8000-000000000017"
+   }
+  ],
+  "size": 1000555581440
+ },
  "experimental": {
   "note": "Supported but known broken: the opt-in must never be offered or change the verdict.",
   "opt_in": [
@@ -14,18 +195,17 @@
   "stub_iboot": "iBoot-8422.141.2",
   "stub_os": "13.5",
   "system_iboot": "iBoot-13822.61.10",
-  "system_os": "26.0",
-  "system_os_note": "lower bound: iBoot-13822 is a macOS 26 system firmware; the exact macOS version was not recorded"
+  "system_os": "26.2"
  },
  "model": "Apple MacBook Pro (16-inch, M1 Pro, 2021)",
  "name": "m1pro",
  "running": {
-  "kernel": "7.3.0-aurora-fleet8",
-  "stage1": "m1n1 v1.5.2",
+  "kernel": "7.3.0-aurora-fleet10",
+  "stage1": "v1.5.2",
   "stage2": "1.0.0b1",
   "u_boot": "2026.07-g2409ad5a25f8"
  },
  "schema": 1,
  "soc": "t6000",
- "source": "saved ADT (/chosen chip-id, firmware-version, system-firmware-version) and dmesg of 2026-10-30"
+ "source": "macOS/test/conformance/collect-machine-profile.py (read-only, under Linux)"
 }

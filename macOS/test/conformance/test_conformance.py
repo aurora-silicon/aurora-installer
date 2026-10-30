@@ -49,14 +49,17 @@ class FixtureTests(unittest.TestCase):
                 continue
             fresh = conformance.swift_machine(machine, 'fresh', CONSTRAINTS)
             kinds = [p['type'] for p in fresh['snapshot']['partitions']]
-            self.assertEqual(sorted(kinds), sorted(['Apple_APFS_ISC', 'Apple_APFS', 'Apple_APFS_Recovery']), name)
+            # The M1 Pro's disk has no recoveryOS container: its Linux root runs to the end.
+            captured = {conformance.TYPE_NAMES[p['type']] for p in machine['disk']['partitions']}
+            want = ['Apple_APFS_ISC', 'Apple_APFS'] + ['Apple_APFS_Recovery'] * ('Apple_APFS_Recovery' in captured)
+            self.assertEqual(sorted(kinds), sorted(want), name)
             kept = conformance.swift_machine(machine, 'side-by-side', CONSTRAINTS)
             self.assertEqual(len(kept['snapshot']['partitions']), len(machine['disk']['partitions']))
             systems = [s for c in kept['containers'] for s in c['systems']]
             self.assertEqual(len([s for s in systems if not s['stub']]), 1, name)
 
     def test_identity_only_fixture_gets_a_synthetic_disk(self):
-        machine = dict(MACHINES['m1pro'])
+        machine = dict(MACHINES['m1pro'], disk=None)
         result = conformance.swift_machine(machine, 'fresh', CONSTRAINTS)
         self.assertEqual(result['hardware']['chipID'], 0x6000)
         self.assertEqual(result['snapshot']['partitions'][1]['type'], 'Apple_APFS')
@@ -119,6 +122,42 @@ class ExpectationTests(unittest.TestCase):
         for name, machine in MACHINES.items():
             for level in (machine.get('experimental') or {}).get('opt_in', []):
                 self.assertIn(level, ('bootloader-only', 'full-send'), name)
+
+
+class CautionTests(unittest.TestCase):
+    """A stage1_caution board is warned, then goes ahead; any other board is never warned."""
+
+    CAUTION = {'headline': 'Aurora may not start on this Mac yet', 'reason': 'iBoot may refuse it.',
+               'recovery': 'If the Mac shows \u201cmacOS needs to be reinstalled\u201d: choose Always Use, '
+                           'then use Erase Linux.',
+               'acknowledgement': 'I approve the disk layout above, and I understand Aurora may not start on this Mac.',
+               'acknowledgement_resize': 'I approve the disk resize above, and I understand Aurora may not start on '
+                                         'this Mac.'}
+
+    def dry(self, caution, supported=True, stage1=True):
+        row = {'supported': supported, 'boot_chain': {'stage1_member': 'esp/aurora/stage1.bin'} if stage1 else {},
+               'candidates': [{'plan': {}}]}
+        if caution:
+            row['stage1_caution'] = caution
+        return {d: row for d in conformance.DESKTOPS}
+
+    def run_check(self, device, dry):
+        context = {'stage1_caution': {'apple,j316s': 'refused', 'apple,j575d': 'untried'}}
+        return conformance.stage1_caution({'device_identifier': device, 'disk': {}}, dry, context)
+
+    def test_a_listed_board_is_warned_and_goes_ahead(self):
+        result = self.run_check('apple,j316s', self.dry(self.CAUTION))
+        self.assertTrue(result['ok'], result)
+        self.assertIn('Always Use', result['detail'])
+
+    def test_a_listed_board_without_the_warning_or_blocked_fails(self):
+        self.assertFalse(self.run_check('apple,j575d', self.dry(None))['ok'])
+        self.assertIn('blocked', self.run_check('apple,j316s', self.dry(self.CAUTION, stage1=False))['detail'])
+        self.assertIn('blocked', self.run_check('apple,j316s', self.dry(self.CAUTION, supported=False))['detail'])
+
+    def test_any_other_board_is_never_warned(self):
+        self.assertIsNone(self.run_check('apple,j413', self.dry(None)))
+        self.assertFalse(self.run_check('apple,j413', self.dry(self.CAUTION))['ok'])
 
 
 if __name__ == '__main__':

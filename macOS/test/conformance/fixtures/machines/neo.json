@@ -8,7 +8,7 @@
    {
     "apfs": {
      "capacity": 576716800,
-     "free": 547897344,
+     "free": 547880960,
      "uuid": "00000000-0000-4000-8000-000000000002",
      "volumes": [
       {
@@ -54,7 +54,7 @@
    {
     "apfs": {
      "capacity": 366332608512,
-     "free": 326556786688,
+     "free": 326532202496,
      "uuid": "00000000-0000-4000-8000-000000000008",
      "volumes": [
       {
@@ -66,7 +66,7 @@
        "uuid": "00000000-0000-4000-8000-000000000009"
       },
       {
-       "alloc_bytes": 7681900544,
+       "alloc_bytes": 7681896448,
        "files": 121,
        "group": null,
        "name": "Preboot",
@@ -82,7 +82,7 @@
        "uuid": "00000000-0000-4000-8000-00000000000c"
       },
       {
-       "alloc_bytes": 13127680,
+       "alloc_bytes": 13160448,
        "files": 50,
        "group": null,
        "name": "Update",
@@ -90,8 +90,8 @@
        "uuid": "00000000-0000-4000-8000-00000000000d"
       },
       {
-       "alloc_bytes": 17677357056,
-       "files": 118873,
+       "alloc_bytes": 17702055936,
+       "files": 117406,
        "group": "00000000-0000-4000-8000-00000000000a",
        "name": "Data",
        "role": "Data",
@@ -116,12 +116,12 @@
    {
     "apfs": {
      "capacity": 2499805184,
-     "free": 178221056,
+     "free": 178024448,
      "uuid": "00000000-0000-4000-8000-000000000010",
      "volumes": [
       {
-       "alloc_bytes": 2334720,
-       "files": 253,
+       "alloc_bytes": 2449408,
+       "files": 252,
        "group": "00000000-0000-4000-8000-000000000011",
        "name": "m1n1 proxy - Data",
        "role": "Data",
@@ -223,7 +223,7 @@
  "model": "Apple MacBook Neo",
  "name": "neo",
  "running": {
-  "kernel": "7.3.0-aurora-fleet9",
+  "kernel": "7.3.0-aurora-fleet10",
   "stage1": "1.0.0b1",
   "stage2": "1.0.0b1",
   "u_boot": "2026.07-g2409ad5a25f8"
