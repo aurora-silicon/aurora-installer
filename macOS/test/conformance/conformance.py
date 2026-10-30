@@ -28,8 +28,10 @@ from pathlib import Path
 import re
 import struct
 import subprocess
+import time
 import sys
 import tempfile
+import urllib.error
 import urllib.request
 import zipfile
 import zlib
@@ -93,13 +95,30 @@ def published_sources(repo, sha, cache):
 
 # ---------------------------------------------------------------- network
 
+TRANSIENT_HTTP = (429, 500, 502, 503, 504)
+
+
+def urlopen(request, timeout, attempts=4, pause=5):
+    """urlopen that retries a server's transient refusal (429 and 5xx) or a
+    dropped connection, so a CDN hiccup is not reported as an install fault."""
+    for attempt in range(attempts):
+        try:
+            return urllib.request.urlopen(request, timeout=timeout)
+        except urllib.error.HTTPError as error:
+            if error.code not in TRANSIENT_HTTP or attempt == attempts - 1:
+                raise
+        except urllib.error.URLError:
+            if attempt == attempts - 1:
+                raise
+        time.sleep(pause * (attempt + 1))
+
 def fetch(url, cache, headers=None):
     key = hashlib.sha256((url + json.dumps(headers or {}, sort_keys=True)).encode()).hexdigest()
     path = Path(cache) / key
     if path.exists():
         return path.read_bytes()
     request = urllib.request.Request(url, headers=headers or {})
-    with urllib.request.urlopen(request, timeout=120) as response:
+    with urlopen(request, timeout=120) as response:
         data = response.read()
     path.write_bytes(data)
     return data
@@ -109,7 +128,7 @@ def public(url):
     """True when the URL downloads without credentials (HEAD, following redirects)."""
     request = urllib.request.Request(url, method='HEAD')
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with urlopen(request, timeout=60) as response:
             return response.status == 200, int(response.headers.get('Content-Length') or -1)
     except Exception as error:  # report, never guess
         return False, repr(error)
@@ -750,7 +769,7 @@ def verify_parts(profile, parts, directory):
         if out.exists():
             continue
         digest, count = hashlib.sha256(), 0
-        with urllib.request.urlopen(part['sourceURL'], timeout=300) as response:
+        with urlopen(part['sourceURL'], timeout=300) as response:
             while True:
                 block = response.read(1 << 20)
                 if not block:
