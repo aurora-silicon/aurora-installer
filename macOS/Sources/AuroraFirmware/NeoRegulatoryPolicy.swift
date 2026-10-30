@@ -918,10 +918,15 @@ public enum NeoRegulatoryPolicy {
   static func archiveLPIInputs(_ inputs: [String: Data], authenticated: Bool) throws
     -> [String: Data]
   {
-    let baseline = try derive(inputs, authenticated: authenticated)
+    let baseline = try deriveLegacy(inputs, authenticated: authenticated)
     let powers = try sections(
       inputs["IZUBA_TxPwrLimit6G_MT79x1.dat"]!, name: "IZUBA_TxPwrLimit6G_MT79x1.dat",
       expected: columns.filter { sixGroups.contains($0.key) }, allowY: true, sixGHz: true)
+    // Legacy-only inputs may have an empty LP section. They grant no LPI
+    // authority and do not need a 6 GHz matrix to remain usable as v1.
+    guard powers.contains(where: { key, groups in
+      key.hasSuffix(",LP") && groups.contains { !$0.rows.isEmpty }
+    }) else { return [:] }
     let matrix = try database(inputs["IZUBA_db.dat"]!).first { $0.name == "6gCC" }!
     try validateSixMatrix(matrix)
     var outputs = [String: Data]()
@@ -1002,6 +1007,22 @@ public enum NeoRegulatoryPolicy {
   }
   // Internal entry point permits synthetic grammar fixtures; production always pins inputs.
   static func derive(_ inputs: [String: Data], authenticated: Bool) throws -> [String: Data] {
+    var result = try deriveLegacy(inputs, authenticated: authenticated)
+    // v3 remains an opt-in unbound archive. Bind only authenticated LP/VLP
+    // records under a new path that older kernels never open.
+    for (path, archive) in try archiveLPIInputs(inputs, authenticated: authenticated) {
+      var bytes = Array(archive)
+      var at = 16 + Int(bytes[8]) * 328
+      for _ in 0..<13 { at += Int(bytes[at + 2]) | (Int(bytes[at + 3]) << 8) }
+      write(little(4, 2), 4, &bytes)
+      bytes[at + 6] = 1 // SPEC 2026-10-31 binding revision
+      let country = String(path.suffix(6).prefix(2))
+      let data = try NeoFirmwareConversions.policy(Data(bytes), country: country)
+      result[path.replacingOccurrences(of: "policy-v3/", with: "policy-v4/")] = data
+    }
+    return result
+  }
+  private static func deriveLegacy(_ inputs: [String: Data], authenticated: Bool) throws -> [String: Data] {
     for (name, sha) in inputSHA256 {
       guard let data = inputs[name] else {
         throw RestoreFailure("Missing regulatory input: \(name)")

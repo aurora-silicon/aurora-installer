@@ -343,7 +343,7 @@ public enum NeoFirmwareConversions {
       "Invalid radio policy envelope.")
     let version = try data.little(4, 2)
     try require(
-      [1, 2].contains(version) && (version == 2 || data.count <= 16384),
+      [1, 2, 4].contains(version) && (version != 1 || data.count <= 16384),
       "Unsupported radio policy version or size.")
     try require(
       try data.part(6, 2) == alpha
@@ -400,8 +400,46 @@ public enum NeoFirmwareConversions {
       at += size
     }
     if version == 2 { at = try policy6GHz(data, at: at, alpha: alpha) }
+    if version == 4 { at = try policy6GHzClasses(data, at: at, alpha: alpha) }
     try require(at == data.count, "Trailing radio policy data.")
     return data
+  }
+  // J7RP v4: bound class records, never firmware envelopes or SP data.
+  private static func policy6GHzClasses(_ data: Data, at start: Int, alpha: Data) throws -> Int {
+    let directory = try data.part(start, 16)
+    try require(
+      directory.prefix(4) == Data("6GCL".utf8) && directory[4] == 1
+        && (1...2).contains(directory[5]) && directory[6] == 1 && directory[7] == 0
+        && (try directory.little(8, 4)) == data.count - start
+        && directory[12..<16].allSatisfy { $0 == 0 }, "Invalid bound class directory.")
+    let channels = [2] + (1...233).filter {
+      $0 != 231 && $0 & 1 == 1 && NeoRegulatoryPolicy.width6($0) != 255
+    }
+    var at = start + 16
+    var previous: UInt8 = 0
+    for _ in 0..<Int(directory[5]) {
+      let section = try data.part(at, 13476)
+      let id = section[0]
+      try require(
+        [1, 2].contains(id) && id > previous && section[1] == (id == 2 ? 1 : 0)
+          && section[2] == 1 && section[3] == 110 && (try section.little(4, 4)) == 13476
+          && section[15] & 0xf8 == 0 && section[8..<16].contains(where: { $0 != 0 })
+          && section[16..<18] == alpha && section[18..<24].allSatisfy { $0 == 0 },
+        "Invalid bound class section.")
+      for (index, channel) in channels.enumerated() {
+        let record = try section.part(56 + index * 122, 122)
+        try require(record[0] == channel, "Invalid class channel order.")
+        if channel & 3 == 1 && section[8 + ((channel - 1) / 4) / 8]
+          & UInt8(1 << (((channel - 1) / 4) % 8)) != 0 {
+          try require(record.dropFirst().contains { $0 != 196 && $0 != 127 },
+                      "Class primary has no power data.")
+        }
+      }
+      previous = id
+      at += 13476
+    }
+    try require(previous == 2, "Missing LPI class.")
+    return at
   }
   // Swift validation of the CP2 v2 parser contract, independently written from its spec.
   private static func policy6GHz(_ data: Data, at start: Int, alpha: Data) throws -> Int {

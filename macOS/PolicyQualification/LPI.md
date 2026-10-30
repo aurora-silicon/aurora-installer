@@ -1,37 +1,34 @@
-# LPI archives are host data only
+# LPI table archives and runtime packages
 
-`NeoRegulatoryPolicy.archiveLPIInputs(_:)` authenticates the same six 25G83
-text tables as `derive(_:)`, then builds 129 LPI country archives, including
-the 120 countries with usable VLP data. Each result uses
-`mediatek/mt7932/policy-v3/CC.bin`. SP is never serialized.
+`archiveLPIInputs` preserves the t-2862 unbound J7RP v3 archive API. Its
+production path authenticates all six inputs and pins the 129-country v3
+inventory before binding. No proprietary implementation or table bytes are
+included in source.
 
-This API is opt-in for host qualification and future driver development.
-**It does not enable or install LPI.** The MT7932 fullmac LPI command selector
-and AP TPE binding have not been established. `derive(_:)` remains the
-installation API, emitting 244 v1 and 120 VLP v2 packages. The runtime parser
-rejects v3. Do not put these archives in either operational policy directory.
+`derive` also emits `mediatek/mt7932/policy-v4/CC.bin` for those LP countries,
+with independent VLP sections where available. Version 4 changes only the
+outer version halfword and 6GCL binding revision (1), retaining every class
+record, permission mask and indoor requirement. The driver binds these data
+to the clean 2026-10-31 SPEC's CID 0x5d class selector. SP is never serialized.
+The independent Swift validator checks class ordering, masks, country, units,
+record order, lengths and numeric primary data before publication.
 
-The independent MIT implementation follows the J7RP unbound v3 table-data
-contract in `aurora-silicon/linux`,
-`Documentation/networking/device_drivers/wifi/mt7932-neo.rst`. Archive sections
-carry table records, not firmware command pages. Directory binding revision
-zero means unbound; indoor-only LPI metadata is a requirement for a future
-consumer, not a claim that indoor restrictions have been enforced on hardware.
+All 244 v1 and 120 VLP v2 outputs are retained for older kernels and rollback.
+Unbound v3 is not installed and remains rejected by runtime validation. Empty
+legacy LP sections do not require a 6 GHz matrix or acquire LPI authority.
 
-The sorted relative-path inventory is pinned to
-`cfa39308ebb199b15860bd75c828a3d558e09f814749b883819b09df75179278`,
-matching the independent Python producer across all 129 countries.
-Synthetic tests cover LP-only countries, class-specific eligibility, no-data
-rejection, production authentication, unchanged deployment and runtime rejection.
-The opt-in live test verifies the complete inventory and deterministic output:
+The kernel candidate still rejects finite AP TPE because the clean SPEC does
+not identify J700 SISO/CDD/MIMO antenna gains. Installing v4 does not resolve
+that gate or qualify RF operation. Do not claim ordinary LPI connectivity or
+radiated-power compliance until a clean gain source and controller-approved
+AP/power tests exist. No live firmware-input test was run for this task.
+
+Synthetic qualification:
 
 ```sh
-AURORA_LIVE_POLICY_TEST=1 macOS/PolicyQualification/test.sh -c release
+macOS/PolicyQualification/test.sh -c release
 ```
 
-No Apple files or generated archives belong in this repository. A future LPI
-deployment change needs an established fullmac class/TPE ABI, driver association
-selection and indoor semantics, KUnit positive/negative selection tests, and an
-approved Neo test with a 6 GHz AP that explicitly advertises LPI. A VLP phone
-hotspot does not establish LPI operation. Keep the existing v1/v2 deployment and
-rollback packages available throughout qualification.
+The focused suite covers unchanged legacy outputs, authenticated-source
+rejection, class-specific masks, v3 rejection, v4 binding/data preservation,
+malformed headers and package publication. Tests never use radio hardware.
