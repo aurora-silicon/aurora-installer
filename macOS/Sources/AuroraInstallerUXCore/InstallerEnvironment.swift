@@ -681,6 +681,15 @@
     /// What each release channel's verified catalog offers this Mac. Read
     /// only: it never records a catalog or starts a download.
     func channelAvailability() async -> [ReleaseChannel: ReleaseChannelAvailability]
+    /// Whether the owner may choose an experimental install on this Mac. Read
+    /// only; offered only when the release does not support the Mac.
+    func experimentalHardwareAvailability() async -> ExperimentalHardwareAvailability
+    /// Writes a bring-up report for the chosen level on this Mac and returns
+    /// where it is. Nothing is sent anywhere.
+    func saveExperimentalBringUpReport(_ consent: ExperimentalHardwareConsent) async throws
+      -> ExperimentalBringUpReportDisplay
+    /// Inspects this Mac again under the owner's experimental choice.
+    func inspectExperimental(_ consent: ExperimentalHardwareConsent) async throws -> HostDisplay
   }
 
   extension InstallerEnvironment {
@@ -746,6 +755,19 @@
     public func restartPayloadPrefetch() {}
     public func channelAvailability() async -> [ReleaseChannel: ReleaseChannelAvailability] {
       [:]
+    }
+    public func experimentalHardwareAvailability() async -> ExperimentalHardwareAvailability {
+      .unavailable
+    }
+    public func saveExperimentalBringUpReport(_ consent: ExperimentalHardwareConsent) async throws
+      -> ExperimentalBringUpReportDisplay
+    {
+      throw InstallerJobError.unavailable
+    }
+    public func inspectExperimental(_ consent: ExperimentalHardwareConsent) async throws
+      -> HostDisplay
+    {
+      throw InstallerJobError.unavailable
     }
   }
 #endif

@@ -33,12 +33,14 @@
     /// fallback is intentionally not an installation admission rule.
     static func choose(
       deviceIdentifier: String, facts: Facts, metadata: NativeInstallationMetadata,
-      policy: NativeInspectionPolicy
+      policy: NativeInspectionPolicy, experimental: Bool = false
     ) throws -> Self {
       guard facts.deviceIdentifier == deviceIdentifier else {
         throw NativeFirmwareSelectionError.deviceChanged
       }
-      guard !AppleSiliconHostInspector.isExplicitlyUnsupported(deviceIdentifier),
+      // An experimental installation passes the policy its assessment widened
+      // for this one Mac; the explicit refusal list is what it overrides.
+      guard experimental || !AppleSiliconHostInspector.isExplicitlyUnsupported(deviceIdentifier),
         policy.supports(deviceIdentifier, hardware: facts.hardware),
         let chip = policy.chipMinimum[String(facts.hardware.chipID)],
         let device = policy.devices[String(deviceIdentifier.dropFirst(6))]
@@ -85,6 +87,22 @@
         version: selected.version, sourceURL: url,
         stubBytes: try NativeInspectionPolicy.Version.atLeast(selected.version, "26.0")
           ? 5_999_951_872 : 2_499_805_184)
+    }
+  }
+
+  extension NativeFirmwareSelection {
+    /// The choice for an imported plan: the sealed policy for a supported Mac,
+    /// exactly as before, or, for a plan that carries an experimental record,
+    /// the policy of the decision re-run on this Mac (refused unless it agrees).
+    static func choose(
+      package: ImportedEngineHandoffPackage, facts: Facts, metadata: NativeInstallationMetadata
+    ) throws -> Self {
+      let policy = try NativeDeviceAdmission.policy(
+        deviceIdentifier: package.deviceIdentifier, admission: package.experimentalAdmission,
+        hardware: facts.hardware, metadata: metadata)
+      return try choose(
+        deviceIdentifier: package.deviceIdentifier, facts: facts, metadata: metadata,
+        policy: policy, experimental: package.experimentalAdmission != nil)
     }
   }
 

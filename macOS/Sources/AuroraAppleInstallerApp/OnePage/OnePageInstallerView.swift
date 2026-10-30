@@ -12,6 +12,7 @@ struct OnePageInstallerView: View {
   @Environment(\.scenePhase) private var scenePhase
   @State private var session: InstallerSession
   @State private var showsShutdownConfirmation = false
+  @State private var showsExperimentalHardware = false
   @State private var showsRecoveryRetryConfirmation = false
   @State private var showsStartOverConfirmation = false
   private let device: MacHeaderDisplay
@@ -105,6 +106,20 @@ struct OnePageInstallerView: View {
           },
           onCheckHelper: { await session.checkWhetherHelperIsSwitchedOff() }
         )
+      }
+    }
+    .onChange(of: session.phase, initial: true) { _, _ in
+      Task { await session.checkExperimentalHardware() }
+    }
+    .sheet(isPresented: $showsExperimentalHardware) {
+      if case .offered(let model, let warnings) = session.experimentalHardware {
+        ExperimentalHardwareSheet(
+          model: model, warnings: warnings,
+          onConfirm: { level, typed in
+            showsExperimentalHardware = false
+            Task { await session.acceptExperimentalHardware(level: level, typed: typed) }
+          },
+          onCancel: { showsExperimentalHardware = false })
       }
     }
     .sheet(isPresented: $showsShutdownConfirmation) {
@@ -248,6 +263,11 @@ struct OnePageInstallerView: View {
       if let notice = session.allocationNotice {
         Text(notice).font(InstallerTheme.body).foregroundStyle(InstallerTheme.caution)
       }
+      if let report = session.experimentalReport {
+        Text(PlainLanguage.experimentalReportSaved(report))
+          .font(InstallerTheme.body).foregroundStyle(InstallerTheme.caution)
+          .fixedSize(horizontal: false, vertical: true)
+      }
       acknowledgement(acknowledged, plan: plan)
 
     case .awaitingInstall(let plan, let helper, _):
@@ -305,6 +325,11 @@ struct OnePageInstallerView: View {
         .disabled(!session.canCancelPlanPreparation)
 
     case .unsupported:
+      if case .offered = session.experimentalHardware {
+        Button(PlainLanguage.experimentalOfferAction) { showsExperimentalHardware = true }
+          .auroraSecondaryButton()
+          .disabled(session.isBusy)
+      }
       Button(PlainLanguage.checkAgain) { Task { await recheck() } }
         .auroraSecondaryButton()
         .disabled(session.isBusy)

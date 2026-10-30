@@ -15,10 +15,15 @@
     let windowMilliseconds: UInt32
     let firmware: String
     let usesLegacyStage1: Bool
+    /// Files an experimental install adds to the ESP: the aura-proxy marker
+    /// (Bootloader only), the experimental record, and a Stage 2 rebuilt from
+    /// a same-chip board's. Empty on every supported Mac.
+    var extraFiles: [String: Data] = [:]
 
     static func make(
       metadata: Data, archive: IPSWArchive, device: String, firmware: String,
-      legacyStage1: (@Sendable () throws -> Data)? = nil
+      legacyStage1: (@Sendable () throws -> Data)? = nil,
+      experimental: NativeExperimentalAssessment? = nil
     )
       async throws -> Self?
     {
@@ -30,9 +35,30 @@
         // Legacy extra downloads retain their existing execution contract.
         if !extras.isEmpty { return nil }
       }
-      let boot = try await NativeBootChain.admit(
-        metadata: metadata, archive: archive,
-        deviceIdentifier: device, firmware: firmware)
+      var extraFiles = [String: Data]()
+      let boot: NativeBootChainAdmission
+      if let experimental {
+        guard experimental.deviceIdentifier == device,
+          experimental.firmwareVersion == firmware
+        else { throw ExperimentalAdmissionError.decisionChanged }
+        let chain = try await NativeExperimentalBootChain.admit(
+          metadata: metadata, archive: archive, assessment: experimental)
+        var layout = chain.espLayout
+        if let rebuilt = chain.stage2Override {
+          // The sibling board file itself is not copied; its rebuilt bytes are.
+          layout = layout.filter { $0.value != "m1n1/boot.bin" }
+          extraFiles["m1n1/boot.bin"] = rebuilt
+        }
+        try extraFiles.merge(chain.extraFiles) { _, _ in
+          throw NativeHandoffValidationError.changedContent
+        }
+        boot = NativeBootChainAdmission(
+          stage1Member: chain.stage1Member, windowMilliseconds: 0, espLayout: layout)
+      } else {
+        boot = try await NativeBootChain.admit(
+          metadata: metadata, archive: archive,
+          deviceIdentifier: device, firmware: firmware)
+      }
       let bytes: Data
       let legacy: Bool
       if let source = boot.stage1Member {
@@ -74,13 +100,24 @@
         total = try NativeInspectionMath.add(total, UInt64(member.sizeBytes))
         entries.append(Entry(member: member, path: path))
       }
+      for (path, data) in extraFiles {
+        let canonical = path.precomposedStringWithCanonicalMapping.lowercased()
+        guard safeFATPath(path), data.count <= 64 << 20, !names.contains(canonical),
+          !names.contains(where: {
+            canonical.hasPrefix($0 + "/") || $0.hasPrefix(canonical + "/")
+          })
+        else { throw NativeHandoffValidationError.unsafePath }
+        names.insert(canonical)
+        total = try NativeInspectionMath.add(total, UInt64(data.count))
+      }
       guard entries.count <= 10000, total > 0,
         total < (try NativeInstallationMetadata.bytes(size)), icon.sizeBytes > 0,
         icon.sizeBytes <= 64 << 20
       else { throw NativePayloadPreflightError.invalidPartitions }
       return Self(
         archive: archive, entries: entries, icon: icon, stage1: bytes,
-        windowMilliseconds: boot.windowMilliseconds, firmware: firmware, usesLegacyStage1: legacy)
+        windowMilliseconds: boot.windowMilliseconds, firmware: firmware, usesLegacyStage1: legacy,
+        extraFiles: extraFiles)
     }
 
     static func safeFATPath(_ path: String) -> Bool {
@@ -153,17 +190,23 @@
       guard SHA256Digest(hashing: metadata).rawValue == approved.metadataDigest else {
         throw NativeStubFileError.invalidPlan
       }
+      let liveFacts = try facts()
+      let installation = try NativeInstallationMetadata(data: metadata)
       let firmware = try NativeFirmwareSelection.choose(
-        deviceIdentifier: package.deviceIdentifier,
-        facts: facts(), metadata: NativeInstallationMetadata(data: metadata),
-        policy: NativeInspectionPolicy.sealed())
+        package: package, facts: liveFacts, metadata: installation)
+      let experimental = try package.experimentalAdmission.map {
+        try NativeDeviceAdmission.verify(
+          $0, deviceIdentifier: package.deviceIdentifier, hardware: liveFacts.hardware,
+          policy: NativeInspectionPolicy.sealed(), metadata: installation)
+      }
       let archive = try await IPSWArchive.open(
         NativePayloadRangeReader(package.payloadURL, owner: owner))
       guard
         let plan = try await NativeESPPayloadPlan.make(
           metadata: metadata, archive: archive,
           device: package.deviceIdentifier,
-          firmware: firmware.version.components(separatedBy: " ")[0])
+          firmware: firmware.version.components(separatedBy: " ")[0],
+          experimental: experimental)
       else { return nil }
       return NativeESPFilesExecution(
         package: package, approved: approved, plan: plan,
@@ -186,6 +229,8 @@
       let icon: NativeStubFileIdentity
       let stage1: NativeStubFileIdentity
       var legacyStage1: NativeLegacyStage1.Receipt? = nil
+      /// Experimental installs only; absent, so unchanged, everywhere else.
+      var extraFiles: [Entry]? = nil
     }
     let package: ImportedEngineHandoffPackage
     let approved: ValidatedEnginePlan
@@ -287,6 +332,24 @@
         }
         entries.append(Entry(member: entry.member.name, path: entry.path, identity: identity))
       }
+      var extras = [Entry]()
+      for (path, data) in plan.extraFiles.sorted(by: { $0.key < $1.key }) {
+        let receiptName = "native-esp-extra-" + NativeStubFileStore.hash(Data(path.utf8))
+        let expected = NativeStubFileIdentity(
+          bytes: data.count, sha256: NativeStubFileStore.hash(data))
+        if try file.containsEvidence(receiptName) {
+          let identity = try JSONDecoder().decode(
+            NativeStubFileIdentity.self, from: file.readEvidence(receiptName))
+          guard identity == expected,
+            try espStore.identity(path, maximum: max(data.count, 1)) == identity
+          else { throw NativeHandoffValidationError.changedContent }
+        } else {
+          let identity = try await espStore.data(data, at: path)
+          guard identity == expected else { throw NativeHandoffValidationError.changedContent }
+          try file.publishEvidence(encode(identity), identifier: receiptName)
+        }
+        extras.append(Entry(member: "experimental:" + path, path: path, identity: expected))
+      }
       let icon = try await systemStore.member(
         plan.icon, archive: plan.archive, at: ".VolumeIcon.icns")
       let stage1: Data
@@ -318,7 +381,7 @@
           Receipt(
             plan: approved.planDigest, firmware: plan.firmware,
             groupUUID: group, espUUID: esp.uuid, files: entries, icon: icon, stage1: stage1Identity,
-            legacyStage1: legacy)
+            legacyStage1: legacy, extraFiles: plan.extraFiles.isEmpty ? nil : extras)
         ),
         identifier: "native-esp-files")
     }

@@ -10,6 +10,8 @@
     public let previouslyAcceptedCatalog: AcceptedCatalogIdentity?
     public let installerVersion: InstallerVersion?
     public let stagingDirectory: URL
+    /// See `InstallerReleasePreparationRequest.experimental`.
+    public var experimental: ExperimentalAdmissionRecord? = nil
 
     public init(
       host: AppleSiliconHostInspection,
@@ -125,7 +127,7 @@
       previouslyPrepared: PreparedInstallerAssets? = nil,
       includePayload: Bool = true
     ) async throws -> PreparedInstallerAssets {
-      let deviceIdentifier = try validateHost(request.host)
+      let deviceIdentifier = try validateHost(request.host, experimental: request.experimental)
 
       let catalog = try trustCore.validateSupportCatalog(
         payload: request.catalogPayload,
@@ -147,10 +149,12 @@
       guard !catalog.deviceIdentifiers.isEmpty else {
         throw InstallerAssetPreparationError.noMacRelease
       }
+      let admission =
+        request.experimental == nil
+        ? catalog.admission(for: deviceIdentifier)
+        : catalog.experimentalAdmission(for: deviceIdentifier)
       guard
-        case .admitted(let installer) = catalog.admission(
-          for: deviceIdentifier
-        )
+        case .admitted(let installer) = admission
       else {
         throw InstallerAssetPreparationError.notInCatalog(
           deviceIdentifier: deviceIdentifier,
@@ -279,13 +283,21 @@
     }
 
     func validateHost(
-      _ host: AppleSiliconHostInspection
+      _ host: AppleSiliconHostInspection, experimental: ExperimentalAdmissionRecord? = nil
     ) throws -> String {
-      if case .blocked(let reason) = host.eligibility {
+      let deviceIdentifier = host.identity.deviceIdentifier
+      // The model refusal is the one block an experimental choice lifts, and
+      // only for the Mac it names. Every other host block still applies.
+      let lifted =
+        experimental?.deviceIdentifier == deviceIdentifier
+        && Self.explicitlyUnsupportedDevices.contains(deviceIdentifier)
+      if case .blocked(let reason) = host.eligibility, !(lifted && host.storage.isInternal) {
         throw InstallerAssetPreparationError.hostBlocked(reason)
       }
-      let deviceIdentifier = host.identity.deviceIdentifier
-      guard !Self.explicitlyUnsupportedDevices.contains(deviceIdentifier) else {
+      guard lifted || !Self.explicitlyUnsupportedDevices.contains(deviceIdentifier) else {
+        throw InstallerAssetPreparationError.unsupportedDevice(deviceIdentifier)
+      }
+      if let experimental, experimental.deviceIdentifier != deviceIdentifier {
         throw InstallerAssetPreparationError.unsupportedDevice(deviceIdentifier)
       }
       return deviceIdentifier

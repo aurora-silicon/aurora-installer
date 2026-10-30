@@ -50,6 +50,9 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     return try InstallerReleaseConfigurationLocator().load(from: directory)
   }
   private var hostInspection: AppleSiliconHostInspection?
+  /// The owner's experimental hardware record, after the typed agreement and
+  /// a fresh inspection under it. Cleared by every ordinary inspection.
+  private var experimentalAdmission: ExperimentalAdmissionRecord?
   private var engineInspection: ValidatedEngineTranscript?
   private var engineInspectionTranscript: Data?
   private var engineInspectionFailure: String?
@@ -150,11 +153,19 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       guard let hostInspection else {
         return true
       }
-      if case .blocked = hostInspection.eligibility {
-        return true
-      }
-      return false
+      return Self.hostBlocked(hostInspection, experimental: experimentalAdmission)
     }
+  }
+
+  /// The host's own block, except the model refusal an experimental record
+  /// for this Mac lifts. A non-internal startup disk stays a block.
+  private static func hostBlocked(
+    _ host: AppleSiliconHostInspection, experimental: ExperimentalAdmissionRecord?
+  ) -> Bool {
+    guard case .blocked = host.eligibility else { return false }
+    return !(experimental?.deviceIdentifier == host.identity.deviceIdentifier
+      && AppleSiliconHostInspector.isExplicitlyUnsupported(host.identity.deviceIdentifier)
+      && host.storage.isInternal)
   }
 
   var engineSupported: Bool {
@@ -203,6 +214,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
 
     lock.withLock {
       hostInspection = host
+      experimentalAdmission = nil
       engineInspection = engine
       engineInspectionTranscript = transcript
       engineInspectionFailure = engineFailure
@@ -261,6 +273,75 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   /// Every channel's catalog, checked side by side for this Mac. A channel
   /// whose rollback state cannot be read counts as unverifiable rather than
   /// skipping the rollback check.
+  func experimentalHardwareAvailability() async -> ExperimentalHardwareAvailability {
+    guard let host = lock.withLock({ hostInspection }) else { return .unavailable }
+    let identity = host.identity
+    do {
+      switch try ExperimentalHardwareInspection.availability(
+        deviceIdentifier: identity.deviceIdentifier)
+      {
+      case .supported: return .supported
+      case .refused(let reason): return .refused(reason)
+      case .offered(let warnings):
+        return .offered(
+          model: MacModelNames.name(for: identity.deviceIdentifier) ?? identity.model,
+          warnings: warnings)
+      }
+    } catch {
+      return .refused(String(describing: error))
+    }
+  }
+
+  func saveExperimentalBringUpReport(_ consent: ExperimentalHardwareConsent) async throws
+    -> ExperimentalBringUpReportDisplay
+  {
+    guard let host = lock.withLock({ hostInspection }) else { throw InstallerJobError.unavailable }
+    let identity = host.identity
+    let facts = try ExperimentalHardwareInspection.report(
+      model: MacModelNames.name(for: identity.deviceIdentifier) ?? identity.model,
+      deviceIdentifier: identity.deviceIdentifier, level: consent.level)
+    let directory = FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent("Library/Logs/Aurora Installer", isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
+    let board = String(identity.deviceIdentifier.dropFirst(6))
+    let file = directory.appendingPathComponent("bring-up-\(board)-\(stamp).txt")
+    let text = facts.report
+    try Data(text.utf8).write(to: file, options: [.withoutOverwriting])
+    return ExperimentalBringUpReportDisplay(path: file.path, text: text)
+  }
+
+  /// Inspects the Mac again under the owner's experimental choice: the same
+  /// disk inspection and planner, run against the decision's policy for this
+  /// one Mac. The record it keeps is bound into the plan digest later.
+  func inspectExperimental(_ consent: ExperimentalHardwareConsent) async throws -> HostDisplay {
+    try await prefetch.waitForRetirement()
+    let host = try await inspectCurrentHost()
+    let record = try ExperimentalHardwareInspection.admission(
+      deviceIdentifier: host.identity.deviceIdentifier, level: consent.level)
+    let inspection = try await inspector.inspect(
+      host: host, metadata: nil, experimental: record)
+    guard inspection.validated.deviceIdentifier == host.identity.deviceIdentifier,
+      inspection.validated.support == .supported
+    else { throw InstallerAppError.hostChanged }
+    lock.withLock {
+      hostInspection = host
+      experimentalAdmission = record
+      engineInspection = inspection.validated
+      engineInspectionTranscript = inspection.transcript
+      engineInspectionFailure = nil
+      planReview = nil
+      preparedPlan = nil
+      planApproval = nil
+      releaseConfiguration = nil
+    }
+    cancelPayloadPrefetch()
+    return display(
+      host: host, engine: inspection.validated, engineFailure: nil, unsupportedModel: nil,
+      knownInstallations: inspection.knownInstallations)
+  }
+
   func channelAvailability() async -> [ReleaseChannel: ReleaseChannelAvailability] {
     guard let host = lock.withLock({ hostInspection }) else { return [:] }
     let deviceIdentifier = host.identity.deviceIdentifier
@@ -341,6 +422,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     progress: @escaping @Sendable (AssetProgressUpdate) -> Void
   ) async throws -> PlanPreparationDisplay {
     try Task.checkCancellation()
+    let experimental = lock.withLock { experimentalAdmission }
     let (host, hasTranscript, generation) = lock.withLock {
       preparationGeneration = UUID()
       let retained = (hostInspection, engineInspectionTranscript != nil)
@@ -370,17 +452,19 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     let validationTime = Date()
 
     let collector = StagingProgressCollector(publish: progress)
+    var releaseRequest = InstallerReleasePreparationRequest(
+      host: host,
+      configuration: configuration,
+      channel: channel,
+      validationTime: validationTime,
+      previouslyAcceptedCatalog: previouslyAcceptedCatalog,
+      installerVersion: InstallerVersion.current(),
+      stagingDirectory: workspace.staging
+    )
+    releaseRequest.experimental = experimental
     let release = try await InstallerReleaseAssetCoordinator()
       .prepareRelease(
-        InstallerReleasePreparationRequest(
-          host: host,
-          configuration: configuration,
-          channel: channel,
-          validationTime: validationTime,
-          previouslyAcceptedCatalog: previouslyAcceptedCatalog,
-          installerVersion: InstallerVersion.current(),
-          stagingDirectory: workspace.staging
-        ),
+        releaseRequest,
         progress: { event in
           collector.record(event)
         },
@@ -419,7 +503,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     try requirePreparation(generation)
     guard freshHost.identity == host.identity else { throw InstallerAppError.hostChanged }
     let signedInspection = try await inspector.inspect(
-      host: freshHost, metadata: release.assets.metadata)
+      host: freshHost, metadata: release.assets.metadata, experimental: experimental)
     try requirePreparation(generation)
     guard
       signedInspection.validated.deviceIdentifier
@@ -462,19 +546,19 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     let candidate = recommendation.candidate
     let requestedLengthBytes = recommendation.requestedLengthBytes
 
+    var planRequest = InstallerPlanPreparationRequest(
+      host: host,
+      release: release,
+      configuration: configuration,
+      inspectionTranscript: signedInspection.transcript,
+      candidate: candidate,
+      requestedLengthBytes: requestedLengthBytes,
+      validationTime: validationTime,
+      previouslyAcceptedCatalog: previouslyAcceptedCatalog
+    )
+    planRequest.experimental = experimental
     let prepared = try await InstallerPlanPreparationCoordinator()
-      .prepareExecution(
-        InstallerPlanPreparationRequest(
-          host: host,
-          release: release,
-          configuration: configuration,
-          inspectionTranscript: signedInspection.transcript,
-          candidate: candidate,
-          requestedLengthBytes: requestedLengthBytes,
-          validationTime: validationTime,
-          previouslyAcceptedCatalog: previouslyAcceptedCatalog
-        )
-      )
+      .prepareExecution(planRequest)
 
     try lock.withLock {
       guard preparationGeneration == generation, !Task.isCancelled else {
@@ -924,12 +1008,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     unsupportedModel: UnsupportedModelDisplay?,
     knownInstallations: [NativeKnownInstallation]
   ) -> HostDisplay {
-    let blocked: Bool
-    if case .blocked = host.eligibility {
-      blocked = true
-    } else {
-      blocked = false
-    }
+    let blocked = Self.hostBlocked(host, experimental: lock.withLock { experimentalAdmission })
 
     let existing = Self.existingInstalls(in: engine, knownInstallations: knownInstallations)
     let space = existing.isEmpty ? Self.spaceCheck(engine: engine, host: host) : nil
@@ -1014,7 +1093,9 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     host: AppleSiliconHostInspection,
     engineFailure: String?
   ) -> String? {
-    if case .blocked(let reason) = host.eligibility {
+    if case .blocked(let reason) = host.eligibility,
+      Self.hostBlocked(host, experimental: lock.withLock { experimentalAdmission })
+    {
       return reason
     }
     return engineFailure
