@@ -18,20 +18,63 @@
   /// authenticated payload's metadata. It returns what the installer would do
   /// and never does any of it.
   public enum NativeInstallerDryRun {
+    /// `experimental` replays the owner's opt-in for a Mac this release does
+    /// not support: the same inspection, planner and 1TR step, run against the
+    /// policy the experimental assessment widens for this one Mac.
     public static func run(
       machine machineData: Data, metadata: Data, payloadDigest: String,
-      archive: IPSWArchive?
+      archive: IPSWArchive?, experimental: ExperimentalHardwareLevel? = nil
     ) async throws -> Data {
       let machine = try JSONDecoder().decode(NativeInstallerDryRunMachine.self, from: machineData)
-      let policy = try NativeInspectionPolicy.sealed()
+      var policy = try NativeInspectionPolicy.sealed()
       let device = machine.deviceIdentifier
       var result: [String: Any] = [
         "schema": 1, "device_identifier": device,
         "policy_runtime": policy.runtimeVersion,
       ]
-      let supported =
+      var supported =
         !AppleSiliconHostInspector.isExplicitlyUnsupported(device)
         && policy.supports(device, hardware: machine.hardware)
+      var assessment: NativeExperimentalAssessment?
+      var admission: ExperimentalAdmissionRecord?
+      if let experimental {
+        var row: [String: Any] = ["requested_level": experimental.rawValue]
+        switch NativeExperimentalHardware.refusal(
+          device, hardware: machine.hardware, policy: policy)
+        {
+        case .supported?:
+          row["offered"] = false
+          row["refusal"] = "supported Mac: the experimental path is never offered"
+        case .some(let other):
+          row["offered"] = false
+          row["refusal"] = String(describing: other)
+        case nil:
+          row["offered"] = true
+          do {
+            // The app's decision, the record the plan binds, then the helper's
+            // own re-run of the decision against that record.
+            let installation = try NativeInstallationMetadata(data: metadata)
+            let chosen = try NativeExperimentalHardware.assess(
+              device, hardware: machine.hardware, policy: policy, metadata: installation,
+              level: experimental)
+            let record = NativeDeviceAdmission.record(chosen)
+            let verified = try NativeDeviceAdmission.verify(
+              ExperimentalAdmissionRecord.decode(record.canonical), deviceIdentifier: device,
+              hardware: machine.hardware, policy: policy, metadata: installation)
+            assessment = verified
+            admission = record
+            policy = verified.policy
+            supported = true
+            row["stub_firmware"] = verified.firmwareVersion
+            row["warnings"] = verified.warnings
+            row["admission_record"] = record.canonical
+            row["helper_recheck"] = "agrees"
+          } catch {
+            row["refusal"] = String(describing: error)
+          }
+        }
+        result["experimental"] = row
+      }
       result["supported"] = supported
       result["one_true_recovery_boot_policy"] = RecoveryBootPolicyArguments.bootPolicy(
         deviceIdentifier: device)
@@ -53,7 +96,7 @@
         firmware = try NativeFirmwareSelection.choose(
           deviceIdentifier: device,
           facts: .init(deviceIdentifier: device, hardware: machine.hardware),
-          metadata: installation, policy: policy)
+          metadata: installation, policy: policy, experimental: assessment != nil)
         result["firmware"] = [
           "version": firmware!.version, "source_url": firmware!.sourceURL.absoluteString,
           "stub_bytes": firmware!.stubBytes,
@@ -87,13 +130,22 @@
           let request = try PinnedAsahiPlanRequest(
             inventory: inventory, candidate: candidate, requestedLengthBytes: length)
           let planned = try NativeInstallerPlanner.transcript(
-            inspection: inspection, request: request, identity: identity)
+            inspection: inspection, request: request, identity: identity,
+            experimental: admission)
           guard let plan = try AppleInstallerTrustCore().validateEngineTranscript(planned).plan
           else { throw NativeInstallerPlanningError.inspectionRequired }
           var planRow: [String: Any] = [
             "offset_bytes": plan.offsetBytes, "length_bytes": plan.lengthBytes,
-            "required_human_steps": plan.requiredHumanSteps,
+            "required_human_steps": plan.requiredHumanSteps, "plan_digest": plan.planDigest,
           ]
+          if let bound = plan.experimentalAdmission {
+            planRow["experimental_admission"] = bound
+            // The same plan without the record: the digest must differ.
+            let unbound = try NativeInstallerPlanner.transcript(
+              inspection: inspection, request: request, identity: identity)
+            planRow["unbound_plan_digest"] =
+              try AppleInstallerTrustCore().validateEngineTranscript(unbound).plan?.planDigest
+          }
           if let firmware, plan.lengthBytes > firmware.stubBytes {
             let available = NativeInspectionMath.alignDown(plan.lengthBytes - firmware.stubBytes)
             planRow["stub_bytes"] = firmware.stubBytes
@@ -118,7 +170,52 @@
           "length_bytes": $0.lengthBytes,
         ]
       }
-      if let archive, let firmware {
+      if let archive, firmware != nil, let assessment {
+        do {
+          let boot = try await NativeExperimentalBootChain.admit(
+            metadata: metadata, archive: archive, assessment: assessment)
+          var source: [String: Any] = ["kind": "none"]
+          switch boot.stage2 {
+          case .own(let member): source = ["kind": "own", "member": member]
+          case .sibling(let board, let member):
+            source = ["kind": "sibling", "board": "apple," + board, "member": member]
+          case .none: break
+          }
+          var espFiles: Any = NSNull()
+          do {
+            if let plan = try await NativeESPPayloadPlan.make(
+              metadata: metadata, archive: archive, device: device,
+              firmware: assessment.firmwareVersion, experimental: assessment)
+            {
+              espFiles =
+                [
+                  "members": plan.entries.map(\.path).sorted(),
+                  "extra_files": plan.extraFiles.keys.sorted(),
+                  "window_milliseconds": plan.windowMilliseconds,
+                ] as [String: Any]
+            }
+          } catch {
+            espFiles = ["error": String(describing: error)]
+          }
+          result["boot_chain"] =
+            [
+              "esp_plan": espFiles,
+              "esp_layout": boot.espLayout, "window_milliseconds": 0,
+              "stage1_member": boot.stage1Member, "stage1_bytes": boot.stage1Bytes,
+              "stage1_sha256": boot.stage1SHA256, "stage2_source": source,
+              "stage2_bytes": boot.stage2Bytes, "stage2_sha256": boot.stage2SHA256,
+              "stage2_trees": boot.stage2Trees,
+              "extra_files": boot.extraFiles.keys.sorted(), "level": boot.assessment.level.rawValue,
+              "notes": boot.notes,
+              "record":
+                (try? JSONSerialization.jsonObject(
+                  with: boot.extraFiles[NativeExperimentalHardware.recordPath] ?? Data()))
+                ?? NSNull(),
+            ] as [String: Any]
+        } catch {
+          result["boot_chain_error"] = String(describing: error)
+        }
+      } else if let archive, let firmware {
         do {
           let boot = try await NativeBootChain.admit(
             metadata: metadata, archive: archive, deviceIdentifier: device,

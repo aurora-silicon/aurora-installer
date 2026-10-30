@@ -4,7 +4,8 @@ import Darwin
 import Foundation
 
 /// `InstallerDryRun --machine M.json --metadata installer-data.json
-///  --payload-digest sha256:… [--esp-archive esp.zip]`
+///  --payload-digest sha256:… [--esp-archive esp.zip]
+///  [--experimental bootloader-only|full-send]`
 ///
 /// Replays a recorded machine through native inspection, planning and
 /// boot-chain admission and prints the result as JSON. It reads only the
@@ -20,8 +21,15 @@ import Foundation
       }
       guard let machine = options["machine"], let metadata = options["metadata"],
         let digest = options["payload-digest"],
-        Set(options.keys).isSubset(of: ["machine", "metadata", "payload-digest", "esp-archive"])
+        Set(options.keys).isSubset(of: [
+          "machine", "metadata", "payload-digest", "esp-archive", "experimental",
+        ])
       else { throw usage }
+      var experimental: ExperimentalHardwareLevel?
+      if let level = options["experimental"] {
+        guard let parsed = ExperimentalHardwareLevel(rawValue: level) else { throw usage }
+        experimental = parsed
+      }
       var archive: IPSWArchive?
       if let path = options["esp-archive"] {
         archive = try await IPSWArchive.open(LocalFileRangeReader(path: path))
@@ -29,7 +37,7 @@ import Foundation
       let output = try await NativeInstallerDryRun.run(
         machine: Data(contentsOf: URL(fileURLWithPath: machine)),
         metadata: Data(contentsOf: URL(fileURLWithPath: metadata)),
-        payloadDigest: digest, archive: archive)
+        payloadDigest: digest, archive: archive, experimental: experimental)
       FileHandle.standardOutput.write(output)
       FileHandle.standardOutput.write(Data("\n".utf8))
     } catch {
@@ -42,7 +50,7 @@ import Foundation
     domain: "InstallerDryRun", code: 64,
     userInfo: [
       NSLocalizedDescriptionKey:
-        "usage: InstallerDryRun --machine M.json --metadata META.json --payload-digest sha256:HEX [--esp-archive ESP.zip]"
+        "usage: InstallerDryRun --machine M.json --metadata META.json --payload-digest sha256:HEX [--esp-archive ESP.zip] [--experimental bootloader-only|full-send]"
     ])
 }
 
