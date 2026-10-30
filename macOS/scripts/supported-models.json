@@ -42,12 +42,12 @@
     "apple,j614s": "MacBook Pro 14-inch (M4 Pro, 2024): M4 and later Macs are not supported"
   },
   "developer": {},
-  "stage1_unqualified": {
-    "apple,j314s": "aura 1.0.0b1's raw Stage 1 (4,390,912 B) is refused by T6000 iBoot on the 13.5 stub (\"macOS needs to be reinstalled\"); a 4,063,232 B build is refused too, and only the 1.05 MB m1n1 1.5.2 Stage 1 is known to boot there",
-    "apple,j316s": "aura 1.0.0b1's raw Stage 1 (4,390,912 B) is refused by T6000 iBoot on the 13.5 stub (\"macOS needs to be reinstalled\"); a 4,063,232 B build is refused too, and only the 1.05 MB m1n1 1.5.2 Stage 1 is known to boot there",
-    "apple,j314c": "MacBook Pro 14-inch M1 Max (T6001) shares the T6000 iBoot generation that refuses aura 1.0.0b1's 4,390,912 B raw Stage 1 on the J316s; not proven on this board, so it stays unqualified until a Stage 1 that this iBoot accepts ships",
-    "apple,j316c": "MacBook Pro 16-inch M1 Max (T6001) shares the T6000 iBoot generation that refuses aura 1.0.0b1's 4,390,912 B raw Stage 1 on the J316s; not proven on this board, so it stays unqualified until a Stage 1 that this iBoot accepts ships",
-    "apple,j375c": "Mac Studio M1 Max (T6001) shares the T6000 iBoot generation that refuses aura 1.0.0b1's 4,390,912 B raw Stage 1 on the J316s; not proven on this board, so it stays unqualified until a Stage 1 that this iBoot accepts ships",
-    "apple,j375d": "Mac Studio M1 Ultra (T6002) shares the T6000 iBoot generation that refuses aura 1.0.0b1's 4,390,912 B raw Stage 1 on the J316s; not proven on this board, so it stays unqualified until a Stage 1 that this iBoot accepts ships"
+  "stage1_caution": {
+    "apple,j314s": "The 16-inch M1 Pro (J316s, T6000) iBoot refuses aura 1.0.0b1's 4,390,912 B raw Stage 1 (\"macOS needs to be reinstalled\"); a 4,063,232 B build is refused too. Installs go ahead after a warning with the recovery steps.",
+    "apple,j316s": "The 16-inch M1 Pro (J316s, T6000) iBoot refuses aura 1.0.0b1's 4,390,912 B raw Stage 1 (\"macOS needs to be reinstalled\"); a 4,063,232 B build is refused too. Installs go ahead after a warning with the recovery steps.",
+    "apple,j314c": "Same iBoot generation as the J316s, where aura 1.0.0b1's 4,390,912 B raw Stage 1 is refused; not tried on this board. Installs go ahead after a warning with the recovery steps.",
+    "apple,j316c": "Same iBoot generation as the J316s, where aura 1.0.0b1's 4,390,912 B raw Stage 1 is refused; not tried on this board. Installs go ahead after a warning with the recovery steps.",
+    "apple,j375c": "Same iBoot generation as the J316s, where aura 1.0.0b1's 4,390,912 B raw Stage 1 is refused; not tried on this board. Installs go ahead after a warning with the recovery steps.",
+    "apple,j375d": "Same iBoot generation as the J316s, where aura 1.0.0b1's 4,390,912 B raw Stage 1 is refused; not tried on this board. Installs go ahead after a warning with the recovery steps."
   }
 }
