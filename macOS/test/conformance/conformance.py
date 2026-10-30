@@ -182,9 +182,10 @@ class RemoteZip:
 
 # ---------------------------------------------------------------- catalogs
 
-def load_catalog(base, profile, cache):
-    """Fetch and authenticate a profile's signed catalog with the app's trust root."""
-    root = (MACOS / 'Release/trust-root.ed25519.pub').read_bytes()
+def load_catalog(base, profile, cache, trust_root=None):
+    """Fetch and authenticate a profile's signed catalog with the app's trust root
+    (or, for a simulated catalog set, the root named by --trust-root)."""
+    root = Path(trust_root or MACOS / 'Release/trust-root.ed25519.pub').read_bytes()
     if base.startswith('http'):
         catalog = fetch('%s/%s/catalog.json' % (base, profile), cache)
         signature = fetch('%s/%s/catalog.json.sig' % (base, profile), cache)
@@ -417,7 +418,7 @@ def evaluate(machine, mode, distro, dry, context):
                         None if proven else 'boot the pinned Stage 1 on this board through a real 1TR install'))
 
     # 4. Stage 2 composition for this board
-    problems, published = [], []
+    problems, published, notes2 = [], [], set()
     for desktop in DESKTOPS:
         chain, payload = dry[desktop].get('boot_chain'), profiles[desktop]['payload']
         if not chain:
@@ -428,15 +429,20 @@ def evaluate(machine, mode, distro, dry, context):
             continue
         contents = payload['stage2'].get(board)
         trees = [t.get('compatible') for t in contents['device_trees']]
-        if trees != [machine['device_identifier']]:
+        # A board file may carry several trees for its own board (aura boots
+        # the last one of the highest profile rank); another board's tree is wrong.
+        if not trees or set(trees) != {machine['device_identifier']}:
             problems.append('%s: Stage 2 carries device trees %s' % (desktop, trees))
+        elif len(trees) > 1:
+            notes2.add('%s carries %d %s trees; aura boots the last' % (desktop, len(trees), machine['device_identifier']))
         if not contents['u_boot']:
             problems.append('%s: Stage 2 carries no U-Boot' % desktop)
         if not any(v.endswith('##' + context['pins']['aura_label']) for v in contents['versions']):
             published.append('%s %s with U-Boot %s' % (
                 desktop, ', '.join(v.split('##')[-1] for v in contents['versions']), contents['u_boot']))
     checks.append(check('stage2', not problems, '; '.join(problems) or
-                        'board Stage 2 carries only the %s device tree and U-Boot' % machine['device_identifier']))
+                        'board Stage 2 carries only %s device trees and U-Boot' % machine['device_identifier'] +
+                        ''.join('; ' + n for n in sorted(notes2))))
     checks.append(check('published stage2', not published, 'payload Stage 2 is not aura %s: %s' % (
         context['pins']['aura_label'], '; '.join(published)) if published else 'payload Stage 2 is aura ' +
         context['pins']['aura_label'], scope='published'))
@@ -613,6 +619,8 @@ def main():
     parser.add_argument('--dry-run', required=True, help='InstallerDryRun executable')
     parser.add_argument('--distro', action='append', default=[], help='NAME=CHECKOUT of a distro branch under test')
     parser.add_argument('--catalogs', default=DEFAULT_CATALOGS)
+    parser.add_argument('--trust-root', help='raw Ed25519 public key for --catalogs made by simulate-catalogs.py; '
+                        'the default is the app trust root')
     parser.add_argument('--digests', help='directory of payload digest results (*.result); with --verify-digests, '
                         'where to write them')
     parser.add_argument('--verify-digests', action='store_true',
@@ -643,7 +651,7 @@ def main():
         profiles[distro] = {}
         for desktop in DESKTOPS:
             profile = '%s-%s' % (distro, desktop)
-            catalog, verified = load_catalog(args.catalogs, profile, args.cache)
+            catalog, verified = load_catalog(args.catalogs, profile, args.cache, args.trust_root)
             enabled = {m['deviceIdentifier'] for m in catalog['models'] if m['status'] == 'enabled'}
             model = next(m for m in catalog['models'] if m['status'] == 'enabled')
             artifact = model['payloadArtifact']
