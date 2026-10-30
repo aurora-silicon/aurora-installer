@@ -665,11 +665,11 @@ def main():
             public_state = {url: (lambda r: True if r[0] and r[1] in (size, -1) else r)(public(url)) for url, size in parts}
             digest = None
             if args.verify_digests:
-                verify_parts(profile, artifact, args.digests)
+                verify_parts(profile, payload_parts(model), args.digests)
             if args.digests:
                 results = [json.loads((Path(args.digests) / (p['fileName'] + '.result')).read_text())
-                           for p in artifact.get('parts') or [] if (Path(args.digests) / (p['fileName'] + '.result')).exists()]
-                if len(results) == len(artifact.get('parts') or []):
+                           for p in payload_parts(model) if (Path(args.digests) / (p['fileName'] + '.result')).exists()]
+                if len(results) == len(payload_parts(model)):
                     bad = [r['file'] for r in results if not r['ok']]
                     digest = {'ok': not bad, 'detail': 'digest mismatch: ' + ', '.join(bad) if bad else 'all part digests match'}
             source = model.get('evidenceRevision', '')
@@ -734,10 +734,18 @@ def compare_expected(cells, expected):
     return 1 if worse else 0
 
 
-def verify_parts(profile, artifact, directory):
+def payload_parts(model):
+    """The files a payload is published as, each with the digest the catalog
+    gives it. An unsplit payload is one file whose digest is payloadDigest."""
+    artifact = model['payloadArtifact']
+    return artifact.get('parts') or [{'sourceURL': artifact['sourceURL'], 'fileName': artifact['fileName'],
+                                      'sizeBytes': artifact['sizeBytes'], 'sha256': model['payloadDigest']}]
+
+
+def verify_parts(profile, parts, directory):
     """Stream each payload part once and record whether it matches the catalog."""
     Path(directory).mkdir(parents=True, exist_ok=True)
-    for part in artifact.get('parts') or []:
+    for part in parts:
         out = Path(directory) / (part['fileName'] + '.result')
         if out.exists():
             continue
