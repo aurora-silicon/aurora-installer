@@ -224,9 +224,9 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
     stack.setCustomSpacing(44, after: stack.arrangedSubviews[1])
     stack.addArrangedSubview(icon)
     stack.setCustomSpacing(24, after: icon)
-    // A blank line keeps the layout when the Aurora volume's name is left out.
-    stack.addArrangedSubview(
-      label(DestinationVolume.showsIdentity ? DestinationVolume.name : " ", size: 14))
+    // Every Aurora startup volume carries the Aurora mark the window already
+    // shows, so its icon and name are left out; a blank line keeps the layout.
+    stack.addArrangedSubview(label(" ", size: 14))
     place(stack)
   }
 
@@ -296,7 +296,7 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
 
   private func buildComplete() {
     let stack = vertical(spacing: 13)
-    let subject = DestinationVolume.showsIdentity ? DestinationVolume.name : "Aurora Linux"
+    let subject = "Aurora Linux"
     stack.addArrangedSubview(
       label(
         model.accountNeedsAuthorization
@@ -321,16 +321,10 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
     place(stack)
   }
 
-  /// The volume's icon, or the same space left blank for an Aurora volume.
+  /// The space the volume's icon used, left blank: the window already shows
+  /// the Aurora mark every Aurora startup volume carries.
   private func volumeIcon() -> NSView {
-    let view: NSView
-    if DestinationVolume.showsIdentity {
-      let image = NSImageView(image: DestinationVolume.icon)
-      image.imageScaling = .scaleProportionallyUpOrDown
-      view = image
-    } else {
-      view = NSView()
-    }
+    let view = NSView()
     view.translatesAutoresizingMaskIntoConstraints = false
     view.widthAnchor.constraint(equalToConstant: 96).isActive = true
     view.heightAnchor.constraint(equalToConstant: 96).isActive = true
