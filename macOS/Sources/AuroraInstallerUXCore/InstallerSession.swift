@@ -149,6 +149,41 @@
       environment.setEncryptLinuxDisk(allowsEncryption)
     }
 
+    // MARK: Experimental hardware
+
+    /// Whether the experimental hardware choice is shown. It is checked only
+    /// after the release refused this Mac's model, so a supported Mac never
+    /// sees it.
+    public private(set) var experimentalHardware: ExperimentalHardwareAvailability = .unavailable
+
+    public func checkExperimentalHardware() async {
+      guard case .unsupported(let failure) = phase, failure.isBlockedModel else {
+        experimentalHardware = .unavailable
+        return
+      }
+      experimentalHardware = await environment.experimentalHardwareAvailability()
+    }
+
+    /// Records the owner's typed agreement and saves the bring-up report.
+    /// Returns false, changing nothing, unless the phrase was typed exactly and
+    /// the path is offered on this Mac.
+    @discardableResult
+    public func acceptExperimentalHardware(level: ExperimentalHardwareLevel, typed: String) async
+      -> Bool
+    {
+      guard case .offered = experimentalHardware,
+        let consent = ExperimentalHardwareConsent(level: level, typed: typed)
+      else { return false }
+      do {
+        let report = try await environment.saveExperimentalBringUpReport(consent)
+        phase = .unsupported(PlainLanguage.experimentalNotRunYet(level, report: report))
+        return true
+      } catch {
+        phase = .unsupported(PlainLanguage.failure(for: error))
+        return false
+      }
+    }
+
     // MARK: Derived state
 
     public var installationBlocked: Bool {

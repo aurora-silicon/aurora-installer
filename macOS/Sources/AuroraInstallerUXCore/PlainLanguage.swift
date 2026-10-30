@@ -1096,3 +1096,65 @@
     }
   }
 #endif
+
+#if os(macOS)
+  import AuroraAppleInstallerTrustCore
+
+  extension PlainLanguage {
+    // MARK: Experimental hardware
+
+    public static let experimentalOfferAction = "Experimental hardware…"
+    public static let experimentalTitle = "Install on a Mac this release doesn’t support"
+    public static let experimentalWarning = [
+      "Aurora has not been tested on this Mac. Linux may not start, and some or all of its hardware may not work.",
+      "You may need to start up in macOS Recovery to undo it: hold the power button, choose Startup Disk and select macOS, or remove the Aurora installation from macOS with Erase Linux.",
+      "macOS stays untouched. The installer uses the same disk plan, space checks and Recovery step as on a supported Mac, and it never resizes macOS below its reserve.",
+      "Nothing is sent anywhere. A bring-up report is saved on this Mac for you to share if you choose.",
+    ]
+
+    public static func experimentalLevelTitle(_ level: ExperimentalHardwareLevel) -> String {
+      switch level {
+      case .bootloaderOnly: "Bootloader only (bring-up)"
+      case .fullSend: "Full send"
+      }
+    }
+
+    public static func experimentalLevelDetail(_ level: ExperimentalHardwareLevel) -> String {
+      switch level {
+      case .bootloaderOnly:
+        "Installs the aura bootloader and keeps its USB proxy window open for 15 seconds on every startup, so a developer can connect from another computer. Linux is not started. Delete the aura-proxy file on the Aurora EFI partition to turn the window off."
+      case .fullSend:
+        "Installs the bootloader and the system you chose. If no device tree exists for this Mac, the installer uses the closest Mac on the same chip; if none exists either, it installs the bootloader only and says so."
+      }
+    }
+
+    public static let experimentalConfirmPrompt =
+      "To continue, type “\(ExperimentalHardwareConsent.phrase)”."
+    public static let experimentalConfirmAction = "Continue with experimental install"
+
+    public static func experimentalRefused(_ reason: String) -> FailureDisplay {
+      FailureDisplay(
+        headline: "This Mac is known not to start this bootloader",
+        plainDetail:
+          "Aurora can’t install here even as an experiment, because it is known to fail, not just untested. The disk has not been changed.",
+        technicalDetail: reason,
+        remedy: "Check again after a release that supports this Mac.",
+        isBlockedModel: true
+      )
+    }
+
+    /// Shown after the owner agreed: the choice and report are saved, and the
+    /// installation service in this build still refuses unsupported Macs.
+    public static func experimentalNotRunYet(
+      _ level: ExperimentalHardwareLevel, report: ExperimentalBringUpReportDisplay
+    ) -> FailureDisplay {
+      FailureDisplay(
+        headline: "Experimental install prepared, not started",
+        plainDetail:
+          "You chose \(experimentalLevelTitle(level)). This build checks the plan and saves a bring-up report, but its installation service does not yet run experimental installs. The disk has not been changed.",
+        technicalDetail: report.text,
+        remedy: "The bring-up report is saved at \(report.path)."
+      )
+    }
+  }
+#endif

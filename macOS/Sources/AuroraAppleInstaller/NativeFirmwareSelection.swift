@@ -33,12 +33,14 @@
     /// fallback is intentionally not an installation admission rule.
     static func choose(
       deviceIdentifier: String, facts: Facts, metadata: NativeInstallationMetadata,
-      policy: NativeInspectionPolicy
+      policy: NativeInspectionPolicy, experimental: Bool = false
     ) throws -> Self {
       guard facts.deviceIdentifier == deviceIdentifier else {
         throw NativeFirmwareSelectionError.deviceChanged
       }
-      guard !AppleSiliconHostInspector.isExplicitlyUnsupported(deviceIdentifier),
+      // An experimental installation passes the policy its assessment widened
+      // for this one Mac; the explicit refusal list is what it overrides.
+      guard experimental || !AppleSiliconHostInspector.isExplicitlyUnsupported(deviceIdentifier),
         policy.supports(deviceIdentifier, hardware: facts.hardware),
         let chip = policy.chipMinimum[String(facts.hardware.chipID)],
         let device = policy.devices[String(deviceIdentifier.dropFirst(6))]

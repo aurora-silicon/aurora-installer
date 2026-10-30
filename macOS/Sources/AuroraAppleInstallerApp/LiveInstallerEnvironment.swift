@@ -261,6 +261,45 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   /// Every channel's catalog, checked side by side for this Mac. A channel
   /// whose rollback state cannot be read counts as unverifiable rather than
   /// skipping the rollback check.
+  func experimentalHardwareAvailability() async -> ExperimentalHardwareAvailability {
+    guard let host = lock.withLock({ hostInspection }) else { return .unavailable }
+    let identity = host.identity
+    do {
+      switch try ExperimentalHardwareInspection.availability(
+        deviceIdentifier: identity.deviceIdentifier)
+      {
+      case .supported: return .supported
+      case .refused(let reason): return .refused(reason)
+      case .offered(let warnings):
+        return .offered(
+          model: MacModelNames.name(for: identity.deviceIdentifier) ?? identity.model,
+          warnings: warnings)
+      }
+    } catch {
+      return .refused(String(describing: error))
+    }
+  }
+
+  func saveExperimentalBringUpReport(_ consent: ExperimentalHardwareConsent) async throws
+    -> ExperimentalBringUpReportDisplay
+  {
+    guard let host = lock.withLock({ hostInspection }) else { throw InstallerJobError.unavailable }
+    let identity = host.identity
+    let facts = try ExperimentalHardwareInspection.report(
+      model: MacModelNames.name(for: identity.deviceIdentifier) ?? identity.model,
+      deviceIdentifier: identity.deviceIdentifier, level: consent.level)
+    let directory = FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent("Library/Logs/Aurora Installer", isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
+    let board = String(identity.deviceIdentifier.dropFirst(6))
+    let file = directory.appendingPathComponent("bring-up-\(board)-\(stamp).txt")
+    let text = facts.report
+    try Data(text.utf8).write(to: file, options: [.withoutOverwriting])
+    return ExperimentalBringUpReportDisplay(path: file.path, text: text)
+  }
+
   func channelAvailability() async -> [ReleaseChannel: ReleaseChannelAvailability] {
     guard let host = lock.withLock({ hostInspection }) else { return [:] }
     let deviceIdentifier = host.identity.deviceIdentifier
