@@ -47,9 +47,12 @@
     }
 
     func testTheChooserNamesUpstreamsOnlyAsTheirTermsAllow() {
-      XCTAssertEqual(AuroraDistribution.fedora.displayName, "Fedora Remix")
-      XCTAssertEqual(AuroraDistribution.arch.displayName, "Based on Arch Linux ARM")
-      XCTAssertEqual(AuroraDistribution.nixos.displayName, "Based on NixOS")
+      // Fedora's Remix mark follows the brand ("<name> Fedora Remix"); Arch is
+      // named as Asahi Alarm is, with no Arch mark; the notices say "based on".
+      XCTAssertEqual(AuroraDistribution.fedora.title, "Aurora Fedora Remix")
+      XCTAssertEqual(AuroraDistribution.arch.title, "Aurora Alarm")
+      XCTAssertEqual(AuroraDistribution.nixos.title, "Aurora NixOS")
+      XCTAssertEqual(AuroraDistribution.legacyTitles, ["Fedora Aurora Remix", "Aurora ALARM"])
     }
   }
 #endif

@@ -459,7 +459,7 @@ enum DestinationVolume {
   }()
   static let name =
     previewDistribution.flatMap {
-      ["fedora": "Fedora Aurora Remix", "arch": "Aurora ALARM", "nixos": "Aurora NixOS"][$0]
+      ["fedora": "Aurora Fedora Remix", "arch": "Aurora Alarm", "nixos": "Aurora NixOS"][$0]
     } ?? RecoveryActions.volumeName
   static let icon: NSImage = {
     if let distribution = previewDistribution,

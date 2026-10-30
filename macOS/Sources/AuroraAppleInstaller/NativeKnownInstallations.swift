@@ -20,9 +20,11 @@
   }
 
   enum NativeKnownInstallations {
-    /// "Omarchy" is the title earlier installers gave their installations;
-    /// keeping it lets Erase Linux and Reset still find and remove them.
-    static let recognizedTitles = Set(AuroraDistribution.allCases.map(\.title) + ["Omarchy"])
+    /// "Omarchy" and the legacy Aurora titles are what earlier installers gave
+    /// their installations; keeping them lets Erase Linux and Reset still find
+    /// and remove them.
+    static let recognizedTitles = Set(
+      AuroraDistribution.allCases.map(\.title) + AuroraDistribution.legacyTitles + ["Omarchy"])
 
     static func recognize(_ disk: NativeCollectedDisk) throws -> [NativeKnownInstallation] {
       let rows = try NativeDiskInventory.extents(disk.snapshot)

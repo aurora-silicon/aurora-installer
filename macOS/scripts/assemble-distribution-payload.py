@@ -118,7 +118,7 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
             archive.writestr(prefix + aurora_recovery.MANIFEST_NAME, json.dumps(recovery_manifest, sort_keys=True, indent=2) + '\n')
     with zipfile.ZipFile(payload) as archive:
         aurora_recovery.validate_payload(archive)
-    title = {'fedora': 'Fedora Aurora Remix', 'arch': 'Aurora ALARM', 'nixos': 'Aurora NixOS'}[profile.split('-')[0]]
+    title = {'fedora': 'Aurora Fedora Remix', 'arch': 'Aurora Alarm', 'nixos': 'Aurora NixOS'}[profile.split('-')[0]]
     # omarchy_target and omarchy-native-v1 are the published metadata contract
     # every released installer reads; they predate the Aurora name.
     template = {

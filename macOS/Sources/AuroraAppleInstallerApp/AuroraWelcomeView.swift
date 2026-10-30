@@ -16,15 +16,15 @@ struct AuroraWelcomeView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 38).padding(.top, 28)
       VStack(alignment: .leading, spacing: 10) {
-        sectionTitle("Base system")
+        sectionTitle("Distribution")
         LazyVGrid(columns: columns, spacing: 18) {
           ForEach(AuroraDistribution.allCases) { distribution in
             SelectionCard(
-              selected: selection.distribution == distribution, label: distribution.displayName
+              selected: selection.distribution == distribution, label: distribution.title
             ) {
               selection.distribution = distribution
             } content: {
-              Text(distribution.displayName).font(.system(size: 13, weight: .medium))
+              Text(distribution.title).font(.system(size: 13, weight: .medium))
                 .lineLimit(1).minimumScaleFactor(0.85)
                 .frame(maxWidth: .infinity).frame(height: 66)
             }
@@ -64,15 +64,15 @@ struct AuroraWelcomeView: View {
   static func noticeMarkdown(for distribution: AuroraDistribution) -> String {
     switch distribution {
     case .fedora:
-      "This Fedora Remix contains modified Fedora® software and is not provided or supported "
+      "Aurora Fedora Remix contains modified Fedora® software and is not provided or supported "
         + "by the Fedora Project. Official Fedora is available at "
         + "[fedoraproject.org](https://fedoraproject.org/). Fedora is a registered trademark of "
         + "Red Hat, Inc., or its subsidiaries in the United States and other countries."
     case .arch:
-      "This system is based on Arch Linux ARM and is not provided or endorsed by the "
+      "Aurora Alarm is based on Arch Linux ARM and is not provided or endorsed by the "
         + "Arch Linux or Arch Linux ARM projects."
     case .nixos:
-      "This system is based on NixOS and is not provided or endorsed by the NixOS project."
+      "Aurora NixOS is based on NixOS and is not provided or endorsed by the NixOS project."
     }
   }
 
