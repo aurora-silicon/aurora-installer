@@ -58,6 +58,7 @@
     var selection = AuroraInstallationSelection()
     var onSessionAvailable: ((InstallerSession) -> Void)? = nil
     var onRemoveLinux: () -> Void = {}
+    var onEraseInstallation: (String) -> Void = { _ in }
 
     var body: some View {
       Group {
@@ -72,7 +73,8 @@
               controls.session = $0
               onSessionAvailable?($0)
             },
-            onRemoveLinux: onRemoveLinux
+            onRemoveLinux: onRemoveLinux,
+            onEraseInstallation: onEraseInstallation
           )
           .id(controls.generation)
           .task { await continueAtLaunch() }

@@ -41,6 +41,45 @@
       }
     }
 
+    /// Installing next to an earlier installation: free space before it, or
+    /// space taken from macOS, never touches the installation that stays.
+    func testFreeAndResizePlansNextToAnExistingInstallationNeverReachIt() throws {
+      for kind in ["free", "resize"] {
+        let fixture = try InputFixture(kind: kind, existingInstallation: true)
+        defer { fixture.remove() }
+        let known = try NativeKnownInstallations.recognize(fixture.original.disk)
+        XCTAssertEqual(known.map(\.sourceIdentifier), ["disk0s4"])
+        XCTAssertFalse(
+          known[0].overlaps(
+            offsetBytes: fixture.approved.offsetBytes, lengthBytes: fixture.approved.lengthBytes))
+        let before = fixture.snapshot.partitions.filter {
+          $0.uuid.hasPrefix("00000000-0000-0000-0000-0000000005")
+        }
+        XCTAssertEqual(before.count, 4)
+        try fixture.prepare()
+        let validated = try AppleInstallerTrustCore().validateEngineTranscript(
+          Data(contentsOf: fixture.journal))
+        XCTAssertEqual(validated.checkpoints.map(\.identifier), ["apfs-target-prepared"])
+        // The kept installation's partitions are exactly as they were.
+        for part in before {
+          XCTAssertTrue(
+            fixture.snapshot.partitions.contains { $0 == part && $0.identifier == part.identifier })
+        }
+      }
+    }
+
+    func testAKnownInstallationOverlapsOnlyTheBytesItOccupies() {
+      let known = NativeKnownInstallation(
+        sourceIdentifier: "disk0s4", offsetBytes: 1_000, lengthBytes: 500)
+      XCTAssertFalse(known.overlaps(offsetBytes: 0, lengthBytes: 1_000))
+      XCTAssertFalse(known.overlaps(offsetBytes: 1_500, lengthBytes: 10))
+      XCTAssertTrue(known.overlaps(offsetBytes: 0, lengthBytes: 1_001))
+      XCTAssertTrue(known.overlaps(offsetBytes: 1_499, lengthBytes: 1))
+      XCTAssertTrue(known.overlaps(offsetBytes: 1_200, lengthBytes: 10))
+      XCTAssertTrue(known.overlaps(offsetBytes: 0, lengthBytes: 4_000))
+      XCTAssertTrue(known.overlaps(offsetBytes: UInt64.max, lengthBytes: 2))
+    }
+
     func testEveryJournalRecordIsTimedBesideTheJournal() throws {
       let fixture = try InputFixture(kind: "resize")
       defer { fixture.remove() }
@@ -317,7 +356,7 @@
       var stopAtCommand: Int?
       var targetReadbacks = 0
 
-      init(kind: String, label: String = "Omarchy") throws {
+      init(kind: String, label: String = "Omarchy", existingInstallation: Bool = false) throws {
         let file = try XCTUnwrap(
           Bundle.module.url(
             forResource: "native-inspection-vectors", withExtension: "json",
@@ -328,9 +367,10 @@
         func decode<T: Decodable>(_ type: T.Type, _ object: Any) throws -> T {
           try JSONDecoder().decode(type, from: JSONSerialization.data(withJSONObject: object))
         }
-        let disk = NativeCollectedDisk(
+        var disk = NativeCollectedDisk(
           snapshot: try decode(RemovalSnapshot.self, vector["snapshot"]!),
           containers: try decode([NativeContainerFacts].self, vector["containers"]!))
+        if existingInstallation { disk = Self.addingAuroraInstallation(to: disk) }
         original = NativeAPFSFacts(
           deviceIdentifier: vector["device"] as! String,
           hardware: try decode(NativeInspectionHardware.self, vector["hardware"]!), disk: disk)
@@ -394,6 +434,52 @@
         try FileManager.default.setAttributes(
           [.posixPermissions: 0o600], ofItemAtPath: journal.path)
         try controls()
+      }
+
+      /// A complete Aurora installation at the end of the free space, right
+      /// before Apple's Recovery partition, as an earlier install leaves it.
+      static func addingAuroraInstallation(to disk: NativeCollectedDisk) -> NativeCollectedDisk {
+        var snapshot = disk.snapshot
+        let recovery = snapshot.partitions.first { $0.type == "Apple_APFS_Recovery" }!
+        let sizes: [UInt64] = [2_499_805_184, 524_288_000, 1 << 30, 4 << 30]
+        var offset = recovery.offset - sizes.reduce(0, +)
+        let types = ["Apple_APFS", "EFI", "Linux Filesystem", "Linux Filesystem"]
+        let names = ["", "EFI - AUROR", "", ""]
+        for index in sizes.indices {
+          snapshot.partitions.append(
+            RemovalPartition(
+              identifier: "disk0s\(index + 4)",
+              uuid: "00000000-0000-0000-0000-0000000005\(index)0", type: types[index],
+              offset: offset, size: sizes[index], name: names[index]))
+          offset += sizes[index]
+        }
+        snapshot.partitions.sort { $0.offset < $1.offset }
+        let store = "00000000-0000-0000-0000-000000000500"
+        let group = "00000000-0000-0000-0000-000000000590"
+        snapshot.containers.append(
+          RemovalContainer(
+            uuid: "00000000-0000-0000-0000-000000000580", storeUUID: store,
+            volumes: [
+              RemovalVolume(
+                uuid: "00000000-0000-0000-0000-000000000581", name: "Aurora Alarm",
+                roles: ["System"], group: group, identifier: "disk5s1"),
+              RemovalVolume(
+                uuid: "00000000-0000-0000-0000-000000000582", name: "Aurora Alarm - Data",
+                roles: ["Data"], group: group, identifier: "disk5s2"),
+              RemovalVolume(
+                uuid: "00000000-0000-0000-0000-000000000583", name: "Preboot",
+                roles: ["Preboot"], identifier: "disk5s3"),
+              RemovalVolume(
+                uuid: "00000000-0000-0000-0000-000000000584", name: "Recovery",
+                roles: ["Recovery"], identifier: "disk5s4"),
+            ]))
+        let facts = NativeContainerFacts(
+          storeUUID: store, capacity: sizes[0], free: 500_000_000, preferredMinimum: 0,
+          systems: [
+            NativeSystemVolumeFacts(
+              group: group, label: "Aurora Alarm", stub: true, version: "26.6.2")
+          ])
+        return NativeCollectedDisk(snapshot: snapshot, containers: disk.containers + [facts])
       }
 
       var platform: NativeAPFSPlatform {

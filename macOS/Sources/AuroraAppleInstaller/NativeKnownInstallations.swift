@@ -17,6 +17,15 @@
       self.lengthBytes = lengthBytes
       self.partial = partial
     }
+
+    /// Whether any byte of this installation lies in the extent. An extent
+    /// that cannot be represented counts as overlapping.
+    public func overlaps(offsetBytes: UInt64, lengthBytes: UInt64) -> Bool {
+      let (end, overflow) = offsetBytes.addingReportingOverflow(lengthBytes)
+      let (ownEnd, ownOverflow) = self.offsetBytes.addingReportingOverflow(self.lengthBytes)
+      guard !overflow, !ownOverflow else { return true }
+      return offsetBytes < ownEnd && self.offsetBytes < end
+    }
   }
 
   enum NativeKnownInstallations {

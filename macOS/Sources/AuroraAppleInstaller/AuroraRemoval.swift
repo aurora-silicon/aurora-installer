@@ -30,12 +30,17 @@
     public let notes: [String]
     /// Done before anything is deleted: macOS becomes the startup disk.
     public let startupDisk: AuroraRemovalItem?
+    /// The partition UUID of the startup container this ticket deletes, so
+    /// the app can refuse a ticket for another installation than the one
+    /// the person chose. Nil for free space, and from older helpers.
+    public let startupContainerUUID: String?
     public init(
       id: UUID, kind: AuroraRemovalKind = .installation, reclaimBytes: UInt64,
       macOSBytesAfter: UInt64, deletions: [AuroraRemovalItem] = [],
       kept: [AuroraRemovalItem] = [], notes: [String] = [],
-      startupDisk: AuroraRemovalItem? = nil
+      startupDisk: AuroraRemovalItem? = nil, startupContainerUUID: String? = nil
     ) {
+      self.startupContainerUUID = startupContainerUUID
       self.id = id
       self.kind = kind
       self.reclaimBytes = reclaimBytes
@@ -56,6 +61,8 @@
       kept = try values.decodeIfPresent([AuroraRemovalItem].self, forKey: .kept) ?? []
       notes = try values.decodeIfPresent([String].self, forKey: .notes) ?? []
       startupDisk = try values.decodeIfPresent(AuroraRemovalItem.self, forKey: .startupDisk)
+      startupContainerUUID = try values.decodeIfPresent(
+        String.self, forKey: .startupContainerUUID)
     }
     public var confirmation: String {
       kind == .freeSpace ? Self.freeSpaceConfirmation : Self.confirmation
@@ -347,7 +354,7 @@
           AuroraRemovalItem(
             title: "Set macOS “\(macOSName)” as the startup disk",
             detail: RemovalText.startupNow($0), bytes: 0)
-        })
+        }, startupContainerUUID: installation?.stub.uuid ?? partial?.stub.uuid)
     }
 
     var macOSName: String {

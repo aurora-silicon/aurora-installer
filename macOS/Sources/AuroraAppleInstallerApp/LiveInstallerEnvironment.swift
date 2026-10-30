@@ -181,6 +181,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     var transcript: Data?
     var engineFailure: String?
     var knownInstallations = [NativeKnownInstallation]()
+    var diskLayout: NativeDiskLayout?
     do {
       let inspection = try await inspector.inspect(host: host, metadata: nil)
       guard
@@ -192,6 +193,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       engine = inspection.validated
       transcript = inspection.transcript
       knownInstallations = inspection.knownInstallations
+      diskLayout = inspection.diskLayout
     } catch InstallerAppError.hostChanged {
       // engineFailure already set above.
     } catch is CancellationError {
@@ -227,7 +229,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
 
     return display(
       host: host, engine: engine, engineFailure: engineFailure,
-      unsupportedModel: unsupportedModel, knownInstallations: knownInstallations)
+      unsupportedModel: unsupportedModel, knownInstallations: knownInstallations,
+      diskLayout: diskLayout.flatMap { Self.layoutDisplay($0, inventory: engine?.inventory) })
   }
 
   /// The signed catalog's model list for the unsupported-Mac message. Any
@@ -329,6 +332,14 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       auroraBytes: auroraBytes, preservingStage1: false, progress: progress)
   }
 
+  func preparePlan(
+    auroraBytes: UInt64?, target: InstallerPlanTarget,
+    progress: @escaping @Sendable (AssetProgressUpdate) -> Void
+  ) async throws -> PlanPreparationDisplay {
+    try await preparePlan(
+      auroraBytes: auroraBytes, preservingStage1: false, target: target, progress: progress)
+  }
+
   func preparePreservedReinstallPlan(
     progress: @escaping @Sendable (AssetProgressUpdate) -> Void
   ) async throws -> PlanPreparationDisplay {
@@ -336,8 +347,18 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       auroraBytes: nil, preservingStage1: true, progress: progress)
   }
 
+  func preparePreservedReinstallPlan(
+    sourceIdentifier: String,
+    progress: @escaping @Sendable (AssetProgressUpdate) -> Void
+  ) async throws -> PlanPreparationDisplay {
+    try await preparePlan(
+      auroraBytes: nil, preservingStage1: true, preservedSource: sourceIdentifier,
+      progress: progress)
+  }
+
   private func preparePlan(
-    auroraBytes: UInt64?, preservingStage1: Bool,
+    auroraBytes: UInt64?, preservingStage1: Bool, target: InstallerPlanTarget? = nil,
+    preservedSource: String? = nil,
     progress: @escaping @Sendable (AssetProgressUpdate) -> Void
   ) async throws -> PlanPreparationDisplay {
     try Task.checkCancellation()
@@ -441,13 +462,48 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     let recommendation: InstallerAllocationRecommendation
     if preservingStage1 {
       let sources = Set(existing.map(\.sourceIdentifier))
+      // Reset acts on the one installation the person chose, never another.
       let candidates = inventory.candidates.filter {
         $0.kind == "reinstall" && sources.contains($0.sourceIdentifier)
+          && (preservedSource == nil || $0.sourceIdentifier == preservedSource)
       }
       guard candidates.count == 1, let candidate = candidates.first else {
         throw InstallerPlanPreparationError.preservedReinstallUnavailable
       }
       recommendation = try InstallerAllocationRecommendation(preserved: candidate)
+    } else if let target {
+      // The person chose this space on the Partitions screen, next to the
+      // installations already there. Only its own candidate is planned, and
+      // only a macOS container may shrink.
+      if case .shrink(let source) = target {
+        guard
+          signedInspection.diskLayout?.regions.contains(where: {
+            $0.kind == .macOS && $0.identifier == source
+          }) == true
+        else { throw InstallerPlanPreparationError.targetUnavailable }
+      }
+      do {
+        recommendation = try InstallerAllocationRecommendation(
+          inventory: inventory,
+          targetBytes: auroraBytes ?? InstallerAllocationRecommendation.balancedTargetBytes,
+          reservedBytes: planningReserve, target: target,
+          snapshotConstraint: { APFSSnapshotInspector().constraint(in: host.storage) })
+      } catch InstallerAllocationRecommendationError.noEligibleCandidate {
+        throw InstallerPlanPreparationError.targetUnavailable
+      }
+      let chosen = recommendation.candidate
+      let offset =
+        chosen.kind == "resize"
+        ? chosen.offsetBytes + chosen.lengthBytes - recommendation.maximumBytes
+        : chosen.offsetBytes
+      let length = recommendation.maximumBytes
+      // The widest extent the slider can reach must stay clear of every
+      // installation that stays; the helper checks the approved one again.
+      guard
+        !signedInspection.knownInstallations.contains(where: {
+          $0.overlaps(offsetBytes: offset, lengthBytes: length)
+        })
+      else { throw InstallerPlanPreparationError.targetUnavailable }
     } else {
       if !existing.isEmpty { return .existingInstallChoice(existing) }
       recommendation = try InstallerAllocationRecommendation(
@@ -490,6 +546,9 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
         review: prepared.review, host: freshHost, recommendation: recommendation,
         reservedBytes: planningReserve,
         geometry: geometry,
+        sourceName: signedInspection.diskLayout?.regions.first {
+          $0.identifier == prepared.review.plan.sourceIdentifier && $0.kind != .free
+        }?.name,
         release:
           "\(channel.rawValue.capitalized) · \(release.assets.payload.fileURL.lastPathComponent)"
       ))
@@ -922,7 +981,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     engine: ValidatedEngineTranscript?,
     engineFailure: String?,
     unsupportedModel: UnsupportedModelDisplay?,
-    knownInstallations: [NativeKnownInstallation]
+    knownInstallations: [NativeKnownInstallation],
+    diskLayout: DiskLayoutDisplay?
   ) -> HostDisplay {
     let blocked: Bool
     if case .blocked = host.eligibility {
@@ -949,8 +1009,34 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       spaceShortfall: space?.shortfall,
       unsupportedModel: unsupportedModel,
       powerButtonGuide: MacPowerButtonGuide(
-        deviceIdentifier: host.identity.deviceIdentifier, modelIdentifier: host.identity.model)
+        deviceIdentifier: host.identity.deviceIdentifier, modelIdentifier: host.identity.model),
+      diskLayout: engine?.support == .supported ? diskLayout : nil
     )
+  }
+
+  /// The Partitions screen from the disk layout and the bundled engine's
+  /// inventory: which free extents and containers it admits, and which
+  /// installations it can reset in place.
+  static func layoutDisplay(
+    _ layout: NativeDiskLayout, inventory: ValidatedEngineInventory?
+  ) -> DiskLayoutDisplay? {
+    guard let inventory else { return nil }
+    var shrinkable = [String: UInt64]()
+    for candidate in inventory.candidates
+    where candidate.kind == "resize" && candidate.lengthBytes > candidate.minimumContainerBytes {
+      shrinkable[candidate.sourceIdentifier] =
+        candidate.lengthBytes - candidate.minimumContainerBytes
+    }
+    return DiskLayoutDisplay(
+      layout: layout,
+      freeSpaceOffsets: Set(inventory.candidates.filter { $0.kind == "free" }.map(\.offsetBytes)),
+      shrinkableBytes: shrinkable,
+      resettableSources: Set(
+        inventory.candidates.filter { $0.kind == "reinstall" }.map(\.sourceIdentifier)),
+      icon: { region in
+        region.systemVolumeUUID.flatMap(VolumeIconLocator.iconFile(forVolumeUUID:))
+          .map { .volumeIcon($0) } ?? .internalDrive
+      })
   }
 
   private enum SpaceCheck {
@@ -1026,6 +1112,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     recommendation: InstallerAllocationRecommendation,
     reservedBytes: UInt64 = 0,
     geometry: NativeDiskDisplayGeometry? = nil,
+    sourceName explicitSourceName: String? = nil,
     release: String
   ) -> PlanDisplay {
     let length = review.plan.lengthBytes
@@ -1053,9 +1140,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     } else {
       otherAfter = otherAllocated
     }
-    let sourceName = (geometry?.partitionNames[review.plan.sourceIdentifier]).flatMap {
-      $0.isEmpty ? nil : String($0.prefix(128))
-    }
+    let sourceName = (explicitSourceName ?? geometry?.partitionNames[review.plan.sourceIdentifier])
+      .flatMap { $0.isEmpty ? nil : String($0.prefix(128)) }
     let targetDescription: String
     switch source {
     case .freeExtent: targetDescription = "Internal storage · Use free space"

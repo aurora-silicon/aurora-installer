@@ -712,6 +712,78 @@ final class InstallerAllocationRecommendationTests: XCTestCase {
           minimumInstall: 32 * gib)))
   }
 
+  // MARK: Chosen target
+
+  /// The Partitions screen names one space; planning never falls back to a
+  /// larger free extent or another container, even next to installations.
+  func testAChosenTargetIsTheOnlyCandidateConsidered() throws {
+    let bigFree = candidate(
+      kind: "free", source: "disk0s2", length: 300 * gib, minimumInstall: 32 * gib,
+      offset: 200 * gib)
+    let smallFree = candidate(
+      kind: "free", source: "disk0s7", length: 40 * gib, minimumInstall: 32 * gib,
+      offset: 600 * gib)
+    let macOS = candidate(
+      kind: "resize", source: "disk0s2", length: 200 * gib, minimumInstall: 32 * gib,
+      minimumContainer: 100 * gib)
+    let second = candidate(
+      kind: "resize", source: "disk0s9", length: 150 * gib, minimumInstall: 32 * gib,
+      minimumContainer: 80 * gib)
+    let reinstall = candidate(
+      kind: "reinstall", source: "disk0s4", length: 60 * gib, minimumInstall: 60 * gib,
+      identityDigest: "sha256:" + String(repeating: "9", count: 64))
+    let all = inventory([macOS, bigFree, reinstall, smallFree, second])
+
+    let gap = try InstallerAllocationRecommendation(
+      inventory: all, target: .freeSpace(offsetBytes: 600 * gib))
+    XCTAssertEqual(gap.candidate, smallFree)
+    XCTAssertEqual(gap.maximumBytes, 40 * gib)
+    let shrink = try InstallerAllocationRecommendation(
+      inventory: all, target: .shrink(sourceIdentifier: "disk0s9"))
+    XCTAssertEqual(shrink.candidate, second)
+    XCTAssertLessThanOrEqual(shrink.maximumBytes, 70 * gib)
+    // A free extent and a container can share a source identifier.
+    XCTAssertEqual(
+      try InstallerAllocationRecommendation(
+        inventory: all, target: .shrink(sourceIdentifier: "disk0s2")
+      ).candidate, macOS)
+    // Without a target, existing installations still need an explicit choice
+    // only when nothing else fits; the largest free extent wins as before.
+    XCTAssertEqual(try InstallerAllocationRecommendation(inventory: all).candidate, bigFree)
+  }
+
+  func testAChosenTargetThatIsGoneOrTooSmallNeverFallsBack() {
+    let free = candidate(
+      kind: "free", source: "disk0s7", length: 20 * gib, minimumInstall: 32 * gib,
+      offset: 600 * gib)
+    let other = candidate(
+      kind: "free", source: "disk0s2", length: 300 * gib, minimumInstall: 32 * gib,
+      offset: 100 * gib)
+    let reinstall = candidate(
+      kind: "reinstall", source: "disk0s4", length: 60 * gib, minimumInstall: 60 * gib,
+      identityDigest: "sha256:" + String(repeating: "9", count: 64))
+    XCTAssertThrowsError(
+      try InstallerAllocationRecommendation(
+        inventory: inventory([other, free, reinstall]),
+        target: .freeSpace(offsetBytes: 600 * gib))
+    ) {
+      XCTAssertEqual(
+        $0 as? InstallerAllocationRecommendationError,
+        .insufficientSpace(requiredBytes: 32 * self.gib, availableBytes: 20 * self.gib))
+    }
+    XCTAssertThrowsError(
+      try InstallerAllocationRecommendation(
+        inventory: inventory([other, reinstall]),
+        target: .shrink(sourceIdentifier: "disk0s9"),
+        snapshotConstraint: {
+          XCTFail("A target that is gone has nothing to diagnose.")
+          return .timeMachine
+        })
+    ) {
+      XCTAssertEqual($0 as? InstallerAllocationRecommendationError, .noEligibleCandidate)
+    }
+  }
+
   private func inventory(
     _ candidates: [ValidatedEngineCandidate]
   ) -> ValidatedEngineInventory {
@@ -729,12 +801,13 @@ final class InstallerAllocationRecommendationTests: XCTestCase {
     minimumInstall: UInt64,
     minimumContainer: UInt64 = 0,
     identityDigest: String? = nil,
-    recommendedInstall: UInt64? = nil
+    recommendedInstall: UInt64? = nil,
+    offset: UInt64 = 0
   ) -> ValidatedEngineCandidate {
     ValidatedEngineCandidate(
       kind: kind,
       sourceIdentifier: source,
-      offsetBytes: 0,
+      offsetBytes: offset,
       lengthBytes: length,
       minimumInstallBytes: minimumInstall,
       minimumContainerBytes: minimumContainer,

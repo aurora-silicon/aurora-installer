@@ -20,7 +20,9 @@ private final class InstallerApplicationDelegate: NSObject, NSApplicationDelegat
   func applicationWillFinishLaunching(_ notification: Notification) {
     #if !DEBUG
       if ProcessInfo.processInfo.arguments.contains("--simulate")
-        || ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--preview-screen=") })
+        || ProcessInfo.processInfo.arguments.contains(where: {
+          $0.hasPrefix("--preview-screen=") || $0.hasPrefix("--render-flow=")
+        })
       {
         fputs("Simulation requires a debug build. Refusing to launch the live installer.\n", stderr)
         NSApplication.shared.terminate(nil)
@@ -39,7 +41,13 @@ private final class InstallerApplicationDelegate: NSObject, NSApplicationDelegat
   }
 
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-    true
+    #if DEBUG
+      // The flow renderer ends the app itself once every image is written.
+      if CommandLine.arguments.contains(where: { $0.hasPrefix("--render-flow=") }) {
+        return false
+      }
+    #endif
+    return true
   }
 
   func applicationDidFinishLaunching(_ notification: Notification) {
@@ -49,6 +57,19 @@ private final class InstallerApplicationDelegate: NSObject, NSApplicationDelegat
     // installer again. Opt out for good.
     NSApp.disableRelaunchOnLogin()
     #if DEBUG
+      if let argument = CommandLine.arguments.first(where: { $0.hasPrefix("--render-flow=") }) {
+        // Offscreen only: no installer window is shown while it renders.
+        let directory = URL(fileURLWithPath: String(argument.dropFirst("--render-flow=".count)))
+        NSApp.setActivationPolicy(.accessory)
+        DispatchQueue.main.async {
+          for window in NSApp.windows { window.orderOut(nil) }
+        }
+        Task { @MainActor in
+          await FlowRenderer.run(directory: directory)
+          NSApplication.shared.terminate(nil)
+        }
+        return
+      }
       if let argument = CommandLine.arguments.first(where: { $0.hasPrefix("--snapshot=") }) {
         let path = String(argument.dropFirst("--snapshot=".count))
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
@@ -113,6 +134,8 @@ struct AuroraAppleInstallerApp: App {
   @State private var choosingSystem = true
   @State private var checkedPendingInstallation = false
   @State private var showsRemoval = false
+  /// The startup container chosen with Erase on the Partitions screen.
+  @State private var removalTarget: String?
   @State private var removalNeedsReview = false
   @State private var removalBusy = false
   #if DEBUG
@@ -164,7 +187,11 @@ struct AuroraAppleInstallerApp: App {
       if isSimulation {
         SimulationDashboard(
           controls: simulation, selection: selection, onSessionAvailable: { liveSession = $0 },
-          onRemoveLinux: { showsRemoval = true })
+          onRemoveLinux: { showsRemoval = true },
+          onEraseInstallation: {
+            removalTarget = $0
+            showsRemoval = true
+          })
       } else {
         liveContent
       }
@@ -183,6 +210,10 @@ struct AuroraAppleInstallerApp: App {
       environment: LiveInstallerEnvironment(selection: selection), channel: channel,
       selection: selection, startAtPlan: true,
       onSessionAvailable: { liveSession = $0 }, onRemoveLinux: { showsRemoval = true },
+      onEraseInstallation: {
+        removalTarget = $0
+        showsRemoval = true
+      },
       onChooseSystem: {
         liveSession?.cancelPrefetchOnQuit()
         liveSession = nil
@@ -228,7 +259,13 @@ struct AuroraAppleInstallerApp: App {
         liveSession?.cancelPrefetchOnQuit()
       }
       .disabled(showsRemoval)
-      .sheet(isPresented: $showsRemoval, onDismiss: { generation = UUID() }) {
+      .sheet(
+        isPresented: $showsRemoval,
+        onDismiss: {
+          removalTarget = nil
+          generation = UUID()
+        }
+      ) {
         AuroraRemovalSheet(
           isSimulation: isSimulation,
           onBusyChanged: { busy in
@@ -238,7 +275,8 @@ struct AuroraAppleInstallerApp: App {
               window.standardWindowButton(.closeButton)?.isEnabled = !busy
             }
           }, onClose: { showsRemoval = false }, onRequiresReview: { removalNeedsReview = true },
-          simulationScenario: previewRemovalScenario)
+          simulationScenario: previewRemovalScenario,
+          expectedStartupContainerUUID: removalTarget)
       }
       .preferredColorScheme(previewColorScheme)
       .frame(minWidth: 800, maxWidth: .infinity, minHeight: 580, maxHeight: .infinity)
@@ -309,8 +347,11 @@ struct AuroraAppleInstallerApp: App {
           generation = UUID()
         }.disabled(!choosingSystem && liveSession?.canChangeChannel != true)
         Divider()
-        Button("Erase Linux") { showsRemoval = true }
-          .disabled(removalNeedsReview || showsRemoval || liveSession?.canChangeChannel != true)
+        Button("Erase Linux") {
+          removalTarget = nil
+          showsRemoval = true
+        }
+        .disabled(removalNeedsReview || showsRemoval || liveSession?.canChangeChannel != true)
       }
       if InstallerBuildProfile.current.showsReleaseChannels {
         CommandMenu(PlainLanguage.channelMenuTitle) {
