@@ -142,16 +142,18 @@
         (0..<4).map { UInt8(truncatingIfNeeded: value >> (24 - 8 * $0)) }
       }
       let strings = Array("compatible\0".utf8)
-      var value = compatible.flatMap { Array($0.utf8) + [0] }
+      var value: [UInt8] = compatible.flatMap { Array($0.utf8) + [0] }
       let length = value.count
       value += [UInt8](repeating: 0, count: (4 - value.count % 4) % 4)
-      let body = be(1) + [0, 0, 0, 0] + be(3) + be(length) + be(0) + value + be(2) + be(9)
+      var body: [UInt8] = be(1) + [0, 0, 0, 0]
+      body += be(3) + be(length) + be(0)
+      body += value + be(2) + be(9)
       let reserve = [UInt8](repeating: 0, count: 16)
       let structOffset = 40 + reserve.count
       let total = structOffset + body.count + strings.count
-      let header =
-        be(0xd00d_feed) + be(total) + be(structOffset) + be(structOffset + body.count) + be(40)
-        + be(17) + be(16) + be(0) + be(strings.count) + be(body.count)
+      var header: [UInt8] = be(0xd00d_feed) + be(total) + be(structOffset)
+      header += be(structOffset + body.count) + be(40) + be(17) + be(16)
+      header += be(0) + be(strings.count) + be(body.count)
       return Data(header + reserve + body + strings)
     }
   }
