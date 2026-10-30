@@ -40,7 +40,19 @@ REPO = MACOS.parent
 DISTROS = {'fedora': 'fedora-aurora', 'arch': 'alarm-aurora', 'nixos': 'nixos-aurora'}
 DESKTOPS = ('gnome', 'kde', 'minimal')
 MODES = ('fresh', 'side-by-side')
-DEFAULT_CATALOGS = 'https://aurorasilicon.org/aurora-distributions/installer/Profiles'
+
+
+def identity_value(name):
+    """A hosting value from Packaging/identity.conf, the one place it is set."""
+    conf = HERE.parents[1] / 'Packaging/identity.conf'
+    for line in conf.read_text().splitlines():
+        key, _, value = line.partition('=')
+        if key.strip() == name:
+            return value.strip().strip('"')
+    raise KeyError(name)
+
+
+DEFAULT_CATALOGS = identity_value('INSTALLER_PUBLIC_BASE') + '/installer/Profiles'
 TYPE_NAMES = {
     '69646961-6700-11aa-aa11-00306543ecac': 'Apple_APFS_ISC',
     '7c3457ef-0000-11aa-aa11-00306543ecac': 'Apple_APFS',
