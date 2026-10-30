@@ -7,8 +7,8 @@ name: Installer conformance
 # cell does worse than fixtures/expected.json records.
 
 on:
+  # Every pull request, whatever its base, so stacked pin changes run it too.
   pull_request:
-    branches: [main]
   push:
     branches: [main]
   schedule:
