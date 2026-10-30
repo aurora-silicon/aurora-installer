@@ -28,17 +28,15 @@
         .supported)
     }
 
-    func testKnownBrokenStaysRefusedWithItsReason() throws {
+    func testTheM1ProFamilyIsSupportedSoNeverExperimental() throws {
       let policy = try NativeInspectionPolicy.sealed()
       let t6000 = NativeInspectionHardware(
         chipID: 0x6000, bootVersion: "iBoot-13822.61.10", macOSVersion: "26.0",
         recoveryVersion: "25.1.354.0.0,0")
-      for device in ["apple,j316s", "apple,j314s", "apple,j399x"] {
-        guard
-          case .knownBroken(let reason)? = NativeExperimentalHardware.refusal(
-            device, hardware: t6000, policy: policy)
-        else { return XCTFail(device) }
-        XCTAssertTrue(reason.contains("4,390,912"), device)
+      for device in ["apple,j316s", "apple,j314s"] {
+        XCTAssertEqual(
+          NativeExperimentalHardware.refusal(device, hardware: t6000, policy: policy), .supported,
+          device)
       }
     }
 

@@ -105,9 +105,7 @@
       }
       let facts = try facts()
       let firmware = try NativeFirmwareSelection.choose(
-        deviceIdentifier: package.deviceIdentifier,
-        facts: facts, metadata: NativeInstallationMetadata(data: metadata),
-        policy: NativeInspectionPolicy.sealed())
+        package: package, facts: facts, metadata: NativeInstallationMetadata(data: metadata))
       // OTA patch streams keep their existing path until their native decoder
       // is qualified. Never interpret an update archive as a restore IPSW.
       guard firmware.sourceURL.path.lowercased().hasSuffix(".ipsw") else { return nil }

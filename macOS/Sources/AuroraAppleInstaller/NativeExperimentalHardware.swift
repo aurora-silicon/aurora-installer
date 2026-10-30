@@ -16,8 +16,6 @@
   public enum NativeExperimentalHardwareError: Error, Equatable, Sendable {
     /// The Mac is supported, so the experimental path is never offered.
     case supported
-    /// Known to fail, not merely untested: the reason says why.
-    case knownBroken(String)
     /// No stub firmware this Mac's boot firmware, macOS and recovery accept.
     case noFirmware
     case invalidDeviceTree
@@ -59,22 +57,6 @@
     /// The installation's own record of what was installed and why.
     static let recordPath = "aurora/experimental.json"
 
-    /// Known to fail on this hardware, not merely untested. Mirrors
-    /// scripts/supported-models.json `stage1_unqualified` (a test keeps them
-    /// equal); an entry leaves once a Stage 1 that boots there ships.
-    static let knownBrokenBoards: [String: String] = [
-      "apple,j314s":
-        "aura 1.0.0b1's raw Stage 1 (4,390,912 B) is refused by T6000 iBoot on the 13.5 stub (\"macOS needs to be reinstalled\"); a 4,063,232 B build is refused too, and only the 1.05 MB m1n1 1.5.2 Stage 1 is known to boot there",
-      "apple,j316s":
-        "aura 1.0.0b1's raw Stage 1 (4,390,912 B) is refused by T6000 iBoot on the 13.5 stub (\"macOS needs to be reinstalled\"); a 4,063,232 B build is refused too, and only the 1.05 MB m1n1 1.5.2 Stage 1 is known to boot there",
-    ]
-    /// Chips whose iBoot refuses the common Stage 1 on every board seen so
-    /// far, so an unknown board on them is refused for the same reason.
-    static let knownBrokenChips: [UInt64: String] = [
-      0x6000:
-        "T6000 iBoot refuses aura 1.0.0b1's 4,390,912 B raw Stage 1 on the 13.5 stub (\"macOS needs to be reinstalled\"), seen on the J316s; only the 1.05 MB m1n1 1.5.2 Stage 1 is known to boot there"
-    ]
-
     static func isSupported(
       _ deviceIdentifier: String, hardware: NativeInspectionHardware,
       policy: NativeInspectionPolicy
@@ -88,10 +70,11 @@
       _ deviceIdentifier: String, hardware: NativeInspectionHardware,
       policy: NativeInspectionPolicy
     ) -> NativeExperimentalHardwareError? {
-      if let reason = knownBrokenBoards[deviceIdentifier] { return .knownBroken(reason) }
-      if isSupported(deviceIdentifier, hardware: hardware, policy: policy) { return .supported }
-      if let reason = knownBrokenChips[hardware.chipID] { return .knownBroken(reason) }
-      return nil
+      // Ryan, 2026-10-30: M1 to M3 and the A18 Pro are supported, newer Macs
+      // are not. A supported Mac whose iBoot may refuse the Stage 1 (the M1
+      // Pro, Max and Ultra) is warned in the normal path, never sent here, so
+      // the only refusal is a supported Mac.
+      isSupported(deviceIdentifier, hardware: hardware, policy: policy) ? .supported : nil
     }
 
     static func assess(
@@ -518,6 +501,9 @@
     /// or the sibling's with its root compatible naming this board.
     let stage2Bytes: Int
     let stage2SHA256: String
+    /// The rebuilt Stage 2 bytes when they come from a same-chip sibling;
+    /// nil when the payload's own member is copied as it is.
+    let stage2Override: Data?
     /// Root compatible lists of the trees in the Stage 2 that is published.
     let stage2Trees: [[String]]
     let espLayout: [String: String]
@@ -605,6 +591,7 @@
         assessment: effective, stage1Member: stage1Member, stage1Bytes: filled.count,
         stage1SHA256: SHA256Digest(hashing: stage1Data).rawValue, stage2: source,
         stage2Bytes: stage2Data.count, stage2SHA256: SHA256Digest(hashing: stage2Data).rawValue,
+        stage2Override: { if case .sibling = source { return stage2Data } else { return nil } }(),
         stage2Trees: NativeExperimentalHardware.deviceTrees(inStage2: stage2Data),
         espLayout: layout, extraFiles: extra, notes: notes)
     }
@@ -630,7 +617,6 @@
         deviceIdentifier, hardware: hardware, policy: policy)
       {
       case .supported?: return .supported
-      case .knownBroken(let reason)?: return .refused(reason)
       case .some(let other): return .refused(String(describing: other))
       case nil:
         let assessment = try NativeExperimentalHardware.assess(
@@ -649,6 +635,16 @@
             .utf8))
     }
 
+    /// The record the plan will bind, from the decision on the running Mac.
+    public static func admission(
+      deviceIdentifier: String, level: ExperimentalHardwareLevel
+    ) throws -> ExperimentalAdmissionRecord {
+      NativeDeviceAdmission.record(
+        try NativeExperimentalHardware.assess(
+          deviceIdentifier, hardware: NativeInspectionHardware.live(),
+          policy: NativeInspectionPolicy.sealed(), metadata: anyPayload(), level: level))
+    }
+
     /// The report for the running Mac, before any payload is chosen: Stage 1
     /// and Stage 2 are named once the payload is prepared.
     public static func report(
@@ -665,6 +661,83 @@
         stubMacOS: assessment.firmwareVersion + " (to be installed)", level: level,
         stage2: "chosen when the payload is prepared", stage1: "aura common raw Stage 1",
         warnings: assessment.warnings)
+    }
+  }
+#endif
+
+#if os(macOS)
+  import Foundation
+
+  /// Which Macs a plan may run on, and under which policy. A plan without an
+  /// experimental record gets exactly the old answer: the sealed policy, and
+  /// the explicit refusal list. A plan with one is never taken at its word:
+  /// the decision is run again on this Mac and must give the same answer.
+  enum NativeDeviceAdmission {
+    static func record(_ assessment: NativeExperimentalAssessment)
+      -> ExperimentalAdmissionRecord
+    {
+      ExperimentalAdmissionRecord(
+        deviceIdentifier: assessment.deviceIdentifier, chipID: assessment.chipID,
+        level: assessment.requestedLevel.rawValue, stubFirmware: assessment.firmwareVersion)
+    }
+
+    /// Re-runs the experimental decision on `hardware` and refuses unless it
+    /// gives the record's Mac, chip, level and stub.
+    static func verify(
+      _ record: ExperimentalAdmissionRecord, deviceIdentifier: String,
+      hardware: NativeInspectionHardware, policy: NativeInspectionPolicy,
+      metadata: NativeInstallationMetadata
+    ) throws -> NativeExperimentalAssessment {
+      guard record.deviceIdentifier == deviceIdentifier,
+        let level = ExperimentalHardwareLevel(rawValue: record.level)
+      else { throw ExperimentalAdmissionError.decisionChanged }
+      guard
+        NativeExperimentalHardware.refusal(
+          deviceIdentifier, hardware: hardware, policy: policy) == nil
+      else { throw ExperimentalAdmissionError.notOffered }
+      guard record.chipID == String(hardware.chipID, radix: 16) else {
+        throw ExperimentalAdmissionError.decisionChanged
+      }
+      let assessment = try NativeExperimentalHardware.assess(
+        deviceIdentifier, hardware: hardware, policy: policy, metadata: metadata, level: level)
+      guard Self.record(assessment) == record else {
+        throw ExperimentalAdmissionError.decisionChanged
+      }
+      return assessment
+    }
+
+    /// The policy a plan runs under on this Mac: the sealed one, unchanged,
+    /// without a record; the verified assessment's widened one with it.
+    static func policy(
+      deviceIdentifier: String, admission: ExperimentalAdmissionRecord?,
+      hardware: NativeInspectionHardware, metadata: NativeInstallationMetadata
+    ) throws -> NativeInspectionPolicy {
+      let sealed = try NativeInspectionPolicy.sealed()
+      guard let admission else { return sealed }
+      return try verify(
+        admission, deviceIdentifier: deviceIdentifier, hardware: hardware, policy: sealed,
+        metadata: metadata
+      ).policy
+    }
+
+    /// Replaces the explicit refusal check. Without a record it is that check.
+    /// With one, the decision is re-run on this Mac (stub choice against a
+    /// payload that limits no firmware, as current payloads do; the steps that
+    /// hold the real metadata check it again).
+    static func admits(
+      deviceIdentifier: String, admission: ExperimentalAdmissionRecord?,
+      hardware: () throws -> NativeInspectionHardware
+    ) -> Bool {
+      guard let admission else {
+        return !AppleSiliconHostInspector.isExplicitlyUnsupported(deviceIdentifier)
+      }
+      guard let live = try? hardware(), let policy = try? NativeInspectionPolicy.sealed(),
+        let any = try? ExperimentalHardwareInspection.anyPayload()
+      else { return false }
+      return
+        (try? verify(
+          admission, deviceIdentifier: deviceIdentifier, hardware: live, policy: policy,
+          metadata: any)) != nil
     }
   }
 #endif

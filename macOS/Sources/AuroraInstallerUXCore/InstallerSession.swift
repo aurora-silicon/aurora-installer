@@ -167,6 +167,13 @@
     /// Records the owner's typed agreement and saves the bring-up report.
     /// Returns false, changing nothing, unless the phrase was typed exactly and
     /// the path is offered on this Mac.
+    /// The bring-up report saved for the experimental choice in progress.
+    public private(set) var experimentalReport: ExperimentalBringUpReportDisplay?
+
+    /// Records the owner's typed agreement, saves the bring-up report and
+    /// inspects the Mac again under that choice. From there the plan, the
+    /// approval and the installation are the same steps as on a supported
+    /// Mac; the plan digest binds the choice and the helper checks it again.
     @discardableResult
     public func acceptExperimentalHardware(level: ExperimentalHardwareLevel, typed: String) async
       -> Bool
@@ -175,13 +182,14 @@
         let consent = ExperimentalHardwareConsent(level: level, typed: typed)
       else { return false }
       do {
-        let report = try await environment.saveExperimentalBringUpReport(consent)
-        phase = .unsupported(PlainLanguage.experimentalNotRunYet(level, report: report))
-        return true
+        experimentalReport = try await environment.saveExperimentalBringUpReport(consent)
       } catch {
         phase = .unsupported(PlainLanguage.failure(for: error))
         return false
       }
+      experimentalHardware = .unavailable
+      await inspect(experimental: consent)
+      return true
     }
 
     // MARK: Derived state
@@ -287,6 +295,10 @@
     // MARK: Inspection
 
     public func inspect() async {
+      await inspect(experimental: nil)
+    }
+
+    private func inspect(experimental: ExperimentalHardwareConsent?) async {
       guard canInspect else { return }
       operationID = UUID()
       resetForInspection()
@@ -324,7 +336,13 @@
           }
           return
         }
-        let host = try await environment.inspect()
+        let host: HostDisplay
+        if let experimental {
+          host = try await environment.inspectExperimental(experimental)
+        } else {
+          host = try await environment.inspect()
+          experimentalReport = nil
+        }
         recoveryAccount = nil
         // Completed journal identities are authoritative even when the legacy
         // inventory does not recognize the distribution's stub volume name.

@@ -263,6 +263,11 @@ struct OnePageInstallerView: View {
       if let notice = session.allocationNotice {
         Text(notice).font(InstallerTheme.body).foregroundStyle(InstallerTheme.caution)
       }
+      if let report = session.experimentalReport {
+        Text(PlainLanguage.experimentalReportSaved(report))
+          .font(InstallerTheme.body).foregroundStyle(InstallerTheme.caution)
+          .fixedSize(horizontal: false, vertical: true)
+      }
       acknowledgement(acknowledged, plan: plan)
 
     case .awaitingInstall(let plan, let helper, _):

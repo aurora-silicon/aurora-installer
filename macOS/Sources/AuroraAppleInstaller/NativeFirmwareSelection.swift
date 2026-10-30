@@ -90,6 +90,22 @@
     }
   }
 
+  extension NativeFirmwareSelection {
+    /// The choice for an imported plan: the sealed policy for a supported Mac,
+    /// exactly as before, or, for a plan that carries an experimental record,
+    /// the policy of the decision re-run on this Mac (refused unless it agrees).
+    static func choose(
+      package: ImportedEngineHandoffPackage, facts: Facts, metadata: NativeInstallationMetadata
+    ) throws -> Self {
+      let policy = try NativeDeviceAdmission.policy(
+        deviceIdentifier: package.deviceIdentifier, admission: package.experimentalAdmission,
+        hardware: facts.hardware, metadata: metadata)
+      return try choose(
+        deviceIdentifier: package.deviceIdentifier, facts: facts, metadata: metadata,
+        policy: policy, experimental: package.experimentalAdmission != nil)
+    }
+  }
+
   extension NativeInspectionPolicy.Firmware {
     fileprivate func isOlder(than other: Self) throws -> Bool {
       try !NativeInspectionPolicy.Version.atLeast(version, other.version)

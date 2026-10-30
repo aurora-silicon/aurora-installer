@@ -688,6 +688,8 @@
     /// where it is. Nothing is sent anywhere.
     func saveExperimentalBringUpReport(_ consent: ExperimentalHardwareConsent) async throws
       -> ExperimentalBringUpReportDisplay
+    /// Inspects this Mac again under the owner's experimental choice.
+    func inspectExperimental(_ consent: ExperimentalHardwareConsent) async throws -> HostDisplay
   }
 
   extension InstallerEnvironment {
@@ -759,6 +761,11 @@
     }
     public func saveExperimentalBringUpReport(_ consent: ExperimentalHardwareConsent) async throws
       -> ExperimentalBringUpReportDisplay
+    {
+      throw InstallerJobError.unavailable
+    }
+    public func inspectExperimental(_ consent: ExperimentalHardwareConsent) async throws
+      -> HostDisplay
     {
       throw InstallerJobError.unavailable
     }

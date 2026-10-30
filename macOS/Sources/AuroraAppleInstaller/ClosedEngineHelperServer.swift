@@ -149,7 +149,11 @@
   }
 
   public actor ClosedEngineHelperServer {
-    private static let explicitlyUnsupportedDevices = ["apple,j614s"]
+    private static func admits(_ package: ImportedEngineHandoffPackage) -> Bool {
+      NativeDeviceAdmission.admits(
+        deviceIdentifier: package.deviceIdentifier, admission: package.experimentalAdmission,
+        hardware: NativeInspectionHardware.live)
+    }
 
     private let workingDirectory: URL
     private let credentialValidator: any MachineOwnerCredentialValidating
@@ -469,10 +473,10 @@
         if !registeredPackage { try? FileManager.default.removeItem(at: package.packageURL) }
       }
 
+      // A plan without an experimental record gets the old refusal list; one
+      // with a record runs only if the decision, re-run here, agrees.
       guard
-        !Self.explicitlyUnsupportedDevices.contains(
-          package.deviceIdentifier
-        )
+        Self.admits(package)
       else {
         throw ClosedEngineHelperError.unsupportedDevice(
           package.deviceIdentifier
@@ -511,7 +515,7 @@
       let context = try jobs.recoveryContext(identifier)
       let package = try importer.reopenRetained(named: context.packageName, in: workingDirectory)
       guard InstallerJobPlanIdentity(package: package) == context.identity,
-        !Self.explicitlyUnsupportedDevices.contains(package.deviceIdentifier),
+        Self.admits(package),
         jobs.canRetryNow(context.identity)
       else { throw InstallerJobError.identityMismatch }
       let conf = try InstallConf.parse(context.installConf)

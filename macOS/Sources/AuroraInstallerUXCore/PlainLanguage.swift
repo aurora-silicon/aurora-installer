@@ -1122,7 +1122,7 @@
     public static func experimentalLevelDetail(_ level: ExperimentalHardwareLevel) -> String {
       switch level {
       case .bootloaderOnly:
-        "Installs the aura bootloader and keeps its USB proxy window open for 15 seconds on every startup, so a developer can connect from another computer. Linux is not started. Delete the aura-proxy file on the Aurora EFI partition to turn the window off."
+        "Installs the aura bootloader and keeps its USB proxy window open for 15 seconds on every startup, so a developer can connect from another computer. The system you chose is installed too, with the same disk plan as Full send, so the Mac can try it once the bootloader works. Delete the aura-proxy file on the Aurora EFI partition to turn the window off."
       case .fullSend:
         "Installs the bootloader and the system you chose. If no device tree exists for this Mac, the installer uses the closest Mac on the same chip; if none exists either, it installs the bootloader only and says so."
       }
@@ -1143,18 +1143,10 @@
       )
     }
 
-    /// Shown after the owner agreed: the choice and report are saved, and the
-    /// installation service in this build still refuses unsupported Macs.
-    public static func experimentalNotRunYet(
-      _ level: ExperimentalHardwareLevel, report: ExperimentalBringUpReportDisplay
-    ) -> FailureDisplay {
-      FailureDisplay(
-        headline: "Experimental install prepared, not started",
-        plainDetail:
-          "You chose \(experimentalLevelTitle(level)). This build checks the plan and saves a bring-up report, but its installation service does not yet run experimental installs. The disk has not been changed.",
-        technicalDetail: report.text,
-        remedy: "The bring-up report is saved at \(report.path)."
-      )
+    public static func experimentalReportSaved(_ report: ExperimentalBringUpReportDisplay)
+      -> String
+    {
+      "Experimental install. The bring-up report is saved at \(report.path)."
     }
   }
 #endif
