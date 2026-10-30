@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "note": "Developer payload overrides. The official distribution archive is verified against the signed catalog and used as-is; these files replace specific archive members during extraction, for boards whose official archives do not boot yet. Loaded only when the manifest is bundled in a developer build (OmarchyDeveloperBuild); large images may be placed out-of-band in ~/Library/Application Support/org.aurorasilicon.installer/J616sOverride/. fedora_only entries apply exclusively to archives carrying root.img (the Fedora layout); NixOS archives always install their own boot and root images.",
+  "overrides": [
+    { "member": "esp/aurora/stage1.bin", "file": "stage1-j616s.bin" },
+    { "member": "esp/m1n1/boot-j616s.bin", "file": "boot-stage2-j616s.bin" },
+    { "member": "esp/m1n1/boot-j614s.bin", "file": "boot-stage2-j616s.bin" },
+    { "member": "boot.img", "file": "boot-j616s.img", "fedoraOnly": true },
+    { "member": "root.img", "file": "root-j616s.img", "fedoraOnly": true }
+  ]
+}

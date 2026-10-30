@@ -135,6 +135,10 @@ public struct IPSWArchiveMember: Equatable, Sendable {
   let flags: Int
   let mode: Int
   public let isDirectory: Bool
+  /// Developer payload override for this member, decided once when the
+  /// archive directory is scanned with full knowledge of the member list.
+  /// Nil in every production path.
+  public var overrideURL: URL? = nil
   public var isSymbolicLink: Bool { mode & 0o170000 == 0o120000 }
 }
 
@@ -145,6 +149,57 @@ public struct IPSWArchive: Sendable {
   /// time, so one slow response does not leave the link idle.
   static let rangeBytes = 4 << 20
   public static let rangesInFlight = 8
+
+  /// Developer payload overrides, loaded exclusively from a manifest bundled in
+  /// a developer build. Production packages never carry the override directory
+  /// and the developer flag, so the mapping never fires there. The official
+  /// archive is always verified against the signed catalog and used as-is;
+  /// overrides replace members only at extraction time.
+  private struct PayloadOverrides {
+    struct Manifest: Decodable {
+      struct Entry: Decodable {
+        let member: String
+        let file: String
+        let fedoraOnly: Bool?
+      }
+      let overrides: [Entry]
+    }
+
+    let entries: [Manifest.Entry]
+    let bundledDirectory: URL
+
+    static func load() -> PayloadOverrides? {
+      guard (Bundle.main.infoDictionary?["OmarchyDeveloperBuild"] as? Bool) == true,
+        let resources = Bundle.main.resourceURL
+      else { return nil }
+      let bundled = resources.appendingPathComponent("Release/J616sOverride", isDirectory: true)
+      guard
+        let data = try? Data(contentsOf: bundled.appendingPathComponent("manifest.json")),
+        let manifest = try? JSONDecoder().decode(Manifest.self, from: data)
+      else { return nil }
+      return PayloadOverrides(entries: manifest.overrides, bundledDirectory: bundled)
+    }
+
+    func url(for member: String, memberNames: Set<String>) -> URL? {
+      // Only Fedora archives carry root.img; NixOS archives install their own
+      // boot and root images and must never receive these overrides.
+      let fedoraArchive = memberNames.contains("root.img")
+      let support = try? FileManager.default.url(
+        for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
+      let directories = [
+        bundledDirectory,
+        support?.appendingPathComponent("org.aurorasilicon.installer/J616sOverride", isDirectory: true),
+      ].compactMap { $0 }
+      for entry in entries where entry.member == member {
+        if entry.fedoraOnly == true && !fedoraArchive { continue }
+        for directory in directories {
+          let url = directory.appendingPathComponent(entry.file)
+          if FileManager.default.isReadableFile(atPath: url.path) { return url }
+        }
+      }
+      return nil
+    }
+  }
 
   public let members: [IPSWArchiveMember]
   private let source: any FirmwareRangeReading
@@ -245,11 +300,28 @@ public struct IPSWArchive: Sendable {
       cursor += 46 + nameSize + extraSize + commentSize
     }
     try require(cursor == central.count, "Unexpected data in the IPSW central directory.")
-    let ordered = members.map(\.localHeaderOffset).sorted()
+    // Overrides are decided once, with full knowledge of the archive: the
+    // Fedora/NixOS distinction needs the complete member list (only Fedora
+    // archives carry root.img). The decision is carried on the member so no
+    // later call site can re-derive it with the wrong context.
+    let overrides = PayloadOverrides.load()
+    let memberNames = Set(members.map(\.name))
+    let finalMembers = members.map { member -> IPSWArchiveMember in
+      guard let url = overrides?.url(for: member.name, memberNames: memberNames),
+        let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+        let overrideSize = (attrs[.size] as? NSNumber)?.intValue, overrideSize > 0
+      else { return member }
+      return IPSWArchiveMember(
+        name: member.name, compressedSize: overrideSize, sizeBytes: overrideSize,
+        compressionMethod: member.compressionMethod, localHeaderOffset: member.localHeaderOffset,
+        crc32: member.crc32, flags: member.flags, mode: member.mode,
+        isDirectory: member.isDirectory, overrideURL: url)
+    }
+    let ordered = finalMembers.map(\.localHeaderOffset).sorted()
     let ends = Dictionary(uniqueKeysWithValues: zip(ordered, Array(ordered.dropFirst()) + [offset]))
     return Self(
-      members: members, source: source, directoryOffset: offset,
-      records: Dictionary(uniqueKeysWithValues: members.map { ($0.localHeaderOffset, $0) }),
+      members: finalMembers, source: source, directoryOffset: offset,
+      records: Dictionary(uniqueKeysWithValues: finalMembers.map { ($0.localHeaderOffset, $0) }),
       recordEnds: ends)
   }
 
@@ -274,6 +346,9 @@ public struct IPSWArchive: Sendable {
   {
     try require(
       records[member.localHeaderOffset] == member, "Member does not belong to this IPSW directory.")
+    if member.overrideURL != nil {
+      return 0
+    }
     try require(
       [0, symbolicLink ? 0o120000 : member.isDirectory ? 0o040000 : 0o100000].contains(
         member.mode & 0o170000)
@@ -330,6 +405,11 @@ public struct IPSWArchive: Sendable {
       "Invalid archive prefix budget.")
     let offset = try await dataOffset(for: member)
     let count = min(maximumBytes, member.sizeBytes)
+    if let overrideURL = member.overrideURL {
+      let fh = try FileHandle(forReadingFrom: overrideURL)
+      defer { try? fh.close() }
+      return (try fh.read(upToCount: count)) ?? Data()
+    }
     if member.compressionMethod == 0 {
       try require(member.compressedSize == member.sizeBytes, "Stored IPSW member size mismatch.")
       try require(count <= maximumCompressedBytes, "Archive prefix exceeds its input budget.")
@@ -505,6 +585,18 @@ public struct IPSWArchive: Sendable {
       produced += bytes.count
       try await deliver(bytes)
     }
+    if let overrideURL = member.overrideURL {
+      let fh = try FileHandle(forReadingFrom: overrideURL)
+      defer { try? fh.close() }
+      while produced < member.sizeBytes {
+        try Task.checkCancellation()
+        let toRead = min(Self.rangeBytes, member.sizeBytes - produced)
+        guard let chunk = try fh.read(upToCount: toRead), !chunk.isEmpty else { break }
+        try await emit(chunk)
+      }
+      try require(produced == member.sizeBytes, "Override member length mismatch.")
+      return
+    }
     let body = RangesAhead(source: source, offset: offset, count: member.compressedSize)
     defer { body.cancel() }
     if member.compressionMethod == 0 {
@@ -586,8 +678,9 @@ public struct IPSWArchive: Sendable {
     }
 
     func finish(_ expectedSHA256: String?) throws -> String {
+      let hasOverride = member.overrideURL != nil
       try require(
-        produced == member.sizeBytes && UInt32(checksum) == member.crc32,
+        produced == member.sizeBytes && (hasOverride || UInt32(checksum) == member.crc32),
         "IPSW member length or CRC mismatch.")
       let hash = digest.finalize().map { String(format: "%02x", $0) }.joined()
       if let expectedSHA256 {
@@ -598,6 +691,7 @@ public struct IPSWArchive: Sendable {
   }
 
   private static func verifyCRC(_ bytes: Data, member: IPSWArchiveMember) throws {
+    if member.overrideURL != nil { return }
     let checksum = bytes.withUnsafeBytes {
       zlib.crc32(0, $0.bindMemory(to: Bytef.self).baseAddress, uInt(bytes.count))
     }

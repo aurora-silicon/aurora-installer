@@ -15,3 +15,10 @@ dist
 /python-3.9.6-macos11\.pkg
 /python-3.9.6-macos11\.pkg\.asc
 /releases/stub.py
+# Developer payload overrides: multi-gigabyte partition images are working
+# data, regenerable from the distribution archives; only the manifest is tracked.
+/macOS/Release/J616sOverride/*.bin
+/macOS/Release/J616sOverride/*.img
+/build-clean/
+/build-clean2/
+/build-clean2-image/
