@@ -1,0 +1,52 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# aurora-display-restore — re-commit panel state across suspend on Apple
+# Silicon Macs. Installed by the Aurora image producer into
+# /usr/lib/systemd/system-sleep/.
+#
+# Fixes two post-sleep defects observed on the J616s (MacBook Pro 16" M4 Pro):
+#   * Brightness/contrast desync after wake ("haloing", dark greys, output
+#     feels 10-20% of 100% brightness): the DCP keeps stale panel state until
+#     a brightness event re-commits it, so we re-commit on every resume.
+#     (Users previously had to sleep/wake 1-2 extra times to recover.)
+#   * Keyboard backlight staying lit after "Sleep": cleared before suspend,
+#     restored after resume.
+#
+# Generic by design: gated on the Apple device tree, driven entirely by sysfs
+# globs, and a no-op on non-Apple hardware. No machine-specific values.
+
+case "$1" in
+  pre)
+    grep -aq apple, /proc/device-tree/compatible 2>/dev/null || exit 0
+    mkdir -p /run/aurora-sleep
+    for led in /sys/class/leds/*kbd_backlight; do
+      [ -e "$led/brightness" ] || continue
+      n=$(basename "$led")
+      cat "$led/brightness" > "/run/aurora-sleep/$n"
+      echo 0 > "$led/brightness"
+    done
+    ;;
+  post)
+    grep -aq apple, /proc/device-tree/compatible 2>/dev/null || exit 0
+    /usr/bin/systemctl try-restart speakersafetyd.service 2>/dev/null || true
+    for bl in /sys/class/backlight/*; do
+      [ -e "$bl/brightness" ] || continue
+      v=$(cat "$bl/brightness")
+      # Re-commit with a one-step nudge: if the driver dedups identical
+      # writes, the nudge forces the DCP to re-apply the full brightness/EDR
+      # mapping instead of resuming with stale panel state.
+      if [ "$v" -gt 0 ] 2>/dev/null; then
+        echo $((v - 1)) > "$bl/brightness" 2>/dev/null
+        sleep 0.05
+      fi
+      echo "$v" > "$bl/brightness" 2>/dev/null
+    done
+    for f in /run/aurora-sleep/*; do
+      [ -e "$f" ] || continue
+      n=$(basename "$f")
+      [ -e "/sys/class/leds/$n/brightness" ] && cat "$f" > "/sys/class/leds/$n/brightness"
+    done
+    rm -rf /run/aurora-sleep
+    ;;
+esac
+exit 0

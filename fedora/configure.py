@@ -152,6 +152,15 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
         f"baseurl={repository_url.rstrip('/')}\nenabled=1\n"
         f"gpgcheck=1\nrepo_gpgcheck=1\ngpgkey=file:///etc/pki/rpm-gpg/{key_name}\npriority=1\n"
     )
+    # Sleep/restore quirk: re-commit panel state and keyboard backlight across
+    # suspend on Apple Silicon Macs (J616s post-wake brightness/contrast
+    # desync; keyboard backlight lit during Sleep). Generic: Apple-gated,
+    # sysfs-driven, no machine-specific values.
+    hook_dir = destination / "root/usr/lib/systemd/system-sleep"
+    hook_dir.mkdir(parents=True, exist_ok=True)
+    hook_path = hook_dir / "aurora-display-restore"
+    hook_path.write_text((HERE / "files" / "aurora-sleep-restore").read_text())
+    hook_path.chmod(0o755)
     config = destination / "config.sh"
     text = config.read_text()
     if "kernel-16k-core" not in text:
