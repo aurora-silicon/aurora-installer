@@ -42,7 +42,8 @@
       XCTAssertFalse(fm.fileExists(atPath: fedoraBuild.path))
       XCTAssertFalse(fm.fileExists(atPath: archBuild.path))
       XCTAssertTrue(fm.fileExists(atPath: arch.appendingPathComponent("staging").path))
-      XCTAssertTrue(fm.fileExists(atPath: state.appendingPathComponent("accepted-catalog.json").path))
+      XCTAssertTrue(
+        fm.fileExists(atPath: state.appendingPathComponent("accepted-catalog.json").path))
     }
 
     func testOnlyAnInstallationFinishedOnThisMacDiscardsDownloads() {

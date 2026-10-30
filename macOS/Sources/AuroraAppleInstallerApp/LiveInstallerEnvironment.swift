@@ -894,7 +894,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   /// and verifies its image again.
   static func discardDownloads(productBase: URL) {
     let fm = FileManager.default
-    guard let profiles = try? fm.contentsOfDirectory(at: productBase, includingPropertiesForKeys: nil)
+    guard
+      let profiles = try? fm.contentsOfDirectory(at: productBase, includingPropertiesForKeys: nil)
     else { return }
     for profile in profiles {
       discardStaleDownloads(
