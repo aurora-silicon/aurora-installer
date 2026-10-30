@@ -117,5 +117,30 @@ class PayloadPartTests(unittest.TestCase):
         self.assertEqual(conformance.payload_parts(model), parts)
 
 
+class UrlopenRetryTests(unittest.TestCase):
+    def test_a_transient_503_is_retried_and_a_404_is_not(self):
+        import urllib.error
+        from unittest import mock
+        calls = []
+
+        def fake(request, timeout):
+            calls.append(request)
+            if len(calls) == 1:
+                raise urllib.error.HTTPError('u', 503, 'Service Unavailable', {}, None)
+            return 'ok'
+        with mock.patch('urllib.request.urlopen', fake), mock.patch('time.sleep'):
+            self.assertEqual(conformance.urlopen('u', timeout=1), 'ok')
+        self.assertEqual(len(calls), 2)
+
+        def missing(request, timeout):
+            calls.append(request)
+            raise urllib.error.HTTPError('u', 404, 'Not Found', {}, None)
+        calls.clear()
+        with mock.patch('urllib.request.urlopen', missing), mock.patch('time.sleep'):
+            with self.assertRaises(urllib.error.HTTPError):
+                conformance.urlopen('u', timeout=1)
+        self.assertEqual(len(calls), 1)
+
+
 if __name__ == '__main__':
     unittest.main()
