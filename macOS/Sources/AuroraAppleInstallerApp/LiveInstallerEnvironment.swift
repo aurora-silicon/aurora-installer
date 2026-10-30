@@ -397,6 +397,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       selectedLane = channel.rawValue
     }
     try catalogStore.store(release.assets.catalogIdentity)
+    Self.discardStaleDownloads(
+      in: workspace.staging, keeping: release.assets.metadata.fileURL.deletingLastPathComponent())
     // The payload is pinned by the verified catalog and does not depend on the
     // plan, so it downloads while the engine checks the Mac and the owner picks
     // a size. The session cancels it if this preparation fails.
@@ -764,6 +766,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     let (bytes, handoff) = try snapshot.requireResult()
     let completion = try completionFromJob(snapshot, bytes: bytes, handoff: handoff)
     try store.clear()
+    discardDownloadsIfFinished(completion.nextAction)
     return completion
   }
 
@@ -863,7 +866,52 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       }
     }
     try pendingStore.clear()
+    discardDownloadsIfFinished(progress.nextAction)
     return Self.completionDisplay(progress, installConf: installConf)
+  }
+
+  // MARK: Downloads
+
+  /// Once the macOS part of an installation is done, Recovery reads its payload
+  /// from the installation's own volume (AuraPayloads), so no downloaded image
+  /// is needed. Keeping them took several GB from every later installation.
+  private func discardDownloadsIfFinished(_ next: InstallerNextAction) {
+    guard Self.finishedOnMac(next),
+      let support = FileManager.default.urls(
+        for: .applicationSupportDirectory, in: .userDomainMask
+      ).first
+    else { return }
+    lock.withLock { reusableAssets = nil }
+    Self.discardDownloads(
+      productBase: support.appendingPathComponent(buildProfile.workspaceName, isDirectory: true))
+  }
+
+  static func finishedOnMac(_ next: InstallerNextAction) -> Bool {
+    [.enterRecovery, .attachInstallationMedia, .verifyInstalledSystem].contains(next)
+  }
+
+  /// Removes every system's downloaded releases. A later installation downloads
+  /// and verifies its image again.
+  static func discardDownloads(productBase: URL) {
+    let fm = FileManager.default
+    guard let profiles = try? fm.contentsOfDirectory(at: productBase, includingPropertiesForKeys: nil)
+    else { return }
+    for profile in profiles {
+      discardStaleDownloads(
+        in: profile.appendingPathComponent("staging", isDirectory: true), keeping: nil)
+    }
+  }
+
+  /// Removes a system's downloaded releases other than the one being prepared:
+  /// an earlier build's or channel's image only takes space Linux could have.
+  static func discardStaleDownloads(in staging: URL, keeping current: URL?) {
+    let fm = FileManager.default
+    let kept = current?.standardizedFileURL.path
+    guard let entries = try? fm.contentsOfDirectory(at: staging, includingPropertiesForKeys: nil)
+    else { return }
+    for entry in entries where entry.standardizedFileURL.path != kept {
+      try? fm.removeItem(at: entry)
+    }
   }
 
   // MARK: Display mapping
