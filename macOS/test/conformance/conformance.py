@@ -374,6 +374,18 @@ def evaluate(machine, mode, distro, dry, context, opt_in=None):
         checks.append(check('experimental', True, '%s, stub %s; untested: %s' % (
             opt_in, experimental.get('stub_firmware'), ' '.join(experimental.get('warnings', []))),
             'boot this board through a real experimental install'))
+        # The plan binds the record and the helper's re-run agrees.
+        record = experimental.get('admission_record')
+        planned = [c['plan'] for c in sample.get('candidates', []) if 'plan' in c]
+        bound = [p for p in planned if p.get('experimental_admission') == record
+                 and p.get('unbound_plan_digest') not in (None, p.get('plan_digest'))]
+        problems = []
+        if experimental.get('helper_recheck') != 'agrees':
+            problems.append('the helper re-check did not agree')
+        if planned and len(bound) != len(planned):
+            problems.append('%d of %d plans bind the record' % (len(bound), len(planned)))
+        checks.append(check('binding', not problems, '; '.join(problems) or
+                            'plan digest binds %s; helper re-check agrees' % record))
     else:
         ok = sample['supported'] and len(enabled) == len(DESKTOPS) and not unsigned
         reason = []
@@ -554,6 +566,17 @@ def experimental_stage2(machine, opt_in, desktop, chain, selected, payload, note
         problems.append('%s: no experimental record on the ESP' % desktop)
     if chain.get('window_milliseconds') != 0:
         problems.append('%s: the Stage 1 config window is not 0' % desktop)
+    esp = chain.get('esp_plan') or {}
+    if 'error' in esp or not esp:
+        problems.append('%s: the ESP plan failed: %s' % (desktop, esp.get('error')))
+    else:
+        want_extra = {'aurora/experimental.json'} | ({'aura-proxy'} if 'aura-proxy' in chain.get('extra_files', []) else set())
+        if source.get('kind') == 'sibling':
+            want_extra.add('m1n1/boot.bin')
+        if set(esp.get('extra_files', [])) != want_extra:
+            problems.append('%s: ESP extra files %s, expected %s' % (desktop, esp.get('extra_files'), sorted(want_extra)))
+        if source.get('kind') == 'sibling' and source.get('member') in esp.get('members', []):
+            problems.append('%s: the sibling board file is copied as is' % desktop)
     if source.get('kind') == 'none':
         published.append('%s combined Stage 2 not inspected' % desktop)
     if source.get('kind') in ('own', 'sibling'):

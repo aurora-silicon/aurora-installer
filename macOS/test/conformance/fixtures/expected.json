@@ -14,7 +14,8 @@
     "stage1",
     "stage2",
     "1tr",
-    "plan"
+    "plan",
+    "binding"
    ],
    "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
    "verdict": "FAIL"
@@ -26,7 +27,8 @@
     "stage1",
     "stage2",
     "1tr",
-    "plan"
+    "plan",
+    "binding"
    ],
    "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
    "verdict": "FAIL"
@@ -45,7 +47,8 @@
     "stage1",
     "stage2",
     "1tr",
-    "plan"
+    "plan",
+    "binding"
    ],
    "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
    "verdict": "FAIL"
@@ -57,7 +60,8 @@
     "stage1",
     "stage2",
     "1tr",
-    "plan"
+    "plan",
+    "binding"
    ],
    "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
    "verdict": "FAIL"
@@ -76,7 +80,8 @@
     "stage1",
     "stage2",
     "1tr",
-    "plan"
+    "plan",
+    "binding"
    ],
    "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
    "verdict": "FAIL"
@@ -88,7 +93,8 @@
     "stage1",
     "stage2",
     "1tr",
-    "plan"
+    "plan",
+    "binding"
    ],
    "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
    "verdict": "FAIL"
@@ -109,7 +115,8 @@
     "experimental",
     "stage1",
     "stage2",
-    "1tr"
+    "1tr",
+    "binding"
    ],
    "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install. Side by side has no room on this disk, with or without the opt-in.",
    "verdict": "FAIL"
@@ -123,7 +130,8 @@
     "experimental",
     "stage1",
     "stage2",
-    "1tr"
+    "1tr",
+    "binding"
    ],
    "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install. Side by side has no room on this disk, with or without the opt-in.",
    "verdict": "FAIL"
@@ -144,7 +152,8 @@
     "experimental",
     "stage1",
     "stage2",
-    "1tr"
+    "1tr",
+    "binding"
    ],
    "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install. Side by side has no room on this disk, with or without the opt-in.",
    "verdict": "FAIL"
@@ -158,7 +167,8 @@
     "experimental",
     "stage1",
     "stage2",
-    "1tr"
+    "1tr",
+    "binding"
    ],
    "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install. Side by side has no room on this disk, with or without the opt-in.",
    "verdict": "FAIL"
@@ -179,7 +189,8 @@
     "experimental",
     "stage1",
     "stage2",
-    "1tr"
+    "1tr",
+    "binding"
    ],
    "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install. Side by side has no room on this disk, with or without the opt-in.",
    "verdict": "FAIL"
@@ -193,7 +204,8 @@
     "experimental",
     "stage1",
     "stage2",
-    "1tr"
+    "1tr",
+    "binding"
    ],
    "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install. Side by side has no room on this disk, with or without the opt-in.",
    "verdict": "FAIL"
@@ -246,7 +258,7 @@
    "must_fail": [
     "supported"
    ],
-   "note": "Known broken (T6000 iBoot refuses the 4.39 MB Stage 1): the opt-in is never offered.",
+   "note": "Supported (M1 to M3 are supported): the experimental path is never offered. The Stage 1 rejection on this iBoot stays a FAIL in the normal path.",
    "verdict": "FAIL"
   },
   "m1pro/fresh/fedora": {
@@ -260,7 +272,7 @@
    "must_fail": [
     "supported"
    ],
-   "note": "Known broken (T6000 iBoot refuses the 4.39 MB Stage 1): the opt-in is never offered.",
+   "note": "Supported (M1 to M3 are supported): the experimental path is never offered. The Stage 1 rejection on this iBoot stays a FAIL in the normal path.",
    "verdict": "FAIL"
   },
   "m1pro/fresh/nixos": {
@@ -275,7 +287,7 @@
    "must_fail": [
     "supported"
    ],
-   "note": "Known broken (T6000 iBoot refuses the 4.39 MB Stage 1): the opt-in is never offered.",
+   "note": "Supported (M1 to M3 are supported): the experimental path is never offered. The Stage 1 rejection on this iBoot stays a FAIL in the normal path.",
    "verdict": "FAIL"
   },
   "m1pro/side-by-side/arch": {
@@ -290,7 +302,7 @@
    "must_fail": [
     "supported"
    ],
-   "note": "Known broken (T6000 iBoot refuses the 4.39 MB Stage 1): the opt-in is never offered.",
+   "note": "Supported (M1 to M3 are supported): the experimental path is never offered. The Stage 1 rejection on this iBoot stays a FAIL in the normal path.",
    "verdict": "FAIL"
   },
   "m1pro/side-by-side/fedora": {
@@ -304,7 +316,7 @@
    "must_fail": [
     "supported"
    ],
-   "note": "Known broken (T6000 iBoot refuses the 4.39 MB Stage 1): the opt-in is never offered.",
+   "note": "Supported (M1 to M3 are supported): the experimental path is never offered. The Stage 1 rejection on this iBoot stays a FAIL in the normal path.",
    "verdict": "FAIL"
   },
   "m1pro/side-by-side/nixos": {
@@ -319,7 +331,7 @@
    "must_fail": [
     "supported"
    ],
-   "note": "Known broken (T6000 iBoot refuses the 4.39 MB Stage 1): the opt-in is never offered.",
+   "note": "Supported (M1 to M3 are supported): the experimental path is never offered. The Stage 1 rejection on this iBoot stays a FAIL in the normal path.",
    "verdict": "FAIL"
   },
   "m2/fresh/arch": {
@@ -418,7 +430,8 @@
     "experimental",
     "stage1",
     "stage2",
-    "1tr"
+    "1tr",
+    "binding"
    ],
    "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
    "verdict": "FAIL"
@@ -429,7 +442,8 @@
     "experimental",
     "stage1",
     "stage2",
-    "1tr"
+    "1tr",
+    "binding"
    ],
    "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
    "verdict": "FAIL"
@@ -447,7 +461,8 @@
     "experimental",
     "stage1",
     "stage2",
-    "1tr"
+    "1tr",
+    "binding"
    ],
    "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
    "verdict": "FAIL"
@@ -458,7 +473,8 @@
     "experimental",
     "stage1",
     "stage2",
-    "1tr"
+    "1tr",
+    "binding"
    ],
    "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
    "verdict": "FAIL"
@@ -476,7 +492,8 @@
     "experimental",
     "stage1",
     "stage2",
-    "1tr"
+    "1tr",
+    "binding"
    ],
    "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
    "verdict": "FAIL"
@@ -487,7 +504,8 @@
     "experimental",
     "stage1",
     "stage2",
-    "1tr"
+    "1tr",
+    "binding"
    ],
    "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
    "verdict": "FAIL"
@@ -505,7 +523,8 @@
     "experimental",
     "stage1",
     "stage2",
-    "1tr"
+    "1tr",
+    "binding"
    ],
    "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
    "verdict": "FAIL"
@@ -516,7 +535,8 @@
     "experimental",
     "stage1",
     "stage2",
-    "1tr"
+    "1tr",
+    "binding"
    ],
    "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
    "verdict": "FAIL"
@@ -534,7 +554,8 @@
     "experimental",
     "stage1",
     "stage2",
-    "1tr"
+    "1tr",
+    "binding"
    ],
    "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
    "verdict": "FAIL"
@@ -545,7 +566,8 @@
     "experimental",
     "stage1",
     "stage2",
-    "1tr"
+    "1tr",
+    "binding"
    ],
    "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
    "verdict": "FAIL"
@@ -563,7 +585,8 @@
     "experimental",
     "stage1",
     "stage2",
-    "1tr"
+    "1tr",
+    "binding"
    ],
    "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
    "verdict": "FAIL"
@@ -574,7 +597,8 @@
     "experimental",
     "stage1",
     "stage2",
-    "1tr"
+    "1tr",
+    "binding"
    ],
    "note": "Opt-in cell: the checks named here must hold; the verdict stays FAIL until the distro pins and images land, and the board needs a real experimental install.",
    "verdict": "FAIL"
