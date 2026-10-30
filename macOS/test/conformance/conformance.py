@@ -413,8 +413,13 @@ def evaluate(machine, mode, distro, dry, context):
         problems.append('iBoot on %s (%s stub) rejects the pinned %d B aura Stage 1: %s' % (
             board, fw['version'], size, limit['evidence']))
     proven = context['constraints']['proven_stage1'].get(board)
+    caution = stage1_caution(machine, dry, context)
+    if caution and caution['ok'] and problems:
+        problems.append('the installer warns and goes ahead, so this install would not start')
     checks.append(check('stage1', not problems, '; '.join(problems) or 'filled for ' + ', '.join(notes),
                         None if proven else 'boot the pinned Stage 1 on this board through a real 1TR install'))
+    if caution:
+        checks.append(caution)
 
     # 4. Stage 2 composition for this board
     problems, published = [], []
@@ -499,6 +504,46 @@ def evaluate(machine, mode, distro, dry, context):
                             sample['one_true_recovery_boot_policy'], expected, raw),
                         'run the paired 1TR step on this machine'))
     return checks
+
+
+CAUTION_RECOVERY = ('Always Use', 'Erase Linux', 'macOS needs to be reinstalled')
+CAUTION_ACKNOWLEDGEMENT = ', and I understand Aurora may not start on this Mac.'
+
+
+def stage1_caution(machine, dry, context):
+    """The warn-not-block path for a supported board whose iBoot refuses, or may
+    refuse, the common Stage 1 (scripts/supported-models.json stage1_caution):
+    the plan screen must show the warning, its recovery steps and a widened
+    acknowledgement, and the install must still go ahead. None for any other
+    board, unless the dry run warns where the list does not."""
+    listed = context['stage1_caution'].get(machine['device_identifier'])
+    shown = {d: dry[d].get('stage1_caution') for d in DESKTOPS}
+    if not listed:
+        extra = [d for d, c in shown.items() if c]
+        return check('stage1 caution', False, 'warns on a board stage1_caution does not list (%s)' % ', '.join(
+            extra)) if extra else None
+    problems = []
+    for desktop, caution in shown.items():
+        if not caution:
+            problems.append('%s: no warning on the plan' % desktop)
+            continue
+        missing = [p for p in CAUTION_RECOVERY if p not in caution['recovery']]
+        if missing:
+            problems.append('%s: the recovery steps lack %s' % (desktop, ', '.join(missing)))
+        if not all(caution[k].endswith(CAUTION_ACKNOWLEDGEMENT) for k in ('acknowledgement', 'acknowledgement_resize')):
+            problems.append('%s: the acknowledgement does not name the risk' % desktop)
+        if not caution['reason'] or not caution['headline']:
+            problems.append('%s: an empty warning' % desktop)
+        # Warn, never block: supported, qualified for Stage 1, and planned.
+        chain = dry[desktop].get('boot_chain') or {}
+        if not dry[desktop]['supported'] or 'stage1_member' not in chain:
+            problems.append('%s: the install is blocked (%s)' % (desktop, dry[desktop].get(
+                'unsupported_reason') or dry[desktop].get('boot_chain_error') or 'no Stage 1'))
+        if machine['disk'] is not None and not any('plan' in c for c in dry[desktop].get('candidates', [])):
+            problems.append('%s: no plan to go ahead with' % desktop)
+    first = shown[DESKTOPS[0]] or {}
+    return check('stage1 caution', not problems, '; '.join(problems) or 'warns, then goes ahead: "%s" %s %s' % (
+        first['headline'], first['reason'], first['recovery']))
 
 
 def plan_check(machine, mode, result, firmware):
@@ -603,6 +648,12 @@ def distro_parity(sources, cache):
     return {'lagging': {d: '; '.join(v) for d, v in lagging.items()}}
 
 
+def stage1_caution_list():
+    """Boards the installer warns about instead of blocking, from scripts/supported-models.json."""
+    manifest = json.loads((MACOS / 'scripts/supported-models.json').read_text())
+    return manifest.get('stage1_caution', {})
+
+
 def github_headers():
     token = os.environ.get('GITHUB_TOKEN')
     return {'Authorization': 'Bearer ' + token} if token else {}
@@ -688,7 +739,7 @@ def main():
 
     parity = distro_parity({d: branches[d] or built[d] for d in DISTROS}, args.cache)
     context = {'parity': parity, 'pins': pins, 'constraints': constraints, 'profiles': profiles, 'branches': branches,
-               'built': built, 'kernels': kernels}
+               'built': built, 'kernels': kernels, 'stage1_caution': stage1_caution_list()}
     cells = []
     for machine in machines:
         for mode in MODES:

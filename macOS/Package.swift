@@ -66,7 +66,7 @@ let package = Package(
     ),
     .executableTarget(
       name: "InstallerDryRun",
-      dependencies: ["AuroraAppleInstallerTrustCore", "AuroraFirmware"],
+      dependencies: ["AuroraAppleInstallerTrustCore", "AuroraFirmware", "AuroraInstallerUXCore"],
       path: "Development/InstallerDryRun"
     ),
     .executableTarget(
