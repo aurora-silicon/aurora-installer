@@ -102,5 +102,20 @@ class RuleTests(unittest.TestCase):
         self.assertIn('free about', check['detail'])
 
 
+class PayloadPartTests(unittest.TestCase):
+    def test_an_unsplit_payload_is_one_part_checked_against_the_payload_digest(self):
+        model = {'payloadDigest': 'sha256:' + 'a' * 64, 'payloadArtifact': {
+            'sourceURL': 'https://example.invalid/p.zip', 'fileName': 'p.zip', 'sizeBytes': 3}}
+        self.assertEqual(conformance.payload_parts(model), [{'sourceURL': 'https://example.invalid/p.zip',
+                                                             'fileName': 'p.zip', 'sizeBytes': 3,
+                                                             'sha256': 'sha256:' + 'a' * 64}])
+
+    def test_a_split_payload_keeps_its_parts(self):
+        parts = [{'sourceURL': 'u', 'fileName': 'p.zip.part00', 'sizeBytes': 1, 'sha256': 'sha256:' + 'b' * 64}]
+        model = {'payloadDigest': 'sha256:' + 'a' * 64, 'payloadArtifact': {
+            'sourceURL': 'x', 'fileName': 'p.zip', 'sizeBytes': 1, 'parts': parts}}
+        self.assertEqual(conformance.payload_parts(model), parts)
+
+
 if __name__ == '__main__':
     unittest.main()
