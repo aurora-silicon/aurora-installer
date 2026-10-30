@@ -307,7 +307,7 @@ refused_envelope "a-missing-m3-mac" "catalog['models'] = [m for m in models if m
 refused_envelope "a-disabled-m3-mac" "next(m for m in models if m['deviceIdentifier'] == 'apple,j516m')['status'] = 'disabled'" "apple,j516m is listed but disabled"
 refused_envelope "a-missing-neo" "catalog['models'] = [m for m in models if m['deviceIdentifier'] != 'apple,j700']" "missing apple,j700"
 refused_envelope "only-m1-and-m2" "catalog['models'] = models[:23]" "missing apple,j433"
-refused_envelope "an-m3-ultra" "models.append(dict(models[0], deviceIdentifier='apple,j575d'))" "apple,j575d is refused"
+refused_envelope "a-missing-m3-ultra" "catalog['models'] = [m for m in models if m['deviceIdentifier'] != 'apple,j575d']" "missing apple,j575d"
 refused_envelope "an-m4-mac" "models.append(dict(models[0], deviceIdentifier='apple,j614s'))" "M4 and later"
 pass "envelope refuses a catalog missing, disabling or overreaching any supported Mac"
 

@@ -84,6 +84,7 @@
       "apple,j516s": mac("MacBook Pro 16-inch (M3 Pro, 2023)", "MacBook Pro", "M3"),
       "apple,j516c": mac("MacBook Pro 16-inch (M3 Max, 2023)", "MacBook Pro", "M3"),
       "apple,j516m": mac("MacBook Pro 16-inch (M3 Max, 2023)", "MacBook Pro", "M3"),
+      "apple,j575d": mac("Mac Studio (M3 Ultra, 2025)", "Mac Studio", "M3"),
       "apple,j613": mac("MacBook Air 13-inch (M3, 2024)", "MacBook Air", "M3"),
       "apple,j615": mac("MacBook Air 15-inch (M3, 2024)", "MacBook Air", "M3"),
       "apple,j614s": mac("MacBook Pro 14-inch (M4 Pro, 2024)", "MacBook Pro", "M4"),

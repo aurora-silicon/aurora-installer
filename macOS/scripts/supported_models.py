@@ -9,10 +9,11 @@ Mac release yet (an empty catalog) is the only exception. `refused` names each
 board that stays out and why. `developer` names each board only a developer
 build's sealed catalog may add, with its own image; channel catalogs never
 carry one, so check-catalog rejects it like any unknown board.
-`stage1_unqualified` names each supported board whose iBoot is known to
-refuse the common raw Stage 1, so payloads never qualify it for that Stage 1
-and the installer stops before any disk change instead of installing a
-system that cannot start.
+`stage1_caution` names each supported board whose iBoot refuses, or may
+refuse, the common raw Stage 1 (the M1 Pro, M1 Max and M1 Ultra Macs). They
+stay supported and qualified: the installer warns the owner, with the
+recovery steps, and lets them continue. The installer's Swift table
+(Sources/AuroraInstallerUXCore/Stage1Caution.swift) must name the same boards.
 
 Usage:
   supported_models.py check-catalog FILE   exit 1 unless FILE covers every Mac
@@ -40,13 +41,17 @@ def load(path: Path = MANIFEST) -> tuple[list[str], dict[str, str]]:
     return supported, refused
 
 
-def stage1_unqualified(path: Path = MANIFEST) -> dict[str, str]:
-    """Supported boards whose iBoot refuses the common raw Stage 1, with why."""
+def stage1_caution(path: Path = MANIFEST) -> dict[str, str]:
+    """Supported boards whose iBoot may refuse the common raw Stage 1, with why.
+    They are still qualified; the installer warns before installing."""
     supported, _ = load(path)
-    unqualified = dict(json.loads(path.read_text()).get("stage1_unqualified", {}))
-    if not set(unqualified) <= set(supported):
-        raise SystemExit(f"{path}: stage1_unqualified names a Mac that is not supported")
-    return unqualified
+    document = json.loads(path.read_text())
+    if "stage1_unqualified" in document:
+        raise SystemExit(f"{path}: stage1_unqualified is replaced by stage1_caution")
+    caution = dict(document.get("stage1_caution", {}))
+    if not set(caution) <= set(supported):
+        raise SystemExit(f"{path}: stage1_caution names a Mac that is not supported")
+    return caution
 
 
 def developer_boards(path: Path = MANIFEST) -> dict[str, str]:
