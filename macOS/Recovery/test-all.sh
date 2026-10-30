@@ -27,3 +27,4 @@ compile_run installation-journal Sources/RecoveryInstallationJournal.swift Tests
 compile_run account-restart Sources/RecoveryAccountRestart.swift Tests/RecoveryAccountRestartCheck.swift
 compile_run directory-swap Sources/Account/RecoveryDigest.swift Sources/Account/RecoveryFileTransaction.swift Sources/RecoveryDirectorySwap.swift Tests/RecoveryDirectorySwapCheck.swift
 compile_run baseline Sources/Account/RecoveryDigest.swift Sources/RecoveryBaseline.swift Tests/RecoveryBaselineCheck.swift
+compile_run volume-identity Sources/VolumeIdentity.swift Tests/VolumeIdentityCheck.swift

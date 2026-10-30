@@ -9,9 +9,8 @@ APP="$OUT/Aurora Installer.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Resources/AuroraLogo.png "$APP/Contents/Resources/AuroraLogo.png"
 cp ../Packaging/AuroraInstaller.icns "$APP/Contents/Resources/AuroraInstaller.icns"
-if [[ $MODE == "preview" ]]; then
-  cp ../Packaging/DistributionIcons/aurora.icns "$APP/Contents/Resources/"
-fi
+# Recovery compares the startup volume's icon with this mark to leave it out.
+cp ../Packaging/DistributionIcons/aurora.icns "$APP/Contents/Resources/aurora.icns"
 mkdir -p "$APP/Contents/Resources/en.lproj"
 cp Resources/en.lproj/InfoPlist.strings "$APP/Contents/Resources/en.lproj/InfoPlist.strings"
 # Build the standalone Recovery target with XcodeBuildMCP before packaging.

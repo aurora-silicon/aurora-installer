@@ -477,6 +477,17 @@ enum DestinationVolume {
     return NSImage(systemSymbolName: "internaldrive", accessibilityDescription: "Startup volume")
       ?? NSImage(size: NSSize(width: 96, height: 96))
   }()
+  /// False when the volume carries the Aurora mark, which the window already
+  /// shows: the first and last steps then leave its icon and name out.
+  static let showsIdentity: Bool = {
+    let mark = Bundle.main.url(forResource: "aurora", withExtension: "icns")
+      .flatMap { try? Data(contentsOf: $0) }
+    if previewDistribution != nil {
+      return VolumeIdentity.showsVolume(icon: mark, auroraMark: mark)
+    }
+    let icon = try? Data(contentsOf: url.appendingPathComponent(".VolumeIcon.icns"))
+    return VolumeIdentity.showsVolume(icon: icon, auroraMark: mark)
+  }()
 }
 
 // AppKit owns the window and sheets, including their titlebar and background.
