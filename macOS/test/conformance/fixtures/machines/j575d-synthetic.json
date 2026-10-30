@@ -1,0 +1,229 @@
+{
+ "captured": "2026-10-30",
+ "description": "Synthetic: a Mac Studio with M3 Ultra (J575d, T6032), supported with a Stage 1 caution: aura runs this chip CPU-only and neither its Stage 1 nor this iBoot has been tried. Identity is the J575d's public board name on macOS 26.6.2 firmware; the disk is borrowed from the Neo capture. The installer must warn, with the recovery steps, and go ahead.",
+ "device_identifier": "apple,j575d",
+ "disk": {
+  "block_size": 4096,
+  "partitions": [
+   {
+    "apfs": {
+     "capacity": 576716800,
+     "free": 547897344,
+     "uuid": "00000000-0000-4000-8000-000000000002",
+     "volumes": [
+      {
+       "alloc_bytes": 6361088,
+       "files": 18,
+       "group": null,
+       "name": "iSCPreboot",
+       "role": "Preboot",
+       "uuid": "00000000-0000-4000-8000-000000000003"
+      },
+      {
+       "alloc_bytes": 6311936,
+       "files": 1,
+       "group": null,
+       "name": "xART",
+       "role": "xART",
+       "uuid": "00000000-0000-4000-8000-000000000004"
+      },
+      {
+       "alloc_bytes": 11087872,
+       "files": 774,
+       "group": null,
+       "name": "Hardware",
+       "role": "Hardware",
+       "uuid": "00000000-0000-4000-8000-000000000005"
+      },
+      {
+       "alloc_bytes": 20480,
+       "files": 0,
+       "group": null,
+       "name": "Recovery",
+       "role": "Recovery",
+       "uuid": "00000000-0000-4000-8000-000000000006"
+      }
+     ]
+    },
+    "index": 1,
+    "offset": 24576,
+    "size": 576716800,
+    "type": "69646961-6700-11aa-aa11-00306543ecac",
+    "uuid": "00000000-0000-4000-8000-000000000001"
+   },
+   {
+    "apfs": {
+     "capacity": 366332608512,
+     "free": 326556786688,
+     "uuid": "00000000-0000-4000-8000-000000000008",
+     "volumes": [
+      {
+       "alloc_bytes": 12639047680,
+       "files": 272091,
+       "group": "00000000-0000-4000-8000-00000000000a",
+       "name": "Macintosh HD",
+       "role": "System",
+       "uuid": "00000000-0000-4000-8000-000000000009"
+      },
+      {
+       "alloc_bytes": 7681900544,
+       "files": 121,
+       "group": null,
+       "name": "Preboot",
+       "role": "Preboot",
+       "uuid": "00000000-0000-4000-8000-00000000000b"
+      },
+      {
+       "alloc_bytes": 1615650816,
+       "files": 30,
+       "group": null,
+       "name": "Recovery",
+       "role": "Recovery",
+       "uuid": "00000000-0000-4000-8000-00000000000c"
+      },
+      {
+       "alloc_bytes": 13127680,
+       "files": 50,
+       "group": null,
+       "name": "Update",
+       "role": "Update",
+       "uuid": "00000000-0000-4000-8000-00000000000d"
+      },
+      {
+       "alloc_bytes": 17677357056,
+       "files": 118873,
+       "group": "00000000-0000-4000-8000-00000000000a",
+       "name": "Data",
+       "role": "Data",
+       "uuid": "00000000-0000-4000-8000-00000000000a"
+      },
+      {
+       "alloc_bytes": 20480,
+       "files": 0,
+       "group": null,
+       "name": "VM",
+       "role": "VM",
+       "uuid": "00000000-0000-4000-8000-00000000000e"
+      }
+     ]
+    },
+    "index": 2,
+    "offset": 576741376,
+    "size": 366332608512,
+    "type": "7c3457ef-0000-11aa-aa11-00306543ecac",
+    "uuid": "00000000-0000-4000-8000-000000000007"
+   },
+   {
+    "apfs": {
+     "capacity": 2499805184,
+     "free": 178221056,
+     "uuid": "00000000-0000-4000-8000-000000000010",
+     "volumes": [
+      {
+       "alloc_bytes": 2334720,
+       "files": 253,
+       "group": "00000000-0000-4000-8000-000000000011",
+       "name": "m1n1 proxy - Data",
+       "role": "Data",
+       "uuid": "00000000-0000-4000-8000-000000000011"
+      },
+      {
+       "alloc_bytes": 2777088,
+       "files": 14,
+       "group": "00000000-0000-4000-8000-000000000011",
+       "name": "Aurora",
+       "role": "System",
+       "uuid": "00000000-0000-4000-8000-000000000012"
+      },
+      {
+       "alloc_bytes": 555843584,
+       "files": 225,
+       "group": null,
+       "name": "Preboot",
+       "role": "Preboot",
+       "uuid": "00000000-0000-4000-8000-000000000013"
+      },
+      {
+       "alloc_bytes": 1750392832,
+       "files": 94,
+       "group": null,
+       "name": "Recovery",
+       "role": "Recovery",
+       "uuid": "00000000-0000-4000-8000-000000000014"
+      }
+     ]
+    },
+    "index": 3,
+    "offset": 366909349888,
+    "size": 2499805184,
+    "type": "7c3457ef-0000-11aa-aa11-00306543ecac",
+    "uuid": "00000000-0000-4000-8000-00000000000f"
+   },
+   {
+    "apfs": {
+     "capacity": 5368664064,
+     "free": 3796377600,
+     "uuid": "00000000-0000-4000-8000-000000000016",
+     "volumes": [
+      {
+       "alloc_bytes": 1552465920,
+       "files": 31,
+       "group": null,
+       "name": "Recovery",
+       "role": "Recovery",
+       "uuid": "00000000-0000-4000-8000-000000000017"
+      },
+      {
+       "alloc_bytes": 28672,
+       "files": 1,
+       "group": null,
+       "name": "Update",
+       "role": "Update",
+       "uuid": "00000000-0000-4000-8000-000000000018"
+      }
+     ]
+    },
+    "index": 4,
+    "offset": 494909108224,
+    "size": 5368664064,
+    "type": "52637672-7900-11aa-aa11-00306543ecac",
+    "uuid": "00000000-0000-4000-8000-000000000015"
+   },
+   {
+    "fat_label": "EFI",
+    "index": 5,
+    "offset": 369410179072,
+    "size": 524288000,
+    "type": "c12a7328-f81f-11d2-ba4b-00a0c93ec93b",
+    "uuid": "00000000-0000-4000-8000-000000000019"
+   },
+   {
+    "index": 6,
+    "offset": 369934467072,
+    "size": 1073741824,
+    "type": "0fc63daf-8483-4772-8e79-3d69d8477de4",
+    "uuid": "00000000-0000-4000-8000-00000000001a"
+   },
+   {
+    "index": 7,
+    "offset": 371008208896,
+    "size": 123900788736,
+    "type": "0fc63daf-8483-4772-8e79-3d69d8477de4",
+    "uuid": "00000000-0000-4000-8000-00000000001b"
+   }
+  ],
+  "size": 500277792768
+ },
+ "firmware": {
+  "stub_iboot": "mBoot-18000.161.10",
+  "stub_os": "26.6.2",
+  "system_iboot": "mBoot-18000.161.10",
+  "system_os": "26.6.2"
+ },
+ "model": "Apple Mac Studio (M3 Ultra, 2025)",
+ "name": "j575d-synthetic",
+ "running": null,
+ "schema": 1,
+ "soc": "t6032",
+ "source": "synthetic (test/conformance/fixtures/machines)"
+}

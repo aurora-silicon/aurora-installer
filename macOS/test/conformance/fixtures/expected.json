@@ -1,5 +1,53 @@
 {
  "cells": {
+  "j575d-synthetic/fresh/arch": {
+   "failing": [
+    "stage1",
+    "stage1 caution",
+    "supported"
+   ],
+   "verdict": "FAIL"
+  },
+  "j575d-synthetic/fresh/fedora": {
+   "failing": [
+    "stage1",
+    "stage1 caution",
+    "supported"
+   ],
+   "verdict": "FAIL"
+  },
+  "j575d-synthetic/fresh/nixos": {
+   "failing": [
+    "stage1",
+    "stage1 caution",
+    "supported"
+   ],
+   "verdict": "FAIL"
+  },
+  "j575d-synthetic/side-by-side/arch": {
+   "failing": [
+    "stage1",
+    "stage1 caution",
+    "supported"
+   ],
+   "verdict": "FAIL"
+  },
+  "j575d-synthetic/side-by-side/fedora": {
+   "failing": [
+    "stage1",
+    "stage1 caution",
+    "supported"
+   ],
+   "verdict": "FAIL"
+  },
+  "j575d-synthetic/side-by-side/nixos": {
+   "failing": [
+    "stage1",
+    "stage1 caution",
+    "supported"
+   ],
+   "verdict": "FAIL"
+  },
   "j616s/fresh/arch": {
    "failing": [
     "supported"
