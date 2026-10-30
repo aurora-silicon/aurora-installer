@@ -1,0 +1,98 @@
+name: Installer conformance
+
+# Replays every recorded Mac (macOS/test/conformance/fixtures/machines) through
+# the native installer's inspection, planning and boot-chain admission for each
+# distribution and install mode, against the signed catalogs the installer
+# downloads and the distribution branches that carry the pins. It fails when a
+# cell does worse than fixtures/expected.json records.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+    inputs:
+      fedora-ref:
+        description: fedora-aurora ref with the pins under test
+        default: main
+      arch-ref:
+        description: alarm-aurora ref with the pins under test
+        default: main
+      nixos-ref:
+        description: nixos-aurora ref with the pins under test
+        default: main
+      verify-digests:
+        description: Download every payload part and check its SHA-256 (about 32 GB)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  matrix:
+    name: Conformance matrix
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: aurora-silicon/fedora-aurora
+          ref: ${{ inputs.fedora-ref || 'main' }}
+          path: distro/fedora
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: aurora-silicon/alarm-aurora
+          ref: ${{ inputs.arch-ref || 'main' }}
+          path: distro/arch
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: aurora-silicon/nixos-aurora
+          ref: ${{ inputs.nixos-ref || 'main' }}
+          path: distro/nixos
+          persist-credentials: false
+      - name: Build the dry-run tool
+        working-directory: macOS
+        run: |
+          set -euo pipefail
+          xcrun swift build --product InstallerDryRun
+          echo "DRY_RUN=$(xcrun swift build --show-bin-path)/InstallerDryRun" >> "$GITHUB_ENV"
+      - name: Run the matrix
+        working-directory: macOS
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          VERIFY: ${{ inputs.verify-digests && '--verify-digests' || '' }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/conformance"
+          python3 test/conformance/conformance.py --dry-run "$DRY_RUN" \
+            --distro fedora="$GITHUB_WORKSPACE/distro/fedora" \
+            --distro arch="$GITHUB_WORKSPACE/distro/arch" \
+            --distro nixos="$GITHUB_WORKSPACE/distro/nixos" \
+            --digests "$RUNNER_TEMP/conformance/digests" $VERIFY \
+            --cache "$RUNNER_TEMP/conformance/cache" \
+            --expect test/conformance/fixtures/expected.json \
+            --json "$RUNNER_TEMP/conformance/matrix.json" \
+            --markdown "$RUNNER_TEMP/conformance/matrix.md"
+          cat "$RUNNER_TEMP/conformance/matrix.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Save the matrix
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: installer-conformance
+          path: |
+            ${{ runner.temp }}/conformance/matrix.json
+            ${{ runner.temp }}/conformance/matrix.md
+          retention-days: 30
