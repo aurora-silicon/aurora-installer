@@ -91,7 +91,7 @@ class DistributionPayloadTests(unittest.TestCase):
             'aurora_stage1']['qualified_machines']
         caution = supported_models.stage1_caution()
         self.assertEqual(set(caution), {'apple,j314s', 'apple,j316s', 'apple,j314c', 'apple,j316c',
-                                        'apple,j375c', 'apple,j375d'})
+                                        'apple,j375c', 'apple,j375d', 'apple,j575d'})
         for identifier in caution:
             self.assertIn(identifier.removeprefix('apple,') + 'ap', qualified)
         self.assertIn('j413ap', qualified)

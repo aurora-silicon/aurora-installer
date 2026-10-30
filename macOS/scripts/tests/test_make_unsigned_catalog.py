@@ -250,7 +250,6 @@ class CatalogGeneratorTests(unittest.TestCase):
 
     def test_refused_and_unknown_macs_are_rejected_with_a_reason(self) -> None:
         for identifier, fragment in (
-            ("apple,j575d", "no j575dap device or T6032 chip"),
             ("apple,j614s", "M4 and later"),
             ("apple,j604", "not in scripts/supported-models.json"),
         ):
@@ -260,10 +259,11 @@ class CatalogGeneratorTests(unittest.TestCase):
 
     def test_the_manifest_is_every_m1_m2_and_m3_mac_and_the_neo(self) -> None:
         manifest = json.loads(MANIFEST.read_text())
-        self.assertEqual(len(manifest["supported"]), 35)
+        self.assertEqual(len(manifest["supported"]), 36)
+        self.assertIn("apple,j575d", manifest["supported"])
         self.assertTrue(set(M3_MACS) <= set(manifest["supported"]))
         self.assertIn("apple,j700", manifest["supported"])
-        self.assertEqual(set(manifest["refused"]), {"apple,j575d", "apple,j614s"})
+        self.assertEqual(set(manifest["refused"]), {"apple,j614s"})
         self.assertEqual(manifest["developer"], {})
         for template in sorted(MANIFEST.parent.glob("release-inputs*.template.json")):
             identifiers = json.loads(template.read_text())["device_identifiers"]

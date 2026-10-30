@@ -2,14 +2,18 @@
   import Darwin
   import Foundation
 
-  /// Supported Macs whose iBoot may refuse aura's 4.39 MB raw Stage 1. The
-  /// owner is told before installing and can still go ahead. This mirrors
+  /// Supported Macs whose iBoot may refuse aura's 4.39 MB raw Stage 1, or on
+  /// which aura's Stage 1 is untried. The owner is told before installing and
+  /// can still go ahead. This mirrors
   /// scripts/supported-models.json `stage1_caution`; a test keeps them equal.
   public enum Stage1Caution {
     private static let refusedOnJ316s =
       "On the 16-inch M1 Pro (J316s) iBoot refuses aura 1.0.0b1’s 4,390,912-byte Stage 1 and shows “macOS needs to be reinstalled” instead of starting Aurora. A smaller 4,063,232-byte build is refused too."
     private static let sameGeneration =
       "This Mac uses the same iBoot generation as the 16-inch M1 Pro, where iBoot refuses aura 1.0.0b1’s 4,390,912-byte Stage 1. It has not been tried on this model, so Aurora may not start."
+
+    private static let untriedChip =
+      "aura 1.0.0b1 runs the M3 Ultra (T6032) CPU-only, and neither its Stage 1 nor this Mac’s iBoot has been tried, so Aurora may not start."
 
     static let reasons: [String: String] = [
       "apple,j314s": refusedOnJ316s,
@@ -18,6 +22,7 @@
       "apple,j316c": sameGeneration,
       "apple,j375c": sameGeneration,
       "apple,j375d": sameGeneration,
+      "apple,j575d": untriedChip,
     ]
 
     public static func reason(for deviceIdentifier: String) -> String? {
