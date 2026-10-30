@@ -42,11 +42,8 @@ struct InstallerMasthead: View {
     HStack(spacing: 16) {
       HStack(spacing: Self.markSpacing) {
         AuroraMark().frame(width: 32, height: 32)
-        Text("Aurora").font(.system(size: 17, weight: .semibold)).lineLimit(1)
-        if let distribution {
-          Text(distribution.displayName).font(.system(size: 13)).foregroundStyle(.secondary)
-            .lineLimit(1)
-        }
+        Text(distribution?.title ?? "Aurora").font(.system(size: 17, weight: .semibold))
+          .lineLimit(1)
       }
       Spacer(minLength: 16)
       HStack(spacing: Self.deviceSymbolSpacing) {
