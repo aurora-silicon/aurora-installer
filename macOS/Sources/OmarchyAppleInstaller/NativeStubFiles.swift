@@ -397,7 +397,9 @@
           var info = stat()
           var trailer = [UInt8](repeating: 0, count: 4)
           guard fstat(descriptor, &info) == 0, info.st_size >= 512,
-            pread(descriptor, &trailer, 4, info.st_size - 512) == 4, trailer == Array("koly".utf8)
+            trailer.withUnsafeMutableBufferPointer({ buf in
+              pread(descriptor, buf.baseAddress, 4, info.st_size - 512)
+            }) == 4, trailer == Array("koly".utf8)
           else { throw NativeStubFileError.invalidImage }
         }
         try await copy(role, path, dataName: dataName) {

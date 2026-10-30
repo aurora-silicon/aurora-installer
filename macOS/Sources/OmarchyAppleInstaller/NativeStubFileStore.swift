@@ -223,9 +223,13 @@
       position = ((bytes + 65535) / 65536 + 1) * 4
       if compressed {
         var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
-        guard fcntl(descriptor, F_GETPATH, &path) == 0 else { throw NativeStubFileError.unsafeFile }
+        let fcntlOK = path.withUnsafeMutableBufferPointer { buf in
+          fcntl(descriptor, F_GETPATH, buf.baseAddress!) == 0
+        }
+        guard fcntlOK else { throw NativeStubFileError.unsafeFile }
+        let pathString = String(decoding: path.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
         resource = open(
-          String(cString: path) + "/..namedfork/rsrc", O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW,
+          pathString + "/..namedfork/rsrc", O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW,
           0o600)
         var original = stat()
         var fork = stat()

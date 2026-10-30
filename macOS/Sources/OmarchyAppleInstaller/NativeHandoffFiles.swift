@@ -160,7 +160,10 @@
         if symlinkat(destination, parent, leaf) != 0 {
           guard errno == EEXIST else { throw NativeHandoffValidationError.unsafePath }
           var bytes = [CChar](repeating: 0, count: Int(MAXPATHLEN))
-          let length = readlinkat(parent, leaf, &bytes, bytes.count)
+          let byteCount = bytes.count
+          let length = bytes.withUnsafeMutableBufferPointer { buf in
+            readlinkat(parent, leaf, buf.baseAddress, byteCount)
+          }
           guard length == destination.utf8.count,
             String(decoding: bytes.prefix(length).map { UInt8(bitPattern: $0) }, as: UTF8.self)
               == destination
@@ -192,7 +195,12 @@
     private func relativeLinkTarget(parent: Int32, leaf: String) throws -> String {
       var info = stat()
       var bytes = [UInt8](repeating: 0, count: 4097)
-      let count = readlinkat(parent, leaf, &bytes, bytes.count)
+      let byteCount = bytes.count
+      let count = bytes.withUnsafeMutableBufferPointer { buf in
+         buf.baseAddress!.withMemoryRebound(to: CChar.self, capacity: byteCount) { charPtr in
+          readlinkat(parent, leaf, charPtr, byteCount)
+        }
+      }
       guard protected, fstatat(parent, leaf, &info, AT_SYMLINK_NOFOLLOW) == 0,
         info.st_mode & S_IFMT == S_IFLNK, info.st_uid == owner, info.st_nlink == 1,
         count > 0, count <= 4096,

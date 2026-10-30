@@ -623,7 +623,9 @@
       }
     }
 
-    func canRetryNow(_ identity: InstallerJobPlanIdentity) -> Bool { retryEligibility(identity) }
+    func canRetryNow(_ identity: InstallerJobPlanIdentity) -> Bool {
+      retryEligibility(identity) || interruptedRetryEligibility(identity)
+    }
 
     /// Imported packages hold a full payload. Before any request, keep only
     /// those a job can still retry or inspect: a finished job that can no
@@ -671,7 +673,7 @@
     }
 
     private func abandonAvailable(_ record: InstallerJobRecord) -> Bool {
-      guard record.phase == .failed else { return false }
+      guard record.phase == .failed || record.phase == .interrupted else { return false }
       guard let identity = record.plan else { return true }
       return abandonEligibility(identity)
     }

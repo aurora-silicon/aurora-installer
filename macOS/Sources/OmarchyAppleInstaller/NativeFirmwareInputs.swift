@@ -200,7 +200,10 @@
     /// A link may only name another entry in its own directory.
     static func sibling(of relative: String, linkAt url: URL) throws -> String {
       var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
-      let count = readlink(url.path, &buffer, buffer.count - 1)
+      let maxLen = buffer.count - 1
+      let count = buffer.withUnsafeMutableBufferPointer { buf in
+        readlink(url.path, buf.baseAddress, maxLen)
+      }
       guard count > 0 else { throw NativeFirmwareInputFailure.invalidSource }
       let target = String(
         decoding: buffer.prefix(count).map { UInt8(bitPattern: $0) }, as: UTF8.self)

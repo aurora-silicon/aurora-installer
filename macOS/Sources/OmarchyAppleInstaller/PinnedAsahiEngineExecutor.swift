@@ -365,7 +365,7 @@
           throw preparationFailure(
             error, reason: .recoveryPreparation, operation: operation,
             journal: journal, package: package, password: authorization.password,
-            summary: "Native firmware and Recovery publication did not complete.")
+            summary: "Native firmware and Recovery publication did not complete. (\(type(of: error)): \(error))")
         }
         return try await finalizeNativeHandoff(
           package, journal: journal, authorization: authorization,
@@ -548,6 +548,8 @@
       if let journal = EngineJournalLocator.journalURL(
         workingDirectory: directory, bindingDigest: identity.bindingDigest),
         preservedRetryEligible(journal: journal, identity: identity)
+          || nativeDiskPreparationRetryEligible(
+            journal: journal, identity: RecoveryRetryIdentity(identity: identity))
       {
         return true
       }

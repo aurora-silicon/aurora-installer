@@ -201,8 +201,10 @@
       let file = try NativeInstallJournalFile(url: journal, package: package, owner: owner)
       try file.transaction {
         let saved = try file.readJournal()
+        let facts = try InstallerPerformance.measure("apfs_collect") { try platform.collect() }
         if let validated = try? AppleInstallerTrustCore().validateEngineTranscript(saved),
-          validated.plan == approved, saved.split(separator: 10).count > 3
+          validated.plan == approved, saved.split(separator: 10).count > 3,
+          (try? NativeKnownInstallations.recognize(facts.disk).isEmpty) == false
         {
           try requireSourceOwner(
             file: file, authorization: authorization, bootstrap: sourceBootstrap, existing: true,
@@ -210,7 +212,6 @@
           try resume(file: file, transcript: saved)
           return
         }
-        let facts = try InstallerPerformance.measure("apfs_collect") { try platform.collect() }
         let currentPlan = try InstallerPerformance.measure("apfs_fresh_plan") {
           try freshPlan(facts)
         }

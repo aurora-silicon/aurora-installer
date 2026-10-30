@@ -29,8 +29,8 @@ public enum BroadcomFirmware {
     }
     for (name, target) in links {
       try require(
-        safeRelative(name) && name.utf8.count <= 4096 && inputs[name] == nil
-          && inputs[target] != nil, "Invalid radio firmware alias.")
+        safeRelative(name) && safeRelative(target) && name.utf8.count <= 4096,
+        "Invalid radio firmware alias.")
     }
   }
 
@@ -48,7 +48,7 @@ public enum BroadcomFirmware {
       try Task.checkCancellation()
       let pieces = path.split(separator: "/").map(String.init)
       guard let filename = pieces.last, !filename.contains("_gen"),
-        !pieces.dropLast().contains(where: { ["perf", "assert", "C-4388__s-C2"].contains($0) }),
+        !pieces.dropLast().contains(where: { ["perf", "assert"].contains($0) }),
         let dot = filename.lastIndex(of: ".")
       else { continue }
       let ext = String(filename[filename.index(after: dot)...])
@@ -79,7 +79,7 @@ public enum BroadcomFirmware {
         if node.children[key] == nil { node.children[key] = Node() }
         node = node.children[key]!
       }
-      let input = inputs[links[path] ?? path]!
+      guard let input = inputs[links[path] ?? path] else { continue }
       let bytes = try ext == "txt" ? nvram(input) : input
       try require(node.bytes == nil || node.bytes == bytes, "Conflicting radio firmware input.")
       node.bytes = bytes
