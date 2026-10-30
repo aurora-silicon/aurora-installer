@@ -5,6 +5,24 @@
   },
   "desktopMockups": {
     "source": "Sources/AuroraAppleInstallerApp/DesktopPreview.swift",
-    "description": "KDE Plasma, GNOME and the minimal shell are drawn illustrations. No project logos or screenshots are bundled: Fedora's Remix terms, Arch Linux's derivative terms and GNOME's and the UEFI Forum's logo terms do not cover this use, KDE's logo terms cover referring to KDE itself, NixOS's trademark policy is unpublished, and kde.org gives no licence for its screenshots."
+    "description": "KDE Plasma and GNOME show the screenshots above, credited in About Aurora Installer; the minimal shell is a drawn illustration. No project logo is bundled."
+  },
+  "KDE-Desktop.png": {
+    "source": "https://kde.org/content/plasma-desktop/plasma-launcher.png",
+    "source_sha256": "79046ba02eda26c78b88f71a44c9c35eef03ce74ca38556c5a44f93608cd8dca",
+    "attribution": "KDE Community; Plasma desktop screenshot from kde.org",
+    "license": "https://creativecommons.org/licenses/by/4.0/",
+    "license_basis": "invent.kde.org/websites/kde-org README: content is CC-BY-4.0 unless specified otherwise",
+    "transformation": "Downscaled to 640x360, full screenshot retained; magick SOURCE -resize 640x -strip OUTPUT",
+    "sha256": "741eafc2c491e9b8270fcadb9b15b71233df4f1069eb4ce9dde1e29af0c6e56d"
+  },
+  "GNOME-Desktop.png": {
+    "source": "https://gitlab.gnome.org/Teams/Websites/www.gnome.org/-/raw/099e9130e16c633fc767dab14e5b85b9b0880167/src/tex/49/overview.png",
+    "source_sha256": "2f8798b128cb79b090dca738492cc6a8d19004a6b3f8e867e714a028347647f7",
+    "attribution": "The GNOME Project",
+    "license": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "adaptation_license": "The downscaled copy is shared under CC BY-SA 4.0 as well",
+    "transformation": "Downscaled to 640x400, full screenshot retained; magick SOURCE -resize 640x -strip OUTPUT",
+    "sha256": "94a4fb9fc0c67fb13eb21ba7b10eeb3b218d88852a20b0374eaf4b576d8fe01c"
   }
 }

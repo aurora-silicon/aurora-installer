@@ -14,6 +14,8 @@ enum TrademarkNotice {
       + "trademark of the GNOME Foundation in the United States or other countries.",
     "Apple, Mac, MacBook and macOS are trademarks of Apple Inc., "
       + "registered in the U.S. and other countries.",
+    "KDE Plasma screenshot by the KDE Community, CC BY 4.0. GNOME screenshot by the GNOME "
+      + "Project, CC BY-SA 4.0; the resized copy is shared under the same licence.",
     "Other names are trademarks of their respective owners.",
   ]
 
