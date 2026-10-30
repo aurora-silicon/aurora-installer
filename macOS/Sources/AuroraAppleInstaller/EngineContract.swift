@@ -368,7 +368,8 @@ struct EngineTranscriptDecoder: Sendable {
             || plan.requiredHumanSteps == ["authenticateMachineOwner"],
           plan.experimentalAdmission.map({
             (try? ExperimentalAdmissionRecord.decode($0))?.deviceIdentifier
-              == plan.deviceIdentifier && ["free", "resize", "replace"].contains(plan.candidateKind)
+              == plan.deviceIdentifier
+              && ["free", "resize", "replace"].contains(plan.candidateKind)
           }) ?? true
         else {
           if plan.lengthBytes == 0

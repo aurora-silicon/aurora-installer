@@ -308,7 +308,7 @@ refused_envelope "a-disabled-m3-mac" "next(m for m in models if m['deviceIdentif
 refused_envelope "a-missing-neo" "catalog['models'] = [m for m in models if m['deviceIdentifier'] != 'apple,j700']" "missing apple,j700"
 refused_envelope "only-m1-and-m2" "catalog['models'] = models[:23]" "missing apple,j433"
 refused_envelope "a-missing-m3-ultra" "catalog['models'] = [m for m in models if m['deviceIdentifier'] != 'apple,j575d']" "missing apple,j575d"
-refused_envelope "an-m4-mac" "models.append(dict(models[0], deviceIdentifier='apple,j614s'))" "M4 and later"
+refused_envelope "an-m4-mac" "models.append(dict(models[0], deviceIdentifier='apple,j614s'))" "not booted on hardware yet"
 pass "envelope refuses a catalog missing, disabling or overreaching any supported Mac"
 
 # --- promotion writes both channel objects and verifies them back -----------

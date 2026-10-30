@@ -163,7 +163,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     _ host: AppleSiliconHostInspection, experimental: ExperimentalAdmissionRecord?
   ) -> Bool {
     guard case .blocked = host.eligibility else { return false }
-    return !(experimental?.deviceIdentifier == host.identity.deviceIdentifier
+    return
+      !(experimental?.deviceIdentifier == host.identity.deviceIdentifier
       && AppleSiliconHostInspector.isExplicitlyUnsupported(host.identity.deviceIdentifier)
       && host.storage.isInternal)
   }
