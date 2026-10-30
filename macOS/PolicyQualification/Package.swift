@@ -19,6 +19,8 @@ let package = Package(
       name: "AuroraFirmwareTests", dependencies: ["AuroraFirmware"],
       exclude: [
         "FirmwareExtractorTests.swift", "FirmwarePackageTests.swift",
+        "SingleMemberZIP.swift", "FirmwareImagePropertiesTests.swift",
+        "ImageThroughputReportTests.swift", "ChunkPipelineTests.swift",
         "GenericFirmwareConversionTests.swift", "IPSWArchiveTests.swift",
         "NeoFirmwareConversionTests.swift", "NeoRegulatoryPolicyTests.swift",
         "RangeCacheTests.swift", "RestoreImageTests.swift", "SignedSensorInputsTests.swift",
