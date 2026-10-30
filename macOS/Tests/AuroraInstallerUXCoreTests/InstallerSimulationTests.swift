@@ -141,7 +141,7 @@
               failure.plainDetail.contains(
                 "MacBook Pro 14-inch (M4 Pro, 2024) · Mac16,8 · apple,j614s"))
             let remedy = try XCTUnwrap(failure.remedy)
-            XCTAssertTrue(remedy.contains("(35 models)"), remedy)
+            XCTAssertTrue(remedy.contains("(36 models)"), remedy)
             XCTAssertTrue(remedy.contains("A18 Pro: MacBook Neo"), remedy)
             XCTAssertTrue(remedy.contains("M3: iMac, MacBook Air, MacBook Pro"), remedy)
           }

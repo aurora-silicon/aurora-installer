@@ -59,6 +59,7 @@
           "24624": "14.8.3",
           "24625": "14.8.3",
           "24628": "14.8.3",
+          "24640": "26.6",
           "33027": "11.0",
           "33042": "12.4",
           "33058": "14.8.3",
@@ -201,6 +202,10 @@
             "expert": false,
             "minimum": "14.8.3"
           },
+          "j616s": {
+            "expert": false,
+            "minimum": "26.6.2"
+          },
           "j700": {
             "expert": false,
             "minimum": "26.6"
@@ -226,6 +231,7 @@
             "models": [
               "j613",
               "j615",
+              "j616s",
               "j700"
             ],
             "sourceURL": "https://updates.cdn-apple.com/2026SummerFCS/fullrestores/140-75212/A2A24B94-1FC1-45A3-93F7-C51B02AF1F4D/UniversalMac_26.6.2_25G83_Restore.ipsw",
