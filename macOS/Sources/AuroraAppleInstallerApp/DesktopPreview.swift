@@ -2,18 +2,39 @@ import AppKit
 import AuroraAppleInstallerTrustCore
 import SwiftUI
 
-/// Drawn previews of each desktop. They use no project logos or screenshots,
-/// whose owners' terms do not cover this use.
+/// KDE Plasma and GNOME show their projects' own screenshots (CC BY 4.0 and
+/// CC BY-SA 4.0, credited in About Aurora Installer); the minimal shell is drawn.
 struct DesktopPreview: View {
   let desktop: AuroraDesktop
 
   var body: some View {
-    IllustratedDesktop(desktop: desktop)
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .aspectRatio(1.6, contentMode: .fit)
-      .background(Color(white: 0.08))
-      .allowsHitTesting(false)
-      .accessibilityHidden(true)
+    Group {
+      switch desktop {
+      case .kde: screenshot("KDE-Desktop")
+      case .gnome: screenshot("GNOME-Desktop")
+      case .minimal: IllustratedDesktop(desktop: desktop)
+      }
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .aspectRatio(1.6, contentMode: .fit)
+    .background(Color(white: 0.08))
+    .allowsHitTesting(false)
+    .accessibilityHidden(true)
+  }
+
+  @ViewBuilder
+  private func screenshot(_ name: String) -> some View {
+    if let url = Bundle.main.url(forResource: name, withExtension: "png"),
+      let image = NSImage(contentsOf: url)
+    {
+      GeometryReader { geometry in
+        Image(nsImage: image).resizable().interpolation(.high).scaledToFill()
+          .frame(width: geometry.size.width, height: geometry.size.height)
+          .clipped()
+      }
+    } else {
+      IllustratedDesktop(desktop: desktop)
+    }
   }
 }
 
