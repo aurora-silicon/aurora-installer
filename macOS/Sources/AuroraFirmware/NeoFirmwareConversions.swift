@@ -412,9 +412,11 @@ public enum NeoFirmwareConversions {
         && (1...2).contains(directory[5]) && directory[6] == 1 && directory[7] == 0
         && (try directory.little(8, 4)) == data.count - start
         && directory[12..<16].allSatisfy { $0 == 0 }, "Invalid bound class directory.")
-    let channels = [2] + (1...233).filter {
-      $0 != 231 && $0 & 1 == 1 && NeoRegulatoryPolicy.width6($0) != 255
-    }
+    let channels =
+      [2]
+      + (1...233).filter {
+        $0 != 231 && $0 & 1 == 1 && NeoRegulatoryPolicy.width6($0) != 255
+      }
     var at = start + 16
     var previous: UInt8 = 0
     for _ in 0..<Int(directory[5]) {
@@ -429,10 +431,13 @@ public enum NeoFirmwareConversions {
       for (index, channel) in channels.enumerated() {
         let record = try section.part(56 + index * 122, 122)
         try require(record[0] == channel, "Invalid class channel order.")
-        if channel & 3 == 1 && section[8 + ((channel - 1) / 4) / 8]
-          & UInt8(1 << (((channel - 1) / 4) % 8)) != 0 {
-          try require(record.dropFirst().contains { $0 != 196 && $0 != 127 },
-                      "Class primary has no power data.")
+        if channel & 3 == 1
+          && section[8 + ((channel - 1) / 4) / 8]
+            & UInt8(1 << (((channel - 1) / 4) % 8)) != 0
+        {
+          try require(
+            record.dropFirst().contains { $0 != 196 && $0 != 127 },
+            "Class primary has no power data.")
         }
       }
       previous = id

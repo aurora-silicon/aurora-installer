@@ -249,8 +249,9 @@ struct NeoRegulatoryPolicyV2Tests {
     let inputs = try synthetic(vlp: false, permission: "1")
     let installed = try NeoRegulatoryPolicy.derive(inputs, authenticated: false)
     let bound = try #require(installed["mediatek/mt7932/policy-v4/US.bin"])
-    let archive = try #require(try NeoRegulatoryPolicy.archiveLPIInputs(inputs, authenticated: false)[
-      "mediatek/mt7932/policy-v3/US.bin"])
+    let archive = try #require(
+      try NeoRegulatoryPolicy.archiveLPIInputs(inputs, authenticated: false)[
+        "mediatek/mt7932/policy-v3/US.bin"])
     let base = try #require(installed["mediatek/mt7932/policy/US.bin"]).count
     #expect(try bound.little(4, 2) == 4)
     #expect(bound[base + 6] == 1)
@@ -259,8 +260,10 @@ struct NeoRegulatoryPolicyV2Tests {
     restored[base + 6] = 0
     #expect(restored == archive)
     #expect(try NeoFirmwareConversions.policy(bound, country: "US") == bound)
-    for offset in [base + 6, base + 16, base + 17, base + 18, base + 19,
-                   base + 20, base + 31, base + 32, base + 34, base + 72] {
+    for offset in [
+      base + 6, base + 16, base + 17, base + 18, base + 19,
+      base + 20, base + 31, base + 32, base + 34, base + 72,
+    ] {
       var bad = bound
       bad[offset] ^= 0xff
       #expect(throws: (any Error).self) { try NeoFirmwareConversions.policy(bad, country: "US") }
@@ -353,7 +356,8 @@ struct NeoRegulatoryPolicyV2Tests {
       #expect(throws: (any Error).self) {
         try NeoFirmwareConversions.policy(bytes, country: country)
       }
-      let runtime = try #require(deployed[path.replacingOccurrences(of: "policy-v3/", with: "policy-v4/")])
+      let runtime = try #require(
+        deployed[path.replacingOccurrences(of: "policy-v3/", with: "policy-v4/")])
       #expect(try NeoFirmwareConversions.policy(runtime, country: country) == runtime)
     }
     print("Local policy qualification: 129 bound v4, unchanged 244 v1 + 120 v2")
@@ -393,7 +397,8 @@ struct NeoRegulatoryPolicyV2Tests {
   }
   @Test func vendorFirmwareKeepsAllOperationalPolicyDirectories() throws {
     let legacy = try NeoRegulatoryPolicy.derive(synthetic(), authenticated: false)
-    let lpi = try NeoRegulatoryPolicy.derive(synthetic(vlp: false, permission: "1"), authenticated: false)
+    let lpi = try NeoRegulatoryPolicy.derive(
+      synthetic(vlp: false, permission: "1"), authenticated: false)
     let outputs = legacy.merging(lpi) { _, newer in newer }
     #expect(outputs["mediatek/mt7932/policy-v4/US.bin"] != nil)
     let archives = try FirmwarePackageBuilder.build(
