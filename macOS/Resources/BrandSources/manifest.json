@@ -1,9 +1,4 @@
 {
-  "Fedora.svg": {
-    "source": "https://fedoraproject.org/assets/images/logos/fedora-logo-official.svg",
-    "attribution": "Fedora Project / Red Hat; official mark used to identify Fedora",
-    "sha256": "2cc05e3061011bf5b7d3b52e4918b9795babdfab3de91e06d1be5d24abfb19ae"
-  },
   "Plasma.svg": {
     "source": "https://kde.org/stuff/clipart/logo/plasma-logo-colorful.svg",
     "attribution": "KDE e.V.; KDE clipart terms, LGPL",
@@ -19,16 +14,6 @@
     "attribution": "GNOME Project; CC BY-SA 4.0",
     "sha256": "ff92c10bb5d87e4153c7669d644cf341fb545cf2de1b225073898b7c6ffeb67d"
   },
-  "ArchLinuxARM.png": {
-    "source": "BrandSources/ArchLinuxARM-Icon.svg",
-    "transformation": "rsvg-convert -w 128 -h 128; transparent background",
-    "attribution": "Arch Linux project",
-    "sha256": "672933754379a0848e630e14d5ef6b1b666a185513380314d7ccf8f309418c48"
-  },
-  "Fedora-Icon.svg": {
-    "source": "Fedora.svg path1626",
-    "transformation": "Original icon path and fill retained; standalone square viewBox for display."
-  },
   "UEFI.svg": {
     "source": "https://commons.wikimedia.org/wiki/File:Logo_of_the_UEFI_Forum.svg",
     "attribution": "UEFI Forum logo; identifies the UEFI boot environment.",
@@ -42,22 +27,14 @@
     "source": "BrandSources/NixOS-Icon.svg",
     "transformation": "rsvg-convert -w 128; transparent background",
     "attribution": "NixOS contributors",
-    "sha256": "ab1db7991b6ffdd172668b4b20a0a6382005ea349c3937b166363a82fbc25103"
-  },
-  "ArchLinux.svg": {
-    "source": "https://archlinux.org/static/logos/archlinux-logo-dark-scalable.svg",
-    "attribution": "Arch Linux project; official Arch Linux mark used to identify Arch Linux ARM",
-    "sha256": "a7f37c9c87f0e0e37454b47ec1221b61416aa9e319cc46a1f0b5b70c4a1dcb6e"
-  },
-  "ArchLinuxARM-Icon.svg": {
-    "source": "ArchLinux.svg path2518",
-    "transformation": "Unchanged blue symbol path, standalone tight viewBox; wordmark omitted.",
-    "sha256": "8e568bb552a07327957948a445ff16129906c22e0949289b14320be336149066"
+    "sha256": "ab1db7991b6ffdd172668b4b20a0a6382005ea349c3937b166363a82fbc25103",
+    "license": "https://creativecommons.org/licenses/by/4.0/"
   },
   "NixOS-Icon.svg": {
     "source": "https://raw.githubusercontent.com/NixOS/nixos-artwork/9d2cdedd73d64a068214482902adea3d02783ba8/logo/nix-snowflake-colours.svg",
     "attribution": "NixOS contributors; official snowflake used to identify NixOS",
-    "sha256": "e37b5a1c11e81496e9d46af04908951ada6babaa416d670aaae4934cce912eb2"
+    "sha256": "e37b5a1c11e81496e9d46af04908951ada6babaa416d670aaae4934cce912eb2",
+    "license": "https://creativecommons.org/licenses/by/4.0/"
   },
   "KDE-Desktop.png": {
     "source": "https://kde.org/content/plasma-desktop/plasma-launcher.png",

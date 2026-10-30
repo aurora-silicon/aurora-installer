@@ -463,7 +463,8 @@ enum DestinationVolume {
     } ?? RecoveryActions.volumeName
   static let icon: NSImage = {
     if let distribution = previewDistribution,
-      let url = Bundle.main.url(forResource: distribution, withExtension: "icns"),
+      let url = Bundle.main.url(
+        forResource: distribution == "nixos" ? "nixos" : "aurora", withExtension: "icns"),
       let image = NSImage(contentsOf: url)
     {
       return image

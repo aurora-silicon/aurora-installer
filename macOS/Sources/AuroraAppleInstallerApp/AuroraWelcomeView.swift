@@ -53,11 +53,38 @@ struct AuroraWelcomeView: View {
         }
       }.padding(.horizontal, 38).padding(.top, 26)
       Spacer(minLength: 18)
+      Text(Self.notice(for: selection.distribution))
+        .font(.system(size: 11)).foregroundStyle(.secondary)
+        .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity).padding(.horizontal, 38).padding(.bottom, 14)
       Button("Continue", action: onContinue)
         .auroraPrimaryButton().padding(.bottom, 28)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(Color(nsColor: .windowBackgroundColor))
+  }
+
+  /// What each distribution's trademark terms ask a modified release to say.
+  static func noticeMarkdown(for distribution: AuroraDistribution) -> String {
+    switch distribution {
+    case .fedora:
+      "Fedora Aurora Remix contains modified Fedora® software and is not provided or supported "
+        + "by the Fedora Project. Official Fedora is available at "
+        + "[fedoraproject.org](https://fedoraproject.org/). Fedora is a registered trademark of "
+        + "Red Hat, Inc., or its subsidiaries in the United States and other countries."
+    case .arch:
+      "Aurora ALARM is based on Arch Linux ARM and is not provided or endorsed by the "
+        + "Arch Linux or Arch Linux ARM projects."
+    case .nixos:
+      "Aurora NixOS is based on NixOS and is not provided or endorsed by the NixOS project. "
+        + "NixOS logo by NixOS contributors, "
+        + "[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)."
+    }
+  }
+
+  static func notice(for distribution: AuroraDistribution) -> AttributedString {
+    let markdown = noticeMarkdown(for: distribution)
+    return (try? AttributedString(markdown: markdown)) ?? AttributedString(markdown)
   }
 
   private func sectionTitle(_ text: String) -> some View {

@@ -125,12 +125,16 @@ class DistributionPayloadTests(unittest.TestCase):
                     icon = archive.read(metadata['icon'])
                 self.assertEqual(icon[:4], b'icns')
                 self.assertEqual(int.from_bytes(icon[4:8], 'big'), len(icon))
-                self.assertEqual(hashlib.sha256(icon).hexdigest(), provenance[distribution]['sha256'])
+                icon_name = 'nixos' if distribution == 'nixos' else 'aurora'
+                self.assertIn(distribution, provenance[icon_name]['used_by'])
+                self.assertEqual(hashlib.sha256(icon).hexdigest(), provenance[icon_name]['sha256'])
                 self.assertEqual(icon, payload.DISTRIBUTION_ICONS[distribution].read_bytes())
                 if distribution in observed:
                     self.assertEqual(icon, observed[distribution])
                 observed[distribution] = icon
-        self.assertEqual(len(set(observed.values())), 3)
+        # Fedora and Arch share the Aurora mark; NixOS keeps its snowflake.
+        self.assertEqual(observed['fedora'], observed['arch'])
+        self.assertEqual(len(set(observed.values())), 2)
 
     def test_resume_rejects_an_icon_from_another_distribution(self):
         from unittest.mock import patch

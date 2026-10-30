@@ -85,8 +85,8 @@ struct DistributionMark: View {
 
   private var asset: String {
     switch distribution {
-    case .fedora: "Fedora"
-    case .arch: "ArchLinuxARM"
+    // Fedora's and Arch's logos are not used for Aurora's remixes.
+    case .fedora, .arch: "AuroraLogo"
     case .nixos: "NixOS"
     }
   }
