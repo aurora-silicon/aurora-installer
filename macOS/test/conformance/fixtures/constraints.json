@@ -1,0 +1,24 @@
+{
+ "schema": 1,
+ "note": "Hardware facts a dry run cannot derive. Each entry records evidence; the harness fails a plan that hits a known rejection.",
+ "stage1_iboot": {
+  "j316sap": {
+   "stub_os": ["13.5"],
+   "booted_bytes": [1050000],
+   "rejected_bytes": [4063232, 4390912],
+   "evidence": "2026-10-29/30: iBoot reports that macOS needs to be reinstalled for the 4,390,912 B aura 1.0.0b1 raw Stage 1 and the 4,063,232 B slimmed build; m1n1 1.5.2 (about 1.05 MB) boots, and the same aura image chainloaded from it reaches the hand-off"
+  }
+ },
+ "proven_stage1": {
+  "j413ap": "aura 1.0.0b1 raw Stage 1 boots on the 13.5 stub (fleet, 2026-10-30)",
+  "j700ap": "aura 1.0.0b1 raw Stage 1 boots on the 26.6.2 stub (fleet, 2026-10-30)",
+  "j616sap": "aura 1.0.0b1 raw Stage 1 boots on the 26.6.2 stub (fleet, 2026-10-30)"
+ },
+ "recovery_long_versions": {
+  "13.5": "22.7.74.0.0,0",
+  "26.0": "25.1.354.0.0,0",
+  "26.6": "25.7.72.0.0,0",
+  "26.6.2": "25.7.83.0.0,0"
+ },
+ "chip_ids": {"t6000": 24576, "t8112": 33042, "t8140": 33088, "t6040": 24640}
+}

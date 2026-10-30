@@ -74,7 +74,8 @@
         "espUUID": try NativeSourceBootstrap.uuid(target.esp.uuid),
         "bootMode": "raw", "stage2Path": "m1n1/boot.bin",
         "bootstrap": bootstrap.configuration,
-        "allowCustomBootArguments": package.deviceIdentifier == "apple,j700",
+        "allowCustomBootArguments": RecoveryBootPolicyArguments.allowsCustomBootArguments(
+          deviceIdentifier: package.deviceIdentifier),
       ]
       var files = vendor.files
       files["raw/aura-raw.bin"] = espReceipt.stage1

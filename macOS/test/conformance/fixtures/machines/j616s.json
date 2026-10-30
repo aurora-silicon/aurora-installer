@@ -1,0 +1,242 @@
+{
+ "captured": "2026-10-30",
+ "description": "MacBook Pro 16-inch M4 Pro (J616s, T6040), 512 GB, one Aurora Fedora install plus a spare ESP",
+ "device_identifier": "apple,j616s",
+ "disk": {
+  "block_size": 4096,
+  "partitions": [
+   {
+    "apfs": {
+     "capacity": 524288000,
+     "free": 498843648,
+     "uuid": "00000000-0000-4000-8000-000000000002",
+     "volumes": [
+      {
+       "alloc_bytes": 6119424,
+       "files": 16,
+       "group": null,
+       "name": "iSCPreboot",
+       "role": "Preboot",
+       "uuid": "00000000-0000-4000-8000-000000000003"
+      },
+      {
+       "alloc_bytes": 6311936,
+       "files": 1,
+       "group": null,
+       "name": "xART",
+       "role": "xART",
+       "uuid": "00000000-0000-4000-8000-000000000004"
+      },
+      {
+       "alloc_bytes": 7974912,
+       "files": 80,
+       "group": null,
+       "name": "Hardware",
+       "role": "Hardware",
+       "uuid": "00000000-0000-4000-8000-000000000005"
+      },
+      {
+       "alloc_bytes": 20480,
+       "files": 0,
+       "group": null,
+       "name": "Recovery",
+       "role": "Recovery",
+       "uuid": "00000000-0000-4000-8000-000000000006"
+      }
+     ]
+    },
+    "index": 1,
+    "offset": 24576,
+    "size": 524288000,
+    "type": "69646961-6700-11aa-aa11-00306543ecac",
+    "uuid": "00000000-0000-4000-8000-000000000001"
+   },
+   {
+    "apfs": {
+     "capacity": 123562348544,
+     "free": 43556601856,
+     "uuid": "00000000-0000-4000-8000-000000000008",
+     "volumes": [
+      {
+       "alloc_bytes": 13654769664,
+       "files": 280853,
+       "group": "00000000-0000-4000-8000-00000000000a",
+       "name": "Macintosh HD",
+       "role": "System",
+       "uuid": "00000000-0000-4000-8000-000000000009"
+      },
+      {
+       "alloc_bytes": 10977665024,
+       "files": 635,
+       "group": null,
+       "name": "Preboot",
+       "role": "Preboot",
+       "uuid": "00000000-0000-4000-8000-00000000000b"
+      },
+      {
+       "alloc_bytes": 3007328256,
+       "files": 26,
+       "group": null,
+       "name": "Recovery",
+       "role": "Recovery",
+       "uuid": "00000000-0000-4000-8000-00000000000c"
+      },
+      {
+       "alloc_bytes": 8192000,
+       "files": 35,
+       "group": null,
+       "name": "Update",
+       "role": "Update",
+       "uuid": "00000000-0000-4000-8000-00000000000d"
+      },
+      {
+       "alloc_bytes": 52231487488,
+       "files": 923529,
+       "group": "00000000-0000-4000-8000-00000000000a",
+       "name": "Data",
+       "role": "Data",
+       "uuid": "00000000-0000-4000-8000-00000000000a"
+      },
+      {
+       "alloc_bytes": 24576,
+       "files": 0,
+       "group": null,
+       "name": "VM",
+       "role": "VM",
+       "uuid": "00000000-0000-4000-8000-00000000000e"
+      }
+     ]
+    },
+    "index": 2,
+    "offset": 524312576,
+    "size": 123562348544,
+    "type": "7c3457ef-0000-11aa-aa11-00306543ecac",
+    "uuid": "00000000-0000-4000-8000-000000000007"
+   },
+   {
+    "apfs": {
+     "capacity": 3999997952,
+     "free": 2422583296,
+     "uuid": "00000000-0000-4000-8000-000000000010",
+     "volumes": [
+      {
+       "alloc_bytes": 1957888,
+       "files": 230,
+       "group": "00000000-0000-4000-8000-000000000011",
+       "name": "Aurora - Data",
+       "role": "Data",
+       "uuid": "00000000-0000-4000-8000-000000000011"
+      },
+      {
+       "alloc_bytes": 7139328,
+       "files": 14,
+       "group": "00000000-0000-4000-8000-000000000011",
+       "name": "Aurora",
+       "role": "System",
+       "uuid": "00000000-0000-4000-8000-000000000012"
+      },
+      {
+       "alloc_bytes": 254967808,
+       "files": 204,
+       "group": null,
+       "name": "Preboot",
+       "role": "Preboot",
+       "uuid": "00000000-0000-4000-8000-000000000013"
+      },
+      {
+       "alloc_bytes": 1297125376,
+       "files": 82,
+       "group": null,
+       "name": "Recovery",
+       "role": "Recovery",
+       "uuid": "00000000-0000-4000-8000-000000000014"
+      }
+     ]
+    },
+    "index": 3,
+    "offset": 124086661120,
+    "size": 3999997952,
+    "type": "7c3457ef-0000-11aa-aa11-00306543ecac",
+    "uuid": "00000000-0000-4000-8000-00000000000f"
+   },
+   {
+    "fat_label": "AURORA",
+    "index": 4,
+    "offset": 128120508416,
+    "size": 499998720,
+    "type": "c12a7328-f81f-11d2-ba4b-00a0c93ec93b",
+    "uuid": "00000000-0000-4000-8000-000000000015"
+   },
+   {
+    "fat_label": "EFI",
+    "index": 5,
+    "offset": 128621477888,
+    "size": 524288000,
+    "type": "c12a7328-f81f-11d2-ba4b-00a0c93ec93b",
+    "uuid": "00000000-0000-4000-8000-000000000016"
+   },
+   {
+    "index": 6,
+    "offset": 129145765888,
+    "size": 2147483648,
+    "type": "0fc63daf-8483-4772-8e79-3d69d8477de4",
+    "uuid": "00000000-0000-4000-8000-000000000017"
+   },
+   {
+    "index": 7,
+    "offset": 131293249536,
+    "size": 363615748096,
+    "type": "0fc63daf-8483-4772-8e79-3d69d8477de4",
+    "uuid": "00000000-0000-4000-8000-000000000018"
+   },
+   {
+    "apfs": {
+     "capacity": 5368664064,
+     "free": 3806109696,
+     "uuid": "00000000-0000-4000-8000-00000000001a",
+     "volumes": [
+      {
+       "alloc_bytes": 1542713344,
+       "files": 26,
+       "group": null,
+       "name": "Recovery",
+       "role": "Recovery",
+       "uuid": "00000000-0000-4000-8000-00000000001b"
+      },
+      {
+       "alloc_bytes": 28672,
+       "files": 1,
+       "group": null,
+       "name": "Update",
+       "role": "Update",
+       "uuid": "00000000-0000-4000-8000-00000000001c"
+      }
+     ]
+    },
+    "index": 8,
+    "offset": 494909108224,
+    "size": 5368664064,
+    "type": "52637672-7900-11aa-aa11-00306543ecac",
+    "uuid": "00000000-0000-4000-8000-000000000019"
+   }
+  ],
+  "size": 500277792768
+ },
+ "firmware": {
+  "stub_iboot": "mBoot-18000.161.10",
+  "stub_os": "26.6.2",
+  "system_iboot": "mBoot-20457.1.29",
+  "system_os": "27.0"
+ },
+ "model": "Apple MacBook Pro (16-inch, M4 Pro, Nov 2024)",
+ "name": "j616s",
+ "running": {
+  "kernel": "7.3.0-aurora-fleet9",
+  "stage1": "1.0.0b1",
+  "stage2": "1.0.0b1",
+  "u_boot": "2026.07-g2409ad5a25f8"
+ },
+ "schema": 1,
+ "soc": "t6040",
+ "source": "macOS/test/conformance/collect-machine-profile.py (read-only, under Linux)"
+}

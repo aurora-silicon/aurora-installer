@@ -1,0 +1,24 @@
+{
+ "captured": "2026-10-30",
+ "description": "MacBook Pro 16-inch M1 Pro (J316s, T6000). Down on 2026-10-30, so this profile comes from its saved ADT and boot log: identity and firmware only, no disk capture.",
+ "device_identifier": "apple,j316s",
+ "disk": null,
+ "firmware": {
+  "stub_iboot": "iBoot-8422.141.2",
+  "stub_os": "13.5",
+  "system_iboot": "iBoot-13822.61.10",
+  "system_os": "26.0",
+  "system_os_note": "lower bound: iBoot-13822 is a macOS 26 system firmware; the exact macOS version was not recorded"
+ },
+ "model": "Apple MacBook Pro (16-inch, M1 Pro, 2021)",
+ "name": "m1pro",
+ "running": {
+  "kernel": "7.3.0-aurora-fleet8",
+  "stage1": "m1n1 v1.5.2",
+  "stage2": "1.0.0b1",
+  "u_boot": "2026.07-g2409ad5a25f8"
+ },
+ "schema": 1,
+ "soc": "t6000",
+ "source": "saved ADT (/chosen chip-id, firmware-version, system-firmware-version) and dmesg of 2026-10-30"
+}
