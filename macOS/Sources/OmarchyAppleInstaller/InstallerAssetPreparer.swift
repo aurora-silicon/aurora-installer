@@ -104,7 +104,7 @@
   }
 
   public struct InstallerAssetPreparer: Sendable {
-    private static let explicitlyUnsupportedDevices = ["apple,j614s"]
+    private static let explicitlyUnsupportedDevices: [String] = []
 
     private let trustCore: AppleInstallerTrustCore
     private let stager: VerifiedArtifactStager

@@ -52,7 +52,7 @@
   }
 
   public struct AppleSiliconHostInspector: Sendable {
-    private static let explicitlyUnsupportedDevices = ["apple,j614s"]
+    private static let explicitlyUnsupportedDevices: [String] = []
 
     /// Models refused before any catalog is read.
     public static func isExplicitlyUnsupported(_ deviceIdentifier: String) -> Bool {

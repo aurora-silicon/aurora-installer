@@ -47,7 +47,7 @@
     /// imposing the removal workflow's small, deliberately bounded layout.
     func snapshot(maximumPartitions: Int) throws -> RemovalSnapshot {
       let target = try targetType().lowercased()
-      guard target != "j614s", target != "apple,j614s" else {
+      guard !target.isEmpty else {
         throw RemovalFailure(message: "Removal is not supported on this Mac model.")
       }
       let root = try plist(["info", "-plist", "/"])

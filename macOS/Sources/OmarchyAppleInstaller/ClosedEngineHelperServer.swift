@@ -139,7 +139,7 @@
   }
 
   public actor ClosedEngineHelperServer {
-    private static let explicitlyUnsupportedDevices = ["apple,j614s"]
+    private static let explicitlyUnsupportedDevices: [String] = []
 
     private let workingDirectory: URL
     private let credentialValidator: any MachineOwnerCredentialValidating

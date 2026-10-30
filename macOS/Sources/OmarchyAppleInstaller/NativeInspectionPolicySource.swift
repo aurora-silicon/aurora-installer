@@ -42,7 +42,9 @@
               ],
               "supported_fw": [
                 "13.5",
-                "14.8.3"
+                "14.8.3",
+                "15.8.2",
+                "26.6.2"
               ]
             }
           ]
@@ -57,9 +59,11 @@
           "24624": "14.8.3",
           "24625": "14.8.3",
           "24628": "14.8.3",
+          "24640": "15.0",
           "33027": "11.0",
           "33042": "12.4",
           "33058": "14.8.3",
+          "33074": "15.0",
           "33088": "26.6"
         },
         "devices": {
@@ -199,12 +203,37 @@
             "expert": false,
             "minimum": "14.8.3"
           },
+          "j614s": {
+            "expert": false,
+            "minimum": "15.0"
+          },
+          "j616s": {
+            "expert": false,
+            "minimum": "15.0"
+          },
+          "j713": {
+            "expert": false,
+            "minimum": "15.0"
+          },
           "j700": {
             "expert": false,
             "minimum": "26.6"
           }
         },
         "firmware": [
+          {
+            "expert": false,
+            "minimumBoot": "mBoot-18000.0.0",
+            "minimumMacOS": "15.0",
+            "minimumRecovery": "24.0.0.0.0,0",
+            "models": [
+              "j614s",
+              "j616s",
+              "j713"
+            ],
+            "sourceURL": "https://updates.cdn-apple.com/2026SummerFCS/fullrestores/140-75212/A2A24B94-1FC1-45A3-93F7-C51B02AF1F4D/UniversalMac_26.6.2_25G83_Restore.ipsw",
+            "version": "26.6.2"
+          },
           {
             "expert": false,
             "minimumBoot": "mBoot-18000.161.9",

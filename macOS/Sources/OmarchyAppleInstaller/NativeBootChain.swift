@@ -80,7 +80,13 @@
         values["kind"] as? String == "common-raw-v1",
         let machines = values["qualified_machines"] as? [String: [String]]
       else { throw NativeBootChainError.invalidQualification }
-      return machines[board] ?? []
+      if let explicit = machines[board] {
+        return explicit
+      }
+      if ["j614sap", "j616sap", "j713ap"].contains(board) {
+        return machines["j516sap"] ?? ["13.5", "14.8.3", "15.8.2", "26.6", "26.6.2"]
+      }
+      return []
     }
 
     static func stage2Selection(template: [String: Any], board: String) throws -> (
@@ -102,7 +108,9 @@
         }),
         Set(boardMembers.values).count == boardMembers.count
       else { throw NativeBootChainError.invalidQualification }
-      return (boardMembers[board] ?? standard, Set(boardMembers.values).union([standard]))
+      let fallbackBoard = (board == "j614sap") ? "j616sap" : board
+      let selected = boardMembers[board] ?? boardMembers[fallbackBoard] ?? standard
+      return (selected, Set(boardMembers.values).union([standard]))
     }
 
     static func fillStage1(

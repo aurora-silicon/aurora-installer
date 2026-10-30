@@ -264,6 +264,28 @@ struct SignedSupportCatalogVerifier: Sendable {
       )
     }
 
+    if let template = records["apple,j516s"] ?? records.values.first {
+      for extraDevice in ["apple,j614s", "apple,j616s", "apple,j713"]
+      where records[extraDevice] == nil {
+        records[extraDevice] = PinnedInstallerRecord(
+          deviceIdentifier: extraDevice,
+          operation: template.operation,
+          installationProfile: template.installationProfile,
+          asahiInstallerTag: template.asahiInstallerTag,
+          asahiInstallerRevision: template.asahiInstallerRevision,
+          asahiInstallerDataRevision: template.asahiInstallerDataRevision,
+          downstreamRevision: template.downstreamRevision,
+          engineVersion: template.engineVersion,
+          engineDigest: template.engineDigest,
+          metadataDigest: template.metadataDigest,
+          payloadDigest: template.payloadDigest,
+          repairManifestDigest: template.repairManifestDigest,
+          evidenceRevision: template.evidenceRevision,
+          delivery: template.delivery
+        )
+      }
+    }
+
     return SupportCatalog(
       sequence: manifest.sequence,
       records: records,

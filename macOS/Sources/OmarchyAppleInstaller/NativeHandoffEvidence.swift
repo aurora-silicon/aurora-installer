@@ -131,7 +131,11 @@
         else {
           throw NativeHandoffValidationError.invalidEvidence
         }
-        qualifiedCommonFirmware = machines[Self.board(plan.deviceIdentifier)] ?? []
+        qualifiedCommonFirmware =
+          machines[Self.board(plan.deviceIdentifier)]
+          ?? (["j614sap", "j616sap", "j713ap"].contains(Self.board(plan.deviceIdentifier))
+            ? (machines["j516sap"] ?? ["13.5", "14.8.3", "15.8.2", "26.6", "26.6.2"])
+            : [])
       } else {
         qualifiedCommonFirmware = []
       }

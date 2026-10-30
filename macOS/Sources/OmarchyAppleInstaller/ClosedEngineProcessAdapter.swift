@@ -72,7 +72,7 @@ public enum ClosedEngineProcessError: Error, Equatable, Sendable {
 }
 
 public struct ClosedEngineProcessAdapter: Sendable {
-  private static let explicitlyUnsupportedDevices = ["apple,j614s"]
+  private static let explicitlyUnsupportedDevices: [String] = []
   private let trustCore: AppleInstallerTrustCore
 
   public init() {

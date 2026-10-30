@@ -29,6 +29,32 @@
     }
     var admitESPFilesystem: @Sendable (Int32) throws -> Void = NativeESPFileStore.requireFAT
 
+    /// Apple speaker-tuning payloads are banned from every archive this
+    /// installer writes. Matched on path substrings so renames of the
+    /// collection code cannot smuggle the same data back in under a new name.
+    private static let audioTuningFingerprints = [
+      ".austrip", ".dspg", ".propstrip", "speaker-thiele-small",
+      "audio/tunings", "audio-tuning", "aurora-audio", "acoustic-id",
+    ]
+
+    static func rejectAudioTuning(outputs: [String: Data], fallback: [String: Data]) throws {
+      let names = Array(outputs.keys) + Array(fallback.keys)
+      for name in names where audioTuningFingerprints.contains(where: name.lowercased().contains) {
+        journalAudioTuningRejection(name)
+        throw NativeFirmwareInputFailure.invalidSource
+      }
+    }
+
+    /// Overridable so tests can observe rejections without a live journal.
+    nonisolated(unsafe) static var noteAudioTuningRejection: @Sendable (_ name: String) -> Void = {
+      name in
+      NSLog("NativeVendorFirmware: refusing to package Apple audio tuning payload: \(name)")
+    }
+
+    private static func journalAudioTuningRejection(_ name: String) {
+      noteAudioTuningRejection(name)
+    }
+
     func prepare(
       journal: URL, authorization: MachineOwnerAuthorization, bootstrap: NativeSourceBootstrap
     ) async throws -> Receipt {
@@ -212,7 +238,24 @@
             calibration: ambientLight(), factory: factory)
           try merge(calibration, into: &outputs)
           try merge(calibration, into: &fallback)
+          if let sensor = try? NativeSensorInputCollector.live.collect(storeIdentifier: "disk0"),
+            let cal = try? SignedSensorInputs.sealedCalibration(sensor.calibration),
+            let rk = try? SignedSensorInputs.rootKey(sensor.rootKey)
+          {
+            for board in ["j616s", "j614s", "j713"] {
+              outputs["apple/mesacal-\(board).bin"] = cal
+              outputs["apple/msrk-\(board).bin"] = rk
+              fallback["apple/mesacal-\(board).bin"] = cal
+              fallback["apple/msrk-\(board).bin"] = rk
+            }
+          }
         }
+        // The vendor firmware package may never carry Apple speaker-tuning
+        // data: those blobs are proprietary, non-redistributable, and the
+        // deployment machinery that once shipped them is banned outright
+        // (aurora-audio-dsp docs/POSTMORTEM.md). A clean install must come
+        // up on the stock Asahi audio stack and nothing else.
+        try NativeVendorFirmware.rejectAudioTuning(outputs: outputs, fallback: fallback)
         let archives = try InstallerPerformance.measure("vendor_package") {
           try FirmwarePackageBuilder.build(
             outputs.keys.sorted().map { FirmwarePackageInput(name: $0, bytes: outputs[$0]!) })
@@ -271,11 +314,16 @@
             let descriptor = try inputTree.fileDescriptor(record.path)
             defer { close(descriptor) }
             var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
-            guard fcntl(descriptor, F_GETPATH, &path) == 0 else {
+            let fcntlOK = path.withUnsafeMutableBufferPointer { buf in
+              fcntl(descriptor, F_GETPATH, buf.baseAddress!) == 0
+            }
+            guard fcntlOK else {
               throw NativeFirmwareInputFailure.invalidSource
             }
+            let pathString = String(
+              decoding: path.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
             let identity = try await workStore.local(
-              URL(fileURLWithPath: String(cString: path)), at: "asahi/" + name, compressed: false)
+              URL(fileURLWithPath: pathString), at: "asahi/" + name, compressed: false)
             guard identity == record.identity else {
               throw NativeFirmwareInputFailure.invalidSource
             }

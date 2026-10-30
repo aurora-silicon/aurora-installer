@@ -1,0 +1,18 @@
+{
+  "schema_version": 3,
+  "default_channel": "edge",
+  "channels": {
+    "stable": {
+      "catalog_url": "https://aurorasilicon.org/aurora-distributions/installer/Profiles/nixos-kde/channels/stable/catalog.signed.json"
+    },
+    "rc": {
+      "catalog_url": "https://aurorasilicon.org/aurora-distributions/installer/Profiles/nixos-kde/channels/rc/catalog.signed.json"
+    },
+    "edge": {
+      "catalog_url": "https://aurorasilicon.org/aurora-distributions/installer/Profiles/nixos-kde/channels/edge/catalog.signed.json"
+    }
+  },
+  "trust_root_fingerprint": "sha256:5e510a663c3765a9a6ffe78085f330f9ba83a11cbd4621385791ec4e98aee5ed",
+  "helper_mach_service_name": "org.aurorasilicon.installer.helper",
+  "helper_code_signing_requirement": "identifier \"org.aurorasilicon.installer.helper\""
+}
