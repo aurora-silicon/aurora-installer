@@ -168,7 +168,8 @@
     let installerRecord: RemovalInstallerRecord
     let stubHasLibrary: Bool
     let stubBootObject: SHA256Digest?
-    let stubHasM1n1: Bool
+    /// aura or legacy m1n1, from the startup container boot object's version marker.
+    let stubBootLoader: BootLoaderVersion?
     let stubEFIPartitions: [String]?
 
     init(files: RemovalInstallFiles) {
@@ -183,8 +184,7 @@
         ?? .missing
       stubHasLibrary = files.stubHasLibrary
       stubBootObject = files.stubBootObject.map(SHA256Digest.init(hashing:))
-      stubHasM1n1 =
-        files.stubBootObject.map { $0.range(of: Data("##m1n1_ver##".utf8)) != nil } ?? false
+      stubBootLoader = files.stubBootObject.flatMap(BootLoaderVersion.find(in:))
       stubEFIPartitions = files.stubBootObject.flatMap(Self.efiPartitions(bootObject:))
     }
 
@@ -233,14 +233,16 @@
           "its startup container holds a full system (a Library folder), unlike a startup container made by the Asahi installer"
       }
       guard stubBootObject != nil else {
-        return "its startup container has no m1n1 boot object (Finish Installation.app)"
+        return "its startup container has no bootloader boot object (Finish Installation.app)"
       }
-      guard stubHasM1n1 else { return "the boot object in its startup container isn’t m1n1" }
+      guard stubBootLoader != nil else {
+        return "the boot object in its startup container isn’t aura or m1n1"
+      }
       guard let links = stubEFIPartitions, links.count == 1,
         let link = UUID(uuidString: links[0]), link.uuidString == installation.esp.uuid
       else {
         return
-          "the m1n1 boot object in its startup container doesn’t point to this EFI partition"
+          "the bootloader in its startup container doesn’t point to this EFI partition"
       }
       return nil
     }
@@ -280,10 +282,10 @@
       return created
     }
 
-    /// The EFI partitions a startup container's m1n1 chainloads. Aurora's J700
+    /// The EFI partitions a startup container's bootloader chainloads. Aurora's J700
     /// Stage 1 (the MacBook Neo) names its one ESP in a versioned, CRC-checked
-    /// config block; asahi's m1n1 keeps variables after the first "STACKBOT" up
-    /// to the first NUL, one per line (asahi-installer m1n1.py extract_vars).
+    /// config block; aura and asahi's m1n1 keep variables after the first "STACKBOT" up
+    /// to the first NUL, one per line (src/aura.py extract_vars).
     /// nil when neither is there.
     static func efiPartitions(bootObject: Data) -> [String]? {
       if let aurora = auroraStage1Partition(bootObject: bootObject) { return [aurora] }
@@ -296,7 +298,7 @@
         .filter { $0.hasPrefix(key) }.map { String($0.dropFirst(key.count)) }
     }
 
-    /// Aurora's J700 Stage 1 config block (aurora-silicon/m1n1
+    /// Aurora's J700 Stage 1 config block (aurora-silicon/aura
     /// tools/fill_stage1_config.py): magic, then version, proxy window, a
     /// NUL-padded 40-byte ESP PARTUUID and a 192-byte Stage 2 path, then the
     /// CRC-32 of those fields. nil unless there is exactly one valid version-1

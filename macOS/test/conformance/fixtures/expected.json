@@ -1,0 +1,171 @@
+{
+ "cells": {
+  "j616s/fresh/arch": {
+   "failing": [
+    "supported"
+   ],
+   "verdict": "FAIL"
+  },
+  "j616s/fresh/fedora": {
+   "failing": [
+    "supported"
+   ],
+   "verdict": "FAIL"
+  },
+  "j616s/fresh/nixos": {
+   "failing": [
+    "supported"
+   ],
+   "verdict": "FAIL"
+  },
+  "j616s/side-by-side/arch": {
+   "failing": [
+    "supported"
+   ],
+   "verdict": "FAIL"
+  },
+  "j616s/side-by-side/fedora": {
+   "failing": [
+    "supported"
+   ],
+   "verdict": "FAIL"
+  },
+  "j616s/side-by-side/nixos": {
+   "failing": [
+    "supported"
+   ],
+   "verdict": "FAIL"
+  },
+  "m1pro/fresh/arch": {
+   "failing": [
+    "branch pins",
+    "distro parity",
+    "stage1"
+   ],
+   "verdict": "FAIL"
+  },
+  "m1pro/fresh/fedora": {
+   "failing": [
+    "branch pins",
+    "stage1"
+   ],
+   "verdict": "FAIL"
+  },
+  "m1pro/fresh/nixos": {
+   "failing": [
+    "branch pins",
+    "distro parity",
+    "stage1"
+   ],
+   "verdict": "FAIL"
+  },
+  "m1pro/side-by-side/arch": {
+   "failing": [
+    "branch pins",
+    "distro parity",
+    "stage1"
+   ],
+   "verdict": "FAIL"
+  },
+  "m1pro/side-by-side/fedora": {
+   "failing": [
+    "branch pins",
+    "stage1"
+   ],
+   "verdict": "FAIL"
+  },
+  "m1pro/side-by-side/nixos": {
+   "failing": [
+    "branch pins",
+    "distro parity",
+    "stage1"
+   ],
+   "verdict": "FAIL"
+  },
+  "m2/fresh/arch": {
+   "failing": [
+    "branch pins",
+    "distro parity"
+   ],
+   "verdict": "FAIL"
+  },
+  "m2/fresh/fedora": {
+   "failing": [
+    "branch pins"
+   ],
+   "verdict": "FAIL"
+  },
+  "m2/fresh/nixos": {
+   "failing": [
+    "branch pins",
+    "distro parity"
+   ],
+   "verdict": "FAIL"
+  },
+  "m2/side-by-side/arch": {
+   "failing": [
+    "branch pins",
+    "distro parity",
+    "plan"
+   ],
+   "verdict": "FAIL"
+  },
+  "m2/side-by-side/fedora": {
+   "failing": [
+    "branch pins",
+    "plan"
+   ],
+   "verdict": "FAIL"
+  },
+  "m2/side-by-side/nixos": {
+   "failing": [
+    "branch pins",
+    "distro parity",
+    "plan"
+   ],
+   "verdict": "FAIL"
+  },
+  "neo/fresh/arch": {
+   "failing": [
+    "branch pins",
+    "distro parity"
+   ],
+   "verdict": "FAIL"
+  },
+  "neo/fresh/fedora": {
+   "failing": [
+    "branch pins"
+   ],
+   "verdict": "FAIL"
+  },
+  "neo/fresh/nixos": {
+   "failing": [
+    "branch pins",
+    "distro parity"
+   ],
+   "verdict": "FAIL"
+  },
+  "neo/side-by-side/arch": {
+   "failing": [
+    "branch pins",
+    "distro parity"
+   ],
+   "verdict": "FAIL"
+  },
+  "neo/side-by-side/fedora": {
+   "failing": [
+    "branch pins"
+   ],
+   "verdict": "FAIL"
+  },
+  "neo/side-by-side/nixos": {
+   "failing": [
+    "branch pins",
+    "distro parity"
+   ],
+   "verdict": "FAIL"
+  }
+ },
+ "note": "At-pin verdicts recorded 2026-10-30 against the main branches of fedora-aurora, alarm-aurora and nixos-aurora (before the aura 1.0.0b1 pin PRs merged). CI fails when a cell does worse; when one improves, update it here with the run that shows it.",
+ "schema": 1
+}

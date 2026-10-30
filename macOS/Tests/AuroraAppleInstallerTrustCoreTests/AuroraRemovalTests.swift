@@ -26,6 +26,21 @@
       XCTAssertEqual(
         plan.members.map(\.uuid),
         [F.convergedInstall.stub, F.convergedInstall.esp] + F.convergedInstall.linux)
+      XCTAssertEqual(
+        plan.evidence?.stubBootLoader, BootLoaderVersion(loader: .m1n1, version: "v1.5.2"))
+    }
+
+    func testANeoStubBootingAuraStage1IsRecognised() throws {
+      let disk = FakeRemovalDisk(F.neoMacos26(), install: F.convergedInstall)
+      disk.files!.stubBootObject = Self.auroraStage1(
+        esp: F.convergedInstall.esp.lowercased(), marker: "##aura_ver##1.0b1")
+      let plan = try AuroraRemovalPlan(disks: disk)
+      XCTAssertEqual(plan.kind, .installation)
+      XCTAssertEqual(
+        plan.members.map(\.uuid),
+        [F.convergedInstall.stub, F.convergedInstall.esp] + F.convergedInstall.linux)
+      XCTAssertEqual(
+        plan.evidence?.stubBootLoader, BootLoaderVersion(loader: .aura, version: "1.0b1"))
     }
 
     func testNeoWipeKeepsIndependentProxyAndStopsGrowthAtItsBoundary() throws {
@@ -108,6 +123,8 @@
       XCTAssertEqual(
         plan.members.map(\.uuid),
         [F.convergedInstall.stub, F.convergedInstall.esp] + F.convergedInstall.linux)
+      XCTAssertEqual(
+        plan.evidence?.stubBootLoader, BootLoaderVersion(loader: .m1n1, version: "v1.6.1"))
     }
 
     func testAuroraStage1RejectsAnotherESP() {
@@ -137,14 +154,18 @@
       XCTAssertThrowsError(try AuroraRemovalPlan(disks: disk), file: file, line: line) { error in
         XCTAssertTrue(
           (error as? RemovalFailure)?.message.contains(
-            "the m1n1 boot object in its startup container doesn’t point to this EFI partition")
+            "the bootloader in its startup container doesn’t point to this EFI partition")
             ?? false, "\(error)", file: file, line: line)
       }
     }
 
-    /// Aurora's J700 Stage 1 as aurora-silicon/m1n1 tools/fill_stage1_config.py
-    /// fills it: asahi's m1n1 version marker, one config block, a STACKBOT tail.
-    static func auroraStage1(esp: String, version: UInt32 = 1, corruptCRC: Bool = false) -> Data {
+    /// Aurora's J700 Stage 1 as aurora-silicon/aura tools/fill_stage1_config.py
+    /// fills it: a version marker (aura's, or the legacy m1n1 one older installs
+    /// carry), one config block, a STACKBOT tail.
+    static func auroraStage1(
+      esp: String, version: UInt32 = 1, corruptCRC: Bool = false,
+      marker: String = "##m1n1_ver##v1.6.1"
+    ) -> Data {
       func le(_ value: UInt32) -> [UInt8] {
         (0..<4).map { UInt8(truncatingIfNeeded: value >> (8 * $0)) }
       }
@@ -152,7 +173,7 @@
       body += Array(esp.utf8) + [UInt8](repeating: 0, count: 40 - esp.utf8.count)
       let path = Array(";m1n1/boot.bin".utf8)
       body += path + [UInt8](repeating: 0, count: 192 - path.count)
-      var image = Data("m1n1 stage 1 ##m1n1_ver##v1.6.1\0 code STACKBOT data ".utf8)
+      var image = Data("stage 1 \(marker)\0 code STACKBOT data ".utf8)
       image.append(Data("AURORA-S1-CFG01\0".utf8))
       image.append(contentsOf: body + le(RemovalEvidence.crc32(body) ^ (corruptCRC ? 1 : 0)))
       image.append(Data(" more code STACKBOT".utf8))
@@ -634,25 +655,25 @@
           { $0.stubHasLibrary = true }
         ),
         (
-          "its startup container has no m1n1 boot object (Finish Installation.app)",
+          "its startup container has no bootloader boot object (Finish Installation.app)",
           { $0.stubBootObject = nil }
         ),
         (
-          "the boot object in its startup container isn’t m1n1",
+          "the boot object in its startup container isn’t aura or m1n1",
           {
             $0.stubBootObject = Data(
               "kernel STACKBOT chosen.asahi,efi-system-partition=\(esp)\n\0".utf8)
           }
         ),
         (
-          "the m1n1 boot object in its startup container doesn’t point to this EFI partition",
+          "the bootloader in its startup container doesn’t point to this EFI partition",
           {
             $0.stubBootObject = Data(
               "##m1n1_ver##1\0STACKBOTchosen.asahi,efi-system-partition=\(other)\n\0".utf8)
           }
         ),
         (
-          "the m1n1 boot object in its startup container doesn’t point to this EFI partition",
+          "the bootloader in its startup container doesn’t point to this EFI partition",
           {
             $0.stubBootObject = Data(
               "##m1n1_ver##1\0STACKBOTchosen.asahi,efi-system-partition=\(esp)\nchosen.asahi,efi-system-partition=\(esp)\n\0"
@@ -660,7 +681,7 @@
           }
         ),
         (
-          "the m1n1 boot object in its startup container doesn’t point to this EFI partition",
+          "the bootloader in its startup container doesn’t point to this EFI partition",
           {
             $0.stubBootObject = Data(
               "##m1n1_ver##1\0STACKBOTchosen.asahi,efi-system-partition=\(esp)".utf8)
