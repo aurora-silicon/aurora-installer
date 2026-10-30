@@ -43,6 +43,13 @@ if [[ -f "$PLIST" ]]; then
   # failure through the installer instead of hiding it: PackageKit records
   # this script's output in /var/log/install.log and fails the package.
   /bin/launchctl bootout system/"$LABEL" 2>/dev/null || true
+  /bin/rm -rf \
+    /var/db/org.aurorasilicon.installer/installation-jobs \
+    /var/db/org.aurorasilicon.installer/abandoned-installation-jobs \
+    /var/db/org.aurorasilicon.installer/execution-journals \
+    /var/db/org.aurorasilicon.installer/retired-execution-journals \
+    /var/db/org.aurorasilicon.installer/imported-handoff-* \
+    /var/db/org.aurorasilicon.installer/vendor-firmware-*
   bootstrap_succeeded=false
   for bootstrap_attempt in {1..10}; do
     if bootstrap_error="$(/bin/launchctl bootstrap system "$PLIST" 2>&1)"; then

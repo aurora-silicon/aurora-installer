@@ -292,19 +292,27 @@ struct TechnicalDetailText: View {
 extension View {
   @ViewBuilder func omarchyPrimaryButton(size: ControlSize = .extraLarge) -> some View {
     let button = controlSize(size).tint(.gray).font(.system(size: 15, weight: .medium))
-    if #available(macOS 26.0, *) {
-      button.buttonStyle(.glass)
-    } else {
+    #if compiler(>=6.2)
+      if #available(macOS 26.0, *) {
+        button.buttonStyle(.glass)
+      } else {
+        button.buttonStyle(.bordered)
+      }
+    #else
       button.buttonStyle(.bordered)
-    }
+    #endif
   }
   @ViewBuilder func omarchySecondaryButton(size: ControlSize = .extraLarge) -> some View {
     let button = controlSize(size).font(.system(size: 15, weight: .medium))
-    if #available(macOS 26.0, *) {
-      button.buttonStyle(.glass)
-    } else {
+    #if compiler(>=6.2)
+      if #available(macOS 26.0, *) {
+        button.buttonStyle(.glass)
+      } else {
+        button.buttonStyle(.bordered)
+      }
+    #else
       button.buttonStyle(.bordered)
-    }
+    #endif
   }
   func omarchyDangerButton(size: ControlSize = .extraLarge) -> some View {
     omarchySecondaryButton(size: size).tint(.red)

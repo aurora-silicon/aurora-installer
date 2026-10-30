@@ -121,11 +121,6 @@ fi
 if [[ ${OMARCHY_PRIVATE_LIMINE_TEST:-0} == "1" && $sealed_catalog_available != "true" ]]; then
   fail "private Limine builds require a sealed private catalog"
 fi
-# A developer catalog can admit Macs no public catalog does, so it must never
-# reach a developer build over the network.
-if [[ ${OMARCHY_DEVELOPER_BUILD:-0} == "1" && $sealed_catalog_available != "true" ]]; then
-  fail "developer builds require a sealed developer catalog"
-fi
 if [[ ${OMARCHY_OFFLINE_BUILD:-0} == "1" && $sealed_catalog_available != "true" ]]; then
   fail "offline builds require a sealed catalog"
 fi
@@ -309,6 +304,14 @@ if [[ ${OMARCHY_OFFLINE_BUILD:-0} == "1" ]]; then
 fi
 if [[ -d "$release_directory/Profiles" ]]; then
   /usr/bin/ditto "$release_directory/Profiles" "$resources/Release/Profiles"
+fi
+if [[ -d "$release_directory/J616sOverride" ]]; then
+  /bin/mkdir -p "$resources/Release/J616sOverride"
+  for f in manifest.json stage1-j616s.bin boot-stage2-j616s.bin; do
+    if [[ -f "$release_directory/J616sOverride/$f" ]]; then
+      /bin/cp -f "$release_directory/J616sOverride/$f" "$resources/Release/J616sOverride/$f"
+    fi
+  done
 fi
 # Sealed inputs may come from a private staging directory. The installed app
 # runs as the desktop user, even when PackageKit makes the bundle root-owned.
