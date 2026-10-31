@@ -606,7 +606,7 @@
         failure.headline, "Free up at least 4 GB to install Aurora")
       XCTAssertEqual(
         failure.remedy,
-        "Remove files you no longer need in macOS and empty the Trash, then choose Check again. The installer will check the available space again before allowing installation."
+        "Remove files you no longer need in macOS and empty the Trash, then choose Check again. If this Mac already has a Linux installation you no longer need, Erase Linux returns its space to macOS first. The installer will check the available space again before allowing installation."
       )
 
       await session.continueToPlan()
@@ -2126,6 +2126,26 @@
       preservedPrepareCount += 1
       approved = false
       return .plan(preservedPlan)
+    }
+
+    /// Each targeted request, in order.
+    private(set) var targets = [InstallerPlanTarget]()
+    private(set) var preservedSources = [String]()
+
+    func preparePlan(
+      auroraBytes: UInt64?, target: InstallerPlanTarget,
+      progress: @escaping @Sendable (AssetProgressUpdate) -> Void
+    ) async throws -> PlanPreparationDisplay {
+      targets.append(target)
+      return try await preparePlan(auroraBytes: auroraBytes, progress: progress)
+    }
+
+    func preparePreservedReinstallPlan(
+      sourceIdentifier: String,
+      progress: @escaping @Sendable (AssetProgressUpdate) -> Void
+    ) async throws -> PlanPreparationDisplay {
+      preservedSources.append(sourceIdentifier)
+      return try await preparePreservedReinstallPlan(progress: progress)
     }
 
     func approve() throws {

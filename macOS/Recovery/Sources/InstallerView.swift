@@ -220,15 +220,13 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
           ? "Use the saved recovery files to repair your\nstartup software."
           : "The final step installs the startup software for your\nselected Aurora volume.",
         size: 13))
-    let icon = NSImageView(image: DestinationVolume.icon)
-    icon.imageScaling = .scaleProportionallyUpOrDown
-    icon.translatesAutoresizingMaskIntoConstraints = false
-    icon.widthAnchor.constraint(equalToConstant: 96).isActive = true
-    icon.heightAnchor.constraint(equalToConstant: 96).isActive = true
+    let icon = volumeIcon()
     stack.setCustomSpacing(44, after: stack.arrangedSubviews[1])
     stack.addArrangedSubview(icon)
     stack.setCustomSpacing(24, after: icon)
-    stack.addArrangedSubview(label(DestinationVolume.name, size: 14))
+    // Every Aurora startup volume carries the Aurora mark the window already
+    // shows, so its icon and name are left out; a blank line keeps the layout.
+    stack.addArrangedSubview(label(" ", size: 14))
     place(stack)
   }
 
@@ -298,17 +296,14 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
 
   private func buildComplete() {
     let stack = vertical(spacing: 13)
+    let subject = "Aurora Linux"
     stack.addArrangedSubview(
       label(
         model.accountNeedsAuthorization
-          ? DestinationVolume.name + " is ready for authorization."
-          : DestinationVolume.name + " is ready to start.", size: 15))
+          ? subject + " is ready for authorization."
+          : subject + " is ready to start.", size: 15))
     stack.setCustomSpacing(39, after: stack.arrangedSubviews[0])
-    let icon = NSImageView(image: DestinationVolume.icon)
-    icon.imageScaling = .scaleProportionallyUpOrDown
-    icon.translatesAutoresizingMaskIntoConstraints = false
-    icon.widthAnchor.constraint(equalToConstant: 96).isActive = true
-    icon.heightAnchor.constraint(equalToConstant: 96).isActive = true
+    let icon = volumeIcon()
     stack.addArrangedSubview(icon)
     stack.setCustomSpacing(28, after: icon)
     if model.accountNeedsAuthorization {
@@ -324,6 +319,16 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
       stack.addArrangedSubview(label("Restart to start using Aurora Linux.", size: 12))
     }
     place(stack)
+  }
+
+  /// The space the volume's icon used, left blank: the window already shows
+  /// the Aurora mark every Aurora startup volume carries.
+  private func volumeIcon() -> NSView {
+    let view = NSView()
+    view.translatesAutoresizingMaskIntoConstraints = false
+    view.widthAnchor.constraint(equalToConstant: 96).isActive = true
+    view.heightAnchor.constraint(equalToConstant: 96).isActive = true
+    return view
   }
 
   private func buildFooter() {

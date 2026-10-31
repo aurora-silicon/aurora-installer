@@ -37,17 +37,19 @@ struct InstallerMasthead: View {
   let device: MacHeaderDisplay
   private static let markSpacing: CGFloat = 10
   private static let deviceSymbolSpacing: CGFloat = 14
+  private static let markSize: CGFloat = 32
+  /// AuroraLogo.png's artwork starts 164 of 1024 pixels in; pulling the mark
+  /// left by that margin puts the visible logo on the page column's edge.
+  private static let markInset = markSize * 164 / 1024
 
   var body: some View {
     HStack(spacing: 16) {
       HStack(spacing: Self.markSpacing) {
-        if let distribution {
-          DistributionMark(distribution: distribution).frame(width: 30, height: 30)
-        } else {
-          AuroraMark().frame(width: 32, height: 32)
-        }
-        Text(title).font(.system(size: 17, weight: .semibold)).lineLimit(1)
+        AuroraMark().frame(width: Self.markSize, height: Self.markSize)
+        Text(distribution?.title ?? "Aurora").font(.system(size: 17, weight: .semibold))
+          .lineLimit(1)
       }
+      .padding(.leading, -Self.markInset)
       Spacer(minLength: 16)
       HStack(spacing: Self.deviceSymbolSpacing) {
         Image(systemName: device.symbol).font(.system(size: 23, weight: .regular))
@@ -64,30 +66,5 @@ struct InstallerMasthead: View {
       .fixedSize(horizontal: true, vertical: false)
     }
     .foregroundStyle(.primary)
-  }
-
-  private var title: String {
-    switch distribution {
-    case .some(.fedora): "Aurora Fedora Remix"
-    case .some(.arch): "Aurora ALARM"
-    case .some(.nixos): "Aurora NixOS"
-    case nil: "Aurora Linux"
-    }
-  }
-}
-
-struct DistributionMark: View {
-  let distribution: AuroraDistribution
-
-  var body: some View {
-    BrandImage(asset).accessibilityLabel(distribution.title)
-  }
-
-  private var asset: String {
-    switch distribution {
-    case .fedora: "Fedora"
-    case .arch: "ArchLinuxARM"
-    case .nixos: "NixOS"
-    }
   }
 }

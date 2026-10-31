@@ -319,9 +319,14 @@
     }
 
     private func freshPlan(_ facts: NativeAPFSFacts) throws -> Data {
+      // Other installations may stay on the disk, next to the new one: the
+      // approved extent must not reach any of them. The inventory's free and
+      // resize candidates never do; this is checked again on the fresh layout.
       guard facts.deviceIdentifier == approved.deviceIdentifier,
         facts.disk.snapshot.disk == approved.storeIdentifier,
-        try NativeKnownInstallations.recognize(facts.disk).isEmpty,
+        try !NativeKnownInstallations.recognize(facts.disk).contains(where: {
+          $0.overlaps(offsetBytes: approved.offsetBytes, lengthBytes: approved.lengthBytes)
+        }),
         try NativeFirmwareSelection.choose(
           deviceIdentifier: approved.deviceIdentifier,
           facts: .init(deviceIdentifier: facts.deviceIdentifier, hardware: facts.hardware),

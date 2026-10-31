@@ -15,3 +15,11 @@ The pure Swift `NeoRegulatoryPolicy` derives MT7932 country policies from six au
 The MIT Swift v2 builder and validator were independently written from the CP2 **J7RP v1/v2 byte format and producer contract** in `aurora-silicon/linux`, `Documentation/networking/device_drivers/wifi/mt7932-neo.rst`, commit `138c4fca299f7fae9202e5d6f7f23ab96ff4b9d1`. No GPL Python producer or driver implementation was copied. The v1 port retains Chris Kearney’s attribution above. The field layouts, literal rate-projection offsets, VLP eligibility intersection and parser constraints are interoperability facts from that contract. The 28 listed records total **18,418** extension bytes; the draft prose’s 18,020-byte total is an arithmetic error. CP2’s AU/US/CA/DE hashes and complete 120-file inventory authenticate the actual bytes.
 
 The added 25G83 6 GHz range descriptor was measured from the user’s local pinned IPSW: authenticated AEA decoding, read-only APFS image inspection, `com.apple.decmpfs` metadata and the resource-fork extent. Every dependency was already covered by the sealed recipe. The repository stores only source paths, lengths, offsets and SHA-256 digests. Apple table contents and generated packages are never bundled or uploaded.
+
+The MIT `archiveLPIInputs` implementation is independently written from the
+J7RP unbound v3 byte contract in the kernel documentation at
+`aurora-silicon/linux` commit `db62bab892c1d442fb3e64a458a161464a2219d9`. It reuses this
+library's existing MIT parsing and rate projection helpers. No GPL producer,
+private driver implementation, Apple executable code, vendor header or blob
+is incorporated. Binding revision zero is a host table archive and has no
+verified LPI firmware command meaning. It is deliberately outside deployment.

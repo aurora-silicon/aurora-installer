@@ -38,13 +38,16 @@ class DistributionPayloadTests(unittest.TestCase):
         (self.app / 'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleExecutable':'OmarchyRecovery',
             'OmarchyRecoveryBuildMode':'recovery','OmarchyRecoveryDataLayout':'external-install-data-v1'}))
 
-    def write_neo_stage_two(self, sha256=None):
-        dedicated = self.bundle / 'esp/m1n1/boot-j700.bin'
-        dedicated.write_bytes(b'dedicated-stage-two-fixture')
+    def write_neo_stage_two(self, sha256=None, boards=('j700', 'j616s')):
+        records = {}
+        for board in boards:
+            dedicated = self.bundle / ('esp/m1n1/boot-%s.bin' % board)
+            dedicated.write_bytes(b'dedicated-stage-two-fixture-' + board.encode())
+            records[board + 'ap'] = {'member': 'esp/m1n1/boot-%s.bin' % board,
+                                     'bytes': dedicated.stat().st_size,
+                                     'sha256': (sha256 if board == 'j700' else None) or payload.digest(dedicated)}
         manifest = {'schema': 1, 'sourceSha256': payload.digest(self.bundle / 'esp/m1n1/boot.bin'),
-                    'boards': {'j700ap': {'member': 'esp/m1n1/boot-j700.bin',
-                                          'bytes': dedicated.stat().st_size,
-                                          'sha256': sha256 or payload.digest(dedicated)}}}
+                    'boards': records}
         (self.bundle / 'stage2.json').write_text(json.dumps(manifest))
 
     def remove_neo_stage_two(self):
@@ -67,7 +70,8 @@ class DistributionPayloadTests(unittest.TestCase):
         supported, _ = supported_models.load()
         boards = {identifier.removeprefix('apple,') + 'ap' for identifier in supported}
         self.assertIn('j700ap', boards)
-        self.assertEqual(set(metadata['aurora_stage1']['qualified_machines']), boards)
+        refused = {identifier.removeprefix('apple,') + 'ap' for identifier in supported_models.stage1_unqualified()}
+        self.assertEqual(set(metadata['aurora_stage1']['qualified_machines']), boards - refused)
         self.assertEqual(metadata['aurora_stage2']['board_members']['j700ap'],
                          'esp/m1n1/boot-j700.bin')
         for key in ('excluded_device_classes', 'allowed_device_classes', 'supported_fw',
@@ -80,6 +84,24 @@ class DistributionPayloadTests(unittest.TestCase):
         receipt = json.loads((output / 'delivery.json').read_text())
         self.assertFalse(receipt['private_neo_inputs'])
         self.assertFalse(receipt['native_neo_reset_qa'])
+
+    def test_boards_whose_iboot_refuses_the_common_stage_one_are_not_qualified(self):
+        output = self.root / 'output'
+        payload.assemble(self.bundle, self.app, output, release_id='fixture')
+        qualified = json.loads((output / 'installer-data-fedora-kde.json').read_text())['os_list'][0][
+            'aurora_stage1']['qualified_machines']
+        self.assertNotIn('j316sap', qualified)
+        self.assertNotIn('j314sap', qualified)
+        self.assertIn('j413ap', qualified)
+        self.assertIn('j700ap', qualified)
+        self.assertIn('j616sap', qualified)
+
+    def test_public_payload_without_the_j616s_stage_two_is_refused(self):
+        self.write_neo_stage_two(boards=('j700',))
+        output = self.root / 'output'
+        with self.assertRaisesRegex(ValueError, 'J616s requires a current board-specific'):
+            payload.assemble(self.bundle, self.app, output, release_id='fixture')
+        self.assertFalse(output.exists())
 
     def test_public_payload_without_the_neo_stage_two_is_refused(self):
         self.remove_neo_stage_two()
@@ -114,18 +136,23 @@ class DistributionPayloadTests(unittest.TestCase):
                     icon = archive.read(metadata['icon'])
                 self.assertEqual(icon[:4], b'icns')
                 self.assertEqual(int.from_bytes(icon[4:8], 'big'), len(icon))
-                self.assertEqual(hashlib.sha256(icon).hexdigest(), provenance[distribution]['sha256'])
+                self.assertIn(distribution, provenance['aurora']['used_by'])
+                self.assertEqual(hashlib.sha256(icon).hexdigest(), provenance['aurora']['sha256'])
                 self.assertEqual(icon, payload.DISTRIBUTION_ICONS[distribution].read_bytes())
                 if distribution in observed:
                     self.assertEqual(icon, observed[distribution])
                 observed[distribution] = icon
-        self.assertEqual(len(set(observed.values())), 3)
+        # Every system's startup volume shows the Aurora mark.
+        self.assertEqual(set(provenance), {'aurora'})
+        self.assertEqual(len(set(observed.values())), 1)
 
     def test_resume_rejects_an_icon_from_another_distribution(self):
         from unittest.mock import patch
         output = self.root / 'output'
         payload.assemble(self.bundle, self.app, output, release_id="fixture")
-        with patch.dict(payload.DISTRIBUTION_ICONS, fedora=payload.DISTRIBUTION_ICONS['nixos']):
+        other = self.root / 'other.icns'
+        other.write_bytes(b'icns' + (16).to_bytes(4, 'big') + b'not-aurora')
+        with patch.dict(payload.DISTRIBUTION_ICONS, fedora=other):
             with self.assertRaisesRegex(ValueError, 'content differs: aurora-volume.icns'):
                 payload.assemble(self.bundle, self.app, output, reuse_payload=True, release_id="fixture")
 

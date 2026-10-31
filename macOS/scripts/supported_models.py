@@ -9,6 +9,10 @@ Mac release yet (an empty catalog) is the only exception. `refused` names each
 board that stays out and why. `developer` names each board only a developer
 build's sealed catalog may add, with its own image; channel catalogs never
 carry one, so check-catalog rejects it like any unknown board.
+`stage1_unqualified` names each supported board whose iBoot is known to
+refuse the common raw Stage 1, so payloads never qualify it for that Stage 1
+and the installer stops before any disk change instead of installing a
+system that cannot start.
 
 Usage:
   supported_models.py check-catalog FILE   exit 1 unless FILE covers every Mac
@@ -34,6 +38,15 @@ def load(path: Path = MANIFEST) -> tuple[list[str], dict[str, str]]:
     if set(document.get("developer", {})) & (set(supported) | set(refused)):
         raise SystemExit(f"{path}: a developer board is also supported or refused")
     return supported, refused
+
+
+def stage1_unqualified(path: Path = MANIFEST) -> dict[str, str]:
+    """Supported boards whose iBoot refuses the common raw Stage 1, with why."""
+    supported, _ = load(path)
+    unqualified = dict(json.loads(path.read_text()).get("stage1_unqualified", {}))
+    if not set(unqualified) <= set(supported):
+        raise SystemExit(f"{path}: stage1_unqualified names a Mac that is not supported")
+    return unqualified
 
 
 def developer_boards(path: Path = MANIFEST) -> dict[str, str]:
