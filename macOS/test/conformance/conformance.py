@@ -28,8 +28,10 @@ from pathlib import Path
 import re
 import struct
 import subprocess
+import time
 import sys
 import tempfile
+import urllib.error
 import urllib.request
 import zipfile
 import zlib
@@ -93,13 +95,30 @@ def published_sources(repo, sha, cache):
 
 # ---------------------------------------------------------------- network
 
+TRANSIENT_HTTP = (429, 500, 502, 503, 504)
+
+
+def urlopen(request, timeout, attempts=4, pause=5):
+    """urlopen that retries a server's transient refusal (429 and 5xx) or a
+    dropped connection, so a CDN hiccup is not reported as an install fault."""
+    for attempt in range(attempts):
+        try:
+            return urllib.request.urlopen(request, timeout=timeout)
+        except urllib.error.HTTPError as error:
+            if error.code not in TRANSIENT_HTTP or attempt == attempts - 1:
+                raise
+        except urllib.error.URLError:
+            if attempt == attempts - 1:
+                raise
+        time.sleep(pause * (attempt + 1))
+
 def fetch(url, cache, headers=None):
     key = hashlib.sha256((url + json.dumps(headers or {}, sort_keys=True)).encode()).hexdigest()
     path = Path(cache) / key
     if path.exists():
         return path.read_bytes()
     request = urllib.request.Request(url, headers=headers or {})
-    with urllib.request.urlopen(request, timeout=120) as response:
+    with urlopen(request, timeout=120) as response:
         data = response.read()
     path.write_bytes(data)
     return data
@@ -109,7 +128,7 @@ def public(url):
     """True when the URL downloads without credentials (HEAD, following redirects)."""
     request = urllib.request.Request(url, method='HEAD')
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with urlopen(request, timeout=60) as response:
             return response.status == 200, int(response.headers.get('Content-Length') or -1)
     except Exception as error:  # report, never guess
         return False, repr(error)
@@ -182,9 +201,10 @@ class RemoteZip:
 
 # ---------------------------------------------------------------- catalogs
 
-def load_catalog(base, profile, cache):
-    """Fetch and authenticate a profile's signed catalog with the app's trust root."""
-    root = (MACOS / 'Release/trust-root.ed25519.pub').read_bytes()
+def load_catalog(base, profile, cache, trust_root=None):
+    """Fetch and authenticate a profile's signed catalog with the app's trust root
+    (or, for a simulated catalog set, the root named by --trust-root)."""
+    root = Path(trust_root or MACOS / 'Release/trust-root.ed25519.pub').read_bytes()
     if base.startswith('http'):
         catalog = fetch('%s/%s/catalog.json' % (base, profile), cache)
         signature = fetch('%s/%s/catalog.json.sig' % (base, profile), cache)
@@ -422,7 +442,7 @@ def evaluate(machine, mode, distro, dry, context):
         checks.append(caution)
 
     # 4. Stage 2 composition for this board
-    problems, published = [], []
+    problems, published, notes2 = [], [], set()
     for desktop in DESKTOPS:
         chain, payload = dry[desktop].get('boot_chain'), profiles[desktop]['payload']
         if not chain:
@@ -433,15 +453,20 @@ def evaluate(machine, mode, distro, dry, context):
             continue
         contents = payload['stage2'].get(board)
         trees = [t.get('compatible') for t in contents['device_trees']]
-        if trees != [machine['device_identifier']]:
+        # A board file may carry several trees for its own board (aura boots
+        # the last one of the highest profile rank); another board's tree is wrong.
+        if not trees or set(trees) != {machine['device_identifier']}:
             problems.append('%s: Stage 2 carries device trees %s' % (desktop, trees))
+        elif len(trees) > 1:
+            notes2.add('%s carries %d %s trees; aura boots the last' % (desktop, len(trees), machine['device_identifier']))
         if not contents['u_boot']:
             problems.append('%s: Stage 2 carries no U-Boot' % desktop)
         if not any(v.endswith('##' + context['pins']['aura_label']) for v in contents['versions']):
             published.append('%s %s with U-Boot %s' % (
                 desktop, ', '.join(v.split('##')[-1] for v in contents['versions']), contents['u_boot']))
     checks.append(check('stage2', not problems, '; '.join(problems) or
-                        'board Stage 2 carries only the %s device tree and U-Boot' % machine['device_identifier']))
+                        'board Stage 2 carries only %s device trees and U-Boot' % machine['device_identifier'] +
+                        ''.join('; ' + n for n in sorted(notes2))))
     checks.append(check('published stage2', not published, 'payload Stage 2 is not aura %s: %s' % (
         context['pins']['aura_label'], '; '.join(published)) if published else 'payload Stage 2 is aura ' +
         context['pins']['aura_label'], scope='published'))
@@ -664,6 +689,8 @@ def main():
     parser.add_argument('--dry-run', required=True, help='InstallerDryRun executable')
     parser.add_argument('--distro', action='append', default=[], help='NAME=CHECKOUT of a distro branch under test')
     parser.add_argument('--catalogs', default=DEFAULT_CATALOGS)
+    parser.add_argument('--trust-root', help='raw Ed25519 public key for --catalogs made by simulate-catalogs.py; '
+                        'the default is the app trust root')
     parser.add_argument('--digests', help='directory of payload digest results (*.result); with --verify-digests, '
                         'where to write them')
     parser.add_argument('--verify-digests', action='store_true',
@@ -694,7 +721,7 @@ def main():
         profiles[distro] = {}
         for desktop in DESKTOPS:
             profile = '%s-%s' % (distro, desktop)
-            catalog, verified = load_catalog(args.catalogs, profile, args.cache)
+            catalog, verified = load_catalog(args.catalogs, profile, args.cache, args.trust_root)
             enabled = {m['deviceIdentifier'] for m in catalog['models'] if m['status'] == 'enabled'}
             model = next(m for m in catalog['models'] if m['status'] == 'enabled')
             artifact = model['payloadArtifact']
@@ -716,11 +743,11 @@ def main():
             public_state = {url: (lambda r: True if r[0] and r[1] in (size, -1) else r)(public(url)) for url, size in parts}
             digest = None
             if args.verify_digests:
-                verify_parts(profile, artifact, args.digests)
+                verify_parts(profile, payload_parts(model), args.digests)
             if args.digests:
                 results = [json.loads((Path(args.digests) / (p['fileName'] + '.result')).read_text())
-                           for p in artifact.get('parts') or [] if (Path(args.digests) / (p['fileName'] + '.result')).exists()]
-                if len(results) == len(artifact.get('parts') or []):
+                           for p in payload_parts(model) if (Path(args.digests) / (p['fileName'] + '.result')).exists()]
+                if len(results) == len(payload_parts(model)):
                     bad = [r['file'] for r in results if not r['ok']]
                     digest = {'ok': not bad, 'detail': 'digest mismatch: ' + ', '.join(bad) if bad else 'all part digests match'}
             source = model.get('evidenceRevision', '')
@@ -785,15 +812,23 @@ def compare_expected(cells, expected):
     return 1 if worse else 0
 
 
-def verify_parts(profile, artifact, directory):
+def payload_parts(model):
+    """The files a payload is published as, each with the digest the catalog
+    gives it. An unsplit payload is one file whose digest is payloadDigest."""
+    artifact = model['payloadArtifact']
+    return artifact.get('parts') or [{'sourceURL': artifact['sourceURL'], 'fileName': artifact['fileName'],
+                                      'sizeBytes': artifact['sizeBytes'], 'sha256': model['payloadDigest']}]
+
+
+def verify_parts(profile, parts, directory):
     """Stream each payload part once and record whether it matches the catalog."""
     Path(directory).mkdir(parents=True, exist_ok=True)
-    for part in artifact.get('parts') or []:
+    for part in parts:
         out = Path(directory) / (part['fileName'] + '.result')
         if out.exists():
             continue
         digest, count = hashlib.sha256(), 0
-        with urllib.request.urlopen(part['sourceURL'], timeout=300) as response:
+        with urlopen(part['sourceURL'], timeout=300) as response:
             while True:
                 block = response.read(1 << 20)
                 if not block:

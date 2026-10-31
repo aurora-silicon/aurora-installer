@@ -10,11 +10,12 @@ struct AuroraWelcomeView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      InstallerMasthead(device: device).padding(.horizontal, 38).padding(.top, 20)
+      // The same column as every other page: the logo's left edge to the
+      // device identity's right edge.
+      InstallerMasthead(device: device).inPageColumn().padding(.top, 20)
       Text("Choose your distribution and desktop.")
         .font(.system(size: 20, weight: .medium))
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 38).padding(.top, 28)
+        .inPageColumn().padding(.top, 28)
       VStack(alignment: .leading, spacing: 10) {
         sectionTitle("Distribution")
         LazyVGrid(columns: columns, spacing: 18) {
@@ -47,14 +48,17 @@ struct AuroraWelcomeView: View {
             }
           }
         }
-      }.padding(.horizontal, 38).padding(.top, 26)
+      }.inPageColumn().padding(.top, 26)
       Spacer(minLength: 18)
       Text(Self.notice(for: selection.distribution))
         .font(.system(size: 11)).foregroundStyle(.secondary)
         .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: .infinity).padding(.horizontal, 38).padding(.bottom, 14)
+        .inPageColumn(alignment: .center).padding(.bottom, 2)
       Button("Continue", action: onContinue)
-        .auroraPrimaryButton().padding(.bottom, 28)
+        .auroraPrimaryButton()
+        .frame(minHeight: InstallerTheme.buttonHeight)
+        .inPageColumn(alignment: .trailing)
+        .padding(.top, 12).padding(.bottom, 20)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(Color(nsColor: .windowBackgroundColor))

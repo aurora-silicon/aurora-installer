@@ -725,6 +725,9 @@
       XCTAssertEqual(ticket.kind, .installation)
       XCTAssertEqual(ticket.confirmation, AuroraRemovalTicket.confirmation)
       XCTAssertTrue(ticket.deletions.isEmpty)
+      // An older helper names no startup container; the app's targeted
+      // Erase refuses such a ticket rather than guess.
+      XCTAssertNil(ticket.startupContainerUUID)
     }
 
     func testDuplicatedInstallerRecordIsUnreadable() {
@@ -936,6 +939,8 @@
         AuroraRemovalTicket.self, from: JSONEncoder().encode(ticket))
       XCTAssertEqual(decoded, ticket)
       XCTAssertEqual(decoded.startupDisk?.title, "Set macOS “Macintosh HD” as the startup disk")
+      // The app checks this against the row the person chose to erase.
+      XCTAssertEqual(decoded.startupContainerUUID, F.alarmInstall.stub)
     }
 
     // MARK: Execution

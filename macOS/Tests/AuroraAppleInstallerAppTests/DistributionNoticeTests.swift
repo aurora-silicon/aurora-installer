@@ -30,13 +30,24 @@
       XCTAssertTrue(credits.contains("not provided, supported or endorsed"))
     }
 
-    func testNoUpstreamLogoOrScreenshotIsBundled() throws {
+    func testOnlyTheAuroraLogoAndLicensedScreenshotsAreBundled() throws {
       let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         .deletingLastPathComponent().deletingLastPathComponent()
       let resources = root.appendingPathComponent("Resources")
       let images = try FileManager.default.contentsOfDirectory(atPath: resources.path)
         .filter { $0.hasSuffix(".png") || $0.hasSuffix(".svg") }
-      XCTAssertEqual(images, ["AuroraLogo.png"])
+      XCTAssertEqual(Set(images), ["AuroraLogo.png", "KDE-Desktop.png", "GNOME-Desktop.png"])
+      let manifest =
+        try JSONSerialization.jsonObject(
+          with: Data(contentsOf: resources.appendingPathComponent("BrandSources/manifest.json")))
+        as? [String: [String: String]]
+      for screenshot in ["KDE-Desktop.png", "GNOME-Desktop.png"] {
+        XCTAssertNotNil(manifest?[screenshot]?["license"], screenshot)
+        XCTAssertNotNil(manifest?[screenshot]?["attribution"], screenshot)
+      }
+      let credits = TrademarkNotice.credits.string
+      XCTAssertTrue(credits.contains("KDE Plasma screenshot by the KDE Community, CC BY 4.0"))
+      XCTAssertTrue(credits.contains("GNOME screenshot by the GNOME Project, CC BY-SA 4.0"))
       let brand = try FileManager.default.contentsOfDirectory(
         atPath: resources.appendingPathComponent("BrandSources").path)
       XCTAssertEqual(brand, ["manifest.json"])

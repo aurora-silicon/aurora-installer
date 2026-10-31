@@ -138,5 +138,45 @@ class CautionTests(unittest.TestCase):
         self.assertFalse(self.run_check('apple,j413', self.dry(self.CAUTION))['ok'])
 
 
+class PayloadPartTests(unittest.TestCase):
+    def test_an_unsplit_payload_is_one_part_checked_against_the_payload_digest(self):
+        model = {'payloadDigest': 'sha256:' + 'a' * 64, 'payloadArtifact': {
+            'sourceURL': 'https://example.invalid/p.zip', 'fileName': 'p.zip', 'sizeBytes': 3}}
+        self.assertEqual(conformance.payload_parts(model), [{'sourceURL': 'https://example.invalid/p.zip',
+                                                             'fileName': 'p.zip', 'sizeBytes': 3,
+                                                             'sha256': 'sha256:' + 'a' * 64}])
+
+    def test_a_split_payload_keeps_its_parts(self):
+        parts = [{'sourceURL': 'u', 'fileName': 'p.zip.part00', 'sizeBytes': 1, 'sha256': 'sha256:' + 'b' * 64}]
+        model = {'payloadDigest': 'sha256:' + 'a' * 64, 'payloadArtifact': {
+            'sourceURL': 'x', 'fileName': 'p.zip', 'sizeBytes': 1, 'parts': parts}}
+        self.assertEqual(conformance.payload_parts(model), parts)
+
+
+class UrlopenRetryTests(unittest.TestCase):
+    def test_a_transient_503_is_retried_and_a_404_is_not(self):
+        import urllib.error
+        from unittest import mock
+        calls = []
+
+        def fake(request, timeout):
+            calls.append(request)
+            if len(calls) == 1:
+                raise urllib.error.HTTPError('u', 503, 'Service Unavailable', {}, None)
+            return 'ok'
+        with mock.patch('urllib.request.urlopen', fake), mock.patch('time.sleep'):
+            self.assertEqual(conformance.urlopen('u', timeout=1), 'ok')
+        self.assertEqual(len(calls), 2)
+
+        def missing(request, timeout):
+            calls.append(request)
+            raise urllib.error.HTTPError('u', 404, 'Not Found', {}, None)
+        calls.clear()
+        with mock.patch('urllib.request.urlopen', missing), mock.patch('time.sleep'):
+            with self.assertRaises(urllib.error.HTTPError):
+                conformance.urlopen('u', timeout=1)
+        self.assertEqual(len(calls), 1)
+
+
 if __name__ == '__main__':
     unittest.main()

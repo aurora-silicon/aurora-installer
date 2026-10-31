@@ -39,13 +39,16 @@ class DistributionPayloadTests(unittest.TestCase):
         (self.app / 'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleExecutable':'OmarchyRecovery',
             'OmarchyRecoveryBuildMode':'recovery','OmarchyRecoveryDataLayout':'external-install-data-v1'}))
 
-    def write_neo_stage_two(self, sha256=None):
-        dedicated = self.bundle / 'esp/m1n1/boot-j700.bin'
-        dedicated.write_bytes(b'dedicated-stage-two-fixture')
+    def write_neo_stage_two(self, sha256=None, boards=('j700', 'j616s')):
+        records = {}
+        for board in boards:
+            dedicated = self.bundle / ('esp/m1n1/boot-%s.bin' % board)
+            dedicated.write_bytes(b'dedicated-stage-two-fixture-' + board.encode())
+            records[board + 'ap'] = {'member': 'esp/m1n1/boot-%s.bin' % board,
+                                     'bytes': dedicated.stat().st_size,
+                                     'sha256': (sha256 if board == 'j700' else None) or payload.digest(dedicated)}
         manifest = {'schema': 1, 'sourceSha256': payload.digest(self.bundle / 'esp/m1n1/boot.bin'),
-                    'boards': {'j700ap': {'member': 'esp/m1n1/boot-j700.bin',
-                                          'bytes': dedicated.stat().st_size,
-                                          'sha256': sha256 or payload.digest(dedicated)}}}
+                    'boards': records}
         (self.bundle / 'stage2.json').write_text(json.dumps(manifest))
 
     def remove_neo_stage_two(self):
@@ -96,6 +99,14 @@ class DistributionPayloadTests(unittest.TestCase):
             self.assertIn(identifier.removeprefix('apple,') + 'ap', qualified)
         self.assertIn('j413ap', qualified)
         self.assertIn('j700ap', qualified)
+        self.assertIn('j616sap', qualified)
+
+    def test_public_payload_without_the_j616s_stage_two_is_refused(self):
+        self.write_neo_stage_two(boards=('j700',))
+        output = self.root / 'output'
+        with self.assertRaisesRegex(ValueError, 'J616s requires a current board-specific'):
+            payload.assemble(self.bundle, self.app, output, release_id='fixture')
+        self.assertFalse(output.exists())
 
     def test_the_installer_warns_about_exactly_the_caution_boards(self):
         source = (SCRIPT.parents[1] / 'Sources/AuroraInstallerUXCore/Stage1Caution.swift').read_text()

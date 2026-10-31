@@ -36,10 +36,11 @@
     "apple,j516c",
     "apple,j516m",
     "apple,j575d",
+    "apple,j616s",
     "apple,j700"
   ],
   "refused": {
-    "apple,j614s": "MacBook Pro 14-inch (M4 Pro, 2024): M4 and later Macs are not supported"
+    "apple,j614s": "MacBook Pro 14-inch (M4 Pro, 2024): not booted on hardware yet. Only the 16-inch J616s on the same T6040 chip is qualified"
   },
   "developer": {},
   "stage1_caution": {

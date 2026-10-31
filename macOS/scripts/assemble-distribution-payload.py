@@ -69,6 +69,10 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
         # The MacBook Neo cannot load the combined Stage 2 that carries every
         # board's device trees, so the shared payload must carry its own.
         raise ValueError('the MacBook Neo requires a current board-specific Stage 2')
+    if 'j616sap' not in stage2_members:
+        # The J616s is qualified only on its board Stage 2 (its own device tree
+        # plus U-Boot); the combined Stage 2 has never booted there.
+        raise ValueError('the J616s requires a current board-specific Stage 2')
     distribution_icon = regular(DISTRIBUTION_ICONS[profile.split('-')[0]])
     expected_layout = {'fedora': 'fedora', 'arch': 'alarm', 'nixos': 'nixos'}[profile.split('-')[0]] + '-btrfs-v1'
     if image['layout_kind'] != expected_layout or image['root_subvolume'] != 'root':

@@ -10,6 +10,7 @@
     case allocationClamped, allocationAligned, approvalChanged, credentialsRejected, connectionLost
     case emptyReply, helperFailure, degradedProgress, recoveryRetry, manualRecovery
     case shutdownFailure, completed, installationMedia, spaceChanged
+    case partitions, partitionsFreeAfterMacOS, partitionsTwoMacOS, partitionsNoRoom
 
     public var id: String { rawValue }
     public var title: String {
@@ -45,6 +46,10 @@
       case .completed: "Installation complete → first-boot check"
       case .installationMedia: "Installation media required"
       case .spaceChanged: "Space shrinks before install · engine refuses plan"
+      case .partitions: "Partitions · two Aurora installs, other Linux and free space"
+      case .partitionsFreeAfterMacOS: "Partitions · free space right after macOS"
+      case .partitionsTwoMacOS: "Partitions · two macOS installs"
+      case .partitionsNoRoom: "Partitions · no room for another installation"
       }
     }
 
@@ -76,6 +81,14 @@
         "The test channel's signed catalog lists other Macs only. Its channel label says Not available for this Mac, and Continue names this Mac and the models the channel supports."
       case .channelUnreachable:
         "The test channel's catalog address returns 404. Its channel label says Couldn’t load, and Continue reports a server problem, never a missing Mac release."
+      case .partitions:
+        "Two Aurora installations, another installer’s Linux and 36 GB of free space. Erase is unavailable with several installations; Reset is in each row's ⋯ menu. Choose Use free space or Shrink macOS, then Continue to the size screen."
+      case .partitionsFreeAfterMacOS:
+        "60 GB is free right after macOS, then one Aurora installation, which Erase can remove. Shrinking macOS can't add the free space after it; both are separate options."
+      case .partitionsTwoMacOS:
+        "Two macOS installations. Each with at least 50 GB free can shrink; it always keeps 38 GB free."
+      case .partitionsNoRoom:
+        "No free space, and macOS has less than 50 GB free: the screen explains there is no room. Reset still works in place."
       default:
         "Walk through the installer with test data. Check keyboard navigation, smaller windows, and activity details. Reset starts again."
       }
@@ -126,6 +139,11 @@
 
     public func inspect() async throws -> HostDisplay {
       try await tick()
+      if let layout = Self.partitionsLayout(scenario) {
+        return HostDisplay(
+          chipAndSpace: "Simulated Mac · \(PlainLanguage.bytes(layout.totalBytes)) disk",
+          supported: true, diskLayout: layout)
+      }
       return HostDisplay(
         chipAndSpace: "Simulated Mac · 464 GB free", supported: engineSupported,
         blockingReason: scenario == .engineUnavailable ? PlainLanguage.engineUnavailable : nil,
@@ -156,15 +174,16 @@
       return availability
     }
 
-    /// The 35 M1, M2 and M3 Macs and the MacBook Neo every catalog enables
-    /// (scripts/supported-models.json).
+    /// The 35 M1, M2 and M3 Macs, the 16-inch M4 Pro MacBook Pro and the
+    /// MacBook Neo every catalog enables (scripts/supported-models.json).
     public static let simulatedCatalogDevices = [
       "apple,j274", "apple,j293", "apple,j313", "apple,j456", "apple,j457", "apple,j314s",
       "apple,j314c", "apple,j316s", "apple,j316c", "apple,j375c", "apple,j375d", "apple,j413",
       "apple,j415", "apple,j473", "apple,j493", "apple,j414s", "apple,j414c", "apple,j416s",
       "apple,j416c", "apple,j474s", "apple,j475c", "apple,j475d", "apple,j180d", "apple,j433",
       "apple,j434", "apple,j504", "apple,j613", "apple,j615", "apple,j514s", "apple,j514c",
-      "apple,j514m", "apple,j516s", "apple,j516c", "apple,j516m", "apple,j575d", "apple,j700",
+      "apple,j514m", "apple,j516s", "apple,j516c", "apple,j516m", "apple,j575d", "apple,j616s",
+      "apple,j700",
     ]
 
     private var refusedOnce: Bool {
@@ -255,6 +274,163 @@
           fixedMacOSBytes: scenario == .freeSpace ? 100_000_000_000 : nil))
     }
 
+    // MARK: Partitions
+
+    private var resetRequested = false
+
+    public func preparePlan(
+      auroraBytes: UInt64?, target: InstallerPlanTarget,
+      progress: @escaping @Sendable (AssetProgressUpdate) -> Void
+    ) async throws -> PlanPreparationDisplay {
+      progress(AssetProgressUpdate(stage: .fetchingCatalog))
+      try await tick()
+      guard let layout = Self.partitionsLayout(scenario), let option = layout.option(for: target),
+        let running = layout.segments.first(where: { $0.kind == .macOS })
+      else { throw InstallerPlanPreparationError.targetUnavailable }
+      for step in 1...3 {
+        progress(
+          AssetProgressUpdate(
+            stage: .downloading,
+            rows: [
+              AssetProgressRow(
+                role: "payload", fileName: "Simulated Aurora release",
+                bytesCompleted: UInt64(step) * 1_000_000_000, totalBytes: 3_000_000_000,
+                phase: step == 3 ? .verified : .downloading)
+            ]))
+        try await tick()
+      }
+      progress(AssetProgressUpdate(stage: .planning))
+      lock.withLock { resetRequested = false }
+      let unit: UInt64 = 1_000_000_000
+      let minimum: UInt64 = 30 * unit
+      // As the planner does: a resize withholds a small drift margin.
+      let maximum =
+        option.kind == .shrink
+        ? option.maximumBytes - option.maximumBytes / 20 : option.maximumBytes
+      let chosen = min(
+        maximum,
+        max(minimum, auroraBytes ?? InstallerAllocationRecommendation.balancedTargetBytes))
+      let source: PlanAllocationSource
+      switch target {
+      case .freeSpace: source = .freeExtent
+      case .shrink(let identifier):
+        source = identifier == running.id ? .macOSResize : .otherContainerResize
+      }
+      let name = layout.row(running.id)?.name ?? "macOS"
+      let sourceName: String =
+        if case .shrink(let identifier) = target { layout.row(identifier)?.name ?? "macOS" } else {
+          name
+        }
+      return .plan(
+        PlanDisplay(
+          diskTotalBytes: layout.totalBytes, auroraBytes: chosen,
+          bindingDigest: "simulation-partitions-\(option.id)-\(chosen)", minimumBytes: minimum,
+          maximumBytes: maximum,
+          releaseDescription: "SIMULATION · \(channel.rawValue.uppercased()) · Aurora test release",
+          targetDescription: source == .freeExtent
+            ? "Simulated internal disk · Use free space"
+            : "Simulated internal disk · Resize \(sourceName)",
+          fixedMacOSBytes: source == .macOSResize ? nil : running.bytes,
+          macOSFreeBeforeAllocationBytes: source == .macOSResize
+            ? layout.freeBytes(of: running.id) : nil,
+          recommendedAuroraBytes: 40 * unit, allocationSource: source,
+          baselineMacOSBytes: running.bytes,
+          otherAllocatedBytes: layout.totalBytes - running.bytes
+            - (source == .freeExtent ? option.maximumBytes : 0)))
+    }
+
+    public func preparePreservedReinstallPlan(
+      sourceIdentifier: String,
+      progress: @escaping @Sendable (AssetProgressUpdate) -> Void
+    ) async throws -> PlanPreparationDisplay {
+      progress(AssetProgressUpdate(stage: .fetchingCatalog))
+      try await tick()
+      guard let layout = Self.partitionsLayout(scenario),
+        let row = layout.row(sourceIdentifier), row.reset?.isAvailable == true,
+        let running = layout.segments.first(where: { $0.kind == .macOS })
+      else { throw InstallerPlanPreparationError.preservedReinstallUnavailable }
+      progress(AssetProgressUpdate(stage: .planning))
+      lock.withLock { resetRequested = true }
+      return .plan(
+        PlanDisplay(
+          diskTotalBytes: layout.totalBytes, auroraBytes: row.bytes,
+          bindingDigest: "simulation-reset-\(sourceIdentifier)", isResizable: false,
+          releaseDescription: "SIMULATION · \(channel.rawValue.uppercased()) · Aurora test release",
+          targetDescription: "Existing Aurora installation · Reset without resizing",
+          fixedMacOSBytes: running.bytes, allocationSource: .preservedInstall,
+          baselineMacOSBytes: running.bytes,
+          otherAllocatedBytes: layout.totalBytes - running.bytes - row.bytes))
+    }
+
+    /// Recorded-looking layouts for the Partitions screen, on a 500 GB Mac.
+    public static func partitionsLayout(_ scenario: InstallerSimulationScenario)
+      -> DiskLayoutDisplay?
+    {
+      let gb: UInt64 = 1_000_000_000
+      typealias Region = NativeDiskLayout.Region
+      var regions = [Region]()
+      var offset: UInt64 = 24_576
+      var number = 1
+      func add(
+        _ kind: NativeDiskLayout.Kind, _ name: String, _ bytes: UInt64, free: UInt64? = nil,
+        recognized: Bool = false, running: Bool = false
+      ) {
+        let identifier = kind == .free ? nil : "disk0s\(number)"
+        if kind != .free { number += 1 }
+        regions.append(
+          Region(
+            kind: kind, identifier: identifier,
+            uuid: identifier.map { "00000000-0000-4000-8000-0000000000\($0.suffix(2))" },
+            offsetBytes: offset, lengthBytes: bytes, name: name, freeBytes: free,
+            recognized: recognized, isRunningMacOS: running))
+        offset += bytes
+      }
+      add(.appleSystem, "Apple system", 524_288_000)
+      switch scenario {
+      case .partitions:
+        add(.macOS, "Macintosh HD", 260 * gb, free: 110 * gb, running: true)
+        add(.linux, "Aurora Fedora Remix", 80 * gb, recognized: true)
+        add(.free, "Free", 36 * gb)
+        add(.linux, "Aurora Alarm", 48 * gb, recognized: true)
+        add(.linux, "Fedora Linux with KDE Plasma", 64 * gb)
+      case .partitionsFreeAfterMacOS:
+        add(.macOS, "Macintosh HD", 300 * gb, free: 92 * gb, running: true)
+        add(.free, "Free", 60 * gb)
+        add(.linux, "Aurora Fedora Remix", 128 * gb, recognized: true)
+      case .partitionsTwoMacOS:
+        add(.macOS, "Macintosh HD", 300 * gb, free: 140 * gb, running: true)
+        add(.macOS, "macOS Tahoe Beta", 188 * gb, free: 64 * gb)
+      case .partitionsNoRoom:
+        add(.macOS, "Macintosh HD", 300 * gb, free: 41 * gb, running: true)
+        add(.linux, "Aurora Fedora Remix", 128 * gb, recognized: true)
+        add(.linux, "Aurora Alarm", 60 * gb, recognized: true)
+      default:
+        return nil
+      }
+      add(.appleSystem, "Recovery", 5_368_709_120)
+      let linux = regions.filter { $0.kind == .linux && $0.recognized }
+      // The removal service erases only a lone installation.
+      let removable =
+        linux.count == 1 && regions.filter { $0.kind == .linux }.count == 1
+        ? linux[0].uuid : nil
+      var shrinkable = [String: UInt64]()
+      for region in regions where region.kind == .macOS {
+        if let identifier = region.identifier, let free = region.freeBytes,
+          free > PlanDisplay.recommendedMacOSFreeBytes
+        {
+          shrinkable[identifier] = free - PlanDisplay.recommendedMacOSFreeBytes
+        }
+      }
+      return DiskLayoutDisplay(
+        layout: NativeDiskLayout(
+          diskBytes: offset + 20_480, regions: regions,
+          removableStartupContainerUUID: removable),
+        freeSpaceOffsets: Set(regions.filter { $0.kind == .free }.map(\.offsetBytes)),
+        shrinkableBytes: shrinkable,
+        resettableSources: Set(linux.compactMap(\.identifier)),
+        icon: { $0.recognized ? .auroraVolume : .internalDrive })
+    }
+
     public func approve() throws {
       if scenario == .approvalChanged { throw SimulationError.planChanged }
       lock.withLock { approved = true }
@@ -328,8 +504,11 @@
     }
 
     private func completion() -> CompletionDisplay {
+      // A preserved reset keeps the enrolled startup volume: no Recovery step.
+      let reset = lock.withLock { resetRequested }
       let next: InstallerNextAction =
         switch scenario {
+        case _ where reset: .verifyInstalledSystem
         case .manualRecovery: .manualRecovery
         case .completed: .verifyInstalledSystem
         case .installationMedia: .attachInstallationMedia

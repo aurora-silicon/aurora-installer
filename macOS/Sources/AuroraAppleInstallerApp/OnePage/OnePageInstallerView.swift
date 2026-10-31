@@ -14,6 +14,11 @@ struct OnePageInstallerView: View {
   @State private var showsShutdownConfirmation = false
   @State private var showsRecoveryRetryConfirmation = false
   @State private var showsStartOverConfirmation = false
+  /// The option chosen under Add a new installation.
+  @State private var selectedPartitionOption: String?
+  /// The row whose Erase or Reset sheet is open.
+  @State private var erasingRow: DiskLayoutDisplay.Row?
+  @State private var resettingRow: DiskLayoutDisplay.Row?
   private let device: MacHeaderDisplay
   /// Which channel this Mac reads. Owned by the scene so the banner always
   /// names the channel the next preparation will actually fetch; `nil` when
@@ -24,7 +29,13 @@ struct OnePageInstallerView: View {
   let onChannelAvailability: (Bool) -> Void
   let onSessionAvailable: (InstallerSession) -> Void
   let onRemoveLinux: () -> Void
+  /// Erase one installation: the removal service's review, which must find
+  /// the startup container with this partition UUID.
+  let onEraseInstallation: (String) -> Void
   let onChooseSystem: (() -> Void)?
+  /// Rendering an already driven session: no inspection on appear and no
+  /// sheets, which the renderer draws on their own.
+  private var rendersExistingSession = false
 
   init(
     environment: any InstallerEnvironment,
@@ -34,6 +45,7 @@ struct OnePageInstallerView: View {
     onChannelAvailability: @escaping (Bool) -> Void = { _ in },
     onSessionAvailable: @escaping (InstallerSession) -> Void = { _ in },
     onRemoveLinux: @escaping () -> Void = {},
+    onEraseInstallation: @escaping (String) -> Void = { _ in },
     onChooseSystem: (() -> Void)? = nil
   ) {
     _session = State(
@@ -49,8 +61,30 @@ struct OnePageInstallerView: View {
     self.onChannelAvailability = onChannelAvailability
     self.onSessionAvailable = onSessionAvailable
     self.onRemoveLinux = onRemoveLinux
+    self.onEraseInstallation = onEraseInstallation
     self.onChooseSystem = onChooseSystem
   }
+
+  #if DEBUG
+    /// The flow renderer's page for a session it drives itself.
+    init(
+      renderingSession session: InstallerSession, selection: AuroraInstallationSelection,
+      selectedPartitionOption: String? = nil
+    ) {
+      _session = State(initialValue: session)
+      _selectedPartitionOption = State(initialValue: selectedPartitionOption)
+      device = .simulation
+      self.selection = selection
+      startAtPlan = false
+      channel = .edge
+      onChannelAvailability = { _ in }
+      onSessionAvailable = { _ in }
+      onRemoveLinux = {}
+      onEraseInstallation = { _ in }
+      onChooseSystem = {}
+      rendersExistingSession = true
+    }
+  #endif
 
   var body: some View {
     Group {
@@ -72,6 +106,7 @@ struct OnePageInstallerView: View {
       onChannelAvailability(available)
     }
     .task {
+      guard !rendersExistingSession else { return }
       onSessionAvailable(session)
       await recheck()
     }
@@ -131,6 +166,32 @@ struct OnePageInstallerView: View {
         onCancel: { showsRecoveryRetryConfirmation = false }
       )
     }
+    .sheet(item: $erasingRow) { row in
+      if case .partitions(_, let layout) = session.phase {
+        EraseInstallationSheet(
+          layout: layout, row: row, onCancel: { erasingRow = nil },
+          onErase: {
+            erasingRow = nil
+            if let uuid = row.startupContainerUUID { onEraseInstallation(uuid) }
+          })
+      }
+    }
+    .sheet(item: $resettingRow) { row in
+      ResetInstallationSheet(
+        row: row, selection: selection, onCancel: { resettingRow = nil },
+        onReset: {
+          resettingRow = nil
+          Task { await session.reset(row.id) }
+        })
+    }
+    .onChange(of: session.phase) { _, phase in
+      if case .partitions(_, let layout) = phase,
+        let selected = selectedPartitionOption,
+        !layout.options.contains(where: { $0.id == selected })
+      {
+        selectedPartitionOption = nil
+      }
+    }
     .sheet(isPresented: $showsStartOverConfirmation) {
       ConfirmationSheet(
         title: PlainLanguage.startOverConfirmationTitle,
@@ -157,7 +218,8 @@ struct OnePageInstallerView: View {
 
   private var installerPage: some View {
     InstallerPageLayout(
-      showsFooter: session.phase != .inspecting, contentAlignment: pageContentAlignment
+      showsFooter: session.phase != .inspecting, contentAlignment: pageContentAlignment,
+      footerAlignment: footerAlignment, scrollsContent: isPartitions
     ) {
       header
     } content: {
@@ -165,6 +227,16 @@ struct OnePageInstallerView: View {
     } actions: {
       HStack(spacing: 16) { actions }
     }
+  }
+
+  private var isPartitions: Bool {
+    if case .partitions = session.phase { true } else { false }
+  }
+
+  /// Buttons end at the column's right edge; the install screen's warning
+  /// reads from its left.
+  private var footerAlignment: Alignment {
+    if case .installing = session.phase { .leading } else { .trailing }
   }
 
   private var pageContentAlignment: Alignment {
@@ -214,6 +286,15 @@ struct OnePageInstallerView: View {
 
     case .existingInstallRefused:
       existingInstallRefusedPanel()
+
+    case .partitions(_, let layout):
+      PartitionsPanel(
+        layout: layout, selectedOption: $selectedPartitionOption,
+        enabled: session.canChoosePartitionAction,
+        onShrink: { target in Task { await session.install(into: target) } },
+        onErase: { erasingRow = $0 },
+        onReset: { resettingRow = $0 },
+        onOpenStartupDisk: { _ = session.openStartupDisk() })
 
     case .preparingPlan(let update), .planPrepared(_, let update):
       DownloadPanel(update: update)
@@ -335,7 +416,28 @@ struct OnePageInstallerView: View {
         .auroraSecondaryButton()
         .disabled(session.isBusy)
 
+    case .partitions(_, let layout):
+      if let onChooseSystem {
+        Button("Choose system", action: onChooseSystem)
+          .auroraSecondaryButton()
+          .disabled(session.isBusy)
+      }
+      Button(PlainLanguage.checkContinue) {
+        guard let option = layout.options.first(where: { $0.id == selectedPartitionOption })
+        else { return }
+        Task { await session.install(into: option.target) }
+      }
+      .auroraPrimaryButton()
+      .disabled(
+        !session.canChoosePartitionAction
+          || !layout.options.contains(where: { $0.id == selectedPartitionOption })
+      )
+      .keyboardShortcut(.defaultAction)
+
     case .planReview(let plan, let acknowledged):
+      if session.canReturnToPartitions {
+        Button("Back", action: session.returnToPartitions).auroraSecondaryButton()
+      }
       if session.canCancelPlanPreparation {
         Button("Cancel check", action: session.cancelPlanPreparation).auroraSecondaryButton()
       } else if session.planNeedsCheck {
@@ -361,6 +463,9 @@ struct OnePageInstallerView: View {
       .keyboardShortcut(.defaultAction)
 
     case .awaitingInstall(let plan, _, _):
+      if session.canReturnToPartitions {
+        Button("Back", action: session.returnToPartitions).auroraSecondaryButton()
+      }
       Button(plan.preservesStage1 ? "Reset Linux" : PlainLanguage.planInstall) {
         session.presentInstallCredentials()
       }
@@ -572,7 +677,7 @@ struct OnePageInstallerView: View {
 
   private var credentialSheetBinding: Binding<Bool> {
     Binding(
-      get: { session.credentialSheet.context != nil },
+      get: { !rendersExistingSession && session.credentialSheet.context != nil },
       set: { presented in
         if !presented {
           session.dismissCredentials()
@@ -768,6 +873,11 @@ struct DiskSplitPanel: View {
         )
         .font(InstallerTheme.body)
         .foregroundStyle(InstallerTheme.secondaryText)
+      } else if [.freeExtent, .otherContainerResize].contains(plan.allocationSource) {
+        // Where the space comes from, when it isn't the running macOS.
+        Text(plan.targetDescription)
+          .font(InstallerTheme.body)
+          .foregroundStyle(InstallerTheme.secondaryText)
       }
       HStack(alignment: .top) {
         capacity("macOS", bytes: plan.macOSBytes(for: displayedAuroraBytes), highlighted: false)
