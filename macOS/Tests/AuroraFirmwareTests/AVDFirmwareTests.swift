@@ -37,7 +37,7 @@ struct AVDFirmwareTests {
       ])
     #expect(try AVDFirmware.collect([:], chipID: 0x6040, spec: spec) == nil)
     let file = try #require(
-      AVDFirmware.collect(["SyntheticAVD": im4p(synthetic)], chipID: 0x6040, spec: spec))
+      try AVDFirmware.collect(["SyntheticAVD": im4p(synthetic)], chipID: 0x6040, spec: spec))
     #expect(file.bytes == synthetic)
     // A test descriptor never enables an unconfirmed production source rule.
     #expect(try AVDFirmware.collect(["SyntheticAVD": im4p(synthetic)], chipID: 0x6040) == nil)
@@ -74,7 +74,7 @@ struct AVDFirmwareTests {
     for chip: UInt64 in [0x6000, 0x8112, 0x8140] {
       #expect(try AVDFirmware.reloadImage(synthetic, chipID: chip) == nil)
     }
-    let file = try #require(AVDFirmware.reloadImage(synthetic, chipID: 0x6040))
+    let file = try #require(try AVDFirmware.reloadImage(synthetic, chipID: 0x6040))
     #expect(file.name == "apple/avd-apple-t6040.bin")
     #expect(file.bytes == synthetic)
     #expect(file.version == 0x23f3_b998)
@@ -86,7 +86,7 @@ struct AVDFirmwareTests {
   }
 
   @Test func packageRecordsVersionAndExactSizeInBothManifests() throws {
-    let file = try #require(AVDFirmware.reloadImage(synthetic, chipID: 0x6040))
+    let file = try #require(try AVDFirmware.reloadImage(synthetic, chipID: 0x6040))
     let archive = try FirmwarePackageBuilder.build([file])
     let manifest = String(decoding: archive.manifest, as: UTF8.self)
     #expect(manifest.contains("FILE \(file.name) SHA256 \(synthetic.sha256)\n"))
