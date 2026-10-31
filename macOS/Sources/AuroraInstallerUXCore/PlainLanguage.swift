@@ -860,7 +860,7 @@
               "Aurora needs \(bytes(required)); only \(bytes(available)) can be made available within the current safety limits. Free space shown in macOS is not necessarily space available for installation. The disk has not been changed.",
             technicalDetail: technical,
             remedy:
-              "Remove files you no longer need in macOS and empty the Trash, then choose Check again. The installer will check the available space again before allowing installation."
+              "Remove files you no longer need in macOS and empty the Trash, then choose Check again. If this Mac already has a Linux installation you no longer need, Erase Linux returns its space to macOS first. The installer will check the available space again before allowing installation."
           )
         case .noEligibleCandidate:
           return FailureDisplay(
