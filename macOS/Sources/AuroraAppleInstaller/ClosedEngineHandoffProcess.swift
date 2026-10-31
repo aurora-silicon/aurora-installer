@@ -410,6 +410,8 @@
     let lengthBytes: UInt64
     let engineVersion: String
     let requiredHumanSteps: [String]
+    /// Encoded only when present, so a supported Mac's request is unchanged.
+    let experimentalAdmission: String?
 
     init(invocation: ClosedEngineInvocation) {
       let plan = invocation.plan
@@ -426,6 +428,7 @@
       lengthBytes = plan.lengthBytes
       engineVersion = plan.engineVersion
       requiredHumanSteps = plan.requiredHumanSteps
+      experimentalAdmission = plan.experimentalAdmission
     }
 
     enum CodingKeys: String, CodingKey {
@@ -441,6 +444,7 @@
       case lengthBytes = "length_bytes"
       case engineVersion = "engine_version"
       case requiredHumanSteps = "required_human_steps"
+      case experimentalAdmission = "experimental_admission"
     }
   }
 

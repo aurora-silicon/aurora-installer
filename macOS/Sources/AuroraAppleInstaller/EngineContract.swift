@@ -71,6 +71,8 @@ struct EnginePlanMessage: Codable, Equatable, Sendable {
   let payloadDigest: String
   let repairManifestDigest: String?
   let requiredHumanSteps: [String]
+  /// Canonical `ExperimentalAdmissionRecord` text; nil on a supported Mac.
+  let experimentalAdmission: String?
 
   var computedPlanDigest: String {
     var fields = [
@@ -90,6 +92,9 @@ struct EnginePlanMessage: Codable, Equatable, Sendable {
       fields.append(repairManifestDigest)
     }
     fields.append(requiredHumanSteps.joined(separator: ","))
+    // Only an experimental plan has this field, so every other plan digest is
+    // unchanged.
+    if let experimentalAdmission { fields.append(experimentalAdmission) }
     return InstallerDigest.lengthPrefixedSHA256(fields).hexadecimal
   }
 }
@@ -230,6 +235,8 @@ struct EngineTranscriptDecoder: Sendable {
           payload["candidate_kind"] as? String == "repair"
           ? ["repair_manifest_digest"]
           : []
+        let experimentalKeys: Set<String> =
+          payload["experimental_admission"] != nil ? ["experimental_admission"] : []
         try requireKeys(
           payload,
           Set([
@@ -237,7 +244,7 @@ struct EngineTranscriptDecoder: Sendable {
             "candidate_kind", "source_identifier", "offset_bytes", "length_bytes",
             "engine_version", "engine_digest", "metadata_digest", "payload_digest",
             "required_human_steps",
-          ]).union(repairKeys),
+          ]).union(repairKeys).union(experimentalKeys),
           lineNumber
         )
         message = .plan(try decoder.decode(EnginePlanMessage.self, from: payloadData))
@@ -358,7 +365,11 @@ struct EngineTranscriptDecoder: Sendable {
           !plan.engineVersion.isEmpty,
           !plan.requiredHumanSteps.isEmpty,
           plan.candidateKind != "reinstall"
-            || plan.requiredHumanSteps == ["authenticateMachineOwner"]
+            || plan.requiredHumanSteps == ["authenticateMachineOwner"],
+          plan.experimentalAdmission.map({
+            (try? ExperimentalAdmissionRecord.decode($0))?.deviceIdentifier
+              == plan.deviceIdentifier && ["free", "resize", "replace"].contains(plan.candidateKind)
+          }) ?? true
         else {
           if plan.lengthBytes == 0
             || plan.offsetBytes.addingReportingOverflow(plan.lengthBytes).overflow

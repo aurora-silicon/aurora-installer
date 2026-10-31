@@ -126,17 +126,22 @@ public struct ClosedEngineProcessAdapter: Sendable {
       request.planningTranscript
     )
 
+    // An experimental plan (one whose digest binds the owner's record) may
+    // name a Mac the refusal list or the catalog leaves out; it then uses the
+    // payload every listed Mac shares. The helper re-runs the decision.
+    let experimental = transcript.plan?.experimentalAdmission != nil
     guard transcript.support == .supported,
-      !Self.explicitlyUnsupportedDevices.contains(transcript.deviceIdentifier)
+      experimental || !Self.explicitlyUnsupportedDevices.contains(transcript.deviceIdentifier)
     else {
       throw ClosedEngineProcessError.unsupportedDevice(
         transcript.deviceIdentifier
       )
     }
     guard
-      case .admitted(let pinnedInstaller) = catalog.admission(
-        for: transcript.deviceIdentifier
-      )
+      case .admitted(let pinnedInstaller) =
+        experimental
+        ? catalog.experimentalAdmission(for: transcript.deviceIdentifier)
+        : catalog.admission(for: transcript.deviceIdentifier)
     else {
       throw ClosedEngineProcessError.unsupportedDevice(
         transcript.deviceIdentifier
@@ -182,7 +187,8 @@ public struct ClosedEngineProcessAdapter: Sendable {
       throw ClosedEngineProcessError.transcriptDeviceMismatch
     }
     guard transcript.support == .supported,
-      !Self.explicitlyUnsupportedDevices.contains(transcript.deviceIdentifier)
+      invocation.plan.experimentalAdmission != nil
+        || !Self.explicitlyUnsupportedDevices.contains(transcript.deviceIdentifier)
     else {
       throw ClosedEngineProcessError.unsupportedDevice(
         transcript.deviceIdentifier

@@ -58,7 +58,9 @@
       guard
         try InstallerPerformance.measure("owner_device", { try environment.device() })
           == package.deviceIdentifier,
-        !AppleSiliconHostInspector.isExplicitlyUnsupported(package.deviceIdentifier)
+        NativeDeviceAdmission.admits(
+          deviceIdentifier: package.deviceIdentifier, admission: package.experimentalAdmission,
+          hardware: NativeInspectionHardware.live)
       else { throw NativeHandoffValidationError.invalidOwner }
       let before =
         try layout
