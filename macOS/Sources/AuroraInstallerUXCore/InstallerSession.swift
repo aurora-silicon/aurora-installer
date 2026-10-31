@@ -11,6 +11,10 @@
     /// Aurora is already on this Mac. The person may erase it or prepare a
     /// separate, fixed-size reinstall that keeps the enrolled startup setup.
     case existingInstallRefused(host: HostDisplay)
+    /// Partitions on this Mac: shown instead of the single-macOS flow when
+    /// the disk holds Linux, usable free space or more than one macOS. The
+    /// person erases or resets an installation, or chooses where another goes.
+    case partitions(host: HostDisplay, layout: DiskLayoutDisplay)
     case preparingPlan(AssetProgressUpdate)
     /// Everything is downloaded and verified; the plan waits for the person to
     /// continue instead of replacing the download screen on its own.
@@ -47,6 +51,10 @@
     public private(set) var isBusy = false
     private var isExecuting = false
     private var preservingStage1 = false
+    /// The space chosen on the Partitions screen; kept across size changes.
+    private var planTarget: InstallerPlanTarget?
+    /// The installation chosen for Reset on the Partitions screen.
+    private var preservedSource: String?
     private var operationID = UUID()
     public private(set) var planRevision = 0
     public private(set) var isEditingSize = false
@@ -63,6 +71,8 @@
       let hold: Bool
       let replanning: Bool
       let preservingStage1: Bool
+      let target: InstallerPlanTarget?
+      let preservedSource: String?
     }
 
     public func setSizeEditing(_ editing: Bool) {
@@ -165,7 +175,7 @@
       switch phase {
       case .inspecting:
         return nil
-      case .existingInstallRefused(let host):
+      case .existingInstallRefused(let host), .partitions(let host, _):
         return host.supported ? true : nil
       case .unsupported(let failure):
         if failure.isBlockedModel { return false }
@@ -297,7 +307,11 @@
         if host.supported, !environment.installationBlocked {
           recoveryAccount = try await environment.inspectRecoveryAccount()
         }
-        if recoveryAccount?.target != nil || !host.existingInstalls.isEmpty {
+        if recoveryAccount?.target == nil, let partitions = partitionsPhase(for: host) {
+          // Nothing is fetched until the person chooses what to do.
+          lastHost = host
+          phase = partitions
+        } else if recoveryAccount?.target != nil || !host.existingInstalls.isEmpty {
           // Refuse before anything is fetched: no catalog, no download.
           lastHost = host
           phase = .existingInstallRefused(host: host)
@@ -347,7 +361,83 @@
         return
       }
       preservingStage1 = false
+      planTarget = nil
+      preservedSource = nil
       await preparePlan(host: host)
+    }
+
+    // MARK: Partitions
+
+    /// The Partitions screen for this host, when its disk calls for one: a
+    /// supported Mac whose layout is complex.
+    private func partitionsPhase(for host: HostDisplay) -> InstallerSessionPhase? {
+      guard host.supported, !environment.installationBlocked, let layout = host.diskLayout,
+        layout.isComplex
+      else { return nil }
+      return .partitions(host: host, layout: layout)
+    }
+
+    public var canChoosePartitionAction: Bool {
+      guard case .partitions(let host, _) = phase else { return false }
+      return host.supported && !isBusy && !isExecuting && !hasExecutionStarted
+        && preparationDrain == nil && !environment.installationBlocked
+        && environment.engineSupported
+    }
+
+    /// Plans another installation in the chosen space, next to everything
+    /// already on the disk, and continues to the usual size screen.
+    public func install(into target: InstallerPlanTarget) async {
+      guard canChoosePartitionAction, case .partitions(let host, let layout) = phase,
+        layout.option(for: target) != nil
+      else { return }
+      preservingStage1 = false
+      planTarget = target
+      preservedSource = nil
+      await preparePlan(host: host)
+    }
+
+    public func canReset(_ rowID: String) -> Bool {
+      guard canChoosePartitionAction, case .partitions(_, let layout) = phase else { return false }
+      return layout.row(rowID)?.reset?.isAvailable == true
+    }
+
+    /// Prepares the preserved Stage 1 reinstall of this one installation.
+    public func reset(_ rowID: String) async {
+      guard canReset(rowID), case .partitions(let host, _) = phase else { return }
+      preservingStage1 = true
+      planTarget = nil
+      preservedSource = rowID
+      await preparePlan(host: host)
+    }
+
+    /// Whether the plan on screen came from the Partitions screen and may go
+    /// back to it. Nothing has been approved or run.
+    public var canReturnToPartitions: Bool {
+      guard planTarget != nil || preservedSource != nil, let host = lastHost,
+        partitionsPhase(for: host) != nil, !isBusy, !isExecuting, !hasExecutionStarted,
+        credentialSheet.context == nil
+      else { return false }
+      switch phase {
+      case .planReview, .awaitingInstall: return true
+      default: return false
+      }
+    }
+
+    public func returnToPartitions() {
+      guard canReturnToPartitions, let host = lastHost, let partitions = partitionsPhase(for: host)
+      else { return }
+      operationID = UUID()
+      environment.cancelPlanPreparation()
+      stopPrefetch()
+      planNeedsCheck = false
+      draftAllocationBytes = nil
+      isEditingSize = false
+      allocationNotice = nil
+      stagingProgress = [:]
+      planTarget = nil
+      preservedSource = nil
+      preservingStage1 = false
+      phase = partitions
     }
 
     public var canPreparePreservedReinstall: Bool {
@@ -372,6 +462,7 @@
         !host.existingInstalls.isEmpty
       else { return }
       recoveryAccount = nil
+      if let partitions = partitionsPhase(for: host) { phase = partitions }
     }
 
     /// Every returned plan is reviewed anew, even when the engine clamps to
@@ -413,7 +504,8 @@
       if case .preparingPlan = phase {
         stopPrefetch()
         if let host = lastHost {
-          phase = preservingStage1 ? .existingInstallRefused(host: host) : .welcome(host)
+          phase = preparationReturn(
+            host: host, partitions: planTarget != nil || preservedSource != nil)
         }
       } else if case .planReview(let plan, _) = phase {
         planNeedsCheck = true
@@ -440,7 +532,7 @@
       operationID = UUID()
       let request = PreparationRequest(
         id: operationID, host: host, bytes: auroraBytes, hold: hold, replanning: replanning,
-        preservingStage1: preservingStage1)
+        preservingStage1: preservingStage1, target: planTarget, preservedSource: preservedSource)
       // Invalidate before cancelling: even a worker that ignores cancellation
       // cannot publish authority or send a late result into this generation.
       environment.cancelPlanPreparation()
@@ -479,8 +571,16 @@
               session.applyPreparation(update)
             }
           }
+          if request.preservingStage1, let source = request.preservedSource {
+            return try await environment.preparePreservedReinstallPlan(
+              sourceIdentifier: source, progress: progress)
+          }
           if request.preservingStage1 {
             return try await environment.preparePreservedReinstallPlan(progress: progress)
+          }
+          if let target = request.target {
+            return try await environment.preparePlan(
+              auroraBytes: request.bytes, target: target, progress: progress)
           }
           return try await environment.preparePlan(
             auroraBytes: request.bytes, progress: progress)
@@ -532,7 +632,7 @@
               )
               return
             }
-            phase = .existingInstallRefused(host: host)
+            phase = partitionsPhase(for: host) ?? .existingInstallRefused(host: host)
           }
         } catch {
           preparationTask = nil
@@ -544,7 +644,8 @@
               phase = .planReview(plan, acknowledged: false)
             } else if let host = request.host {
               stopPrefetch()
-              phase = .welcome(host)
+              phase = preparationReturn(
+                host: host, partitions: request.target != nil || request.preservedSource != nil)
             }
           } else {
             stopPrefetch()
@@ -553,6 +654,13 @@
         }
         if operationID == request.id { isBusy = false }
       }
+    }
+
+    /// Where a cancelled first preparation goes back to: the screen it was
+    /// started from.
+    private func preparationReturn(host: HostDisplay, partitions: Bool) -> InstallerSessionPhase {
+      if partitions, let screen = partitionsPhase(for: host) { return screen }
+      return preservingStage1 ? .existingInstallRefused(host: host) : .welcome(host)
     }
 
     private func applyPreparation(_ update: AssetProgressUpdate) {
@@ -1220,6 +1328,8 @@
       isExecuting = false
       lastHost = nil
       preservingStage1 = false
+      planTarget = nil
+      preservedSource = nil
       refusedPlan = nil
       encryptLinuxDisk = allowsEncryption
       environment.setEncryptLinuxDisk(allowsEncryption)

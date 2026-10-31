@@ -28,6 +28,10 @@
     /// identifier (`apple,j504`), its model identifier (`Mac15,3`), and the
     /// device identifiers the signed catalog admits when it could be read.
     public let unsupportedModel: UnsupportedModelDisplay?
+    /// Every installation and free space on the disk. When it is complex the
+    /// session shows the Partitions screen instead of today's single-macOS
+    /// flow. Nil when the disk could not be described.
+    public let diskLayout: DiskLayoutDisplay?
 
     public init(
       chipAndSpace: String,
@@ -37,8 +41,10 @@
       existingInstalls: [ExistingInstallDisplay] = [],
       spaceShortfall: InstallerAllocationRecommendationError? = nil,
       unsupportedModel: UnsupportedModelDisplay? = nil,
-      powerButtonGuide: MacPowerButtonGuide = .generic
+      powerButtonGuide: MacPowerButtonGuide = .generic,
+      diskLayout: DiskLayoutDisplay? = nil
     ) {
+      self.diskLayout = diskLayout
       self.chipAndSpace = chipAndSpace
       self.chipAndFreeSpace = chipAndFreeSpace ?? chipAndSpace
       self.supported = supported
@@ -616,6 +622,18 @@
     func preparePreservedReinstallPlan(
       progress: @escaping @Sendable (AssetProgressUpdate) -> Void
     ) async throws -> PlanPreparationDisplay
+    /// A plan for the space chosen on the Partitions screen, next to any
+    /// installations already there. Only the matching candidate is planned.
+    func preparePlan(
+      auroraBytes: UInt64?, target: InstallerPlanTarget,
+      progress: @escaping @Sendable (AssetProgressUpdate) -> Void
+    ) async throws -> PlanPreparationDisplay
+    /// The preserved reinstall of the installation whose startup container
+    /// has this partition identifier.
+    func preparePreservedReinstallPlan(
+      sourceIdentifier: String,
+      progress: @escaping @Sendable (AssetProgressUpdate) -> Void
+    ) async throws -> PlanPreparationDisplay
     /// Invalidates in-flight read-only preparation and its retained approval authority.
     /// It never cancels helper-owned installation work.
     func cancelPlanPreparation()
@@ -699,6 +717,20 @@
     public func cancelPayloadPrefetchOnQuit() { cancelPayloadPrefetch() }
     public func preparePreservedReinstallPlan(
       progress _: @escaping @Sendable (AssetProgressUpdate) -> Void
+    ) async throws -> PlanPreparationDisplay {
+      throw InstallerJobError.unavailable
+    }
+    /// Environments that cannot target a space refuse rather than plan
+    /// somewhere the person did not choose.
+    public func preparePlan(
+      auroraBytes: UInt64?, target: InstallerPlanTarget,
+      progress: @escaping @Sendable (AssetProgressUpdate) -> Void
+    ) async throws -> PlanPreparationDisplay {
+      throw InstallerJobError.unavailable
+    }
+    public func preparePreservedReinstallPlan(
+      sourceIdentifier: String,
+      progress: @escaping @Sendable (AssetProgressUpdate) -> Void
     ) async throws -> PlanPreparationDisplay {
       throw InstallerJobError.unavailable
     }

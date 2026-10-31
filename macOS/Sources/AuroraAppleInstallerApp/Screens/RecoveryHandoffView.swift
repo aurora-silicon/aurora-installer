@@ -65,7 +65,6 @@ struct RecoveryHandoffView: View {
           .accessibilityHidden(!busy).accessibilityLabel("Preparing shutdown")
         Button(shutdownConfirmed ? "Yes, I have read, shut down" : "Shut down", action: shutDown)
           .auroraPrimaryButton().disabled(busy)
-        Color.clear.frame(width: 16, height: 16).accessibilityHidden(true)
       }
     }
     .foregroundStyle(InstallerTheme.text)

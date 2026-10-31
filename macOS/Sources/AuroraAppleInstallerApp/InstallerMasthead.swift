@@ -37,14 +37,19 @@ struct InstallerMasthead: View {
   let device: MacHeaderDisplay
   private static let markSpacing: CGFloat = 10
   private static let deviceSymbolSpacing: CGFloat = 14
+  private static let markSize: CGFloat = 32
+  /// AuroraLogo.png's artwork starts 164 of 1024 pixels in; pulling the mark
+  /// left by that margin puts the visible logo on the page column's edge.
+  private static let markInset = markSize * 164 / 1024
 
   var body: some View {
     HStack(spacing: 16) {
       HStack(spacing: Self.markSpacing) {
-        AuroraMark().frame(width: 32, height: 32)
+        AuroraMark().frame(width: Self.markSize, height: Self.markSize)
         Text(distribution?.title ?? "Aurora").font(.system(size: 17, weight: .semibold))
           .lineLimit(1)
       }
+      .padding(.leading, -Self.markInset)
       Spacer(minLength: 16)
       HStack(spacing: Self.deviceSymbolSpacing) {
         Image(systemName: device.symbol).font(.system(size: 23, weight: .regular))

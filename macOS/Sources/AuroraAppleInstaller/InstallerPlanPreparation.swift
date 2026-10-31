@@ -9,6 +9,9 @@
     case freshInspectionRequired
     case engineVersionUnavailable
     case preservedReinstallUnavailable
+    /// The space chosen on the Partitions screen is gone, changed, or would
+    /// reach an installation that stays.
+    case targetUnavailable
   }
 
   public protocol InstallerPlanExecuting: Sendable {
