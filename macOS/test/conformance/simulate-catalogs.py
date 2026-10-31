@@ -37,7 +37,10 @@ FIRMWARE = ['13.5', '14.8.3', '26.6', '26.6.2']
 
 def qualified_machines():
     supported, _ = supported_models.load()
-    unqualified = supported_models.stage1_unqualified()
+    # Until #54, boards whose iBoot refuses the common Stage 1 were left out.
+    # With it, every supported board is qualified (the installer warns on the
+    # stage1_caution boards instead), which is what the assembler then writes.
+    unqualified = getattr(supported_models, 'stage1_unqualified', dict)()
     return {i.removeprefix('apple,') + 'ap': list(FIRMWARE) for i in supported if i not in unqualified}
 
 
