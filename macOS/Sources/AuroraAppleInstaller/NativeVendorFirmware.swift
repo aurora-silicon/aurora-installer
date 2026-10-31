@@ -185,11 +185,14 @@
           try merge(wifi, into: &outputs)
           try merge(bluetooth, into: &outputs)
           try InstallerPerformance.measure("vendor_cameras") {
-            for name in ["appleh13camerad", "appleh16camerad"] {
-              let path = "usr/sbin/" + name
+            for path in [
+              "usr/sbin/appleh13camerad", "usr/sbin/appleh16camerad",
+              "usr/libexec/appleh13camerad", "usr/libexec/appleh16camerad",
+            ] {
               if try !imageTree.isAbsent(path) {
                 let data = try imageTree.read(path, maximum: 16 << 20)
-                fallback[name] = data
+                let name = String(path.split(separator: "/").last!)
+                try merge([name: data], into: &fallback)
                 if package.deviceIdentifier != "apple,j700" {
                   try merge(
                     NeoFirmwareConversions.camera(data, requireNeoSet: false), into: &outputs)
