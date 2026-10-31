@@ -8,9 +8,9 @@ enum AuraBootMode: String, Codable {
     self == .raw ? "raw/aura-raw.bin" : "macho/aura-boot.macho"
   }
 
-  var stage2Path: String {
-    self == .raw ? "raw/boot.bin" : "macho/aura-stage2.pkg"
-  }
+  /// The Mach-O Stage 1 carries the raw image unchanged, so both chainload
+  /// the same Stage 2 from the startup partition.
+  var stage2Path: String { "raw/boot.bin" }
 
   func enrollmentArguments(stage1: String, volume: String) -> [String] {
     var arguments = ["configure-boot", "-c", stage1, "-v", volume]

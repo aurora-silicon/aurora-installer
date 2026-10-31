@@ -14,6 +14,10 @@ final class InstallerModel {
     CommandLine.arguments.contains("--recovery-preview")
     || (!RecoveryActions.isPreview && RecoveryActions.recovering)
   var stage: Stage = .welcome { didSet { changed() } }
+  /// A newer Stage 1 staged in the recovery payload: Recovery enrolls only it.
+  let stage1Update: AuraBootMode? =
+    RecoveryActions.isPreview && CommandLine.arguments.contains("--preview-update")
+    ? .macho : RecoveryActions.inRecovery ? RecoveryActions.pendingStage1Update() : nil
   var password = "" { didSet { changed() } }
   var authorizationOwner: RecoveryOwner? { didSet { changed() } }
   var authorizationUsesSourceOwner = false { didSet { changed() } }
@@ -69,7 +73,9 @@ final class InstallerModel {
   }
 
   func resumeAccountSetup() {
-    guard RecoveryActions.inRecovery, RecoveryActions.recovering,
+    // A staged Stage 1 update keeps its own welcome screen; the deferred
+    // account step would otherwise replace it with the completion screen.
+    guard RecoveryActions.inRecovery, RecoveryActions.recovering, stage1Update == nil,
       !creatingAccount, !restartingWithoutAccount, !checkingAccount
     else { return }
     checkingAccount = true
@@ -311,18 +317,29 @@ final class InstallerModel {
       let credential = password
       password.removeAll(keepingCapacity: false)
       let selection = bootSelection
+      let update = stage1Update
       stage = .installing
       operations = []
       DispatchQueue.global(qos: .userInitiated).async {
-        do {
-          try RecoveryActions.install(selection: selection, owner: owner, password: credential) {
-            amount, operation in
-            DispatchQueue.main.async {
-              self.progress = amount
-              self.currentOperation = operation
-              self.operations.append(operation)
-            }
+        let report: (Double, String) -> Void = { amount, operation in
+          DispatchQueue.main.async {
+            self.progress = amount
+            self.currentOperation = operation
+            self.operations.append(operation)
           }
+        }
+        do {
+          if update != nil {
+            try RecoveryActions.updateStage1(owner: owner, password: credential, progress: report)
+            DispatchQueue.main.async {
+              self.accountOptional = false
+              self.accountNeedsAuthorization = false
+              self.stage = .complete
+            }
+            return
+          }
+          try RecoveryActions.install(
+            selection: selection, owner: owner, password: credential, progress: report)
           let account = try RecoveryActions.recoveryAccount()
           DispatchQueue.main.async { self.showAccountStep(account) }
         } catch {
