@@ -8,6 +8,14 @@ public enum NeoFirmwareConversions {
     public let magic: Int
     public let name: String
     public let size: Int
+    public let fileSize: Int
+
+    init(magic: Int, name: String, size: Int, fileSize: Int? = nil) {
+      self.magic = magic
+      self.name = name
+      self.size = size
+      self.fileSize = fileSize ?? size
+    }
   }
 
   public static let cameraRegistry: [CameraEntry] = [
@@ -17,7 +25,8 @@ public enum NeoFirmwareConversions {
     CameraEntry(magic: 0x8723_0101, name: "8723_01XX", size: 0x361c),
     CameraEntry(magic: 0x1921_0106, name: "1921_01XX", size: 0xad40),
     CameraEntry(magic: 0x1922_0201, name: "1922_02XX", size: 0xad40),
-    CameraEntry(magic: 0x1925_0306, name: "1925_03XX", size: 0xcbc0),
+    CameraEntry(magic: 0x1925_0306, name: "1925_03XX", size: 0xcbc0, fileSize: 0xcba6),
+    CameraEntry(magic: 0x2224_0106, name: "2224_01XX", size: 0x6ff4),
   ]
   public static let requiredCameraNames: Set<String> = [
     "apple/isp_1921_01XX.dat", "apple/isp_1922_02XX.dat", "apple/isp_1925_03XX.dat",
@@ -56,7 +65,8 @@ public enum NeoFirmwareConversions {
         h[5] != 0 && h[5] & 0xffff_0000 == h[5], h[7] == 0x03c0_0000,
         let entry = registry[h[0]]
       else { continue }
-      let bytes = try data.part(offset, (entry.size + 63) & ~63)
+      var bytes = try data.part(offset, entry.fileSize)
+      bytes.append(Data(repeating: 0, count: ((entry.size + 63) & ~63) - entry.fileSize))
       let name = "apple/isp_" + entry.name + ".dat"
       try require(files[name] == nil || files[name] == bytes, "Conflicting camera setfiles.")
       files[name] = bytes

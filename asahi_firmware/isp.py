@@ -3,7 +3,7 @@ import struct, os, logging
 from collections import namedtuple
 from .core import FWFile
 
-SetFile = namedtuple('SetFile', ['sensor', 'magic', 'name', 'size'])
+SetFile = namedtuple('SetFile', ['sensor', 'magic', 'name', 'size', 'file_size'], defaults=[None])
 
 ISP_PREFIX = "apple/isp_"
 ISP_SETFILE_ALIGNMENT = 0x1000
@@ -33,6 +33,8 @@ ISP_SETFILES = [
     # SetFile(0x514, 0x28200405, "2820_04XX", 0xa198),
     SetFile(0x558, 0x19210106, "1921_01XX", 0xad40),
     SetFile(0x558, 0x19220201, "1922_02XX", 0xad40),
+    SetFile(0x558, 0x19250306, "1925_03XX", 0xcbc0, 0xcba6),
+    SetFile(0x958, 0x22240106, "2224_01XX", 0x6ff4),
     # SetFile(0x603, 0x79200109, "7920_01XX", 0xad2c),
     # SetFile(0x603, 0x79200205, "7920_02XX", 0xad2c),
     # SetFile(0x603, 0x79210104, "7921_01XX", 0xad90),
@@ -79,6 +81,7 @@ def isp_setfile_header_check(hdr):
 class ISPFWCollection(object):
     def __init__(self, source_path):
         self.fwfiles = []
+        self.sources = {}
         self.load(source_path)
 
     def extract_isp(self, data):
@@ -96,8 +99,14 @@ class ISPFWCollection(object):
             if not setfile:
                 continue
 
-            size = round_up(setfile.size, 64)  # align to be safe
-            dat = data[offset:offset + size]
+            length = setfile.file_size or setfile.size
+            if length > len(data) - offset:
+                log.warning("isp-extract: Truncated sensor tuning, skipping %s", setfile.name)
+                continue
+            # Padding belongs to the firmware buffer, not to the next object
+            # in the camera daemon. In particular, J700 has a short file.
+            dat = data[offset:offset + length]
+            dat += bytes(round_up(setfile.size, 64) - length)
             sensor_name = f"{setfile.sensor:x}_{setfile.name}"
 
             log.info(f"isp-extract: {found + 1}/{ISP_SETFILE_COUNT}: Found sensor {sensor_name} data at offset {offset:#x}")
@@ -106,28 +115,38 @@ class ISPFWCollection(object):
             found += 1
 
         if found != ISP_SETFILE_COUNT:
-            log.warn(f"isp-extract: Found {found}/{ISP_SETFILE_COUNT} calibration files.")
+            log.warning(f"isp-extract: Found {found}/{ISP_SETFILE_COUNT} calibration files.")
         else:
             log.info(f"isp-extract: Found all {found}/{ISP_SETFILE_COUNT} sensor calibration files!")
 
     def load(self, source_path):
         if os.path.isdir(source_path):
-            bin_path = os.path.join(source_path, "appleh13camerad")
+            paths = [os.path.join(source_path, directory, name)
+                     for directory in ("", "usr/sbin", "usr/libexec")
+                     for name in ("appleh13camerad", "appleh16camerad")]
         else:
-            bin_path = source_path
+            paths = [source_path]
 
-        if not os.path.exists(bin_path):
-            log.warn("appleh13camerad not found, cannot extract ISP camera calibration firmwares. Webcam output will be low quality.")
-            return
+        files = {}
+        for bin_path in paths:
+            if not os.path.isfile(bin_path):
+                continue
 
-        log.info(f"Extracting firmware from camera daemon at {bin_path}")
+            log.info(f"Extracting firmware from camera daemon at {bin_path}")
+            with open(bin_path, "rb") as fd:
+                data = fd.read()
+            name = os.path.basename(bin_path)
+            if name in self.sources and self.sources[name] != data:
+                raise ValueError("Conflicting camera daemon inputs")
+            self.sources[name] = data
+            for fwf in self.extract_isp(data):
+                if fwf.name in files and files[fwf.name] != fwf:
+                    raise ValueError("Conflicting camera sensor tuning")
+                files[fwf.name] = fwf
 
-        with open(bin_path, "rb") as fd:
-            data = fd.read()
-
-        for fwf in self.extract_isp(data):
-            self.fwfiles.append((fwf.name, fwf))
+        if not self.sources:
+            log.warning("Camera daemon not found, cannot extract ISP sensor tuning. Webcam output will be low quality.")
+        self.fwfiles = sorted(files.items())
 
     def files(self):
         return self.fwfiles
-

@@ -28,13 +28,40 @@ final class NeoFirmwareConversionTests: XCTestCase, @unchecked Sendable {
     try JSONDecoder().decode(Fixture.self, from: NeoFirmwareFixture.data())
   }
 
-  func testAllSevenCameraEntriesMatchTheAuthenticatedRegistry() throws {
+  func testOriginalSevenCameraEntriesMatchTheAuthenticatedRegistry() throws {
     let fixture = try fixture()
     XCTAssertEqual(fixture.registry.count, 7)
+    XCTAssertEqual(NeoFirmwareConversions.cameraRegistry.count, 8)
     XCTAssertEqual(
-      NeoFirmwareConversions.cameraRegistry.map(\.magic), fixture.registry.map(\.magic))
-    XCTAssertEqual(NeoFirmwareConversions.cameraRegistry.map(\.name), fixture.registry.map(\.name))
-    XCTAssertEqual(NeoFirmwareConversions.cameraRegistry.map(\.size), fixture.registry.map(\.size))
+      NeoFirmwareConversions.cameraRegistry.prefix(7).map(\.magic), fixture.registry.map(\.magic))
+    XCTAssertEqual(
+      NeoFirmwareConversions.cameraRegistry.prefix(7).map(\.name), fixture.registry.map(\.name))
+    XCTAssertEqual(
+      NeoFirmwareConversions.cameraRegistry.prefix(7).map(\.size), fixture.registry.map(\.size))
+  }
+
+  func testH17SetfilesUseDriverLengthsAndNeverCopyFollowingBytes() throws {
+    for (magic, name, size, fileSize) in [
+      (0x1925_0306, "1925_03XX", 0xcbc0, 0xcba6),
+      (0x2224_0106, "2224_01XX", 0x6ff4, 0x6ff4),
+    ] {
+      var input = Data(repeating: 0, count: fileSize)
+      let header = [magic, 0x2100_0000, 0, 0, 0x0100_0000, 0x0100_0000, 0, 0x03c0_0000]
+      for (index, word) in header.enumerated() {
+        for byte in 0..<4 {
+          input[index * 4 + byte] = UInt8(truncatingIfNeeded: word >> (24 - byte * 8))
+        }
+      }
+      input[fileSize - 1] = 0x55
+      let output = try NeoFirmwareConversions.camera(
+        input + Data(repeating: 0xa5, count: 64), requireNeoSet: false)
+      let bytes = try XCTUnwrap(output["apple/isp_" + name + ".dat"])
+      XCTAssertEqual(bytes.count, (size + 63) & ~63)
+      XCTAssertEqual(bytes.prefix(fileSize), input)
+      XCTAssertTrue(bytes.dropFirst(fileSize).allSatisfy { $0 == 0 })
+      XCTAssertThrowsError(
+        try NeoFirmwareConversions.camera(Data(input.dropLast()), requireNeoSet: false))
+    }
   }
 
   func testConvertersMatchTheLockedReferenceBytesAndRejections() throws {

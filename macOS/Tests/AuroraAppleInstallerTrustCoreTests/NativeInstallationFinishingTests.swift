@@ -123,7 +123,9 @@
             let directory = parent.appendingPathComponent("firmware-image-" + UUID().uuidString)
             self.attachment = directory
             let root = directory.appendingPathComponent("recovery")
-            for path in ["usr/share/firmware/wifi", "usr/share/firmware/bluetooth", "usr/sbin"] {
+            for path in [
+              "usr/share/firmware/wifi", "usr/share/firmware/bluetooth", "usr/sbin", "usr/libexec",
+            ] {
               try FileManager.default.createDirectory(
                 at: root.appendingPathComponent(path), withIntermediateDirectories: true,
                 attributes: [.posixPermissions: 0o700])
@@ -134,6 +136,14 @@
               : try XCTUnwrap(
                 self.inputs.value.rawFiles.first { $0.key.hasPrefix("camera/") }?.value)
             try camera.write(to: root.appendingPathComponent("usr/sbin/appleh13camerad"))
+            var h17 = Data(repeating: 0, count: 0x6ff4)
+            let header = [0x2224_0106, 0x2100_0000, 0, 0, 0x0100_0000, 0x0100_0000, 0, 0x03c0_0000]
+            for (index, word) in header.enumerated() {
+              for byte in 0..<4 {
+                h17[index * 4 + byte] = UInt8(truncatingIfNeeded: word >> (24 - byte * 8))
+              }
+            }
+            try h17.write(to: root.appendingPathComponent("usr/libexec/appleh16camerad"))
             if self.machine != "j700" {
               let url = try XCTUnwrap(
                 Bundle.module.url(
@@ -199,6 +209,7 @@
           contentsOf: fixture.esp.esp.appendingPathComponent("vendorfw/manifest.txt"),
           encoding: .utf8)
         XCTAssertTrue(manifest.contains("apple/isp_1921_01XX.dat"))
+        XCTAssertTrue(manifest.contains("apple/isp_2224_01XX.dat"))
         XCTAssertTrue(manifest.contains("asmedia/asm2214a-apple.bin"))
         XCTAssertTrue(manifest.contains("brcm/brcmfmac4355c1-pcie.apple,j314s.bin"))
         XCTAssertTrue(manifest.contains("brcm/brcmbt4388b0-apple,tokara-a.bin"))
