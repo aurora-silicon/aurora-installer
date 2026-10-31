@@ -105,6 +105,42 @@ class RuleTests(unittest.TestCase):
         self.assertIn('free about', check['detail'])
 
 
+class CautionTests(unittest.TestCase):
+    """A stage1_caution board is warned, then goes ahead; any other board is never warned."""
+
+    CAUTION = {'headline': 'Aurora may not start on this Mac yet', 'reason': 'iBoot may refuse it.',
+               'recovery': 'If the Mac shows \u201cmacOS needs to be reinstalled\u201d: choose Always Use, '
+                           'then use Erase Linux.',
+               'acknowledgement': 'I approve the disk layout above, and I understand Aurora may not start on this Mac.',
+               'acknowledgement_resize': 'I approve the disk resize above, and I understand Aurora may not start on '
+                                         'this Mac.'}
+
+    def dry(self, caution, supported=True, stage1=True):
+        row = {'supported': supported, 'boot_chain': {'stage1_member': 'esp/aurora/stage1.bin'} if stage1 else {},
+               'candidates': [{'plan': {}}]}
+        if caution:
+            row['stage1_caution'] = caution
+        return {d: row for d in conformance.DESKTOPS}
+
+    def run_check(self, device, dry):
+        context = {'stage1_caution': {'apple,j316s': 'refused', 'apple,j575d': 'untried'}}
+        return conformance.stage1_caution({'device_identifier': device, 'disk': {}}, dry, context)
+
+    def test_a_listed_board_is_warned_and_goes_ahead(self):
+        result = self.run_check('apple,j316s', self.dry(self.CAUTION))
+        self.assertTrue(result['ok'], result)
+        self.assertIn('Always Use', result['detail'])
+
+    def test_a_listed_board_without_the_warning_or_blocked_fails(self):
+        self.assertFalse(self.run_check('apple,j575d', self.dry(None))['ok'])
+        self.assertIn('blocked', self.run_check('apple,j316s', self.dry(self.CAUTION, stage1=False))['detail'])
+        self.assertIn('blocked', self.run_check('apple,j316s', self.dry(self.CAUTION, supported=False))['detail'])
+
+    def test_any_other_board_is_never_warned(self):
+        self.assertIsNone(self.run_check('apple,j413', self.dry(None)))
+        self.assertFalse(self.run_check('apple,j413', self.dry(self.CAUTION))['ok'])
+
+
 class PayloadPartTests(unittest.TestCase):
     def test_an_unsplit_payload_is_one_part_checked_against_the_payload_digest(self):
         model = {'payloadDigest': 'sha256:' + 'a' * 64, 'payloadArtifact': {

@@ -329,6 +329,9 @@ struct OnePageInstallerView: View {
       if let notice = session.allocationNotice {
         Text(notice).font(InstallerTheme.body).foregroundStyle(InstallerTheme.caution)
       }
+      if let caution = Stage1Caution.thisMac, !plan.preservesStage1 {
+        stage1CautionPanel(caution)
+      }
       acknowledgement(acknowledged, plan: plan)
 
     case .awaitingInstall(let plan, let helper, _):
@@ -586,7 +589,8 @@ struct OnePageInstallerView: View {
       plan.preservesStage1
         ? PlainLanguage.planPreservedAcknowledgement
         : PlainLanguage.planAcknowledgement(
-          resizesMacOS: plan.allocationSource != .freeExtent),
+          resizesMacOS: plan.allocationSource != .freeExtent,
+          stage1Caution: Stage1Caution.thisMac != nil),
       isOn: Binding(get: { acknowledged }, set: { session.setAcknowledged($0) })
     )
     .toggleStyle(.checkbox)
@@ -594,6 +598,21 @@ struct OnePageInstallerView: View {
     .font(InstallerTheme.body)
     .tint(.blue)
     .disabled(session.isBusy || session.isEditingSize || session.planNeedsCheck)
+  }
+
+  private func stage1CautionPanel(_ reason: String) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text(PlainLanguage.stage1CautionHeadline)
+        .font(InstallerTheme.body.weight(.semibold))
+        .foregroundStyle(InstallerTheme.caution)
+      Text(reason)
+        .font(InstallerTheme.body)
+        .fixedSize(horizontal: false, vertical: true)
+      Text(PlainLanguage.stage1CautionRecovery)
+        .font(InstallerTheme.body)
+        .foregroundStyle(InstallerTheme.secondaryText)
+        .fixedSize(horizontal: false, vertical: true)
+    }
   }
 
   private var helperNote: some View {

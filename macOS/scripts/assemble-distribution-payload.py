@@ -142,12 +142,12 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
     # The manifest uses apple,jXXX identifiers; Stage 1 qualification uses jXXXap classes.
     import supported_models
     identifiers, _ = supported_models.load()
-    # A board whose iBoot is known to refuse the common Stage 1 is never
-    # qualified for it: the installer then stops before changing the disk.
-    unqualified = supported_models.stage1_unqualified()
+    # Every supported Mac is qualified for the common Stage 1. The M1 Pro, Max
+    # and Ultra boards in stage1_caution may have it refused by iBoot; the
+    # installer warns their owners, with the recovery steps, before installing.
+    supported_models.stage1_caution()
     template['aurora_stage1'] = {'kind': 'common-raw-v1', 'qualified_machines': {
-        identifier.removeprefix('apple,') + 'ap': ['13.5', '14.8.3', '26.6', '26.6.2']
-        for identifier in identifiers if identifier not in unqualified
+        identifier.removeprefix('apple,') + 'ap': ['13.5', '14.8.3', '26.6', '26.6.2'] for identifier in identifiers
     }}
     if stage2_members:
         template['aurora_stage2'] = {'kind': 'board-file-v1', 'board_members': stage2_members}

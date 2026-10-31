@@ -60,6 +60,17 @@
         ? "I have a current backup and approve the disk resize above."
         : "I have a current backup and approve the disk layout above."
     }
+    /// Shown on the plan for an M1 Pro, M1 Max or M1 Ultra Mac, whose iBoot
+    /// may refuse the current Stage 1. The owner can still install.
+    public static let stage1CautionHeadline = "Aurora may not start on this Mac yet"
+    public static let stage1CautionRecovery =
+      "If the Mac shows “macOS needs to be reinstalled” or doesn’t start Aurora: shut it down, press and hold the power button until startup options appear, select Macintosh HD and choose Always Use. macOS starts as before. Then open this installer in macOS and use Erase Linux to remove the Aurora installation. macOS and its data are not changed by any of this."
+    public static func planAcknowledgement(resizesMacOS: Bool, stage1Caution: Bool) -> String {
+      stage1Caution
+        ? String(planAcknowledgement(resizesMacOS: resizesMacOS).dropLast())
+          + ", and I understand Aurora may not start on this Mac."
+        : planAcknowledgement(resizesMacOS: resizesMacOS)
+    }
     public static let planPreservedAcknowledgement =
       "I have a current backup and approve erasing Linux while keeping Stage 1 and the partition sizes."
     public static let planInstall = "Install"
