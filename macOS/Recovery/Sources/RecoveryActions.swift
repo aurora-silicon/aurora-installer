@@ -851,3 +851,86 @@ extension RecoveryActions {
     }
   }
 }
+
+extension RecoveryActions {
+  /// The Stage 1 that the recovery payload's default mode now provides, when it
+  /// differs from the enrolled one. Staging a new Stage 1 changes only the
+  /// payload; the startup partition, Stage 2 and the installed system stay.
+  static func pendingStage1Update() -> AuraBootMode? {
+    guard recovering, let record = try? installed(), let m = try? manifest(),
+      let name = m["defaultMode"] as? String, let mode = AuraBootMode(rawValue: name),
+      let stage1 = try? asset(mode.stage1Path, manifest: m)
+    else { return nil }
+    return hash(stage1) == record["stage1SHA256"] as? String ? nil : mode
+  }
+
+  static func updateStage1(
+    owner: RecoveryOwner, password: String, progress: @escaping (Double, String) -> Void
+  ) throws {
+    try requireEnrollmentEnvironment()
+    try RecoveryOwnerResolver.verify(owner, current: resolveOwner())
+    guard let mode = pendingStage1Update() else {
+      throw RecoveryFailure(message: "The startup software is already up to date.")
+    }
+    var record = try installed()
+    progress(0.05, "Verifying the startup software")
+    let m = try manifest()
+    let stage1 = try asset(mode.stage1Path, manifest: m)
+    let config = try configuration.get()
+    try check(
+      record["stage2Path"] as? String == config.stage2Path
+        && (try Data(contentsOf: esp().appendingPathComponent(config.stage2Path)))
+          == (try asset(mode.stage2Path, manifest: m)),
+      "The installed startup bundle changed. Restore it before updating.")
+    if mode == .macho { try MachOBootObject.check(stage1) }
+    try run("/sbin/mount", ["-u", "-w", volume.path])
+    let staged = state.appendingPathComponent("stage1-" + mode.rawValue)
+    try RecoveryFileTransaction.write(stage1, to: staged)
+    if mode == .macho {
+      // Ask this Recovery's kmutil for the boot properties it will enroll.
+      if let output = try? run(
+        "/usr/bin/kmutil",
+        ["inspect", "-z", "-B", staged.path, "--show-mach-boot-properties"])
+      {
+        guard
+          let size = MachOBootObject.bootExecSize(
+            fromInspection: String(decoding: output, as: UTF8.self))
+        else {
+          throw RecoveryFailure(message: "kmutil did not report the startup software's layout.")
+        }
+        try check(size == 0, "kmutil would start SPTM for this startup software (kcbz \(size)).")
+      } else {
+        InstallerLog.shared.append("kmutil inspect is unavailable; the Mach-O layout check stands.")
+      }
+    }
+    progress(0.3, "Authorizing the boot environment")
+    try authorized(
+      "/usr/bin/bputil",
+      RecoveryBootPolicy.authorizationArguments(
+        groupUUID: groupUUID, allowCustomBootArguments: allowsCustomBootArguments),
+      owner: owner, password: password)
+    progress(0.55, "Installing the startup software")
+    try authorized(
+      "/usr/bin/kmutil", mode.enrollmentArguments(stage1: staged.path, volume: volume.path),
+      owner: owner, password: password)
+    progress(0.85, "Finishing the update")
+    record["mode"] = mode.rawValue
+    record["stage1SHA256"] = hash(stage1)
+    try RecoveryFileTransaction.write(
+      JSONSerialization.data(withJSONObject: record, options: [.prettyPrinted, .sortedKeys]),
+      to: receipt)
+    // Disarm the Recovery launcher that the update was staged with.
+    try RecoveryVersionMetadata.showForStartupDisk(system: volume)
+    let fm = FileManager.default
+    let marker = volume.appendingPathComponent(".IAPhysicalMedia")
+    if fm.fileExists(atPath: marker.path) {
+      try RecoveryFileTransaction.write(
+        Data(contentsOf: marker),
+        to: volume.appendingPathComponent("IAPhysicalMedia-disabled.plist"))
+      try fm.removeItem(at: marker)
+      try RecoveryFileTransaction.flushDirectory(volume)
+    }
+    InstallerLog.shared.append("Stage 1 updated to \(mode.rawValue) mode.")
+    progress(1, "Startup software updated")
+  }
+}
