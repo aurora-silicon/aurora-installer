@@ -33,8 +33,17 @@
       let source = try NativeFirmwareSourcePlan(manifest: manifest([identity]))
       XCTAssertEqual(source.machine, "j700")
       XCTAssertEqual(source.kernel, "kernelcache.release.synthetic")
+      XCTAssertNil(source.chipID)
+      XCTAssertTrue(source.avd.isEmpty)
       XCTAssertEqual(
         source.fud, [.init(component: "Multitouch", member: "Firmware/Multitouch.im4p")])
+      var chipIdentity = identity
+      chipIdentity["ApChipID"] = "0x6040"
+      let withChip = try NativeFirmwareSourcePlan(manifest: manifest([chipIdentity]))
+      XCTAssertEqual(withChip.chipID, 0x6040)
+      XCTAssertTrue(withChip.avd.isEmpty)
+      chipIdentity["ApChipID"] = 0x6040
+      XCTAssertThrowsError(try NativeFirmwareSourcePlan(manifest: manifest([chipIdentity])))
       var withoutTrackpad = identity
       var withoutTrackpadManifest = identity["Manifest"] as! [String: Any]
       withoutTrackpadManifest.removeValue(forKey: "Multitouch")

@@ -1,4 +1,5 @@
 #if os(macOS)
+  import AuroraFirmware
   import Foundation
 
   /// Firmware collection follows the single identity admitted for the stub.
@@ -8,7 +9,9 @@
       let member: String
     }
     let machine: String
+    let chipID: UInt64?
     let fud: [FUD]
+    let avd: [FUD]
     let kernel: String
 
     init(manifest: Data) throws {
@@ -25,7 +28,21 @@
         !components.isEmpty, components.count <= 1024
       else { throw NativeStubFileError.invalidPlan }
       machine = String(device.dropLast(2))
+      if let rawChip = identity["ApChipID"] {
+        guard let chip = rawChip as? String, chip.hasPrefix("0x"),
+          let value = UInt64(chip.dropFirst(2), radix: 16)
+        else {
+          throw NativeStubFileError.invalidPlan
+        }
+        chipID = value
+      } else {
+        chipID = nil
+      }
       var selected = [FUD]()
+      var selectedAVD = [FUD]()
+      let avdComponents = Set(
+        chipID.flatMap { AVDFirmware.socs[String(format: "t%04llx", $0)] }?.sources.map(\.component)
+          ?? [])
       var kernels = Set<String>()
       for key in components.keys.sorted() {
         guard NativeHandoffEvidence.safeRelative(key), !key.contains("/"),
@@ -33,6 +50,7 @@
           let path = entry["Path"] as? String, NativeHandoffEvidence.safeRelative(path)
         else { throw NativeStubFileError.invalidPlan }
         if path.hasPrefix("kernelcache.") { kernels.insert(path) }
+        if avdComponents.contains(key) { selectedAVD.append(FUD(component: key, member: path)) }
         for flag in ["IsFUDFirmware", "IsLoadedByiBoot", "IsLoadedByiBootStage1"] {
           if let value = entry[flag], !(value is Bool) { throw NativeStubFileError.invalidPlan }
         }
@@ -49,6 +67,7 @@
       else { throw NativeStubFileError.invalidPlan }
       self.kernel = kernel
       fud = selected
+      avd = selectedAVD
     }
   }
 #endif

@@ -5,10 +5,12 @@ import zlib
 public struct FirmwarePackageInput: Sendable {
   public let name: String
   public let bytes: Data
+  public let version: UInt32?
 
-  public init(name: String, bytes: Data) {
+  public init(name: String, bytes: Data, version: UInt32? = nil) {
     self.name = name
     self.bytes = bytes
+    self.version = version
   }
 }
 
@@ -53,6 +55,10 @@ public enum FirmwarePackageBuilder {
       } else {
         manifest += "FILE \(input.name) SHA256 \(digest)\n"
         first[digest] = input.name
+      }
+      if let version = input.version {
+        manifest +=
+          "VERSION \(input.name) \(String(format: "0x%08x", version)) SIZE \(input.bytes.count)\n"
       }
       try appendTar(&tar, name: input.name, bytes: input.bytes, target: target)
       cpio.add(

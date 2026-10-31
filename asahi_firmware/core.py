@@ -8,10 +8,11 @@ UBOOT_FILES = set([
 ])
 
 class FWFile(object):
-    def __init__(self, name, data):
+    def __init__(self, name, data, *, version=None):
         self.name = name
         self.data = data
         self.sha = sha256(data).hexdigest()
+        self.version = version
 
     def __repr__(self):
         return f"FWFile({self.name!r}, <{self.sha[:16]}>)"
@@ -72,6 +73,9 @@ class FWPackage(object):
             self.manifest.append(f"FILE {name} SHA256 {data.sha}")
 
         logging.info(f"+ {self.manifest[-1]}")
+        if data.version is not None:
+            self.manifest.append(f"VERSION {name} {data.version:#010x} SIZE {len(data.data)}")
+            logging.info(f"+ {self.manifest[-1]}")
         self.tarfile.addfile(ti, fd)
         if fd is not None:
             fd.seek(0)
