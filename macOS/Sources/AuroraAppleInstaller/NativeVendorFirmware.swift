@@ -110,6 +110,7 @@
         let preboot = try target.tree("Preboot")
         let recovery = try target.tree("Recovery")
         var fallback = [String: Data]()
+        var avd: FirmwarePackageInput?
         var radioLinks = [String: String]()
         func read(_ role: String, _ path: String, maximum: Int) throws -> Data {
           guard let record = sourceRecords.first(where: { $0.role == role && $0.path == path })
@@ -121,6 +122,22 @@
             path: path, maximum: maximum, owner: owner, expected: record.identity)
         }
         let restore = target.group + "/" + plan.restorePath + "/"
+        if let chipID = source.chipID {
+          var avdComponents = [String: Data]()
+          for item in source.avd {
+            let path = restore + item.member
+            // The optional component may be absent on this macOS revision.
+            // A present component still uses the bound installed-source reader.
+            if sourceRecords.contains(where: { $0.role == "Preboot" && $0.path == path }) {
+              avdComponents[item.component] = try read("Preboot", path, maximum: 16 << 20)
+            }
+          }
+          avd = try AVDFirmware.collect(avdComponents, chipID: chipID)
+          if let avd {
+            try merge([avd.name: avd.bytes], into: &outputs)
+            fallback[avd.name] = avd.bytes
+          }
+        }
         for item in source.fud {
           let data: Data
           if let existing = fallback["fud_firmware/" + item.member] {
@@ -215,7 +232,10 @@
         }
         let archives = try InstallerPerformance.measure("vendor_package") {
           try FirmwarePackageBuilder.build(
-            outputs.keys.sorted().map { FirmwarePackageInput(name: $0, bytes: outputs[$0]!) })
+            outputs.keys.sorted().map {
+              FirmwarePackageInput(
+                name: $0, bytes: outputs[$0]!, version: $0 == avd?.name ? avd?.version : nil)
+            })
         }
         let published: [String: Data] = [
           "vendorfw/firmware.tar": archives.tar, "vendorfw/firmware.cpio": archives.cpio,

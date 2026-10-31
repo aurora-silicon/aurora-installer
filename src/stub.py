@@ -7,6 +7,7 @@ from asahi_firmware.multitouch import MultitouchFWCollection
 from asahi_firmware.kernel import KernelFWCollection
 from asahi_firmware.isp import ISPFWCollection
 from asahi_firmware.als import AlsFWCollection, FACTORY_DIR
+from asahi_firmware.avd import collect_from_restore
 from util import *
 
 class StubInstaller(PackageInstaller):
@@ -468,11 +469,17 @@ class StubInstaller(PackageInstaller):
         col = AlsFWCollection()
         als_files = sorted(col.files())
         pkg.add_files(als_files)
+        logging.info("Collecting optional Apple AVD firmware")
+        avd = collect_from_restore(restore_bundle, self.identity, self.sysinfo.chip_id)
+        if avd is not None:
+            pkg.add_file(avd.name, avd)
         logging.info("Making fallback firmware archive")
         with tempfile.TemporaryDirectory() as tmpdir:
             os.makedirs(f"{tmpdir}/apple")
             for name, fwf in als_files:
                 open(f"{tmpdir}/{name}", "wb").write(fwf.data)
+            if avd is not None:
+                open(f"{tmpdir}/{avd.name}", "wb").write(avd.data)
             subprocess.run(["tar", "czf", "all_firmware.tar.gz",
                             "fud_firmware",
                             "-C", "recovery/usr/share", "firmware",
