@@ -28,8 +28,10 @@ from pathlib import Path
 import re
 import struct
 import subprocess
+import time
 import sys
 import tempfile
+import urllib.error
 import urllib.request
 import zipfile
 import zlib
@@ -40,7 +42,19 @@ REPO = MACOS.parent
 DISTROS = {'fedora': 'fedora-aurora', 'arch': 'alarm-aurora', 'nixos': 'nixos-aurora'}
 DESKTOPS = ('gnome', 'kde', 'minimal')
 MODES = ('fresh', 'side-by-side')
-DEFAULT_CATALOGS = 'https://aurorasilicon.org/aurora-distributions/installer/Profiles'
+
+
+def identity_value(name):
+    """A hosting value from Packaging/identity.conf, the one place it is set."""
+    conf = HERE.parents[1] / 'Packaging/identity.conf'
+    for line in conf.read_text().splitlines():
+        key, _, value = line.partition('=')
+        if key.strip() == name:
+            return value.strip().strip('"')
+    raise KeyError(name)
+
+
+DEFAULT_CATALOGS = identity_value('INSTALLER_PUBLIC_BASE') + '/installer/Profiles'
 TYPE_NAMES = {
     '69646961-6700-11aa-aa11-00306543ecac': 'Apple_APFS_ISC',
     '7c3457ef-0000-11aa-aa11-00306543ecac': 'Apple_APFS',
@@ -81,13 +95,30 @@ def published_sources(repo, sha, cache):
 
 # ---------------------------------------------------------------- network
 
+TRANSIENT_HTTP = (429, 500, 502, 503, 504)
+
+
+def urlopen(request, timeout, attempts=4, pause=5):
+    """urlopen that retries a server's transient refusal (429 and 5xx) or a
+    dropped connection, so a CDN hiccup is not reported as an install fault."""
+    for attempt in range(attempts):
+        try:
+            return urllib.request.urlopen(request, timeout=timeout)
+        except urllib.error.HTTPError as error:
+            if error.code not in TRANSIENT_HTTP or attempt == attempts - 1:
+                raise
+        except urllib.error.URLError:
+            if attempt == attempts - 1:
+                raise
+        time.sleep(pause * (attempt + 1))
+
 def fetch(url, cache, headers=None):
     key = hashlib.sha256((url + json.dumps(headers or {}, sort_keys=True)).encode()).hexdigest()
     path = Path(cache) / key
     if path.exists():
         return path.read_bytes()
     request = urllib.request.Request(url, headers=headers or {})
-    with urllib.request.urlopen(request, timeout=120) as response:
+    with urlopen(request, timeout=120) as response:
         data = response.read()
     path.write_bytes(data)
     return data
@@ -97,7 +128,7 @@ def public(url):
     """True when the URL downloads without credentials (HEAD, following redirects)."""
     request = urllib.request.Request(url, method='HEAD')
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with urlopen(request, timeout=60) as response:
             return response.status == 200, int(response.headers.get('Content-Length') or -1)
     except Exception as error:  # report, never guess
         return False, repr(error)
@@ -661,11 +692,11 @@ def main():
             public_state = {url: (lambda r: True if r[0] and r[1] in (size, -1) else r)(public(url)) for url, size in parts}
             digest = None
             if args.verify_digests:
-                verify_parts(profile, artifact, args.digests)
+                verify_parts(profile, payload_parts(model), args.digests)
             if args.digests:
                 results = [json.loads((Path(args.digests) / (p['fileName'] + '.result')).read_text())
-                           for p in artifact.get('parts') or [] if (Path(args.digests) / (p['fileName'] + '.result')).exists()]
-                if len(results) == len(artifact.get('parts') or []):
+                           for p in payload_parts(model) if (Path(args.digests) / (p['fileName'] + '.result')).exists()]
+                if len(results) == len(payload_parts(model)):
                     bad = [r['file'] for r in results if not r['ok']]
                     digest = {'ok': not bad, 'detail': 'digest mismatch: ' + ', '.join(bad) if bad else 'all part digests match'}
             source = model.get('evidenceRevision', '')
@@ -730,15 +761,23 @@ def compare_expected(cells, expected):
     return 1 if worse else 0
 
 
-def verify_parts(profile, artifact, directory):
+def payload_parts(model):
+    """The files a payload is published as, each with the digest the catalog
+    gives it. An unsplit payload is one file whose digest is payloadDigest."""
+    artifact = model['payloadArtifact']
+    return artifact.get('parts') or [{'sourceURL': artifact['sourceURL'], 'fileName': artifact['fileName'],
+                                      'sizeBytes': artifact['sizeBytes'], 'sha256': model['payloadDigest']}]
+
+
+def verify_parts(profile, parts, directory):
     """Stream each payload part once and record whether it matches the catalog."""
     Path(directory).mkdir(parents=True, exist_ok=True)
-    for part in artifact.get('parts') or []:
+    for part in parts:
         out = Path(directory) / (part['fileName'] + '.result')
         if out.exists():
             continue
         digest, count = hashlib.sha256(), 0
-        with urllib.request.urlopen(part['sourceURL'], timeout=300) as response:
+        with urlopen(part['sourceURL'], timeout=300) as response:
             while True:
                 block = response.read(1 << 20)
                 if not block:

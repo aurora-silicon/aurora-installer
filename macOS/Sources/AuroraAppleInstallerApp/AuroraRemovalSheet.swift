@@ -9,6 +9,9 @@ struct AuroraRemovalSheet: View {
   let onClose: () -> Void
   let onRequiresReview: () -> Void
   let simulationScenario: String?
+  /// Set when Erase was chosen for one row of the Partitions screen: only a
+  /// ticket for the startup container with this partition UUID is shown.
+  let expectedStartupContainerUUID: String?
 
   @State private var ticket: AuroraRemovalTicket?
   @State private var phrase = ""
@@ -39,10 +42,11 @@ struct AuroraRemovalSheet: View {
   init(
     isSimulation: Bool, onBusyChanged: @escaping (Bool) -> Void,
     onClose: @escaping () -> Void, onRequiresReview: @escaping () -> Void,
-    simulationScenario: String? = nil
+    simulationScenario: String? = nil, expectedStartupContainerUUID: String? = nil
   ) {
     self.isSimulation = isSimulation
     self.simulationScenario = simulationScenario
+    self.expectedStartupContainerUUID = expectedStartupContainerUUID
     #if DEBUG
       if let simulationScenario, let selected = RemovalPreviewScenario(rawValue: simulationScenario)
       {
@@ -400,8 +404,17 @@ struct AuroraRemovalSheet: View {
       let submitter = try InstallerHelperSetup.submitter()
       client = submitter
       let reply = try await submitter.removal()
-      ticket = reply.ticket
-      message = reply.message
+      if let expected = expectedStartupContainerUUID, let found = reply.ticket,
+        found.startupContainerUUID?.caseInsensitiveCompare(expected) != .orderedSame
+      {
+        // The scan would erase another installation, or can't say which:
+        // never show a ticket for something the person didn't choose.
+        ticket = nil
+        message = PlainLanguage.removalTargetMismatch
+      } else {
+        ticket = reply.ticket
+        message = reply.message
+      }
     } catch {
       message =
         InstallerHelperSetup.canInstall

@@ -110,9 +110,22 @@
         candidates.append(row)
       }
       result["candidates"] = candidates
-      result["known_installations"] = try NativeKnownInstallations.recognize(
-        NativeCollectedDisk(snapshot: machine.snapshot, containers: machine.containers)
-      ).map {
+      let collected = NativeCollectedDisk(
+        snapshot: machine.snapshot, containers: machine.containers)
+      // What the Partitions screen would list, in disk order.
+      if let layout = try? NativeDiskLayout(collected) {
+        result["disk_layout"] = [
+          "regions": layout.regions.map {
+            [
+              "kind": $0.kind.rawValue, "name": $0.name, "identifier": $0.identifier ?? "",
+              "offset_bytes": $0.offsetBytes, "length_bytes": $0.lengthBytes,
+              "recognized": $0.recognized,
+            ] as [String: Any]
+          },
+          "removable_startup_container": layout.removableStartupContainerUUID ?? "",
+        ]
+      }
+      result["known_installations"] = try NativeKnownInstallations.recognize(collected).map {
         [
           "source": $0.sourceIdentifier, "offset_bytes": $0.offsetBytes,
           "length_bytes": $0.lengthBytes,

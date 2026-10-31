@@ -150,6 +150,49 @@
         case .existingInstall:
           guard case .existingInstallRefused = session.phase else { return XCTFail(scenario.title) }
           continue
+        case .partitions, .partitionsFreeAfterMacOS, .partitionsTwoMacOS, .partitionsNoRoom:
+          // Each option goes through the usual size screen and install, then
+          // Recovery; Reset ends installed, with no Recovery step.
+          guard case .partitions(_, let layout) = session.phase else {
+            return XCTFail(scenario.title)
+          }
+          XCTAssertTrue(layout.isComplex, scenario.title)
+          XCTAssertEqual(layout.options.isEmpty, scenario == .partitionsNoRoom, scenario.title)
+          XCTAssertEqual(layout.noRoomReason != nil, scenario == .partitionsNoRoom)
+          let dummy = try MachineOwnerAuthorization(
+            username: "simulation", password: Data("simulation-only".utf8))
+          for option in layout.options {
+            let attempt = InstallerSession(
+              environment: InstallerSimulationEnvironment(scenario: scenario, delay: .zero))
+            await attempt.inspect()
+            await attempt.install(into: option.target)
+            attempt.continueToPlanReview()
+            guard case .planReview(let plan, _) = attempt.phase else {
+              return XCTFail("\(scenario.title): \(option.title)")
+            }
+            XCTAssertLessThanOrEqual(plan.maximumBytes, option.maximumBytes)
+            XCTAssertEqual(plan.allocationSource == .freeExtent, option.kind == .freeSpace)
+            attempt.setAcknowledged(true)
+            attempt.approve()
+            attempt.presentInstallCredentials()
+            await attempt.submit(dummy)
+            guard case .awaitingRecovery = attempt.phase else {
+              return XCTFail("\(scenario.title): \(option.title)")
+            }
+          }
+          if let row = layout.rows.first(where: { $0.reset?.isAvailable == true }) {
+            await session.reset(row.id)
+            session.continueToPlanReview()
+            session.setAcknowledged(true)
+            session.approve()
+            session.presentInstallCredentials()
+            await session.submit(dummy)
+            guard case .done(let completion) = session.phase else {
+              return XCTFail("\(scenario.title): reset")
+            }
+            XCTAssertEqual(completion.nextAction, .verifyInstalledSystem)
+          }
+          continue
         default: break
         }
         await session.continueToPlan()
