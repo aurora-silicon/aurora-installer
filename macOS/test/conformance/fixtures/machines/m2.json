@@ -8,7 +8,7 @@
    {
     "apfs": {
      "capacity": 524288000,
-     "free": 502620160,
+     "free": 502022144,
      "uuid": "00000000-0000-4000-8000-000000000002",
      "volumes": [
       {
@@ -28,7 +28,7 @@
        "uuid": "00000000-0000-4000-8000-000000000004"
       },
       {
-       "alloc_bytes": 4296704,
+       "alloc_bytes": 4894720,
        "files": 49,
        "group": null,
        "name": "Hardware",
@@ -116,12 +116,12 @@
    {
     "apfs": {
      "capacity": 2499805184,
-     "free": 1468895232,
+     "free": 1468887040,
      "uuid": "00000000-0000-4000-8000-000000000010",
      "volumes": [
       {
-       "alloc_bytes": 2269184,
-       "files": 239,
+       "alloc_bytes": 2277376,
+       "files": 241,
        "group": "00000000-0000-4000-8000-000000000011",
        "name": "Aurora - Data",
        "role": "Data",
@@ -223,7 +223,7 @@
  "model": "Apple MacBook Air (13-inch, M2, 2022)",
  "name": "m2",
  "running": {
-  "kernel": "7.3.0-aurora-fleet9",
+  "kernel": "7.3.0-aurora-fleet10",
   "stage1": "1.0.0b1",
   "stage2": "1.0.0b1",
   "u_boot": "2026.07-g2409ad5a25f8"

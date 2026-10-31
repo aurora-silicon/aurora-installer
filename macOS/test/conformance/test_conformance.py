@@ -49,14 +49,17 @@ class FixtureTests(unittest.TestCase):
                 continue
             fresh = conformance.swift_machine(machine, 'fresh', CONSTRAINTS)
             kinds = [p['type'] for p in fresh['snapshot']['partitions']]
-            self.assertEqual(sorted(kinds), sorted(['Apple_APFS_ISC', 'Apple_APFS', 'Apple_APFS_Recovery']), name)
+            # The M1 Pro's disk has no recoveryOS container: its Linux root runs to the end.
+            captured = {conformance.TYPE_NAMES[p['type']] for p in machine['disk']['partitions']}
+            want = ['Apple_APFS_ISC', 'Apple_APFS'] + ['Apple_APFS_Recovery'] * ('Apple_APFS_Recovery' in captured)
+            self.assertEqual(sorted(kinds), sorted(want), name)
             kept = conformance.swift_machine(machine, 'side-by-side', CONSTRAINTS)
             self.assertEqual(len(kept['snapshot']['partitions']), len(machine['disk']['partitions']))
             systems = [s for c in kept['containers'] for s in c['systems']]
             self.assertEqual(len([s for s in systems if not s['stub']]), 1, name)
 
     def test_identity_only_fixture_gets_a_synthetic_disk(self):
-        machine = dict(MACHINES['m1pro'])
+        machine = dict(MACHINES['m1pro'], disk=None)
         result = conformance.swift_machine(machine, 'fresh', CONSTRAINTS)
         self.assertEqual(result['hardware']['chipID'], 0x6000)
         self.assertEqual(result['snapshot']['partitions'][1]['type'], 'Apple_APFS')
