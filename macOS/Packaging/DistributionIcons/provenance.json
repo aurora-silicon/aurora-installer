@@ -2,11 +2,12 @@
   "renderer": "rsvg-convert rsvg-convert version 2.62.3\n\nlibraries used:\n  cairo 1.18.4\n  pango 1.58.2\n  harfbuzz 14.5.0\n  fontconfig 2.18.3",
   "format": "ICNS with directly rendered transparent PNG members",
   "icons": {
-    "fedora": {
-      "source": "Resources/BrandSources/Fedora-Icon.svg",
-      "source_sha256": "68ff613c9a038836b7a00735a4c795bd1a47761a24a53a1ca014aee5f34474c1",
-      "sha256": "f6325d32e1e12e407e835b71782034c21accb9f6ca023853216dd58b40e55c12",
-      "bytes": 79669,
+    "aurora": {
+      "source": "Resources/AuroraLogo.png",
+      "source_sha256": "63759b8e4dea4f88c1286363153569a6e9338660ccdc7c113357ef060b903183",
+      "transformation": "sips -s format png -z SIZE SIZE Resources/AuroraLogo.png for each size",
+      "sha256": "0aae49bb61c4facbbb02f5441c90eb26276dcd657b63d8715293c67feed2924c",
+      "bytes": 274813,
       "sizes": [
         16,
         32,
@@ -15,37 +16,13 @@
         256,
         512,
         1024
-      ]
-    },
-    "arch": {
-      "source": "Resources/BrandSources/ArchLinuxARM-Icon.svg",
-      "source_sha256": "8e568bb552a07327957948a445ff16129906c22e0949289b14320be336149066",
-      "sha256": "65ea4073a2d52159dd0ddf34c92360085db7e931660ea9f1bd9f4ee7090d56c7",
-      "bytes": 77794,
-      "sizes": [
-        16,
-        32,
-        64,
-        128,
-        256,
-        512,
-        1024
-      ]
-    },
-    "nixos": {
-      "source": "Resources/BrandSources/NixOS-Icon.svg",
-      "source_sha256": "e37b5a1c11e81496e9d46af04908951ada6babaa416d670aaae4934cce912eb2",
-      "sha256": "0050f67c6a902d56e70e65b9805f34f906b33df437fcf99c68c369e576a9b645",
-      "bytes": 139502,
-      "sizes": [
-        16,
-        32,
-        64,
-        128,
-        256,
-        512,
-        1024
-      ]
+      ],
+      "used_by": [
+        "fedora",
+        "arch",
+        "nixos"
+      ],
+      "reason": "Fedora, Arch Linux (ARM) and NixOS marks are not used for Aurora releases without their owners\u2019 permission."
     }
   },
   "reproduction": "For each recorded size, render the source with rsvg-convert -w SIZE -h SIZE SOURCE; encode the seven PNGs as ICNS records icp4,icp5,icp6,ic07,ic08,ic09,ic10 using big-endian 32-bit record and file lengths. No background is added."

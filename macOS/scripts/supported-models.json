@@ -35,11 +35,16 @@
     "apple,j516s",
     "apple,j516c",
     "apple,j516m",
+    "apple,j616s",
     "apple,j700"
   ],
   "refused": {
     "apple,j575d": "Mac Studio (M3 Ultra, 2025): the pinned v0.9.2 engine has no j575dap device or T6032 chip entry, so it cannot inspect or plan this Mac",
-    "apple,j614s": "MacBook Pro 14-inch (M4 Pro, 2024): M4 and later Macs are not supported"
+    "apple,j614s": "MacBook Pro 14-inch (M4 Pro, 2024): not booted on hardware yet. Only the 16-inch J616s on the same T6040 chip is qualified"
   },
-  "developer": {}
+  "developer": {},
+  "stage1_unqualified": {
+    "apple,j314s": "aura 1.0.0b1's raw Stage 1 (4,390,912 B) is refused by T6000 iBoot on the 13.5 stub (\"macOS needs to be reinstalled\"); a 4,063,232 B build is refused too, and only the 1.05 MB m1n1 1.5.2 Stage 1 is known to boot there",
+    "apple,j316s": "aura 1.0.0b1's raw Stage 1 (4,390,912 B) is refused by T6000 iBoot on the 13.5 stub (\"macOS needs to be reinstalled\"); a 4,063,232 B build is refused too, and only the 1.05 MB m1n1 1.5.2 Stage 1 is known to boot there"
+  }
 }

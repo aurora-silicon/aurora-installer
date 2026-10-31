@@ -5,11 +5,14 @@ public enum AuroraDistribution: String, CaseIterable, Codable, Identifiable, Sen
   public var id: String { rawValue }
   public var title: String {
     switch self {
-    case .fedora: "Fedora Aurora Remix"
-    case .arch: "Aurora ALARM"
+    case .fedora: "Aurora Fedora Remix"
+    case .arch: "Aurora Alarm"
     case .nixos: "Aurora NixOS"
     }
   }
+  /// Names earlier installers gave these installations. Erase Linux and
+  /// reinstall still recognize them.
+  public static let legacyTitles = ["Fedora Aurora Remix", "Aurora ALARM"]
   public var supportsDesktop: Bool { true }
 }
 

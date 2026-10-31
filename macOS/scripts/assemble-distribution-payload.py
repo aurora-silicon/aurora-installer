@@ -19,8 +19,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import recovery_payload as aurora_recovery
 
+# Every startup volume shows the Aurora mark: Fedora's, Arch Linux's and
+# NixOS's logos are not used for Aurora releases without their owners' permission.
 DISTRIBUTION_ICONS = {
-    distribution: ROOT / 'Packaging/DistributionIcons' / (distribution + '.icns')
+    distribution: ROOT / 'Packaging/DistributionIcons/aurora.icns'
     for distribution in ('fedora', 'arch', 'nixos')
 }
 
@@ -67,6 +69,10 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
         # The MacBook Neo cannot load the combined Stage 2 that carries every
         # board's device trees, so the shared payload must carry its own.
         raise ValueError('the MacBook Neo requires a current board-specific Stage 2')
+    if 'j616sap' not in stage2_members:
+        # The J616s is qualified only on its board Stage 2 (its own device tree
+        # plus U-Boot); the combined Stage 2 has never booted there.
+        raise ValueError('the J616s requires a current board-specific Stage 2')
     distribution_icon = regular(DISTRIBUTION_ICONS[profile.split('-')[0]])
     expected_layout = {'fedora': 'fedora', 'arch': 'alarm', 'nixos': 'nixos'}[profile.split('-')[0]] + '-btrfs-v1'
     if image['layout_kind'] != expected_layout or image['root_subvolume'] != 'root':
@@ -116,7 +122,7 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
             archive.writestr(prefix + aurora_recovery.MANIFEST_NAME, json.dumps(recovery_manifest, sort_keys=True, indent=2) + '\n')
     with zipfile.ZipFile(payload) as archive:
         aurora_recovery.validate_payload(archive)
-    title = {'fedora': 'Fedora Aurora Remix', 'arch': 'Aurora ALARM', 'nixos': 'Aurora NixOS'}[profile.split('-')[0]]
+    title = {'fedora': 'Aurora Fedora Remix', 'arch': 'Aurora Alarm', 'nixos': 'Aurora NixOS'}[profile.split('-')[0]]
     # omarchy_target and omarchy-native-v1 are the published metadata contract
     # every released installer reads; they predate the Aurora name.
     template = {
@@ -136,8 +142,12 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
     # The manifest uses apple,jXXX identifiers; Stage 1 qualification uses jXXXap classes.
     import supported_models
     identifiers, _ = supported_models.load()
+    # A board whose iBoot is known to refuse the common Stage 1 is never
+    # qualified for it: the installer then stops before changing the disk.
+    unqualified = supported_models.stage1_unqualified()
     template['aurora_stage1'] = {'kind': 'common-raw-v1', 'qualified_machines': {
-        identifier.removeprefix('apple,') + 'ap': ['13.5', '14.8.3', '26.6', '26.6.2'] for identifier in identifiers
+        identifier.removeprefix('apple,') + 'ap': ['13.5', '14.8.3', '26.6', '26.6.2']
+        for identifier in identifiers if identifier not in unqualified
     }}
     if stage2_members:
         template['aurora_stage2'] = {'kind': 'board-file-v1', 'board_members': stage2_members}

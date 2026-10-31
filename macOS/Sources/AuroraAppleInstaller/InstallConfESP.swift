@@ -123,7 +123,10 @@
   public enum InstallConfESPLocator {
     public static let volumeName = "EFI - OMARC"
     private static let recognizedVolumeNames: Set<String> =
-      Set(AuroraDistribution.allCases.map { NativeKnownInstallations.espLabel(for: $0.title) })
+      Set(
+        (AuroraDistribution.allCases.map(\.title) + AuroraDistribution.legacyTitles).map(
+          NativeKnownInstallations.espLabel(for:))
+      )
       .union([volumeName])
     private static let efiTypes: Set<String> = ["EFI", "EFI System Partition"]
     private static let storePattern = #"^disk[0-9]+$"#

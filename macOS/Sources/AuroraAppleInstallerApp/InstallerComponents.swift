@@ -290,22 +290,32 @@ struct TechnicalDetailText: View {
   }
 }
 
-extension View {
-  @ViewBuilder func auroraPrimaryButton(size: ControlSize = .extraLarge) -> some View {
-    let button = controlSize(size).tint(.gray).font(.system(size: 15, weight: .medium))
-    if #available(macOS 26.0, *) {
-      button.buttonStyle(.glass)
+extension EnvironmentValues {
+  /// Offscreen renders can't capture Liquid Glass, so they draw the bordered
+  /// style macOS 15 uses. The app never sets this.
+  @Entry var installerDrawsBorderedButtons = false
+}
+
+/// Glass on macOS 26, bordered before it.
+struct AuroraButtonChrome: ViewModifier {
+  @Environment(\.installerDrawsBorderedButtons) private var bordered
+
+  func body(content: Content) -> some View {
+    if #available(macOS 26.0, *), !bordered {
+      content.buttonStyle(.glass)
     } else {
-      button.buttonStyle(.bordered)
+      content.buttonStyle(.bordered)
     }
   }
-  @ViewBuilder func auroraSecondaryButton(size: ControlSize = .extraLarge) -> some View {
-    let button = controlSize(size).font(.system(size: 15, weight: .medium))
-    if #available(macOS 26.0, *) {
-      button.buttonStyle(.glass)
-    } else {
-      button.buttonStyle(.bordered)
-    }
+}
+
+extension View {
+  func auroraPrimaryButton(size: ControlSize = .extraLarge) -> some View {
+    controlSize(size).tint(.gray).font(.system(size: 15, weight: .medium))
+      .modifier(AuroraButtonChrome())
+  }
+  func auroraSecondaryButton(size: ControlSize = .extraLarge) -> some View {
+    controlSize(size).font(.system(size: 15, weight: .medium)).modifier(AuroraButtonChrome())
   }
   func auroraDangerButton(size: ControlSize = .extraLarge) -> some View {
     auroraSecondaryButton(size: size).tint(.red)

@@ -16,7 +16,7 @@ Requires Xcode and XcodeBuildMCP. The launcher builds the debug app and supplies
 
 All simulation controls live in the **Simulation** menu bar item. They are absent from the release app and when simulation is not enabled. The installer content fills the resizable window; there is no simulation dashboard above it.
 
-- **Scenario** selects one of 27 outcomes and resets the simulated session. `--simulate-scenario=NAME` (the scenario's raw name, for example `noMacRelease`) opens on that scenario, and `--simulate-continue` presses Continue once, so a screen can be captured without driving the window.
+- **Scenario** selects one of 35 outcomes and resets the simulated session. `--simulate-scenario=NAME` (the scenario's raw name, for example `noMacRelease`) opens on that scenario, and `--simulate-continue` presses Continue once, so a screen can be captured without driving the window.
 - **Reset simulation** abandons only the in-memory run, including a stopped or uncertain outcome.
 - **Slow events** makes each event take two seconds; changing speed resets the session.
 - **Test channel** offers Stable, Release candidate and Edge (the default), and is local to the simulator. The line under it shows the Release channel menu as the app words it for this scenario: stable and rc have no Mac release, and the three channel scenarios change the test channel's state. It locks while preparing, authorizing, executing, and after execution has started.
@@ -36,6 +36,7 @@ All simulation controls live in the **Simulation** menu bar item. They are absen
 | Execution | Connection lost; empty reply; helper failure; interrupted live progress | Retain verified activity; uncertain outcomes cannot start another installation |
 | Engine refusal | Space shrinks before install | The engine refuses the approved 137 GB plan before any disk step; the page says no disk changes were made and offers **Check available space**, which returns to review with 133 GB, a size-change notice and a cleared acknowledgement; the next install succeeds |
 | Recovery | Recovery fails then retry succeeds; manual recovery required; shutdown request fails | Retry only the eligible Recovery path; keep instructions visible when shutdown fails |
+| Partitions | Two Aurora installs, other Linux and free space; free space right after macOS; two macOS installs; no room | **Partitions on this Mac** lists every installation, the disk strip and where another can go. Shrink (from a row or an option) and Use free space continue to the size screen for that space only; Reset uses the row's ⋯ menu and ends installed, with no Recovery step. Erase is available only for a lone installation, the one the removal service would erase |
 
 Click the size field to edit GB. Use the green checkmark or Return to apply; use the red cross or Escape to cancel. Invalid or out-of-range values cannot be applied. Installation is disabled until you apply or cancel.
 
@@ -87,3 +88,7 @@ use “Space for Aurora changed from … to …” without assuming why it chang
 **Simulation → Preview Recovery Account…** opens the proposed final account step directly. The successful simulated installation also ends at this form. It asks for a new short username, password and confirmation; validation follows the documented native account creator's username format and requires a nonempty, matching password. The GUI imposes no additional minimum length; live creation must report native password-policy errors. Continuing clears both password fields and shows the Startup Disk authorization instructions. **Open Startup Disk** displays a simulation notice; it does not open Settings or reboot. **Reset Simulation** returns to the ordinary installer start.
 
 This is a presentation prototype. It does not create an account or grant ownership, and the live installer keeps its existing Recovery handoff. Production integration requires the resumable target-account creation and Preboot finalization described in Aurora's `work/sep-stub-account-20261011/README.md`; the original script is not a complete resume/finalization backend.
+
+## Flow renders
+
+`--render-flow=DIRECTORY` (debug builds only, refused by release builds) drives simulation sessions through the real pages offscreen and writes each step to a PNG: system chooser, Partitions on this Mac (light and dark), Shrink macOS and its size screen, the password sheet, installing, Start in Recovery, Use free space and its size screen, the Erase and Reset sheets, the row's ⋯ menu, the Reset review, no room and two macOS installs. Run it from the preview bundle (`Packaging/build-aurora-preview.sh`) so the app's own resources load. Liquid Glass can't be captured offscreen, so renders draw buttons in the bordered style macOS 15 uses, and the ⋯ menu, an AppKit menu, is drawn from the same items. Sheets are composited over their page.

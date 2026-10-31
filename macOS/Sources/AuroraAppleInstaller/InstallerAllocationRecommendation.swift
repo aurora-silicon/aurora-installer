@@ -15,6 +15,24 @@ public enum InstallerAllocationRecommendationError:
   case insufficientSpace(requiredBytes: UInt64, availableBytes: UInt64)
 }
 
+/// The space the person chose on the Partitions screen. Planning then
+/// considers only the matching inventory candidate, never another one.
+public enum InstallerPlanTarget: Hashable, Sendable {
+  /// The unallocated extent that starts at this offset.
+  case freeSpace(offsetBytes: UInt64)
+  /// Shrinking the APFS container with this partition identifier.
+  case shrink(sourceIdentifier: String)
+
+  public func matches(_ candidate: ValidatedEngineCandidate) -> Bool {
+    switch self {
+    case .freeSpace(let offset):
+      candidate.kind == "free" && candidate.offsetBytes == offset
+    case .shrink(let source):
+      candidate.kind == "resize" && candidate.sourceIdentifier == source
+    }
+  }
+}
+
 public struct InstallerAllocationRecommendation:
   Equatable, Sendable
 {
@@ -49,10 +67,14 @@ public struct InstallerAllocationRecommendation:
     inventory: ValidatedEngineInventory,
     targetBytes: UInt64 = Self.balancedTargetBytes,
     reservedBytes: UInt64 = 0,
+    target: InstallerPlanTarget? = nil,
     snapshotConstraint: () -> APFSSnapshotConstraint? = { nil }
   ) throws {
     let unit = PinnedAsahiPlanRequest.allocationUnitBytes
-    let ranked = inventory.candidates.compactMap { candidate -> Ranked? in
+    // A chosen target is the only candidate considered: nothing falls back to
+    // other space the person did not choose.
+    let eligible = inventory.candidates.filter { target?.matches($0) ?? true }
+    let ranked = eligible.compactMap { candidate -> Ranked? in
       var minimum = Self.alignUp(
         candidate.minimumInstallBytes,
         unit: unit
@@ -113,11 +135,14 @@ public struct InstallerAllocationRecommendation:
     }
 
     guard let selected = ranked.first else {
-      // Existing installations require an explicit choice before any space diagnosis.
+      // Existing installations require an explicit choice before any space
+      // diagnosis; a chosen target is that choice.
+      let explicitChoice = target.map { _ in !eligible.isEmpty }
       guard
-        !inventory.candidates.contains(where: {
-          ["repair", "replace", "reinstall"].contains($0.kind)
-        })
+        explicitChoice
+          ?? !inventory.candidates.contains(where: {
+            ["repair", "replace", "reinstall"].contains($0.kind)
+          })
       else {
         throw InstallerAllocationRecommendationError.noEligibleCandidate
       }
@@ -125,7 +150,7 @@ public struct InstallerAllocationRecommendation:
         throw InstallerAllocationRecommendationError.snapshotConstrained(constraint)
       }
       if let shortfall = Self.largestShortfall(
-        in: inventory, reservedBytes: reservedBytes
+        in: eligible, reservedBytes: reservedBytes
       ) {
         throw InstallerAllocationRecommendationError.insufficientSpace(
           requiredBytes: shortfall.required,
@@ -148,11 +173,11 @@ public struct InstallerAllocationRecommendation:
   /// measured the way the ranking above admits candidates. Nil when the
   /// inventory offers no such candidate at all.
   private static func largestShortfall(
-    in inventory: ValidatedEngineInventory,
+    in candidates: [ValidatedEngineCandidate],
     reservedBytes: UInt64
   ) -> (required: UInt64, available: UInt64)? {
     let unit = PinnedAsahiPlanRequest.allocationUnitBytes
-    return inventory.candidates.compactMap { candidate -> (UInt64, UInt64)? in
+    return candidates.compactMap { candidate -> (UInt64, UInt64)? in
       let usable: UInt64
       var deficit: UInt64 = 0
       switch candidate.kind {
