@@ -461,22 +461,6 @@ enum DestinationVolume {
     previewDistribution.flatMap {
       ["fedora": "Aurora Fedora Remix", "arch": "Aurora Alarm", "nixos": "Aurora NixOS"][$0]
     } ?? RecoveryActions.volumeName
-  static let icon: NSImage = {
-    if let distribution = previewDistribution,
-      distribution.isEmpty == false,
-      let url = Bundle.main.url(forResource: "aurora", withExtension: "icns"),
-      let image = NSImage(contentsOf: url)
-    {
-      return image
-    }
-    // Read the actual custom volume icon without synchronously asking
-    // LaunchServices/IconServices while Recovery is launching this app.
-    if let image = NSImage(contentsOf: url.appendingPathComponent(".VolumeIcon.icns")) {
-      return image
-    }
-    return NSImage(systemSymbolName: "internaldrive", accessibilityDescription: "Startup volume")
-      ?? NSImage(size: NSSize(width: 96, height: 96))
-  }()
 }
 
 // AppKit owns the window and sheets, including their titlebar and background.
