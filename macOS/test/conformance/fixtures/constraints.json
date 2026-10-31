@@ -17,10 +17,11 @@
  "recovery_long_versions": {
   "13.5": "22.7.74.0.0,0",
   "26.0": "25.1.354.0.0,0",
+  "26.2": "25.2.0.0.0,0",
   "26.6": "25.7.72.0.0,0",
   "26.6.2": "25.7.83.0.0,0",
   "27.0": "26.1.0.0.0,0"
  },
- "recovery_long_versions_note": "The paired recoveryOS version the installer reads on the Mac, by system macOS. 27.0 is a lower bound: 27A builds are Darwin 26 and the exact build is not readable from Linux. Any 27.0 recovery is above the 26.6.2 stub's 25.7.83 minimum.",
+ "recovery_long_versions_note": "The paired recoveryOS version the installer reads on the Mac, by system macOS. 27.0 is a lower bound: 27A builds are Darwin 26 and the exact build is not readable from Linux. Any 27.0 recovery is above the 26.6.2 stub's 25.7.83 minimum. 26.2 (the M1 Pro's system firmware) is a lower bound the same way: any 26.2 recovery is Darwin 25.2 or later, above the 13.5 stub's 22.7.74 minimum.",
  "chip_ids": {"t6000": 24576, "t8112": 33042, "t8140": 33088, "t6040": 24640}
 }
