@@ -337,6 +337,8 @@
                   ? .networkUnavailable
                   : error is NativeRawImageError
                     ? .unclassified
+                    : error is NativeStubFileError
+                      ? .unclassified
                     : error is RestoreFailure
                       ? .recoveryPreparation
                       : error as? NativeInstallAdmissionError == .invalidJournal
@@ -348,6 +350,8 @@
                   ? Self.networkSummary
                   : error is NativeRawImageError
                     ? "The Linux image could not be written."
+                    : error is NativeStubFileError
+                      ? "Aurora stub files could not be copied."
                     : error is RestoreFailure
                       ? "The Recovery archive could not be prepared."
                       : "The current disk could not be admitted for a fresh installation."),
