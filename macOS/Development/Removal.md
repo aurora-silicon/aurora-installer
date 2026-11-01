@@ -8,7 +8,7 @@ Removal uses the signed privileged helper directly. It does not download an OS, 
 
 The booted internal macOS physical store must precede one complete installation: an APFS startup container (2.3–2.7 GB or 5.8–6.2 GB, exactly one System/Data volume group and Preboot/Recovery), EFI, then up to two Linux partitions. These installation members must be adjacent within the alignment allowance. Apple ISC must precede macOS and Apple Recovery must be last. Files on the primary startup container and EFI must independently prove the same volume group, ESP and exact installer-created partition set.
 
-Independent standalone startup containers after that group are retained and shown in the review. macOS grows only to the first retained container, including any adjacent unallocated space. The same boundary applies to reclaiming free space after deletion. A second complete installation with its own ESP, foreign partitions, full additional macOS systems, partial installations, external boot, multiple APFS physical stores, mismatched identities and explicitly unsupported `apple,j614s` remain refused.
+Independent standalone startup containers after that group are retained and shown in the review. macOS grows only to the first retained container, including any adjacent unallocated space. The same boundary applies to reclaiming free space after deletion. A second complete installation with its own ESP, foreign partitions, full additional macOS systems, partial installations, external boot, multiple APFS physical stores, mismatched identities and unknown device identities remain refused.
 
 The helper validates disk/partition/container/volume identities before the first
 write and after each operation. It deletes the startup container without a

@@ -68,6 +68,6 @@ These steps require no helper registration, real machine-owner credentials, prod
 
 For another app assembly, supply the exact authenticated inspection engine described in [extraction.md](extraction.md#inherited-prerequisites-and-open-issues) and review the resulting app structure and code-signing requirements. The initial ad-hoc assembly passed; a complete native engine rebuild remains a separate unvalidated path. The current publisher's catalog, public key and signing identity are not interchangeable with a new Omacom release identity.
 
-An M3 Air may be a physical validation candidate only after its exact model, engine support and intended payload are checked. The M4 Pro is available for macOS development; `apple,j614s` remains explicitly blocked. No hardware restriction is relaxed by this extraction.
+An M3 Air may be a physical validation candidate only after its exact model, engine support and intended payload are checked. The M4 Pro is admitted by the native installer policy; J614s hardware qualification remains a post-publication validation step.
 
 Physical installation needs its own backup, recovery, image/package revision and authorization record. Later release qualification must cover installation, Recovery boot, first boot, update, encrypted-install behavior and recovery on the assembled shared stack. Passing this source suite does not satisfy those checks.

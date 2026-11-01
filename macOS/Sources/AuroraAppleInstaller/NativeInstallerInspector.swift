@@ -62,8 +62,7 @@
         let policy = try self.policy()
         let hardware = try self.hardware()
         let device = host.identity.deviceIdentifier
-        guard !AppleSiliconHostInspector.isExplicitlyUnsupported(device),
-          policy.supports(device, hardware: hardware)
+        guard policy.supports(device, hardware: hardware)
         else {
           return try NativeInstallerInspection(
             transcript: NativeDiskInventory.unsupported(device: device))

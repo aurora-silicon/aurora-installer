@@ -307,8 +307,8 @@
         try importedEntries(in: fixture.destination).map(\.lastPathComponent), ["diagnostics"])
     }
 
-    func testM4PackageIsRejectedBeforeExecution() async throws {
-      let fixture = try makeFixture(deviceIdentifier: "apple,j614s")
+    func testSupportedPackageExecutesWithoutBoardSpecificRefusal() async throws {
+      let fixture = try makeFixture()
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let source = try openDirectory(fixture.source)
       defer { try? source.close() }
@@ -319,20 +319,12 @@
         credentialValidator: AcceptingMachineOwnerCredentialValidator()
       )
 
-      await assertThrowsErrorAsync(
-        try await server.submit(
-          packageDirectory: source,
-          authorization: try machineOwnerAuthorization()
-        )
-      ) {
-        XCTAssertEqual(
-          $0 as? ClosedEngineHelperError,
-          .unsupportedDevice("apple,j614s")
-        )
-      }
-      let executionCount = await executor.executionCount
-      XCTAssertEqual(executionCount, 0)
-      XCTAssertTrue(try importedEntries(in: fixture.destination).isEmpty)
+      _ = try await server.submit(
+        packageDirectory: source,
+        authorization: try machineOwnerAuthorization()
+      )
+      let executions = await executor.executionCount
+      XCTAssertEqual(executions, 1)
     }
 
     func testTranscriptForSubstitutedPlanIsRejected() async throws {
@@ -781,7 +773,7 @@
         : payloadDigest
       let transcriptPlanDigest = lengthPrefixedDigest(
         [
-          "apple,j314s", "disk0", layoutDigest, "free", "disk0s3",
+          deviceIdentifier, "disk0", layoutDigest, "free", "disk0s3",
           "447750000000", "107374182400", engineVersion,
           transcriptEngineDigest, transcriptMetadataDigest,
           transcriptPayloadDigest,

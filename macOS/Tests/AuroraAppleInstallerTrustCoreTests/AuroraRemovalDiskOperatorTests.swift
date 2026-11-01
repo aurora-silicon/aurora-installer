@@ -341,13 +341,11 @@
       XCTAssertEqual(fake.log.last, ["apfs", "resizeContainer", "disk0s2", "limits", "-plist"])
     }
 
-    func testM4RejectedBeforeDiskCommands() {
-      let disk = MacRemovalDiskOperator(
-        commands: { _ in
-          XCTFail("No disk command expected")
-          return Data()
-        }, targetType: { "j614s" })
-      XCTAssertThrowsError(try disk.snapshot())
+    func testM4UsesTheNormalRemovalDiskPath() throws {
+      let fake = FakeDiskutil(F.converged())
+      let disk = MacRemovalDiskOperator(commands: fake.run, targetType: { "j614s" })
+      XCTAssertNoThrow(try disk.snapshot())
+      XCTAssertFalse(fake.log.isEmpty)
     }
 
     func testNativeParserAcceptsAppleSSDReportedAsUnknownWhenListedPhysical() throws {

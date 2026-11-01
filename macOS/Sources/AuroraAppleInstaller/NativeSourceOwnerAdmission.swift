@@ -55,10 +55,8 @@
       layout: RemovalSnapshot? = nil
     ) throws -> NativeSourceBootstrap {
       try Task.checkCancellation()
-      guard
-        try InstallerPerformance.measure("owner_device", { try environment.device() })
-          == package.deviceIdentifier,
-        !AppleSiliconHostInspector.isExplicitlyUnsupported(package.deviceIdentifier)
+      guard try InstallerPerformance.measure("owner_device", { try environment.device() })
+          == package.deviceIdentifier
       else { throw NativeHandoffValidationError.invalidOwner }
       let before =
         try layout

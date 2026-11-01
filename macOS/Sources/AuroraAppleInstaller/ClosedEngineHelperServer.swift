@@ -149,7 +149,6 @@
   }
 
   public actor ClosedEngineHelperServer {
-    private static let explicitlyUnsupportedDevices = ["apple,j614s"]
 
     private let workingDirectory: URL
     private let credentialValidator: any MachineOwnerCredentialValidating
@@ -469,16 +468,6 @@
         if !registeredPackage { try? FileManager.default.removeItem(at: package.packageURL) }
       }
 
-      guard
-        !Self.explicitlyUnsupportedDevices.contains(
-          package.deviceIdentifier
-        )
-      else {
-        throw ClosedEngineHelperError.unsupportedDevice(
-          package.deviceIdentifier
-        )
-      }
-
       if let jobIdentifier {
         try jobs.admitted(jobIdentifier, package: package)
         registeredPackage = true
@@ -511,7 +500,6 @@
       let context = try jobs.recoveryContext(identifier)
       let package = try importer.reopenRetained(named: context.packageName, in: workingDirectory)
       guard InstallerJobPlanIdentity(package: package) == context.identity,
-        !Self.explicitlyUnsupportedDevices.contains(package.deviceIdentifier),
         jobs.canRetryNow(context.identity)
       else { throw InstallerJobError.identityMismatch }
       let conf = try InstallConf.parse(context.installConf)

@@ -52,11 +52,10 @@
   }
 
   public struct AppleSiliconHostInspector: Sendable {
-    private static let explicitlyUnsupportedDevices = ["apple,j614s"]
 
     /// Models refused before any catalog is read.
     public static func isExplicitlyUnsupported(_ deviceIdentifier: String) -> Bool {
-      explicitlyUnsupportedDevices.contains(deviceIdentifier)
+      false
     }
 
     private let hardware: any HardwarePropertyReading
@@ -83,7 +82,7 @@
     /// this Mac is one the installer refuses outright. Used before anything
     /// privileged is set up, such as the removal sheet's helper.
     public func isBlockedModel() throws -> Bool {
-      Self.explicitlyUnsupportedDevices.contains(try inspectIdentity().deviceIdentifier)
+      false
     }
 
     public func inspect() throws -> AppleSiliconHostInspection {
@@ -92,11 +91,7 @@
       let powerSource = try readPowerSource()
       let eligibility: AppleSiliconInstallEligibility
 
-      if Self.explicitlyUnsupportedDevices.contains(identity.deviceIdentifier) {
-        eligibility = .blocked(
-          reason: "This installer doesn’t support this Mac model yet."
-        )
-      } else if !storage.isInternal {
+      if !storage.isInternal {
         eligibility = .blocked(
           reason: "Start this installer from macOS on your Mac’s internal storage."
         )

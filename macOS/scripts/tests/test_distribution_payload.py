@@ -39,7 +39,7 @@ class DistributionPayloadTests(unittest.TestCase):
         (self.app / 'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleExecutable':'OmarchyRecovery',
             'OmarchyRecoveryBuildMode':'recovery','OmarchyRecoveryDataLayout':'external-install-data-v1'}))
 
-    def write_neo_stage_two(self, sha256=None, boards=('j700', 'j616s')):
+    def write_neo_stage_two(self, sha256=None, boards=('j700', 'j616s', 'j614s')):
         records = {}
         for board in boards:
             dedicated = self.bundle / ('esp/m1n1/boot-%s.bin' % board)
@@ -100,12 +100,13 @@ class DistributionPayloadTests(unittest.TestCase):
             self.assertIn(identifier.removeprefix('apple,') + 'ap', qualified)
         self.assertIn('j413ap', qualified)
         self.assertIn('j700ap', qualified)
+        self.assertIn('j614sap', qualified)
         self.assertIn('j616sap', qualified)
 
-    def test_public_payload_without_the_j616s_stage_two_is_refused(self):
-        self.write_neo_stage_two(boards=('j700',))
+    def test_public_payload_without_required_m4_stage_two_is_refused(self):
+        self.write_neo_stage_two(boards=('j700', 'j616s'))
         output = self.root / 'output'
-        with self.assertRaisesRegex(ValueError, 'J616s requires a current board-specific'):
+        with self.assertRaisesRegex(ValueError, 'J614s requires a current board-specific'):
             payload.assemble(self.bundle, self.app, output, release_id='fixture')
         self.assertFalse(output.exists())
 

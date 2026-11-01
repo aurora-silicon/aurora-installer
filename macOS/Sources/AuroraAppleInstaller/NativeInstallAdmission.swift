@@ -8,10 +8,6 @@
 
     static func live() throws -> Self {
       let host = try AppleSiliconHostInspector().inspect()
-      guard !AppleSiliconHostInspector.isExplicitlyUnsupported(host.identity.deviceIdentifier)
-      else {
-        throw NativeInstallAdmissionError.deviceChanged
-      }
       let disk = try NativeDiskCollector().collect(host: host)
       return Self(
         deviceIdentifier: host.identity.deviceIdentifier,

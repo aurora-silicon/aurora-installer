@@ -47,7 +47,7 @@
       try? await Task.sleep(for: .milliseconds(700))
       let transcript = try loadValidatedTranscript()
       let blocked = scenario == .unsupported
-      let device = blocked ? "apple,j614s" : transcript.deviceIdentifier
+      let device = blocked ? "apple,j999" : transcript.deviceIdentifier
       let free: UInt64 = 464_000_000_000
 
       return HostDisplay(
@@ -60,7 +60,7 @@
           : [],
         unsupportedModel: blocked
           ? UnsupportedModelDisplay(
-            deviceIdentifier: device, modelIdentifier: "Mac16,8",
+            deviceIdentifier: device, modelIdentifier: "Mac99,1",
             supportedDeviceIdentifiers: InstallerSimulationEnvironment.simulatedCatalogDevices)
           : nil
       )

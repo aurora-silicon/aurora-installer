@@ -28,7 +28,7 @@ All simulation controls live in the **Simulation** menu bar item. They are absen
 | Group | Scenarios | Expected behavior |
 | --- | --- | --- |
 | Normal path | Successful install and Recovery; installed-system verification handoff; installation media handoff | Review the plan, authorize with dummy credentials, inspect progress and handoff |
-| Eligibility | Unsupported Mac; engine unavailable; existing installation | Stop before preparation; the unsupported Mac is named (MacBook Pro 14-inch M4 Pro, `Mac16,8`, `apple,j614s`) with the M1, M2 and M3 families of a simulated 34-model catalog |
+| Eligibility | Unsupported Mac; engine unavailable; existing installation | Stop before preparation; the unsupported Mac is named (a synthetic unknown target) alongside the supported M1 through M4 and Neo catalog |
 | Preparation | Download interrupted; verification failed; out-of-date installer; no eligible space | Explain the error and permit a fresh check; simulation download links do not open |
 | Channel states | Channel has no Mac release yet; channel doesn't include this Mac; channel release list missing (404) | Three distinct menu labels (No Mac release yet, Not available for this Mac, Couldn't load) and three distinct cards: nothing to install on this channel, this Mac not in the release, a server problem |
 | Disk review | Large free extent; disk limit changes during replan | Preserve macOS capacity for free space; returned allocation always wins; reset acknowledgement |

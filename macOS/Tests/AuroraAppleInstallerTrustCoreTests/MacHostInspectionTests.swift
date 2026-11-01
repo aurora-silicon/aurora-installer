@@ -5,9 +5,9 @@
   @testable import AuroraAppleInstallerTrustCore
 
   final class MacHostInspectionTests: XCTestCase {
-    func testTheModelCheckAloneRefusesOnlyTheBlockedModel() throws {
+    func testTheModelCheckHasNoBoardSpecificBlock() throws {
       let unused = FixtureReadOnlyCommandRunner(root: Data(), limits: Data(), power: Data())
-      let cases = [("J614s", true), ("apple,j614s", true), ("J613", false), ("J314s", false)]
+      let cases = [("J614s", false), ("apple,j614s", false), ("J613", false), ("J314s", false)]
       for (target, blocked) in cases {
         let inspector = AppleSiliconHostInspector(
           hardware: FixtureHardwarePropertyReader(values: [
@@ -44,7 +44,7 @@
       XCTAssertEqual(result.eligibility, .requiresSignedCatalog)
     }
 
-    func testM4InspectionIsBlockedBeforeCatalogOrAuthorization() throws {
+    func testM4InspectionIsCatalogGatedLikeOtherSupportedBoards() throws {
       let inspector = makeInspector(
         model: "Mac16,8",
         chip: "Apple M4 Pro",
@@ -54,12 +54,7 @@
       let result = try inspector.inspect()
 
       XCTAssertEqual(result.identity.deviceIdentifier, "apple,j614s")
-      XCTAssertEqual(
-        result.eligibility,
-        .blocked(
-          reason: "This installer doesn’t support this Mac model yet."
-        )
-      )
+      XCTAssertEqual(result.eligibility, .requiresSignedCatalog)
     }
 
     func testUnsafeContainerIdentifierStopsBeforeLimitsQuery() {

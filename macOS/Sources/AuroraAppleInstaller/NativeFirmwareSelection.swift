@@ -38,8 +38,7 @@
       guard facts.deviceIdentifier == deviceIdentifier else {
         throw NativeFirmwareSelectionError.deviceChanged
       }
-      guard !AppleSiliconHostInspector.isExplicitlyUnsupported(deviceIdentifier),
-        policy.supports(deviceIdentifier, hardware: facts.hardware),
+      guard policy.supports(deviceIdentifier, hardware: facts.hardware),
         let chip = policy.chipMinimum[String(facts.hardware.chipID)],
         let device = policy.devices[String(deviceIdentifier.dropFirst(6))]
       else { throw NativeFirmwareSelectionError.unsupportedDevice }

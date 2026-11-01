@@ -298,10 +298,10 @@
 
     func testUnsupportedModelWithoutACatalogStillNamesTheMac() {
       let display = PlainLanguage.failure(
-        for: ClosedEngineHelperError.unsupportedDevice("apple,j614s"))
+        for: InstallerAssetPreparationError.notInCatalog(
+          deviceIdentifier: "apple,j614s", modelIdentifier: "Mac16,8", supportedDeviceIdentifiers: []))
       XCTAssertTrue(display.isBlockedModel)
-      XCTAssertTrue(
-        display.plainDetail.contains("MacBook Pro 14-inch (M4 Pro, 2024) · apple,j614s"))
+      XCTAssertTrue(display.plainDetail.contains("apple,j614s"), display.plainDetail)
       XCTAssertEqual(display.remedy, PlainLanguage.blockedExplainer)
       let unknown = PlainLanguage.unsupportedModel(
         deviceIdentifier: "apple,j999", modelIdentifier: "Mac99,1")
@@ -325,7 +325,7 @@
         "j274", "j293", "j313", "j456", "j457", "j314s", "j314c", "j316s", "j316c", "j375c",
         "j375d", "j413", "j415", "j473", "j493", "j414s", "j414c", "j416s", "j416c", "j474s",
         "j475c", "j475d", "j180d", "j433", "j434", "j504", "j613", "j615", "j514s", "j514c",
-        "j514m", "j516s", "j516c", "j516m", "j575d", "j616s", "j700",
+        "j514m", "j516s", "j516c", "j516m", "j575d", "j614s", "j616s", "j700",
       ].map { "apple,\($0)" }
       XCTAssertEqual(identifiers, Set(everySupportedMac))
       let manifest = try JSONSerialization.jsonObject(
@@ -425,13 +425,13 @@
         EngineXPCSubmissionError.connectionFailed,
         EngineXPCSubmissionError.recoveryAuthorizationFailed,
         ClosedEngineHelperError.busy,
-        ClosedEngineHelperError.unsupportedDevice("apple,j614s"),
+        ClosedEngineHelperError.unsupportedDevice("apple,j999"),
         InstallerPlanPreparationError.inventoryUnavailable,
         ArtifactStageError.digestMismatch(expected: "a", actual: "b"),
         InstallerReleaseConfigurationError.releaseResourcesUnavailable,
         SupportCatalogError.expired,
         InstallerAssetPreparationError.hostBlocked("not enabled"),
-        InstallerAssetPreparationError.unsupportedDevice("apple,j614s"),
+        InstallerAssetPreparationError.unsupportedDevice("apple,j999"),
         InstallerAssetPreparationError.deliveryMetadataUnavailable,
         InstallerAppErrorStub.unknown,
       ]
@@ -548,7 +548,7 @@
 
     func testBlockedDeviceIsFlaggedAsBlockedModel() {
       let failure = PlainLanguage.failure(
-        for: ClosedEngineHelperError.unsupportedDevice("apple,j614s")
+        for: ClosedEngineHelperError.unsupportedDevice("apple,j999")
       )
 
       XCTAssertTrue(failure.isBlockedModel)

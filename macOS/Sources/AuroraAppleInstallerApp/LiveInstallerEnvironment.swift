@@ -216,9 +216,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     cancelPayloadPrefetch()
 
     var unsupportedModel: UnsupportedModelDisplay?
-    let modelRefused =
-      AppleSiliconHostInspector.isExplicitlyUnsupported(host.identity.deviceIdentifier)
-      || engine?.support == .unsupported
+    let modelRefused = engine?.support == .unsupported
     if modelRefused {
       unsupportedModel = UnsupportedModelDisplay(
         deviceIdentifier: host.identity.deviceIdentifier,

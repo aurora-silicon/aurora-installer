@@ -162,9 +162,7 @@
     ) async throws
       -> NativePreparedRecoveryHandoff
     {
-      guard try environment.device() == package.deviceIdentifier,
-        !AppleSiliconHostInspector.isExplicitlyUnsupported(package.deviceIdentifier)
-      else {
+      guard try environment.device() == package.deviceIdentifier else {
         throw NativeHandoffValidationError.invalidTarget
       }
       let metadata = try privateBytes(package.metadataURL, maximum: 65_536)
