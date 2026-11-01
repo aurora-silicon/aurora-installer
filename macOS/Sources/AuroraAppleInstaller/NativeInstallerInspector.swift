@@ -22,6 +22,24 @@
   public protocol NativeInstallerInspecting: Sendable {
     func inspect(host: AppleSiliconHostInspection, metadata: StagedInstallerArtifact?) async throws
       -> NativeInstallerInspection
+    /// The same inspection for an experimental choice: refused unless the
+    /// decision, run again here, gives the record.
+    func inspect(
+      host: AppleSiliconHostInspection, metadata: StagedInstallerArtifact?,
+      experimental: ExperimentalAdmissionRecord?
+    ) async throws -> NativeInstallerInspection
+  }
+
+  extension NativeInstallerInspecting {
+    public func inspect(
+      host: AppleSiliconHostInspection, metadata: StagedInstallerArtifact?,
+      experimental: ExperimentalAdmissionRecord?
+    ) async throws -> NativeInstallerInspection {
+      guard experimental == nil else {
+        throw ExperimentalAdmissionError.notOffered
+      }
+      return try await inspect(host: host, metadata: metadata)
+    }
   }
 
   struct NativeCollectedDisk: Sendable {
@@ -53,20 +71,39 @@
     public func inspect(host: AppleSiliconHostInspection, metadata: StagedInstallerArtifact? = nil)
       async throws -> NativeInstallerInspection
     {
+      try await inspect(host: host, metadata: metadata, experimental: nil)
+    }
+
+    public func inspect(
+      host: AppleSiliconHostInspection, metadata: StagedInstallerArtifact?,
+      experimental: ExperimentalAdmissionRecord?
+    ) async throws -> NativeInstallerInspection {
       try Task.checkCancellation()
       let worker = Task.detached(priority: .userInitiated) {
         try Task.checkCancellation()
-        let policy = try self.policy()
+        var policy = try self.policy()
         let hardware = try self.hardware()
         let device = host.identity.deviceIdentifier
-        guard !AppleSiliconHostInspector.isExplicitlyUnsupported(device),
-          policy.supports(device, hardware: hardware)
+        // Without an experimental record this is the original order and check.
+        guard
+          experimental != nil
+            || (!AppleSiliconHostInspector.isExplicitlyUnsupported(device)
+              && policy.supports(device, hardware: hardware))
         else {
           return try NativeInstallerInspection(
             transcript: NativeDiskInventory.unsupported(device: device))
         }
         let metadata =
-          try metadata.map(NativeInstallationMetadata.authenticated) ?? policy.baselineMetadata
+          try metadata.map(NativeInstallationMetadata.authenticated)
+          ?? (experimental == nil
+            ? policy.baselineMetadata : ExperimentalHardwareInspection.anyPayload())
+        if let experimental {
+          policy =
+            try NativeDeviceAdmission.verify(
+              experimental, deviceIdentifier: device, hardware: hardware, policy: policy,
+              metadata: metadata
+            ).policy
+        }
         let stub = try policy.stubBytes(device, hardware: hardware, metadata: metadata)
         let disk = try self.collect(host)
         try Task.checkCancellation()

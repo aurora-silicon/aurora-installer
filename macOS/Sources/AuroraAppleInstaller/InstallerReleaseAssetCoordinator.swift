@@ -9,6 +9,9 @@
     public let previouslyAcceptedCatalog: AcceptedCatalogIdentity?
     public let installerVersion: InstallerVersion?
     public let stagingDirectory: URL
+    /// The owner's experimental hardware choice for a Mac the catalog does
+    /// not list; nil on every supported Mac.
+    public var experimental: ExperimentalAdmissionRecord? = nil
 
     public init(
       host: AppleSiliconHostInspection,
@@ -86,26 +89,28 @@
       previouslyPrepared: PreparedInstallerAssets? = nil,
       includePayload: Bool = true
     ) async throws -> PreparedInstallerRelease {
-      _ = try assetPreparer.validateHost(request.host)
+      _ = try assetPreparer.validateHost(request.host, experimental: request.experimental)
       let catalog = try await catalogFetcher.fetch(
         configuration: request.configuration,
         channel: request.channel
       )
+      var assetRequest = InstallerAssetPreparationRequest(
+        host: request.host,
+        catalogPayload: catalog.payload,
+        catalogSignature: catalog.signature,
+        trustRoot: request.configuration.trustRoot,
+        validationTime: request.validationTime,
+        previouslyAcceptedCatalog: request.previouslyAcceptedCatalog,
+        // A sealed catalog is distributed inside this signed app, so its
+        // remote-update minimum cannot make the app outdated against itself.
+        // Remote channel catalogs still enforce their minimum version.
+        installerVersion: request.configuration.sealedCatalogDocuments == nil
+          ? request.installerVersion : nil,
+        stagingDirectory: request.stagingDirectory
+      )
+      assetRequest.experimental = request.experimental
       let assets = try await assetPreparer.prepare(
-        InstallerAssetPreparationRequest(
-          host: request.host,
-          catalogPayload: catalog.payload,
-          catalogSignature: catalog.signature,
-          trustRoot: request.configuration.trustRoot,
-          validationTime: request.validationTime,
-          previouslyAcceptedCatalog: request.previouslyAcceptedCatalog,
-          // A sealed catalog is distributed inside this signed app, so its
-          // remote-update minimum cannot make the app outdated against itself.
-          // Remote channel catalogs still enforce their minimum version.
-          installerVersion: request.configuration.sealedCatalogDocuments == nil
-            ? request.installerVersion : nil,
-          stagingDirectory: request.stagingDirectory
-        ),
+        assetRequest,
         progress: progress,
         previouslyPrepared: previouslyPrepared,
         includePayload: includePayload

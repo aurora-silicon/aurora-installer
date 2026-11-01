@@ -51,7 +51,8 @@ public struct AppleInstallerTrustCore: Sendable {
           metadataDigest: message.metadataDigest,
           payloadDigest: message.payloadDigest,
           repairManifestDigest: message.repairManifestDigest,
-          requiredHumanSteps: message.requiredHumanSteps
+          requiredHumanSteps: message.requiredHumanSteps,
+          experimentalAdmission: message.experimentalAdmission
         )
       case .checkpoint(let message):
         checkpoints.append(
@@ -202,6 +203,8 @@ public struct ValidatedEnginePlan: Equatable, Sendable {
   public let payloadDigest: String
   public let repairManifestDigest: String?
   public let requiredHumanSteps: [String]
+  /// The bound experimental hardware record; nil on every supported Mac.
+  public var experimentalAdmission: String? = nil
 }
 
 public struct ValidatedEngineCheckpoint: Equatable, Sendable {
@@ -245,6 +248,34 @@ public struct ValidatedSupportCatalog: Sendable {
       return .unsupported(deviceIdentifier: deviceIdentifier)
     }
     return .admitted(record)
+  }
+
+  /// For an experimental install on a Mac the catalog does not list: the
+  /// payload every listed Mac shares, under this Mac's identifier. Refused
+  /// for a Mac the catalog lists (it takes the normal path) and for a catalog
+  /// whose Macs do not all share one payload, metadata and engine.
+  public func experimentalAdmission(for deviceIdentifier: String) -> ModelAdmission {
+    let records = catalog.deviceIdentifiers.compactMap { catalog.record(for: $0) }
+    guard catalog.record(for: deviceIdentifier) == nil, let first = records.first,
+      records.allSatisfy({
+        $0.operation == first.operation && $0.installationProfile == first.installationProfile
+          && $0.engineVersion == first.engineVersion && $0.engineDigest == first.engineDigest
+          && $0.metadataDigest == first.metadataDigest && $0.payloadDigest == first.payloadDigest
+          && $0.repairManifestDigest == first.repairManifestDigest
+          && $0.delivery == first.delivery
+      })
+    else { return .unsupported(deviceIdentifier: deviceIdentifier) }
+    return .admitted(
+      PinnedInstallerRecord(
+        deviceIdentifier: deviceIdentifier, operation: first.operation,
+        installationProfile: first.installationProfile,
+        asahiInstallerTag: first.asahiInstallerTag,
+        asahiInstallerRevision: first.asahiInstallerRevision,
+        asahiInstallerDataRevision: first.asahiInstallerDataRevision,
+        downstreamRevision: first.downstreamRevision, engineVersion: first.engineVersion,
+        engineDigest: first.engineDigest, metadataDigest: first.metadataDigest,
+        payloadDigest: first.payloadDigest, repairManifestDigest: first.repairManifestDigest,
+        evidenceRevision: first.evidenceRevision, delivery: first.delivery))
   }
 }
 

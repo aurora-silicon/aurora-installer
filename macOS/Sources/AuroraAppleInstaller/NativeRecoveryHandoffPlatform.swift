@@ -163,7 +163,9 @@
       -> NativePreparedRecoveryHandoff
     {
       guard try environment.device() == package.deviceIdentifier,
-        !AppleSiliconHostInspector.isExplicitlyUnsupported(package.deviceIdentifier)
+        NativeDeviceAdmission.admits(
+          deviceIdentifier: package.deviceIdentifier, admission: package.experimentalAdmission,
+          hardware: NativeInspectionHardware.live)
       else {
         throw NativeHandoffValidationError.invalidTarget
       }

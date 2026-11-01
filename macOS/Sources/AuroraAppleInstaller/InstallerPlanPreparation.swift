@@ -17,6 +17,26 @@
       request: PinnedAsahiPlanRequest,
       identity: PinnedAsahiPlanIdentity
     ) async throws -> Data
+    /// The plan with an experimental record bound into its digest.
+    func plan(
+      inspection: ValidatedEngineTranscript,
+      request: PinnedAsahiPlanRequest,
+      identity: PinnedAsahiPlanIdentity,
+      experimental: ExperimentalAdmissionRecord?
+    ) async throws -> Data
+  }
+
+  extension InstallerPlanExecuting {
+    /// Planners that cannot bind a record refuse an experimental plan.
+    public func plan(
+      inspection: ValidatedEngineTranscript,
+      request: PinnedAsahiPlanRequest,
+      identity: PinnedAsahiPlanIdentity,
+      experimental: ExperimentalAdmissionRecord?
+    ) async throws -> Data {
+      guard experimental == nil else { throw ExperimentalAdmissionError.notOffered }
+      return try await plan(inspection: inspection, request: request, identity: identity)
+    }
   }
 
   public struct InstallerPlanPreparationRequest: Sendable {
@@ -28,6 +48,9 @@
     public let requestedLengthBytes: UInt64
     public let validationTime: Date
     public let previouslyAcceptedCatalog: AcceptedCatalogIdentity?
+    /// The owner's experimental choice, already checked by the inspection;
+    /// the planner binds it into the plan digest. Nil on a supported Mac.
+    public var experimental: ExperimentalAdmissionRecord? = nil
 
     public init(
       host: AppleSiliconHostInspection,
@@ -120,8 +143,13 @@
         engineVersion: engineVersion,
         installer: request.release.assets.installer
       )
-      let planningTranscript = try await planner.plan(
-        inspection: inspection, request: planRequest, identity: planIdentity)
+      let planningTranscript =
+        request.experimental == nil
+        ? try await planner.plan(
+          inspection: inspection, request: planRequest, identity: planIdentity)
+        : try await planner.plan(
+          inspection: inspection, request: planRequest, identity: planIdentity,
+          experimental: request.experimental)
       let review = try reviewCoordinator.prepare(
         InstallerPlanReviewRequest(
           host: request.host,

@@ -26,6 +26,10 @@
     public let deviceIdentifier: String
     public let storeIdentifier: String
     public let installationIntent: ImportedInstallationIntent
+    /// The plan's bound experimental hardware record, decoded. Nil on every
+    /// supported Mac. The helper still re-runs the decision before using it
+    /// (`NativeExperimentalAdmission.verify`).
+    public var experimentalAdmission: ExperimentalAdmissionRecord? = nil
 
     public init(
       packageURL: URL,
@@ -40,7 +44,8 @@
       planDigest: String,
       deviceIdentifier: String,
       storeIdentifier: String,
-      installationIntent: ImportedInstallationIntent = .fresh
+      installationIntent: ImportedInstallationIntent = .fresh,
+      experimentalAdmission: ExperimentalAdmissionRecord? = nil
     ) {
       self.packageURL = packageURL
       self.manifestURL = manifestURL
@@ -55,6 +60,7 @@
       self.deviceIdentifier = deviceIdentifier
       self.storeIdentifier = storeIdentifier
       self.installationIntent = installationIntent
+      self.experimentalAdmission = experimentalAdmission
     }
   }
 
@@ -127,7 +133,8 @@
         package.payloadURL == package.packageURL.appendingPathComponent(manifest.payload.fileName),
         package.restoreImageURL
           == package.packageURL.appendingPathComponent(manifest.restoreImage.fileName),
-        identity.repairManifestDigest == nil
+        identity.repairManifestDigest == nil,
+        package.experimentalAdmission?.canonical == request.experimentalAdmission
       else { throw EngineHandoffImportError.bindingMismatch }
       if intent == .reinstall {
         guard package.recoveryTemplateURL == nil,
@@ -141,7 +148,8 @@
         offsetBytes: request.offsetBytes, lengthBytes: request.lengthBytes,
         engineVersion: request.engineVersion, engineDigest: identity.engineDigest,
         metadataDigest: identity.metadataDigest, payloadDigest: identity.payloadDigest,
-        repairManifestDigest: nil, requiredHumanSteps: request.requiredHumanSteps)
+        repairManifestDigest: nil, requiredHumanSteps: request.requiredHumanSteps,
+        experimentalAdmission: request.experimentalAdmission)
     }
 
     public func prepare(
@@ -249,7 +257,9 @@
         planDigest: request.planDigest,
         deviceIdentifier: request.deviceIdentifier,
         storeIdentifier: request.storeIdentifier,
-        installationIntent: intent(for: request)
+        installationIntent: intent(for: request),
+        experimentalAdmission: try request.experimentalAdmission.map(
+          ExperimentalAdmissionRecord.decode)
       )
     }
 
@@ -312,7 +322,9 @@
         },
         bindingDigest: identity.bindingDigest, planDigest: request.planDigest,
         deviceIdentifier: request.deviceIdentifier, storeIdentifier: request.storeIdentifier,
-        installationIntent: intent(for: request))
+        installationIntent: intent(for: request),
+        experimentalAdmission: try request.experimentalAdmission.map(
+          ExperimentalAdmissionRecord.decode))
     }
 
     private func readRetainedFile(
@@ -606,16 +618,19 @@
 
     private func decodeRequest(_ data: Data) throws -> ImportedRequest {
       do {
-        _ = try exactObject(
-          data,
-          keys: [
-            "format", "operation", "plan_digest", "device_identifier",
-            "store_identifier", "layout_digest", "candidate_kind",
-            "source_identifier", "offset_bytes", "length_bytes",
-            "engine_version", "required_human_steps",
-          ],
-          error: .invalidRequest
-        )
+        var keys: Set<String> = [
+          "format", "operation", "plan_digest", "device_identifier",
+          "store_identifier", "layout_digest", "candidate_kind",
+          "source_identifier", "offset_bytes", "length_bytes",
+          "engine_version", "required_human_steps",
+        ]
+        // Only an experimental plan carries the bound record.
+        if (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?[
+          "experimental_admission"] != nil
+        {
+          keys.insert("experimental_admission")
+        }
+        _ = try exactObject(data, keys: keys, error: .invalidRequest)
         let request = try JSONDecoder().decode(ImportedRequest.self, from: data)
         guard request.format == 1,
           (request.operation == "install"
@@ -648,7 +663,11 @@
           !request.requiredHumanSteps.isEmpty,
           request.requiredHumanSteps.allSatisfy({
             !$0.isEmpty && $0.utf8.count <= 128
-          })
+          }),
+          request.experimentalAdmission.map({
+            (try? ExperimentalAdmissionRecord.decode($0))?.deviceIdentifier
+              == request.deviceIdentifier && request.operation == "install"
+          }) ?? true
         else {
           throw EngineHandoffImportError.invalidRequest
         }
@@ -729,6 +748,7 @@
         planFields.append(repairManifestDigest)
       }
       planFields.append(request.requiredHumanSteps.joined(separator: ","))
+      if let experimental = request.experimentalAdmission { planFields.append(experimental) }
       let engineBound =
         manifest.format == 1
         ? manifest.engine?.digest == identity.engineDigest
@@ -862,6 +882,7 @@
     let lengthBytes: UInt64
     let engineVersion: String
     let requiredHumanSteps: [String]
+    let experimentalAdmission: String?
 
     enum CodingKeys: String, CodingKey {
       case format
@@ -876,6 +897,7 @@
       case lengthBytes = "length_bytes"
       case engineVersion = "engine_version"
       case requiredHumanSteps = "required_human_steps"
+      case experimentalAdmission = "experimental_admission"
     }
   }
 

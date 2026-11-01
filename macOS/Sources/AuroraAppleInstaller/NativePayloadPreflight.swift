@@ -30,13 +30,21 @@
         NativePayloadRangeReader(package.payloadURL, owner: owner))
       try await validate(
         metadata: metadata, payloadName: package.payloadURL.lastPathComponent, archive: archive)
+      let facts = try firmwareFacts()
+      let installation = try NativeInstallationMetadata(data: metadata)
       let firmware = try NativeFirmwareSelection.choose(
-        deviceIdentifier: package.deviceIdentifier, facts: firmwareFacts(),
-        metadata: NativeInstallationMetadata(data: metadata),
-        policy: NativeInspectionPolicy.sealed())
-      _ = try await NativeBootChain.admit(
-        metadata: metadata, archive: archive, deviceIdentifier: package.deviceIdentifier,
-        firmware: firmware.version.components(separatedBy: " ")[0])
+        package: package, facts: facts, metadata: installation)
+      if let record = package.experimentalAdmission {
+        let assessment = try NativeDeviceAdmission.verify(
+          record, deviceIdentifier: package.deviceIdentifier, hardware: facts.hardware,
+          policy: NativeInspectionPolicy.sealed(), metadata: installation)
+        _ = try await NativeExperimentalBootChain.admit(
+          metadata: metadata, archive: archive, assessment: assessment)
+      } else {
+        _ = try await NativeBootChain.admit(
+          metadata: metadata, archive: archive, deviceIdentifier: package.deviceIdentifier,
+          firmware: firmware.version.components(separatedBy: " ")[0])
+      }
     }
 
     /// The caller has already authenticated the archive and supplied the

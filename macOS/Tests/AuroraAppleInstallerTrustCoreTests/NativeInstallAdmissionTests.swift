@@ -28,7 +28,7 @@
         sourceIdentifier: "disk0s2", offsetBytes: 4096, lengthBytes: 100_663_296,
         engineVersion: "fixture", engineDigest: digest, metadataDigest: digest,
         payloadDigest: digest, repairManifestDigest: nil,
-        requiredHumanSteps: ["enterOneTrueRecovery"])
+        requiredHumanSteps: ["enterOneTrueRecovery"], experimentalAdmission: nil)
       return EnginePlanMessage(
         planDigest: unsigned.computedPlanDigest,
         deviceIdentifier: unsigned.deviceIdentifier, storeIdentifier: unsigned.storeIdentifier,
@@ -37,7 +37,7 @@
         lengthBytes: unsigned.lengthBytes, engineVersion: unsigned.engineVersion,
         engineDigest: unsigned.engineDigest, metadataDigest: unsigned.metadataDigest,
         payloadDigest: unsigned.payloadDigest, repairManifestDigest: nil,
-        requiredHumanSteps: unsigned.requiredHumanSteps)
+        requiredHumanSteps: unsigned.requiredHumanSteps, experimentalAdmission: nil)
     }
     static func journal(
       stages: Int = 0, pendingRecovery: Bool = false,

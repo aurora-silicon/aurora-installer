@@ -139,8 +139,7 @@
       }
       let metadata = try NativeInstallationMetadata(data: bytes)
       let selection = try NativeFirmwareSelection.choose(
-        deviceIdentifier: package.deviceIdentifier,
-        facts: firmwareFacts(), metadata: metadata, policy: NativeInspectionPolicy.sealed())
+        package: package, facts: firmwareFacts(), metadata: metadata)
       // Preserve the early archive-opening gate that preceded APFS work in the
       // backend. This is a bounded ZIP index read, never a whole restore fetch.
       try await admitRestore(selection.sourceURL)
@@ -323,9 +322,9 @@
         facts.disk.snapshot.disk == approved.storeIdentifier,
         try NativeKnownInstallations.recognize(facts.disk).isEmpty,
         try NativeFirmwareSelection.choose(
-          deviceIdentifier: approved.deviceIdentifier,
+          package: package,
           facts: .init(deviceIdentifier: facts.deviceIdentifier, hardware: facts.hardware),
-          metadata: metadata, policy: NativeInspectionPolicy.sealed()) == firmware
+          metadata: metadata) == firmware
       else { throw NativeAPFSError.changedLayout }
       let inspection = try AppleInstallerTrustCore().validateEngineTranscript(
         NativeDiskInventory.transcript(
@@ -345,7 +344,8 @@
         engineDigest: approved.engineDigest, metadataDigest: approved.metadataDigest,
         payloadDigest: approved.payloadDigest)
       let transcript = try NativeInstallerPlanner.transcript(
-        inspection: inspection, request: request, identity: identity)
+        inspection: inspection, request: request, identity: identity,
+        experimental: package.experimentalAdmission)
       guard try AppleInstallerTrustCore().validateEngineTranscript(transcript).plan == approved
       else {
         throw NativeAPFSError.invalidPlan

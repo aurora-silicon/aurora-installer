@@ -26,10 +26,24 @@
       return result
     }
 
+    public func plan(
+      inspection: ValidatedEngineTranscript,
+      request: PinnedAsahiPlanRequest,
+      identity: PinnedAsahiPlanIdentity,
+      experimental: ExperimentalAdmissionRecord?
+    ) async throws -> Data {
+      try Task.checkCancellation()
+      let result = try Self.transcript(
+        inspection: inspection, request: request, identity: identity, experimental: experimental)
+      try Task.checkCancellation()
+      return result
+    }
+
     static func transcript(
       inspection: ValidatedEngineTranscript,
       request: PinnedAsahiPlanRequest,
-      identity: PinnedAsahiPlanIdentity
+      identity: PinnedAsahiPlanIdentity,
+      experimental: ExperimentalAdmissionRecord? = nil
     ) throws -> Data {
       guard inspection.support == .supported, inspection.plan == nil,
         inspection.checkpoints.isEmpty, inspection.completion == nil,
@@ -68,6 +82,13 @@
       ]
       if let repair = identity.repairManifestDigest { fields.append(repair) }
       fields.append(steps.joined(separator: ","))
+      guard
+        experimental.map({
+          $0.deviceIdentifier == inspection.deviceIdentifier
+            && ["free", "resize", "replace"].contains(candidate.kind)
+        }) ?? true
+      else { throw NativeInstallerPlanningError.invalidIdentity }
+      if let experimental { fields.append(experimental.canonical) }
       var plan: [String: Any] = [
         "plan_digest": InstallerDigest.lengthPrefixedSHA256(fields).hexadecimal,
         "device_identifier": inspection.deviceIdentifier,
@@ -80,6 +101,7 @@
         "required_human_steps": steps,
       ]
       if let repair = identity.repairManifestDigest { plan["repair_manifest_digest"] = repair }
+      if let experimental { plan["experimental_admission"] = experimental.canonical }
       let inventoryPayload: [String: Any] = [
         "layout_digest": inventory.layoutDigest,
         "system_store_identifier": inventory.systemStoreIdentifier,

@@ -181,6 +181,21 @@
       }
     }
 
+    private struct FailingNativeFilesFixture: NativeStubFilesPreparing,
+      NativeStubFilesExecuting
+    {
+      func preflight(_ package: ImportedEngineHandoffPackage) async throws -> (
+        any NativeStubFilesExecuting
+      )? { self }
+
+      func prepare(
+        journal: URL, authorization: MachineOwnerAuthorization,
+        sourceBootstrap: NativeSourceBootstrap
+      ) async throws {
+        throw NativeStubFileError.writeFailed
+      }
+    }
+
     func testCompleteNativeClosureRunsEveryStageAndTheNativeHandoff() async throws {
       let fixture = try makeFixture(
         transcript: NativeAdmissionTestData.journal(stages: 2))
@@ -204,6 +219,34 @@
         fixture.package, authorization: machineOwnerAuthorization())
       _ = try AppleInstallerTrustCore().validateEngineTranscript(transcript)
       XCTAssertTrue(FileManager.default.fileExists(atPath: finished.path))
+    }
+
+    func testStubCopyFailureIsNotMisreportedAsDiskLayoutChange() async throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let executor = fixtureExecutor(
+        effectiveUserID: { 0 },
+        apfsPreparer: NativeAPFSFixture(
+          marker: fixture.root.appendingPathComponent("apfs"), recordMutation: true),
+        stubFilesPreparer: FailingNativeFilesFixture(),
+        espFilesPreparer: NativeESPFixture(
+          marker: fixture.root.appendingPathComponent("unused-esp"),
+          images: fixture.root.appendingPathComponent("unused-images")),
+        installationFinisher: NativeFinishingFixture(
+          esp: fixture.root.appendingPathComponent("unused"),
+          marker: fixture.root.appendingPathComponent("unused-marker")))
+
+      await assertThrowsErrorAsync(
+        try await executor.execute(
+          fixture.package, authorization: try machineOwnerAuthorization()))
+      {
+        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+          return XCTFail("Expected a typed stub copy failure")
+        }
+        XCTAssertEqual(report.notice.reason, .unclassified)
+        XCTAssertFalse(report.notice.diskUnchanged)
+        XCTAssertEqual(report.notice.summary, "Aurora stub files could not be copied.")
+      }
     }
 
     func testEveryIncompleteNativeClosureRefusesBeforeDiskMutation()
