@@ -65,6 +65,10 @@
   "32dccf0297e90e66deac7cf252478b2af9e71d27": {
    "bytes": 1638400,
    "evidence": "aura main 32dccf02 built 2026-11-01 with RELEASE=1 CHAINLOADING=1 USE_CLANG=1 BUILTIN_LOGO=aurora BUILDSTD=1 (the packaging flags); build/aura.bin sha256 4ae49fe99459d4cf5f2f2f7cb05e98034f7f943180d816c3f11acac7c6837557, marker 1.0.0b1-g32dccf02"
+  },
+  "241540a6ea6f7847551d90a9db1f763199578263": {
+   "bytes": 1638400,
+   "evidence": "aura v1.0.0b2 (241540a6) built 2026-11-01 with RELEASE=1 CHAINLOADING=1 USE_CLANG=1 BUILTIN_LOGO=aurora BUILDSTD=1 (the packaging flags), clang/lld 22.1.6 and rustc 1.96.0; build/aura.bin sha256 b3285da94415add87c883a64e828899968ad547f3b301460323236aae19cad9b, marker 1.0.0b2"
   }
  },
  "pinned_stage1_bytes_note": "The raw Stage 1 size of a pinned aura commit, measured from a build, so the iBoot size limits apply to the pin before its payloads exist. Ignored for any other commit.",
