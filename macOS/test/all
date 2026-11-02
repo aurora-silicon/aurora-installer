@@ -35,6 +35,7 @@ PY
 python3 test/native-stub-file-vectors.py
 python3 test/native-update-archive-vectors.py
 python3 test/native-finishing-vectors.py
+PYTHONPATH=.. python3 -m unittest discover -s ../tests -p 'test_mriya_wifi.py'
 
 python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 python3 -m unittest discover -s test/conformance -p 'test_*.py'

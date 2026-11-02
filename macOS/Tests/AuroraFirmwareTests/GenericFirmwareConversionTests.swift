@@ -105,6 +105,12 @@ final class GenericFirmwareConversionTests: XCTestCase {
       prefix + ".bin", prefix + ".clm_blob", prefix + ".txcap_blob", prefix + ".sig",
       prefix + "-WLMT-a.txt", prefix + "-WLMT-u.txt",
     ]))
+    let signature = try XCTUnwrap(inputs.removeValue(forKey: base + "mriya.sig"))
+    inputs["perf/shared.sig"] = signature
+    let links = [base + "mriya.sig": "perf/shared.sig"]
+    XCTAssertEqual(try BroadcomFirmware.wifi(inputs, links: links)[prefix + ".sig"], signature)
+    inputs.removeValue(forKey: "perf/shared.sig")
+    inputs[base + "mriya.sig"] = signature
     inputs[base + "P-mriya-WLMT-u.txt"] = Data("board=1\n".utf8)
     XCTAssertNotNil(try BroadcomFirmware.wifi(inputs)[prefix + ".txt"])
     inputs[base + "mriya.sig"] = Data()

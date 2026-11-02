@@ -24,9 +24,15 @@ class MriyaWiFiTests(unittest.TestCase):
 
     def test_complete_set_produces_j614s_firmware_and_excludes_other_c2(self):
         self.write_set()
+        target = self.root / "shared-sig"
+        target.write_bytes(b"signature")
+        (self.c2 / "mriya.sig").unlink()
+        (self.c2 / "mriya.sig").symlink_to(target)
         (self.c2 / "other.trx").write_bytes(b"other")
         prefix = "brcm/brcmfmac4388c2-pcie.apple,mriya"
-        self.assertEqual(set(self.converted()), {
+        files = self.converted()
+        self.assertEqual(files[prefix + ".sig"].data, b"signature")
+        self.assertEqual(set(files), {
             prefix + ".bin", prefix + ".clm_blob", prefix + ".txcap_blob",
             prefix + ".sig", prefix + "-WLMT-a.txt", prefix + "-WLMT-u.txt",
         })
@@ -43,12 +49,6 @@ class MriyaWiFiTests(unittest.TestCase):
         (self.c2 / "P-mriya-WLMT-u.txt").unlink()
         (self.c2 / "P-mriya-_gen.txt").write_bytes(b"board=1\n")
         self.assertEqual(self.converted(), {})
-
-    def test_identical_nvram_variants_can_be_pruned(self):
-        self.write_set()
-        (self.c2 / "P-mriya-WLMT-u.txt").write_bytes(b"board=1\n")
-        self.assertIn("brcm/brcmfmac4388c2-pcie.apple,mriya.txt", self.converted())
-
 
 if __name__ == "__main__":
     unittest.main()
