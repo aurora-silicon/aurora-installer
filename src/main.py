@@ -30,6 +30,7 @@ class IPSW:
     expert_only: bool
     devices: list
     url: str
+    stub_size: int = None   # None: STUB_SIZE
 
 @dataclass
 class Device:
@@ -50,6 +51,7 @@ CHIP_MIN_VER = {
     0x6031: "14.8.3",   # T6031, M3 Max (16-core)
     0x6034: "14.8.3",   # T6034, M3 Max (14-core)
     0x8142: "26.6.1",   # T8142, M5 (experimental)
+    0x6050: "27.0",     # T6050, M5 Pro/Max/Ultra (experimental)
 }
 
 DEVICES = {
@@ -88,6 +90,7 @@ DEVICES = {
     "j516cap":  Device("14.8.3", True), # MacBook Pro (16-inch, M3 Max, 2023)
     "j516map":  Device("14.8.3", True), # MacBook Pro (16-inch, M3 Max, 2023)
     "j813ap":   Device("26.6.1", True), # MacBook Air (13-inch, M5, 2026; experimental)
+    "j775cap":  Device("27.0", True),   # Mac Studio (M5 Max, 2026; experimental)
 }
 
 # Asahi Linux does not support running in a virtual machine, this option
@@ -132,6 +135,16 @@ IPSW_VERSIONS = [
          True,
          ["j813ap"],
          "https://updates.cdn-apple.com/2026SummerFCS/fullrestores/140-83079/25315EF6-AEAB-4588-9774-A3723774C47F/UniversalMac_26.6.1_25G76_Restore.ipsw"),
+    # 27.0 (26A428): BaseSystem and Ap,ExclaveOS are AEA-encrypted and get
+    # decrypted from the IPSW (see aea.py), so the stub holds them in plain form.
+    IPSW("27.0",
+         "27.0",
+         "mBoot-20457.1.29",
+         "26.1.428.0.0,0",
+         True,
+         ["j775cap"],
+         "https://updates.cdn-apple.com/2026FallFCS/afcfc88e-bbe6-44bf-a5da-07c56eebc06c/UniversalMac_27.0_26A428_Restore.ipsw",
+         stub_size=align_down(psize("4GB"), PART_ALIGN)),
 ]
 
 class InstallerMain:
@@ -319,7 +332,7 @@ class InstallerMain:
         self.osins = osinstall.OSInstaller(self.dutil, self.data, template)
         self.osins.load_package()
 
-        min_size = STUB_SIZE + (self.osins.min_size if self.expert else self.osins.min_recommended_size)
+        min_size = self.stub_size() + (self.osins.min_size if self.expert else self.osins.min_recommended_size)
         print()
         p_message(f"Minimum required space for this OS: {ssize(min_size)}")
 
@@ -327,7 +340,7 @@ class InstallerMain:
         os_size = self.get_os_size_and_info(end - start, min_size, template)
 
         p_progress(f"Partitioning the whole disk ({self.cur_disk})")
-        self.part = self.dutil.partitionDisk(self.cur_disk, "apfs", self.osins.name, STUB_SIZE)
+        self.part = self.dutil.partitionDisk(self.cur_disk, "apfs", self.osins.name, self.stub_size())
 
         p_progress(f"Creating new stub macOS named {self.osins.name}")
         logging.info(f"Creating stub macOS: {self.osins.name}")
@@ -339,7 +352,7 @@ class InstallerMain:
         self.osins = osinstall.OSInstaller(self.dutil, self.data, template)
         self.osins.load_package()
 
-        min_size = STUB_SIZE + (self.osins.min_size if self.expert else self.osins.min_recommended_size)
+        min_size = self.stub_size() + (self.osins.min_size if self.expert else self.osins.min_recommended_size)
         print()
         p_message(f"Minimum required space for this OS: {ssize(min_size)}")
 
@@ -368,7 +381,7 @@ class InstallerMain:
 
         p_progress(f"Creating new stub macOS named {self.osins.name}")
         logging.info(f"Creating stub macOS: {self.osins.name}")
-        self.part = self.dutil.addPartition(free_part.name, "apfs", self.osins.name, STUB_SIZE)
+        self.part = self.dutil.addPartition(free_part.name, "apfs", self.osins.name, self.stub_size())
 
         self.do_install(os_size)
 
@@ -399,7 +412,7 @@ class InstallerMain:
             print()
             p_message(f"The new OS will be allocated {ssize(os_size)} of space,")
             p_message(f"leaving {ssize(free_size - os_size)} of free space.")
-            os_size -= STUB_SIZE
+            os_size -= self.stub_size()
 
         print()
         self.flush_input()
@@ -592,6 +605,14 @@ class InstallerMain:
             shutil.copy("installer.log", os.path.join(i, "installer.log"))
 
         self.step2(report=True)
+
+    def stub_size(self):
+        # The IPSW is picked after the stub is sized, so size it for the largest
+        # stub any IPSW listed for this device needs.
+        sizes = [ipsw.stub_size for ipsw in IPSW_VERSIONS
+                 if ipsw.stub_size and ipsw.devices
+                 and self.sysinfo.device_class in ipsw.devices]
+        return max([STUB_SIZE] + sizes)
 
     def choose_ipsw(self, supported_fw=None):
         sys_iboot = split_ver(self.sysinfo.sys_firmware)
@@ -1052,7 +1073,7 @@ class InstallerMain:
                 continue
             if p.free:
                 p.desc = f"(free space: {ssize(p.size)})"
-                if p.size >= STUB_SIZE:
+                if p.size >= self.stub_size():
                     parts_free.append(p)
             elif p.type.startswith("Apple_APFS"):
                 p.desc = "APFS"
@@ -1068,7 +1089,7 @@ class InstallerMain:
                     if self.can_resize(p):
                         parts_resizable.append(p)
                     else:
-                        if p.size >= STUB_SIZE * 0.95:
+                        if p.size >= self.stub_size() * 0.95:
                             parts_empty_apfs.append(p)
             else:
                 p.desc = f"{p.type} ({ssize(p.size)})"

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 import os, os.path, plistlib, shutil, sys, stat, subprocess, urlcache, zipfile, logging, json, tempfile
 import osenum
+import aea
 from asahi_firmware.wifi import WiFiFWCollection
 from asahi_firmware.bluetooth import BluetoothFWCollection
 from asahi_firmware.multitouch import MultitouchFWCollection
@@ -20,6 +21,7 @@ class StubInstaller(PackageInstaller):
         self.stub_info = {}
         self.pkg = None
         self.is_ota = False
+        self.aea_scratch = None
 
     def load_ipsw(self, ipsw_info):
         self.install_version = ipsw_info.version.split(maxsplit=1)[0]
@@ -167,6 +169,80 @@ class StubInstaller(PackageInstaller):
 
     def open(self, path):
         return self.pkg.open(self.path(path))
+
+    def member_is_aea(self, path):
+        with self.open(path) as fd:
+            return aea.is_aea(fd.read(4))
+
+    def get_aea_scratch(self, need):
+        # Encrypted members are staged on the host's free space, not in the stub
+        # container, which has room only for the final decrypted files.
+        if self.aea_scratch is None:
+            base = os.environ.get("AEA_SCRATCH_DIR") or None
+            self.aea_scratch = tempfile.mkdtemp(prefix="aurora-aea-", dir=base)
+        free = shutil.disk_usage(self.aea_scratch).free
+        if free < need:
+            raise Exception(f"Not enough free space to decrypt macOS components: "
+                            f"need {ssize(need)}, have {ssize(free)} in {self.aea_scratch}")
+        return self.aea_scratch
+
+    def cleanup_aea_scratch(self):
+        if self.aea_scratch is not None:
+            shutil.rmtree(self.aea_scratch, ignore_errors=True)
+            self.aea_scratch = None
+
+    def extract_decrypted(self, key, val, dest_path):
+        """Extract manifest component `key` to dest_path, decrypting it if it is
+        an AEA archive. A decrypted component must match its manifest digest."""
+        path = val["Info"]["Path"]
+        if not self.member_is_aea(path):
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+            self.extract_file(path, dest_path)
+            return False
+        digest = val.get("Digest")
+        if digest is None:
+            raise Exception(f"Encrypted component {key} has no manifest digest")
+        size = self.pkg.getinfo(self.path(path)).file_size
+        scratch = self.get_aea_scratch(size + (1 << 30))
+        enc = os.path.join(scratch, os.path.basename(path))
+        logging.info(f"Decrypting {key} ({path})")
+        self.extract_file(path, enc)
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        # The decrypted image is larger; require room for it next to dest.
+        need = 2 * size
+        free = shutil.disk_usage(os.path.dirname(dest_path)).free
+        if free < need:
+            raise Exception(f"Not enough free space for decrypted {key}: "
+                            f"need {ssize(need)}, have {ssize(free)}")
+        try:
+            aea.decrypt_verified(enc, dest_path, digest)
+        finally:
+            os.unlink(enc)
+        logging.info(f"  {key}: {ssize(size)} encrypted -> "
+                     f"{ssize(os.path.getsize(dest_path))} decrypted, digest ok")
+        return True
+
+    def extract_basesystem(self, identity, dst):
+        """Write the recoveryOS image, HFS-compressed, decrypting it if needed."""
+        basesystem = identity["Manifest"]["BaseSystem"]
+        if self.is_ota:
+            ota_bs = "AssetData/payloadv2/basesystem_patches/arm64eBaseSystem.dmg"
+            with self.pkg.open(ota_bs) as fd:
+                if aea.is_aea(fd.read(4)):
+                    raise Exception("Encrypted recovery images in OTA packages are not supported; use a full IPSW")
+            self.copy_recompress(ota_bs, dst)
+        elif self.member_is_aea(basesystem["Info"]["Path"]):
+            size = self.pkg.getinfo(basesystem["Info"]["Path"]).file_size
+            scratch = self.get_aea_scratch(3 * size + (1 << 30))
+            plain = os.path.join(scratch, "arm64eBaseSystem.dmg")
+            try:
+                self.extract_decrypted("BaseSystem", basesystem, plain)
+                self.copy_compress_local(plain, dst)
+            finally:
+                if os.path.exists(plain):
+                    os.unlink(plain)
+        else:
+            self.copy_compress(basesystem["Info"]["Path"], dst)
 
     def copy_admin_users(self, cur_os):
         logging.info("Copying admin users")
@@ -331,7 +407,7 @@ class StubInstaller(PackageInstaller):
             path = val["Info"]["Path"]
             if path in copied:
                 continue
-            self.extract(path, restore_bundle)
+            self.extract_decrypted(key, val, os.path.join(restore_bundle, path))
             if path.startswith("kernelcache."):
                 name = os.path.basename(path)
                 self.copy_idata.append((os.path.join(restore_bundle, name), name))
@@ -358,13 +434,9 @@ class StubInstaller(PackageInstaller):
         os.makedirs(basesystem_path, exist_ok=True)
 
         logging.info("Extracting arm64eBaseSystem.dmg")
-        if self.is_ota:
-            self.copy_recompress("AssetData/payloadv2/basesystem_patches/arm64eBaseSystem.dmg",
-                                 os.path.join(basesystem_path, "arm64eBaseSystem.dmg"))
-        else:
-            self.copy_compress(identity["Manifest"]["BaseSystem"]["Info"]["Path"],
-                               os.path.join(basesystem_path, "arm64eBaseSystem.dmg"))
+        self.extract_basesystem(identity, os.path.join(basesystem_path, "arm64eBaseSystem.dmg"))
         self.flush_progress()
+        self.cleanup_aea_scratch()
 
         p_progress("Wrapping up...")
 
@@ -437,7 +509,7 @@ class StubInstaller(PackageInstaller):
                     or not path.endswith(".im4p")):
                     continue
                 if path not in copied:
-                    self.extract(path, "fud_firmware")
+                    self.extract_decrypted(key, val, os.path.join("fud_firmware", path))
                     copied.add(path)
                 fud_dir = os.path.join("fud_firmware", device)
                 os.makedirs(fud_dir, exist_ok=True)

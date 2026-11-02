@@ -238,6 +238,16 @@ class PackageInstaller:
         istream = self.pkg.open(src)
         self.stream_compress(istream, size, path, crc=info.CRC)
 
+    def copy_compress_local(self, src_path, path):
+        # Like copy_compress, for a file already on disk (e.g. a decrypted image)
+        crc = 0
+        with open(src_path, 'rb') as fd:
+            for chunk in iter(lambda: fd.read(CHUNK_SIZE), b""):
+                crc = zlib.crc32(chunk, crc)
+        size = os.path.getsize(src_path)
+        with open(src_path, 'rb') as istream:
+            self.stream_compress(istream, size, path, crc=crc)
+
     def stream_compress(self, istream, size, path, crc=None, sha1=None):
         with open(path, 'wb'):
             pass
