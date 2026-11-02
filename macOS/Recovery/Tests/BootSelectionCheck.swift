@@ -18,15 +18,14 @@ import Foundation
         let arguments = selection.mode.enrollmentArguments(stage1: stage1, volume: volume)
         precondition(arguments[0] == "configure-boot")
         precondition(arguments[2] == stage1 && arguments[4] == volume)
+        precondition(selection.mode.stage2Path == "raw/boot.bin")
         if macho {
           precondition(arguments.count == 5)
-          precondition(selection.mode.stage2Path.hasSuffix(".pkg"))
         } else {
           precondition(
             Array(arguments.dropFirst(5)) == [
               "--raw", "--entry-point", "2048", "--lowest-virtual-address", "0",
             ])
-          precondition(selection.mode.stage2Path.hasSuffix("boot.bin"))
         }
         let restored = try JSONDecoder().decode(
           BootSelection.self, from: JSONEncoder().encode(selection))

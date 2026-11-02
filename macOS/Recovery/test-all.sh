@@ -18,6 +18,7 @@ compile_run digest Sources/Account/RecoveryDigest.swift Tests/RecoveryDigestChec
 compile_run owner Sources/RecoveryOwner.swift Tests/RecoveryOwnerCheck.swift
 compile_run bootstrap-owner Sources/RecoveryOwner.swift Tests/BootstrapOwnerCheck.swift
 compile_run boot-selection Sources/BootSelection.swift Tests/BootSelectionCheck.swift
+compile_run macho-boot-object Sources/MachOBootObject.swift Tests/MachOBootObjectCheck.swift
 compile_run installer-log Sources/InstallerLog.swift Tests/InstallerLogCheck.swift
 compile_run log-view Sources/InstallerTheme.swift Sources/LogTextView.swift Tests/LogTextViewCheck.swift
 compile_run sheet-presenter Sources/SheetPresenter.swift Tests/SheetPresenterCheck.swift

@@ -171,13 +171,16 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
 
   private var stageTitle: String {
     switch model.stage {
+    case .welcome where model.stage1Update != nil: return "Update startup"
     case .welcome: return model.recoveryInterface ? "Repair startup" : "Finish setup"
+    case .installing where model.stage1Update != nil: return "Updating startup software"
     case .installing:
       return model.recoveryInterface ? "Restoring startup software" : "Setting up Aurora Linux"
     case .account:
       return model.accountAlreadyStarted ? "Resume recovery setup" : "Create a recovery account"
     case .complete:
       if model.accountNeedsAuthorization { return "Authorize recovery account" }
+      if model.stage1Update != nil { return "Update complete" }
       return model.recoveryInterface ? "Recovery complete" : "Installation complete"
     }
   }
@@ -209,17 +212,23 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
 
   private func buildWelcome() {
     let stack = vertical(spacing: 9)
-    stack.addArrangedSubview(
-      label(
-        model.recoveryInterface
-          ? "Restore the startup software for your Mac."
-          : "Finish setting up Aurora Linux on your Mac.", size: 15))
-    stack.addArrangedSubview(
-      label(
-        model.recoveryInterface
-          ? "Use the saved recovery files to repair your\nstartup software."
-          : "The final step installs the startup software for your\nselected Aurora volume.",
-        size: 13))
+    let (heading, detail) =
+      model.stage1Update != nil
+      ? (
+        "Update the startup software for your Mac.",
+        "This installs new startup software. Linux and its\nstartup partition stay as they are."
+      )
+      : model.recoveryInterface
+        ? (
+          "Restore the startup software for your Mac.",
+          "Use the saved recovery files to repair your\nstartup software."
+        )
+        : (
+          "Finish setting up Aurora Linux on your Mac.",
+          "The final step installs the startup software for your\nselected Aurora volume."
+        )
+    stack.addArrangedSubview(label(heading, size: 15))
+    stack.addArrangedSubview(label(detail, size: 13))
     let icon = volumeIcon()
     stack.setCustomSpacing(44, after: stack.arrangedSubviews[1])
     stack.addArrangedSubview(icon)
@@ -234,7 +243,9 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
     let stack = vertical(spacing: 15)
     stack.addArrangedSubview(
       label(
-        (model.recoveryInterface ? "Restoring " : "Setting up ") + DestinationVolume.name,
+        (model.stage1Update != nil
+          ? "Updating " : model.recoveryInterface ? "Restoring " : "Setting up ")
+          + DestinationVolume.name,
         size: 14))
     let progress = NSProgressIndicator()
     progress.isIndeterminate = false
@@ -341,11 +352,12 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
     switch model.stage {
     case .welcome:
       let start = RecoveryPrimaryButton(
-        title: model.recoveryInterface ? "Restore" : "Continue",
+        title: model.stage1Update != nil
+          ? "Update" : model.recoveryInterface ? "Restore" : "Continue",
         target: self, action: #selector(startPressed))
       center.addArrangedSubview(start)
       primaryButton = start
-      if model.recoveryInterface {
+      if model.recoveryInterface && model.stage1Update == nil {
         let debug = RecoverySecondaryButton(
           title: "Enable Debug", target: self, action: #selector(debugPressed))
         let proxy = RecoverySecondaryButton(
@@ -472,7 +484,7 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
 
   @objc private func startPressed() {
     LaunchTrace.mark("ui.continue.pressed")
-    if model.recoveryInterface {
+    if model.recoveryInterface && model.stage1Update == nil {
       model.restore()
     } else {
       model.checkEnrollmentEnvironment { [weak self] in
@@ -526,7 +538,10 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
       RecoveryActions.inRecovery
       ? (model.authorizationOwner?.username ?? "the volume owner") : NSUserName()
     var explanation = "Enter password for " + owner + "."
-    if !repair {
+    let update = model.stage1Update != nil
+    if update && !repair {
+      explanation += " Use the owner’s password to install the new startup software."
+    } else if !repair {
       explanation +=
         model.authorizationUsesSourceOwner
         ? " Use your existing macOS owner’s password to set up Aurora. Your macOS security settings are unaffected."
@@ -548,11 +563,12 @@ final class InstallerView: NSViewController, NSTextFieldDelegate {
       title: "Cancel", target: self, action: #selector(cancelPanelPressed))
     cancel.keyEquivalent = "\u{1b}"
     let proceed = RecoveryPrimaryButton(
-      title: repair ? "Shut Down" : "Install", target: self,
+      title: repair ? "Shut Down" : update ? "Update" : "Install", target: self,
       action: #selector(authorizePanelPressed))
     proceed.keyEquivalent = "\r"
     let panel = RecoverySheet(
-      title: repair ? "Authorize startup disk" : "Authorize installation",
+      title: repair
+        ? "Authorize startup disk" : update ? "Authorize update" : "Authorize installation",
       message: explanation, width: 430, height: 230, body: field, bodyHeight: 28,
       buttons: [cancel, proceed])
     present(panel, focus: field)
