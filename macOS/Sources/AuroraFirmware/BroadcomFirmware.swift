@@ -45,7 +45,7 @@ public enum BroadcomFirmware {
     let dimensions = ["C", "s", "P", "M", "V", "m", "A"]
     let root = Node()
     func mriyaType(_ filename: String) -> String? {
-      guard let dot = filename.lastIndex(of: ".") else { return nil }
+      guard !filename.contains("_gen"), let dot = filename.lastIndex(of: ".") else { return nil }
       let stem = String(filename[..<dot])
       let ext = String(filename[filename.index(after: dot)...])
       if ext == "txt", stem == "P-mriya" || stem.hasPrefix("P-mriya-") { return ext }

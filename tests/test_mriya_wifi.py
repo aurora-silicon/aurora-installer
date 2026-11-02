@@ -38,6 +38,11 @@ class MriyaWiFiTests(unittest.TestCase):
         self.assertEqual(self.converted(), {})
         (self.c2 / "mriya.sig").touch()
         self.assertEqual(self.converted(), {})
+        (self.c2 / "mriya.sig").write_bytes(b"firmware")
+        (self.c2 / "P-mriya-WLMT-a.txt").unlink()
+        (self.c2 / "P-mriya-WLMT-u.txt").unlink()
+        (self.c2 / "P-mriya-_gen.txt").write_bytes(b"board=1\n")
+        self.assertEqual(self.converted(), {})
 
     def test_identical_nvram_variants_can_be_pruned(self):
         self.write_set()

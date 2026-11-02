@@ -37,6 +37,8 @@ class WiFiFWCollection(object):
 
     @staticmethod
     def _mriya_type(name):
+        if "_gen" in name:
+            return None
         stem, ext = os.path.splitext(name)
         ext = ext.removeprefix(".")
         if ext == "txt" and (stem == "P-mriya" or stem.startswith("P-mriya-")):

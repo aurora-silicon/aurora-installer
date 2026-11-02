@@ -110,6 +110,11 @@ final class GenericFirmwareConversionTests: XCTestCase {
     inputs[base + "mriya.sig"] = Data()
     inputs[base + "mriya_gen.sig"] = Data("generic".utf8)
     XCTAssertTrue(try BroadcomFirmware.wifi(inputs).isEmpty)
+    inputs[base + "mriya.sig"] = Data("firmware".utf8)
+    inputs[base + "P-mriya-WLMT-a.txt"] = nil
+    inputs[base + "P-mriya-WLMT-u.txt"] = nil
+    inputs[base + "P-mriya-_gen.txt"] = Data("board=1\n".utf8)
+    XCTAssertTrue(try BroadcomFirmware.wifi(inputs).isEmpty)
   }
 
   func testConflictingRadioInputsAndUnsafeNamesAreRejected() throws {
