@@ -1,10 +1,34 @@
 #if os(macOS)
   import Darwin
   import Foundation
+  import AuroraFirmware
   import XCTest
   @testable import AuroraAppleInstallerTrustCore
 
   final class NativeFirmwarePublicationTests: XCTestCase, @unchecked Sendable {
+    func testRealJ614sRecoveryRadio() throws {
+      guard let path = ProcessInfo.processInfo.environment["AURORA_REAL_RECOVERY"],
+        let device = ProcessInfo.processInfo.environment["AURORA_REAL_RECOVERY_DEVICE"]
+      else {
+        throw XCTSkip("Set AURORA_REAL_RECOVERY to a read-only Recovery image mount.")
+      }
+      let root = URL(fileURLWithPath: path, isDirectory: true)
+      let tree = try NativeHandoffFileTree(
+        root, protected: true, owner: 0, volumeRoot: true, volumeDevice: device,
+        readOnlyVolume: true)
+      let (source, wifi) = try NativeFirmwareInputFiles.j614sRadio(root: root, tree: tree, owner: 0)
+      let prefix = "brcm/brcmfmac4388c2-pcie.apple,mriya"
+      XCTAssertEqual(wifi[prefix + ".bin"], source.files["guam.trx"])
+      XCTAssertEqual(wifi[prefix + ".sig"], source.files["guam.sig"])
+      XCTAssertEqual(wifi[prefix + ".clm_blob"], source.files["mriya.clmb"])
+      XCTAssertEqual(wifi[prefix + ".txcap_blob"], source.files["mriya.txcb"])
+      XCTAssertNotNil(wifi[prefix + "-WLMT-a.txt"])
+      XCTAssertNotNil(wifi[prefix + "-WLMT-u.txt"])
+      let archives = try FirmwarePackageBuilder.build(
+        wifi.keys.sorted().map { FirmwarePackageInput(name: $0, bytes: wifi[$0]!) })
+      XCTAssertFalse(archives.tar.isEmpty)
+      XCTAssertFalse(archives.cpio.isEmpty)
+    }
     func testSourcePlanUsesOneSelectedIdentityAndExcludesBootLoadedFUD() throws {
       func manifest(_ identities: [[String: Any]]) throws -> Data {
         try PropertyListSerialization.data(

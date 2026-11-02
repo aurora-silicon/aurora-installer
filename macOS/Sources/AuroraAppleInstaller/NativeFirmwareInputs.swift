@@ -1,4 +1,5 @@
 #if os(macOS)
+  import AuroraFirmware
   import CryptoKit
   import Darwin
   import Foundation
@@ -110,6 +111,30 @@
   }
 
   enum NativeFirmwareInputFiles {
+    static func j614sRadio(
+      root: URL, tree: NativeHandoffFileTree, owner: uid_t
+    ) throws -> (Snapshot, [String: Data]) {
+      let c2 = "C-4388__s-C2/"
+      let driver = try snapshot(
+        root: root,
+        prefix:
+          "System/Library/DriverExtensions/com.apple.DriverKit-AppleBCMWLAN.dext/Firmware/C-4388__s-C2",
+        tree: tree, owner: owner)
+      let files = Dictionary(uniqueKeysWithValues: driver.files.map { (c2 + $0.key, $0.value) })
+      let links = Dictionary(
+        uniqueKeysWithValues: driver.links.map { (c2 + $0.key, c2 + $0.value) })
+      let wifi = try BroadcomFirmware.wifi(files, links: links)
+      let prefix = "brcm/brcmfmac4388c2-pcie.apple,mriya"
+      guard
+        [".bin", ".sig", ".clm_blob", ".txcap_blob"].allSatisfy({
+          wifi[prefix + $0]?.isEmpty == false
+        }),
+        wifi.contains(where: {
+          $0.key.hasPrefix(prefix) && $0.key.hasSuffix(".txt") && !$0.value.isEmpty
+        })
+      else { throw NativeFirmwareInputFailure.invalidSource }
+      return (driver, wifi)
+    }
     /// A separate firmware budget keeps the boot and metadata readers bounded.
     static func read(
       _ tree: NativeHandoffFileTree, path: String, maximum: Int, owner: uid_t,

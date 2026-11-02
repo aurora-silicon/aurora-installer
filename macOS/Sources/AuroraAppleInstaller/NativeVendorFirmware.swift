@@ -176,8 +176,30 @@
           for (name, target) in radio.links {
             radioLinks["firmware/" + name] = String(target.split(separator: "/").last!)
           }
-          let wifi = try BroadcomFirmware.wifi(
-            subtree(radio.files, "wifi/"), links: sublinks(radio.links, "wifi/"))
+          var wifiFiles = subtree(radio.files, "wifi/")
+          var wifiLinks = sublinks(radio.links, "wifi/")
+          var j614sWifi = [String: Data]()
+          if source.machine == "j614s" {
+            // Recovery's shared firmware tree can contain a partial C2 set.
+            // Select the complete C2 directory from the same Recovery image's
+            // DriverKit bundle as a unit, including its sibling link targets.
+            let c2 = "C-4388__s-C2/"
+            wifiFiles = wifiFiles.filter { !$0.key.hasPrefix(c2) }
+            wifiLinks = wifiLinks.filter { !$0.key.hasPrefix(c2) }
+            fallback = fallback.filter { !$0.key.hasPrefix("firmware/wifi/" + c2) }
+            radioLinks = radioLinks.filter { !$0.key.hasPrefix("firmware/wifi/" + c2) }
+            let (driver, converted) = try NativeFirmwareInputFiles.j614sRadio(
+              root: image.root, tree: imageTree, owner: owner)
+            j614sWifi = converted
+            for (name, data) in driver.files {
+              fallback["firmware/wifi/" + c2 + name] = data
+            }
+            for (name, target) in driver.links {
+              radioLinks["firmware/wifi/" + c2 + name] = String(target.split(separator: "/").last!)
+            }
+          }
+          var wifi = try BroadcomFirmware.wifi(wifiFiles, links: wifiLinks)
+          try merge(j614sWifi, into: &wifi)
           let bluetooth = try BroadcomFirmware.bluetooth(
             subtree(radio.files, "bluetooth/"), links: sublinks(radio.links, "bluetooth/"))
           guard package.deviceIdentifier == "apple,j700" || (!wifi.isEmpty && !bluetooth.isEmpty)
