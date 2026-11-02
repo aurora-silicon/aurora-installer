@@ -44,13 +44,39 @@ public enum BroadcomFirmware {
     ]
     let dimensions = ["C", "s", "P", "M", "V", "m", "A"]
     let root = Node()
-    for path in (Array(inputs.keys) + Array(links.keys)).sorted() {
+    func mriyaType(_ filename: String) -> String? {
+      guard let dot = filename.lastIndex(of: ".") else { return nil }
+      let stem = String(filename[..<dot])
+      let ext = String(filename[filename.index(after: dot)...])
+      if ext == "txt", stem == "P-mriya" || stem.hasPrefix("P-mriya-") { return ext }
+      if ["trx", "clmb", "txcb", "sig"].contains(ext), stem == "mriya" { return ext }
+      return nil
+    }
+    let paths = (Array(inputs.keys) + Array(links.keys)).sorted()
+    var mriyaTypes = [String: Set<String>]()
+    for path in paths {
+      let pieces = path.split(separator: "/").map(String.init)
+      guard pieces.count >= 2, pieces[pieces.count - 2] == "C-4388__s-C2",
+        let filename = pieces.last, let ext = mriyaType(filename),
+        let data = inputs[links[path] ?? path], !data.isEmpty
+      else { continue }
+      mriyaTypes[pieces.dropLast().joined(separator: "/"), default: []].insert(ext)
+    }
+    let requiredMriya: Set<String> = ["trx", "txt", "clmb", "txcb", "sig"]
+    for path in paths {
       try Task.checkCancellation()
       let pieces = path.split(separator: "/").map(String.init)
       guard let filename = pieces.last, !filename.contains("_gen"),
-        !pieces.dropLast().contains(where: { ["perf", "assert", "C-4388__s-C2"].contains($0) }),
+        !pieces.dropLast().contains(where: { ["perf", "assert"].contains($0) }),
         let dot = filename.lastIndex(of: ".")
       else { continue }
+      if pieces.dropLast().contains("C-4388__s-C2") {
+        let parent = pieces.dropLast().joined(separator: "/")
+        guard pieces.count >= 2, pieces[pieces.count - 2] == "C-4388__s-C2",
+          mriyaType(filename) != nil, let data = inputs[links[path] ?? path], !data.isEmpty,
+          requiredMriya.isSubset(of: mriyaTypes[parent, default: []])
+        else { continue }
+      }
       let ext = String(filename[filename.index(after: dot)...])
       guard extensions[ext] != nil else { continue }
       let name = (ext == "txt" ? "" : "P-") + String(filename[..<dot])

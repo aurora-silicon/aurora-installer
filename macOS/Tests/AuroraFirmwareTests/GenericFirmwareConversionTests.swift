@@ -91,6 +91,27 @@ final class GenericFirmwareConversionTests: XCTestCase {
         links: ["C-4378__s-B3/kyushu-X0.trx": "C-4378__s-B3/missing.trx"]))
   }
 
+  func testMriyaRequiresCompleteC2SetAndKeepsOtherBoardsExcluded() throws {
+    let base = "C-4388__s-C2/"
+    var inputs = [String: Data]()
+    for ext in ["trx", "clmb", "txcb", "sig"] {
+      inputs[base + "mriya." + ext] = Data("firmware".utf8)
+    }
+    inputs[base + "P-mriya-WLMT-a.txt"] = Data("board=1\n".utf8)
+    inputs[base + "P-mriya-WLMT-u.txt"] = Data("board=2\n".utf8)
+    inputs[base + "other.trx"] = Data("other".utf8)
+    let prefix = "brcm/brcmfmac4388c2-pcie.apple,mriya"
+    XCTAssertEqual(Set(try BroadcomFirmware.wifi(inputs).keys), Set([
+      prefix + ".bin", prefix + ".clm_blob", prefix + ".txcap_blob", prefix + ".sig",
+      prefix + "-WLMT-a.txt", prefix + "-WLMT-u.txt",
+    ]))
+    inputs[base + "P-mriya-WLMT-u.txt"] = Data("board=1\n".utf8)
+    XCTAssertNotNil(try BroadcomFirmware.wifi(inputs)[prefix + ".txt"])
+    inputs[base + "mriya.sig"] = Data()
+    inputs[base + "mriya_gen.sig"] = Data("generic".utf8)
+    XCTAssertTrue(try BroadcomFirmware.wifi(inputs).isEmpty)
+  }
+
   func testConflictingRadioInputsAndUnsafeNamesAreRejected() throws {
     XCTAssertThrowsError(try BroadcomFirmware.wifi(["../outside": Data()]))
     XCTAssertThrowsError(try BroadcomFirmware.bluetooth(["/outside": Data()]))

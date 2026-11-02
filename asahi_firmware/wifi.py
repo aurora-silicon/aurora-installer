@@ -34,6 +34,26 @@ class WiFiFWCollection(object):
         "sig": "sig",
     }
     DIMS = ["C", "s", "P", "M", "V", "m", "A"]
+
+    @staticmethod
+    def _mriya_type(name):
+        stem, ext = os.path.splitext(name)
+        ext = ext.removeprefix(".")
+        if ext == "txt" and (stem == "P-mriya" or stem.startswith("P-mriya-")):
+            return ext
+        if ext in {"trx", "clmb", "txcb", "sig"} and stem == "mriya":
+            return ext
+        return None
+
+    @classmethod
+    def _complete_mriya(cls, path):
+        with os.scandir(path) as entries:
+            types = {
+                cls._mriya_type(entry.name) for entry in entries
+                if entry.is_file() and entry.stat().st_size
+            }
+        return {"trx", "txt", "clmb", "txcb", "sig"} <= types
+
     def __init__(self, source_path):
         self.root = FWNode()
         self.load(source_path)
@@ -45,11 +65,21 @@ class WiFiFWCollection(object):
                 dirnames.remove("perf")
             if "assert" in dirnames:
                 dirnames.remove("assert")
-            # remove broken firmware dir in 14.6.1 IPSW
+            # The 14.6.1 IPSW has broken C2 data. Only accept a complete
+            # Mriya set; continue excluding other C2 firmware families.
             if "C-4388__s-C2" in dirnames:
-                dirnames.remove("C-4388__s-C2")
+                if not self._complete_mriya(os.path.join(dirpath, "C-4388__s-C2")):
+                    dirnames.remove("C-4388__s-C2")
             subpath = os.path.relpath(dirpath, source_path)
+            c2_source = "C-4388__s-C2" in os.path.normpath(dirpath).split(os.sep)
+            if c2_source and os.path.basename(dirpath) != "C-4388__s-C2":
+                dirnames.clear()
+                continue
             for name in sorted(filenames):
+                if c2_source and (self._mriya_type(name) is None
+                                  or not os.path.isfile(os.path.join(dirpath, name))
+                                  or not os.path.getsize(os.path.join(dirpath, name))):
+                    continue
                 if not any(name.endswith("." + i) for i in self.EXTMAP):
                     continue
                 # macOS 14.6/14.8 contains {java,sumatra}_gen* files, possible
