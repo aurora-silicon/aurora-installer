@@ -31,6 +31,7 @@ class IPSW:
     devices: list
     url: str
     stub_size: int = None   # None: STUB_SIZE
+    boot_mode: str = "raw"  # how step2.sh enrolls the boot object: "raw" or "macho"
 
 @dataclass
 class Device:
@@ -144,7 +145,8 @@ IPSW_VERSIONS = [
          True,
          ["j775cap"],
          "https://updates.cdn-apple.com/2026FallFCS/afcfc88e-bbe6-44bf-a5da-07c56eebc06c/UniversalMac_27.0_26A428_Restore.ipsw",
-         stub_size=align_down(psize("4GB"), PART_ALIGN)),
+         stub_size=align_down(psize("4GB"), PART_ALIGN),
+         boot_mode="macho"),
 ]
 
 class InstallerMain:

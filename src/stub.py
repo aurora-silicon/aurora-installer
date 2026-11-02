@@ -22,9 +22,11 @@ class StubInstaller(PackageInstaller):
         self.pkg = None
         self.is_ota = False
         self.aea_scratch = None
+        self.boot_mode = "raw"
 
     def load_ipsw(self, ipsw_info):
         self.install_version = ipsw_info.version.split(maxsplit=1)[0]
+        self.boot_mode = getattr(ipsw_info, "boot_mode", "raw")
 
         base = os.environ.get("IPSW_BASE", None)
         url = ipsw_info.url
@@ -221,6 +223,14 @@ class StubInstaller(PackageInstaller):
         logging.info(f"  {key}: {ssize(size)} encrypted -> "
                      f"{ssize(os.path.getsize(dest_path))} decrypted, digest ok")
         return True
+
+    def render_step2(self, template):
+        if self.boot_mode not in ("raw", "macho"):
+            raise Exception(f"Unknown boot object mode {self.boot_mode!r}")
+        step2_sh = template.replace("##DISTRO##", DISTRO)
+        step2_sh = step2_sh.replace("##VGID##", self.osi.vgid)
+        step2_sh = step2_sh.replace("##PREBOOT##", self.osi.preboot_vgid)
+        return step2_sh.replace("##BOOT_MODE##", self.boot_mode)
 
     def extract_basesystem(self, identity, dst):
         """Write the recoveryOS image, HFS-compressed, decrypting it if needed."""
@@ -453,10 +463,7 @@ class StubInstaller(PackageInstaller):
                         os.path.join(self.osi.system, "Finish Installation.app"))
 
         logging.info("Writing step2.sh")
-        step2_sh = open("step2/step2.sh").read()
-        step2_sh = step2_sh.replace("##DISTRO##", DISTRO)
-        step2_sh = step2_sh.replace("##VGID##", self.osi.vgid)
-        step2_sh = step2_sh.replace("##PREBOOT##", self.osi.preboot_vgid)
+        step2_sh = self.render_step2(open("step2/step2.sh").read())
         with open(self.step2_sh, "w") as fd:
             fd.write(step2_sh)
         os.chmod(self.step2_sh, 0o755)

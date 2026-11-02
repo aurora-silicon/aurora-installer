@@ -6,6 +6,10 @@ set -e
 DISTRO="##DISTRO##"
 VGID="##VGID##"
 PREBOOT="##PREBOOT##"
+# raw: boot.bin, enrolled with --raw. macho: boot.macho, a Mach-O boot object
+# with no __TEXT_BOOT_EXEC (kcbz 0), so iBoot does not start SPTM, TXM or
+# exclaves; needed on T6050, whose secondary CPUs never run a raw object.
+BOOT_MODE="##BOOT_MODE##"
 
 self="$0"
 cd "${self%%step2.sh}"
@@ -104,7 +108,19 @@ echo
 
 read
 
-while ! bputil -nc -v "$VGID"; do
+if [ "$BOOT_MODE" = macho ]; then
+    if [ ! -e boot.macho ]; then
+        echo "boot.macho is missing. This install needs a Mach-O boot object"
+        echo "next to step2.sh; nothing has been changed."
+        exit 1
+    fi
+    # Aura starts the secondary CPUs only with kernel CTRR disabled.
+    BPUTIL_FLAGS=-nkcas
+else
+    BPUTIL_FLAGS=-nc
+fi
+
+while ! bputil $BPUTIL_FLAGS -v "$VGID"; do
     echo
     echo "bputil failed. Did you mistype your password?"
     echo "Press enter to try again."
@@ -122,12 +138,41 @@ if [ -e "/System/Volumes/iSCPreboot/$VGID/boot" ]; then
     cp -R "$preboot/$VGID/var" "/System/Volumes/iSCPreboot/$VGID/"
 fi
 
-while ! kmutil configure-boot -c boot.bin --raw --entry-point 2048 --lowest-virtual-address 0 -v "$system_dir"; do
-    echo
-    echo "kmutil failed. Did you mistype your password?"
-    echo "Press enter to try again."
-    read
-done
+if [ "$BOOT_MODE" = macho ]; then
+    while ! csrutil allow-research-guests enable; do
+        echo
+        echo "csrutil failed. Did you mistype your password?"
+        echo "Press enter to try again."
+        read
+    done
+
+    bputil -d -v "$VGID" >/tmp/bp.txt
+    if ! grep -q 'Kernel CTRR Status: Disabled' /tmp/bp.txt; then
+        echo "The boot policy still has kernel CTRR enabled, so the boot"
+        echo "object could not start the other CPUs. Stopping here."
+        exit 1
+    fi
+
+    kcbz="$(kmutil inspect -z -B "$PWD/boot.macho" --show-mach-boot-properties | sed -n 's/^.*kcbz *: *//p')"
+    if [ "$kcbz" != 0 ]; then
+        echo "boot.macho records kcbz '$kcbz', not 0. Stopping here."
+        exit 1
+    fi
+
+    while ! kmutil configure-boot -c boot.macho -v "$system_dir"; do
+        echo
+        echo "kmutil failed. Did you mistype your password?"
+        echo "Press enter to try again."
+        read
+    done
+else
+    while ! kmutil configure-boot -c boot.bin --raw --entry-point 2048 --lowest-virtual-address 0 -v "$system_dir"; do
+        echo
+        echo "kmutil failed. Did you mistype your password?"
+        echo "Press enter to try again."
+        read
+    done
+fi
 
 echo
 echo "Wrapping up..."

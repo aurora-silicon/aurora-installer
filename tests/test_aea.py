@@ -381,6 +381,10 @@ class SelectionTest(unittest.TestCase):
                                   macos="26.6.1", sfr="25.7.76.0.0,0").choose_ipsw()
         self.assertEqual(ipsw.version, "26.6.1")
 
+    def test_boot_mode(self):
+        for ipsw in self.main.IPSW_VERSIONS:
+            self.assertEqual(ipsw.boot_mode, "macho" if ipsw.version == "27.0" else "raw", ipsw.version)
+
     def test_stub_size(self):
         m = self.main
         self.assertEqual(self.installer("j775cap", 0x6050, True).stub_size(),
