@@ -91,6 +91,26 @@ if ! grep -q 'one true recoveryOS' /tmp/bp.txt; then
     exit 1
 fi
 
+if [ "$BOOT_MODE" = macho ]; then
+    echo "${BOLD}Pairing check passed:${RST} this is the paired One True RecoveryOS of $os_name."
+    echo
+    if [ ! -e boot.macho ]; then
+        echo "boot.macho is missing. This install needs a Mach-O boot object"
+        echo "next to step2.sh; nothing has been changed."
+        exit 1
+    fi
+    echo "The next steps change the boot policy of $os_name only (kernel CTRR off,"
+    echo "research guests allowed) and enroll boot.macho as its boot object."
+    echo "Type 'enroll' to continue, or anything else to stop here with nothing changed."
+    read answer
+    if [ "$answer" != enroll ]; then
+        echo
+        echo "Stopped before any change. Shut down, and start macOS from the boot picker."
+        exit 0
+    fi
+    echo
+fi
+
 echo "You will see some messages advising you that you are changing the"
 echo "security level of your system. These changes apply only to your"
 echo "$DISTRO install, and are necessary to install a third-party OS."
@@ -109,11 +129,6 @@ echo
 read
 
 if [ "$BOOT_MODE" = macho ]; then
-    if [ ! -e boot.macho ]; then
-        echo "boot.macho is missing. This install needs a Mach-O boot object"
-        echo "next to step2.sh; nothing has been changed."
-        exit 1
-    fi
     # Aura starts the secondary CPUs only with kernel CTRR disabled.
     BPUTIL_FLAGS=-nkcas
 else

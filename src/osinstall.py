@@ -195,6 +195,18 @@ class OSInstaller(PackageInstaller):
         for i in loader_vars:
             logging.info(f"  {i}")
 
-        aura.build(aura.stage1_path("boot", boot_object), stub_ins.boot_obj_path, loader_vars)
+        if getattr(stub_ins, "boot_mode", "raw") == "macho":
+            # A Mach-O Stage 1 takes the ESP and Stage 2 path in its config block.
+            if self.efi_part is None or next_object is None:
+                raise Exception("A Mach-O Stage 1 needs an ESP and a next_object")
+            boot_obj_path = os.path.join(stub_ins.resources, "boot.macho")
+            window_ms = int(self.template.get("stage1_window_ms", 0))
+            logging.info(f"  Mach-O Stage 1: ESP {self.efi_part.uuid.lower()}, "
+                         f"Stage 2 {next_object}, window {window_ms} ms")
+            aura.fill_stage1_macho(aura.stage1_path("boot", boot_object), boot_obj_path,
+                                   self.efi_part.uuid.lower(), next_object, window_ms)
+        else:
+            boot_obj_path = stub_ins.boot_obj_path
+            aura.build(aura.stage1_path("boot", boot_object), boot_obj_path, loader_vars)
 
-        logging.info(f"Built boot object at {stub_ins.boot_obj_path}")
+        logging.info(f"Built boot object at {boot_obj_path}")

@@ -50,7 +50,7 @@ class Step2Test(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def run_step2(self, mode, boot_object=True, ctrr="Disabled", kcbz="0"):
+    def run_step2(self, mode, boot_object=True, ctrr="Disabled", kcbz="0", answer="enroll"):
         script = os.path.join(self.res, "step2.sh")
         with open(script, "w") as fd:
             fd.write(render(mode))
@@ -60,7 +60,9 @@ class Step2Test(unittest.TestCase):
             with open(os.path.join(self.res, name), "wb") as fd:
                 fd.write(b"boot object")
         env = dict(PATH=self.bin + ":/usr/bin:/bin", CALLS=self.calls, CTRR=ctrr, KCBZ=kcbz)
-        res = subprocess.run(["/bin/sh", script], input=b"\n" * 20, env=env,
+        # The Mach-O gate reads one answer first; the rest are "Press enter" prompts.
+        stdin = (answer.encode() + b"\n" if mode == "macho" else b"") + b"\n" * 20
+        res = subprocess.run(["/bin/sh", script], input=stdin, env=env,
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
         calls = []
         if os.path.exists(self.calls):
@@ -106,6 +108,20 @@ class Step2Test(unittest.TestCase):
         self.assertNotEqual(res.returncode, 0)
         self.assertIn(b"boot.macho is missing", res.stdout)
         self.assertEqual([c for c in calls if not c.startswith("bputil -d")], [])
+
+    def test_macho_stub_test_stops_at_the_gate(self):
+        # The stub test: the pairing check runs and passes, then nothing changes.
+        res, calls = self.run_step2("macho", answer="")
+        self.assertEqual(res.returncode, 0, res.stdout.decode())
+        self.assertIn(b"Pairing check passed", res.stdout)
+        self.assertIn(b"Stopped before any change", res.stdout)
+        self.assertEqual(calls, [f"bputil -d -v {VGID}"])
+
+    def test_raw_mode_has_no_gate(self):
+        res, calls = self.run_step2("raw", answer="")
+        self.assertEqual(res.returncode, 0, res.stdout.decode())
+        self.assertNotIn(b"Pairing check passed", res.stdout)
+        self.assertIn(f"bputil -nc -v {VGID}", calls)
 
     def test_macho_refuses_nonzero_kcbz(self):
         res, calls = self.run_step2("macho", kcbz="65536")
