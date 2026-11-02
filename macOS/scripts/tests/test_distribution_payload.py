@@ -85,7 +85,7 @@ class DistributionPayloadTests(unittest.TestCase):
         self.assertFalse(receipt['private_neo_inputs'])
         self.assertFalse(receipt['native_neo_reset_qa'])
 
-    def test_every_supported_board_is_qualified_and_only_the_m3_ultra_is_cautioned(self):
+    def test_every_supported_board_is_qualified_and_only_untried_boards_are_cautioned(self):
         # Ryan 2026-10-30: M1 to M3 and the A18 Pro are supported. A board
         # whose Stage 1 is untried is warned about, not blocked. The M1 Pro,
         # Max and Ultra left the list once aura's Stage 1 shrank to 1.6 MB.
@@ -94,7 +94,7 @@ class DistributionPayloadTests(unittest.TestCase):
         qualified = json.loads((output / 'installer-data-fedora-kde.json').read_text())['os_list'][0][
             'aurora_stage1']['qualified_machines']
         caution = supported_models.stage1_caution()
-        self.assertEqual(set(caution), {'apple,j575d'})
+        self.assertEqual(set(caution), {'apple,j575d', 'apple,j614s'})
         for identifier in list(caution) + ['apple,j314s', 'apple,j316s', 'apple,j314c', 'apple,j316c',
                                            'apple,j375c', 'apple,j375d']:
             self.assertIn(identifier.removeprefix('apple,') + 'ap', qualified)
