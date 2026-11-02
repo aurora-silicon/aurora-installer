@@ -16,8 +16,8 @@ class MriyaWiFiTests(unittest.TestCase):
     def write_set(self):
         for ext in ("trx", "clmb", "txcb", "sig"):
             (self.c2 / f"mriya.{ext}").write_bytes(b"firmware")
-        (self.c2 / "P-mriya-WLMT-a.txt").write_bytes(b"board=1\n")
-        (self.c2 / "P-mriya-WLMT-u.txt").write_bytes(b"board=2\n")
+        (self.c2 / "P-mriya_M-WLMT_V-a.txt").write_bytes(b"board=1\n")
+        (self.c2 / "P-mriya_M-WLMT_V-u.txt").write_bytes(b"board=2\n")
 
     def converted(self):
         return dict(WiFiFWCollection(str(self.root)).files())
@@ -45,8 +45,8 @@ class MriyaWiFiTests(unittest.TestCase):
         (self.c2 / "mriya.sig").touch()
         self.assertEqual(self.converted(), {})
         (self.c2 / "mriya.sig").write_bytes(b"firmware")
-        (self.c2 / "P-mriya-WLMT-a.txt").unlink()
-        (self.c2 / "P-mriya-WLMT-u.txt").unlink()
+        (self.c2 / "P-mriya_M-WLMT_V-a.txt").unlink()
+        (self.c2 / "P-mriya_M-WLMT_V-u.txt").unlink()
         (self.c2 / "P-mriya-_gen.txt").write_bytes(b"board=1\n")
         self.assertEqual(self.converted(), {})
 

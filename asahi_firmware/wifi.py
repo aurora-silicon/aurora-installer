@@ -41,9 +41,11 @@ class WiFiFWCollection(object):
             return None
         stem, ext = os.path.splitext(name)
         ext = ext.removeprefix(".")
-        if ext == "txt" and (stem == "P-mriya" or stem.startswith("P-mriya-")):
+        if ext == "txt" and (stem == "P-mriya" or stem.startswith(("P-mriya-", "P-mriya_"))):
             return ext
-        if ext in {"trx", "clmb", "txcb", "sig"} and stem == "mriya":
+        if ext in {"trx", "clmb", "txcb", "sig"} and (
+            stem == "mriya" or stem.startswith(("mriya-", "mriya_"))
+        ):
             return ext
         return None
 

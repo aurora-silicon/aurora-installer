@@ -48,8 +48,12 @@ public enum BroadcomFirmware {
       guard !filename.contains("_gen"), let dot = filename.lastIndex(of: ".") else { return nil }
       let stem = String(filename[..<dot])
       let ext = String(filename[filename.index(after: dot)...])
-      if ext == "txt", stem == "P-mriya" || stem.hasPrefix("P-mriya-") { return ext }
-      if ["trx", "clmb", "txcb", "sig"].contains(ext), stem == "mriya" { return ext }
+      if ext == "txt",
+        stem == "P-mriya" || stem.hasPrefix("P-mriya-") || stem.hasPrefix("P-mriya_")
+      { return ext }
+      if ["trx", "clmb", "txcb", "sig"].contains(ext),
+        stem == "mriya" || stem.hasPrefix("mriya-") || stem.hasPrefix("mriya_")
+      { return ext }
       return nil
     }
     let paths = (Array(inputs.keys) + Array(links.keys)).sorted()

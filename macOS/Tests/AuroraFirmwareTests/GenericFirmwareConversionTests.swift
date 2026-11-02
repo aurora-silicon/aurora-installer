@@ -97,8 +97,8 @@ final class GenericFirmwareConversionTests: XCTestCase {
     for ext in ["trx", "clmb", "txcb", "sig"] {
       inputs[base + "mriya." + ext] = Data("firmware".utf8)
     }
-    inputs[base + "P-mriya-WLMT-a.txt"] = Data("board=1\n".utf8)
-    inputs[base + "P-mriya-WLMT-u.txt"] = Data("board=2\n".utf8)
+    inputs[base + "P-mriya_M-WLMT_V-a.txt"] = Data("board=1\n".utf8)
+    inputs[base + "P-mriya_M-WLMT_V-u.txt"] = Data("board=2\n".utf8)
     inputs[base + "other.trx"] = Data("other".utf8)
     let prefix = "brcm/brcmfmac4388c2-pcie.apple,mriya"
     XCTAssertEqual(Set(try BroadcomFirmware.wifi(inputs).keys), Set([
@@ -111,14 +111,14 @@ final class GenericFirmwareConversionTests: XCTestCase {
     XCTAssertEqual(try BroadcomFirmware.wifi(inputs, links: links)[prefix + ".sig"], signature)
     inputs.removeValue(forKey: "perf/shared.sig")
     inputs[base + "mriya.sig"] = signature
-    inputs[base + "P-mriya-WLMT-u.txt"] = Data("board=1\n".utf8)
+    inputs[base + "P-mriya_M-WLMT_V-u.txt"] = Data("board=1\n".utf8)
     XCTAssertNotNil(try BroadcomFirmware.wifi(inputs)[prefix + ".txt"])
     inputs[base + "mriya.sig"] = Data()
     inputs[base + "mriya_gen.sig"] = Data("generic".utf8)
     XCTAssertTrue(try BroadcomFirmware.wifi(inputs).isEmpty)
     inputs[base + "mriya.sig"] = Data("firmware".utf8)
-    inputs[base + "P-mriya-WLMT-a.txt"] = nil
-    inputs[base + "P-mriya-WLMT-u.txt"] = nil
+    inputs[base + "P-mriya_M-WLMT_V-a.txt"] = nil
+    inputs[base + "P-mriya_M-WLMT_V-u.txt"] = nil
     inputs[base + "P-mriya-_gen.txt"] = Data("board=1\n".utf8)
     XCTAssertTrue(try BroadcomFirmware.wifi(inputs).isEmpty)
   }
