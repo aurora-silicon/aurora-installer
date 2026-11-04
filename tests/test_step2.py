@@ -17,7 +17,8 @@ TOOLS = ("bputil", "kmutil", "csrutil", "bless", "diskutil", "mount", "shutdown"
 STUB_TOOL = r"""#!/bin/sh
 echo "$(basename "$0") $*" >> "$CALLS"
 case "$(basename "$0") $1" in
-    "bputil -d") printf 'OS Type: one true recoveryOS\nLocal Policy: Paired\nKernel CTRR Status: %s\n' "$CTRR" ;;
+    # Padded as real bputil -d prints it (26A428 1TR, J775c).
+    "bputil -d") printf 'OS Type                                       : one true recoveryOS\nOS Pairing Status                             : Paired\nKernel CTRR Status:          %-11s(sip2): 1\n' "$CTRR" ;;
     "kmutil inspect") printf 'kcbz : %s\n' "$KCBZ" ;;
 esac
 exit 0

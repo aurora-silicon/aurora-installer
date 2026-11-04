@@ -162,7 +162,7 @@ if [ "$BOOT_MODE" = macho ]; then
     done
 
     bputil -d -v "$VGID" >/tmp/bp.txt
-    if ! grep -q 'Kernel CTRR Status: Disabled' /tmp/bp.txt; then
+    if ! grep -Eq 'Kernel CTRR Status: +Disabled' /tmp/bp.txt; then
         echo "The boot policy still has kernel CTRR enabled, so the boot"
         echo "object could not start the other CPUs. Stopping here."
         exit 1
