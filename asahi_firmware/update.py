@@ -8,8 +8,12 @@ from .multitouch import MultitouchFWCollection
 from .kernel import KernelFWCollection
 from .isp import ISPFWCollection
 from .als import AlsFWCollection
+from .avd import AVDFWCollection, collect_from_restore, selected_chip_id, selected_identity
 
 def update_firmware(source, dest):
+    chip_id = selected_chip_id(source)
+    identity = selected_identity(source)
+    avd = collect_from_restore(source, identity, chip_id) if identity is not None else None
     raw_fw = source.joinpath("all_firmware.tar.gz")
     if not raw_fw.exists():
         print(f"Could not find {raw_fw}")
@@ -34,6 +38,12 @@ def update_firmware(source, dest):
 
         col = AlsFWCollection(str(tmpdir))
         pkg.add_files(sorted(col.files()))
+
+        if avd is None:
+            col = AVDFWCollection(tmpdir, chip_id)
+            pkg.add_files(sorted(col.files()))
+        else:
+            pkg.add_file(avd.name, avd)
 
     col = KernelFWCollection(str(source))
     pkg.add_files(sorted(col.files()))

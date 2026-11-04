@@ -58,13 +58,15 @@ def decode_header(decoder):
 
     return name, data
 
-def img4p_extract(data):
+def img4p_extract(data, *, maximum_size=None):
     decoder = asn1.Decoder()
     decoder.start(data)
     name, cdata = decode_header(decoder)
 
     tag = decoder.peek()
     if tag is None:
+        if maximum_size is not None and len(cdata) > maximum_size:
+            raise ValueError("Firmware payload exceeds its size limit")
         return name, cdata
 
     assert tag.nr == asn1.Numbers.Sequence
@@ -77,6 +79,9 @@ def img4p_extract(data):
 
     tag, raw_size = decoder.read()
     assert tag == asn1.Tag(asn1.Numbers.Integer, asn1.Types.Primitive, 0)
+
+    if maximum_size is not None and not 0 < raw_size <= maximum_size:
+        raise ValueError("Decoded firmware exceeds its size limit")
 
     return name, decode_lzfse(cdata, raw_size)
 
