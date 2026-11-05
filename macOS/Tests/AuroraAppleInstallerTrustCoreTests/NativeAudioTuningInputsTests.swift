@@ -186,11 +186,16 @@
           "schema", "kind", "source_file_count", "complete", "acoustic_id", "aid",
           "macos_build", "speaker_thiele_small", "device_dsp_database", "config", "files",
           "based_on", "device_dsp_database_source", "shared_files", "lsm2_mask_lattice",
+          "machine_model", "unit_id_sha256",
         ])
       XCTAssertEqual(object["device_dsp_database_source"] as? String, "DeviceDSPDatabase.plist")
       XCTAssertEqual((object["shared_files"] as? [Any])?.count, 0)
       XCTAssertEqual(object["complete"] as? Bool, true)
       XCTAssertEqual(object["source_file_count"] as? Int, 2)
+      XCTAssertEqual(object["machine_model"] as? String, "j413")
+      XCTAssertEqual(
+        object["unit_id_sha256"] as? String,
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
     }
 
     func testAMissingSelectionFileIsNoBundle() throws {
