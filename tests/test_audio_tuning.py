@@ -47,6 +47,9 @@ def fake_run(nodes, build=b"00A000\n", speakers=None):
             if isinstance(speakers, Exception):
                 raise speakers
             return subprocess.CompletedProcess(args, 0, plistlib.dumps(speakers, fmt=plistlib.FMT_XML), b"")
+        if args[0] == "ioreg" and "-d" in args:
+            root = {"target-type": b"J413AP\0", "serial-number": b"abc\0"}
+            return subprocess.CompletedProcess(args, 0, plistlib.dumps([root]), b"")
         if args[0] == "ioreg":
             return subprocess.CompletedProcess(args, 0, plistlib.dumps(nodes, fmt=plistlib.FMT_XML), b"")
         if args[0] == "sysctl":
@@ -672,10 +675,10 @@ class LatticeTest(unittest.TestCase):
         args = (35, {"a": b"x"}, None, "00A000",
                 {"DeviceDSPDatabase.plist": plistlib.dumps({"AID35": {}}),
                  "Config/AID35.plist": b"c"})
-        self.assertTrue(audio_tuning.tree(*args, lattice=LATTICE))
+        self.assertTrue(audio_tuning.tree(*args, lattice=LATTICE, machine_model="j413", unit_id_sha256=hashlib.sha256(b"abc").hexdigest()))
         for bad in (None, b"", LATTICE[:-8], b"\0" * 800):
             with self.assertRaisesRegex(ValueError, "lattice"):
-                audio_tuning.tree(*args, lattice=bad)
+                audio_tuning.tree(*args, lattice=bad, machine_model="j413")
 
     def test_update_reverifies_the_lattice(self):
         valid_but_other = other_lattice()
@@ -718,6 +721,51 @@ class LatticeTest(unittest.TestCase):
             self.assertIn("no lsm2 masker lattice", "\n".join(logs.output))
             self.assertTrue(col.bundle)
             self.assertNotIn("lsm2-mask-lattice.bin", col.bundle)
+
+
+class UnitIdentityTest(unittest.TestCase):
+    def test_canonicalization_matches_linux(self):
+        digest = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        self.assertEqual(audio_tuning.unit_hash(b"abc\0\0"), digest)
+        self.assertEqual(audio_tuning.unit_hash(b"abc"), digest)
+        self.assertEqual(audio_tuning.machine_model(b"J616sAP\0"), "j616s")
+        self.assertEqual(audio_tuning.machine_model("J314sAP"), "j314s")
+        for raw in [b"", b"a\0b", b"abc def", b"\xff", b"a" * 129, "abc"]:
+            with self.subTest(raw=raw), self.assertRaises(ValueError):
+                audio_tuning.unit_hash(raw)
+        for raw in [None, b"", b"J616sAP\0junk", b"j616s\n", b"verylongboard"]:
+            with self.subTest(raw=raw), self.assertRaises((ValueError, UnicodeError)):
+                audio_tuning.machine_model(raw)
+
+    def test_collection_records_only_the_hash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            tunings(root)
+            col = collect(root)
+            meta = json.loads(col.bundle["manifest.json"])
+            self.assertEqual(meta["machine_model"], "j413")
+            self.assertEqual(meta["unit_id_sha256"], hashlib.sha256(b"abc").hexdigest())
+            self.assertNotIn("serial-number", meta)
+
+    def test_fallback_checks_identity_and_preserves_legacy(self):
+        for changes, accepted in [
+            ({"machine_model": "j616s"}, True),
+            ({"machine_model": "J616sAP"}, False),
+            ({"machine_model": None}, False),
+            ({"unit_id_sha256": "ABC"}, False),
+            ({"unit_id_sha256": None}, True),
+        ]:
+            with self.subTest(changes=changes), tempfile.TemporaryDirectory() as tmp:
+                out, bundle = fallback(tmp)
+                rewrite(bundle, lambda meta: meta.update(changes))
+                self.assertEqual(bool(AudioTuningFWCollection(str(out)).bundle), accepted)
+        with tempfile.TemporaryDirectory() as tmp:
+            out, bundle = fallback(tmp)
+            def remove(meta):
+                meta.pop("machine_model")
+                meta.pop("unit_id_sha256")
+            rewrite(bundle, remove)
+            self.assertTrue(AudioTuningFWCollection(str(out)).bundle)
 
 
 if __name__ == "__main__":

@@ -89,6 +89,10 @@
       /// component (`NativeLSM2Lattice`). Required: without it there is no
       /// bundle.
       var maskLattice: Data? = nil
+      /// Canonical root target-type, e.g. j616s (Linux apple,j616s).
+      var machineModel: String? = nil
+      /// SHA-256 of root serial-number without trailing NUL bytes.
+      var unitIDHash: String? = nil
     }
 
     /// The selection data read from the Tunings root for one Mac.
@@ -122,6 +126,8 @@
       /// True only for a full set: every folder entry and both selection
       /// files. Readers refuse anything else.
       let complete: Bool
+      let machineModel: String?
+      let unitIDHash: String?
       let acousticID: UInt32
       let aid: String
       let macOSBuild: String
@@ -151,6 +157,8 @@
       enum CodingKeys: String, CodingKey {
         case schema, kind, aid, files, config, complete
         case sourceFileCount = "source_file_count"
+        case machineModel = "machine_model"
+        case unitIDHash = "unit_id_sha256"
         case acousticID = "acoustic_id"
         case macOSBuild = "macos_build"
         case speakerThieleSmall = "speaker_thiele_small"
@@ -348,6 +356,7 @@
       guard let (acoustic, thieleSmall) = try properties(),
         let acousticID = acousticID(acoustic)
       else { return nil }
+      let identity = try liveIdentity()
       let root = URL(fileURLWithPath: "/", isDirectory: true)
       let prefix = tuningsPrefix + "/" + folder(acousticID)
       var info = stat()
@@ -382,7 +391,8 @@
         acousticID: acousticID, thieleSmall: thieleSmall, files: files, build: build(),
         selection: selected.selection, sourceFileCount: count, speakerID: liveSpeakerID(),
         databaseSource: selected.databaseSource, sharedFiles: selected.sharedFiles,
-        loudnessManager: selected.loudnessManager, maskLattice: lattice)
+        loudnessManager: selected.loudnessManager, maskLattice: lattice,
+        machineModel: identity.model, unitIDHash: identity.unit)
     }
 
     static let speakerServiceClass = "AppleEmbeddedAudioDevice"
@@ -479,11 +489,6 @@
           .takeRetainedValue() as? Data
         return (acoustic, spts)
       }
-      let product = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/product/audio")
-      if product != 0 {
-        defer { IOObjectRelease(product) }
-        if let found = read(product) { return found }
-      }
       var iterator: io_iterator_t = 0
       guard
         IORegistryCreateIterator(
@@ -491,7 +496,7 @@
           &iterator) == KERN_SUCCESS
       else { return nil }
       defer { IOObjectRelease(iterator) }
-      var found: (Data, Data?)?
+      var matches: [(Data, Data?)] = []
       var count = 0
       while true {
         try Task.checkCancellation()
@@ -506,11 +511,60 @@
             == "audio",
           let properties = read(entry)
         else { continue }
-        // Two audio nodes with acoustic IDs leave the folder ambiguous.
-        guard found == nil else { throw NativePeripheralInputError.localInput }
-        found = properties
+        matches.append(properties)
       }
-      return found
+      return try oneAudioNode(matches)
+    }
+
+    static func oneAudioNode(_ matches: [(Data, Data?)]) throws -> (Data, Data?)? {
+      guard matches.count <= 1 else { throw NativePeripheralInputError.localInput }
+      return matches.first
+    }
+
+    /// Hash exactly the bytes aura passes to Linux, excluding trailing NULs.
+    static func unitHash(_ raw: Data) throws -> String {
+      let serial = raw.reversed().drop(while: { $0 == 0 }).reversed()
+      guard !serial.isEmpty, serial.count <= 128,
+        serial.allSatisfy({ (0x21...0x7e).contains($0) })
+      else { throw NativePeripheralInputError.localInput }
+      return NativeStubFileStore.hash(Data(serial))
+    }
+
+    static func machineModel(_ raw: Any?) throws -> String {
+      let value: String?
+      if let data = raw as? Data {
+        value = String(
+          data: Data(data.reversed().drop(while: { $0 == 0 }).reversed()), encoding: .ascii)
+      } else {
+        value = raw as? String
+      }
+      guard let value else { throw NativePeripheralInputError.localInput }
+      var model = value.lowercased()
+      if model.hasSuffix("ap") { model.removeLast(2) }
+      guard !model.isEmpty, model.utf8.count <= 8,
+        model.utf8.allSatisfy({ (97...122).contains($0) || (48...57).contains($0) })
+      else { throw NativePeripheralInputError.localInput }
+      return model
+    }
+
+    static func identity(_ root: [String: Any]) throws -> (model: String, unit: String?) {
+      let model = try machineModel(root["target-type"])
+      guard let serial = root["serial-number"] else { return (model, nil) }
+      guard let serial = serial as? Data else { throw NativePeripheralInputError.localInput }
+      return (model, try unitHash(serial))
+    }
+
+    static func liveIdentity() throws -> (model: String, unit: String?) {
+      let root = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/")
+      guard root != 0 else { throw NativePeripheralInputError.localInput }
+      defer { IOObjectRelease(root) }
+      var properties: Unmanaged<CFMutableDictionary>?
+      guard
+        IORegistryEntryCreateCFProperties(root, &properties, kCFAllocatorDefault, 0)
+          == KERN_SUCCESS,
+        let properties = properties?.takeRetainedValue() as? [String: Any]
+      else { throw NativePeripheralInputError.localInput }
+      return try identity(properties)
     }
 
     static func build() -> String {
@@ -541,6 +595,14 @@
       guard snapshot.selection[databaseName] != nil,
         snapshot.selection[configName(snapshot.acousticID)] != nil
       else { throw NativePeripheralInputError.localInput }
+      guard let model = snapshot.machineModel, try machineModel(model) == model else {
+        throw NativePeripheralInputError.localInput
+      }
+      if let unit = snapshot.unitIDHash {
+        guard unit.utf8.count == 64,
+          unit.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) })
+        else { throw NativePeripheralInputError.localInput }
+      }
       let aid = folder(snapshot.acousticID)
       var result = [String: Data]()
       var records = [Manifest.File]()
@@ -609,7 +671,8 @@
       }
       let manifest = Manifest(
         schema: schema, kind: "aurora-audio-tuning", sourceFileCount: snapshot.files.count,
-        complete: true, acousticID: snapshot.acousticID, aid: aid,
+        complete: true, machineModel: model, unitIDHash: snapshot.unitIDHash,
+        acousticID: snapshot.acousticID, aid: aid,
         macOSBuild: snapshot.build, speakerThieleSmall: thieleSmall,
         deviceDSPDatabase: databaseName, config: configName(snapshot.acousticID),
         speakerID: snapshot.speakerID,
@@ -624,8 +687,8 @@
       return result
     }
 
-    /// Collection never stops an installation: Linux falls back to its
-    /// family profiles without it. A cancellation still ends the step. A
+    /// Collection never stops an installation. Without a valid bundle Linux
+    /// cannot compile this Mac's tuning. A cancellation still ends the step. A
     /// failure is recorded in the Installer Log, as an error when the lsm2
     /// masker lattice is what failed.
     static func collect(

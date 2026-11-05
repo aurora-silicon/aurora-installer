@@ -39,8 +39,8 @@ The bundle also carries the lsm2 masker's bucket lattice, read from this
 Mac's own AudioDSP component (see lsm2_lattice). A collection without it is
 no bundle.
 
-Collection never stops an installation; Linux falls back to its family
-profiles without it.
+Collection never stops an installation; without a valid bundle Linux
+cannot compile this Mac's speaker protection tuning.
 """
 import hashlib, json, logging, os, plistlib, shutil, stat, subprocess
 
@@ -184,6 +184,52 @@ def admitted(relative):
     return not any(p.startswith("._") or p == ".DS_Store" for p in parts)
 
 
+def unit_hash(raw):
+    """Hash root serial-number bytes, excluding only trailing NULs.
+    The same normalization is used by the Linux reader. Never log raw IDs."""
+    if not isinstance(raw, bytes):
+        raise ValueError("malformed unit identity")
+    serial = raw.rstrip(b"\0")
+    if not 0 < len(serial) <= 128 or any(b < 0x21 or b > 0x7e for b in serial):
+        raise ValueError("malformed unit identity")
+    return hashlib.sha256(serial).hexdigest()
+
+
+def machine_model(raw):
+    """ADT target-type (e.g. J616sAP) -> Linux root compatible board (j616s)."""
+    if isinstance(raw, bytes):
+        raw = raw.rstrip(b"\0").decode("ascii")
+    if not isinstance(raw, str):
+        raise ValueError("missing device-tree target-type")
+    model = raw.lower()
+    if model.endswith("ap"):
+        model = model[:-2]
+    if not 0 < len(model) <= 8 or not model.isascii() or not model.isalnum():
+        raise ValueError("malformed device-tree target-type")
+    return model
+
+
+def probe_identity(run=subprocess.run):
+    p = run(["ioreg", "-a", "-p", "IODeviceTree", "-d", "1"], capture_output=True)
+    if p.returncode != 0:
+        raise ValueError("cannot read device-tree identity")
+    nodes = plistlib.loads(p.stdout)
+    if not isinstance(nodes, list) or len(nodes) != 1 or not isinstance(nodes[0], dict):
+        raise ValueError("ambiguous device-tree identity")
+    root = nodes[0]
+    model = machine_model(root.get("target-type"))
+    serial = root.get("serial-number")
+    return model, None if serial is None else unit_hash(serial)
+
+
+def validate_identity(model, unit):
+    if not isinstance(model, str) or machine_model(model) != model:
+        raise ValueError("machine_model is not a canonical board name")
+    if unit is not None and (not isinstance(unit, str) or len(unit) != 64
+                             or any(c not in "0123456789abcdef" for c in unit)):
+        raise ValueError("unit_id_sha256 is not 64 lowercase hex digits")
+
+
 def probe(run=subprocess.run):
     """(acoustic-id bytes, speaker-thiele-small bytes or None), or None."""
     p = run(["ioreg", "-a", "-r", "-p", "IODeviceTree", "-n", "audio", "-k", "acoustic-id"],
@@ -294,12 +340,14 @@ def lattice_record(data):
 
 
 def manifest(aid, acoustic, files, spts, build, selection=None, speaker=None,
-             shared=None, loudness=None, source=DATABASE, lattice=None):
+             shared=None, loudness=None, source=DATABASE, lattice=None, machine_model=None, unit_id_sha256=None):
     selection = selection or {}
     shared = shared or {}
     return {
         # The HAL's `spid` (IORegistry `speakerID`), or null when unknown.
         "speaker_id": speaker,
+        "machine_model": machine_model,
+        "unit_id_sha256": unit_id_sha256,
         "schema": SCHEMA,
         "kind": "aurora-audio-tuning",
         # Entries of the source AID<n> folder (regular files and links to
@@ -340,10 +388,11 @@ def manifest(aid, acoustic, files, spts, build, selection=None, speaker=None,
 
 
 def tree(acoustic, files, spts, build, selection=None, source_count=None, speaker=None,
-         shared=None, loudness=None, source=DATABASE, lattice=None):
+         shared=None, loudness=None, source=DATABASE, lattice=None, machine_model=None, unit_id_sha256=None):
     """Relative path -> bytes for one bundle: AID<n>/..., the selection
     data, the shared files the speaker graph references, the loudness
     manager, the record, the manifest. Only a complete set makes a bundle."""
+    validate_identity(machine_model, unit_id_sha256)
     selection = selection or {}
     shared = shared or {}
     for name in selection:
@@ -389,7 +438,7 @@ def tree(acoustic, files, spts, build, selection=None, source_count=None, speake
         out[SPTS] = spts
     out[LATTICE] = bytes(lattice)
     out[MANIFEST] = json.dumps(manifest(aid, acoustic, files, spts, build, selection, speaker,
-                                        shared, loudness, source, bytes(lattice)),
+                                        shared, loudness, source, bytes(lattice), machine_model, unit_id_sha256),
                                indent=2, sort_keys=True).encode("utf-8")
     return out
 
@@ -448,6 +497,7 @@ class AudioTuningFWCollection(object):
         if props is None:
             log.info("No device-tree acoustic-id; no speaker tuning to collect")
             return
+        model, unit = probe_identity(run)
         acoustic = acoustic_id(props[0])
         if acoustic is None:
             raise ValueError("malformed acoustic-id")
@@ -489,7 +539,7 @@ class AudioTuningFWCollection(object):
         # Exactly one valid lattice, or no bundle: never a guessed table.
         lattice = lsm2_lattice.read(audiodsp)
         self._publish(tree(acoustic, files, props[1], os_build(run), selection, count, speaker,
-                           shared, loudness, source, lattice))
+                           shared, loudness, source, lattice, model, unit))
         log.info(f"  Collected speaker tuning AID{acoustic} ({len(files)} files"
                  + (f", {len(shared)} shared" if shared else "")
                  + (", loudness manager" if loudness is not None else "")
@@ -506,6 +556,10 @@ class AudioTuningFWCollection(object):
         if not isinstance(meta, dict) or meta.get("schema") != SCHEMA \
                 or meta.get("kind") != "aurora-audio-tuning":
             raise ValueError("unknown speaker tuning manifest")
+        # Older bundles remain readable, but Linux refuses production
+        # compilation without a model and disables SpTS without a unit hash.
+        if "machine_model" in meta or "unit_id_sha256" in meta:
+            validate_identity(meta.get("machine_model"), meta.get("unit_id_sha256"))
         acoustic = meta.get("acoustic_id")
         if type(acoustic) is not int or not 0 < acoustic < 100000:
             raise ValueError("malformed acoustic_id")

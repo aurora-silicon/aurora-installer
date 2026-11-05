@@ -16,7 +16,45 @@
         selection: [
           "DeviceDSPDatabase.plist": Data("synthetic database entry".utf8),
           "Config/AID35.plist": Data("synthetic config".utf8),
-        ], maskLattice: SyntheticLattice.table)
+        ], maskLattice: SyntheticLattice.table, machineModel: "j413",
+        unitIDHash: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    }
+
+    func testUnitIdentityUsesTheLinuxNormalization() throws {
+      let digest = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+      XCTAssertEqual(try NativeAudioTuningInputs.unitHash(Data("abc\0\0".utf8)), digest)
+      XCTAssertEqual(try NativeAudioTuningInputs.unitHash(Data("abc".utf8)), digest)
+      XCTAssertEqual(try NativeAudioTuningInputs.machineModel(Data("J616sAP\0".utf8)), "j616s")
+      for data in [
+        Data(), Data("a\0b".utf8), Data("abc def".utf8), Data([255]),
+        Data(repeating: 97, count: 129),
+      ] {
+        XCTAssertThrowsError(try NativeAudioTuningInputs.unitHash(data))
+      }
+      let files = try NativeAudioTuningInputs.files(snapshot(), prefix: "")
+      let manifest = try JSONDecoder().decode(
+        NativeAudioTuningInputs.Manifest.self, from: XCTUnwrap(files["manifest.json"]))
+      XCTAssertEqual(manifest.machineModel, "j413")
+      XCTAssertEqual(manifest.unitIDHash, digest)
+      var invalid = snapshot()
+      invalid.machineModel = nil
+      XCTAssertThrowsError(try NativeAudioTuningInputs.files(invalid, prefix: ""))
+      invalid.machineModel = "J413AP"
+      XCTAssertThrowsError(try NativeAudioTuningInputs.files(invalid, prefix: ""))
+      invalid.machineModel = "j413"
+      invalid.unitIDHash = "ABC"
+      XCTAssertThrowsError(try NativeAudioTuningInputs.files(invalid, prefix: ""))
+      invalid.unitIDHash = nil
+      XCTAssertNoThrow(try NativeAudioTuningInputs.files(invalid, prefix: ""))
+    }
+
+    func testSeveralAudioNodesAreRefusedEvenWhenProductAudioExists() throws {
+      let product = (Data([35, 0, 0, 0]), Optional(Data([1])))
+      let other = (Data([9, 0, 0, 0]), Optional<Data>.none)
+      XCTAssertNil(try NativeAudioTuningInputs.oneAudioNode([]))
+      XCTAssertEqual(try NativeAudioTuningInputs.oneAudioNode([product])?.0, product.0)
+      XCTAssertThrowsError(try NativeAudioTuningInputs.oneAudioNode([product, other]))
+      XCTAssertThrowsError(try NativeAudioTuningInputs.oneAudioNode([product, product]))
     }
 
     func testAcousticIDIsOneLittleEndianWord() {

@@ -58,6 +58,9 @@ def fake_run(acoustic=35, spts=bytes(range(16)), target=b"J999AP\n", model=b"Mac
     def run(args, capture_output=True):
         if args[0] == "ioreg" and "AppleEmbeddedAudioDevice" in args:
             return subprocess.CompletedProcess(args, 0, b"", b"")
+        if args[0] == "ioreg" and "-d" in args:
+            root = {"target-type": b"J413AP\0", "serial-number": b"abc\0"}
+            return subprocess.CompletedProcess(args, 0, plistlib.dumps([root]), b"")
         if args[0] == "ioreg":
             return subprocess.CompletedProcess(args, 0, plistlib.dumps([node]), b"")
         if args[:2] == ["sysctl", "-n"]:

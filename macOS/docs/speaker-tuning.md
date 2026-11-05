@@ -36,7 +36,7 @@ The speaker ID selects among the speaker vendor variants in the DSP database ent
 - AppleDouble (`._*`) and `.DS_Store` sidecars are skipped. A link is kept only when it names a regular file inside the folder, and is stored as a copy of that file.
 - A short read fails the whole collection: a directory that cannot be listed, a link to a directory, a link that does not resolve to a regular file inside the folder, a missing DSP database entry or volume configuration, or a speaker reference that cannot be collected. There is no partial bundle.
 - A Mac without speaker calibration still gets its tuning folder. A Mac without an `acoustic-id`, or without a folder for it, gets nothing and installs normally.
-- Collection never stops an installation. A failure, an ambiguous device tree (two audio nodes with an `acoustic-id`) or an implausible input leaves the tuning out entirely, never partly. Linux then uses its family fallback profiles. Cancellation still ends the step.
+- Collection never stops an installation. A failure, an ambiguous device tree (two audio nodes with an `acoustic-id`) or an implausible input leaves the tuning out entirely, never partly. Without a valid bundle Linux cannot compile this Mac's speaker tuning. Cancellation still ends the step.
 - Every Mac with a protection unit is covered the same way, because the whole folder is copied. On the MacBook Neo (`AID44`), the protection parameters (lsm2) live in the speaker strip's preset, not in a separate plist, so the strip is the parameter source. On the V/I MacBooks, spp3 also has a sidecar plist. No unit-specific selection happens at collection time.
 - Bounds: at most 1024 files and 64 MiB for the folder, the shared files and the selection data together, 64 MiB for the DSP database read, 1 MiB each for the volume configuration and the loudness manager, and 4 KiB for the calibration record. The largest folder seen so far is 34 files and 2.4 MB.
 
@@ -123,13 +123,21 @@ The bundle is a superset of the one saku's collector writes (`audio-tuning-AID<n
 - Python installer and firmware rebuild: `asahi_firmware/audio_tuning.py` (`AudioTuningFWCollection`), called from `stub.py` and `asahi_firmware/update.py`.
 - Linux reader and validator: `aurora-speaker-tuning` in aurora-silicon/speakerguardd (v2 branch). It loads the bundle from `/lib/firmware/vendor/apple/audio-tuning/`, from the ESP's `vendorfw/firmware.tar`, or from saku's collector bundle. It verifies the manifest, parses binary and XML property lists, and exposes the protection parameter sets and the speaker graph and strip definitions.
 
+## Device binding and rollout
+
+Schema 2 now includes `machine_model` and `unit_id_sha256` alongside `acoustic_id`. The model and unit hash are included in the Linux reader's provisioning digest. The Linux compiler rejects a different model or acoustic ID, and refuses production compilation if either the bundle model or the independent device-tree acoustic-ID export is missing. It enables SpTS calibration only when the bundle unit hash matches the running Mac; missing or different identity compiles open loop with a warning.
+
+Aura copies the root serial-number to Linux and exports the one ADT audio node's acoustic ID as `/chosen/asahi,acoustic-id` (big-endian u32). Update aura for this export and recollect older bundles. Legacy archives can still be verified and inspected, but identity must not be invented while re-reading them. The manifest is hashed integrity metadata, not a signature or protection against deliberate editing.
+
+Land and deploy the speakerguardd reader before this collector: older readers reject the new optional manifest keys. The acoustic-ID export does not change any amplifier or protection settings.
+
 ## Existing installs
 
 A system installed before the installer collected speaker tuning can get it without reinstalling. `tools/speaker-tuning/collect-macos.sh` runs on the Mac's own macOS with the system Python and writes the bundle to a tarball. `tools/speaker-tuning/install-linux.sh` runs on the installed Linux system, re-verifies the bundle, adds it to `asahi/all_firmware.tar.gz`, rebuilds `vendorfw/` with `asahi_firmware.update`, refuses unless the rebuild keeps every other file of the old package by path and hash, backs both up and swaps them in atomically. See [tools/speaker-tuning/README.md](../../tools/speaker-tuning/README.md).
 
 ## Privacy
 
-The installer reads only `acoustic-id` and `speaker-thiele-small` from the device tree, and only the selected tuning folder. It reads no serial numbers or other identifiers. The calibration record is factory measurement data (driver resistance and calibration temperature per speaker). It stays on the user's machine, like the other factory calibration the installer already stores.
+The installer reads `acoustic-id`, `speaker-thiele-small`, root `target-type` and root `serial-number` from the device tree, and only the selected tuning folder. It records the canonical model (`J616sAP` → `j616s`) and a SHA-256 of the serial bytes after removing trailing NUL bytes only; the raw serial is never written to the bundle or logs. Serials must be 1–128 printable non-space ASCII bytes, with no case or whitespace conversion. Missing serial identity permits an open-loop bundle; malformed identity refuses collection. The calibration record is factory measurement data (driver resistance and calibration temperature per speaker). It stays on the user's machine, like the other factory calibration the installer already stores.
 
 ## Attribution
 

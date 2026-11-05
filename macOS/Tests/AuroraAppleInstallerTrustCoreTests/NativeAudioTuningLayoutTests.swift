@@ -97,7 +97,8 @@
         acousticID: 35, thieleSmall: Data([2, 0, 22, 6]), files: files, build: "00A000",
         selection: selected.selection, databaseSource: selected.databaseSource,
         sharedFiles: selected.sharedFiles, loudnessManager: selected.loudnessManager,
-        maskLattice: SyntheticLattice.table)
+        maskLattice: SyntheticLattice.table, machineModel: "j413",
+        unitIDHash: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
     }
 
     private func manifestObject(_ files: [String: Data]) throws -> [String: Any] {
