@@ -1,4 +1,5 @@
 #if os(macOS)
+  import AuroraFirmware
   import Foundation
 
   /// Firmware collection follows the single identity admitted for the stub:
@@ -53,7 +54,9 @@
       }
       guard kernels.count == 1, let kernel = kernels.first,
         Set(selected.map(\.component)).count == selected.count,
-        machine != "j700" || selected.contains(where: { $0.component == "Multitouch" })
+        machine != "j700" || selected.contains(where: { $0.component == "Multitouch" }),
+        !KiwiFirmware.supports(machine)
+          || selected.contains(where: { $0.component == "Ap,TouchASICFW" })
       else { throw NativeStubFileError.invalidPlan }
       self.kernel = kernel
       fud = selected

@@ -65,6 +65,14 @@
       XCTAssertEqual(source.machine, "k114c")
       XCTAssertEqual(
         Set(source.fud.map(\.component)), ["Multitouch", "Ap,TouchASICFW"])
+      var missingTouch = identity
+      var missingTouchManifest = identity["Manifest"] as! [String: Any]
+      missingTouchManifest.removeValue(forKey: "Ap,TouchASICFW")
+      missingTouch["Manifest"] = missingTouchManifest
+      XCTAssertThrowsError(
+        try NativeFirmwareSourcePlan(
+          manifest: PropertyListSerialization.data(
+            fromPropertyList: ["BuildIdentities": [missingTouch]], format: .xml, options: 0)))
     }
 
     func testArchiveStreamingExceedsBootBudgetWithoutRelaxingBootCallers() async throws {

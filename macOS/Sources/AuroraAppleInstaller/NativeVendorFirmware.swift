@@ -12,6 +12,9 @@
       let sourceBinding: String
       let files: [String: NativeStubFileIdentity]
       let installerData: [String: NativeStubFileIdentity]
+      /// Per-machine kiwi inputs and outputs are represented only by hashes in
+      /// this private journal evidence. Their values stay in vendor firmware.
+      let kiwi: KiwiFirmware.Receipt?
     }
     let package: ImportedEngineHandoffPackage
     let approved: ValidatedEnginePlan
@@ -119,6 +122,7 @@
         let recovery = try target.tree("Recovery")
         var fallback = [String: Data]()
         var radioLinks = [String: String]()
+        var kiwiImage: Data?
         func read(_ role: String, _ path: String, maximum: Int) throws -> Data {
           guard let record = sourceRecords.first(where: { $0.role == role && $0.path == path })
           else {
@@ -142,11 +146,9 @@
             guard !converted.isEmpty else { throw NativeFirmwareInputFailure.invalidSource }
             try merge(converted, into: &outputs)
           }
-          // The touchscreen firmware of the OLED MacBook Pros (K114/K116).
-          // How Linux loads it is not specified yet, so the package keeps
-          // this Mac's own copy as macOS ships it, for a later converter.
-          if item.component == "Ap,TouchASICFW", source.machine.hasPrefix("k") {
-            try merge(["apple/kiwi/" + source.machine + ".im4p": data], into: &outputs)
+          if item.component == "Ap,TouchASICFW", KiwiFirmware.supports(source.machine) {
+            guard kiwiImage == nil else { throw NativeFirmwareInputFailure.invalidSource }
+            kiwiImage = data
           }
         }
         if source.machine == "j700" {
@@ -257,6 +259,16 @@
         for (name, data) in factory {
           fallback["com.apple.factorydata/" + name] = data
         }
+        var kiwiReceipt: KiwiFirmware.Receipt?
+        if KiwiFirmware.supports(source.machine) {
+          guard let kiwiImage else { throw NativeFirmwareInputFailure.invalidSource }
+          let kiwi = try KiwiFirmware.convert(
+            kiwiImage, machine: source.machine, factory: factory)
+          try merge(kiwi.files, into: &outputs)
+          kiwiReceipt = kiwi.receipt
+        } else if kiwiImage != nil {
+          throw NativeFirmwareInputFailure.invalidSource
+        }
         if package.deviceIdentifier == "apple,j700" {
           fallback[NeoFirmwareConversions.alsName] = outputs[NeoFirmwareConversions.alsName]
           fallback["j700-exbright-LSCI.bin"] = lsci
@@ -354,7 +366,7 @@
         let receipt = Receipt(
           plan: approved.planDigest, groupUUID: target.group, espUUID: target.esp.uuid,
           sourceBinding: NativeStubFileStore.hash(binding), files: files,
-          installerData: installerData)
+          installerData: installerData, kiwi: kiwiReceipt)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         try file.publishEvidence(encoder.encode(receipt), identifier: "native-vendor-firmware")
