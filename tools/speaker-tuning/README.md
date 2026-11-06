@@ -26,6 +26,12 @@ component (see
 If it does not find exactly one valid table, it writes nothing and exits
 with an error.
 
+It also reads the public maxima of every lsm2 `VelocityLimit` parameter via
+the AudioUnit metadata API. The values must be finite, positive and
+identical; the unit is never initialized or rendered. The verified maximum
+is stored in the manifest-hashed `lsm2-metadata.json`, with no literal
+fallback.
+
 It reads both tuning layouts: the shared `DeviceDSPDatabase.plist` up to
 macOS 26, and the per-Mac `AID<n>/DSP/DSPDatabase.plist` of macOS 27, and
 prints which one it used.

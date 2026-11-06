@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT / "tools" / "speaker-tuning"))
 sys.path.insert(0, str(ROOT / "tests"))
 
 import speaker_tuning as st  # noqa: E402
-from asahi_firmware import audio_tuning  # noqa: E402
+from asahi_firmware import audio_tuning, lsm2_metadata  # noqa: E402
 from asahi_firmware.audio_tuning import AudioTuningFWCollection  # noqa: E402
 from macho_fixtures import CPU_X86_64, fat, padded, synthetic_lattice, thin  # noqa: E402
 
@@ -137,6 +137,7 @@ def setUpModule():
     path.write_bytes(fat(thin(padded(synthetic_lattice()), cpu=CPU_X86_64),
                          thin(padded(synthetic_lattice()))))
     audio_tuning.AUDIODSP_PATH = str(path)
+    lsm2_metadata.read = lambda: 1.75
 
 
 def tearDownModule():

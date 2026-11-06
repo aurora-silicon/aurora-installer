@@ -28,6 +28,7 @@
   import Darwin
   import Foundation
   import IOKit
+  import AuroraInstallerSystem
 
   /// This Mac's own speaker tuning, read only from the running macOS.
   ///
@@ -47,6 +48,7 @@
     static let fallbackPrefix = "audio-tuning/"
     static let manifestName = "manifest.json"
     static let thieleSmallName = "speaker-thiele-small.bin"
+    static let lsm2MetadataName = "lsm2-metadata.json"
     /// AID35 is 34 files and 2.4 MB; these bounds leave ample room.
     static let maximumFiles = 1024
     static let maximumBytes = 64 << 20
@@ -89,6 +91,10 @@
       /// component (`NativeLSM2Lattice`). Required: without it there is no
       /// bundle.
       var maskLattice: Data? = nil
+      /// The finite positive public parameter-metadata maximum shared by
+      /// every lsm2 VelocityLimit0/1/2 family. Required: it is the final
+      /// velocity-curve anchor and is never substituted with a literal.
+      var velocityParameterMaximum: Float? = nil
       /// The board this Mac is (`j616s`, from the device tree root's
       /// `target-type`). Nil when unknown.
       var board: String? = nil
@@ -152,6 +158,8 @@
       /// bucket ends (version 1). Optional for readers: bundles collected
       /// before it have none.
       let lsm2MaskLattice: Lattice?
+      /// Manifest-hashed public lsm2 parameter metadata.
+      let lsm2Metadata: File?
       /// The Mac the bundle was collected on: its board and unit ID.
       /// Omitted when unknown.
       let board: String?
@@ -171,6 +179,7 @@
         case sharedFiles = "shared_files"
         case loudnessManager = "loudness_manager"
         case lsm2MaskLattice = "lsm2_mask_lattice"
+        case lsm2Metadata = "lsm2_metadata"
         case board
         case unitID = "unit_id"
         case basedOn = "based_on"
@@ -435,6 +444,10 @@
         throw NativeLSM2Lattice.Failure.malformed("cannot read it: \(error)")
       }
       let lattice = try NativeLSM2Lattice.extract(component)
+      var velocityParameterMaximum: Float = 0
+      guard aurora_lsm2_velocity_parameter_max(&velocityParameterMaximum) == 0,
+        velocityParameterMaximum.isFinite, velocityParameterMaximum > 0
+      else { throw NativePeripheralInputError.localInput }
       let (board, unit) = identity()
       if unit == nil, thieleSmall != nil {
         InstallerLog.record(
@@ -446,8 +459,8 @@
         acousticID: acousticID, thieleSmall: thieleSmall, files: files, build: build(),
         selection: selected.selection, sourceFileCount: count, speakerID: liveSpeakerID(),
         databaseSource: selected.databaseSource, sharedFiles: selected.sharedFiles,
-        loudnessManager: selected.loudnessManager, maskLattice: lattice, board: board,
-        unitID: unit)
+        loudnessManager: selected.loudnessManager, maskLattice: lattice,
+        velocityParameterMaximum: velocityParameterMaximum, board: board, unitID: unit)
     }
 
     static let speakerServiceClass = "AppleEmbeddedAudioDevice"
@@ -663,6 +676,26 @@
         path: NativeLSM2Lattice.bundleName, bytes: lattice.count,
         sha256: NativeStubFileStore.hash(lattice), version: NativeLSM2Lattice.version,
         format: NativeLSM2Lattice.format, entries: NativeLSM2Lattice.entries)
+      guard let velocityMaximum = snapshot.velocityParameterMaximum,
+        velocityMaximum.isFinite, velocityMaximum > 0
+      else { throw NativePeripheralInputError.localInput }
+      struct LSM2Metadata: Codable {
+        let kind = "aurora-lsm2-parameter-metadata"
+        let version = 1
+        let velocityParameterMaximum: Float
+        enum CodingKeys: String, CodingKey {
+          case kind, version
+          case velocityParameterMaximum = "velocity_parameter_max"
+        }
+      }
+      let metadataEncoder = JSONEncoder()
+      metadataEncoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+      let metadata = try metadataEncoder.encode(
+        LSM2Metadata(velocityParameterMaximum: velocityMaximum))
+      result[prefix + lsm2MetadataName] = metadata
+      let metadataRecord = Manifest.File(
+        path: lsm2MetadataName, bytes: metadata.count,
+        sha256: NativeStubFileStore.hash(metadata))
       if let board = snapshot.board, Self.board(Data(board.utf8)) != board {
         throw NativePeripheralInputError.localInput
       }
@@ -687,6 +720,7 @@
         deviceDSPDatabaseSource: snapshot.databaseSource, sharedFiles: shared,
         loudnessManager: loudness,
         lsm2MaskLattice: latticeRecord,
+        lsm2Metadata: metadataRecord,
         board: snapshot.board, unitID: snapshot.unitID,
         files: records,
         basedOn: "aurora-audio-dsp by saku (MIT)")

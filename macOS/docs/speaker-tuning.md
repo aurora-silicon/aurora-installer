@@ -69,6 +69,21 @@ Each slice must hold exactly one accepted candidate, and all slices the same 800
 
 The table is stored unchanged as `lsm2-mask-lattice.bin`. The firmware rebuild and the Linux reader check it again with the same rule. Implementations: `asahi_firmware/lsm2_lattice.py` (Python; `python3 -m asahi_firmware.lsm2_lattice [component]` reports where it found the table and its SHA-256, never the values) and `NativeLSM2Lattice` (Swift).
 
+## The lsm2 parameter metadata
+
+The lsm2 velocity mask curve ends at the public maximum of its
+`VelocityLimit` AudioUnit parameters. During collection the installer creates
+an lsm2 instance, enumerates the global `kAudioUnitProperty_ParameterList`,
+and reads `kAudioUnitProperty_ParameterInfo`. It requires every
+`VelocityLimit0`, `VelocityLimit1` and `VelocityLimit2` family to publish the
+same finite positive maximum. The unit is not initialized or rendered and no
+audio device is opened.
+
+The result is stored in `lsm2-metadata.json`, hashed by the identity-bound
+manifest. There is no numeric fallback: collection fails if the metadata is
+missing or inconsistent, and speakerguardd refuses to compile an lsm2 blob
+without the verified record.
+
 ## Outputs
 
 The files go into the vendor firmware package (`vendorfw/firmware.tar`, `vendorfw/firmware.cpio` and its `manifest.txt` with SHA-256 per file), under `apple/audio-tuning/`. They also go into the raw fallback archive (`asahi/all_firmware.tar.gz`), under `audio-tuning/`:
@@ -87,6 +102,7 @@ apple/audio-tuning/
   Common/...                       (only files the speaker modes reference)
   DRC/loudness-manager.plist       (only when it lists AID<n>)
   lsm2-mask-lattice.bin            (the lsm2 masker lattice, 800 bytes)
+  lsm2-metadata.json                (public lsm2 parameter metadata)
 ```
 
 On Linux the package is unpacked under `/lib/firmware/vendor/`, so the bundle is `/lib/firmware/vendor/apple/audio-tuning/`. The ESP copy in `vendorfw/firmware.tar` is the source of truth when that tree is absent. A firmware rebuild from the fallback archive (`asahi_firmware.update`) re-verifies every file against `manifest.json` before it repackages them; a changed file leaves the tuning out.
@@ -113,6 +129,7 @@ On Linux the package is unpacked under `/lib/firmware/vendor/`, so the bundle is
   "unit_id": "…",
   "lsm2_mask_lattice": {"path": "lsm2-mask-lattice.bin", "bytes": 800, "sha256": "…",
                         "version": 1, "format": "u64le-exclusive-ends", "entries": 100},
+  "lsm2_metadata": {"path": "lsm2-metadata.json", "bytes": 120, "sha256": "…"},
   "files": [{"path": "AID35/ADM/config.plist", "bytes": 1234, "sha256": "…"}],
   "based_on": "aurora-audio-dsp by saku (MIT)"
 }
@@ -127,6 +144,7 @@ On Linux the package is unpacked under `/lib/firmware/vendor/`, so the bundle is
 - These three keys are optional and do not change the schema version. A bundle written before them verifies as before. Readers that know them must refuse the bundle when `device_dsp_database_source` is any other value, when a `shared_files` path is not under `Common/`, repeats or collides with `files`, when `loudness_manager` names another path or does not list this AID, or when the speaker modes in `DeviceDSPDatabase.plist` reference a file that is not in the bundle or `shared_files` differs from their `Common/` references.
 - `speaker_id` is the speaker ID (`spid`) as an integer from 0 to 4294967295, kept exactly as macOS reports it (65535 means an invalid strap). It is omitted or `null` when unknown. Readers accept it missing, `null`, or such an integer, and refuse the bundle for any other value (boolean, fraction, negative, string). It does not change the schema version.
 - `lsm2_mask_lattice` is the record of the lsm2 masker lattice: path `lsm2-mask-lattice.bin`, 800 bytes, `version` 1, `format` `u64le-exclusive-ends` (100 little-endian unsigned 64-bit exclusive bucket ends), `entries` 100. It is kept out of `files`. Every bundle the collector writes has it; it is optional for readers, so bundles collected before it still verify (the firmware rebuild logs a warning, and lsm2 then gives no masking credit). Readers that know it must refuse the bundle when the record has any other path, size, version, format or entry count, and must refuse the table when it fails the rule above.
+- `lsm2_metadata` is the size-and-hash record for `lsm2-metadata.json`. Its version-1 JSON contains `kind: "aurora-lsm2-parameter-metadata"` and the collected `velocity_parameter_max`. Readers refuse malformed, non-finite or non-positive values. Old bundles without it still verify for migration, but lsm2 blob compilation refuses them.
 - `board` and `unit_id` name the Mac the bundle was collected on ([The unit](#the-unit)). Both are optional and do not change the schema version. They are omitted or `null` when unknown. Readers that know them must refuse the bundle when `board` is not 1 to 8 lowercase letters and digits, or `unit_id` is not 64 lowercase hex digits.
 - `macos_build` is the running macOS build the folder was read from. A later macOS update can change the tuning, and re-running the firmware step collects the new set.
 - Paths are relative to the manifest's directory. Readers must reject absolute paths, `.` or `..` components, and any file whose size or SHA-256 differs from the manifest.
@@ -136,7 +154,7 @@ The bundle is a superset of the one saku's collector writes (`audio-tuning-AID<n
 
 ## Implementations
 
-- Native installer (Swift): `NativeAudioTuningInputs`, called from `NativeVendorFirmware` as the `vendor_audio_tuning` phase. It reads both layouts the same way as the Python collector: `AID<n>/DSP/DSPDatabase.plist` when the folder has it (kept byte for byte when it holds only `AID<n>`), the shared database otherwise, and it writes the same `device_dsp_database_source`, `shared_files`, `loudness_manager` and `lsm2_mask_lattice` records. It omits `loudness_manager` instead of writing null, as it does for `speaker_id`.
+- Native installer (Swift): `NativeAudioTuningInputs`, called from `NativeVendorFirmware` as the `vendor_audio_tuning` phase. It reads both layouts the same way as the Python collector: `AID<n>/DSP/DSPDatabase.plist` when the folder has it (kept byte for byte when it holds only `AID<n>`), the shared database otherwise, and it writes the same `device_dsp_database_source`, `shared_files`, `loudness_manager`, `lsm2_mask_lattice` and `lsm2_metadata` records. It omits `loudness_manager` instead of writing null, as it does for `speaker_id`.
 - Python installer and firmware rebuild: `asahi_firmware/audio_tuning.py` (`AudioTuningFWCollection`), called from `stub.py` and `asahi_firmware/update.py`.
 - Linux reader and validator: `aurora-speaker-tuning` in aurora-silicon/speakerguardd (v2 branch). It loads the bundle from `/lib/firmware/vendor/apple/audio-tuning/`, from the ESP's `vendorfw/firmware.tar`, or from saku's collector bundle. It verifies the manifest, parses binary and XML property lists, and exposes the protection parameter sets and the speaker graph and strip definitions.
 

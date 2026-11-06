@@ -59,7 +59,8 @@ let package = Package(
     .target(
       name: "AuroraInstallerSystem",
       path: "Sources/AuroraInstallerSystem",
-      publicHeadersPath: "include"
+      publicHeadersPath: "include",
+      linkerSettings: [.linkedFramework("AudioToolbox")]
     ),
     .executableTarget(
       name: "RecoveryAccountQualification",

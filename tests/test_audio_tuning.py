@@ -17,12 +17,13 @@ import unittest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from asahi_firmware import audio_tuning  # noqa: E402
+from asahi_firmware import audio_tuning, lsm2_metadata  # noqa: E402
 from asahi_firmware.audio_tuning import AudioTuningFWCollection  # noqa: E402
 from macho_fixtures import (CPU_X86_64, fat, other_lattice, padded,  # noqa: E402
                             synthetic_lattice, thin)
 
 LATTICE = synthetic_lattice()
+VELOCITY_PARAMETER_MAX = 1.75
 _component = None
 
 
@@ -33,6 +34,7 @@ def setUpModule():
     path = pathlib.Path(_component.name) / "AudioDSP"
     path.write_bytes(fat(thin(padded(LATTICE), cpu=CPU_X86_64), thin(padded(LATTICE))))
     audio_tuning.AUDIODSP_PATH = str(path)
+    lsm2_metadata.read = lambda: VELOCITY_PARAMETER_MAX
 
 
 def tearDownModule():
@@ -98,6 +100,7 @@ class AudioTuningTest(unittest.TestCase):
                 "apple/audio-tuning/Config/AID35.plist",
                 "apple/audio-tuning/DeviceDSPDatabase.plist",
                 "apple/audio-tuning/lsm2-mask-lattice.bin",
+                "apple/audio-tuning/lsm2-metadata.json",
                 "apple/audio-tuning/manifest.json",
                 "apple/audio-tuning/speaker-thiele-small.bin",
             ])
@@ -257,12 +260,13 @@ class CompletenessTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             audio_tuning.tree(35, {"a": b"1"}, None, "00A000",
                               {"DeviceDSPDatabase.plist": b"d", "Config/AID35.plist": b"c"},
-                              source_count=2)
+                              source_count=2, lattice=LATTICE,
+                              velocity_parameter_max=VELOCITY_PARAMETER_MAX)
 
     def test_update_accepts_the_intact_bundle(self):
         with tempfile.TemporaryDirectory() as tmp:
             out, _ = fallback(tmp)
-            self.assertEqual(len(AudioTuningFWCollection(str(out)).files()), 6)
+            self.assertEqual(len(AudioTuningFWCollection(str(out)).files()), 7)
 
     def test_update_refuses_inconsistent_manifests(self):
         def drop_folder_record(meta):
@@ -366,7 +370,7 @@ class SpeakerIDTest(unittest.TestCase):
                 col, meta = self.collected(root, speakers)
                 self.assertIn("speaker_id", meta)
                 self.assertEqual(meta["speaker_id"], expected)
-                self.assertEqual(len(col.files()), 6)
+                self.assertEqual(len(col.files()), 7)
                 out = root / "fallback"
                 self.assertTrue(col.write_fallback(str(out)))
                 again = AudioTuningFWCollection(str(out))
@@ -384,7 +388,7 @@ class SpeakerIDTest(unittest.TestCase):
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
                 out, bundle = fallback(tmp)
                 rewrite(bundle, edit)
-                self.assertEqual(len(AudioTuningFWCollection(str(out)).files()), 6)
+                self.assertEqual(len(AudioTuningFWCollection(str(out)).files()), 7)
         for name, value in refused.items():
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
                 out, bundle = fallback(tmp)
@@ -646,7 +650,6 @@ class LatticeTest(unittest.TestCase):
             # Not a tuning folder file: the count is the folder's alone.
             self.assertEqual(meta["source_file_count"], 2)
             self.assertNotIn("lsm2-mask-lattice.bin", [r["path"] for r in meta["files"]])
-
     def test_missing_or_ambiguous_lattice_is_no_bundle_and_an_error(self):
         cases = {
             "missing": thin(b"\x11" * 2048),
@@ -678,10 +681,12 @@ class LatticeTest(unittest.TestCase):
         args = (35, {"a": b"x"}, None, "00A000",
                 {"DeviceDSPDatabase.plist": plistlib.dumps({"AID35": {}}),
                  "Config/AID35.plist": b"c"})
-        self.assertTrue(audio_tuning.tree(*args, lattice=LATTICE))
+        self.assertTrue(audio_tuning.tree(*args, lattice=LATTICE,
+                                          velocity_parameter_max=VELOCITY_PARAMETER_MAX))
         for bad in (None, b"", LATTICE[:-8], b"\0" * 800):
             with self.assertRaisesRegex(ValueError, "lattice"):
-                audio_tuning.tree(*args, lattice=bad)
+                audio_tuning.tree(*args, lattice=bad,
+                                  velocity_parameter_max=VELOCITY_PARAMETER_MAX)
 
     def test_update_reverifies_the_lattice(self):
         valid_but_other = other_lattice()
@@ -733,6 +738,47 @@ if __name__ == "__main__":
 # A made-up serial number, as macOS pads it in the device tree root.
 SERIAL = b"SYNTHETIC0A".ljust(32, b"\0")
 ROOT = {"target-type": b"J616s\0", "serial-number": SERIAL, "IOPlatformSerialNumber": "SYNTHETIC0A"}
+
+
+class LSM2MetadataTest(unittest.TestCase):
+    def test_synthetic_parameter_families_have_one_collected_maximum(self):
+        records = [(name, VELOCITY_PARAMETER_MAX)
+                   for _family in range(4) for name in lsm2_metadata.PARAMETER_NAMES]
+        self.assertEqual(lsm2_metadata.velocity_parameter_max(records),
+                         VELOCITY_PARAMETER_MAX)
+        encoded = lsm2_metadata.encode(VELOCITY_PARAMETER_MAX)
+        self.assertEqual(lsm2_metadata.decode(encoded), VELOCITY_PARAMETER_MAX)
+
+    def test_missing_nonfinite_and_inconsistent_metadata_is_refused(self):
+        for records in [
+                [("VelocityLimit0", 1.75), ("VelocityLimit1", 1.75)],
+                [("VelocityLimit0", 1.75), ("VelocityLimit1", 1.75),
+                 ("VelocityLimit2", float("nan"))],
+                [("VelocityLimit0", 1.75), ("VelocityLimit1", 1.5),
+                 ("VelocityLimit2", 1.75)],
+                [("VelocityLimit0", 1.75), ("VelocityLimit0", 1.75),
+                 ("VelocityLimit1", 1.75), ("VelocityLimit2", 1.75)],
+        ]:
+            with self.subTest(records=records), self.assertRaises(lsm2_metadata.MetadataError):
+                lsm2_metadata.velocity_parameter_max(records)
+
+    def test_bundle_metadata_is_hashed_reverified_and_optional_for_old_bundles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out, bundle = fallback(tmp)
+            metadata = bundle / "lsm2-metadata.json"
+            manifest = json.loads((bundle / "manifest.json").read_bytes())
+            self.assertEqual(manifest["lsm2_metadata"]["sha256"],
+                             hashlib.sha256(metadata.read_bytes()).hexdigest())
+            metadata.write_bytes(lsm2_metadata.encode(1.5))
+            self.assertFalse(AudioTuningFWCollection(str(out)).bundle)
+        with tempfile.TemporaryDirectory() as tmp:
+            out, bundle = fallback(tmp)
+            (bundle / "lsm2-metadata.json").unlink()
+            rewrite(bundle, lambda manifest: manifest.pop("lsm2_metadata"))
+            with self.assertLogs("asahi_firmware.audio_tuning", "WARNING") as logs:
+                collected = AudioTuningFWCollection(str(out))
+            self.assertTrue(collected.bundle)
+            self.assertIn("parameter metadata", "\n".join(logs.output))
 
 
 class IdentityTest(unittest.TestCase):
@@ -796,4 +842,3 @@ class IdentityTest(unittest.TestCase):
         with self.assertLogs("asahi_firmware.audio_tuning", "WARNING") as logs:
             self.assertTrue(AudioTuningFWCollection(str(out)).files())
         self.assertTrue(any("does not name the Mac" in m for m in logs.output))
-

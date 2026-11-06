@@ -66,6 +66,7 @@ def summary(bundle):
         "shared": len(meta.get("shared_files") or []),
         "loudness": meta.get("loudness_manager") is not None,
         "lattice": meta.get("lsm2_mask_lattice") is not None,
+        "lsm2_metadata": meta.get("lsm2_metadata") is not None,
     }
 
 
@@ -77,7 +78,9 @@ def describe(bundle):
     return (f"{s['aid']}, {s['files']} tuning files{extra}, calibration "
             f"{'present' if s['calibration'] else 'absent'}, speaker ID {spid}, "
             f"macOS {s['macos_build']}, lsm2 masker lattice "
-            f"{'present' if s['lattice'] else 'absent (collect again on macOS)'}")
+            f"{'present' if s['lattice'] else 'absent (collect again on macOS)'}, "
+            f"lsm2 parameter metadata "
+            f"{'present' if s['lsm2_metadata'] else 'absent (collect again on macOS)'}")
 
 
 def verified(path):

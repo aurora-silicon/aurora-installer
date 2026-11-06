@@ -16,7 +16,7 @@
         selection: [
           "DeviceDSPDatabase.plist": Data("synthetic database entry".utf8),
           "Config/AID35.plist": Data("synthetic config".utf8),
-        ], maskLattice: SyntheticLattice.table)
+        ], maskLattice: SyntheticLattice.table, velocityParameterMaximum: 1.75)
     }
 
     func testAcousticIDIsOneLittleEndianWord() {
@@ -49,6 +49,7 @@
           "apple/audio-tuning/DeviceDSPDatabase.plist",
           "apple/audio-tuning/Config/AID35.plist",
           "apple/audio-tuning/lsm2-mask-lattice.bin",
+          "apple/audio-tuning/lsm2-metadata.json",
         ])
       let manifest = try JSONDecoder().decode(
         NativeAudioTuningInputs.Manifest.self,
@@ -83,6 +84,14 @@
           path: "lsm2-mask-lattice.bin", bytes: 800,
           sha256: NativeStubFileStore.hash(SyntheticLattice.table), version: 1,
           format: "u64le-exclusive-ends", entries: 100))
+      let metadata = try XCTUnwrap(files["apple/audio-tuning/lsm2-metadata.json"])
+      XCTAssertEqual(manifest.lsm2Metadata?.bytes, metadata.count)
+      XCTAssertEqual(manifest.lsm2Metadata?.sha256, NativeStubFileStore.hash(metadata))
+      let metadataObject = try XCTUnwrap(
+        JSONSerialization.jsonObject(with: metadata) as? [String: Any])
+      XCTAssertEqual(metadataObject["kind"] as? String, "aurora-lsm2-parameter-metadata")
+      XCTAssertEqual(metadataObject["version"] as? Int, 1)
+      XCTAssertEqual(metadataObject["velocity_parameter_max"] as? Double, 1.75)
     }
 
     func testNoValidLatticeIsNoBundle() throws {
@@ -93,6 +102,17 @@
       ] {
         var partial = snapshot()
         partial.maskLattice = lattice
+        XCTAssertThrowsError(try NativeAudioTuningInputs.files(partial, prefix: "x/"))
+        let source = partial
+        let collected = try NativeAudioTuningInputs.collect({ _ in source }, owner: 0)
+        XCTAssertTrue(collected.package.isEmpty && collected.fallback.isEmpty)
+      }
+    }
+
+    func testNoValidVelocityParameterMaximumIsNoBundle() throws {
+      for maximum in [nil, Float.nan, Float.infinity, 0, -1] as [Float?] {
+        var partial = snapshot()
+        partial.velocityParameterMaximum = maximum
         XCTAssertThrowsError(try NativeAudioTuningInputs.files(partial, prefix: "x/"))
         let source = partial
         let collected = try NativeAudioTuningInputs.collect({ _ in source }, owner: 0)
@@ -148,6 +168,7 @@
           "schema", "kind", "source_file_count", "complete", "acoustic_id", "aid",
           "macos_build", "speaker_thiele_small", "device_dsp_database", "config", "files",
           "based_on", "device_dsp_database_source", "shared_files", "lsm2_mask_lattice",
+          "lsm2_metadata",
         ])
       XCTAssertEqual(object["device_dsp_database_source"] as? String, "DeviceDSPDatabase.plist")
       XCTAssertEqual((object["shared_files"] as? [Any])?.count, 0)
@@ -281,8 +302,9 @@
       unknown.speakerID = nil
       let source = unknown
       let collected = try NativeAudioTuningInputs.collect({ _ in source }, owner: 0)
-      // Two folder files, two selection files, the record, the lattice, the manifest.
-      XCTAssertEqual(collected.package.count, 7)
+      // Two folder files, two selection files, calibration, lattice,
+      // parameter metadata and manifest.
+      XCTAssertEqual(collected.package.count, 8)
       var failing = snapshot()
       failing.speakerID = 3
       failing.selection["Config/AID35.plist"] = nil
@@ -370,8 +392,8 @@
         try NativeAudioTuningInputs.collect({ _ in throw CancellationError() }, owner: 0))
       let good = snapshot()
       let collected = try NativeAudioTuningInputs.collect({ _ in good }, owner: 0)
-      XCTAssertEqual(collected.package.count, 7)
-      XCTAssertEqual(collected.fallback.count, 7)
+      XCTAssertEqual(collected.package.count, 8)
+      XCTAssertEqual(collected.fallback.count, 8)
     }
   }
 #endif
