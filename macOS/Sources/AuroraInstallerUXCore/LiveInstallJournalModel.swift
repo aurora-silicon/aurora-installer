@@ -62,12 +62,16 @@
     /// sets it from the approved plan before the run starts, so the list of
     /// steps is known from the first moment.
     public var preservesStage1 = false
+    /// Whether this run only stages a new boot loader, on Reset's plan.
+    public var updatesBootLoader = false
 
     /// Every step of the run, in order: the checks made before anything
     /// changes, then the stages that change the disk. One fixed list for the
     /// whole run; the Install screen never swaps it for another.
     public var stepLabels: [String] {
-      preservesStage1 || isPreservedReset ? PlainLanguage.resetSteps : PlainLanguage.installSteps
+      if updatesBootLoader { return PlainLanguage.bootLoaderUpdateSteps }
+      return preservesStage1 || isPreservedReset
+        ? PlainLanguage.resetSteps : PlainLanguage.installSteps
     }
 
     /// The step under way in `stepLabels`.
@@ -117,6 +121,7 @@
       feed = []
       preparationStep = 0
       preservesStage1 = false
+      updatesBootLoader = false
     }
 
     /// The number of the stage currently being worked on (0-based), derived

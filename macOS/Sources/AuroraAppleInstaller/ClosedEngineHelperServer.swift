@@ -6,6 +6,8 @@
   public enum EngineHandoffOperation: String, Equatable, Sendable {
     case install
     case retryRecoveryAuthorization = "retry-recovery-authorization"
+    /// A Reset package used only to stage its Stage 1 for Recovery.
+    case updateStage1 = "update-stage1"
   }
 
   public protocol ImportedEngineHandoffExecuting: Sendable {
@@ -592,8 +594,15 @@
       operation: EngineHandoffOperation, progress: (any EngineJournalProgressSink)?,
       installConf: InstallConf?
     ) async throws -> (Data, InstallConfHandoff) {
-      guard package.installationIntent != .reinstall || installConf != nil else {
-        throw ClosedEngineHelperError.invalidOperation
+      // A Stage 1 update runs only on a Reset package, which writes no install.conf.
+      if operation == .updateStage1 {
+        guard package.installationIntent == .reinstall, installConf == nil else {
+          throw ClosedEngineHelperError.invalidOperation
+        }
+      } else {
+        guard package.installationIntent != .reinstall || installConf != nil else {
+          throw ClosedEngineHelperError.invalidOperation
+        }
       }
       let journalURL = EngineJournalLocator.journalURL(
         workingDirectory: workingDirectory,
@@ -655,7 +664,8 @@
       guard transcript.completion != nil else {
         throw ClosedEngineHelperError.transcriptIncomplete
       }
-      if let plan = transcript.plan {
+      // A Stage 1 update never authorizes writing install.conf to the ESP.
+      if let plan = transcript.plan, operation != .updateStage1 {
         let completed = CompletedEngineInstallPlan(
           storeIdentifier: plan.storeIdentifier,
           offsetBytes: plan.offsetBytes,
@@ -960,7 +970,10 @@
           throw InstallerJobError.invalidRequest
         }
         let request = try JSONDecoder().decode(InstallerJobStartRequest.self, from: request)
-        guard let operation = EngineHandoffOperation(rawValue: request.operation) else {
+        // A Stage 1 update is never a resumable job: it is submitted directly.
+        guard let operation = EngineHandoffOperation(rawValue: request.operation),
+          operation != .updateStage1
+        else {
           throw InstallerJobError.invalidRequest
         }
         let conf = try InstallConf.parse(request.installConf)

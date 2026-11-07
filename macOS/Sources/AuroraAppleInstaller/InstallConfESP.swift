@@ -74,6 +74,8 @@
       switch operation {
       case .install, .retryRecoveryAuthorization:
         return nextAction == .enterRecovery
+      case .updateStage1:
+        return false
       }
     }
   }

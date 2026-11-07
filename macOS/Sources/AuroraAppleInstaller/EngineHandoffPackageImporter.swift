@@ -102,9 +102,24 @@
         candidateKinds: ["reinstall"])
     }
 
+    /// A Reset package submitted to update only Stage 1. Unlike Reset itself,
+    /// it carries the Recovery template that the installation's app is refreshed from.
+    func stage1UpdatePlan(
+      _ package: ImportedEngineHandoffPackage, owner: uid_t = 0
+    ) throws -> ValidatedEnginePlan {
+      guard package.recoveryTemplateURL != nil else {
+        throw EngineHandoffImportError.bindingMismatch
+      }
+      return try boundPlan(
+        package, owner: owner, intent: .reinstall,
+        operation: ImportedInstallationIntent.reinstallOperation,
+        candidateKinds: ["reinstall"], allowsRecoveryTemplate: true)
+    }
+
     private func boundPlan(
       _ package: ImportedEngineHandoffPackage, owner: uid_t,
-      intent: ImportedInstallationIntent, operation: String, candidateKinds: Set<String>
+      intent: ImportedInstallationIntent, operation: String, candidateKinds: Set<String>,
+      allowsRecoveryTemplate: Bool = false
     ) throws -> ValidatedEnginePlan {
       let tree = try NativeHandoffFileTree(package.packageURL, protected: true, owner: owner)
       let manifest = try decodeManifest(
@@ -130,8 +145,10 @@
         identity.repairManifestDigest == nil
       else { throw EngineHandoffImportError.bindingMismatch }
       if intent == .reinstall {
-        guard package.recoveryTemplateURL == nil,
-          manifest.repairManifest == nil, manifest.recoveryTemplate == nil
+        guard manifest.repairManifest == nil,
+          allowsRecoveryTemplate
+            ? (package.recoveryTemplateURL != nil) == (manifest.recoveryTemplate != nil)
+            : package.recoveryTemplateURL == nil && manifest.recoveryTemplate == nil
         else { throw EngineHandoffImportError.bindingMismatch }
       }
       return ValidatedEnginePlan(

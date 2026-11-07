@@ -73,8 +73,8 @@
       }
       let summary = try XCTUnwrap(
         PinnedAsahiEngineExecutor.preservedSummary(for: NativePreservedInstallError.earlierStage1))
-      XCTAssertTrue(summary.contains("Erase Linux, then install Aurora again"), summary)
-      // Its screen offers Erase Linux rather than Check again.
+      XCTAssertTrue(summary.contains("Update its boot loader first"), summary)
+      // Its screen leads with Update Boot Loader rather than Check again.
       XCTAssertEqual(
         PinnedAsahiEngineExecutor.preservedReason(for: NativePreservedInstallError.earlierStage1),
         .reinstallRequired)

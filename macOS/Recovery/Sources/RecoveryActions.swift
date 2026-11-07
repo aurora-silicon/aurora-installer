@@ -861,6 +861,10 @@ extension RecoveryActions {
     switch arguments {
     case ["recover"]:
       let record = try installed()
+      // Its Stage 2 belongs to the staged Stage 1, which isn't enrolled yet.
+      try check(
+        pendingStage1Update() == nil,
+        "A startup software update is waiting. Open Aurora Installer to finish it first.")
       guard let name = record["mode"] as? String, let mode = AuraBootMode(rawValue: name),
         let path = record["stage2Path"] as? String,
         path == (try configuration.get()).stage2Path
@@ -941,5 +945,138 @@ extension RecoveryActions {
         try atomic(Data((old + line).utf8), to: file)
       }
     }
+  }
+}
+
+extension RecoveryActions {
+  /// The stub files that name the enrolled Stage 1, which a later Reset reads.
+  static let stubStage1Path = "Finish Installation.app/Contents/Resources/boot.bin"
+  static let stubStage1MachOPath = "Finish Installation.app/Contents/Resources/boot.macho"
+
+  /// A Stage 1 the macOS installer staged that isn't enrolled yet.
+  static func pendingStage1Update() -> Stage1Reenrollment? {
+    guard recovering, let config = try? configuration.get() else { return nil }
+    return Stage1Reenrollment.pending(
+      receipt: try? installed(),
+      hasPendingInstallation: FileManager.default.fileExists(atPath: pendingInstallation.path),
+      bootMode: config.bootMode, stage2Path: config.stage2Path, manifest: try? manifest())
+  }
+
+  /// Enrolls the staged Stage 1 for this installation with the owner's
+  /// password, as setup does. Returns false when it was already enrolled.
+  @discardableResult static func reenrollStage1(
+    owner: RecoveryOwner, password: String, progress: @escaping (Double, String) -> Void
+  ) throws -> Bool {
+    // Repeat the check here so bypassing the GUI cannot reach any write.
+    try requireEnrollmentEnvironment()
+    try RecoveryOwnerResolver.verify(owner, current: resolveOwner())
+    let config = try configuration.get()
+    let record = try installed()
+    try check(
+      !FileManager.default.fileExists(atPath: pendingInstallation.path),
+      "Setup hasn't finished. Continue setup instead.")
+    guard let chip = chipID() else {
+      throw RecoveryFailure(message: "Could not read this Mac's chip, so nothing was changed.")
+    }
+    progress(0.05, "Verifying the new startup software")
+    let m = try manifest()
+    guard let mode = AuraBootMode(rawValue: config.bootMode),
+      m["defaultMode"] as? String == config.bootMode,
+      (m["modes"] as? [String: [String: Any]])?[config.bootMode]?["espPath"] as? String
+        == config.stage2Path
+    else {
+      throw RecoveryFailure(
+        message: "The recovery payload does not match this installation's boot mode.")
+    }
+    let stage1 = try asset(mode.stage1Path, manifest: m)
+    let raw = try asset(AuraBootMode.raw.stage1Path, manifest: m)
+    let stage2 = try asset(mode.stage2Path, manifest: m)
+    let target = try esp().appendingPathComponent(config.stage2Path)
+    let stage2Bytes = (try? FileManager.default.attributesOfItem(atPath: target.path))
+      .flatMap { $0[.type] as? FileAttributeType == .typeRegular ? $0[.size] as? Int : nil }
+    guard
+      let update = try Stage1Reenrollment.verify(
+        stage1: stage1, mode: mode, chipID: chip, espUUID: config.espUUID,
+        stage2Path: config.stage2Path, receipt: record, stage2Bytes: stage2Bytes)
+    else {
+      InstallerLog.shared.append("This startup software is already enrolled. Nothing was changed.")
+      return false
+    }
+    progress(0.15, "Checking the recovery environment")
+    try run("/sbin/mount", ["-u", "-w", volume.path])
+    let fm = FileManager.default
+    try fm.createDirectory(
+      at: state, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    let operation = state.appendingPathComponent("stage1-update-" + UUID().uuidString)
+    try fm.createDirectory(
+      at: operation, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+    InstallerLog.shared.persist(to: operation.appendingPathComponent("installer.log"))
+    let stage1Path = operation.appendingPathComponent("stage1")
+    let marker = volume.appendingPathComponent(".IAPhysicalMedia")
+    let disabledMarker = volume.appendingPathComponent("IAPhysicalMedia-disabled.plist")
+    try Stage1ReenrollmentRunner.run(
+      stage: {
+        if let window = mode.executeWindowSize {
+          try stageExpandedStage1(stage1, window: window, at: stage1Path)
+        } else {
+          try RecoveryFileTransaction.write(stage1, to: stage1Path)
+        }
+      },
+      authorizePolicy: {
+        progress(0.3, "Authorizing the boot environment")
+        try authorized(
+          "/usr/bin/bputil",
+          RecoveryBootPolicy.authorizationArguments(
+            groupUUID: groupUUID, allowCustomBootArguments: allowsCustomBootArguments),
+          owner: owner, password: password)
+      },
+      enroll: {
+        progress(0.55, mode == .macho ? slowEnrollment : "Installing the startup software")
+        try authorized(
+          "/usr/bin/kmutil", mode.enrollmentArguments(stage1: stage1Path.path, volume: volume.path),
+          owner: owner, password: password)
+      },
+      record: {
+        progress(0.85, "Finishing the update")
+        try RecoveryFileTransaction.write(
+          JSONSerialization.data(
+            withJSONObject: update.receipt(after: record, stage2SHA256: hash(stage2)),
+            options: [.prettyPrinted, .sortedKeys]), to: receipt)
+        // A later Reset compares these with the payload's Stage 1.
+        try RecoveryFileTransaction.write(raw, to: volume.appendingPathComponent(stubStage1Path))
+        if mode == .macho {
+          try RecoveryFileTransaction.write(
+            stage1, to: volume.appendingPathComponent(stubStage1MachOPath))
+        }
+      },
+      finish: {
+        // The volume starts its new Stage 1 again instead of this app.
+        try RecoveryVersionMetadata.showForStartupDisk(system: volume)
+        try RecoveryFileTransaction.flushDirectory(
+          volume.appendingPathComponent("System/Library/CoreServices"))
+        if fm.fileExists(atPath: marker.path) {
+          try RecoveryFileTransaction.write(Data(contentsOf: marker), to: disabledMarker)
+          try fm.removeItem(at: marker)
+          try RecoveryFileTransaction.flushDirectory(volume)
+        }
+      })
+    try? fm.removeItem(at: stage1Path)
+    InstallerLog.shared.append(
+      "Startup software updated: \(mode.rawValue) Stage 1 \(update.stage1SHA256.prefix(12)), loading \(update.stage2Path)."
+    )
+    progress(1, "Startup software updated")
+    return true
+  }
+
+  /// Restarts after an update, which leaves Stage 2 to the distribution, so
+  /// unlike setup it doesn't compare Stage 2 with the recovery copy.
+  static func restartAfterStage1Update() throws {
+    try recoveryOnly()
+    _ = try installed()
+    try check(
+      pendingStage1Update() == nil,
+      "The startup software update didn't finish. Open Aurora Installer again to finish it.")
+    InstallerLog.shared.append("Startup software updated. Restarting now.")
+    _ = try run("/sbin/shutdown", ["-r", "now"])
   }
 }

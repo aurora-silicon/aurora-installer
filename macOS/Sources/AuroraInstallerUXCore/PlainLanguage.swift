@@ -349,6 +349,53 @@
       return steps
     }
 
+    // MARK: Boot loader update
+
+    public static let bootLoaderUpdateAction = "Update Boot Loader"
+    public static let bootLoaderUpdateMenuItem = "Update Boot Loader…"
+    public static let bootLoaderUpdateRemedy =
+      "On the Partitions screen, choose Update Boot Loader… in this installation’s ⋯ menu and finish the update in Recovery. Then reset it."
+    /// Shaped like `resetSteps`: the two checks, then one stage for Recovery.
+    public static let bootLoaderUpdateSteps = [
+      "Getting ready", "Checking your Mac", "Preparing the boot loader",
+    ]
+    public static let bootLoaderUpdateReviewTitle = "Review the boot loader update"
+    public static let bootLoaderUpdateReviewDetail =
+      "Installs this release’s boot loader (Stage 1) for this installation. Linux, its files, its partitions and the EFI partition stay as they are. You finish the update in Recovery with your macOS password."
+    public static let bootLoaderUpdateAcknowledgement =
+      "I’ll finish the update in this installation’s Recovery"
+    public static let bootLoaderUpdateHeadline = "Finish the update in Recovery"
+    public static let bootLoaderUpToDateHeadline = "The boot loader is up to date"
+    public static let bootLoaderUpToDateMessage =
+      "This installation already has this release’s boot loader. Nothing was changed."
+    public static let bootLoaderShutdownBody =
+      "Save your work first. When this Mac is off, press and hold the power button until “Loading startup options” appears. Choose Aurora, then enter your macOS password in Aurora Installer."
+
+    /// Steps after the update is staged. Recovery enrolls the boot loader.
+    public static func bootLoaderUpdateRecoverySteps(volumeName: String = "Aurora")
+      -> [RecoveryStep]
+    {
+      [
+        RecoveryStep(number: 1, title: "Shut down this Mac", detail: "Save your work first."),
+        RecoveryStep(
+          number: 2, title: "Hold the power button",
+          detail:
+            "When this Mac is off, press and hold the power button until “Loading startup options” appears."
+        ),
+        RecoveryStep(
+          number: 3, title: "Update the boot loader",
+          detail:
+            "Choose \(volumeName). In Aurora Installer, click Update and enter your macOS password. Then restart."
+        ),
+      ]
+    }
+
+    static func bootLoaderUpdateState(unchanged: Bool) -> String {
+      unchanged
+        ? "No disk changes were made."
+        : "Linux, its partitions and the EFI partition weren’t changed, but the installation’s Recovery files may have been."
+    }
+
     // MARK: Screen F — Boot / completion
 
     public static let doneHeadline = "Aurora is installed"
@@ -633,11 +680,22 @@
         )
       case .reinstallRequired:
         return FailureDisplay(
-          headline: "This installation can’t be reset",
+          headline: "Update this installation’s boot loader first",
           plainDetail: cause,
           technicalDetail: technicalDetail,
           remedy:
-            "Choose Erase Linux to remove this installation, then install Aurora again. \(engineDiagnosticsLocation)"
+            "\(bootLoaderUpdateRemedy) To start over instead, choose Erase Linux, then install Aurora again. \(engineDiagnosticsLocation)"
+        )
+      case .bootLoaderUpdateRefused:
+        return FailureDisplay(
+          headline: "The boot loader wasn’t updated",
+          plainDetail: notice.summary.isEmpty
+            ? bootLoaderUpdateState(unchanged: unchanged)
+            : "\(notice.summary) \(bootLoaderUpdateState(unchanged: unchanged))",
+          technicalDetail: technicalDetail,
+          remedy: unchanged
+            ? "Choose Check again, then Update Boot Loader once what’s described is fixed. \(engineDiagnosticsLocation)"
+            : "Choose Check again, then Update Boot Loader again to finish. \(engineDiagnosticsLocation)"
         )
       case .startOverRequired:
         return FailureDisplay(

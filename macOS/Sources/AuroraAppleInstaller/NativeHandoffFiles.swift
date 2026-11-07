@@ -224,6 +224,14 @@
         active: ".IAPhysicalMedia", inactive: "IAPhysicalMedia-disabled.plist", activate: true)
     }
 
+    /// The reverse of `prepareForRecovery`: the volume starts its enrolled
+    /// Stage 1 again instead of opening Aurora Installer in Recovery.
+    func prepareForStartup() throws {
+      try moveIfNeeded(
+        active: ".IAPhysicalMedia", inactive: "IAPhysicalMedia-disabled.plist", activate: false)
+      try prepareForAuthorization()
+    }
+
     private func moveIfNeeded(active: String, inactive: String, activate: Bool) throws {
       guard protected else { throw NativeHandoffValidationError.unsafePath }
       let source = try existing(active: active, inactive: inactive)

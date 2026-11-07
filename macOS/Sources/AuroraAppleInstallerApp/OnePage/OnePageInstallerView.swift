@@ -92,7 +92,7 @@ struct OnePageInstallerView: View {
         RecoveryHandoffView(
           volumeName: target.volumeName, session: session, selection: selection, device: device,
           onReinstall: preservedReinstallAction)
-      } else if case .awaitingRecovery = session.phase {
+      } else if case .awaitingRecovery = session.phase, !session.updatingBootLoader {
         RecoveryHandoffView(
           volumeName: "Aurora", session: session.isSimulation ? nil : session, selection: selection,
           device: device)
@@ -145,7 +145,8 @@ struct OnePageInstallerView: View {
     .sheet(isPresented: $showsShutdownConfirmation) {
       ConfirmationSheet(
         title: PlainLanguage.shutdownConfirmationTitle,
-        message: PlainLanguage.shutdownConfirmationBody,
+        message: session.updatingBootLoader
+          ? PlainLanguage.bootLoaderShutdownBody : PlainLanguage.shutdownConfirmationBody,
         action: PlainLanguage.shutdownConfirmationAction,
         onConfirm: {
           showsShutdownConfirmation = false
@@ -294,6 +295,7 @@ struct OnePageInstallerView: View {
         onShrink: { target in Task { await session.install(into: target) } },
         onErase: { erasingRow = $0 },
         onReset: { resettingRow = $0 },
+        onUpdateBootLoader: { row in Task { await session.updateBootLoader(row.id) } },
         onOpenStartupDisk: { _ = session.openStartupDisk() })
 
     case .preparingPlan(let update), .planPrepared(_, let update):
@@ -316,7 +318,9 @@ struct OnePageInstallerView: View {
         state: session.prefetchState,
         onRetry: session.canRetryPrefetch ? { session.retryPrefetch() } : nil
       )
-      if session.allowsEncryption {
+      if plan.updatesBootLoader {
+        EmptyView()
+      } else if session.allowsEncryption {
         EncryptDiskToggle(
           isOn: session.encryptLinuxDisk,
           enabled: !session.isBusy && !session.isEditingSize,
@@ -340,7 +344,9 @@ struct OnePageInstallerView: View {
         state: session.prefetchState,
         onRetry: session.canRetryPrefetch ? { session.retryPrefetch() } : nil
       )
-      if session.allowsEncryption {
+      if plan.updatesBootLoader {
+        EmptyView()
+      } else if session.allowsEncryption {
         EncryptDiskToggle(
           isOn: session.encryptLinuxDisk,
           enabled: false,
@@ -447,7 +453,7 @@ struct OnePageInstallerView: View {
         .auroraSecondaryButton()
         .disabled(session.isEditingSize)
       }
-      Button(plan.preservesStage1 ? "Reset Linux" : PlainLanguage.planInstall) {
+      Button(planAction(plan)) {
         // Approve the exact plan and go straight to the password. If the
         // helper is not ready the page stays here and says so.
         session.approve()
@@ -466,7 +472,7 @@ struct OnePageInstallerView: View {
       if session.canReturnToPartitions {
         Button("Back", action: session.returnToPartitions).auroraSecondaryButton()
       }
-      Button(plan.preservesStage1 ? "Reset Linux" : PlainLanguage.planInstall) {
+      Button(planAction(plan)) {
         session.presentInstallCredentials()
       }
       .auroraPrimaryButton()
@@ -584,13 +590,21 @@ struct OnePageInstallerView: View {
       partial: !host.existingInstalls.isEmpty && host.existingInstalls.allSatisfy(\.partial))
   }
 
+  /// The review's primary button for this plan.
+  private func planAction(_ plan: PlanDisplay) -> String {
+    if plan.updatesBootLoader { return PlainLanguage.bootLoaderUpdateAction }
+    return plan.preservesStage1 ? "Reset Linux" : PlainLanguage.planInstall
+  }
+
   private func acknowledgement(_ acknowledged: Bool, plan: PlanDisplay) -> some View {
     Toggle(
-      plan.preservesStage1
-        ? PlainLanguage.planPreservedAcknowledgement
-        : PlainLanguage.planAcknowledgement(
-          resizesMacOS: plan.allocationSource != .freeExtent,
-          stage1Caution: Stage1Caution.thisMac != nil),
+      plan.updatesBootLoader
+        ? PlainLanguage.bootLoaderUpdateAcknowledgement
+        : plan.preservesStage1
+          ? PlainLanguage.planPreservedAcknowledgement
+          : PlainLanguage.planAcknowledgement(
+            resizesMacOS: plan.allocationSource != .freeExtent,
+            stage1Caution: Stage1Caution.thisMac != nil),
       isOn: Binding(get: { acknowledged }, set: { session.setAcknowledged($0) })
     )
     .toggleStyle(.checkbox)
@@ -865,9 +879,18 @@ struct DiskSplitPanel: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 20) {
-      Text(plan.preservesStage1 ? "Review your reset" : "Choose your space")
-        .font(.system(size: 22, weight: .semibold))
-      if plan.preservesStage1 {
+      Text(
+        plan.updatesBootLoader
+          ? PlainLanguage.bootLoaderUpdateReviewTitle
+          : plan.preservesStage1 ? "Review your reset" : "Choose your space"
+      )
+      .font(.system(size: 22, weight: .semibold))
+      if plan.updatesBootLoader {
+        Text(PlainLanguage.bootLoaderUpdateReviewDetail)
+          .font(InstallerTheme.body)
+          .foregroundStyle(InstallerTheme.secondaryText)
+          .fixedSize(horizontal: false, vertical: true)
+      } else if plan.preservesStage1 {
         Text(
           "Stage 1, its startup name and icon, and partition sizes stay. EFI boot files, Linux Boot and Root are replaced, erasing Linux accounts and files."
         )

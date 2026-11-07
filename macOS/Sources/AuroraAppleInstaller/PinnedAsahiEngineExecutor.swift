@@ -39,6 +39,7 @@
     private let espFilesPreparer: any NativeESPFilesPreparing
     private let installationFinisher: any NativeInstallationFinishingPreparing
     private let preservedReinstall: any NativePreservedReinstallExecuting
+    private let stage1Update: any NativeStage1UpdateExecuting
     private let nativeHandoff: any NativeRecoveryHandoffExecuting
     private let validatePayload: @Sendable (ImportedEngineHandoffPackage) async throws -> Void
     private let validateSourceOwner:
@@ -65,6 +66,7 @@
       espFilesPreparer = NativeESPFilesPreparer()
       installationFinisher = finishing
       preservedReinstall = NativePreservedInstallCoordinator()
+      stage1Update = NativeStage1UpdateCoordinator()
       nativeHandoff = NativeRecoveryHandoffExecutor()
       validatePayload = { try await NativePayloadPreflight.check($0) }
       validateSourceOwner = {
@@ -90,6 +92,7 @@
       installationFinisher: any NativeInstallationFinishingPreparing = NativeInstallationFinisher(),
       preservedReinstall: any NativePreservedReinstallExecuting =
         NativePreservedInstallCoordinator(),
+      stage1Update: any NativeStage1UpdateExecuting = NativeStage1UpdateCoordinator(),
       nativeHandoff: any NativeRecoveryHandoffExecuting = NativeRecoveryHandoffExecutor(),
       validatePayload: @escaping @Sendable (ImportedEngineHandoffPackage) async throws -> Void = {
         try await NativePayloadPreflight.check($0)
@@ -117,6 +120,7 @@
       self.espFilesPreparer = espFilesPreparer
       self.installationFinisher = installationFinisher
       self.preservedReinstall = preservedReinstall
+      self.stage1Update = stage1Update
       self.nativeHandoff = nativeHandoff
       self.validatePayload = validatePayload
       self.validateSourceOwner = validateSourceOwner
@@ -140,6 +144,11 @@
     ) async throws -> Data {
       guard effectiveUserID() == 0 else {
         throw PinnedAsahiEngineExecutionError.privilegeRequired
+      }
+      // A Stage 1 update keeps no execution journal: it never touches the
+      // partitions, and the stub records its own state for Recovery.
+      if operation == .updateStage1 {
+        return try await updateStage1(package, authorization: authorization)
       }
       let journal = try preparePersistentJournal(for: package)
       // Only an older installer's retired engine could repair an installed
@@ -602,13 +611,62 @@
       return .unclassified
     }
 
+    private func updateStage1(
+      _ package: ImportedEngineHandoffPackage, authorization: MachineOwnerAuthorization
+    ) async throws -> Data {
+      guard package.installationIntent == .reinstall else {
+        throw PinnedAsahiEngineExecutionError.nativeReinstallUnavailable
+      }
+      do {
+        return try await InstallerPerformance.measuring("stage1_update") {
+          try await stage1Update.execute(package, authorization: authorization)
+        }
+      } catch {
+        let failure = error as? NativeStage1UpdateFailure
+        let underlying = failure?.underlying ?? error
+        let network = TransientTransport.isTransient(underlying)
+        let update = Self.macOSUpdateSummary(for: underlying)
+        let summary =
+          network
+          ? Self.networkSummary : update ?? Self.stage1UpdateSummary(for: underlying)
+        throw PinnedAsahiEngineExecutionError.engineFailed(
+          EngineFailureReport(
+            notice: EngineFailureNotice(
+              reason: network
+                ? .networkUnavailable
+                : update == nil ? .bootLoaderUpdateRefused : .macOSUpdateRequired,
+              exitStatus: 1, diskUnchanged: failure?.diskChanged == false, summary: summary),
+            redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
+              Data(String(describing: underlying).utf8), truncated: false,
+              secrets: [authorization.password])))
+      }
+    }
+
+    static func stage1UpdateSummary(for error: any Error) -> String {
+      if let refusal = error as? NativeStage1UpdateError { return refusal.summary }
+      if let chain = error as? NativeBootChainError, chain.releaseLacksMachO {
+        return NativeBootChainError.releaseLacksMachOSummary
+      }
+      if error is NativeSourceOwnerRefusal { return sourceOwnerSummary(for: error) }
+      switch error {
+      case NativeHandoffValidationError.authorizationFailed:
+        return "macOS didn't accept the password to choose this installation as the startup disk."
+      case NativePreservedInstallError.changedLayout, NativePreservedInstallError.unavailable:
+        return NativeStage1UpdateError.changedInstallation.summary
+      case is NativeBootChainError:
+        return "This release's boot loader didn't pass the installer's checks."
+      default:
+        return "The boot loader update didn't finish."
+      }
+    }
+
     static func preservedSummary(for error: any Error) -> String? {
       if let chain = error as? NativeBootChainError, chain.releaseLacksMachO {
         return NativeBootChainError.releaseLacksMachOSummary
       }
       if case NativePreservedInstallError.earlierStage1 = error {
-        return "This installation was set up by an earlier Aurora installer, and this one can't "
-          + "reset it. Erase Linux, then install Aurora again."
+        return "This installation's boot loader is from an earlier Aurora installer. "
+          + "Update its boot loader first, then reset it."
       }
       guard
         case NativePreservedInstallError.espFull(let required, let available) = error

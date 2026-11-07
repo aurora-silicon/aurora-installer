@@ -147,6 +147,15 @@
     /// use one exact extent, so there is nothing to drag or edit.
     public let isResizable: Bool
     public var preservesStage1: Bool { allocationSource == .preservedInstall }
+    /// This plan's installation gets only a new boot loader; nothing is reinstalled.
+    public private(set) var updatesBootLoader = false
+
+    /// The same reset plan, used to update only the installation's boot loader.
+    public func forBootLoaderUpdate() -> PlanDisplay {
+      var plan = self
+      plan.updatesBootLoader = preservesStage1
+      return plan
+    }
 
     public init(
       diskTotalBytes: UInt64,
@@ -503,6 +512,9 @@
   public enum InstallOperationKind: String, Equatable, Sendable {
     case install
     case retryRecoveryAuthorization
+    /// Stages this release's Stage 1 for an existing installation, which
+    /// Recovery then enrolls. Linux and its partitions stay as they are.
+    case updateBootLoader
   }
 
   public enum CredentialSheetError: String, Equatable, Sendable {

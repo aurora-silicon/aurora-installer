@@ -10,6 +10,17 @@ final class InstallerModel {
     CommandLine.arguments.contains("--recovery-preview")
     || (!RecoveryActions.isPreview && RecoveryActions.recovering)
   var stage: Stage = .welcome { didSet { changed() } }
+  /// A Stage 1 the macOS installer staged: Recovery enrolls only it.
+  /// `--preview-update` simulates one in preview builds.
+  var stage1Update: Stage1Reenrollment? =
+    RecoveryActions.isPreview && CommandLine.arguments.contains("--preview-update")
+    ? Stage1Reenrollment(mode: .macho, stage1SHA256: "", stage2Path: "m1n1/boot-ctxr.bin")
+    : RecoveryActions.inRecovery ? RecoveryActions.pendingStage1Update() : nil
+  {
+    didSet { changed() }
+  }
+  /// The staged Stage 1 is enrolled; Restart skips setup's Stage 2 comparison.
+  var stage1Updated = false { didSet { changed() } }
   var password = "" { didSet { changed() } }
   var authorizationOwner: RecoveryOwner? { didSet { changed() } }
   var authorizationUsesSourceOwner = false { didSet { changed() } }
@@ -90,7 +101,8 @@ final class InstallerModel {
   }
 
   func resumeAccountSetup() {
-    guard RecoveryActions.inRecovery, RecoveryActions.recovering,
+    // A staged Stage 1 keeps its own screen; the account step would replace it.
+    guard RecoveryActions.inRecovery, RecoveryActions.recovering, stage1Update == nil,
       !creatingAccount, !restartingWithoutAccount, !checkingAccount
     else { return }
     checkingAccount = true
@@ -338,16 +350,21 @@ final class InstallerModel {
   }
 
   var steps: [String] {
-    recoveryInterface
+    stage1Update != nil
       ? [
-        "Verifying the recovery files", "Checking the startup partition",
-        "Restoring the startup software", "Verifying the restored files",
+        "Verifying the new startup software", "Authorizing the boot environment",
+        "Installing the startup software", "Finishing the update",
       ]
-      : [
-        "Verifying the installation files", "Checking the selected startup volume",
-        "Authorizing the boot environment", "Installing the startup software",
-        "Selecting the startup volume", "Finishing installation",
-      ]
+      : recoveryInterface
+        ? [
+          "Verifying the recovery files", "Checking the startup partition",
+          "Restoring the startup software", "Verifying the restored files",
+        ]
+        : [
+          "Verifying the installation files", "Checking the selected startup volume",
+          "Authorizing the boot environment", "Installing the startup software",
+          "Selecting the startup volume", "Finishing installation",
+        ]
   }
 
   func restore() {
@@ -399,6 +416,10 @@ final class InstallerModel {
       let selection = bootSelection
       stage = .installing
       operations = []
+      if stage1Update != nil {
+        updateStage1(owner: owner, password: credential)
+        return
+      }
       DispatchQueue.global(qos: .userInitiated).async {
         do {
           try RecoveryActions.install(selection: selection, owner: owner, password: credential) {
@@ -453,8 +474,45 @@ final class InstallerModel {
         #endif
         self.operations.append("\(step) — simulated")
       }
-      if !self.recoveryInterface { self.accountOptional = true }
+      if self.stage1Update != nil {
+        self.stage1Updated = true
+      } else if !self.recoveryInterface {
+        self.accountOptional = true
+      }
       self.stage = .complete
+    }
+  }
+
+  /// Enrolls the staged Stage 1, then offers Restart.
+  private func updateStage1(owner: RecoveryOwner, password credential: String) {
+    DispatchQueue.global(qos: .userInitiated).async {
+      do {
+        try RecoveryActions.reenrollStage1(owner: owner, password: credential) {
+          amount, operation in
+          DispatchQueue.main.async {
+            self.progress = amount
+            self.currentOperation = operation
+            self.operations.append(operation)
+          }
+        }
+        DispatchQueue.main.async {
+          self.accountOptional = false
+          self.accountNeedsAuthorization = false
+          self.stage1Updated = true
+          self.stage = .complete
+        }
+      } catch {
+        InstallerLog.shared.append(
+          "Startup software update failed: " + error.localizedDescription, level: .error)
+        DispatchQueue.main.async {
+          if let issue = error as? EnrollmentGateIssue {
+            self.environmentIssue = issue
+          } else {
+            self.failure = error.localizedDescription
+          }
+          self.stage = .welcome
+        }
+      }
     }
   }
 
@@ -471,6 +529,7 @@ final class InstallerModel {
       }
       guard !restartingCompletedSetup else { return }
       restartingCompletedSetup = true
+      let updated = stage1Updated
       DispatchQueue.global(qos: .userInitiated).async {
         do {
           // Another default volume is not an error: let the person choose
@@ -484,7 +543,11 @@ final class InstallerModel {
             }
             return
           }
-          try RecoveryActions.restartCompletedSetup()
+          if updated {
+            try RecoveryActions.restartAfterStage1Update()
+          } else {
+            try RecoveryActions.restartCompletedSetup()
+          }
         } catch {
           InstallerLog.shared.append("Restart failed: " + error.localizedDescription, level: .error)
           DispatchQueue.main.async {
@@ -659,7 +722,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     installMenus()
     LaunchTrace.mark("menus.installed")
     if renderPreviewIfRequested(window) { return }
-    if model.recoveryInterface && RecoveryActions.inRecovery {
+    if model.stage1Update != nil {
+      // Updating Stage 1 changes boot policy, so it checks this Recovery first.
+      model.startLaunchCheck()
+    } else if model.recoveryInterface && RecoveryActions.inRecovery {
       // Restoring an already enrolled stage 2 does not change boot policy.
       model.prepareRecoveryTools()
       model.resumeAccountSetup()

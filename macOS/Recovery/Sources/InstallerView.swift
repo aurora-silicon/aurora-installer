@@ -176,20 +176,27 @@ final class InstallerView: NSViewController, NSTextFieldDelegate, NSMenuItemVali
 
   private var stageTitle: String {
     switch model.stage {
+    case .welcome where updating: return "Update startup software"
     case .welcome: return model.recoveryInterface ? "Repair startup" : "Finish setup"
+    case .installing where updating: return "Updating startup software"
     case .installing:
       return model.recoveryInterface ? "Restoring startup software" : "Setting up Aurora Linux"
     case .account:
       return model.accountAlreadyStarted ? "Resume recovery setup" : "Create a recovery account"
     case .complete:
       if model.accountNeedsAuthorization { return "Authorize recovery account" }
+      if updating { return "Update complete" }
       return model.recoveryInterface ? "Recovery complete" : "Installation complete"
     }
   }
 
+  /// A staged Stage 1 replaces Restore: setup's checks, then only enrollment.
+  private var updating: Bool { model.stage1Update != nil }
+
   private var primaryInputs: RecoveryPrimaryAction.Inputs {
     RecoveryPrimaryAction.Inputs(
-      stage: model.stage, recoveryInterface: model.recoveryInterface,
+      stage: model.stage, recoveryInterface: model.recoveryInterface && !updating,
+      updatingStage1: updating,
       checkingEnvironment: model.checkingEnvironment, preparingTools: model.preparingTools,
       creatingAccount: model.creatingAccount,
       restartingWithoutAccount: model.restartingWithoutAccount,
@@ -223,17 +230,23 @@ final class InstallerView: NSViewController, NSTextFieldDelegate, NSMenuItemVali
 
   private func buildWelcome() {
     let stack = vertical(spacing: 9)
-    stack.addArrangedSubview(
-      label(
-        model.recoveryInterface
-          ? "Restore the startup software for your Mac."
-          : "Finish setting up Aurora Linux on your Mac.", size: 15))
-    stack.addArrangedSubview(
-      label(
-        model.recoveryInterface
-          ? "Use the saved recovery files to repair your\nstartup software."
-          : "The final step installs the startup software for your\nselected Aurora volume.",
-        size: 13))
+    let (heading, detail) =
+      updating
+      ? (
+        "Update the startup software for your Mac.",
+        "This installs the startup software the Aurora installer\nprepared. Linux and its files stay as they are."
+      )
+      : model.recoveryInterface
+        ? (
+          "Restore the startup software for your Mac.",
+          "Use the saved recovery files to repair your\nstartup software."
+        )
+        : (
+          "Finish setting up Aurora Linux on your Mac.",
+          "The final step installs the startup software for your\nselected Aurora volume."
+        )
+    stack.addArrangedSubview(label(heading, size: 15))
+    stack.addArrangedSubview(label(detail, size: 13))
     let icon = volumeIcon()
     stack.setCustomSpacing(44, after: stack.arrangedSubviews[1])
     stack.addArrangedSubview(icon)
@@ -248,7 +261,8 @@ final class InstallerView: NSViewController, NSTextFieldDelegate, NSMenuItemVali
     let stack = vertical(spacing: 15)
     stack.addArrangedSubview(
       label(
-        (model.recoveryInterface ? "Restoring " : "Setting up ") + DestinationVolume.name,
+        (updating ? "Updating " : model.recoveryInterface ? "Restoring " : "Setting up ")
+          + DestinationVolume.name,
         size: 14))
     let progress = NSProgressIndicator()
     progress.isIndeterminate = false
@@ -366,13 +380,14 @@ final class InstallerView: NSViewController, NSTextFieldDelegate, NSMenuItemVali
     // button mirrors the slot on its right, so it stays centred in the window.
     switch model.stage {
     case .welcome:
+      let restoring = model.recoveryInterface && !updating
       let start = RecoveryPrimaryButton(
-        title: model.recoveryInterface ? "Restore" : "Continue",
+        title: updating ? "Update" : restoring ? "Restore" : "Continue",
         target: self, action: #selector(startPressed))
-      let action = RecoveryBusyAction(button: start, balanced: !model.recoveryInterface)
+      let action = RecoveryBusyAction(button: start, balanced: !restoring)
       center.addArrangedSubview(action)
       primaryAction = action
-      if model.recoveryInterface {
+      if restoring {
         let debug = RecoverySecondaryButton(
           title: "Enable Debug", target: self, action: #selector(debugPressed))
         let proxy = RecoverySecondaryButton(
@@ -493,7 +508,7 @@ final class InstallerView: NSViewController, NSTextFieldDelegate, NSMenuItemVali
 
   @objc private func startPressed() {
     LaunchTrace.mark("ui.continue.pressed")
-    if model.recoveryInterface {
+    if model.recoveryInterface && !updating {
       model.restore()
       return
     }
@@ -589,7 +604,10 @@ final class InstallerView: NSViewController, NSTextFieldDelegate, NSMenuItemVali
       model.authorizationOwner?.username
       ?? (RecoveryActions.inRecovery ? "the volume owner" : NSUserName())
     var explanation = "Enter password for " + owner + "."
-    if !repair {
+    if !repair && updating {
+      explanation +=
+        " Use the owner’s password to install the new startup software. The security of your macOS installations is unaffected."
+    } else if !repair {
       explanation +=
         model.authorizationUsesSourceOwner
         ? " Use your existing macOS owner’s password to set up Aurora. Your macOS security settings are unaffected."
@@ -611,7 +629,7 @@ final class InstallerView: NSViewController, NSTextFieldDelegate, NSMenuItemVali
       title: "Cancel", target: self, action: #selector(cancelPanelPressed))
     cancel.keyEquivalent = "\u{1b}"
     let proceed = RecoveryPrimaryButton(
-      title: repair ? "Shut Down" : "Install", target: self,
+      title: repair ? "Shut Down" : updating ? "Update" : "Install", target: self,
       action: #selector(authorizePanelPressed))
     proceed.keyEquivalent = "\r"
     authorizationProceed = proceed
@@ -619,7 +637,8 @@ final class InstallerView: NSViewController, NSTextFieldDelegate, NSMenuItemVali
     let spinner = RecoveryBusyIndicator()
     authorizationSpinner = spinner
     let panel = RecoverySheet(
-      title: repair ? "Authorize startup disk" : "Authorize installation",
+      title: repair
+        ? "Authorize startup disk" : updating ? "Authorize update" : "Authorize installation",
       message: explanation, width: 430, height: 230, body: field, bodyHeight: 28,
       buttons: [cancel, proceed], accessory: spinner)
     present(panel, focus: field)
