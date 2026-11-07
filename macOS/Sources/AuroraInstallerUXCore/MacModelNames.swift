@@ -90,6 +90,10 @@
       "apple,j614s": mac("MacBook Pro 14-inch (M4 Pro, 2024)", "MacBook Pro", "M4"),
       "apple,j616s": mac("MacBook Pro 16-inch (M4 Pro, 2024)", "MacBook Pro", "M4"),
       "apple,j700": mac("MacBook Neo (A18 Pro, 2026)", "MacBook Neo", "A18 Pro"),
+      "apple,k114c": mac("MacBook Pro 14-inch OLED (M5 Max, 2026)", "MacBook Pro", "M5"),
+      "apple,k114s": mac("MacBook Pro 14-inch OLED (M5 Pro, 2026)", "MacBook Pro", "M5"),
+      "apple,k116c": mac("MacBook Pro 16-inch OLED (M5 Max, 2026)", "MacBook Pro", "M5"),
+      "apple,k116s": mac("MacBook Pro 16-inch OLED (M5 Pro, 2026)", "MacBook Pro", "M5"),
     ]
   }
 #endif

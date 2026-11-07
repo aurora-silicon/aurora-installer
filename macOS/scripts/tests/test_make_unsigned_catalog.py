@@ -258,12 +258,14 @@ class CatalogGeneratorTests(unittest.TestCase):
 
     def test_the_manifest_is_every_m1_m2_and_m3_mac_the_m4_boards_and_the_neo(self) -> None:
         manifest = json.loads(MANIFEST.read_text())
-        self.assertEqual(len(manifest["supported"]), 38)
+        self.assertEqual(len(manifest["supported"]), 42)
         self.assertIn("apple,j575d", manifest["supported"])
         self.assertIn("apple,j614s", manifest["supported"])
         self.assertIn("apple,j616s", manifest["supported"])
         self.assertTrue(set(M3_MACS) <= set(manifest["supported"]))
         self.assertIn("apple,j700", manifest["supported"])
+        for board in ("k114c", "k114s", "k116c", "k116s"):
+            self.assertIn("apple," + board, manifest["supported"])
         self.assertEqual(manifest["refused"], {})
         self.assertEqual(manifest["developer"], {})
         for template in sorted(MANIFEST.parent.glob("release-inputs*.template.json")):

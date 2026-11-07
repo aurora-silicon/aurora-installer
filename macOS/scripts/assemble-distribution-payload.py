@@ -72,7 +72,7 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
         if not isinstance(records, dict) or not records:
             raise ValueError('missing Stage 2 board records')
         for board, record in records.items():
-            if not re.fullmatch(r'j[0-9]+[a-z]*ap', board):
+            if not re.fullmatch(r'[jk][0-9]+[a-z]*ap', board):
                 raise ValueError('invalid Stage 2 board')
             member = record.get('member')
             if member != 'esp/m1n1/boot-' + board.removesuffix('ap') + '.bin':
@@ -163,8 +163,12 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
     # and Ultra boards in stage1_caution may have it refused by iBoot; the
     # installer warns their owners, with the recovery steps, before installing.
     supported_models.stage1_caution()
+    # The OLED MacBook Pros (K114/K116, T6050) shipped with macOS 27.2 and
+    # have no older firmware, so 27.2 is the only one they are qualified on.
     template['aurora_stage1'] = {'kind': 'common-raw-v1', 'qualified_machines': {
-        identifier.removeprefix('apple,') + 'ap': ['13.5', '14.8.3', '26.6', '26.6.2'] for identifier in identifiers
+        identifier.removeprefix('apple,') + 'ap':
+            ['27.2'] if identifier.startswith('apple,k') else ['13.5', '14.8.3', '26.6', '26.6.2']
+        for identifier in identifiers
     }}
     if stage2_members:
         template['aurora_stage2'] = {'kind': 'board-file-v1', 'board_members': stage2_members}

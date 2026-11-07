@@ -193,6 +193,39 @@
         try choose("apple,j700", neo, supported: ["26.6.2"], policy: expert))
     }
 
+    func testOLEDMacBookProsUseTheirOwnMacOS272Firmware() throws {
+      let policy = try NativeInspectionPolicy.sealed()
+      let metadata = try NativeInstallationMetadata(
+        data: JSONSerialization.data(withJSONObject: [
+          "os_list": [
+            [
+              "omarchy_target": "apple-silicon-full-os", "default_os_name": "Fixture",
+              "partitions": [["size": "1GiB"]],
+            ]
+          ]
+        ]))
+      func choose(_ device: String, chip: UInt64, boot: String) throws -> NativeFirmwareSelection {
+        let hardware = NativeInspectionHardware(
+          chipID: chip, bootVersion: boot, macOSVersion: "27.2",
+          recoveryVersion: "26.2.8125.0.0,0")
+        return try NativeFirmwareSelection.choose(
+          deviceIdentifier: device, facts: .init(deviceIdentifier: device, hardware: hardware),
+          metadata: metadata, policy: policy)
+      }
+      // These Macs shipped with 27.2, so either boot firmware name passes.
+      for board in ["k114c", "k114s", "k116c", "k116s"] {
+        for boot in ["iBoot-99999.1.1", "mBoot-99999.1.1"] {
+          let selected = try choose("apple," + board, chip: 0x6050, boot: boot)
+          XCTAssertEqual(selected.version, "27.2", board)
+          XCTAssertTrue(selected.sourceURL.lastPathComponent.hasSuffix("_26B8125_Restore.ipsw"))
+        }
+      }
+      // No other Mac is offered the 27.2 firmware, and no other T6050 board is admitted.
+      XCTAssertNotEqual(
+        try choose("apple,j616s", chip: 0x6040, boot: "mBoot-99999.1.1").version, "27.2")
+      XCTAssertThrowsError(try choose("apple,j714s", chip: 0x6050, boot: "mBoot-99999.1.1"))
+    }
+
     func testBoardBootObjectsAndESPLayoutMatchTheLockedBackend() async throws {
       let fixture = try fixture()
       XCTAssertEqual(fixture.boot.count, 56)

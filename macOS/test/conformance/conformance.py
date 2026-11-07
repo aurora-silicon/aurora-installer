@@ -661,7 +661,7 @@ def kernel_facts(distro, sources, cache):
     names = {item['name'] for item in listing}
     boards = {}
     for name in names:
-        found = re.fullmatch(r't[0-9]+-(j[0-9]+[a-z]*)\.dts', name)
+        found = re.fullmatch(r't[0-9]+-([jk][0-9]+[a-z]*)\.dts', name)
         if found:
             boards['apple,' + found.group(1)] = True
     return {'commit': commit, 'has_board': boards, 'ok': True,

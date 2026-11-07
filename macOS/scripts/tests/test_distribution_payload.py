@@ -112,7 +112,8 @@ class DistributionPayloadTests(unittest.TestCase):
         qualified = json.loads((output / 'installer-data-fedora-kde.json').read_text())['os_list'][0][
             'aurora_stage1']['qualified_machines']
         caution = supported_models.stage1_caution()
-        self.assertEqual(set(caution), {'apple,j575d', 'apple,j614s'})
+        oled = {'apple,k114c', 'apple,k114s', 'apple,k116c', 'apple,k116s'}
+        self.assertEqual(set(caution), {'apple,j575d', 'apple,j614s'} | oled)
         for identifier in list(caution) + ['apple,j314s', 'apple,j316s', 'apple,j314c', 'apple,j316c',
                                            'apple,j375c', 'apple,j375d']:
             self.assertIn(identifier.removeprefix('apple,') + 'ap', qualified)
@@ -120,6 +121,10 @@ class DistributionPayloadTests(unittest.TestCase):
         self.assertIn('j700ap', qualified)
         self.assertIn('j614sap', qualified)
         self.assertIn('j616sap', qualified)
+        # The OLED MacBook Pros shipped with macOS 27.2 and have no older firmware.
+        for identifier in oled:
+            self.assertEqual(qualified[identifier.removeprefix('apple,') + 'ap'], ['27.2'])
+        self.assertNotIn('27.2', qualified['j616sap'])
 
     def test_public_payload_without_required_m4_stage_two_is_refused(self):
         self.write_neo_stage_two(boards=('j700', 'j616s'))
@@ -131,7 +136,7 @@ class DistributionPayloadTests(unittest.TestCase):
     def test_the_installer_warns_about_exactly_the_caution_boards(self):
         source = (SCRIPT.parents[1] / 'Sources/AuroraInstallerUXCore/Stage1Caution.swift').read_text()
         table = source[source.index('static let reasons'):]
-        swift = set(re.findall(r'"(apple,j[0-9]+[a-z]*)":', table))
+        swift = set(re.findall(r'"(apple,[jk][0-9]+[a-z]*)":', table))
         self.assertEqual(swift, set(supported_models.stage1_caution()))
 
     def test_public_payload_without_the_neo_stage_two_is_refused(self):

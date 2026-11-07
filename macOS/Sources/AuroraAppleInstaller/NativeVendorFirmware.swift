@@ -142,6 +142,12 @@
             guard !converted.isEmpty else { throw NativeFirmwareInputFailure.invalidSource }
             try merge(converted, into: &outputs)
           }
+          // The touchscreen firmware of the OLED MacBook Pros (K114/K116).
+          // How Linux loads it is not specified yet, so the package keeps
+          // this Mac's own copy as macOS ships it, for a later converter.
+          if item.component == "Ap,TouchASICFW", source.machine.hasPrefix("k") {
+            try merge(["apple/kiwi/" + source.machine + ".im4p": data], into: &outputs)
+          }
         }
         if source.machine == "j700" {
           guard let trackpad = outputs[NeoFirmwareConversions.trackpadName], !trackpad.isEmpty

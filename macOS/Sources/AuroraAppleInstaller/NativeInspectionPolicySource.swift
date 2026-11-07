@@ -61,6 +61,7 @@
           "24628": "14.8.3",
           "24626": "26.6",
           "24640": "26.6",
+          "24656": "27.2",
           "33027": "11.0",
           "33042": "12.4",
           "33058": "14.8.3",
@@ -218,6 +219,22 @@
           "j700": {
             "expert": false,
             "minimum": "26.6"
+          },
+          "k114c": {
+            "expert": false,
+            "minimum": "27.2"
+          },
+          "k114s": {
+            "expert": false,
+            "minimum": "27.2"
+          },
+          "k116c": {
+            "expert": false,
+            "minimum": "27.2"
+          },
+          "k116s": {
+            "expert": false,
+            "minimum": "27.2"
           }
         },
         "firmware": [
@@ -247,6 +264,20 @@
             ],
             "sourceURL": "https://updates.cdn-apple.com/2026SummerFCS/fullrestores/140-75212/A2A24B94-1FC1-45A3-93F7-C51B02AF1F4D/UniversalMac_26.6.2_25G83_Restore.ipsw",
             "version": "26.6.2"
+          },
+          {
+            "expert": false,
+            "minimumBoot": "iBoot-13822.120.5",
+            "minimumMacOS": "27.0",
+            "minimumRecovery": "26.2.8125.0.0,0",
+            "models": [
+              "k114c",
+              "k114s",
+              "k116c",
+              "k116s"
+            ],
+            "sourceURL": "https://updates.cdn-apple.com/2026FallFCS/b83bb963-ebd8-4608-8b5d-fdc70cb24927/UniversalMac_27.2_26B8125_Restore.ipsw",
+            "version": "27.2"
           },
           {
             "expert": false,

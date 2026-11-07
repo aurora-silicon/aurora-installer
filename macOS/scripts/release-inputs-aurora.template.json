@@ -44,7 +44,11 @@
     "apple,j575d",
     "apple,j614s",
     "apple,j616s",
-    "apple,j700"
+    "apple,j700",
+    "apple,k114c",
+    "apple,k114s",
+    "apple,k116c",
+    "apple,k116s"
   ],
   "installer": {
     "minimum_version": "2.1.0",

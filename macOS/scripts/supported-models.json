@@ -38,12 +38,20 @@
     "apple,j575d",
     "apple,j614s",
     "apple,j616s",
-    "apple,j700"
+    "apple,j700",
+    "apple,k114c",
+    "apple,k114s",
+    "apple,k116c",
+    "apple,k116s"
   ],
   "refused": {},
   "developer": {},
   "stage1_caution": {
     "apple,j575d": "Mac Studio M3 Ultra (T6032): aura 1.0.0b1 runs CPU-only on this chip and neither its Stage 1 nor this iBoot has been tried. Installs go ahead after a warning with the recovery steps.",
-    "apple,j614s": "MacBook Pro 14-inch M4 Pro (T6040): experimental, not yet booted by the Aurora team. It shares the T6040 chip, aura Stage 1 and firmware baseline with the tested 16-inch J616s, but its own board device tree is untested. Installs go ahead only after the owner acknowledges the warning and the recovery steps."
+    "apple,j614s": "MacBook Pro 14-inch M4 Pro (T6040): experimental, not yet booted by the Aurora team. It shares the T6040 chip, aura Stage 1 and firmware baseline with the tested 16-inch J616s, but its own board device tree is untested. Installs go ahead only after the owner acknowledges the warning and the recovery steps.",
+    "apple,k114c": "MacBook Pro 14-inch M5 Max with the OLED touchscreen (K114c, T6050): preliminary and untested on hardware, nobody on the Aurora team has one yet. Its kernel device tree is preliminary and untested (aurora-silicon/linux#1025). The touchscreen does not work yet and the glowing Apple logo is untested, and the internal OLED panel works only as the boot framebuffer until the display driver covers it. Installs go ahead only after the owner acknowledges the warning and the recovery steps.",
+    "apple,k114s": "MacBook Pro 14-inch M5 Pro with the OLED touchscreen (K114s, T6050): preliminary and untested on hardware, nobody on the Aurora team has one yet. Its kernel device tree is preliminary and untested (aurora-silicon/linux#1025). The touchscreen does not work yet and the glowing Apple logo is untested, and the internal OLED panel works only as the boot framebuffer until the display driver covers it. Installs go ahead only after the owner acknowledges the warning and the recovery steps.",
+    "apple,k116c": "MacBook Pro 16-inch M5 Max with the OLED touchscreen (K116c, T6050): preliminary and untested on hardware, nobody on the Aurora team has one yet. Its kernel device tree is preliminary and untested (aurora-silicon/linux#1025). The touchscreen does not work yet and the glowing Apple logo is untested, and the internal OLED panel works only as the boot framebuffer until the display driver covers it. Installs go ahead only after the owner acknowledges the warning and the recovery steps.",
+    "apple,k116s": "MacBook Pro 16-inch M5 Pro with the OLED touchscreen (K116s, T6050): preliminary and untested on hardware, nobody on the Aurora team has one yet. Its kernel device tree is preliminary and untested (aurora-silicon/linux#1025). The touchscreen does not work yet and the glowing Apple logo is untested, and the internal OLED panel works only as the boot framebuffer until the display driver covers it. Installs go ahead only after the owner acknowledges the warning and the recovery steps."
   }
 }

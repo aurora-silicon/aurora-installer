@@ -203,7 +203,7 @@ class MultitouchFWCollection(object):
             return
 
         for fname in os.listdir(source_path):
-            if fname.startswith("j"):
+            if fname.startswith(("j", "k")):
                 self.do_machine(fname, os.path.join(source_path, fname))
 
     def do_machine(self, machine, path):
