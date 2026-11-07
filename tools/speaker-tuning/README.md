@@ -37,6 +37,28 @@ bundle's `manifest.json` also names the board and the unit it was collected
 on (`board`, and `unit_id`, a hash of the serial number; the serial itself
 is not stored), because its speaker calibration belongs to that one Mac.
 
+## 1b. Or on Linux, from the Mac's own macOS volume
+
+Where the boot chain exposes the Apple device tree iBoot passed (aura's
+`adt` MTD partition, `/proc/mtd`), the same bundle can be collected without
+booting macOS. Mount this Mac's macOS system volume read-only, then:
+
+```sh
+sudo apfs-fuse -o ro,allow_other -v <system volume index> /dev/nvme0n1p2 /mnt/macos
+sudo python3 -I tools/speaker-tuning/speaker_tuning.py collect-linux \
+    --macos-root /mnt/macos/root -o aurora-speaker-tuning.tar.gz
+```
+
+The ADT gives what `ioreg -p IODeviceTree` gives on macOS (`acoustic-id`,
+`speaker-thiele-small`, `target-type`, `serial-number`); the volume gives the
+tuning files, the AudioDSP component (the lsm2 lattice) and the build
+(`SystemVersion.plist`). The result is the bundle `collect-macos.sh` writes on
+that macOS, with one exception: the speaker ID (the IORegistry `speakerID`)
+has no ADT source, so it comes from `/chosen/asahi,speaker-id` when the boot
+chain exports it and is unknown otherwise. An ADT whose `serial-number` is
+not the running device tree's is refused. Nothing on the macOS volume or the
+ADT is written.
+
 ## 2. On Linux (Fedora, Arch Linux ARM or NixOS)
 
 ```sh
