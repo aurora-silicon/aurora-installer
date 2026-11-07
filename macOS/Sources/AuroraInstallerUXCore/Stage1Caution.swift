@@ -15,9 +15,13 @@
     private static let untriedBoard =
       "Support for this 14-inch MacBook Pro is experimental: the Aurora team has not started Aurora on one yet. It shares the M4 Pro chip and aura’s Stage 1 with the tested 16-inch model, but its own board is untested, so Aurora may not start."
 
+    private static let newMaxBoard =
+      "Support for the 16-inch MacBook Pro with M4 Max is experimental: Aurora has run on one, but the device tree and boot loader support this installer uses for it are new and untested on it, so Aurora may not start."
+
     static let reasons: [String: String] = [
       "apple,j575d": untriedChip,
       "apple,j614s": untriedBoard,
+      "apple,j616c": newMaxBoard,
     ]
 
     public static func reason(for deviceIdentifier: String) -> String? {

@@ -228,7 +228,7 @@ class DistributionPayloadTests(unittest.TestCase):
         qualified = json.loads((output / 'installer-data-fedora-kde.json').read_text())['os_list'][0][
             'aurora_stage1']['qualified_machines']
         caution = supported_models.stage1_caution()
-        self.assertEqual(set(caution), {'apple,j575d', 'apple,j614s'})
+        self.assertEqual(set(caution), {'apple,j575d', 'apple,j614s', 'apple,j616c'})
         for identifier in list(caution) + ['apple,j314s', 'apple,j316s', 'apple,j314c', 'apple,j316c',
                                            'apple,j375c', 'apple,j375d']:
             self.assertIn(identifier.removeprefix('apple,') + 'ap', qualified)

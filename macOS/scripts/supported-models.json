@@ -38,12 +38,14 @@
     "apple,j575d",
     "apple,j614s",
     "apple,j616s",
+    "apple,j616c",
     "apple,j700"
   ],
   "refused": {},
   "developer": {},
   "stage1_caution": {
     "apple,j575d": "Mac Studio M3 Ultra (T6032): aura 1.0.0b1 runs CPU-only on this chip and neither its Stage 1 nor this iBoot has been tried. Installs go ahead after a warning with the recovery steps.",
-    "apple,j614s": "MacBook Pro 14-inch M4 Pro (T6040): experimental, not yet booted by the Aurora team. It shares the T6040 chip, aura Stage 1 and firmware baseline with the tested 16-inch J616s, but its own board device tree is untested. Installs go ahead only after the owner acknowledges the warning and the recovery steps."
+    "apple,j614s": "MacBook Pro 14-inch M4 Pro (T6040): experimental, not yet booted by the Aurora team. It shares the T6040 chip, aura Stage 1 and firmware baseline with the tested 16-inch J616s, but its own board device tree is untested. Installs go ahead only after the owner acknowledges the warning and the recovery steps.",
+    "apple,j616c": "MacBook Pro 16-inch M4 Max (T6041): experimental. It has the J616s chassis and display block, and Aurora has run on one, but the upstream board device tree and aura's J616C display handoff are new and untested on it. Installs go ahead only after the owner acknowledges the warning and the recovery steps."
   }
 }
