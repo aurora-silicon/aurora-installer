@@ -41,7 +41,9 @@ is not stored), because its speaker calibration belongs to that one Mac.
 
 Where the boot chain exposes the Apple device tree iBoot passed (aura's
 `adt` MTD partition, `/proc/mtd`), the same bundle can be collected without
-booting macOS. Mount this Mac's macOS system volume read-only, then:
+booting macOS. Everything it reads is on the System volume (role System),
+which is not FileVault-encrypted even when Data is; the Data volume is never
+needed. Mount the System volume read-only, then:
 
 ```sh
 sudo apfs-fuse -o ro,allow_other -v <system volume index> /dev/nvme0n1p2 /mnt/macos
@@ -58,6 +60,12 @@ has no ADT source, so it comes from `/chosen/asahi,speaker-id` when the boot
 chain exports it and is unknown otherwise. An ADT whose `serial-number` is
 not the running device tree's is refused. Nothing on the macOS volume or the
 ADT is written.
+
+On Apple silicon the container keybag cannot be unwrapped from Linux, and
+apfs-fuse (up to upstream 66b86bd) refuses the whole container when that
+fails ("Initialization of KeyManager failed"), even for the unencrypted
+System volume. It needs to continue without the keybag for unencrypted
+volumes; distribution packages from 2020 are older still.
 
 ## 2. On Linux (Fedora, Arch Linux ARM or NixOS)
 

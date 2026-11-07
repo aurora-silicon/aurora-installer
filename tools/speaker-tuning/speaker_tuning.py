@@ -869,8 +869,12 @@ def main(argv=None):
             print(f"Mac: {info['target']} ({info['model']}), macOS {s['macos_build']}")
             print(f"Wrote {path}")
             print(f"SHA-256 {file_sha256(path)}")
-            print("Copy it to Linux on this Mac and run there:")
-            print(f"  sudo tools/speaker-tuning/install-linux.sh {path.name}")
+            if args.cmd == "collect":
+                print("Copy it to Linux on this Mac and run there:")
+                print(f"  sudo tools/speaker-tuning/install-linux.sh {path.name}")
+            else:
+                print("Install it with:")
+                print(f"  sudo tools/speaker-tuning/install-linux.sh {path}")
             return 0
         if not sys.platform.startswith("linux"):
             raise Refused(f"{args.cmd} runs on the installed Linux system")
