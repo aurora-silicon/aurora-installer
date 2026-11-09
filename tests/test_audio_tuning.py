@@ -726,6 +726,70 @@ class LatticeTest(unittest.TestCase):
             self.assertNotIn("lsm2-mask-lattice.bin", col.bundle)
 
 
+
+class BuzzKillMatrixTest(unittest.TestCase):
+    """The BuzzKill quadrature matrix: carried when the component has one,
+    otherwise the bundle is still written without it."""
+
+    def collect_with(self, root, component):
+        path = root / "component"
+        path.write_bytes(component)
+        return AudioTuningFWCollection(tunings_root=str(root), run=fake_run(AID35),
+                                       audiodsp=str(path))
+
+    def component(self, matrix_const=None):
+        from test_buzzkill_matrix import const
+        return thin(padded(LATTICE) + (matrix_const if matrix_const is not None else const()))
+
+    def test_the_bundle_carries_the_matrix_and_its_record(self):
+        from test_buzzkill_matrix import MATRIX
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            tunings(root)
+            col = self.collect_with(root, self.component())
+            self.assertEqual(col.bundle["buzzkill-quadrature.bin"], MATRIX)
+            meta = json.loads(col.bundle["manifest.json"])
+            self.assertEqual(meta["buzzkill_quadrature"], {
+                "path": "buzzkill-quadrature.bin", "bytes": 80,
+                "sha256": hashlib.sha256(MATRIX).hexdigest(),
+                "version": 1, "format": "f32le-sos4-output-major", "sections": 4})
+            self.assertEqual(meta["source_file_count"], 2)
+            out = pathlib.Path(tmp) / "out"
+            self.assertTrue(col.write_fallback(str(out)))
+            again = AudioTuningFWCollection(str(out))
+            self.assertEqual(again.bundle["buzzkill-quadrature.bin"], MATRIX)
+
+    def test_without_a_matrix_the_bundle_is_written_without_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            tunings(root)
+            with self.assertLogs("asahi_firmware.audio_tuning", "WARNING") as logs:
+                col = self.collect_with(root, self.component(b"\x11" * 256))
+            self.assertIn("BuzzKill quadrature matrix", "\n".join(logs.output))
+            self.assertTrue(col.bundle)
+            self.assertNotIn("buzzkill-quadrature.bin", col.bundle)
+            self.assertNotIn("buzzkill_quadrature", json.loads(col.bundle["manifest.json"]))
+
+    def test_update_reverifies_the_matrix(self):
+        from test_buzzkill_matrix import MATRIX
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            tunings(root)
+            col = self.collect_with(root, self.component())
+            out = pathlib.Path(tmp) / "out"
+            col.write_fallback(str(out))
+            bundle = out / "audio-tuning"
+            damaged = b"\0" * 80
+            (bundle / "buzzkill-quadrature.bin").write_bytes(damaged)
+            rewrite(bundle, lambda m: m["buzzkill_quadrature"].update(
+                sha256=hashlib.sha256(damaged).hexdigest()))
+            self.assertEqual(AudioTuningFWCollection(str(out)).bundle, {})
+            (bundle / "buzzkill-quadrature.bin").write_bytes(MATRIX)
+            rewrite(bundle, lambda m: m["buzzkill_quadrature"].update(
+                sha256=hashlib.sha256(MATRIX).hexdigest(), version=2))
+            self.assertEqual(AudioTuningFWCollection(str(out)).bundle, {})
+
+
 if __name__ == "__main__":
     unittest.main()
 
