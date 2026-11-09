@@ -582,6 +582,16 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       "Planning \(InstallerLog.bytes(requestedLengthBytes)) for Aurora: \(candidate.kind) of "
         + "\(candidate.sourceIdentifier) (allowed \(InstallerLog.bytes(recommendation.minimumBytes)) "
         + "to \(InstallerLog.bytes(recommendation.maximumBytes)))")
+    // A snapshot that limits the shrink can grow before the resize and take
+    // back part of the approved size; say so while the plan can still change.
+    if candidate.kind == "resize",
+      let constraint = APFSSnapshotInspector().constraint(in: host.storage)
+    {
+      InstallerLog.progress(
+        "Planning: \(constraint == .timeMachine ? "a local Time Machine snapshot" : "an APFS snapshot") "
+          + "limits how far macOS can shrink. It can grow before the resize, and removing it "
+          + "makes more space available")
+    }
 
     let prepared = try await InstallerPlanPreparationCoordinator()
       .prepareExecution(

@@ -223,6 +223,37 @@
       XCTAssertFalse(unknown.replanAvailable)
     }
 
+    func testAMeasuredSpaceChangeShowsTheSizesAndNamesSnapshotsOnlyWhenTheyHoldTheSpace() throws {
+      func failure(_ shortfall: ApprovedSpaceShortfall) -> FailureDisplay {
+        PlainLanguage.failure(
+          for: EngineXPCSubmissionError.engineFailed(
+            EngineFailureNotice(
+              reason: .approvedSpaceChanged, exitStatus: 1, diskUnchanged: true,
+              summary: shortfall.summary)))
+      }
+      let grown = failure(
+        ApprovedSpaceShortfall(
+          approvedBytes: 180_000_000_000, availableBytes: 175_349_000_000, snapshotHeldBytes: 0))
+      XCTAssertEqual(grown.headline, "The space available for Aurora changed")
+      XCTAssertTrue(
+        grown.plainDetail.contains("macOS can now give up 175.3 GB, less than the 180.0 GB"))
+      XCTAssertTrue(grown.plainDetail.hasSuffix("No disk changes were made."))
+      let grownRemedy = try XCTUnwrap(grown.remedy)
+      XCTAssertFalse(grownRemedy.contains("Time Machine"))
+      XCTAssertTrue(grownRemedy.hasPrefix("Choose \(PlainLanguage.replanAction)"))
+      XCTAssertTrue(grown.replanAvailable)
+
+      let held = failure(
+        ApprovedSpaceShortfall(
+          approvedBytes: 180_000_000_000, availableBytes: 139_999_999_999,
+          snapshotHeldBytes: 41_250_000_000))
+      XCTAssertTrue(held.plainDetail.contains("hold about 41.2 GB"))
+      let heldRemedy = try XCTUnwrap(held.remedy)
+      XCTAssertTrue(heldRemedy.contains("local Time Machine snapshots"))
+      XCTAssertTrue(heldRemedy.contains("Don’t delete system or update snapshots."))
+      XCTAssertTrue(heldRemedy.hasSuffix("then review and approve it."))
+    }
+
     func testAMacOnOlderFirmwareIsToldWhichMacOSToInstall() throws {
       let summary = try XCTUnwrap(EngineFailureReason.macOSUpdateSummary(version: "26.6.2"))
       let failure = PlainLanguage.failure(
