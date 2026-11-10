@@ -18,6 +18,9 @@
     private static let untriedM4Board =
       "Support for this Mac is experimental: the Aurora team has not started Aurora on one yet. It shares its M4-family chip and aura’s Stage 1 with a tested Mac, but its own board is untested, so Aurora may not start."
 
+    private static let newMaxBoard =
+      "Support for the 16-inch MacBook Pro with M4 Max is experimental: Aurora has run on one, but not from this installer, and the Linux device tree this installer uses for it has not started on one yet, so Aurora may not start."
+
     private static let untriedM5M6 =
       "Support for this Mac is experimental: the Aurora team has not used this installer on one yet, and the current Aurora startup code has not run on it, so Aurora may not start."
 
@@ -30,6 +33,7 @@
     static let reasons: [String: String] = [
       "apple,j575d": untriedChip,
       "apple,j614s": untriedBoard,
+      "apple,j616c": newMaxBoard,
       "apple,j604": untriedM4Board,
       "apple,j623": untriedM4Board,
       "apple,j624": untriedM4Board,

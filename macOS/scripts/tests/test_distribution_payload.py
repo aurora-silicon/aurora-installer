@@ -335,7 +335,7 @@ class DistributionPayloadTests(unittest.TestCase):
         oled = {'apple,k114c', 'apple,k114s', 'apple,k116c', 'apple,k116s'}
         self.assertEqual(set(caution), oled | {'apple,j575d', 'apple,j614s', 'apple,j604', 'apple,j623',
                                         'apple,j624', 'apple,j715', 'apple,j773g', 'apple,j614c',
-                                        'apple,j773s', 'apple,j575c', 'apple,j813', 'apple,j873g',
+                                        'apple,j616c', 'apple,j773s', 'apple,j575c', 'apple,j813', 'apple,j873g',
                                         'apple,j704', 'apple,j815', 'apple,j804', 'apple,j833ct'})
         for identifier in list(caution) + ['apple,j314s', 'apple,j316s', 'apple,j314c', 'apple,j316c',
                                            'apple,j375c', 'apple,j375d']:

@@ -7,7 +7,7 @@
     func testOnlyTheUntriedBoardsAreWarnedAndNotBlocked() {
       let untried = [
         "j575d", "j614s", "j604", "j623", "j624", "j715", "j773g", "j614c", "j773s", "j575c",
-        "j813", "j873g", "j704", "j815", "j804", "j833ct",
+        "j616c", "j813", "j873g", "j704", "j815", "j804", "j833ct",
       ]
       for board in untried {
         XCTAssertNotNil(Stage1Caution.reason(for: "apple," + board), board)
@@ -19,8 +19,8 @@
         XCTAssertFalse(reason?.contains("\u{2014}") ?? true, board)
       }
       let others = [
-        "j274", "j413", "j616s", "j616c", "j713", "j700", "j314s", "j316s", "j314c", "j316c",
-        "j375c", "j375d",
+        "j274", "j413", "j616s", "j713", "j700", "j314s", "j316s", "j314c", "j316c", "j375c",
+        "j375d",
       ]
       for board in others {
         XCTAssertNil(Stage1Caution.reason(for: "apple," + board), board)
