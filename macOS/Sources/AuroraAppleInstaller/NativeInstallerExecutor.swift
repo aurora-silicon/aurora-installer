@@ -502,6 +502,9 @@
       if let shortfall = error as? MacOSFreeSpaceShortfall {
         return (.macOSSpaceRequired, shortfall.summary)
       }
+      if let shortfall = error as? ApprovedSpaceShortfall {
+        return (.approvedSpaceChanged, shortfall.summary)
+      }
       let name = errorName(error)
       switch error {
       case is NativeRawImageError: return (.unclassified, "The Linux image could not be written.")
