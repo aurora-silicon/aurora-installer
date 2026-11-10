@@ -433,16 +433,16 @@
       self.work = work
       self.retryEligibility =
         retryEligibility ?? { identity in
-          PinnedAsahiEngineExecutor().canRetryRecoveryAuthorization(identity, in: workingDirectory)
+          NativeInstallerExecutor().canRetryRecoveryAuthorization(identity, in: workingDirectory)
         }
       self.interruptedRetryEligibility =
         interruptedRetryEligibility ?? { identity in
-          PinnedAsahiEngineExecutor().canResumeInterruptedRecoveryAuthorization(
+          NativeInstallerExecutor().canResumeInterruptedRecoveryAuthorization(
             identity, in: workingDirectory)
         }
       self.abandonEligibility =
         abandonEligibility ?? { identity in
-          PinnedAsahiEngineExecutor().canAbandonFailedJob(identity, in: workingDirectory)
+          NativeInstallerExecutor().canAbandonFailedJob(identity, in: workingDirectory)
         }
       do { try load() } catch {
         loadError = error
@@ -543,7 +543,7 @@
         let retainedPackageName = record.retainedPackageName
         switch result {
         case .success(let (transcript, conf)):
-          if Int64(transcript.count) <= PinnedAsahiEngineExecutor.maximumTranscriptBytes {
+          if Int64(transcript.count) <= NativeInstallerExecutor.maximumTranscriptBytes {
             record.phase = .succeeded
             record.transcript = transcript
             record.installConf = conf
@@ -868,7 +868,7 @@
       var status = stat()
       guard fstat(fd, &status) == 0, status.st_mode & S_IFMT == S_IFREG,
         status.st_mode & 0o077 == 0, status.st_uid == geteuid(), status.st_nlink == 1,
-        status.st_size >= 0, status.st_size <= PinnedAsahiEngineExecutor.maximumTranscriptBytes
+        status.st_size >= 0, status.st_size <= NativeInstallerExecutor.maximumTranscriptBytes
       else { return (Data(), offset) }
       let start = offset <= UInt64(status.st_size) ? offset : 0
       guard Darwin.lseek(fd, off_t(start), SEEK_SET) >= 0,

@@ -5,7 +5,7 @@
 
   @testable import AuroraAppleInstallerTrustCore
 
-  final class PinnedAsahiEngineExecutorTests: XCTestCase {
+  final class NativeInstallerExecutorTests: XCTestCase {
     private struct FixtureNativeHandoff: NativeRecoveryHandoffExecuting {
       func execute(
         package: ImportedEngineHandoffPackage, journal: URL,
@@ -22,7 +22,7 @@
         _ package: ImportedEngineHandoffPackage, journal: URL,
         authorization: MachineOwnerAuthorization, installConf: InstallConf
       ) async throws -> Data {
-        throw PinnedAsahiEngineExecutionError.nativeReinstallUnavailable
+        throw NativeInstallerExecutionError.nativeReinstallUnavailable
       }
     }
 
@@ -57,7 +57,7 @@
           fixture.package, authorization: try machineOwnerAuthorization())
       ) {
         XCTAssertEqual(
-          $0 as? PinnedAsahiEngineExecutionError, .nativeReinstallUnavailable)
+          $0 as? NativeInstallerExecutionError, .nativeReinstallUnavailable)
       }
     }
 
@@ -86,7 +86,7 @@
           fixture.package, authorization: try machineOwnerAuthorization(),
           operation: .install, installConf: try InstallConf(encrypt: true, lane: "stable"))
       ) {
-        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+        guard case .engineFailed(let report) = $0 as? NativeInstallerExecutionError else {
           XCTFail("Expected typed firmware refusal")
           return
         }
@@ -250,7 +250,7 @@
         await assertThrowsErrorAsync(
           try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
         ) {
-          guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError
+          guard case .engineFailed(let report) = $0 as? NativeInstallerExecutionError
           else { return XCTFail("Expected a native preflight failure for \(missing)") }
           XCTAssertEqual(report.notice.reason, .planIntegrity)
           XCTAssertTrue(report.notice.diskUnchanged)
@@ -296,7 +296,7 @@
       do {
         _ = try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
         XCTFail("Legacy ESP reached disk execution")
-      } catch let PinnedAsahiEngineExecutionError.engineFailed(report) {
+      } catch let NativeInstallerExecutionError.engineFailed(report) {
         XCTAssertEqual(report.notice.reason, .planIntegrity)
         XCTAssertTrue(report.notice.diskUnchanged)
       }
@@ -314,7 +314,7 @@
       do {
         _ = try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
         XCTFail("Missing native stages reached execution")
-      } catch let PinnedAsahiEngineExecutionError.engineFailed(report) {
+      } catch let NativeInstallerExecutionError.engineFailed(report) {
         XCTAssertEqual(report.notice.reason, .planIntegrity)
         XCTAssertTrue(report.notice.diskUnchanged)
       }
@@ -330,7 +330,7 @@
       do {
         _ = try await executor.execute(fixture.package, authorization: machineOwnerAuthorization())
         XCTFail("Fresh installation ran without native finishing")
-      } catch let PinnedAsahiEngineExecutionError.engineFailed(report) {
+      } catch let NativeInstallerExecutionError.engineFailed(report) {
         XCTAssertEqual(report.notice.reason, .planIntegrity)
         XCTAssertTrue(report.notice.diskUnchanged)
       }
@@ -458,7 +458,7 @@
     private func closureExecutor(
       _ fixture: PinnedExecutorFixture, files: ShortOfSpaceFilesFixture,
       recordMutation: Bool = false, expandedStage1: UInt64? = nil
-    ) -> PinnedAsahiEngineExecutor {
+    ) -> NativeInstallerExecutor {
       let apfs = fixture.root.appendingPathComponent("apfs")
       let partitions = fixture.root.appendingPathComponent("partitions")
       let images = fixture.root.appendingPathComponent("images")
@@ -484,7 +484,7 @@
         try await closureExecutor(fixture, files: files, expandedStage1: 153_190_400).execute(
           fixture.package, authorization: try machineOwnerAuthorization())
       ) {
-        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+        guard case .engineFailed(let report) = $0 as? NativeInstallerExecutionError else {
           return XCTFail("Expected a typed failure")
         }
         XCTAssertTrue(report.notice.diskUnchanged)
@@ -507,7 +507,7 @@
           try await closureExecutor(fixture, files: files).execute(
             fixture.package, authorization: try machineOwnerAuthorization())
         ) {
-          guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+          guard case .engineFailed(let report) = $0 as? NativeInstallerExecutionError else {
             return XCTFail("Expected a typed space failure")
           }
           XCTAssertEqual(report.notice.reason, .macOSSpaceRequired)
@@ -532,7 +532,7 @@
         try await closureExecutor(fixture, files: files).execute(
           fixture.package, authorization: try machineOwnerAuthorization())
       ) {
-        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+        guard case .engineFailed(let report) = $0 as? NativeInstallerExecutionError else {
           return XCTFail("Expected a typed firmware refusal")
         }
         XCTAssertEqual(report.notice.reason, .deviceUnsupported)
@@ -572,7 +572,7 @@
           try await executor.execute(
             fixture.package, authorization: try machineOwnerAuthorization())
         ) {
-          guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+          guard case .engineFailed(let report) = $0 as? NativeInstallerExecutionError else {
             return XCTFail("Expected a typed stub stage failure")
           }
           XCTAssertEqual(report.notice.reason, reason, summary)
@@ -587,9 +587,9 @@
         case plain
         case carrying(String)
       }
-      typealias Stage = PinnedAsahiEngineExecutor.NativePreflightStage
+      typealias Stage = NativeInstallerExecutor.NativePreflightStage
       func summary(_ stage: Stage, _ error: any Error) -> String {
-        PinnedAsahiEngineExecutor.preflightFailure(stage: stage, error: error).1
+        NativeInstallerExecutor.preflightFailure(stage: stage, error: error).1
       }
       XCTAssertEqual(
         summary(.stubFiles, Probe.plain), "The macOS boot files check stopped (Probe.plain).")
@@ -607,11 +607,11 @@
         "A volume ran out of space during the macOS boot files check (NSError NSPOSIXErrorDomain 28)."
       )
       XCTAssertEqual(
-        PinnedAsahiEngineExecutor.preflightFailure(
+        NativeInstallerExecutor.preflightFailure(
           stage: .stubFiles, error: NativeStubFileError.invalidPlan
         ).0, .planIntegrity)
       XCTAssertEqual(
-        PinnedAsahiEngineExecutor.preflightFailure(
+        NativeInstallerExecutor.preflightFailure(
           stage: .stubFiles,
           error: NativeFirmwareSelectionError.macOSUpdateRequired(version: "13.5")
         ).0, .macOSUpdateRequired)
@@ -643,7 +643,7 @@
           fixture.package,
           authorization: try machineOwnerAuthorization())
       ) {
-        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+        guard case .engineFailed(let report) = $0 as? NativeInstallerExecutionError else {
           return XCTFail("Expected journal rejection")
         }
         XCTAssertEqual(report.notice.reason, .planIntegrity)
@@ -665,7 +665,7 @@
           try await executor.execute(
             fixture.package, authorization: try machineOwnerAuthorization(), operation: operation)
         ) {
-          guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError
+          guard case .engineFailed(let report) = $0 as? NativeInstallerExecutionError
           else { return XCTFail("Expected a start-over refusal") }
           XCTAssertEqual(report.notice.reason, .startOverRequired)
           XCTAssertEqual(report.notice.diskUnchanged, operation == .install)
@@ -684,7 +684,7 @@
         try await executor.execute(
           fixture.package, authorization: try machineOwnerAuthorization())
       ) {
-        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError
+        guard case .engineFailed(let report) = $0 as? NativeInstallerExecutionError
         else { return XCTFail("Expected a native-only refusal") }
         XCTAssertEqual(report.notice.reason, .unclassified)
         XCTAssertTrue(report.notice.diskUnchanged)
@@ -713,7 +713,7 @@
               fixture.package,
               authorization: try machineOwnerAuthorization(), operation: operation)
           ) {
-            guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+            guard case .engineFailed(let report) = $0 as? NativeInstallerExecutionError else {
               return XCTFail("Expected typed decoder admission failure")
             }
             XCTAssertEqual(report.notice.reason, .recoveryPreparation)
@@ -735,7 +735,7 @@
         )
       ) {
         XCTAssertEqual(
-          $0 as? PinnedAsahiEngineExecutionError,
+          $0 as? NativeInstallerExecutionError,
           .privilegeRequired
         )
       }
@@ -824,7 +824,7 @@
         )
       ) {
         XCTAssertEqual(
-          $0 as? PinnedAsahiEngineExecutionError,
+          $0 as? NativeInstallerExecutionError,
           .unsafeTranscript
         )
       }
@@ -847,7 +847,7 @@
           fixture.package, authorization: try machineOwnerAuthorization()
         )
       ) {
-        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+        guard case .engineFailed(let report) = $0 as? NativeInstallerExecutionError else {
           XCTFail("Expected a typed firmware failure")
           return
         }
@@ -873,11 +873,11 @@
           fixture.package, authorization: try machineOwnerAuthorization()
         )
       ) {
-        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+        guard case .engineFailed(let report) = $0 as? NativeInstallerExecutionError else {
           return XCTFail("Expected a typed network failure")
         }
         XCTAssertEqual(report.notice.reason, .networkUnavailable)
-        XCTAssertEqual(report.notice.summary, PinnedAsahiEngineExecutor.networkSummary)
+        XCTAssertEqual(report.notice.summary, NativeInstallerExecutor.networkSummary)
         XCTAssertTrue(report.notice.diskUnchanged)
       }
     }
@@ -902,7 +902,7 @@
       await assertThrowsErrorAsync(
         try await executor.execute(fixture.package, authorization: try machineOwnerAuthorization())
       ) {
-        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+        guard case .engineFailed(let report) = $0 as? NativeInstallerExecutionError else {
           XCTFail("Expected typed payload preflight failure")
           return
         }
@@ -924,7 +924,7 @@
       await assertThrowsErrorAsync(
         try await executor.execute(fixture.package, authorization: try machineOwnerAuthorization())
       ) {
-        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+        guard case .engineFailed(let report) = $0 as? NativeInstallerExecutionError else {
           XCTFail("Expected typed firmware preflight failure")
           return
         }
@@ -943,7 +943,7 @@
       await assertThrowsErrorAsync(
         try await executor.execute(fixture.package, authorization: try machineOwnerAuthorization())
       ) {
-        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+        guard case .engineFailed(let report) = $0 as? NativeInstallerExecutionError else {
           XCTFail("Expected typed firmware refusal")
           return
         }
@@ -964,7 +964,7 @@
       await assertThrowsErrorAsync(
         try await executor.execute(fixture.package, authorization: try machineOwnerAuthorization())
       ) {
-        guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+        guard case .engineFailed(let report) = $0 as? NativeInstallerExecutionError else {
           XCTFail("Expected typed source-owner preflight failure")
           return
         }
@@ -1008,7 +1008,7 @@
           try await executor.execute(
             fixture.package, authorization: try machineOwnerAuthorization())
         ) {
-          guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+          guard case .engineFailed(let report) = $0 as? NativeInstallerExecutionError else {
             XCTFail("Expected typed source-owner preflight failure")
             return
           }
@@ -1032,7 +1032,7 @@
             fixture.package, authorization: try machineOwnerAuthorization(), operation: operation
           )
         ) {
-          guard case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError else {
+          guard case .engineFailed(let report) = $0 as? NativeInstallerExecutionError else {
             XCTFail("Expected typed preparation failure")
             return
           }
@@ -1063,8 +1063,8 @@
       rejectFirmwareSelection: NativeFirmwareSelectionError? = nil,
       rejectSourceOwner: Bool = false,
       sourceOwnerError: (any Error & Sendable)? = nil
-    ) -> PinnedAsahiEngineExecutor {
-      PinnedAsahiEngineExecutor(
+    ) -> NativeInstallerExecutor {
+      NativeInstallerExecutor(
         effectiveUserID: effectiveUserID, expectedFileOwnerID: expectedFileOwnerID,
         restoreImageRequirement: restoreImageRequirement,
         verifyRestoreImage: { _, _ in

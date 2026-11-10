@@ -77,8 +77,7 @@
         }
         // The shared installation contract keeps the same explicit reserve
         // for every resize candidate, including tight and non-OS containers.
-        let reserve = try NativeInspectionMath.alignUp(
-          NativeInspectionMath.add(facts.capacity - facts.free, 38_000_000_000))
+        let reserve = try usedMinimum(facts)
         let minimum = max(facts.preferredMinimum, reserve)
         candidates.append(
           candidate(
@@ -126,7 +125,7 @@
             collected, sourceIdentifier: known.sourceIdentifier)
         else { continue }
         let length = preserved.root.end - preserved.stub.offset
-        guard length > 0, length % PinnedAsahiPlanRequest.allocationUnitBytes == 0 else {
+        guard length > 0, length % NativePlanRequest.allocationUnitBytes == 0 else {
           continue
         }
         candidates.append(
@@ -161,6 +160,23 @@
         hasOS && diskSize >= 150 * 1024 * 1024 * 1024
         ? 38_000_000_000 : 1_000_000_000
       return free > threshold + 500_000_000
+    }
+
+    /// Space macOS keeps free after a resize, on top of what it uses.
+    static let macOSReserveBytes: UInt64 = 38_000_000_000
+
+    /// The smallest container macOS's used space and the reserve allow.
+    static func usedMinimum(_ facts: NativeContainerFacts) throws -> UInt64 {
+      try NativeInspectionMath.alignUp(
+        NativeInspectionMath.add(facts.capacity - facts.free, macOSReserveBytes))
+    }
+
+    /// How far APFS's preferred minimum (`diskutil apfs resizeContainer
+    /// limits`) is above `usedMinimum`. Local snapshots, Time Machine's most
+    /// often, are what usually puts it there: blocks they keep can't move.
+    static func preferredMinimumExcess(_ facts: NativeContainerFacts) -> UInt64 {
+      guard let used = try? usedMinimum(facts), facts.preferredMinimum > used else { return 0 }
+      return facts.preferredMinimum - used
     }
 
     private static func records(device: String, inventory: EngineInventoryMessage?) throws -> Data {

@@ -193,25 +193,115 @@
         try choose("apple,j700", neo, supported: ["26.6.2"], policy: expert))
     }
 
+    func testTheNewM5AndM6BoardsTakeTheFirmwareTheirBoardsShippedWith() throws {
+      let policy = try NativeInspectionPolicy.sealed()
+      func choose(_ device: String, _ hardware: NativeInspectionHardware) throws
+        -> NativeFirmwareSelection
+      {
+        try NativeFirmwareSelection.choose(
+          deviceIdentifier: device, facts: .init(deviceIdentifier: device, hardware: hardware),
+          metadata: NativeInstallationMetadata(
+            data: JSONSerialization.data(withJSONObject: [
+              "os_list": [
+                [
+                  "omarchy_target": "apple-silicon-full-os", "default_os_name": "Fixture",
+                  "partitions": [["size": "1GiB"]],
+                ]
+              ]
+            ])),
+          policy: policy)
+      }
+      // The M6 MacBook Pro (J804) and iMac (J833ct) are only in 27.2 (26B7124).
+      let m6 = NativeInspectionHardware(
+        chipID: 0x8152, bootVersion: "mBoot-20457.1.29", macOSVersion: "27.2",
+        recoveryVersion: "26.2.7124.0.0,0")
+      for device in ["apple,j804", "apple,j833ct"] {
+        XCTAssertTrue(policy.supports(device, hardware: m6), device)
+        let selection = try choose(device, m6)
+        XCTAssertEqual(selection.version, "27.2", device)
+        XCTAssertEqual(
+          selection.sourceURL.lastPathComponent, "UniversalMac_27.2_26B7124_Restore.ipsw", device)
+      }
+      // The 27.2 entry is theirs alone: the M6 Mac mini keeps its 27.0 stub.
+      XCTAssertEqual(try choose("apple,j873g", m6).version, "27.0")
+      // The 14-inch M5 MacBook Pro (J704) and 15-inch M5 MacBook Air (J815)
+      // are in the universal 26.6.2 (25G83) image, like the 13-inch J813.
+      let m5 = NativeInspectionHardware(
+        chipID: 0x8142, bootVersion: "mBoot-18000.161.10", macOSVersion: "26.6.2",
+        recoveryVersion: "25.7.83.0.0,0")
+      for device in ["apple,j704", "apple,j815"] {
+        XCTAssertTrue(policy.supports(device, hardware: m5), device)
+        XCTAssertEqual(try choose(device, m5).version, "26.6.2", device)
+      }
+    }
+
+    func testOLEDMacBookProsUseTheirOwnMacOS272Firmware() throws {
+      let policy = try NativeInspectionPolicy.sealed()
+      let metadata = try NativeInstallationMetadata(
+        data: JSONSerialization.data(withJSONObject: [
+          "os_list": [
+            [
+              "omarchy_target": "apple-silicon-full-os", "default_os_name": "Fixture",
+              "partitions": [["size": "1GiB"]],
+            ]
+          ]
+        ]))
+      func choose(_ device: String, chip: UInt64, boot: String) throws -> NativeFirmwareSelection {
+        let hardware = NativeInspectionHardware(
+          chipID: chip, bootVersion: boot, macOSVersion: "27.2",
+          recoveryVersion: "26.2.8125.0.0,0")
+        return try NativeFirmwareSelection.choose(
+          deviceIdentifier: device, facts: .init(deviceIdentifier: device, hardware: hardware),
+          metadata: metadata, policy: policy)
+      }
+      // These Macs shipped with 27.2, so either boot firmware name passes.
+      for board in ["k114c", "k114s", "k116c", "k116s"] {
+        for boot in ["iBoot-99999.1.1", "mBoot-99999.1.1"] {
+          let selected = try choose("apple," + board, chip: 0x6050, boot: boot)
+          XCTAssertEqual(selected.version, "27.2", board)
+          XCTAssertTrue(selected.sourceURL.lastPathComponent.hasSuffix("_26B8125_Restore.ipsw"))
+        }
+      }
+      // No other Mac is offered the 27.2 firmware, and no other T6050 board is admitted.
+      XCTAssertNotEqual(
+        try choose("apple,j616s", chip: 0x6040, boot: "mBoot-99999.1.1").version, "27.2")
+      XCTAssertThrowsError(try choose("apple,j714s", chip: 0x6050, boot: "mBoot-99999.1.1"))
+    }
+
     func testBoardBootObjectsAndESPLayoutMatchTheLockedBackend() async throws {
       let fixture = try fixture()
       XCTAssertEqual(fixture.boot.count, 56)
+      // The vectors predate the boot object every Mac now enrolls: each archive
+      // with a common Stage 1 gets its object, and a selection that fell back to
+      // a board's raw Stage 1 or to none is refused instead.
+      var admitted = 0
       for vector in fixture.boot {
+        let bytes = try XCTUnwrap(fixture.archives[vector.archive])
         let archive = try await IPSWArchive.open(
-          BootFixtureSource(
-            bytes: try XCTUnwrap(fixture.archives[vector.archive])))
+          BootFixtureSource(bytes: try NativeESPFileTests.withStage1MachO(bytes, optional: true)))
+        let common = vector.expected?.member == NativeBootChain.commonStage1
         do {
           let selected = try await NativeBootChain.admit(
             metadata: Data(vector.metadata.utf8), archive: archive,
             deviceIdentifier: vector.device, firmware: vector.firmware)
           let expected = try XCTUnwrap(vector.expected, vector.name)
+          XCTAssertTrue(
+            common, "\(vector.name) admitted \(String(describing: selected.stage1Member))")
           XCTAssertEqual(selected.stage1Member, expected.member, vector.name)
+          XCTAssertEqual(selected.stage1MachOMember, NativeBootChain.commonStage1MachO, vector.name)
           XCTAssertEqual(selected.windowMilliseconds, expected.window, vector.name)
-          XCTAssertEqual(selected.espLayout, expected.layout, vector.name)
+          var layout = expected.layout
+          layout[NativeBootChain.commonStage1MachO] = "aurora/stage1.macho"
+          XCTAssertEqual(selected.espLayout, layout, vector.name)
+          admitted += 1
         } catch {
-          if vector.expected != nil { XCTFail("\(vector.name): \(error)") }
+          if common { XCTFail("\(vector.name): \(error)") }
+          if vector.expected != nil {
+            XCTAssertEqual(error as? NativeBootChainError, .missingMachOStage1, vector.name)
+          }
         }
       }
+      XCTAssertGreaterThan(admitted, 0)
     }
 
     func testFilledBootObjectsMatchTheReferenceBytesAndKeepTheirLength() throws {

@@ -170,15 +170,15 @@
       return parts
     }
 
-    /// `machOStage1` must match the layout the installer wrote: on a Mach-O chip
-    /// with a padded Stage 1 the confined Stage 2 goes to `m1n1/boot-ctxr.bin`.
-    func espLayout(members: Set<String>, firmware: String, machOStage1: Bool) throws
+    /// `executeWindow` must match the layout the installer wrote: with a padded
+    /// Stage 1 the confined Stage 2 goes to `m1n1/boot-ctxr.bin`.
+    func espLayout(members: Set<String>, firmware: String, executeWindow: Bool) throws
       -> [String: String]
     {
       try NativeESPLayout.map(
         deviceIdentifier: plan.deviceIdentifier, members: members,
         commonAllowed: qualifiedCommonFirmware.contains(firmware),
-        stage2: stage2Member, stage2Variants: stage2Variants, machOStage1: machOStage1)
+        stage2: stage2Member, stage2Variants: stage2Variants, executeWindow: executeWindow)
     }
 
     static func safeRelative(_ path: String) -> Bool {

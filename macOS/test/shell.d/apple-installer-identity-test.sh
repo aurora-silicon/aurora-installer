@@ -106,13 +106,15 @@ for value in "$INSTALLER_TEAM_ID" "$INSTALLER_CATALOG_KEY_SERVICE" \
   "${INSTALLER_TRUST_ROOT_FINGERPRINT#sha256:}"; do
   patterns+=(-e "$value")
 done
-git -C "$ROOT" ls-files -z >"$test_tmp/tracked" || fail "git lists the tracked files"
+git -C "$ROOT" ls-files -z --cached --others --exclude-standard >"$test_tmp/tracked" ||
+  fail "git lists the source files"
 mapfile -d '' -t tracked <"$test_tmp/tracked"
 exempt='^(docs|evidence|Design)/|\.md$|^Packaging/identity\.conf$|^Release/release\.json$|^scripts/release-inputs.*\.template\.json$'
 scanned=()
 for file in "${tracked[@]}"; do
+  # Scan the working tree, including new names and excluding deleted files.
   # A submodule gitlink is a directory, not a file to scan.
-  [[ $file =~ $exempt || -d $ROOT/$file ]] && continue
+  [[ $file =~ $exempt || ! -f $ROOT/$file ]] && continue
   scanned+=("$file")
 done
 (( ${#scanned[@]} > 100 )) || fail "the repeated-value scan covers the repository" "${#scanned[@]} files"

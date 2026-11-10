@@ -276,7 +276,7 @@
       jobs.finish(
         request.ticket.identifier,
         result: .failure(
-          PinnedAsahiEngineExecutionError.engineFailed(
+          NativeInstallerExecutionError.engineFailed(
             EngineFailureReport(notice: notice, redactedStandardErrorTail: "root-only tail"))))
 
       let without = try jobs.status(

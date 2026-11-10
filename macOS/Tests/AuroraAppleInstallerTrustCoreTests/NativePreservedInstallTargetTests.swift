@@ -202,13 +202,13 @@
         switchedInspection.inventory?.candidates.first { $0.kind == "reinstall" })
       XCTAssertEqual(switched.identityDigest, target.identityDigest)
       XCTAssertThrowsError(
-        try PinnedAsahiPlanRequest(
+        try NativePlanRequest(
           inventory: inventory, candidate: candidate,
-          requestedLengthBytes: candidate.lengthBytes - PinnedAsahiPlanRequest.allocationUnitBytes))
-      let request = try PinnedAsahiPlanRequest(
+          requestedLengthBytes: candidate.lengthBytes - NativePlanRequest.allocationUnitBytes))
+      let request = try NativePlanRequest(
         inventory: inventory, candidate: candidate,
         requestedLengthBytes: candidate.lengthBytes)
-      let identity = try PinnedAsahiPlanIdentity(
+      let identity = try NativePlanIdentity(
         engineVersion: "test", engineDigest: "sha256:" + String(repeating: "a", count: 64),
         metadataDigest: "sha256:" + String(repeating: "b", count: 64),
         payloadDigest: "sha256:" + String(repeating: "c", count: 64))
@@ -245,10 +245,10 @@
           metadata: try NativeInstallationMetadata(data: metadata), stubBytes: 2_499_805_184))
       let inventory = try XCTUnwrap(inspection.inventory)
       let candidate = try XCTUnwrap(inventory.candidates.first { $0.kind == "reinstall" })
-      let request = try PinnedAsahiPlanRequest(
+      let request = try NativePlanRequest(
         inventory: inventory, candidate: candidate,
         requestedLengthBytes: candidate.lengthBytes)
-      let identity = try PinnedAsahiPlanIdentity(
+      let identity = try NativePlanIdentity(
         engineVersion: "test", engineDigest: "sha256:" + String(repeating: "a", count: 64),
         metadataDigest: SHA256Digest(hashing: metadata).rawValue,
         payloadDigest: SHA256Digest(hashing: payload).rawValue)
@@ -311,10 +311,10 @@
         let candidate = try XCTUnwrap(inventory.candidates.first { $0.kind == "reinstall" })
         let transcript = try NativeInstallerPlanner.transcript(
           inspection: inspection,
-          request: PinnedAsahiPlanRequest(
+          request: NativePlanRequest(
             inventory: inventory, candidate: candidate,
             requestedLengthBytes: candidate.lengthBytes),
-          identity: PinnedAsahiPlanIdentity(
+          identity: NativePlanIdentity(
             engineVersion: "test", engineDigest: "sha256:" + String(repeating: "a", count: 64),
             metadataDigest: SHA256Digest(hashing: metadata).rawValue,
             payloadDigest: SHA256Digest(hashing: payload).rawValue))

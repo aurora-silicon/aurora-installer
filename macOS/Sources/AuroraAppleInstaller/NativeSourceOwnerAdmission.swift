@@ -87,8 +87,9 @@
         "APFS does not list this account as a volume owner. Use the account that set up this Mac."
       case .preboot: "the macOS Preboot volume could not be opened safely."
       case .adminListMissing: "the Preboot volume has no list of Recovery administrators."
-      case .adminListUnreadable:
-        "the list of Recovery administrators on the Preboot volume could not be read safely."
+      case .adminListUnreadable(let detail):
+        "the Recovery administrator list on Preboot could not be read safely: "
+          + "\(Self.clipped(detail))."
       case .notInAdminList:
         "the Recovery administrator list on Preboot does not include this account."
       case .adminIdentityMismatch:
@@ -115,6 +116,12 @@
       case .adminIdentityMismatch: "adminIdentityMismatch"
       case .layoutChanged: "layoutChanged"
       }
+    }
+
+    /// A detail shown inside a summary stays short enough that the whole
+    /// summary fits the failure notice.
+    static func clipped(_ detail: String) -> String {
+      detail.count <= 64 ? detail : String(detail.prefix(61)) + "..."
     }
 
     /// Cancellation and an earlier refusal pass through unchanged.
@@ -263,7 +270,11 @@
           return ($0["APFSCryptoUserUUID"] as? String).flatMap(UUID.init(uuidString:))?.uuidString
             == guid
         })
-      else { throw NativeSourceOwnerRefusal.notVolumeOwner }
+      else {
+        Self.log(.error, Self.usersSummary(entries) + "; this account is not a volume owner")
+        throw NativeSourceOwnerRefusal.notVolumeOwner
+      }
+      Self.log(.progress, Self.usersSummary(entries) + "; this account is a volume owner")
       try Task.checkCancellation()
       let preboot = preboots[0]
       let url: URL
@@ -277,38 +288,81 @@
       } catch let error as CancellationError {
         throw error
       } catch {
+        Self.log(.error, "Preboot \(preboot.identifier) could not be opened safely: \(error)")
         throw NativeSourceOwnerRefusal.preboot(detail: String(describing: error))
       }
+      // What was found at each component goes to the log at progress level,
+      // which the default filter keeps, so a saved log shows the layout. The
+      // read alone decides; the lines only describe it.
+      Self.log(.progress, "Reading Recovery administrators from Preboot \(preboot.identifier)")
       let metadata: Data
       do {
-        metadata = try tree.sourceOwnerMetadata(groupUUID: groupUUID)
+        metadata = try tree.sourceOwnerMetadata(groupUUID: groupUUID) {
+          Self.log(.progress, "Preboot \($0)")
+        }
       } catch let error as CancellationError {
         throw error
+      } catch let refusal as SourceOwnerMetadataRefusal {
+        Self.log(.error, "Recovery administrator list refused: \(refusal.reason)")
+        if refusal.missing { throw NativeSourceOwnerRefusal.adminListMissing }
+        throw NativeSourceOwnerRefusal.adminListUnreadable(detail: refusal.reason)
       } catch {
-        // Only the message depends on this: the protected read above decides.
-        let path = url.appendingPathComponent(groupUUID + "/" + Self.adminListPath).path
-        var info = stat()
-        if lstat(path, &info) != 0, errno == ENOENT {
-          throw NativeSourceOwnerRefusal.adminListMissing
-        }
+        Self.log(.error, "Recovery administrator list refused: \(error)")
         throw NativeSourceOwnerRefusal.adminListUnreadable(detail: String(describing: error))
       }
       // Only the authorized account's entry is read, as the reference engine
       // reads it. Other keys may hold anything macOS records there.
-      guard
-        let admins = try? PropertyListSerialization.propertyList(from: metadata, format: nil)
-          as? [String: Any]
-      else {
-        throw NativeSourceOwnerRefusal.adminListUnreadable(detail: "not a dictionary")
+      var format = PropertyListSerialization.PropertyListFormat.xml
+      let parsed = try? PropertyListSerialization.propertyList(from: metadata, format: &format)
+      guard let admins = parsed as? [String: Any] else {
+        let detail =
+          metadata.isEmpty
+          ? "the file is empty"
+          : parsed == nil ? "the file is not a property list" : "the file is not a dictionary"
+        Self.log(.error, "Recovery administrator list refused: \(detail)")
+        throw NativeSourceOwnerRefusal.adminListUnreadable(detail: detail)
       }
+      let records = admins.values.filter { $0 is [String: Any] }.count
+      let summary =
+        "Recovery administrator list: \(metadata.count) bytes, \(Self.name(format)) property list, "
+        + "\(admins.count) entr\(admins.count == 1 ? "y" : "ies") (\(records) account record"
+        + "\(records == 1 ? "" : "s"))"
       guard let entry = admins[account] as? [String: Any] else {
+        Self.log(.error, summary + "; none is this account's")
         throw NativeSourceOwnerRefusal.notInAdminList
       }
       guard
         (entry["GeneratedUID"] as? String).flatMap(UUID.init(uuidString:))?.uuidString == guid
-      else { throw NativeSourceOwnerRefusal.adminIdentityMismatch }
+      else {
+        Self.log(.error, summary + "; this account's entry has another GeneratedUID")
+        throw NativeSourceOwnerRefusal.adminIdentityMismatch
+      }
+      Self.log(.progress, summary + "; this account's entry matches")
       try Task.checkCancellation()
       return bootstrap
+    }
+
+    /// Owner-check lines carry no account name, GUID or volume group UUID.
+    private static func log(_ level: InstallerLogLevel, _ message: String) {
+      InstallerLog.record(level, "Owner check: " + message)
+    }
+
+    private static func usersSummary(_ entries: [[String: Any]]) -> String {
+      let owners = entries.filter { ($0["VolumeOwner"] as? NSNumber)?.boolValue == true }.count
+      let types = Set(entries.compactMap { $0["APFSCryptoUserType"] as? String }).sorted()
+      return
+        "APFS lists \(entries.count) user\(entries.count == 1 ? "" : "s") of the System volume, "
+        + "\(owners) volume owner\(owners == 1 ? "" : "s")"
+        + (types.isEmpty ? "" : " (types: \(types.joined(separator: ", ")))")
+    }
+
+    private static func name(_ format: PropertyListSerialization.PropertyListFormat) -> String {
+      switch format {
+      case .xml: "XML"
+      case .binary: "binary"
+      case .openStep: "OpenStep"
+      @unknown default: "unknown"
+      }
     }
 
     private func runningGroup() throws -> String {

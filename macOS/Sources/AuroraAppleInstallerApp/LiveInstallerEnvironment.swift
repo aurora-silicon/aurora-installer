@@ -582,6 +582,16 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       "Planning \(InstallerLog.bytes(requestedLengthBytes)) for Aurora: \(candidate.kind) of "
         + "\(candidate.sourceIdentifier) (allowed \(InstallerLog.bytes(recommendation.minimumBytes)) "
         + "to \(InstallerLog.bytes(recommendation.maximumBytes)))")
+    // A snapshot that limits the shrink can grow before the resize and take
+    // back part of the approved size; say so while the plan can still change.
+    if candidate.kind == "resize",
+      let constraint = APFSSnapshotInspector().constraint(in: host.storage)
+    {
+      InstallerLog.progress(
+        "Planning: \(constraint == .timeMachine ? "a local Time Machine snapshot" : "an APFS snapshot") "
+          + "limits how far macOS can shrink. It can grow before the resize, and removing it "
+          + "makes more space available")
+    }
 
     let prepared = try await InstallerPlanPreparationCoordinator()
       .prepareExecution(
@@ -936,6 +946,9 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     if operation == .retryRecoveryAuthorization {
       return try await retryPendingRecovery(authorization: authorization, journal: journal)
     }
+    if operation == .updateBootLoader {
+      return try await updateBootLoader(authorization: authorization)
+    }
     guard buildProfile.allowsEncryption || !encryptLinuxDisk else {
       throw NSError(
         domain: "AuroraPrivateTest", code: 1,
@@ -994,6 +1007,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
             journalProgress: journal,
             jobContext: jobContext
           )
+        case .updateBootLoader:
+          throw InstallerAppError.approvalUnavailable
         case .retryRecoveryAuthorization:
           try await coordinator.retryRecoveryAuthorization(
             prepared,
@@ -1025,6 +1040,62 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     try pendingStore.clear()
     discardDownloadsIfFinished(progress.nextAction)
     return Self.completionDisplay(progress, installConf: installConf)
+  }
+
+  /// Stages the approved Reset plan's Stage 1 for its installation. The helper
+  /// checks everything again; Recovery enrolls it after the owner's password.
+  private func updateBootLoader(authorization: MachineOwnerAuthorization) async throws
+    -> CompletionDisplay
+  {
+    let (prepared, approval, configuration, host) = lock.withLock {
+      (preparedPlan, planApproval, releaseConfiguration, hostInspection)
+    }
+    guard let prepared, let approval, let configuration, let host,
+      prepared.review.plan.candidateKind == "reinstall"
+    else { throw InstallerAppError.approvalUnavailable }
+    let currentHost = try AppleSiliconHostInspector().inspect()
+    guard currentHost.identity.deviceIdentifier == host.identity.deviceIdentifier else {
+      throw InstallerAppError.hostChanged
+    }
+    let workspace = try installerWorkspace()
+    InstallerLog.progress(
+      "Handing the approved plan \(prepared.review.identity.bindingDigest.prefix(12)) to the "
+        + "installation service to update the boot loader")
+    let failure: (any Error) -> String? = { error in
+      if case .engineFailed = error as? EngineXPCSubmissionError { return nil }
+      return "The installation service reported: \(error)"
+    }
+    let progress: InstallerExecutionProgress
+    do {
+      progress = try await InstallerLog.redacting(authorization, failure: failure) {
+        try await InstallerExecutionCoordinator().updateStage1(
+          prepared, approval: approval, configuration: configuration,
+          handoffDirectory: workspace.handoff, machineOwnerAuthorization: authorization)
+      }
+    } catch let EngineXPCSubmissionError.engineFailed(notice) {
+      EngineFailureUserLog.write(notice, operation: "update-stage1")
+      throw EngineXPCSubmissionError.engineFailed(notice)
+    }
+    // The download is kept: resetting the installation next can use it.
+    InstallerLog.progress("The boot loader update finished: next \(progress.nextAction)")
+    return Self.bootLoaderCompletionDisplay(progress)
+  }
+
+  static func bootLoaderCompletionDisplay(_ progress: InstallerExecutionProgress)
+    -> CompletionDisplay
+  {
+    guard progress.nextAction == .enterRecovery else {
+      // Nothing was staged: this installation already has this boot loader.
+      return CompletionDisplay(
+        nextAction: .continueInstallation, headline: PlainLanguage.bootLoaderUpToDateHeadline,
+        subheadline: PlainLanguage.bootLoaderUpToDateMessage, verified: [], handoff: nil)
+    }
+    return CompletionDisplay(
+      nextAction: .enterRecovery, headline: PlainLanguage.bootLoaderUpdateHeadline,
+      subheadline: PlainLanguage.bootLoaderShutdownBody, verified: [],
+      handoff: HandoffDisplay(
+        headline: PlainLanguage.bootLoaderUpdateHeadline,
+        steps: PlainLanguage.bootLoaderUpdateRecoverySteps()))
   }
 
   // MARK: Downloads

@@ -1,12 +1,12 @@
 import Foundation
 
-public enum PinnedAsahiPlanningError: Error, Equatable, Sendable {
+public enum NativePlanValidationError: Error, Equatable, Sendable {
   case candidateNotInInventory
   case invalidRequestedLength
   case invalidEngineIdentity
 }
 
-public struct PinnedAsahiPlanRequest: Equatable, Sendable, Encodable {
+public struct NativePlanRequest: Equatable, Sendable, Encodable {
   public static let allocationUnitBytes: UInt64 = 1_048_576
 
   public let schemaVersion = 1
@@ -21,7 +21,7 @@ public struct PinnedAsahiPlanRequest: Equatable, Sendable, Encodable {
     requestedLengthBytes: UInt64
   ) throws {
     guard inventory.candidates.contains(candidate) else {
-      throw PinnedAsahiPlanningError.candidateNotInInventory
+      throw NativePlanValidationError.candidateNotInInventory
     }
     let maximum: UInt64
     if candidate.kind == "free" {
@@ -33,7 +33,7 @@ public struct PinnedAsahiPlanRequest: Equatable, Sendable, Encodable {
     {
       maximum = candidate.lengthBytes - candidate.minimumContainerBytes
     } else {
-      throw PinnedAsahiPlanningError.invalidRequestedLength
+      throw NativePlanValidationError.invalidRequestedLength
     }
     guard requestedLengthBytes >= candidate.minimumInstallBytes,
       requestedLengthBytes <= maximum,
@@ -41,7 +41,7 @@ public struct PinnedAsahiPlanRequest: Equatable, Sendable, Encodable {
       !["repair", "replace", "reinstall"].contains(candidate.kind)
         || requestedLengthBytes == candidate.lengthBytes
     else {
-      throw PinnedAsahiPlanningError.invalidRequestedLength
+      throw NativePlanValidationError.invalidRequestedLength
     }
 
     layoutDigest = inventory.layoutDigest
@@ -59,7 +59,7 @@ public struct PinnedAsahiPlanRequest: Equatable, Sendable, Encodable {
   }
 }
 
-public struct PinnedAsahiPlanIdentity: Equatable, Sendable, Encodable {
+public struct NativePlanIdentity: Equatable, Sendable, Encodable {
   public let schemaVersion = 1
   public let engineVersion: String
   public let engineDigest: String
@@ -82,7 +82,7 @@ public struct PinnedAsahiPlanIdentity: Equatable, Sendable, Encodable {
       repairManifestDigest == nil
         || SHA256Digest(rawValue: repairManifestDigest!) != nil
     else {
-      throw PinnedAsahiPlanningError.invalidEngineIdentity
+      throw NativePlanValidationError.invalidEngineIdentity
     }
     self.engineVersion = engineVersion
     self.engineDigest = engineDigest

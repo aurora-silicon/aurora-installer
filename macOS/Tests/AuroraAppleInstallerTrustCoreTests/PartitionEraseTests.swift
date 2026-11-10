@@ -87,7 +87,7 @@
       XCTAssertEqual(recommendation.requestedLengthBytes, recommendation.maximumBytes)
       XCTAssertLessThanOrEqual(recommendation.maximumBytes, free.lengthBytes)
       XCTAssertGreaterThan(
-        recommendation.maximumBytes + PinnedAsahiPlanRequest.allocationUnitBytes, free.lengthBytes)
+        recommendation.maximumBytes + NativePlanRequest.allocationUnitBytes, free.lengthBytes)
     }
 
     func testAPartitionWithAnotherFileSystemIsErasedAndAnAPFSDataContainerDeleted() throws {

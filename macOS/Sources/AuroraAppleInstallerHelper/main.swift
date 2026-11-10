@@ -55,7 +55,7 @@ do {
   RestoreImageCacheHousekeeping.run(in: workingDirectory)
   let server = ClosedEngineHelperServer(
     workingDirectory: workingDirectory,
-    executor: PinnedAsahiEngineExecutor(),
+    executor: NativeInstallerExecutor(),
     selfUninstaller: LaunchdHelperSelfUninstaller()
   )
   server.removeUnusedImports()

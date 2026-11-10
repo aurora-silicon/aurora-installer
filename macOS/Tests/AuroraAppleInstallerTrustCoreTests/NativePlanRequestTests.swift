@@ -3,10 +3,10 @@ import XCTest
 
 @testable import AuroraAppleInstallerTrustCore
 
-final class PinnedAsahiPlanningTests: XCTestCase {
+final class NativePlanRequestTests: XCTestCase {
   func testFreeCandidateProducesExactAlignedRequest() throws {
     let candidate = freeCandidate()
-    let request = try PinnedAsahiPlanRequest(
+    let request = try NativePlanRequest(
       inventory: inventory(candidate),
       candidate: candidate,
       requestedLengthBytes: 96 * 1_048_576
@@ -33,14 +33,14 @@ final class PinnedAsahiPlanningTests: XCTestCase {
     )
 
     XCTAssertThrowsError(
-      try PinnedAsahiPlanRequest(
+      try NativePlanRequest(
         inventory: inventory(other),
         candidate: candidate,
         requestedLengthBytes: 96 * 1_048_576
       )
     ) {
       XCTAssertEqual(
-        $0 as? PinnedAsahiPlanningError,
+        $0 as? NativePlanValidationError,
         .candidateNotInInventory
       )
     }
@@ -50,14 +50,14 @@ final class PinnedAsahiPlanningTests: XCTestCase {
     let candidate = freeCandidate()
     for length in [64 * 1_048_576 + 1, 129 * 1_048_576] {
       XCTAssertThrowsError(
-        try PinnedAsahiPlanRequest(
+        try NativePlanRequest(
           inventory: inventory(candidate),
           candidate: candidate,
           requestedLengthBytes: UInt64(length)
         )
       ) {
         XCTAssertEqual(
-          $0 as? PinnedAsahiPlanningError,
+          $0 as? NativePlanValidationError,
           .invalidRequestedLength
         )
       }
@@ -76,7 +76,7 @@ final class PinnedAsahiPlanningTests: XCTestCase {
       identityDigest: "sha256:" + String(repeating: "b", count: 64)
     )
 
-    let request = try PinnedAsahiPlanRequest(
+    let request = try NativePlanRequest(
       inventory: inventory(candidate),
       candidate: candidate,
       requestedLengthBytes: length
@@ -85,14 +85,14 @@ final class PinnedAsahiPlanningTests: XCTestCase {
     XCTAssertEqual(request.requestedLengthBytes, length)
 
     XCTAssertThrowsError(
-      try PinnedAsahiPlanRequest(
+      try NativePlanRequest(
         inventory: inventory(candidate),
         candidate: candidate,
-        requestedLengthBytes: length - PinnedAsahiPlanRequest.allocationUnitBytes
+        requestedLengthBytes: length - NativePlanRequest.allocationUnitBytes
       )
     ) {
       XCTAssertEqual(
-        $0 as? PinnedAsahiPlanningError,
+        $0 as? NativePlanValidationError,
         .invalidRequestedLength
       )
     }
@@ -110,7 +110,7 @@ final class PinnedAsahiPlanningTests: XCTestCase {
       identityDigest: "sha256:" + String(repeating: "9", count: 64)
     )
 
-    let request = try PinnedAsahiPlanRequest(
+    let request = try NativePlanRequest(
       inventory: inventory(candidate),
       candidate: candidate,
       requestedLengthBytes: length
@@ -119,14 +119,14 @@ final class PinnedAsahiPlanningTests: XCTestCase {
     XCTAssertEqual(request.requestedLengthBytes, length)
 
     XCTAssertThrowsError(
-      try PinnedAsahiPlanRequest(
+      try NativePlanRequest(
         inventory: inventory(candidate),
         candidate: candidate,
-        requestedLengthBytes: length - PinnedAsahiPlanRequest.allocationUnitBytes
+        requestedLengthBytes: length - NativePlanRequest.allocationUnitBytes
       )
     ) {
       XCTAssertEqual(
-        $0 as? PinnedAsahiPlanningError,
+        $0 as? NativePlanValidationError,
         .invalidRequestedLength
       )
     }
@@ -137,7 +137,7 @@ final class PinnedAsahiPlanningTests: XCTestCase {
     let engineDigest = "sha256:" + String(repeating: "d", count: 64)
     let metadataDigest = "sha256:" + String(repeating: "e", count: 64)
     let payloadDigest = "sha256:" + String(repeating: "f", count: 64)
-    let identity = try PinnedAsahiPlanIdentity(
+    let identity = try NativePlanIdentity(
       engineVersion: "v0.9.0-omarchy.7",
       engineDigest: engineDigest,
       metadataDigest: metadataDigest,
@@ -153,7 +153,7 @@ final class PinnedAsahiPlanningTests: XCTestCase {
   }
 
   func testInstallIdentityOmitsManifestDigest() throws {
-    let identity = try PinnedAsahiPlanIdentity(
+    let identity = try NativePlanIdentity(
       engineVersion: "v0.9.0-omarchy.7",
       engineDigest: "sha256:" + String(repeating: "d", count: 64),
       metadataDigest: "sha256:" + String(repeating: "e", count: 64),

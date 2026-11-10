@@ -275,9 +275,14 @@ import Foundation
       original, window: UInt64.max - 0x3FFF, "a window that overflows the segment size")
     refusesExpansion(
       original, window: 0x4000, slot: UInt64.max - 0x3FFF, "a slot that overflows the segment size")
-    let repeating =
-      le(UInt32(0x8000_0035)) + le(UInt32(32 + 24)) + le(base) + le(UInt64(0)) + le(UInt32(32))
-      + le(UInt32(0)) + Array("com.apple.kernel".utf8) + [0, 0, 0, 0, 0, 0, 0, 0]
+    var repeating: [UInt8] = le(UInt32(0x8000_0035))
+    repeating += le(UInt32(32 + 24))
+    repeating += le(base)
+    repeating += le(UInt64(0))
+    repeating += le(UInt32(32))
+    repeating += le(UInt32(0))
+    repeating += Array("com.apple.kernel".utf8)
+    repeating += [0, 0, 0, 0, 0, 0, 0, 0]
     refusesExpansion(auraObject(raw: raw, extraCommand: repeating), "a member naming itself")
 
     // The default window is what reaches disk: a hole, not the whole window.
@@ -471,13 +476,13 @@ import Foundation
 
     // M4 and later use the Mach-O Stage 1; every M1 to M3 chip keeps raw.
     for chip: UInt64 in [0x8132, 0x6040, 0x6041, 0x8140, 0x8142, 0x6050, 0x6051, 0x6052, 0x8150] {
-      precondition(AuraStage1Format.usesMachO(chipID: chip), String(chip, radix: 16))
+      precondition(AuraStage1Format.usesExecuteWindow(chipID: chip), String(chip, radix: 16))
     }
     for chip: UInt64 in [
       0x8103, 0x6000, 0x6001, 0x6002, 0x8112, 0x6020, 0x6021, 0x6022, 0x8122, 0x6030, 0x6031,
       0x6032, 0x6034, 0, 0x8000, 0x7000, 0x9000,
     ] {
-      precondition(!AuraStage1Format.usesMachO(chipID: chip), String(chip, radix: 16))
+      precondition(!AuraStage1Format.usesExecuteWindow(chipID: chip), String(chip, radix: 16))
     }
     print(
       "PASS Mach-O boot object: no __TEXT_BOOT_EXEC, kmutil's required segments, linear file backing, entry in __TEXT_EXEC; kcbz and kcrz from kmutil inspect; in-place Stage 1 fill; Stage 2 path retargeted as aura fills it; execute-window padding keeps code, stays sparse and counts its whole size for free space; M4-and-later chip predicate"

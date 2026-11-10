@@ -481,7 +481,7 @@ def evaluate(machine, mode, distro, dry, context):
     checks.append(check('published stage2', not published, 'payload Stage 2 is not aura %s: %s' % (
         context['pins']['aura_label'], '; '.join(published)) if published else 'payload Stage 2 is aura ' +
         context['pins']['aura_label'], scope='published'))
-    if sample.get('uses_macho_stage1'):
+    if sample.get('uses_execute_window'):
         checks.extend(confined_stage2_checks(machine, dry, profiles, context['pins']['aura_label']))
 
     # 5. U-Boot and aura pins: the distro branch, and the published image's sources
@@ -535,7 +535,7 @@ def evaluate(machine, mode, distro, dry, context):
     # 9. One True Recovery step
     expected = ['-nca'] if machine['device_identifier'] == 'apple,j700' else ['-nc']
     selection = (MACOS / 'Recovery/Sources/BootSelection.swift').read_text()
-    enrollment, how = enrollment_check(selection, sample.get('uses_macho_stage1', False),
+    enrollment, how = enrollment_check(selection, sample.get('uses_execute_window', False),
                                        [dry[d].get('boot_chain') or {} for d in DESKTOPS])
     steps = [c.get('plan', {}).get('required_human_steps') for c in sample.get('candidates', [])]
     fresh_steps = all(s is None or 'enterOneTrueRecovery' in s for s in steps)
@@ -548,19 +548,24 @@ def evaluate(machine, mode, distro, dry, context):
 
 
 CONFINED_STAGE2 = 'm1n1/boot-ctxr.bin'
+STANDARD_STAGE2 = 'm1n1/boot.bin'
 CONFINED_MEMBER = re.compile(r'esp/m1n1/boot-ctxr(-[a-z0-9]+)?\.bin')
 
 
-def enrollment_check(selection, uses_macho, chains):
-    """What the Recovery enrollment does on this chip: the padded Mach-O Stage 1
-    with --compress loading the confined Stage 2, or the raw image as it always was."""
-    if uses_macho:
+def enrollment_check(selection, uses_window, chains):
+    """What the Recovery enrollment does on this chip. Every Mac enrolls aura's
+    Mach-O boot object and nothing enrolls the raw image: execute-window chips the
+    padded object with --compress loading the confined Stage 2, the others the
+    unpadded object loading the standard one."""
+    if '"--raw"' in selection:
+        return False, 'no raw Stage 1 enrollment (BootSelection.swift names --raw)'
+    if uses_window:
         how = 'kmutil configure-boot --compress of the padded Mach-O Stage 1, which loads ' + CONFINED_STAGE2
         return ('"--compress"' in selection and 'ExecuteWindow.size' in selection and all(
             c.get('stage1_mode') == 'macho' and c.get('stage2_path') == CONFINED_STAGE2 for c in chains)), how
-    how = 'kmutil configure-boot --raw --entry-point 2048 --lowest-virtual-address 0'
-    return (all(flag in selection for flag in ('"--raw"', '"--entry-point", "2048"', '"--lowest-virtual-address", "0"'))
-            and all(c.get('stage1_mode', 'raw') == 'raw' and c.get('stage2_path', 'm1n1/boot.bin') == 'm1n1/boot.bin'
+    how = 'kmutil configure-boot of the unpadded Mach-O Stage 1, which loads ' + STANDARD_STAGE2
+    return ('case standard = "macho-standard"' in selection
+            and all(c == {} or (c.get('stage1_mode') == 'macho-standard' and c.get('stage2_path') == STANDARD_STAGE2)
                     for c in chains)), how
 
 
@@ -717,7 +722,7 @@ def kernel_facts(distro, sources, cache):
     names = {item['name'] for item in listing}
     boards = {}
     for name in names:
-        found = re.fullmatch(r't[0-9]+-(j[0-9]+[a-z]*)\.dts', name)
+        found = re.fullmatch(r't[0-9]+-([jk][0-9]+[a-z]*)\.dts', name)
         if found:
             boards['apple,' + found.group(1)] = True
     return {'commit': commit, 'has_board': boards, 'ok': True,

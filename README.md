@@ -1,61 +1,33 @@
 # Aurora Installer
 
-The native Aurora Linux installer is in [`macOS/`](macOS/README.md). It selects Fedora Aurora Remix, Aurora ALARM or Aurora NixOS with KDE Plasma, GNOME or a minimal system. Signed development images and package feeds are built in their distribution repositories. Download availability, release procedures and hardware qualification are recorded in [aurora-distributions](https://github.com/aurora-silicon/aurora-distributions).
+A native macOS app for installing Aurora Linux on Apple Silicon Macs.
 
-The command-line installer at the repository root is the existing Windows-on-Apple-Silicon work described in [`README.aurora.md`](README.aurora.md). Its code is preserved. The upstream Asahi description below records the original installer and reusable boot/firmware groundwork.
+Choose **Fedora Aurora Remix**, **Aurora ALARM** or **Aurora NixOS**, with **KDE Plasma**, **GNOME** or a **minimal shell** system.
 
-## Upstream Asahi Linux installer
-The Asahi Linux installer provides a way to install [Asahi Linux](https://asahilinux.org)
-on Apple Silicon Macs. These systems have a bespoke [boot process](https://asahilinux.org/docs/platform/introduction/)
-that requires special considerations to support [alternative operating systems](https://asahilinux.org/docs/platform/open-os-interop/).
-The Asahi Installer takes care of preparing the system for the installation,
-downloading an image of the distribution to install and laying it on disk.
+The app and privileged helper use a built-in Swift engine for disk planning, partitioning, image writing, firmware extraction and Recovery setup. Installation runs without a Python runtime or a downloaded engine.
 
-This repository provides the installer itself, supporting scripts, and the
-`asahi_firmware` Python module (which is also used by [asahi-scripts](https://github.com/AsahiLinux/asahi-scripts)).
+## Downloads
 
-## Building
-Run `./build.sh`, which will produce an installer tree under `releases/`. By
-default this will build aura (Aurora's bootloader, from the `aura` submodule) with
-chainloading support. You can optionally set `AURA_STAGE1` to a prebuilt aura stage 1
-binary (`M1N1_STAGE1` is still accepted), and `LOGO` to a logo in icns format.
-These are mostly useful for downstream distributions that would like to customize
-or brand the installer. By default, the build will fetch required dependencies from
-the Internet and cache them under `dl/`. If this isn't desired, place the required
-files there before running the build.
+See [Aurora distributions](https://github.com/aurora-silicon/aurora-distributions) for current downloads, supported Macs and hardware validation. Follow the app's installation and Recovery instructions.
 
-The reference installer at https://alx.sh is deployed from the latest tag of this
-repo by `.github/workflows/release-prod.yaml`. The dev installer at https://alx.sh/dev
-is deployed from the latest push to `main` by `.github/workflows/release-dev.yaml`.
+## Development
 
-## Bootstrapping and branding
-The installer is meant to be executed via a bootstrap script. We provide reference
-implementations for [local development](scripts/bootstrap.sh) and for alx.sh
-([prod](scripts/bootstrap-prod.sh), [dev](scripts/bootstrap-dev.sh)). Following
-our [distribution guidelines](https://asahilinux.org/docs/alt/policy/), downstream
-distributions are encouraged to host their own modified copy of these, alongside
-their downstream build of the installer and their installation images. Downstreams
-will also want to customize the variable definitions at the beginning of the script,
-as those will be consumed by the installer and used for its branding. These include:
+The app requires macOS 15+, Swift 6.2+ and XcodeBuildMCP. Build a simulation preview:
 
-* `VERSION_FLAG`: a URI pointing to the `latest` file within the installer tree
-* `INSTALLER_BASE`: a URL pointing to your installer tree
-* `INSTALLER_DATA`: a URI pointing to your installer medatata file (see
-  [asahi-installer-data](https://github.com/AsahiLinux/asahi-installer-data) for
-  the one we're using for alx.sh)
-* `INSTALLER_DATA_ALT`: optionally, a URI pointing to an alternative location for
-  your installer metadata file; this can be useful in locations where the
-  primary location might be blocked by local network policies
-* `REPO_BASE`: a URI pointing to your OS images root (meaning, the parent folder
-  of the relative paths referenced inside the metadata file)
-* `REPORT`: a URI pointing to the stats server for installation metrics collection
-* `REPORT_TAG`: a string used to identify your distribution for metrics collection
+```sh
+cd macOS
+XCODEBUILDMCP=/path/to/xcodebuildmcp bash Packaging/build-aurora-preview.sh /absolute/output
+open "/absolute/output/Aurora Installer.app" --args --simulate
+```
 
-## License
-Copyright The Asahi Linux Contributors
+The preview uses simulated data and does not change disks or register a helper. See [macOS development](macOS/README.md) for tests, packaging and the source layout.
 
-The Asahi Linux installer is distributed under the MIT license. See LICENSE for the
-license text.
+An installed system boots with one picture on screen from power-on to the desktop; [flicker-free boot](https://github.com/aurora-silicon/aurora-distributions/blob/main/docs/flicker-free-boot.md) describes each boot stage, the branding a distribution or downstream configures, and how to verify it.
 
-This installer vendors [python-asn1](https://github.com/andrivet/python-asn1), which
-is distributed under the same license.
+Standalone [speaker-tuning tools](tools/speaker-tuning/README.md) and their Python firmware library remain available for existing Linux installations.
+
+## Credits
+
+Aurora Installer builds on work from the Asahi Linux contributors and the Omarchy macOS installer. Attribution and import history are retained in [provenance](macOS/docs/extraction.md) and the [firmware library notes](macOS/Sources/AuroraFirmware/PROVENANCE.md).
+
+Licensed under [MIT](LICENSE); third-party notices remain with their sources.

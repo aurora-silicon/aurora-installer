@@ -925,7 +925,7 @@
     static let summaryKey = "summary"
 
     static func serviceError(for error: any Error) -> NSError {
-      if let executionError = error as? PinnedAsahiEngineExecutionError,
+      if let executionError = error as? NativeInstallerExecutionError,
         case .engineFailed(let report) = executionError
       {
         let notice = report.notice
@@ -940,7 +940,7 @@
         )
       }
       if let executionError = error
-        as? PinnedAsahiEngineExecutionError,
+        as? NativeInstallerExecutionError,
         executionError == .recoveryAuthorizationFailed
       {
         return NSError(

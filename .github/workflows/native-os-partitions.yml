@@ -47,13 +47,13 @@ jobs:
       - name: Qualify native Linux partition creation and continuation
         run: |
           set -euo pipefail
-          filter='NativeOSPartitionTests|PinnedAsahiEngineExecutorTests'
+          filter='NativeOSPartitionTests|NativeInstallerExecutorTests'
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug \
             --filter "$filter" 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
       - name: Qualify native Linux partitions in release
         run: |
           set -euo pipefail
-          filter='NativeOSPartitionTests|PinnedAsahiEngineExecutorTests'
+          filter='NativeOSPartitionTests|NativeInstallerExecutorTests'
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration release \
             --filter "$filter" 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
       - name: Retain the native driver logs

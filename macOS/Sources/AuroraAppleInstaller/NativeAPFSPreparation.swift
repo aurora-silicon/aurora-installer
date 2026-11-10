@@ -8,6 +8,61 @@
     case invalidPlan, changedLayout, changedTarget, ambiguousMutation, invalidLabel
   }
 
+  /// Right before the resize, macOS can no longer give up the size the person
+  /// approved. The layout is the approved one; macOS's own minimum grew.
+  public struct ApprovedSpaceShortfall: Error, Equatable, Sendable {
+    public let approvedBytes: UInt64
+    /// What macOS can give up now.
+    public let availableBytes: UInt64
+    /// How far APFS's preferred minimum is above macOS's used space and the
+    /// installer's reserve; see `NativeDiskInventory.preferredMinimumExcess`.
+    public let snapshotHeldBytes: UInt64
+
+    /// Above this, snapshots are named as the likely cause.
+    public static let snapshotThresholdBytes: UInt64 = 16_000_000_000
+
+    public init(approvedBytes: UInt64, availableBytes: UInt64, snapshotHeldBytes: UInt64) {
+      self.approvedBytes = approvedBytes
+      self.availableBytes = availableBytes
+      self.snapshotHeldBytes = snapshotHeldBytes
+    }
+
+    static let summaryPrefix = "macOS can now give up "
+    static let snapshotSentence =
+      " APFS snapshots, such as local Time Machine snapshots, hold about "
+
+    /// At most two printable-ASCII sentences, under the notice limit. What
+    /// macOS can give up rounds down and the approved size up, so the figures
+    /// never read as if the plan still fit.
+    public var summary: String {
+      var text =
+        "\(Self.summaryPrefix)\(Self.gigabytes(availableBytes, roundingUp: false)), less than "
+        + "the \(Self.gigabytes(approvedBytes, roundingUp: true)) you approved."
+      if snapshotHeldBytes > Self.snapshotThresholdBytes {
+        text +=
+          "\(Self.snapshotSentence)\(Self.gigabytes(snapshotHeldBytes, roundingUp: false)) "
+          + "of what macOS keeps."
+      }
+      return text
+    }
+
+    /// Whether a notice summary has the shape `summary` produces.
+    public static func isSummary(_ text: String) -> Bool {
+      text.hasPrefix(summaryPrefix) && text.contains(" you approved.")
+    }
+
+    /// Whether such a summary names snapshots as the cause.
+    public static func namesSnapshots(_ text: String) -> Bool {
+      isSummary(text) && text.contains(snapshotSentence)
+    }
+
+    private static func gigabytes(_ bytes: UInt64, roundingUp: Bool) -> String {
+      let unit: UInt64 = 100_000_000
+      let tenths = bytes / unit + (roundingUp && bytes % unit != 0 ? 1 : 0)
+      return "\(tenths / 10).\(tenths % 10) GB"
+    }
+  }
+
   struct NativeAPFSFacts: Sendable {
     let deviceIdentifier: String
     let hardware: NativeInspectionHardware
@@ -342,10 +397,16 @@
           $0.kind == approved.candidateKind && $0.sourceIdentifier == approved.sourceIdentifier
         })
       else { throw NativeAPFSError.changedLayout }
-      let request = try PinnedAsahiPlanRequest(
-        inventory: inventory, candidate: candidate,
-        requestedLengthBytes: approved.lengthBytes)
-      let identity = try PinnedAsahiPlanIdentity(
+      let request: NativePlanRequest
+      do {
+        request = try NativePlanRequest(
+          inventory: inventory, candidate: candidate,
+          requestedLengthBytes: approved.lengthBytes)
+      } catch NativePlanValidationError.invalidRequestedLength where candidate.kind == "resize" {
+        if let shortfall = approvedSpaceShortfall(candidate, facts) { throw shortfall }
+        throw NativePlanValidationError.invalidRequestedLength
+      }
+      let identity = try NativePlanIdentity(
         engineVersion: approved.engineVersion,
         engineDigest: approved.engineDigest, metadataDigest: approved.metadataDigest,
         payloadDigest: approved.payloadDigest)
@@ -356,6 +417,25 @@
         throw NativeAPFSError.invalidPlan
       }
       return transcript
+    }
+
+    /// The numbers for a resize whose approved size macOS can no longer give
+    /// up, or nil when that isn't why the request was refused.
+    private func approvedSpaceShortfall(
+      _ candidate: ValidatedEngineCandidate, _ facts: NativeAPFSFacts
+    )
+      -> ApprovedSpaceShortfall?
+    {
+      let available =
+        candidate.lengthBytes - min(candidate.lengthBytes, candidate.minimumContainerBytes)
+      guard approved.lengthBytes > available else { return nil }
+      let source = facts.disk.snapshot.partitions.first {
+        $0.identifier == approved.sourceIdentifier
+      }
+      let container = facts.disk.containers.first { $0.storeUUID == source?.uuid }
+      return ApprovedSpaceShortfall(
+        approvedBytes: approved.lengthBytes, availableBytes: available,
+        snapshotHeldBytes: container.map(NativeDiskInventory.preferredMinimumExcess) ?? 0)
     }
 
     private func freeExtent(_ snapshot: RemovalSnapshot) throws -> NativeDiskInventory.Extent {

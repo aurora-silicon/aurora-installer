@@ -47,13 +47,13 @@ jobs:
       - name: Qualify native APFS volumes and backend continuation
         run: |
           set -euo pipefail
-          filter='NativeAPFSPreparationTests|PinnedAsahiEngineExecutorTests|NativeInstallAdmissionTests|NativeRecoveryJournalTests'
+          filter='NativeAPFSPreparationTests|NativeInstallerExecutorTests|NativeInstallAdmissionTests|NativeRecoveryJournalTests'
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug \
             --filter "$filter" 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
       - name: Qualify native APFS volumes and continuation in release
         run: |
           set -euo pipefail
-          filter='NativeAPFSPreparationTests|PinnedAsahiEngineExecutorTests|NativeInstallAdmissionTests|NativeRecoveryJournalTests'
+          filter='NativeAPFSPreparationTests|NativeInstallerExecutorTests|NativeInstallAdmissionTests|NativeRecoveryJournalTests'
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration release \
             --filter "$filter" 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
       - name: Retain the native driver logs

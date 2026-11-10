@@ -8,6 +8,8 @@ on the Mac being installed.
 import argparse
 import datetime
 import hashlib
+import gzip
+import io
 import json
 from pathlib import Path
 import plistlib
@@ -29,8 +31,10 @@ DISTRIBUTION_ICONS = {
 
 
 # The M4 and later Macs the payload must carry a board Stage 2 for, besides the Neo.
+OLED_STAGE2_REQUIRED = ('k114c', 'k114s', 'k116c', 'k116s')
 BOARD_STAGE2_REQUIRED = ('j604', 'j623', 'j624', 'j713', 'j715', 'j773g', 'j614s', 'j614c',
-                         'j616s', 'j616c', 'j773s', 'j575c', 'j813', 'j873g')
+                         'j616s', 'j616c', 'j773s', 'j575c', 'j813', 'j873g', 'j704', 'j815',
+                         'j804', 'j833ct') + OLED_STAGE2_REQUIRED
 
 
 def digest(path):
@@ -45,7 +49,7 @@ def regular(path):
 
 
 MAX_CONFINED_STAGE2_BYTES = 16 << 20
-CONFINED_STAGE2 = re.compile(r'boot-ctxr(?:-(j[0-9]+[a-z]*))?\.bin')
+CONFINED_STAGE2 = re.compile(r'boot-ctxr(?:-([jk][0-9]+[a-z]*))?\.bin')
 FDT_MAGIC = b'\xd0\x0d\xfe\xed'
 
 
@@ -108,6 +112,109 @@ def board_chip(path, board):
     raise ValueError(path.name + ' has no device tree for ' + board)
 
 
+def oled_stage2_images(combined, manifest):
+    """Derive missing OLED board images from the authenticated common image.
+
+    Earlier image builders kept K-board DTBs in boot.bin but their j-only
+    splitters omitted board files. Match every existing board digest before
+    using the same Aura prefix and compressed next stage for the missing ones.
+    """
+    records = manifest['boards']
+    missing = [board for board in OLED_STAGE2_REQUIRED if board + 'ap' not in records]
+    if not missing:
+        return {}
+    if len(combined) > 64 << 20 or hashlib.sha256(combined).hexdigest() != manifest['sourceSha256']:
+        raise ValueError('OLED Stage 2 common image identity mismatch')
+    candidates = []
+    start = combined.find(FDT_MAGIC)
+    while start >= 0:
+        prefix = combined[:start]
+        if manifest.get('auraSha256') and hashlib.sha256(prefix).hexdigest() != manifest['auraSha256']:
+            start = combined.find(FDT_MAGIC, start + 1)
+            continue
+        cursor, trees, count = start, {}, 0
+        try:
+            while combined[cursor:cursor + 4] == FDT_MAGIC:
+                if cursor + 8 > len(combined):
+                    raise ValueError('truncated OLED device tree')
+                size = struct.unpack_from('>I', combined, cursor + 4)[0]
+                if size < 40 or cursor + size > len(combined) or count >= 512:
+                    raise ValueError('invalid OLED device tree length')
+                blob = combined[cursor:cursor + size]
+                compatible = fdt_root_compatible(blob)
+                if compatible and re.fullmatch(r'apple,[jk][0-9]+[a-z]*', compatible[0]):
+                    board = compatible[0].removeprefix('apple,')
+                    trees.setdefault(board, []).append(blob)
+                cursor += size
+                count += 1
+            trailer = combined[cursor:]
+            if not trees or not trailer.startswith(b'\x1f\x8b\x08'):
+                raise ValueError('missing compressed OLED next stage')
+            with gzip.GzipFile(fileobj=io.BytesIO(trailer)) as stream:
+                if len(stream.read((64 << 20) + 1)) > 64 << 20:
+                    raise ValueError('OLED next stage is too large')
+            if manifest.get('deviceTreeCount', count) != count:
+                raise ValueError('OLED device tree count differs')
+            if manifest.get('nextStageSha256', hashlib.sha256(trailer).hexdigest()) != hashlib.sha256(trailer).hexdigest():
+                raise ValueError('OLED next stage identity differs')
+            for name, record in records.items():
+                board = name.removesuffix('ap')
+                if board not in trees:
+                    raise ValueError('existing board is absent from common Stage 2')
+                image = prefix + b''.join(trees[board]) + trailer
+                if len(image) != record['bytes'] or hashlib.sha256(image).hexdigest() != record['sha256']:
+                    raise ValueError('existing board differs from common Stage 2')
+            candidates.append((prefix, trees, trailer))
+        except (ValueError, EOFError, OSError, struct.error):
+            pass
+        start = combined.find(FDT_MAGIC, start + 1)
+    if len(candidates) != 1:
+        raise ValueError('cannot identify the authenticated OLED Stage 2 components')
+    prefix, trees, trailer = candidates[0]
+    images = {}
+    for board in missing:
+        if board not in trees:
+            raise ValueError('common Stage 2 has no device tree for ' + board)
+        compatible = fdt_root_compatible(trees[board][0])
+        chips = [int(match[1], 16) for value in compatible
+                 if (match := re.fullmatch(r'apple,t([0-9a-f]{4})', value))]
+        if not chips or not uses_macho(chips[0]):
+            raise ValueError('OLED device tree does not name a Mach-O Mac chip')
+        data = prefix + b''.join(trees[board]) + trailer
+        if not data or len(data) > MAX_CONFINED_STAGE2_BYTES:
+            raise ValueError('OLED Stage 2 exceeds its 16 MiB slot')
+        images[board] = (data, len(trees[board]))
+    return images
+
+
+def complete_oled_stage2(bundle, manifest):
+    combined = regular(bundle / 'esp/m1n1/boot.bin').read_bytes()
+    images = oled_stage2_images(combined, manifest)
+    if not images:
+        return {}
+    regular(bundle / 'esp/aurora/stage1.macho')
+    additions = {}
+    # Validate every target before writing any new member. Existing board
+    # files and the common image are never replaced.
+    for board, (data, count) in images.items():
+        for name in (f'boot-{board}.bin', f'boot-ctxr-{board}.bin'):
+            path = bundle / 'esp/m1n1' / name
+            if (path.exists() or path.is_symlink()) and regular(path).read_bytes() != data:
+                raise ValueError('OLED Stage 2 target already differs: ' + name)
+        additions[board + 'ap'] = {'member': f'esp/m1n1/boot-{board}.bin',
+                                 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest(),
+                                 'deviceTrees': count}
+    for board, (data, _) in images.items():
+        for name in (f'boot-{board}.bin', f'boot-ctxr-{board}.bin'):
+            path = bundle / 'esp/m1n1' / name
+            if not path.exists():
+                with path.open('xb') as stream:
+                    stream.write(data)
+    manifest['boards'].update(additions)
+    (bundle / 'stage2.json').write_text(json.dumps(manifest, sort_keys=True, indent=2) + '\n')
+    return additions
+
+
 def check_confined_stage2(bundle, stage2_members):
     """The Stage 2 that a padded Mach-O Stage 1 loads, where the payload has one.
 
@@ -155,15 +262,17 @@ def check_confined_stage2(bundle, stage2_members):
 
 
 def check_stage1_macho(esp):
-    """M4 and later Macs enroll aura's Mach-O boot object for the common Stage 1.
-    A payload without one still serves M1 to M3, and the native installer
-    refuses the later Macs on it.
+    """Every Mac enrolls aura's Mach-O boot object for the common Stage 1, so a
+    payload with the common Stage 1 must carry it: the native installer never
+    enrolls the raw image.
 
     aura's tools/macho_boot_object.py carries the raw image unchanged at the
     start of __TEXT_EXEC, file offset 0x10000, with no __TEXT_BOOT_EXEC.
     """
     path = esp / 'aurora/stage1.macho'
     if not path.exists():
+        if (esp / 'aurora/stage1.bin').exists():
+            raise ValueError('esp/aurora/stage1.bin has no Mach-O boot object (esp/aurora/stage1.macho)')
         return
     raw = regular(esp / 'aurora/stage1.bin').read_bytes()
     obj = regular(path).read_bytes()
@@ -183,6 +292,7 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
     stage2_members = {}
     manifest_path = bundle / 'stage2.json'
     if manifest_path.exists():
+        source_manifest_sha256 = digest(regular(manifest_path))
         manifest = json.loads(regular(manifest_path).read_text())
         if manifest.get('schema') != 1 or manifest.get('sourceSha256') != digest(regular(bundle / 'esp/m1n1/boot.bin')):
             raise ValueError('Stage 2 source identity mismatch')
@@ -190,7 +300,7 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
         if not isinstance(records, dict) or not records:
             raise ValueError('missing Stage 2 board records')
         for board, record in records.items():
-            if not re.fullmatch(r'j[0-9]+[a-z]*ap', board):
+            if not re.fullmatch(r'[jk][0-9]+[a-z]*ap', board):
                 raise ValueError('invalid Stage 2 board')
             member = record.get('member')
             if member != 'esp/m1n1/boot-' + board.removesuffix('ap') + '.bin':
@@ -206,9 +316,14 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
     # The M4 and later Macs boot only their own board Stage 2 as well. A board missing
     # here has no device tree in the image's kernel.
     for board in BOARD_STAGE2_REQUIRED:
-        if board + 'ap' not in stage2_members:
+        if board not in OLED_STAGE2_REQUIRED and board + 'ap' not in stage2_members:
             raise ValueError('the J' + board[1:] + ' requires a current board-specific Stage 2')
     check_stage1_macho(bundle / 'esp')
+    additions = complete_oled_stage2(bundle, manifest)
+    stage2_members.update({board: record['member'] for board, record in additions.items()})
+    for board in OLED_STAGE2_REQUIRED:
+        if board + 'ap' not in stage2_members:
+            raise ValueError('the ' + board.upper() + ' requires a current board-specific Stage 2')
     confined = check_confined_stage2(bundle, stage2_members)
     distribution_icon = regular(DISTRIBUTION_ICONS[profile.split('-')[0]])
     expected_layout = {'fedora': 'fedora', 'arch': 'alarm', 'nixos': 'nixos'}[profile.split('-')[0]] + '-btrfs-v1'
@@ -283,8 +398,12 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
     # and Ultra boards in stage1_caution may have it refused by iBoot; the
     # installer warns their owners, with the recovery steps, before installing.
     supported_models.stage1_caution()
+    # The OLED MacBook Pros (K114/K116, T6050) shipped with macOS 27.2 and
+    # have no older firmware, so 27.2 is the only one they are qualified on.
     template['aurora_stage1'] = {'kind': 'common-raw-v1', 'qualified_machines': {
-        identifier.removeprefix('apple,') + 'ap': ['13.5', '14.8.3', '26.6', '26.6.2', '27.0']
+        identifier.removeprefix('apple,') + 'ap':
+            ['27.2'] if identifier.startswith('apple,k')
+            else ['13.5', '14.8.3', '26.6', '26.6.2', '27.0', '27.2']
         for identifier in identifiers
     }}
     if stage2_members:
@@ -305,6 +424,11 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
         # Kept for adoption, which refuses private inputs and Neo-only QA sets.
         'release_id': release_id, 'private_neo_inputs': False, 'native_neo_reset_qa': False,
         'physical_qualification': 'pending', 'artifacts': records}, indent=2) + '\n')
+    if additions:
+        (output / 'stage2-completion.json').write_text(json.dumps({
+            'schema': 1, 'source_common_sha256': manifest['sourceSha256'],
+            'source_manifest_sha256': source_manifest_sha256, 'added_boards': additions,
+            'existing_board_members_changed': False}, indent=2) + '\n')
     print(json.dumps(records, indent=2))
 
 

@@ -100,8 +100,16 @@
       "apple,j773s": mac("Mac mini (M4 Pro, 2024)", "Mac mini", "M4"),
       "apple,j575c": mac("Mac Studio (M4 Max, 2025)", "Mac Studio", "M4"),
       "apple,j813": mac("MacBook Air 13-inch (M5, 2026)", "MacBook Air", "M5"),
+      "apple,j704": mac("MacBook Pro (14-inch, M5)", "MacBook Pro", "M5"),
+      "apple,j815": mac("MacBook Air (15-inch, M5)", "MacBook Air", "M5"),
       "apple,j873g": mac("Mac mini (M6)", "Mac mini", "M6"),
+      "apple,j804": mac("MacBook Pro (14-inch, M6)", "MacBook Pro", "M6"),
+      "apple,j833ct": mac("iMac (24-inch, M6)", "iMac", "M6"),
       "apple,j700": mac("MacBook Neo (A18 Pro, 2026)", "MacBook Neo", "A18 Pro"),
+      "apple,k114c": mac("MacBook Pro 14-inch OLED (M5 Max, 2026)", "MacBook Pro", "M5"),
+      "apple,k114s": mac("MacBook Pro 14-inch OLED (M5 Pro, 2026)", "MacBook Pro", "M5"),
+      "apple,k116c": mac("MacBook Pro 16-inch OLED (M5 Max, 2026)", "MacBook Pro", "M5"),
+      "apple,k116s": mac("MacBook Pro 16-inch OLED (M5 Pro, 2026)", "MacBook Pro", "M5"),
     ]
   }
 #endif

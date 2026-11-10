@@ -41,7 +41,7 @@ final class InstallerAllocationRecommendationTests: XCTestCase {
       XCTAssertLessThanOrEqual(recommendation.maximumBytes, (available - 10) * gib)
       previousMaximum = recommendation.maximumBytes
       XCTAssertNoThrow(
-        try PinnedAsahiPlanRequest(
+        try NativePlanRequest(
           inventory: inventory, candidate: recommendation.candidate,
           requestedLengthBytes: recommendation.requestedLengthBytes))
     }
@@ -242,7 +242,7 @@ final class InstallerAllocationRecommendationTests: XCTestCase {
   }
 
   func testTightDiskClampUsesTheAlignedMinimum() throws {
-    let unit = PinnedAsahiPlanRequest.allocationUnitBytes
+    let unit = NativePlanRequest.allocationUnitBytes
     let resize = candidate(
       kind: "resize",
       source: "disk0s2",
@@ -303,7 +303,7 @@ final class InstallerAllocationRecommendationTests: XCTestCase {
       minimumContainer: resize.minimumContainerBytes + handoffBytes + 4 * gib
     )
     XCTAssertNoThrow(
-      try PinnedAsahiPlanRequest(
+      try NativePlanRequest(
         inventory: inventory([executionCandidate]),
         candidate: executionCandidate,
         requestedLengthBytes: recommendation.requestedLengthBytes
@@ -347,7 +347,7 @@ final class InstallerAllocationRecommendationTests: XCTestCase {
   }
 
   func testClampsToAlignedMaximumWithoutViolatingMinimum() throws {
-    let unit = PinnedAsahiPlanRequest.allocationUnitBytes
+    let unit = NativePlanRequest.allocationUnitBytes
     let free = candidate(
       kind: "free",
       source: "disk0s3",
@@ -506,7 +506,7 @@ final class InstallerAllocationRecommendationTests: XCTestCase {
 
     XCTAssertEqual(recommendation.candidate, resize)
     XCTAssertEqual(recommendation.requestedLengthBytes, recommendation.maximumBytes)
-    XCTAssertEqual(recommendation.maximumBytes % PinnedAsahiPlanRequest.allocationUnitBytes, 0)
+    XCTAssertEqual(recommendation.maximumBytes % NativePlanRequest.allocationUnitBytes, 0)
     XCTAssertGreaterThanOrEqual(
       resize.lengthBytes - resize.minimumContainerBytes - recommendation.maximumBytes,
       handoffBytes
@@ -521,13 +521,13 @@ final class InstallerAllocationRecommendationTests: XCTestCase {
       minimumContainer: 122_248_232_960
     )
     XCTAssertThrowsError(
-      try PinnedAsahiPlanRequest(
+      try NativePlanRequest(
         inventory: inventory([executionCandidate]), candidate: executionCandidate,
         requestedLengthBytes: oldMaximum
       )
     )
     XCTAssertNoThrow(
-      try PinnedAsahiPlanRequest(
+      try NativePlanRequest(
         inventory: inventory([executionCandidate]), candidate: executionCandidate,
         requestedLengthBytes: recommendation.requestedLengthBytes
       )
@@ -710,7 +710,7 @@ final class InstallerAllocationRecommendationTests: XCTestCase {
     XCTAssertEqual(recommendation.maximumBytes, 60 * gib)
     XCTAssertEqual(recommendation.requestedLengthBytes, 60 * gib)
     XCTAssertNoThrow(
-      try PinnedAsahiPlanRequest(
+      try NativePlanRequest(
         inventory: inventory([reinstall]), candidate: reinstall,
         requestedLengthBytes: recommendation.requestedLengthBytes))
     XCTAssertThrowsError(

@@ -186,7 +186,8 @@
       "apple,j514m", "apple,j516s", "apple,j516c", "apple,j516m", "apple,j575d", "apple,j604",
       "apple,j623", "apple,j624", "apple,j713", "apple,j715", "apple,j773g", "apple,j614s",
       "apple,j614c", "apple,j616s", "apple,j616c", "apple,j773s", "apple,j575c", "apple,j813",
-      "apple,j873g", "apple,j700",
+      "apple,j873g", "apple,j700", "apple,j704", "apple,j815", "apple,j804", "apple,j833ct",
+      "apple,k114c", "apple,k114s", "apple,k116c", "apple,k116s",
     ]
 
     private var refusedOnce: Bool {
@@ -275,7 +276,7 @@
         scenario == .allocationClamped && auroraBytes != nil
         ? initial : (refusedOnce ? 133_000_000_000 : 700_000_000_000)
       let requested = min(maximum, max(80_000_000_000, auroraBytes ?? initial))
-      let unit = PinnedAsahiPlanRequest.allocationUnitBytes
+      let unit = NativePlanRequest.allocationUnitBytes
       let length = scenario == .allocationAligned ? requested - requested % unit : requested
       SimulatedLog.line(
         .progress, "Installer",

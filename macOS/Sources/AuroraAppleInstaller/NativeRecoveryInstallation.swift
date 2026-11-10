@@ -5,10 +5,21 @@
 
   /// The Stage 1 boot modes the installer writes into install-config.json.
   /// The Recovery handoff accepts exactly these, so a new mode cannot be
-  /// written without the validator taking it too.
+  /// written without the validator taking it too. Both enroll aura's Mach-O
+  /// boot object: `standard` unpadded (M1 to M3), `macho` padded for the
+  /// execute window.
   enum NativeRecoveryBootMode: String, CaseIterable, Sendable {
-    case raw
+    case standard = "macho-standard"
     case macho
+
+    /// A mode recorded on the stub. Earlier installers recorded "raw" on M1 to
+    /// M3, which loads the same Stage 2 as `standard`.
+    init?(recorded: String) {
+      if recorded == "raw" { self = .standard } else { self.init(rawValue: recorded) }
+    }
+
+    init(executeWindow: Bool) { self = executeWindow ? .macho : .standard }
+    var executeWindow: Bool { self == .macho }
   }
 
   struct NativeRecoveryInstallation: Sendable {
@@ -53,22 +64,16 @@
           NativeESPFilesExecution.stage1Path, maximum: 64 << 20)
           == espReceipt.stage1
       else { throw NativeHandoffValidationError.invalidEvidence }
-      // A Mach-O Stage 1 is enrolled instead of the raw one; Recovery keeps both.
-      if let machO = espReceipt.stage1MachO {
-        guard espReceipt.legacyStage1 == nil,
-          try NativeStubFileStore(tree: system, owner: owner).identity(
-            NativeESPFilesExecution.stage1MachOPath, maximum: 64 << 20) == machO
-        else { throw NativeHandoffValidationError.invalidEvidence }
-      }
-      let bootMode =
-        (espReceipt.stage1MachO == nil
-        ? NativeRecoveryBootMode.raw : NativeRecoveryBootMode.macho).rawValue
-      let stage2Path = AuraStage1Format.stage2Path(machO: espReceipt.stage1MachO != nil)
-      if let legacy = espReceipt.legacyStage1 {
-        try NativeLegacyStage1.verify(
-          system.read("Finish Installation.app/Contents/Resources/boot.bin", maximum: 4 << 20),
-          receipt: legacy, uuid: target.esp.uuid.lowercased(), path: "m1n1/boot.bin")
-      }
+      // The Mach-O Stage 1 is enrolled instead of the raw one; Recovery keeps both.
+      // Recovery never enrolls a raw Stage 1, so a receipt without the object
+      // has nothing it could enroll.
+      guard let machO = espReceipt.stage1MachO, espReceipt.legacyStage1 == nil,
+        try NativeStubFileStore(tree: system, owner: owner).identity(
+          NativeESPFilesExecution.stage1MachOPath, maximum: 64 << 20) == machO
+      else { throw NativeHandoffValidationError.invalidEvidence }
+      let mode = NativeRecoveryBootMode(executeWindow: espReceipt.executeWindow ?? true)
+      let bootMode = mode.rawValue
+      let stage2Path = AuraStage1Format.stage2Path(executeWindow: mode.executeWindow)
       let stage2 = try esp.identity(stage2Path)
       guard let stage2Entry = espReceipt.files.first(where: { $0.path == stage2Path }),
         stage2 == stage2Entry.identity
@@ -99,17 +104,15 @@
       var files = vendor.files
       files["raw/aura-raw.bin"] = espReceipt.stage1
       files["raw/boot.bin"] = stage2
-      if let machO = espReceipt.stage1MachO {
-        files["macho/aura-boot.macho"] = machO
-      }
+      files["macho/aura-boot.macho"] = machO
       var manifest: [String: Any] = [
         "schema": 2, "defaultMode": bootMode,
         "modes": [bootMode: ["espPath": stage2Path]],
         "vendorFirmware": vendor.files.keys.sorted(),
         "files": files.mapValues { ["sha256": $0.sha256, "bytes": $0.bytes] as [String: Any] },
       ]
-      // A raw installation's manifest keeps its shape.
-      if espReceipt.stage1MachO == nil { manifest["nestedVirtualization"] = false }
+      // An unpadded installation's manifest keeps the shape a raw one had.
+      if !mode.executeWindow { manifest["nestedVirtualization"] = false }
       let configuration = try json(config)
       let payloadManifest = try json(manifest)
       let templateIdentity = try NativeRecoveryTemplate.templateIdentity(template, owner: owner)

@@ -182,6 +182,34 @@ final class InstallerViewStateTests: XCTestCase {
     XCTAssertTrue(field.stringValue.isEmpty)
   }
 
+  func testAStagedStage1OpensOnUpdateAndEnrollsOnlyIt() throws {
+    let model = InstallerModel()
+    model.stage1Update = Stage1Reenrollment(
+      mode: .macho, stage1SHA256: "", stage2Path: AuraStage1Format.confinedStage2Path)
+    let (window, controller) = show(model)
+    XCTAssertTrue(labels(in: controller.view).contains("Update startup software"))
+    let action = try primary(controller)
+    XCTAssertEqual(action.button.title, "Update")
+    // Restore's flag toggles stay out of an update.
+    XCTAssertNil(button("Enable Debug", in: controller.view))
+
+    model.checkEnrollmentEnvironment()
+    wait("the launch check") { model.environmentVerified && !model.checkingEnvironment }
+    action.button.performClick(nil)
+    let prompt = try XCTUnwrap(window.attachedSheet, "Update asks for the owner's password")
+    XCTAssertTrue(labels(in: prompt.contentView).contains("Authorize update"))
+    let update = try XCTUnwrap(button("Update", in: prompt.contentView))
+    try XCTUnwrap(views(NSSecureTextField.self, in: prompt.contentView).first).stringValue = "pw"
+    wait("the repeated check") { !model.checkingEnvironment }
+    update.performClick(nil)
+    XCTAssertEqual(model.steps.first, "Verifying the new startup software")
+    wait("the simulated update", timeout: 10) { model.stage == .complete }
+    XCTAssertTrue(model.stage1Updated)
+    XCTAssertFalse(model.accountOptional, "an update offers no recovery account")
+    XCTAssertTrue(labels(in: controller.view).contains("Update complete"))
+    XCTAssertEqual(try primary(controller).button.title, "Restart")
+  }
+
   func testCancelWhileWaitingKeepsThePromptClosed() throws {
     let model = InstallerModel()
     let (window, controller) = show(model)

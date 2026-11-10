@@ -285,7 +285,7 @@
     /// The EFI partitions a startup container's bootloader chainloads. Aurora's J700
     /// Stage 1 (the MacBook Neo) names its one ESP in a versioned, CRC-checked
     /// config block; aura and asahi's m1n1 keep variables after the first "STACKBOT" up
-    /// to the first NUL, one per line (src/aura.py extract_vars).
+    /// to the first NUL, one per line (the Asahi-derived Stage 1 variable format).
     /// nil when neither is there.
     static func efiPartitions(bootObject: Data) -> [String]? {
       if let aurora = auroraStage1Partition(bootObject: bootObject) { return [aurora] }

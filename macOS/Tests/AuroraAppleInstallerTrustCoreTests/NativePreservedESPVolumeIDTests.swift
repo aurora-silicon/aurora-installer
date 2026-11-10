@@ -436,7 +436,7 @@
         XCTAssertEqual(
           error as? NativePreservedInstallError,
           .espFull(requiredBytes: required, availableBytes: required - 4096))
-        let summary = try XCTUnwrap(PinnedAsahiEngineExecutor.preservedSummary(for: error))
+        let summary = try XCTUnwrap(NativeInstallerExecutor.preservedSummary(for: error))
         XCTAssertTrue(summary.hasPrefix("The EFI partition has "), summary)
         XCTAssertLessThanOrEqual(summary.count, EngineFailureNotice.maximumSummaryCharacters)
       }

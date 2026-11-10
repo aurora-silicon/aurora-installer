@@ -4,6 +4,88 @@
   import Darwin
   import Foundation
 
+  /// What the source-owner read found at one component of its path, as a
+  /// log line: kind, owner, mode, links, size and file flags. Display only.
+  struct SourceOwnerMetadataComponent: Equatable, Sendable, CustomStringConvertible {
+    let name: String
+    let kind: String
+    let uid: uid_t
+    let gid: gid_t
+    let mode: mode_t
+    let links: nlink_t
+    let size: off_t
+    let flags: UInt32
+
+    init(_ name: String, _ info: stat) {
+      self.name = name
+      kind = Self.kind(info.st_mode)
+      uid = info.st_uid
+      gid = info.st_gid
+      mode = info.st_mode
+      links = info.st_nlink
+      size = info.st_size
+      flags = info.st_flags
+    }
+
+    var octalMode: String {
+      let digits = String(mode & 0o7777, radix: 8)
+      return String(repeating: "0", count: max(0, 4 - digits.count)) + digits
+    }
+
+    var description: String {
+      "\(name): \(kind), owner \(uid):\(gid), mode \(octalMode), "
+        + "\(links) link\(links == 1 ? "" : "s"), \(size) bytes, flags 0x\(String(flags, radix: 16))"
+    }
+
+    static func kind(_ mode: mode_t) -> String {
+      switch mode & S_IFMT {
+      case S_IFDIR: "folder"
+      case S_IFREG: "file"
+      case S_IFLNK: "symbolic link"
+      case S_IFIFO: "named pipe"
+      case S_IFSOCK: "socket"
+      case S_IFCHR, S_IFBLK: "device"
+      default: "special file"
+      }
+    }
+  }
+
+  /// The source-owner read refused one component. `reason` is short enough
+  /// for the shown summary; `found` is what was there, for the log.
+  struct SourceOwnerMetadataRefusal: Error, Equatable, Sendable, CustomStringConvertible {
+    let reason: String
+    let found: SourceOwnerMetadataComponent?
+    /// True when a component does not exist: the list is absent, which
+    /// macOS can recreate, rather than unsafe.
+    let missing: Bool
+
+    init(_ reason: String, _ found: SourceOwnerMetadataComponent?, missing: Bool = false) {
+      self.reason = reason
+      self.found = found
+      self.missing = missing
+    }
+
+    var description: String { found.map { "\(reason) [\($0)]" } ?? reason }
+
+    /// A component that could not be opened without following a link: say
+    /// what is there instead, read without following it.
+    static func unopened(
+      _ name: String, errno code: Int32, parent: Int32, leaf: String,
+      trace: (SourceOwnerMetadataComponent) -> Void
+    ) -> Self {
+      var info = stat()
+      guard fstatat(parent, leaf, &info, AT_SYMLINK_NOFOLLOW) == 0 else {
+        if errno == ENOENT { return Self("\(name) is missing", nil, missing: true) }
+        return Self("\(name) could not be examined (\(String(cString: strerror(code))))", nil)
+      }
+      let found = SourceOwnerMetadataComponent(name == "the file" ? leaf : name, info)
+      trace(found)
+      if info.st_mode & S_IFMT == S_IFLNK { return Self("\(name) is a symbolic link", found) }
+      if code == ENOTDIR { return Self("\(name) is a \(found.kind), not a folder", found) }
+      return Self("\(name) could not be opened (\(String(cString: strerror(code))))", found)
+    }
+  }
+
   /// A pinned directory, with every relative component opened without links.
   /// FAT contents are authenticated by bytes; System paths additionally require
   /// protected ownership and permissions before filename transitions.
@@ -73,24 +155,137 @@
       else { throw NativeHandoffValidationError.invalidTarget }
     }
 
-    func read(_ path: String, maximum: Int) throws -> Data {
-      try read(path, maximum: maximum, sourcePrebootGroup: nil)
-    }
+    static let sourceOwnerMetadataMaximum = 1 << 20
 
-    /// Source Preboot group directories can be root-owned mode 0777. Only
-    /// this exact read permits that first component; descendants stay protected.
-    func sourceOwnerMetadata(groupUUID: String) throws -> Data {
+    /// Reads macOS's list of Recovery administrators,
+    /// `<group>/var/db/AdminUserRecoveryInfo.plist`, from the verified source
+    /// Preboot volume.
+    ///
+    /// macOS leaves folders on this path writable by every local user: the
+    /// group folder on macOS 26 (0777), `var` and `var/db` on macOS 27.2
+    /// (both 0777, no sticky bit). The read therefore does not trust folder
+    /// modes. What a local user who is not root can do in such a folder is
+    /// add, remove and rename entries, and create symbolic links and hard
+    /// links; they cannot create anything owned by root, change root's
+    /// files or folders, or move anything across volumes. So:
+    ///
+    /// - every component is opened from the one before with `O_NOFOLLOW`
+    ///   and checked with `fstat` on the opened descriptor, so a symbolic
+    ///   link, or a swap after the check, cannot redirect the read;
+    /// - every folder must be owned by root, whatever its mode, so a folder
+    ///   a user made cannot stand in;
+    /// - the file must be a root-owned regular file that no one else can
+    ///   write, so its bytes are root's;
+    /// - when the file's own folder is writable by others (sticky or not),
+    ///   it must have exactly one name, since anyone can add a hard link
+    ///   there to any root-owned file on the volume. Under a folder only
+    ///   root can write, only root could have made a second name.
+    ///
+    /// A user can still remove the file (the list then reads as missing,
+    /// which macOS rebuilds) or rename into its place another root-owned
+    /// single-name file that already sits in a writable folder on the same
+    /// Preboot, such as another group's list or `AllUsersInfo.plist`. Its
+    /// contents are still root's: the caller reads only the authorized
+    /// account's entry, keyed by its short name, and requires its
+    /// GeneratedUID, and the account is proven an administrator and an APFS
+    /// volume owner separately. No layout lets a user write the list.
+    ///
+    /// `trace` is told what was found at each component, for the log. A
+    /// refusal is a `SourceOwnerMetadataRefusal` naming the component and
+    /// the rule; other errors are the generic path errors.
+    func sourceOwnerMetadata(
+      groupUUID: String, trace: (SourceOwnerMetadataComponent) -> Void = { _ in }
+    ) throws -> Data {
       guard protected, verifiedVolumeRoot,
         UUID(uuidString: groupUUID)?.uuidString == groupUUID
       else { throw NativeHandoffValidationError.unsafePath }
-      return try read(
-        groupUUID + "/var/db/AdminUserRecoveryInfo.plist", maximum: 1 << 20,
-        sourcePrebootGroup: groupUUID)
+      let folders = [groupUUID, "var", "db"]
+      var current = dup(root)
+      guard current >= 0 else { throw NativeHandoffValidationError.unsafePath }
+      defer { close(current) }
+      var parentProtected = false
+      for (index, component) in folders.enumerated() {
+        let name = index == 0 ? "<group>" : folders[1...index].joined(separator: "/")
+        let next = openat(current, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard next >= 0 else {
+          throw SourceOwnerMetadataRefusal.unopened(
+            name, errno: errno, parent: current, leaf: component, trace: trace)
+        }
+        var info = stat()
+        guard fstat(next, &info) == 0 else {
+          close(next)
+          throw NativeHandoffValidationError.unsafePath
+        }
+        let found = SourceOwnerMetadataComponent(name, info)
+        trace(found)
+        if info.st_uid != owner {
+          close(next)
+          throw SourceOwnerMetadataRefusal(
+            "\(name) is not owned by root (owner \(info.st_uid))", found)
+        }
+        parentProtected = info.st_mode & 0o022 == 0
+        close(current)
+        current = next
+      }
+      let leaf = "AdminUserRecoveryInfo.plist"
+      let fd = openat(current, leaf, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
+      guard fd >= 0 else {
+        throw SourceOwnerMetadataRefusal.unopened(
+          "the file", errno: errno, parent: current, leaf: leaf, trace: trace)
+      }
+      defer { close(fd) }
+      var info = stat()
+      guard fstat(fd, &info) == 0 else { throw NativeHandoffValidationError.unsafePath }
+      let found = SourceOwnerMetadataComponent(leaf, info)
+      trace(found)
+      let problem: String? =
+        if info.st_mode & S_IFMT != S_IFREG {
+          "the file is a \(found.kind), not a regular file"
+        } else if info.st_size < 0 || info.st_size > Self.sourceOwnerMetadataMaximum {
+          "the file is larger than 1 MB (\(info.st_size) bytes)"
+        } else if info.st_uid != owner {
+          "the file is not owned by root (owner \(info.st_uid))"
+        } else if info.st_mode & 0o022 != 0 {
+          "the file is writable by other users (mode \(found.octalMode))"
+        } else if info.st_nlink != 1, !parentProtected,
+          !(readOnlyVolume && Self.isReadOnly(fd))
+        {
+          "the file has \(info.st_nlink) hard links in a folder others can write"
+        } else {
+          nil
+        }
+      if let problem { throw SourceOwnerMetadataRefusal(problem, found) }
+      do {
+        return try Self.readWhole(fd, info)
+      } catch {
+        throw SourceOwnerMetadataRefusal("the file changed while it was read", found)
+      }
     }
 
-    private func read(_ path: String, maximum: Int, sourcePrebootGroup: String?) throws -> Data {
+    /// Reads an opened regular file of `info.st_size` bytes and proves its
+    /// size and modification time did not change meanwhile.
+    private static func readWhole(_ fd: Int32, _ info: stat) throws -> Data {
+      let file = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
+      var bytes = Data()
+      while bytes.count < info.st_size {
+        let chunk =
+          try file.read(upToCount: min(4 << 20, Int(info.st_size) - bytes.count)) ?? Data()
+        guard !chunk.isEmpty else { throw NativeHandoffValidationError.changedContent }
+        bytes.append(chunk)
+      }
+      var after = stat()
+      guard bytes.count == info.st_size, fstat(fd, &after) == 0,
+        info.st_size == after.st_size, info.st_mtimespec.tv_sec == after.st_mtimespec.tv_sec,
+        info.st_mtimespec.tv_nsec == after.st_mtimespec.tv_nsec
+      else {
+        throw NativeHandoffValidationError.changedContent
+      }
+      return bytes
+    }
+
+    func read(_ path: String, maximum: Int) throws -> Data {
       guard maximum >= 0, maximum <= 64 << 20 else { throw NativeHandoffValidationError.unsafePath }
-      return try withParent(path, sourcePrebootGroup: sourcePrebootGroup) { parent, leaf in
+      return try withParent(path) { parent, leaf in
         let fd = openat(parent, leaf, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
         guard fd >= 0 else { throw NativeHandoffValidationError.unsafePath }
         defer { close(fd) }
@@ -101,22 +296,7 @@
             || (info.st_uid == owner && info.st_mode & 0o022 == 0
               && (info.st_nlink == 1 || (readOnlyVolume && Self.isReadOnly(fd))))
         else { throw NativeHandoffValidationError.unsafePath }
-        let file = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
-        var bytes = Data()
-        while bytes.count < info.st_size {
-          let chunk =
-            try file.read(upToCount: min(4 << 20, Int(info.st_size) - bytes.count)) ?? Data()
-          guard !chunk.isEmpty else { throw NativeHandoffValidationError.changedContent }
-          bytes.append(chunk)
-        }
-        var after = stat()
-        guard bytes.count == info.st_size, fstat(fd, &after) == 0,
-          info.st_size == after.st_size, info.st_mtimespec.tv_sec == after.st_mtimespec.tv_sec,
-          info.st_mtimespec.tv_nsec == after.st_mtimespec.tv_nsec
-        else {
-          throw NativeHandoffValidationError.changedContent
-        }
-        return bytes
+        return try Self.readWhole(fd, info)
       }
     }
 
@@ -224,6 +404,14 @@
         active: ".IAPhysicalMedia", inactive: "IAPhysicalMedia-disabled.plist", activate: true)
     }
 
+    /// The reverse of `prepareForRecovery`: the volume starts its enrolled
+    /// Stage 1 again instead of opening Aurora Installer in Recovery.
+    func prepareForStartup() throws {
+      try moveIfNeeded(
+        active: ".IAPhysicalMedia", inactive: "IAPhysicalMedia-disabled.plist", activate: false)
+      try prepareForAuthorization()
+    }
+
     private func moveIfNeeded(active: String, inactive: String, activate: Bool) throws {
       guard protected else { throw NativeHandoffValidationError.unsafePath }
       let source = try existing(active: active, inactive: inactive)
@@ -267,7 +455,6 @@
 
     private func withParent<T>(
       _ path: String, missingParent: Bool = false, createParents: Bool = false,
-      sourcePrebootGroup: String? = nil,
       _ body: (Int32, String) throws -> T
     ) throws -> T {
       guard NativeHandoffEvidence.safeRelative(path) else {
@@ -277,7 +464,7 @@
       var current = dup(root)
       guard current >= 0 else { throw NativeHandoffValidationError.unsafePath }
       defer { close(current) }
-      for (index, component) in parts.dropLast().enumerated() {
+      for component in parts.dropLast() {
         var next = openat(current, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         if next < 0, createParents, errno == ENOENT {
           guard mkdirat(current, component, 0o755) == 0 else {
@@ -293,10 +480,7 @@
         guard next >= 0 else { throw NativeHandoffValidationError.unsafePath }
         var info = stat()
         guard fstat(next, &info) == 0,
-          !protected
-            || (info.st_uid == owner
-              && (info.st_mode & 0o022 == 0
-                || (index == 0 && component == sourcePrebootGroup && info.st_mode & 0o7777 == 0o777)))
+          !protected || (info.st_uid == owner && info.st_mode & 0o022 == 0)
         else {
           close(next)
           throw NativeHandoffValidationError.unsafePath

@@ -30,6 +30,8 @@ struct RecoveryPrimaryAction: Equatable {
   struct Inputs {
     var stage: Stage
     var recoveryInterface = false
+    /// A staged Stage 1 waits to be enrolled: the first step's button is Update.
+    var updatingStage1 = false
     var checkingEnvironment = false
     var preparingTools = false
     var creatingAccount = false
@@ -58,8 +60,8 @@ struct RecoveryPrimaryAction: Equatable {
     switch inputs.stage {
     case .welcome:
       return RecoveryPrimaryAction(
-        title: inputs.recoveryInterface ? "Restore" : "Continue", isEnabled: wait == nil,
-        wait: wait)
+        title: inputs.updatingStage1 ? "Update" : inputs.recoveryInterface ? "Restore" : "Continue",
+        isEnabled: wait == nil, wait: wait)
     case .installing:
       return nil
     case .account:

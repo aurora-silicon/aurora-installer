@@ -27,7 +27,7 @@ xcrun stapler validate "$app_path"
 spctl --assess --type execute --verbose=2 "$app_path"
 
 app_kib=$(du -sk "$app_path" | awk '{print $1}')
-[[ $app_kib =~ ^[0-9]+$ ]] && (( app_kib <= 32768 )) || fail "the on-demand app exceeds 32 MiB"
+bash "$packaging_directory/check-download-size.sh" "$app_path"
 free_kib=$(df -Pk "${dmg_path%/*}" | awk 'NR == 2 {print $4}')
 [[ $free_kib =~ ^[0-9]+$ ]] && (( free_kib - 3 * app_kib >= 10485760 )) \
   || fail "packaging must leave at least 10 GiB free"

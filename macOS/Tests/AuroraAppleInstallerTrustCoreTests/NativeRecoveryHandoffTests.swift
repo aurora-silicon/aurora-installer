@@ -47,7 +47,7 @@
 
     func testRawAndMachOConfigurationsCompleteFreshAndStartedRecoveryHandoffs() async throws {
       // Every mode the installer can write must hand off.
-      XCTAssertEqual(NativeRecoveryBootMode.allCases.map(\.rawValue), ["raw", "macho"])
+      XCTAssertEqual(NativeRecoveryBootMode.allCases.map(\.rawValue), ["macho-standard", "macho"])
       for mode in NativeRecoveryBootMode.allCases.map(\.rawValue) {
         for retry in [false, true] {
           let fixture = try NativeRecoveryHandoffFixture()
@@ -56,7 +56,7 @@
             "Aurora/Recovery/InstallData/install-config.json")
           var config = fixture.vector["config"] as! [String: Any]
           config["bootMode"] = mode
-          config["stage2Path"] = AuraStage1Format.stage2Path(machO: mode == "macho")
+          config["stage2Path"] = AuraStage1Format.stage2Path(executeWindow: mode == "macho")
           try JSONSerialization.data(withJSONObject: config, options: [.sortedKeys]).write(to: url)
           if retry {
             let journal = try NativeRecoveryJournal(
@@ -144,10 +144,10 @@
           + ["esp/m1n1/boot-ctxr.bin"])
       let firmware = evidence.qualifiedCommonFirmware.first ?? "26.6.2"
       let padded = try evidence.espLayout(
-        members: members, firmware: firmware, machOStage1: true)
+        members: members, firmware: firmware, executeWindow: true)
       XCTAssertEqual(padded["esp/m1n1/boot-ctxr.bin"], AuraStage1Format.confinedStage2Path)
       XCTAssertEqual(padded["esp/m1n1/boot.bin"], AuraStage1Format.standardStage2Path)
-      let raw = try evidence.espLayout(members: members, firmware: firmware, machOStage1: false)
+      let raw = try evidence.espLayout(members: members, firmware: firmware, executeWindow: false)
       XCTAssertNil(raw["esp/m1n1/boot-ctxr.bin"])
       XCTAssertFalse(raw.values.contains(AuraStage1Format.confinedStage2Path))
     }
@@ -202,7 +202,7 @@
           authorization: fixture.authorization(), requirement: "fixture", fullReadback: false)
         XCTFail("Expected authorization failure")
       } catch {
-        XCTAssertEqual(error as? PinnedAsahiEngineExecutionError, .recoveryAuthorizationFailed)
+        XCTAssertEqual(error as? NativeInstallerExecutionError, .recoveryAuthorizationFailed)
       }
       XCTAssertEqual(try fixture.journalSnapshot().state, .started)
       XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.activeVersion.path))
@@ -220,7 +220,7 @@
     func testReadyStartedAndPreparedStatesCanResumeButCompletionIsNeverReauthorized() async throws {
       let fixture = try NativeRecoveryHandoffFixture()
       defer { fixture.remove() }
-      let checker = PinnedAsahiEngineExecutor(effectiveUserID: { 0 })
+      let checker = NativeInstallerExecutor(effectiveUserID: { 0 })
       let identity = InstallerJobPlanIdentity(package: fixture.package)
       XCTAssertTrue(checker.canRetryRecoveryAuthorization(identity, in: fixture.root))
       var journal: NativeRecoveryJournal? = try NativeRecoveryJournal(
@@ -255,7 +255,7 @@
         package: fixture.package, owner: geteuid())
       try journal?.beginHandoff()
       journal = nil
-      let pinned = PinnedAsahiEngineExecutor(
+      let pinned = NativeInstallerExecutor(
         effectiveUserID: { 0 },
         verifyRestoreImage: { _, _ in throw NativeHandoffValidationError.invalidTarget },
         firmwarePreparer: ForbiddenFirmwarePreparation(), nativeHandoff: fixture.executor(),
@@ -572,7 +572,7 @@
       let names = Set(
         (vector["espFiles"] as! [String: String]).keys.map { "esp/" + $0 }
           + ["esp/m1n1/boot-j700.bin", "esp/m1n1/boot.bin", "esp/aurora/stage1.bin", member])
-      let layout = try evidence.espLayout(members: names, firmware: "26.6.2", machOStage1: true)
+      let layout = try evidence.espLayout(members: names, firmware: "26.6.2", executeWindow: true)
       var tree = SHA256()
       var installed: UInt64 = 0
       for name in layout.keys.sorted(by: { $0.utf8.lexicographicallyPrecedes($1.utf8) }) {

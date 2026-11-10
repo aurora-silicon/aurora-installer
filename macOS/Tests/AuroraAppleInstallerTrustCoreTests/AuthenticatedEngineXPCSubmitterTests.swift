@@ -97,7 +97,7 @@
 
     func testRecoveryAuthorizationFailureCrossesXPCAsTypedSafeError() {
       let serviceError = EngineXPCErrorBridge.serviceError(
-        for: PinnedAsahiEngineExecutionError.recoveryAuthorizationFailed
+        for: NativeInstallerExecutionError.recoveryAuthorizationFailed
       )
 
       XCTAssertEqual(

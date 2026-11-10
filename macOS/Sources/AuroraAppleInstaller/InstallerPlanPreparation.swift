@@ -29,8 +29,8 @@
   public protocol InstallerPlanExecuting: Sendable {
     func plan(
       inspection: ValidatedEngineTranscript,
-      request: PinnedAsahiPlanRequest,
-      identity: PinnedAsahiPlanIdentity
+      request: NativePlanRequest,
+      identity: NativePlanIdentity
     ) async throws -> Data
   }
 
@@ -126,12 +126,12 @@
         throw InstallerPlanPreparationError.engineVersionUnavailable
       }
 
-      let planRequest = try PinnedAsahiPlanRequest(
+      let planRequest = try NativePlanRequest(
         inventory: inventory,
         candidate: request.candidate,
         requestedLengthBytes: request.requestedLengthBytes
       )
-      let planIdentity = try PinnedAsahiPlanIdentity(
+      let planIdentity = try NativePlanIdentity(
         engineVersion: engineVersion,
         installer: request.release.assets.installer
       )

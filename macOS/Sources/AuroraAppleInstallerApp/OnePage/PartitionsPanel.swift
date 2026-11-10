@@ -21,6 +21,7 @@ struct PartitionsPanel: View {
   var onShrink: (InstallerPlanTarget) -> Void = { _ in }
   var onErase: (DiskLayoutDisplay.Row) -> Void = { _ in }
   var onReset: (DiskLayoutDisplay.Row) -> Void = { _ in }
+  var onUpdateBootLoader: (DiskLayoutDisplay.Row) -> Void = { _ in }
   var onOpenStartupDisk: () -> Void = {}
 
   var body: some View {
@@ -35,7 +36,7 @@ struct PartitionsPanel: View {
           if index > 0 { Divider().padding(.leading, 52) }
           PartitionRowView(
             row: row, enabled: enabled, onShrink: onShrink, onErase: onErase, onReset: onReset,
-            onOpenStartupDisk: onOpenStartupDisk
+            onUpdateBootLoader: onUpdateBootLoader, onOpenStartupDisk: onOpenStartupDisk
           )
           .zIndex(row.id == menuPreviewRow ? 1 : 0)
         }
@@ -99,6 +100,7 @@ struct PartitionRowView: View {
   var onShrink: (InstallerPlanTarget) -> Void = { _ in }
   var onErase: (DiskLayoutDisplay.Row) -> Void = { _ in }
   var onReset: (DiskLayoutDisplay.Row) -> Void = { _ in }
+  var onUpdateBootLoader: (DiskLayoutDisplay.Row) -> Void = { _ in }
   var onOpenStartupDisk: () -> Void = {}
 
   var body: some View {
@@ -140,6 +142,7 @@ struct PartitionRowView: View {
           Button {
             switch item.action {
             case .reset: onReset(row)
+            case .updateBootLoader: onUpdateBootLoader(row)
             case .openStartupDisk: onOpenStartupDisk()
             }
           } label: {
@@ -176,7 +179,7 @@ struct PartitionRowView: View {
 
 /// The row's ⋯ menu, defined once for the menu and its rendered preview.
 enum PartitionRowMenu {
-  enum Action { case reset, openStartupDisk }
+  enum Action { case reset, updateBootLoader, openStartupDisk }
 
   struct Item: Identifiable {
     let title: String
@@ -194,6 +197,12 @@ enum PartitionRowMenu {
       Item(
         title: "Reset…", systemImage: "arrow.counterclockwise", action: .reset,
         enabled: reset.isAvailable, help: reset.reason),
+      // Needs the same recognized installation as Reset, and changes only Stage 1.
+      Item(
+        title: PlainLanguage.bootLoaderUpdateMenuItem, systemImage: "arrow.down.circle",
+        action: .updateBootLoader, enabled: reset.isAvailable,
+        help: reset.reason
+          ?? "Install this release’s boot loader for this installation. Linux and its files stay."),
       Item(
         title: "Open Startup Disk", systemImage: "externaldrive", action: .openStartupDisk,
         enabled: true, separatorBefore: true),

@@ -412,8 +412,8 @@
 
   private actor RecordingPlanExecutor: InstallerPlanExecuting {
     private let transcript: Data
-    private var request: PinnedAsahiPlanRequest?
-    private var identity: PinnedAsahiPlanIdentity?
+    private var request: NativePlanRequest?
+    private var identity: NativePlanIdentity?
 
     init(transcript: Data) {
       self.transcript = transcript
@@ -421,19 +421,19 @@
 
     func plan(
       inspection: ValidatedEngineTranscript,
-      request: PinnedAsahiPlanRequest,
-      identity: PinnedAsahiPlanIdentity
+      request: NativePlanRequest,
+      identity: NativePlanIdentity
     ) async throws -> Data {
       self.request = request
       self.identity = identity
       return transcript
     }
 
-    func capturedRequest() -> PinnedAsahiPlanRequest? {
+    func capturedRequest() -> NativePlanRequest? {
       request
     }
 
-    func capturedIdentity() -> PinnedAsahiPlanIdentity? {
+    func capturedIdentity() -> NativePlanIdentity? {
       identity
     }
   }

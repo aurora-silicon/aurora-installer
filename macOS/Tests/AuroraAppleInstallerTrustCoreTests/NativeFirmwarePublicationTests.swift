@@ -48,6 +48,25 @@
       XCTAssertThrowsError(try NativeFirmwareSourcePlan(manifest: manifest([malformed])))
     }
 
+    func testAnOLEDMacBookProSourcePlanKeepsItsTrackpadAndTouchscreenFirmware() throws {
+      let identity: [String: Any] = [
+        "Info": [
+          "DeviceClass": "k114cap", "RestoreBehavior": "Erase", "Variant": "macOS Customer",
+        ],
+        "Manifest": [
+          "KernelCache": ["Info": ["Path": "kernelcache.release.synthetic"]],
+          "Multitouch": ["Info": ["Path": "Firmware/Multitouch.im4p", "IsFUDFirmware": true]],
+          "Ap,TouchASICFW": ["Info": ["Path": "Firmware/Touch.im4p", "IsFUDFirmware": true]],
+        ],
+      ]
+      let source = try NativeFirmwareSourcePlan(
+        manifest: PropertyListSerialization.data(
+          fromPropertyList: ["BuildIdentities": [identity]], format: .xml, options: 0))
+      XCTAssertEqual(source.machine, "k114c")
+      XCTAssertEqual(
+        Set(source.fud.map(\.component)), ["Multitouch", "Ap,TouchASICFW"])
+    }
+
     func testArchiveStreamingExceedsBootBudgetWithoutRelaxingBootCallers() async throws {
       let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
       try FileManager.default.createDirectory(

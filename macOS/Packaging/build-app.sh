@@ -276,6 +276,17 @@ python3 "$package_directory/RestoreImage/verify-build.py" "$restore_image_path" 
 install -m 0444 "$package_directory/RestoreImage/LICENSE" "$resources/omarchy-restore-image.LICENSE"
 install -m 0755 "$app_binary" "$contents/MacOS/$packaged_executable_name"
 install -m 0755 "$helper_binary" "$helper_path"
+# Strip only installed Swift executables, before any final signature or cdhash.
+# Keep globals and runtime sections; the original build outputs stay intact.
+strip_installed_swift() {
+  local path=$1 before after
+  before=$(stat -f %z "$path")
+  xcrun strip -S -x "$path"
+  after=$(stat -f %z "$path")
+  printf 'Packaged Swift executable: %s: %s -> %s bytes\n' "$path" "$before" "$after"
+}
+strip_installed_swift "$contents/MacOS/$packaged_executable_name"
+strip_installed_swift "$helper_path"
 install -m 0444 "$release_descriptor" "$resources/Release/release.json"
 install -m 0444 "$trust_root" "$resources/Release/trust-root.ed25519.pub"
 for asset in "$package_directory"/Resources/*.png; do
@@ -286,8 +297,11 @@ install -m 0444 "$package_directory/Design/Assets/MacBookPowerButton.png" "$reso
 install -m 0444 "$package_directory/Design/Assets/MacDesktopPowerButton.png" "$resources/MacDesktopPowerButton.png"
 mkdir -p "$resources/RecoveryTemplate"
 /usr/bin/ditto "$recovery_template" "$resources/RecoveryTemplate/Aurora Installer.app"
+strip_installed_swift "$resources/RecoveryTemplate/Aurora Installer.app/Contents/MacOS/OmarchyRecovery"
 codesign --force --sign "$signing_identity" "${timestamp_arguments[@]}" \
   --options runtime "$resources/RecoveryTemplate/Aurora Installer.app"
+[[ $("$resources/RecoveryTemplate/Aurora Installer.app/Contents/MacOS/OmarchyRecovery" --build-mode) == recovery ]] \
+  || fail "stripped Recovery template no longer reports Recovery mode"
 if [[ $sealed_catalog_available == "true" ]]; then
   install -m 0444 "$sealed_catalog" "$resources/Release/catalog.json"
   install -m 0444 \

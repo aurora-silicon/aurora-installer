@@ -38,10 +38,9 @@
       let standard = try filled(AuraStage1Format.standardStage2Path)
       let confined = try filled(AuraStage1Format.confinedStage2Path)
       let other = try filled("m1n1/other.bin")
-      // A raw Stage 1 loads m1n1/boot.bin; a Mach-O one is always padded and
-      // loads m1n1/boot-ctxr.bin.
+      // An unpadded Stage 1 loads m1n1/boot.bin; a padded one loads m1n1/boot-ctxr.bin.
       for (machO, own, foreign) in [(false, standard, confined), (true, confined, standard)] {
-        plan.stage1MachO = machO ? Data() : nil
+        plan.executeWindow = machO
         let admitted = try plan.admitPreservedStage1(own, espUUID: uuid)
         XCTAssertEqual(admitted.sha256, NativeStubFileStore.hash(own))
         var rebuilt = own
@@ -58,7 +57,7 @@
 
     func testAnEarlierInstallersUnpaddedMachOStage1IsRefusedWithWhatToDo() async throws {
       var plan = try await NativeESPFileTests.plan(deviceIdentifier: "apple,j700")
-      plan.stage1MachO = Data()
+      plan.executeWindow = true
       let uuid = UUID().uuidString.lowercased()
       let unpadded = try NativeBootChain.fillStage1(
         plan.stage1, uuid: uuid, path: AuraStage1Format.standardStage2Path,
@@ -72,14 +71,14 @@
         }
       }
       let summary = try XCTUnwrap(
-        PinnedAsahiEngineExecutor.preservedSummary(for: NativePreservedInstallError.earlierStage1))
-      XCTAssertTrue(summary.contains("Erase Linux, then install Aurora again"), summary)
-      // Its screen offers Erase Linux rather than Check again.
+        NativeInstallerExecutor.preservedSummary(for: NativePreservedInstallError.earlierStage1))
+      XCTAssertTrue(summary.contains("Update its boot loader first"), summary)
+      // Its screen leads with Update Boot Loader rather than Check again.
       XCTAssertEqual(
-        PinnedAsahiEngineExecutor.preservedReason(for: NativePreservedInstallError.earlierStage1),
+        NativeInstallerExecutor.preservedReason(for: NativePreservedInstallError.earlierStage1),
         .reinstallRequired)
-      // A raw chip's Stage 1 on that path is its own, and is admitted.
-      plan.stage1MachO = nil
+      // On M1 to M3 the unpadded Stage 1 on that path is its own, and is admitted.
+      plan.executeWindow = false
       _ = try plan.admitPreservedStage1(unpadded, espUUID: uuid)
     }
 

@@ -1,16 +1,18 @@
-# Installer extraction
+# Installer extraction history
+
+This page records the original import and historical Python-engine work. Current builds use the native Swift engine; the archived engine versions and commands below are provenance records, not build instructions. See [development](../README.md) for the current workflow.
 
 [omacom/omarchy-mac-installer](https://github.com/omacom/omarchy-mac-installer) contains the standalone development source extracted from [maralcbr/omarchy-mx-mac at 4db862da7a0957758c504c5a3e041202019dbabf](https://github.com/maralcbr/omarchy-mx-mac/tree/4db862da7a0957758c504c5a3e041202019dbabf/apps/omarchy-apple-installer). Publishing this source enables collaboration; it does not qualify an installation release.
 
 ## Provenance
 
-The installer directory becomes the repository root. The source repository's MIT [LICENSE](../LICENSE), original icon, three installer shell tests, their shared support file, and the recorded journal fixture are also retained. The exact path list and tool revision are in [extraction-source.json](extraction-source.json).
+The installer directory becomes the repository root. The source repository's MIT [LICENSE](../../LICENSE), original icon, three installer shell tests, their shared support file, and the recorded journal fixture are also retained. The exact path list and tool revision are in [extraction-source.json](extraction-source.json).
 
 The import retains 114 relevant commits, including their original authors, committers, dates and messages. Commit IDs change because the repository trees and ancestry change; original commit signatures cannot authenticate rewritten commits. [extraction-commit-map.txt](extraction-commit-map.txt) maps each retained original commit to its extracted commit. The original repository remains the authority for original signatures and omitted desktop history. PR numbers retained in imported commit subjects refer to the repository where each change originated. Installer-specific subjects such as `(#183)` refer to [Marcelo’s source repository](https://github.com/maralcbr/omarchy-mx-mac/pull/183); inherited upstream subjects such as `(#6749)` in `988ca27` and `(#1458)` in `d31cf10` refer to [omacom/omarchy#6749](https://github.com/omacom/omarchy/pull/6749) and [omacom/omarchy#1458](https://github.com/omacom/omarchy/pull/1458). These imported references do not identify issues or pull requests in this standalone repository.
 
 The extraction base is `0d6f8661a5ad7b263d6167f0afea7cae033419a0`. All 206 files and their Git modes at that revision were compared with the selected source paths and match exactly. Subsequent commits contain standalone path adjustments and documentation so reviewers can separate those changes from the import.
 
-The installer work and its recorded Git attribution are preserved, including Marcelo Alcantara's contributions and upstream Omarchy contributors. The root copyright notice remains unchanged. Asahi engine sources are external dependencies identified by [Engine/source-lock.json](../Engine/source-lock.json); their own licenses and notices must accompany distributed artifacts.
+The installer work and its recorded Git attribution are preserved, including Marcelo Alcantara's contributions and upstream Omarchy contributors. The root copyright notice remains unchanged. Asahi engine sources are external dependencies identified by [the historical source lock](https://github.com/aurora-silicon/aurora-installer/blob/bf0f391/macOS/Engine/source-lock.json); their own licenses and notices must accompany distributed artifacts.
 
 ## Later imports
 

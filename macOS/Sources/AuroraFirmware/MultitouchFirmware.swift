@@ -4,7 +4,7 @@ import Foundation
 public enum MultitouchFirmware {
   public static func convert(_ input: Data, machine: String) throws -> [String: Data] {
     try require(
-      machine.range(of: #"\Aj[0-9]+[a-z]*\z"#, options: .regularExpression) != nil,
+      machine.range(of: #"\A[jk][0-9]+[a-z]*\z"#, options: .regularExpression) != nil,
       "Invalid multitouch firmware machine.")
     let (type, payload) = try FirmwareImage.decode(input, maximumBytes: 16 << 20)
     try require(type == "mtfw", "Unexpected multitouch firmware image type.")

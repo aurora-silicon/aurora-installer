@@ -23,7 +23,9 @@ M4_MACS = [
     "apple,j773g", "apple,j614s", "apple,j614c", "apple,j616s", "apple,j616c",
     "apple,j773s", "apple,j575c",
 ]
-M5_M6_MACS = ["apple,j813", "apple,j873g"]
+M5_M6_MACS = [
+    "apple,j813", "apple,j873g", "apple,j704", "apple,j815", "apple,j804", "apple,j833ct",
+]
 BASE_URL = "https://downloads.example.test/releases/os-v1.0.0-mac.1.20260902"
 NOW = "2026-09-04T00:00:00Z"
 
@@ -264,12 +266,14 @@ class CatalogGeneratorTests(unittest.TestCase):
 
     def test_the_manifest_is_every_m1_to_m6_mac_and_the_neo(self) -> None:
         manifest = json.loads(MANIFEST.read_text())
-        self.assertEqual(len(manifest["supported"]), 50)
+        self.assertEqual(len(manifest["supported"]), 58)
         self.assertIn("apple,j575d", manifest["supported"])
         self.assertTrue(set(M4_MACS) <= set(manifest["supported"]))
         self.assertTrue(set(M5_M6_MACS) <= set(manifest["supported"]))
         self.assertTrue(set(M3_MACS) <= set(manifest["supported"]))
         self.assertIn("apple,j700", manifest["supported"])
+        for board in ("k114c", "k114s", "k116c", "k116s"):
+            self.assertIn("apple," + board, manifest["supported"])
         self.assertEqual(manifest["refused"], {})
         self.assertEqual(manifest["developer"], {})
         for template in sorted(MANIFEST.parent.glob("release-inputs*.template.json")):

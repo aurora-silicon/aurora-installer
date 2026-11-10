@@ -203,7 +203,11 @@ jobs:
           if [[ $AURORA_LOCAL_PAYLOAD_TEST_BUILD == 1 ]]; then expected=enabled; fi
           python3 Packaging/check-local-payload-policy.py --expected "$expected" "$app" \
             | tee "$RUNNER_TEMP/evidence/local-source-policy.txt"
+          cp "$RUNNER_TEMP/release/profile-manifest.json" "$RUNNER_TEMP/evidence/"
+          bash Packaging/check-download-size.sh "$app" | tee "$RUNNER_TEMP/evidence/app-size.log"
           bash Packaging/notarize-app.sh "$app"
+          # Keep a qualified app if later DMG packaging/publication fails.
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$RUNNER_TEMP/qualified-notarized-app.zip"
           suffix=
           if [[ $AURORA_LOCAL_PAYLOAD_TEST_BUILD == 1 ]]; then suffix=-local-test; fi
           bash Packaging/make-download-dmg.sh "$app" "$RUNNER_TEMP/download/Aurora-Installer-$AURORA_APP_VERSION$suffix.dmg"
@@ -218,6 +222,13 @@ jobs:
         with:
           name: native-dmg-evidence
           path: ${{ runner.temp }}/evidence/
+          retention-days: 14
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: qualified-notarized-app
+          path: ${{ runner.temp }}/qualified-notarized-app.zip
+          if-no-files-found: ignore
           retention-days: 14
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:

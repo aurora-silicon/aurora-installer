@@ -22,7 +22,7 @@
 
     func testRecoveryAuthorizationStillRoundTrips() {
       let bridged = EngineXPCErrorBridge.serviceError(
-        for: PinnedAsahiEngineExecutionError.recoveryAuthorizationFailed
+        for: NativeInstallerExecutionError.recoveryAuthorizationFailed
       )
 
       XCTAssertEqual(
@@ -52,7 +52,7 @@
         redactedStandardErrorTail: "TAIL-THAT-MUST-STAY-IN-THE-HELPER"
       )
       let bridged = EngineXPCErrorBridge.serviceError(
-        for: PinnedAsahiEngineExecutionError.engineFailed(report))
+        for: NativeInstallerExecutionError.engineFailed(report))
 
       XCTAssertEqual(bridged.domain, EngineXPCErrorBridge.engineFailureDomain)
       XCTAssertEqual(bridged.code, EngineFailureReason.approvedSpaceChanged.rawValue)

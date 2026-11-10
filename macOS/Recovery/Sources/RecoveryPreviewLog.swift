@@ -55,7 +55,7 @@ import AppKit
       case "Installing the startup software":
         return CommandLog(
           "/usr/bin/kmutil",
-          AuraBootMode.raw.enrollmentArguments(
+          AuraBootMode.standard.enrollmentArguments(
             stage1: "/Volumes/Aurora Fedora Remix/Aurora/Recovery/State/operation-1/stage1",
             volume: volume), log: log)
       default: return nil

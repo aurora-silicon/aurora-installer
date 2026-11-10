@@ -23,7 +23,7 @@
             && info["Variant"] as? String == $0.variant
         }),
         let device = info["DeviceClass"] as? String,
-        device.range(of: #"\Aj[0-9]+[a-z]*ap\z"#, options: .regularExpression) != nil,
+        device.range(of: #"\A[jk][0-9]+[a-z]*ap\z"#, options: .regularExpression) != nil,
         let components = identity["Manifest"] as? [String: [String: Any]],
         !components.isEmpty, components.count <= 1024
       else { throw NativeStubFileError.invalidPlan }

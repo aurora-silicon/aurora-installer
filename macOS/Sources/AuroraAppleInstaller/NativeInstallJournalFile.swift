@@ -89,7 +89,7 @@
       var info = stat()
       var entry = stat()
       guard fstat(file, &info) == 0, fstatat(directory, name, &entry, AT_SYMLINK_NOFOLLOW) == 0,
-        safe(info, maximum: PinnedAsahiEngineExecutor.maximumTranscriptBytes, allowEmpty: true),
+        safe(info, maximum: NativeInstallerExecutor.maximumTranscriptBytes, allowEmpty: true),
         info.st_ino == entry.st_ino, info.st_dev == entry.st_dev
       else {
         throw NativeRecoveryJournalError.unsafeJournal
@@ -164,7 +164,7 @@
         options: [.sortedKeys, .withoutEscapingSlashes])
       line.append(10)
       guard line.count <= EngineTranscriptDecoder.maximumLineBytes,
-        before.count + line.count <= PinnedAsahiEngineExecutor.maximumTranscriptBytes
+        before.count + line.count <= NativeInstallerExecutor.maximumTranscriptBytes
       else {
         throw NativeRecoveryJournalError.writeFailed
       }

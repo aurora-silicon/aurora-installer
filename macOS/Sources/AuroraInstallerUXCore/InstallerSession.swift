@@ -58,6 +58,8 @@
     private var planTarget: InstallerPlanTarget?
     /// The installation chosen for Reset on the Partitions screen.
     private var preservedSource: String?
+    /// Reset's plan, used only to update that installation's boot loader.
+    public private(set) var updatingBootLoader = false
     private var operationID = UUID()
     public private(set) var planRevision = 0
     public private(set) var isEditingSize = false
@@ -76,6 +78,7 @@
       let preservingStage1: Bool
       let target: InstallerPlanTarget?
       let preservedSource: String?
+      let updatingBootLoader: Bool
     }
 
     public func setSizeEditing(_ editing: Bool) {
@@ -366,6 +369,7 @@
       preservingStage1 = false
       planTarget = nil
       preservedSource = nil
+      updatingBootLoader = false
       await preparePlan(host: host)
     }
 
@@ -396,6 +400,7 @@
       preservingStage1 = false
       planTarget = target
       preservedSource = nil
+      updatingBootLoader = false
       await preparePlan(host: host)
     }
 
@@ -410,6 +415,22 @@
       preservingStage1 = true
       planTarget = nil
       preservedSource = rowID
+      updatingBootLoader = false
+      await preparePlan(host: host)
+    }
+
+    /// The boot loader update is offered wherever Reset is: it needs the same
+    /// fully recognized installation and the release's verified payload.
+    public func canUpdateBootLoader(_ rowID: String) -> Bool { canReset(rowID) }
+
+    /// Prepares Reset's plan for this installation, used only to stage this
+    /// release's Stage 1 for Recovery. Nothing is reinstalled.
+    public func updateBootLoader(_ rowID: String) async {
+      guard canUpdateBootLoader(rowID), case .partitions(let host, _) = phase else { return }
+      preservingStage1 = true
+      planTarget = nil
+      preservedSource = rowID
+      updatingBootLoader = true
       await preparePlan(host: host)
     }
 
@@ -440,6 +461,7 @@
       planTarget = nil
       preservedSource = nil
       preservingStage1 = false
+      updatingBootLoader = false
       phase = partitions
     }
 
@@ -456,6 +478,7 @@
         case .existingInstallRefused(let host) = phase
       else { return }
       preservingStage1 = true
+      updatingBootLoader = false
       recoveryAccount = nil
       await preparePlan(host: host)
     }
@@ -535,7 +558,8 @@
       operationID = UUID()
       let request = PreparationRequest(
         id: operationID, host: host, bytes: auroraBytes, hold: hold, replanning: replanning,
-        preservingStage1: preservingStage1, target: planTarget, preservedSource: preservedSource)
+        preservingStage1: preservingStage1, target: planTarget, preservedSource: preservedSource,
+        updatingBootLoader: updatingBootLoader)
       // Invalidate before cancelling: even a worker that ignores cancellation
       // cannot publish authority or send a late result into this generation.
       environment.cancelPlanPreparation()
@@ -594,7 +618,8 @@
           preparationTask = nil
           guard operationID == request.id else { continue }
           switch outcome {
-          case .plan(let plan):
+          case .plan(let prepared):
+            let plan = request.updatingBootLoader ? prepared.forBootLoaderUpdate() : prepared
             planNeedsCheck = false
             draftAllocationBytes = nil
             planRevision += 1
@@ -778,7 +803,7 @@
         helper: helper,
         sheet: .presented(
           CredentialSheetContext(
-            kind: .install,
+            kind: plan.updatesBootLoader ? .updateBootLoader : .install,
             bindingDigest: plan.bindingDigest,
             mentionsBackgroundItem: helper.willInstall
           )
@@ -843,7 +868,7 @@
         return
       }
       switch context.kind {
-      case .install:
+      case .install, .updateBootLoader:
         guard canStartInstallation else {
           dismissCredentials()
           phase = .failed(
@@ -878,13 +903,14 @@
       // The sheet stays up, locked, while the helper checks the credentials.
       // The Install screen only appears once execution really starts (first
       // journal chunk) or the run ends without one.
-      if context.kind == .install, let plan {
+      if context.kind != .retryRecoveryAuthorization, let plan {
         phase = .awaitingInstall(plan, helper: helper, sheet: .presented(context.verifying()))
       } else {
         retrySheet = .presented(context.verifying())
       }
       journal.reset()
       journal.preservesStage1 = plan?.preservesStage1 ?? preservingStage1
+      journal.updatesBootLoader = context.kind == .updateBootLoader
       installStartedAt = Date()
       isExecuting = true
       defer { isExecuting = false }
@@ -962,7 +988,7 @@
       helper: HelperDisplay
     ) {
       if error is InstallerPreSubmissionFailure {
-        if context.kind == .install {
+        if context.kind != .retryRecoveryAuthorization {
           hasExecutionStarted = false
           environment.discardApproval()
           recoveryRetryAvailable = false
@@ -980,11 +1006,11 @@
         // the package or starts the engine, so no execution began: this is the
         // only case that releases the one-shot latch, and it reopens the sheet
         // instead of failing the run.
-        if context.kind == .install {
+        if context.kind != .retryRecoveryAuthorization {
           hasExecutionStarted = false
         }
         let rejected = context.failed(.credentialsRejected)
-        if context.kind == .install, let plan {
+        if context.kind != .retryRecoveryAuthorization, let plan {
           phase = .awaitingInstall(
             plan,
             helper: helper,
@@ -1006,7 +1032,7 @@
         // Helper setup runs before anything is submitted, so no execution
         // began. Like rejected credentials, this releases the latch and
         // reopens the sheet so the person can try again.
-        if context.kind == .install {
+        if context.kind != .retryRecoveryAuthorization {
           hasExecutionStarted = false
         }
         let sheetError: CredentialSheetError =
@@ -1018,7 +1044,7 @@
           case .unavailable, .failed: .helperSetupFailed
           }
         let reopened = context.failed(sheetError)
-        if context.kind == .install, let plan {
+        if context.kind != .retryRecoveryAuthorization, let plan {
           phase = .awaitingInstall(plan, helper: helper, sheet: .presented(reopened))
         } else {
           retrySheet = .presented(reopened)
@@ -1026,7 +1052,7 @@
         return
       }
 
-      if context.kind == .install,
+      if context.kind != .retryRecoveryAuthorization,
         case .engineFailed(let notice) = error as? EngineXPCSubmissionError,
         notice.diskUnchanged
       {
@@ -1136,6 +1162,20 @@
 
     private func route(_ completion: CompletionDisplay) async {
       switch completion.nextAction {
+      case .enterRecovery where updatingBootLoader:
+        // The helper already armed this installation's Recovery and chose it as
+        // the startup disk; no account handoff applies to an existing install.
+        recoveryAccount = nil
+        if let handoff = completion.handoff {
+          let name = preservedSource.flatMap { lastHost?.diskLayout?.row($0)?.name } ?? "Aurora"
+          phase = .awaitingRecovery(
+            HandoffDisplay(
+              headline: handoff.headline,
+              steps: PlainLanguage.bootLoaderUpdateRecoverySteps(volumeName: name),
+              warning: handoff.warning))
+        } else {
+          phase = .done(completion)
+        }
       case .enterRecovery, .attachInstallationMedia:
         if let handoff = completion.handoff {
           if isSimulation {
@@ -1333,6 +1373,7 @@
       preservingStage1 = false
       planTarget = nil
       preservedSource = nil
+      updatingBootLoader = false
       refusedPlan = nil
       encryptLinuxDisk = allowsEncryption
       environment.setEncryptLinuxDisk(allowsEncryption)

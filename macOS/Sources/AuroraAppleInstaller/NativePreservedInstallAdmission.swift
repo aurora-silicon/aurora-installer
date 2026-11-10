@@ -23,7 +23,7 @@
     static func check(
       approved: ValidatedEnginePlan, metadata: Data, archive: IPSWArchive,
       disk: NativeCollectedDisk, stubBytes: UInt64, firmwareVersion: String,
-      installedStage1: Data, machOStage1: Bool = false,
+      installedStage1: Data, executeWindow: Bool = false,
       legacyStage1: (@Sendable () throws -> Data)? = nil
     ) async throws -> Prepared {
       guard approved.candidateKind == "reinstall",
@@ -68,7 +68,7 @@
       guard
         let esp = try await NativeESPPayloadPlan.make(
           metadata: metadata, archive: archive, device: approved.deviceIdentifier,
-          firmware: firmwareVersion, machOStage1: machOStage1, legacyStage1: legacyStage1)
+          firmware: firmwareVersion, executeWindow: executeWindow, legacyStage1: legacyStage1)
       else { throw NativePreservedInstallError.unavailable }
       let configurationPath = InstallConf.relativePath.precomposedStringWithCanonicalMapping
         .lowercased()
@@ -80,7 +80,21 @@
       let stage1 = try esp.admitPreservedStage1(
         installedStage1, espUUID: target.esp.uuid,
         allowDifferentStage1Code: target.title != selected.name)
+      let transcript = try approvedTranscript(
+        approved: approved, metadata: metadata, disk: disk, stubBytes: stubBytes,
+        identityDigest: target.identityDigest)
+      return Prepared(
+        target: target, diskSnapshot: disk.snapshot, transcript: transcript, archive: archive,
+        boot: members[0], root: members[1], esp: esp, espVolumeID: espVolumeID,
+        stage1: stage1)
+    }
 
+    /// Plans the reinstall candidate again from the current disk and returns
+    /// its transcript, which must reproduce the approved plan exactly.
+    static func approvedTranscript(
+      approved: ValidatedEnginePlan, metadata: Data, disk: NativeCollectedDisk,
+      stubBytes: UInt64, identityDigest: String
+    ) throws -> Data {
       let inspection = try AppleInstallerTrustCore().validateEngineTranscript(
         NativeDiskInventory.transcript(
           device: approved.deviceIdentifier, snapshot: disk.snapshot,
@@ -91,22 +105,19 @@
         let candidate = inventory.candidates.first(where: {
           $0.kind == "reinstall" && $0.sourceIdentifier == approved.sourceIdentifier
         }),
-        candidate.identityDigest == target.identityDigest
+        candidate.identityDigest == identityDigest
       else { throw NativePreservedInstallError.changedLayout }
-      let request = try PinnedAsahiPlanRequest(
+      let request = try NativePlanRequest(
         inventory: inventory, candidate: candidate,
         requestedLengthBytes: approved.lengthBytes)
-      let identity = try PinnedAsahiPlanIdentity(
+      let identity = try NativePlanIdentity(
         engineVersion: approved.engineVersion, engineDigest: approved.engineDigest,
         metadataDigest: approved.metadataDigest, payloadDigest: approved.payloadDigest)
       let transcript = try NativeInstallerPlanner.transcript(
         inspection: inspection, request: request, identity: identity)
       guard try AppleInstallerTrustCore().validateEngineTranscript(transcript).plan == approved
       else { throw NativePreservedInstallError.changedLayout }
-      return Prepared(
-        target: target, diskSnapshot: disk.snapshot, transcript: transcript, archive: archive,
-        boot: members[0], root: members[1], esp: esp, espVolumeID: espVolumeID,
-        stage1: stage1)
+      return transcript
     }
   }
 #endif

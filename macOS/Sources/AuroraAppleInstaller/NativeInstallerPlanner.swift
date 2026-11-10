@@ -17,8 +17,8 @@
 
     public func plan(
       inspection: ValidatedEngineTranscript,
-      request: PinnedAsahiPlanRequest,
-      identity: PinnedAsahiPlanIdentity
+      request: NativePlanRequest,
+      identity: NativePlanIdentity
     ) async throws -> Data {
       try Task.checkCancellation()
       let result = try Self.transcript(inspection: inspection, request: request, identity: identity)
@@ -28,8 +28,8 @@
 
     static func transcript(
       inspection: ValidatedEngineTranscript,
-      request: PinnedAsahiPlanRequest,
-      identity: PinnedAsahiPlanIdentity
+      request: NativePlanRequest,
+      identity: NativePlanIdentity
     ) throws -> Data {
       guard inspection.support == .supported, inspection.plan == nil,
         inspection.checkpoints.isEmpty, inspection.completion == nil,
@@ -46,7 +46,7 @@
       }
       // Recheck the requested extent against this inspection, not the inventory
       // that originally produced the request during a possibly earlier replan.
-      _ = try PinnedAsahiPlanRequest(
+      _ = try NativePlanRequest(
         inventory: inventory, candidate: candidate,
         requestedLengthBytes: request.requestedLengthBytes)
       guard (candidate.kind == "repair") == (identity.repairManifestDigest != nil) else {

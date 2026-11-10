@@ -61,7 +61,7 @@ only) may add boards outside that list.
 
 ## Standalone repository conventions
 
-This directory is now the repository root. The original parent repository is not required for source tests; see `docs/extraction.md` for provenance and `docs/validation.md` for the test boundary.
+The repository root is one level above this directory. Run the native package checks from this directory; see `docs/extraction.md` for provenance and `docs/validation.md` for the test boundary.
 
 - Use two-space shell indentation, Bash 5 conditionals (`[[ ]]` and `(( ))`) and `#!/bin/bash` shebangs.
 - Keep Markdown lines unwrapped except at structural boundaries.

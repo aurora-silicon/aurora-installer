@@ -3,7 +3,7 @@
   import Foundation
 
   public enum EngineJournalLocator {
-    /// Mirrors `PinnedAsahiEngineExecutor.preparePersistentJournal`:
+    /// Mirrors `NativeInstallerExecutor.preparePersistentJournal`:
     /// `<workingDirectory>/execution-journals/<bindingDigest hex>.jsonl`.
     /// A malformed digest resolves to nil, which disables streaming rather
     /// than guessing a path.
@@ -100,7 +100,7 @@
         (status.st_mode & S_IFMT) == S_IFREG,
         status.st_mode & 0o077 == 0,
         status.st_uid == expectedOwner,
-        status.st_size <= PinnedAsahiEngineExecutor.maximumTranscriptBytes
+        status.st_size <= NativeInstallerExecutor.maximumTranscriptBytes
       else {
         disabled = true
         return

@@ -223,6 +223,37 @@
       XCTAssertFalse(unknown.replanAvailable)
     }
 
+    func testAMeasuredSpaceChangeShowsTheSizesAndNamesSnapshotsOnlyWhenTheyHoldTheSpace() throws {
+      func failure(_ shortfall: ApprovedSpaceShortfall) -> FailureDisplay {
+        PlainLanguage.failure(
+          for: EngineXPCSubmissionError.engineFailed(
+            EngineFailureNotice(
+              reason: .approvedSpaceChanged, exitStatus: 1, diskUnchanged: true,
+              summary: shortfall.summary)))
+      }
+      let grown = failure(
+        ApprovedSpaceShortfall(
+          approvedBytes: 180_000_000_000, availableBytes: 175_349_000_000, snapshotHeldBytes: 0))
+      XCTAssertEqual(grown.headline, "The space available for Aurora changed")
+      XCTAssertTrue(
+        grown.plainDetail.contains("macOS can now give up 175.3 GB, less than the 180.0 GB"))
+      XCTAssertTrue(grown.plainDetail.hasSuffix("No disk changes were made."))
+      let grownRemedy = try XCTUnwrap(grown.remedy)
+      XCTAssertFalse(grownRemedy.contains("Time Machine"))
+      XCTAssertTrue(grownRemedy.hasPrefix("Choose \(PlainLanguage.replanAction)"))
+      XCTAssertTrue(grown.replanAvailable)
+
+      let held = failure(
+        ApprovedSpaceShortfall(
+          approvedBytes: 180_000_000_000, availableBytes: 139_999_999_999,
+          snapshotHeldBytes: 41_250_000_000))
+      XCTAssertTrue(held.plainDetail.contains("hold about 41.2 GB"))
+      let heldRemedy = try XCTUnwrap(held.remedy)
+      XCTAssertTrue(heldRemedy.contains("local Time Machine snapshots"))
+      XCTAssertTrue(heldRemedy.contains("Don’t delete system or update snapshots."))
+      XCTAssertTrue(heldRemedy.hasSuffix("then review and approve it."))
+    }
+
     func testAMacOnOlderFirmwareIsToldWhichMacOSToInstall() throws {
       let summary = try XCTUnwrap(EngineFailureReason.macOSUpdateSummary(version: "26.6.2"))
       let failure = PlainLanguage.failure(
@@ -384,6 +415,43 @@
       }
     }
 
+    func testAPrebootAdminListRefusalTellsHowMacOSRebuildsTheList() throws {
+      let prefix = "The current macOS volume owner could not be verified: "
+      for summary in [
+        prefix + "the Recovery administrator list on Preboot could not be read safely: "
+          + "var/db is writable by other users (mode 0777).",
+        prefix + "the Preboot volume has no list of Recovery administrators.",
+        prefix + "the Recovery administrator list on Preboot does not include this account.",
+      ] {
+        let display = PlainLanguage.engineFailure(
+          EngineFailureNotice(
+            reason: .recoveryPreparation, exitStatus: 1, diskUnchanged: true, summary: summary),
+          technicalDetail: "detail")
+        XCTAssertEqual(display.plainDetail, summary + " No disk changes were made.")
+        let remedy = try XCTUnwrap(display.remedy)
+        XCTAssertTrue(remedy.contains("sudo diskutil apfs updatePreboot /"), remedy)
+        XCTAssertTrue(remedy.contains("Check again"), remedy)
+      }
+      for summary in [
+        prefix + "APFS does not list this account as a volume owner. Use the account that set up "
+          + "this Mac.",
+        "Native Recovery resources could not be verified.",
+      ] {
+        let display = PlainLanguage.engineFailure(
+          EngineFailureNotice(
+            reason: .recoveryPreparation, exitStatus: 1, diskUnchanged: true, summary: summary),
+          technicalDetail: "detail")
+        XCTAssertEqual(display.remedy, "Update the installer and choose Check again.")
+      }
+      // A run that may have changed the disk keeps the careful remedy.
+      let changed = PlainLanguage.engineFailure(
+        EngineFailureNotice(
+          reason: .recoveryPreparation, exitStatus: 1, diskUnchanged: false,
+          summary: prefix + "the Preboot volume has no list of Recovery administrators."),
+        technicalDetail: "detail")
+      XCTAssertFalse(try XCTUnwrap(changed.remedy).contains("updatePreboot"))
+    }
+
     func testPlanningRefusesWhatTheInstallCouldNotFinishWithAnAction() throws {
       let space = PlainLanguage.failure(
         for: MacOSFreeSpaceShortfall(requiredBytes: 12_557_937_290, availableBytes: 8_944_269_393))
@@ -449,7 +517,7 @@
       for name in ["release-inputs.template.json", "release-inputs-aurora.template.json"] {
         let text = try String(
           contentsOf: scripts.appendingPathComponent(name), encoding: .utf8)
-        for match in text.matches(of: /"(apple,j[0-9a-z]+)"/) {
+        for match in text.matches(of: /"(apple,[jk][0-9a-z]+)"/) {
           identifiers.insert(String(match.1))
         }
       }
@@ -459,6 +527,8 @@
         "j475c", "j475d", "j180d", "j433", "j434", "j504", "j613", "j615", "j514s", "j514c",
         "j514m", "j516s", "j516c", "j516m", "j575d", "j604", "j623", "j624", "j713", "j715",
         "j773g", "j614s", "j614c", "j616s", "j616c", "j773s", "j575c", "j813", "j873g", "j700",
+        "j704", "j815", "j804", "j833ct",
+        "k114c", "k114s", "k116c", "k116s",
       ].map { "apple,\($0)" }
       XCTAssertEqual(identifiers, Set(everySupportedMac))
       let manifest = try JSONSerialization.jsonObject(

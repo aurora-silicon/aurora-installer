@@ -180,7 +180,7 @@
       try fixture.writeEvidence(source, name: "native-source-owner")
       let bytes = try Data(contentsOf: fixture.journal)
       func eligible(_ data: Data, changed: String? = nil) -> Bool {
-        PinnedAsahiEngineExecutor.nativeDiskPreparationRetryEligible(
+        NativeInstallerExecutor.nativeDiskPreparationRetryEligible(
           transcript: data,
           planDigest: fixture.approved.planDigest,
           deviceIdentifier: fixture.package.deviceIdentifier,
@@ -199,7 +199,7 @@
       let ambiguous = Data(bytes.split(separator: 10).prefix(4).flatMap { Array($0) + [10] })
       XCTAssertFalse(eligible(ambiguous))
       XCTAssertFalse(
-        PinnedAsahiEngineExecutor.nativeDiskPreparationRetryEligible(
+        NativeInstallerExecutor.nativeDiskPreparationRetryEligible(
           transcript: bytes,
           planDigest: String(repeating: "0", count: 64),
           deviceIdentifier: fixture.package.deviceIdentifier,

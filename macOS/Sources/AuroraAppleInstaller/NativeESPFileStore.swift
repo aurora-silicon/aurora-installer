@@ -51,6 +51,27 @@
       guard kind == "msdos" else { throw NativeHandoffValidationError.invalidTarget }
     }
 
+    /// An exclusive rename within one FAT volume. FSKit's msdos (macOS 27)
+    /// refuses RENAME_EXCL with ENOTSUP when the target is absent; the caller's
+    /// journal lease keeps out other writers, so a checked plain rename is
+    /// equivalent there. Sets errno like renameatx_np on failure.
+    static func renameExclusive(
+      _ parent: Int32, _ from: String, _ to: String,
+      exclusive: (Int32, String, Int32, String) -> Int32 = {
+        renameatx_np($0, $1, $2, $3, UInt32(RENAME_EXCL))
+      }
+    ) -> Int32 {
+      if exclusive(parent, from, parent, to) == 0 { return 0 }
+      guard errno == ENOTSUP else { return -1 }
+      var target = stat()
+      if fstatat(parent, to, &target, AT_SYMLINK_NOFOLLOW) == 0 {
+        errno = EEXIST
+        return -1
+      }
+      guard errno == ENOENT else { return -1 }
+      return renameat(parent, from, parent, to)
+    }
+
     func data(_ bytes: Data, at path: String) async throws -> NativeStubFileIdentity {
       try await publish(path, bytes: bytes.count) { consume in
         var offset = 0
@@ -104,7 +125,7 @@
       let backup = try identityIfPresent(parent, leaf: names.backupLeaf, maximum: previous.bytes)
       if backup == nil {
         guard old == previous,
-          renameatx_np(parent, leaf, parent, names.backupLeaf, UInt32(RENAME_EXCL)) == 0,
+          Self.renameExclusive(parent, leaf, names.backupLeaf) == 0,
           fsync(parent) == 0
         else { throw NativeStubFileError.changedFile }
       } else {
@@ -113,7 +134,7 @@
         }
       }
       if try identityIfPresent(parent, leaf: leaf, maximum: bytes.count) == nil {
-        guard renameatx_np(parent, names.stagedLeaf, parent, leaf, UInt32(RENAME_EXCL)) == 0,
+        guard Self.renameExclusive(parent, names.stagedLeaf, leaf) == 0,
           fsync(parent) == 0
         else { throw NativeStubFileError.writeFailed }
       }
@@ -267,7 +288,7 @@
         try identity(descriptor, maximum: bytes) == expected
       else { throw NativeStubFileError.changedFile }
       try Task.checkCancellation()
-      if renameatx_np(parent, temporary, parent, leaf, UInt32(RENAME_EXCL)) != 0 {
+      if Self.renameExclusive(parent, temporary, leaf) != 0 {
         guard errno == EEXIST else { throw NativeStubFileError.writeFailed }
         let existing = openat(parent, leaf, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
         guard existing >= 0 else { throw NativeHandoffValidationError.unsafePath }

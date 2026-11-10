@@ -11,6 +11,7 @@ import logging
 import os
 import pathlib
 import plistlib
+import shutil
 import struct
 import subprocess
 import sys
@@ -553,6 +554,87 @@ class InstallTest(unittest.TestCase):
             st.verify(roots=[str(self.tmp / "none")], out=out)
 
 
+class TuningOnlyEspTest(unittest.TestCase):
+    """An ESP without asahi/ whose vendorfw/ holds only speaker tuning (the
+    J700's layout): vendorfw is rebuilt from the bundle alone."""
+    ROOT_A = {"target-type": b"J999AP\0", "serial-number": b"SYNTHETIC0A" + b"\0" * 21}
+    ROOT_B = {"target-type": b"J999AP\0", "serial-number": b"SYNTHETIC0B" + b"\0" * 21}
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = pathlib.Path(self._tmp.name)
+        self.backups = self.tmp / "rollback"
+        old = self.tmp / "old"
+        old.mkdir()
+        with st.opened_bundle(bundle_dir(old, salt=b" old", spts=None)) as (bundle, _):
+            self.esp = self.tmp / "esp"
+            (self.esp / "vendorfw").mkdir(parents=True)
+            (self.esp / "m1n1").mkdir()
+            with tempfile.TemporaryDirectory() as work:
+                st.rebuild_tuning_only(bundle, work, self.esp / "vendorfw")
+        self.unit_a = audio_tuning.unit_id(b"SYNTHETIC0A")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def install(self, source, **kw):
+        out = Quiet()
+        kw.setdefault("backup_root", self.backups)
+        kw.setdefault("unit", self.unit_a)
+        return st.install(source, self.esp, out=out, **kw), out.text()
+
+    def bound(self, root=None):
+        base = self.tmp / "new"
+        base.mkdir(exist_ok=True)
+        return bundle_dir(base, spts=None, root=root or self.ROOT_A)
+
+    def test_install_bound_bundle_then_identical(self):
+        src = self.bound()
+        before = snapshot(self.esp)
+        result, text = self.install(src)
+        self.assertEqual(result, "installed", text)
+        self.assertIn("bundle alone", text)
+        self.assertFalse((self.esp / "asahi").exists())
+        after = snapshot(self.esp)
+        self.assertEqual(sorted(after), sorted(before))
+        manifest = st.parse_manifest((self.esp / "vendorfw" / "manifest.txt").read_text())
+        self.assertTrue(all(k.startswith(st.PREFIX) for k in manifest))
+        packaged, extra = st.packaged_bundle(self.esp / "vendorfw")
+        with st.opened_bundle(src) as (bundle, _):
+            self.assertEqual(packaged, bundle)
+            self.assertEqual(st.bundle_unit(bundle), ("j999", self.unit_a))
+        self.assertEqual(extra, 0)
+        (backup,) = self.backups.iterdir()
+        self.assertEqual(sorted(p.name for p in backup.iterdir()), ["vendorfw"])
+        result, text = self.install(src)
+        self.assertEqual(result, "identical", text)
+        self.assertEqual(snapshot(self.esp), after)
+
+    def test_dry_run_changes_nothing(self):
+        before = snapshot(self.esp)
+        result, text = self.install(self.bound(), dry_run=True)
+        self.assertEqual(result, "dry-run", text)
+        self.assertEqual(snapshot(self.esp), before)
+        self.assertFalse(self.backups.exists())
+
+    def test_another_units_bundle_is_refused(self):
+        before = snapshot(self.esp)
+        with self.assertRaises(st.Refused):
+            self.install(self.bound(self.ROOT_B))
+        self.assertEqual(snapshot(self.esp), before)
+
+    def test_vendorfw_with_other_firmware_is_refused(self):
+        other = self.tmp / "other"
+        other.mkdir()
+        esp = make_esp(other)
+        shutil.rmtree(esp / "asahi")
+        before = snapshot(esp)
+        with self.assertRaises(st.Refused) as e:
+            st.install(self.bound(), esp, out=Quiet(), backup_root=self.backups, unit=self.unit_a)
+        self.assertIn("cannot be rebuilt from the bundle alone", str(e.exception))
+        self.assertEqual(snapshot(esp), before)
+
+
 def adt_node(props, children=()):
     out = struct.pack("<II", len(props), len(children))
     for name, value in props:
@@ -649,6 +731,7 @@ class CollectLinuxTest(unittest.TestCase):
         from asahi_firmware import adt
         with self.assertRaises(adt.AdtError):
             adt.parse(synthetic_adt()[:100])
+
 
 
 class ScriptTest(unittest.TestCase):

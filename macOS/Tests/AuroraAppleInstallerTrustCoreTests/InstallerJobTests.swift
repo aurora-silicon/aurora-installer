@@ -29,7 +29,7 @@
             planDigest: String(repeating: "a", count: 64), deviceIdentifier: "apple,j314s",
             storeIdentifier: "disk0")
           try jobs.admitted(request.ticket.identifier, package: package)
-          let failure = PinnedAsahiEngineExecutionError.engineFailed(
+          let failure = NativeInstallerExecutionError.engineFailed(
             EngineFailureReport(
               notice: EngineFailureNotice(
                 reason: .recoveryPreparation, exitStatus: 1,
@@ -90,7 +90,7 @@
           payloadURL: retained, bindingDigest: request.ticket.bindingDigest,
           planDigest: String(repeating: "a", count: 64), deviceIdentifier: "apple,j314s",
           storeIdentifier: "disk0"))
-      let failure = PinnedAsahiEngineExecutionError.engineFailed(
+      let failure = NativeInstallerExecutionError.engineFailed(
         EngineFailureReport(
           notice: EngineFailureNotice(
             reason: .recoveryPreparation, exitStatus: 1, diskUnchanged: false,
@@ -151,7 +151,7 @@
           XCTAssertEqual($0 as? InstallerJobError, .invalidRequest)
         }
         XCTAssertEqual(try jobs.status(status, initiatingUID: 501).startOverAvailable, false)
-        let failure = PinnedAsahiEngineExecutionError.engineFailed(
+        let failure = NativeInstallerExecutionError.engineFailed(
           EngineFailureReport(
             notice: EngineFailureNotice(
               reason: .unclassified, exitStatus: 1, diskUnchanged: false,
@@ -251,7 +251,7 @@
               reason: .firmwarePreparation, exitStatus: 1,
               diskUnchanged: unchanged, summary: "Preparation failed")
             let failure = InstallerJobFailure(
-              error: PinnedAsahiEngineExecutionError.engineFailed(
+              error: NativeInstallerExecutionError.engineFailed(
                 EngineFailureReport(notice: notice, redactedStandardErrorTail: "")))
             let snapshot = InstallerJobSnapshot(
               identifier: request.ticket.identifier,
@@ -382,7 +382,7 @@
             try restored.recoveryContext(request.ticket.identifier).packageName,
             packageURL.lastPathComponent)
           XCTAssertFalse(work.beginReplacement(token: "replacement"))
-          let failure = PinnedAsahiEngineExecutionError.engineFailed(
+          let failure = NativeInstallerExecutionError.engineFailed(
             EngineFailureReport(
               notice: EngineFailureNotice(
                 reason: .recoveryPreparation, exitStatus: 1,
@@ -543,7 +543,7 @@
       try jobs.admitted(request.ticket.identifier, package: package)
       jobs.finish(
         request.ticket.identifier,
-        result: .failure(PinnedAsahiEngineExecutionError.recoveryAuthorizationFailed))
+        result: .failure(NativeInstallerExecutionError.recoveryAuthorizationFailed))
       let first = InstallerJobRecoveryRequest(ticket: request.ticket, attempt: UUID())
       XCTAssertThrowsError(try jobs.beginRecoveryRetry(first, initiatingUID: 502))
       XCTAssertTrue(try jobs.beginRecoveryRetry(first, initiatingUID: 501))
@@ -561,7 +561,7 @@
         try jobs.recoveryContext(request.ticket.identifier).installConf, request.installConf)
       jobs.finish(
         request.ticket.identifier,
-        result: .failure(PinnedAsahiEngineExecutionError.recoveryAuthorizationFailed))
+        result: .failure(NativeInstallerExecutionError.recoveryAuthorizationFailed))
       XCTAssertThrowsError(try jobs.beginRecoveryRetry(first, initiatingUID: 501))
       XCTAssertFalse(try jobs.beginRecoveryRetry(second, initiatingUID: 501))
     }
@@ -576,7 +576,7 @@
         request.ticket.identifier,
         result: .success(
           (
-            Data(repeating: 0, count: Int(PinnedAsahiEngineExecutor.maximumTranscriptBytes) + 1),
+            Data(repeating: 0, count: Int(NativeInstallerExecutor.maximumTranscriptBytes) + 1),
             .recorded
           )))
       XCTAssertFalse(work.beginReplacement(token: "replacement"))

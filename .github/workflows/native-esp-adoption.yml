@@ -47,13 +47,13 @@ jobs:
       - name: Qualify ESP execution capability and stage ordering
         run: |
           set -euo pipefail
-          filter='PinnedAsahiEngineExecutorTests'
+          filter='NativeInstallerExecutorTests'
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug \
             --filter "$filter" 2>&1 | tee "$RUNNER_TEMP/evidence/debug.log"
       - name: Qualify ESP execution adoption in release
         run: |
           set -euo pipefail
-          filter='PinnedAsahiEngineExecutorTests'
+          filter='NativeInstallerExecutorTests'
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration release \
             --filter "$filter" 2>&1 | tee "$RUNNER_TEMP/evidence/release.log"
       - name: Retain the native driver logs

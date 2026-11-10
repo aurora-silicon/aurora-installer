@@ -293,7 +293,7 @@
         XCTFail("Expected the engine failure")
       } catch {
         XCTAssertEqual(
-          error as? PinnedAsahiEngineExecutionError, .engineFailed(report))
+          error as? NativeInstallerExecutionError, .engineFailed(report))
       }
       let diagnostics = fixture.destination.appendingPathComponent("diagnostics")
       let reports = try FileManager.default.contentsOfDirectory(atPath: diagnostics.path)
@@ -935,14 +935,14 @@
           .appendingPathComponent("execution-journals", isDirectory: true),
         withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
       try InstallerPerformance.measure("stub_files") {
-        if fails { throw PinnedAsahiEngineExecutionError.restoreImageUnavailable }
+        if fails { throw NativeInstallerExecutionError.restoreImageUnavailable }
       }
       return result
     }
   }
 
   private struct FailingHandoffExecutor: ImportedEngineHandoffExecuting {
-    let error: PinnedAsahiEngineExecutionError
+    let error: NativeInstallerExecutionError
 
     func execute(
       _ package: ImportedEngineHandoffPackage,

@@ -14,8 +14,8 @@
     }
 
     private func input(_ vector: [String: Any]) throws -> (
-      inspection: ValidatedEngineTranscript, request: PinnedAsahiPlanRequest,
-      identity: PinnedAsahiPlanIdentity
+      inspection: ValidatedEngineTranscript, request: NativePlanRequest,
+      identity: NativePlanIdentity
     ) {
       let inspection = try AppleInstallerTrustCore().validateEngineTranscript(
         Data(try XCTUnwrap(vector["inspection"] as? String).utf8))
@@ -24,10 +24,10 @@
       let identity = try XCTUnwrap(vector["identity"] as? [String: String])
       return (
         inspection,
-        try PinnedAsahiPlanRequest(
+        try NativePlanRequest(
           inventory: inventory, candidate: candidate,
           requestedLengthBytes: try XCTUnwrap(vector["requested"] as? NSNumber).uint64Value),
-        try PinnedAsahiPlanIdentity(
+        try NativePlanIdentity(
           engineVersion: try XCTUnwrap(identity["engine_version"]),
           engineDigest: try XCTUnwrap(identity["engine_digest"]),
           metadataDigest: try XCTUnwrap(identity["metadata_digest"]),
@@ -109,7 +109,7 @@
 
     func testRepairIdentityCannotBeAppliedToAFreshInstallation() throws {
       let value = try input(XCTUnwrap(vectors().first))
-      let repair = try PinnedAsahiPlanIdentity(
+      let repair = try NativePlanIdentity(
         engineVersion: value.identity.engineVersion,
         engineDigest: value.identity.engineDigest, metadataDigest: value.identity.metadataDigest,
         payloadDigest: value.identity.payloadDigest,

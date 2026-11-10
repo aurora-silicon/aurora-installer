@@ -164,6 +164,58 @@
       XCTAssertEqual(fixture.commands.count, 7)
     }
 
+    func testAMinimumThatNoLongerFitsTheApprovedSizeIsReportedWithTheSizes() throws {
+      let fixture = try InputFixture(kind: "resize")
+      defer { fixture.remove() }
+      fixture.fault = "minimum-grown"
+      XCTAssertThrowsError(try fixture.prepare()) { error in
+        guard let shortfall = error as? ApprovedSpaceShortfall else {
+          return XCTFail("expected ApprovedSpaceShortfall, got \(error)")
+        }
+        XCTAssertEqual(shortfall.approvedBytes, fixture.approved.lengthBytes)
+        XCTAssertEqual(
+          shortfall.availableBytes, fixture.approved.lengthBytes - NativeInspectionMath.unit)
+        let (reason, summary) = NativeInstallerExecutor.executionFailure(error)
+        XCTAssertEqual(reason, .approvedSpaceChanged)
+        XCTAssertEqual(summary, shortfall.summary)
+      }
+      XCTAssertTrue(fixture.commands.isEmpty)
+      let bytes = try Data(contentsOf: fixture.journal)
+      XCTAssertTrue(bytes.isEmpty || NativeInstallAdmission.provesNoMutation(bytes))
+    }
+
+    func testSnapshotsAreNamedOnlyWhenThePreferredMinimumIsWellAboveTheUsedSpace() {
+      func facts(preferred: UInt64) -> NativeContainerFacts {
+        // 200 GB used: with the 38 GB reserve macOS keeps at least 238 GB.
+        NativeContainerFacts(
+          storeUUID: "S", capacity: 500_000_000_000, free: 300_000_000_000,
+          preferredMinimum: preferred, systems: [])
+      }
+      XCTAssertEqual(NativeDiskInventory.preferredMinimumExcess(facts(preferred: 0)), 0)
+      let excess = NativeDiskInventory.preferredMinimumExcess(facts(preferred: 280_000_000_000))
+      XCTAssertGreaterThan(excess, ApprovedSpaceShortfall.snapshotThresholdBytes)
+      XCTAssertLessThanOrEqual(excess, 42_000_000_000)
+
+      let plain = ApprovedSpaceShortfall(
+        approvedBytes: 180_000_000_000, availableBytes: 175_349_000_000,
+        snapshotHeldBytes: ApprovedSpaceShortfall.snapshotThresholdBytes)
+      XCTAssertEqual(
+        plain.summary, "macOS can now give up 175.3 GB, less than the 180.0 GB you approved.")
+      XCTAssertTrue(ApprovedSpaceShortfall.isSummary(plain.summary))
+      XCTAssertFalse(ApprovedSpaceShortfall.namesSnapshots(plain.summary))
+
+      let held = ApprovedSpaceShortfall(
+        approvedBytes: 180_000_000_001, availableBytes: 139_999_999_999,
+        snapshotHeldBytes: 41_250_000_000)
+      XCTAssertEqual(
+        held.summary,
+        "macOS can now give up 139.9 GB, less than the 180.1 GB you approved. APFS snapshots, "
+          + "such as local Time Machine snapshots, hold about 41.2 GB of what macOS keeps.")
+      XCTAssertTrue(ApprovedSpaceShortfall.namesSnapshots(held.summary))
+      XCTAssertLessThanOrEqual(held.summary.count, EngineFailureNotice.maximumSummaryCharacters)
+      XCTAssertTrue(held.summary.unicodeScalars.allSatisfy { $0.value >= 32 && $0.value < 127 })
+    }
+
     func testChangedResizeResultTargetOrUnrelatedPartitionNeverGetsACheckpoint() throws {
       for fault in [
         "resize-rounding", "target-offset", "target-size", "target-label", "unrelated",
@@ -392,14 +444,14 @@
             containers: disk.containers, metadata: metadata, stubBytes: firmware.stubBytes))
         let inventory = try XCTUnwrap(inspection.inventory)
         let candidate = try XCTUnwrap(inventory.candidates.first { $0.kind == kind })
-        let identity = try PinnedAsahiPlanIdentity(
+        let identity = try NativePlanIdentity(
           engineVersion: "native-test",
           engineDigest: SHA256Digest(hashing: Data("engine".utf8)).rawValue,
           metadataDigest: SHA256Digest(hashing: metadataBytes).rawValue,
           payloadDigest: SHA256Digest(hashing: Data("payload".utf8)).rawValue)
         transcript = try NativeInstallerPlanner.transcript(
           inspection: inspection,
-          request: PinnedAsahiPlanRequest(
+          request: NativePlanRequest(
             inventory: inventory, candidate: candidate,
             requestedLengthBytes: UInt64(kind == "resize" ? 40 : 80) << 30), identity: identity)
         approved = try XCTUnwrap(
@@ -485,14 +537,16 @@
       var platform: NativeAPFSPlatform {
         NativeAPFSPlatform(
           collect: {
-            if self.fault == "minimum" || self.fault == "minimum-safe" {
+            if ["minimum", "minimum-safe", "minimum-grown"].contains(self.fault) {
               let value = self.original.disk.containers[0]
               let changed = NativeContainerFacts(
                 storeUUID: value.storeUUID, capacity: value.capacity,
                 free: value.free,
                 preferredMinimum: self.fault == "minimum"
                   ? value.capacity
-                  : value.capacity - self.approved.lengthBytes - NativeInspectionMath.unit,
+                  : self.fault == "minimum-grown"
+                    ? value.capacity - self.approved.lengthBytes + NativeInspectionMath.unit
+                    : value.capacity - self.approved.lengthBytes - NativeInspectionMath.unit,
                 systems: value.systems)
               return NativeAPFSFacts(
                 deviceIdentifier: self.original.deviceIdentifier, hardware: self.original.hardware,

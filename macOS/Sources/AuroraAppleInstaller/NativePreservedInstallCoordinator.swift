@@ -88,7 +88,7 @@
         stubBytes: firmware.stubBytes,
         firmwareVersion: firmware.version.components(separatedBy: " ")[0],
         installedStage1: installedStage1,
-        machOStage1: AuraStage1Format.usesMachO(chipID: facts.hardware.chipID))
+        executeWindow: AuraStage1Format.usesExecuteWindow(chipID: facts.hardware.chipID))
       let nativeJournal = try NativePreservedInstallJournal(
         url: journalURL, package: package, transcript: prepared.transcript, owner: owner)
       try nativeJournal.bindInstallConf(installConf)

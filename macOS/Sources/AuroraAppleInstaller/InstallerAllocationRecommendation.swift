@@ -57,7 +57,7 @@ public struct InstallerAllocationRecommendation:
   public init(preserved candidate: ValidatedEngineCandidate) throws {
     guard candidate.kind == "reinstall", candidate.lengthBytes > 0,
       candidate.lengthBytes >= candidate.minimumInstallBytes,
-      candidate.lengthBytes % PinnedAsahiPlanRequest.allocationUnitBytes == 0
+      candidate.lengthBytes % NativePlanRequest.allocationUnitBytes == 0
     else { throw InstallerAllocationRecommendationError.noEligibleCandidate }
     self.candidate = candidate
     floorBytes = candidate.lengthBytes
@@ -73,7 +73,7 @@ public struct InstallerAllocationRecommendation:
     target: InstallerPlanTarget? = nil,
     snapshotConstraint: () -> APFSSnapshotConstraint? = { nil }
   ) throws {
-    let unit = PinnedAsahiPlanRequest.allocationUnitBytes
+    let unit = NativePlanRequest.allocationUnitBytes
     // A chosen target is the only candidate considered: nothing falls back to
     // other space the person did not choose.
     let eligible = inventory.candidates.filter { target?.matches($0) ?? true }
@@ -190,7 +190,7 @@ public struct InstallerAllocationRecommendation:
   /// down to the allocation unit. A recommended minimum gives way to the
   /// candidate's own; nil when even that doesn't fit.
   public func limited(toMaximumBytes limit: UInt64) -> Self? {
-    let unit = PinnedAsahiPlanRequest.allocationUnitBytes
+    let unit = NativePlanRequest.allocationUnitBytes
     let aligned = limit - limit % unit
     guard aligned < maximumBytes else { return self }
     guard aligned >= floorBytes else { return nil }
@@ -208,7 +208,7 @@ public struct InstallerAllocationRecommendation:
     in candidates: [ValidatedEngineCandidate],
     reservedBytes: UInt64
   ) -> (required: UInt64, available: UInt64)? {
-    let unit = PinnedAsahiPlanRequest.allocationUnitBytes
+    let unit = NativePlanRequest.allocationUnitBytes
     return candidates.compactMap { candidate -> (UInt64, UInt64)? in
       let usable: UInt64
       var deficit: UInt64 = 0

@@ -44,10 +44,10 @@
       let inspection = try AppleInstallerTrustCore().validateEngineTranscript(bytes)
       let boundInventory = try XCTUnwrap(inspection.inventory)
       let selected = try XCTUnwrap(boundInventory.candidates.first { $0.kind == "reinstall" })
-      let request = try PinnedAsahiPlanRequest(
+      let request = try NativePlanRequest(
         inventory: boundInventory, candidate: selected,
         requestedLengthBytes: selected.lengthBytes)
-      let identity = try PinnedAsahiPlanIdentity(
+      let identity = try NativePlanIdentity(
         engineVersion: "test", engineDigest: "sha256:" + String(repeating: "b", count: 64),
         metadataDigest: "sha256:" + String(repeating: "c", count: 64),
         payloadDigest: "sha256:" + String(repeating: "d", count: 64))
@@ -144,7 +144,7 @@
         XCTAssertEqual(try journal.snapshot().state, .complete)
         XCTAssertEqual(try journal.snapshot().receipt, .some(completed))
       }
-      let executor = PinnedAsahiEngineExecutor(
+      let executor = NativeInstallerExecutor(
         effectiveUserID: { geteuid() }, expectedFileOwnerID: { geteuid() })
       let identity = InstallerJobPlanIdentity(package: package)
       XCTAssertTrue(executor.canRetryRecoveryAuthorization(identity, in: root))

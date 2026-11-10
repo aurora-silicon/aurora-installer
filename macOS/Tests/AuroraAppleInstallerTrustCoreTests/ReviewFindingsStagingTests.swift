@@ -10,10 +10,10 @@
 
     func testATransientNetworkErrorInAPreflightIsANetworkFailure() {
       for code in [URLError.Code.networkConnectionLost, .timedOut, .notConnectedToInternet] {
-        let (reason, summary) = PinnedAsahiEngineExecutor.preflightFailure(
+        let (reason, summary) = NativeInstallerExecutor.preflightFailure(
           stage: .stubFiles, error: URLError(code))
         XCTAssertEqual(reason, .networkUnavailable, "\(code)")
-        XCTAssertEqual(summary, PinnedAsahiEngineExecutor.networkSummary)
+        XCTAssertEqual(summary, NativeInstallerExecutor.networkSummary)
       }
     }
 

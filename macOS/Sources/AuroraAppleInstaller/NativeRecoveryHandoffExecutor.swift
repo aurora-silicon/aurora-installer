@@ -40,7 +40,7 @@
         guard try journal.snapshot().state == .started else {
           throw NativeRecoveryJournalError.invalidState
         }
-        throw PinnedAsahiEngineExecutionError.recoveryAuthorizationFailed
+        throw NativeInstallerExecutionError.recoveryAuthorizationFailed
       }
       try journal.recordPrepared()
       return try journal.complete()

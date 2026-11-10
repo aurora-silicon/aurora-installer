@@ -10,18 +10,11 @@ The Linux source checks are `bash test/all`. They compile the build- and CI-only
 
 ## Continuous integration
 
-[Installer checks](../.github/workflows/checks.yml) runs for every pull request to `main`, every push to `main` and manual dispatch. There are no path filters, so documentation changes also receive the checks expected by branch protection. New commits cancel superseded runs for the same pull request. Pushes to `main` and manual runs have unique concurrency groups, preserving each run and its evidence even when several are queued.
+[Native installer checks](../../.github/workflows/native-checks.yml) runs the portable checks on Ubuntu and strict Swift formatting, Debug/Release tests, preview assembly and code-identity fixtures on an ARM Mac. The workflow records its source revision and tool versions and retains failure logs with the run.
 
-- **Portable checks** runs `bash test/all` on Ubuntu 24.04 with Python 3.12, including shell syntax, script compilation, catalog tests and packaging/publication fixtures.
-- **macOS checks** runs strict Swift formatting and debug/release Swift tests on an Apple Silicon macOS 15 runner using Xcode 26.2 and the same checksum-pinned XcodeBuildMCP 2.7.0 used for the initial Mac validation.
+The read-only live physical-Mac inspection test skips `VirtualMac` hosts. Hosted CI cannot qualify a real Mac's disk, Recovery environment or hardware. Current device qualification is recorded in [aurora-distributions](https://github.com/aurora-silicon/aurora-distributions).
 
-The read-only live physical-Mac inspection test explicitly skips `VirtualMac` hosts. Hosted CI cannot assert a physical Mac model or internal disk; the fixture-based inspection and blocked-model tests still run in both configurations, and the live check remains enabled on real Macs.
-
-Both jobs record the checked-out commit and tool versions and retain logs as Actions artifacts for 14 days, including failures. Pull requests test GitHub's proposed merge revision. GitHub Actions are pinned to commit hashes; tool updates should change the pin and its version comment together. Explicit Bash execution enables `errexit` and `pipefail`, so collecting logs through `tee` does not hide test failures.
-
-CI uses hosted runners, read-only repository access and no release secrets. It performs source checks and fixture tests; app assembly with an authenticated engine, production signing, visual review and physical installation remain separate validation steps. Require both named checks along with the existing independent review before merging to `main`.
-
-## Local evidence
+## Historical extraction evidence (September 2026)
 
 The extraction was checked on 2026-09-20 as the non-root `scott` user on aarch64 Linux with Python 3.14.7. The portable suite passed: 37 engine tooling tests, 104 engine overlay tests and 17 catalog tests (158 Python tests), plus all existing preclean and three extracted packaging/publication shell tests. Python compilation and shell syntax checks passed.
 
@@ -54,20 +47,18 @@ Scott has an M3 Air and an M4 Pro available with macOS. Either can be the primar
 3. Lint with Xcode's bundled formatter, then run both Swift configurations:
 
 ```bash
-xcrun swift-format lint --strict --recursive Package.swift Sources Tests
+xcrun swift-format lint --strict --recursive Package.swift Sources Plugins Tests
 xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug
 xcodebuildmcp swift-package test --package-path "$PWD" --configuration release
 ```
 
 4. If those pass, use the existing `Development/Run Simulation.command` launcher for a debug-only UI review. Keep one app instance on the review machine. Follow [the simulation scenario matrix](../Development/Simulation.md), including unsupported hosts, failed downloads, changed plans, interrupted execution and Recovery handoff. Simulation uses dummy credentials; it is not a live install or an inspection of that Mac's actual eligibility.
-5. Record failures and the exact test counts/logs. Verify the imported journal fixture is exercised and unsupported models remain rejected. Mac hardware support needs a separate real host inspection against the intended engine and signed catalog; simulation does not establish it.
+5. Record failures and the exact test counts/logs. Verify the imported journal fixture is exercised and unsupported models remain rejected. Mac hardware support needs a separate real host inspection against the native engine and intended signed catalog; simulation does not establish it.
 
 These steps require no helper registration, real machine-owner credentials, production signing, disk changes or release publication. If a run asks to cross one of those boundaries, stop and review that as a separate operation.
 
 ## Before packaging or installation
 
-For another app assembly, supply the exact authenticated inspection engine described in [extraction.md](extraction.md#inherited-prerequisites-and-open-issues) and review the resulting app structure and code-signing requirements. The initial ad-hoc assembly passed; a complete native engine rebuild remains a separate unvalidated path. The current publisher's catalog, public key and signing identity are not interchangeable with a new Omacom release identity.
+Use the [native DMG workflow](native-dmg-release.md) with matching signed schema-5 catalogs. No inspection engine archive or Python runtime is required or accepted. Record the exact source revision, catalog revisions, test logs and signing/package results for the candidate.
 
-An M3 Air may be a physical validation candidate only after its exact model, engine support and intended payload are checked. The M4 Pro is admitted by the native installer policy; J614s hardware qualification remains a post-publication validation step.
-
-Physical installation needs its own backup, recovery, image/package revision and authorization record. Later release qualification must cover installation, Recovery boot, first boot, update, encrypted-install behavior and recovery on the assembled shared stack. Passing this source suite does not satisfy those checks.
+Physical installation needs its own backup, recovery, image/package revision and authorization record. Qualification covers installation, Recovery boot, first boot, updates and encrypted-install behavior on the assembled stack. Passing source checks does not satisfy those checks.

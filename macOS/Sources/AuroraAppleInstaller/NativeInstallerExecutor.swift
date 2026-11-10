@@ -3,7 +3,7 @@
   import Darwin
   import Foundation
 
-  public enum PinnedAsahiEngineExecutionError:
+  public enum NativeInstallerExecutionError:
     Error, Equatable, Sendable
   {
     case privilegeRequired
@@ -21,7 +21,7 @@
   /// native engine. Nothing here launches an interpreter or an engine archive:
   /// fresh installation, Recovery handoff and its retry, and preserved
   /// reinstallation are all compiled into the helper.
-  public struct PinnedAsahiEngineExecutor:
+  public struct NativeInstallerExecutor:
     ImportedEngineHandoffExecuting, Sendable
   {
     public static let maximumTranscriptBytes: Int64 = 8_388_608
@@ -39,6 +39,7 @@
     private let espFilesPreparer: any NativeESPFilesPreparing
     private let installationFinisher: any NativeInstallationFinishingPreparing
     private let preservedReinstall: any NativePreservedReinstallExecuting
+    private let stage1Update: any NativeStage1UpdateExecuting
     private let nativeHandoff: any NativeRecoveryHandoffExecuting
     private let validatePayload: @Sendable (ImportedEngineHandoffPackage) async throws -> Void
     private let validateSourceOwner:
@@ -65,6 +66,7 @@
       espFilesPreparer = NativeESPFilesPreparer()
       installationFinisher = finishing
       preservedReinstall = NativePreservedInstallCoordinator()
+      stage1Update = NativeStage1UpdateCoordinator()
       nativeHandoff = NativeRecoveryHandoffExecutor()
       validatePayload = { try await NativePayloadPreflight.check($0) }
       validateSourceOwner = {
@@ -90,6 +92,7 @@
       installationFinisher: any NativeInstallationFinishingPreparing = NativeInstallationFinisher(),
       preservedReinstall: any NativePreservedReinstallExecuting =
         NativePreservedInstallCoordinator(),
+      stage1Update: any NativeStage1UpdateExecuting = NativeStage1UpdateCoordinator(),
       nativeHandoff: any NativeRecoveryHandoffExecuting = NativeRecoveryHandoffExecutor(),
       validatePayload: @escaping @Sendable (ImportedEngineHandoffPackage) async throws -> Void = {
         try await NativePayloadPreflight.check($0)
@@ -117,6 +120,7 @@
       self.espFilesPreparer = espFilesPreparer
       self.installationFinisher = installationFinisher
       self.preservedReinstall = preservedReinstall
+      self.stage1Update = stage1Update
       self.nativeHandoff = nativeHandoff
       self.validatePayload = validatePayload
       self.validateSourceOwner = validateSourceOwner
@@ -139,7 +143,12 @@
       installConf: InstallConf?
     ) async throws -> Data {
       guard effectiveUserID() == 0 else {
-        throw PinnedAsahiEngineExecutionError.privilegeRequired
+        throw NativeInstallerExecutionError.privilegeRequired
+      }
+      // A Stage 1 update keeps no execution journal: it never touches the
+      // partitions, and the stub records its own state for Recovery.
+      if operation == .updateStage1 {
+        return try await updateStage1(package, authorization: authorization)
       }
       let journal = try preparePersistentJournal(for: package)
       // Only an older installer's retired engine could repair an installed
@@ -155,7 +164,7 @@
         guard let installConf,
           operation == .install || operation == .retryRecoveryAuthorization
         else {
-          throw PinnedAsahiEngineExecutionError.nativeReinstallUnavailable
+          throw NativeInstallerExecutionError.nativeReinstallUnavailable
         }
         do {
           return try await InstallerPerformance.measuring("preserved_reinstall") {
@@ -163,7 +172,7 @@
               package, journal: journal, authorization: authorization,
               installConf: installConf)
           }
-        } catch let error as PinnedAsahiEngineExecutionError {
+        } catch let error as NativeInstallerExecutionError {
           throw error
         } catch {
           let update = Self.macOSUpdateSummary(for: error)
@@ -199,7 +208,7 @@
       }
       do {
         guard let restoreImageRequirement, let restoreImage = package.restoreImageURL else {
-          throw PinnedAsahiEngineExecutionError.restoreImageUnavailable
+          throw NativeInstallerExecutionError.restoreImageUnavailable
         }
         try InstallerPerformance.measure("restore_helper_check") {
           try verifyRestoreImage(restoreImage, restoreImageRequirement)
@@ -215,6 +224,10 @@
           try validateSourceOwner(package, authorization)
         }
       } catch {
+        // The person's saved log keeps errors under every filter; the
+        // root-only diagnostics are out of their reach.
+        InstallerLog.record(
+          .error, "Owner check refused: \(error)", secrets: [authorization.password])
         throw preparationFailure(
           error, reason: .recoveryPreparation, operation: operation, journal: journal,
           package: package, password: authorization.password,
@@ -248,7 +261,7 @@
         }
       } catch {
         let network = TransientTransport.isTransient(error)
-        throw PinnedAsahiEngineExecutionError.engineFailed(
+        throw NativeInstallerExecutionError.engineFailed(
           EngineFailureReport(
             notice: EngineFailureNotice(
               reason: network ? .networkUnavailable : .firmwarePreparation, exitStatus: 1,
@@ -356,7 +369,7 @@
         } catch {
           let network = TransientTransport.isTransient(error)
           let (reason, summary) = Self.executionFailure(error)
-          throw PinnedAsahiEngineExecutionError.engineFailed(
+          throw NativeInstallerExecutionError.engineFailed(
             EngineFailureReport(
               notice: EngineFailureNotice(
                 reason: network ? .networkUnavailable : reason,
@@ -398,8 +411,8 @@
             package: package, journal: journal,
             authorization: authorization, requirement: requirement, fullReadback: fullReadback)
         }
-      } catch let error as PinnedAsahiEngineExecutionError { throw error } catch {
-        throw PinnedAsahiEngineExecutionError.engineFailed(
+      } catch let error as NativeInstallerExecutionError { throw error } catch {
+        throw NativeInstallerExecutionError.engineFailed(
           EngineFailureReport(
             notice: EngineFailureNotice(
               reason: .recoveryPreparation, exitStatus: 1,
@@ -489,6 +502,9 @@
       if let shortfall = error as? MacOSFreeSpaceShortfall {
         return (.macOSSpaceRequired, shortfall.summary)
       }
+      if let shortfall = error as? ApprovedSpaceShortfall {
+        return (.approvedSpaceChanged, shortfall.summary)
+      }
       let name = errorName(error)
       switch error {
       case is NativeRawImageError: return (.unclassified, "The Linux image could not be written.")
@@ -550,7 +566,7 @@
         NativeInspectionError.invalidMetadata, NativeInspectionError.metadataChanged,
         NativeInspectionError.invalidPolicy, NativeRawImageError.invalidImage,
         NativeInstallAdmissionError.invalidJournal,
-        PinnedAsahiEngineExecutionError.unsafeTranscript:
+        NativeInstallerExecutionError.unsafeTranscript:
         true
       default: false
       }
@@ -602,13 +618,62 @@
       return .unclassified
     }
 
+    private func updateStage1(
+      _ package: ImportedEngineHandoffPackage, authorization: MachineOwnerAuthorization
+    ) async throws -> Data {
+      guard package.installationIntent == .reinstall else {
+        throw NativeInstallerExecutionError.nativeReinstallUnavailable
+      }
+      do {
+        return try await InstallerPerformance.measuring("stage1_update") {
+          try await stage1Update.execute(package, authorization: authorization)
+        }
+      } catch {
+        let failure = error as? NativeStage1UpdateFailure
+        let underlying = failure?.underlying ?? error
+        let network = TransientTransport.isTransient(underlying)
+        let update = Self.macOSUpdateSummary(for: underlying)
+        let summary =
+          network
+          ? Self.networkSummary : update ?? Self.stage1UpdateSummary(for: underlying)
+        throw NativeInstallerExecutionError.engineFailed(
+          EngineFailureReport(
+            notice: EngineFailureNotice(
+              reason: network
+                ? .networkUnavailable
+                : update == nil ? .bootLoaderUpdateRefused : .macOSUpdateRequired,
+              exitStatus: 1, diskUnchanged: failure?.diskChanged == false, summary: summary),
+            redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
+              Data(String(describing: underlying).utf8), truncated: false,
+              secrets: [authorization.password])))
+      }
+    }
+
+    static func stage1UpdateSummary(for error: any Error) -> String {
+      if let refusal = error as? NativeStage1UpdateError { return refusal.summary }
+      if let chain = error as? NativeBootChainError, chain.releaseLacksMachO {
+        return NativeBootChainError.releaseLacksMachOSummary
+      }
+      if error is NativeSourceOwnerRefusal { return sourceOwnerSummary(for: error) }
+      switch error {
+      case NativeHandoffValidationError.authorizationFailed:
+        return "macOS didn't accept the password to choose this installation as the startup disk."
+      case NativePreservedInstallError.changedLayout, NativePreservedInstallError.unavailable:
+        return NativeStage1UpdateError.changedInstallation.summary
+      case is NativeBootChainError:
+        return "This release's boot loader didn't pass the installer's checks."
+      default:
+        return "The boot loader update didn't finish."
+      }
+    }
+
     static func preservedSummary(for error: any Error) -> String? {
       if let chain = error as? NativeBootChainError, chain.releaseLacksMachO {
         return NativeBootChainError.releaseLacksMachOSummary
       }
       if case NativePreservedInstallError.earlierStage1 = error {
-        return "This installation was set up by an earlier Aurora installer, and this one can't "
-          + "reset it. Erase Linux, then install Aurora again."
+        return "This installation's boot loader is from an earlier Aurora installer. "
+          + "Update its boot loader first, then reset it."
       }
       guard
         case NativePreservedInstallError.espFull(let required, let available) = error
@@ -636,11 +701,27 @@
       }
     }
 
+    /// Whether a shown summary is a refusal about macOS's Preboot list of
+    /// Recovery administrators: absent, unreadable or without the account.
+    /// macOS rebuilds that list from its accounts with `diskutil apfs
+    /// updatePreboot`, so the person can be told how before trying again.
+    public static func isPrebootAdminListSummary(_ summary: String) -> Bool {
+      let refusals: [NativeSourceOwnerRefusal] = [
+        .adminListMissing, .adminListUnreadable(detail: ""), .notInAdminList,
+      ]
+      return refusals.contains { refusal in
+        let shown = sourceOwnerSummary(for: refusal)
+        // The unreadable summary ends with its detail; match what precedes it.
+        let stem = shown.hasSuffix(": .") ? String(shown.dropLast(2)) : shown
+        return summary.hasPrefix(stem)
+      }
+    }
+
     private func preparationFailure(
       _ error: any Error, reason: EngineFailureReason, operation: EngineHandoffOperation,
       journal: URL, package: ImportedEngineHandoffPackage, password: Data,
       summary: String = "Native Recovery resources could not be verified."
-    ) -> PinnedAsahiEngineExecutionError {
+    ) -> NativeInstallerExecutionError {
       let network = TransientTransport.isTransient(error)
       return .engineFailed(
         EngineFailureReport(
@@ -678,7 +759,7 @@
         journal.path,
         O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
       )
-      guard descriptor >= 0 else { throw PinnedAsahiEngineExecutionError.unsafeTranscript }
+      guard descriptor >= 0 else { throw NativeInstallerExecutionError.unsafeTranscript }
       defer { Darwin.close(descriptor) }
       var status = stat()
       guard fstat(descriptor, &status) == 0,
@@ -688,7 +769,7 @@
         status.st_size >= 0,
         status.st_size <= Self.maximumTranscriptBytes
       else {
-        throw PinnedAsahiEngineExecutionError.unsafeTranscript
+        throw NativeInstallerExecutionError.unsafeTranscript
       }
       if status.st_size == 0 { return Data() }
       let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
@@ -696,7 +777,7 @@
         data.count == Int(status.st_size),
         data.last == 0x0A
       else {
-        throw PinnedAsahiEngineExecutionError.unsafeTranscript
+        throw NativeInstallerExecutionError.unsafeTranscript
       }
       return data
     }
@@ -894,7 +975,7 @@
         O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
       )
       guard descriptor >= 0 else {
-        throw PinnedAsahiEngineExecutionError.unsafeTranscript
+        throw NativeInstallerExecutionError.unsafeTranscript
       }
       defer { Darwin.close(descriptor) }
 
@@ -906,7 +987,7 @@
         status.st_size > 0,
         status.st_size <= 1_048_576
       else {
-        throw PinnedAsahiEngineExecutionError.unsafeTranscript
+        throw NativeInstallerExecutionError.unsafeTranscript
       }
       let handle = FileHandle(
         fileDescriptor: descriptor,
@@ -915,7 +996,7 @@
       guard let data = try handle.readToEnd(),
         data.count == Int(status.st_size)
       else {
-        throw PinnedAsahiEngineExecutionError.unsafeTranscript
+        throw NativeInstallerExecutionError.unsafeTranscript
       }
       return data
     }
@@ -928,7 +1009,7 @@
           rawValue: package.bindingDigest
         )
       else {
-        throw PinnedAsahiEngineExecutionError.unsafeTranscript
+        throw NativeInstallerExecutionError.unsafeTranscript
       }
       let identifier = bindingDigest.hexadecimal
 
@@ -951,7 +1032,7 @@
         S_IRUSR | S_IWUSR
       )
       guard descriptor >= 0 else {
-        throw PinnedAsahiEngineExecutionError.unsafeTranscript
+        throw NativeInstallerExecutionError.unsafeTranscript
       }
       var status = stat()
       guard fstat(descriptor, &status) == 0,
@@ -961,7 +1042,7 @@
         status.st_size <= Self.maximumTranscriptBytes
       else {
         Darwin.close(descriptor)
-        throw PinnedAsahiEngineExecutionError.unsafeTranscript
+        throw NativeInstallerExecutionError.unsafeTranscript
       }
       Darwin.close(descriptor)
       return journal
@@ -974,7 +1055,7 @@
         status.st_mode & 0o077 == 0,
         status.st_uid == expectedFileOwnerID()
       else {
-        throw PinnedAsahiEngineExecutionError.unsafeTranscript
+        throw NativeInstallerExecutionError.unsafeTranscript
       }
     }
 
@@ -984,7 +1065,7 @@
         O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
       )
       guard descriptor >= 0 else {
-        throw PinnedAsahiEngineExecutionError.unsafeTranscript
+        throw NativeInstallerExecutionError.unsafeTranscript
       }
       defer { Darwin.close(descriptor) }
 
@@ -996,7 +1077,7 @@
         status.st_size > 0,
         status.st_size <= Self.maximumTranscriptBytes
       else {
-        throw PinnedAsahiEngineExecutionError.unsafeTranscript
+        throw NativeInstallerExecutionError.unsafeTranscript
       }
       let handle = FileHandle(
         fileDescriptor: descriptor,
@@ -1006,7 +1087,7 @@
         data.count == Int(status.st_size),
         data.last == 0x0A
       else {
-        throw PinnedAsahiEngineExecutionError.unsafeTranscript
+        throw NativeInstallerExecutionError.unsafeTranscript
       }
       return data
     }

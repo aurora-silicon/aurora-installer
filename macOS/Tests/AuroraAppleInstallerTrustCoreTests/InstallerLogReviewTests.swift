@@ -80,7 +80,7 @@
       jobs.finish(
         request.ticket.identifier,
         result: .success(
-          (Data(count: Int(PinnedAsahiEngineExecutor.maximumTranscriptBytes)), .recorded)))
+          (Data(count: Int(NativeInstallerExecutor.maximumTranscriptBytes)), .recorded)))
       let snapshot = try jobs.status(
         InstallerJobStatusRequest(ticket: request.ticket, journalOffset: 0, logSequence: 0),
         initiatingUID: 501)

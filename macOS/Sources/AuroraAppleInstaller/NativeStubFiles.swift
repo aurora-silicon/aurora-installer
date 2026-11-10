@@ -443,10 +443,13 @@
         volumeRoot: true, volumeDevice: sourcePreboot.identifier,
         verifyMount: platform.environment.verifyMount)
       let admin = try sourceTree.sourceOwnerMetadata(groupUUID: sourceBootstrap.groupUUID)
+      // The owner proof looks the account up under its own short name, which
+      // a name typed in another case or as an alias resolves to.
       guard
+        let account = try? platform.environment.ownerName(authorization.username),
         let users = try PropertyListSerialization.propertyList(from: admin, format: nil)
           as? [String: [String: Any]],
-        (users[authorization.username]?["GeneratedUID"] as? String).flatMap(UUID.init(uuidString:))?
+        (users[account]?["GeneratedUID"] as? String).flatMap(UUID.init(uuidString:))?
           .uuidString
           == sourceBootstrap.ownerUUID
       else { throw NativeHandoffValidationError.invalidOwner }

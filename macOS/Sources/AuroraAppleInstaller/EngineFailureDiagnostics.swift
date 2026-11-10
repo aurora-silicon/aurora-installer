@@ -36,9 +36,13 @@
     /// summary names the space needed and the space free, in gigabytes.
     /// Older apps show this as unclassified.
     case macOSSpaceRequired = 10
-    /// The installation can't be reset by this installer, only erased and
-    /// installed again. Older apps show this as unclassified.
+    /// The installation's boot loader is too old for this installer to reset
+    /// it; updating the boot loader first makes it resettable. Older apps show
+    /// this as unclassified.
     case reinstallRequired = 11
+    /// A boot loader update stopped. The summary says why. Older apps show
+    /// this as unclassified.
+    case bootLoaderUpdateRefused = 12
 
     private static let macOSUpdatePrefix = "This Mac needs macOS "
     private static let macOSUpdateSuffix = " or later."

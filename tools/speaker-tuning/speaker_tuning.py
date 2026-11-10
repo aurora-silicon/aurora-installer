@@ -420,6 +420,53 @@ def raw_tuning(all_firmware):
         return col.bundle, len([n for n in set(names) if n not in col.bundle])
 
 
+def packaged_bundle(vendorfw):
+    """(bundle verified from the apple/audio-tuning/ part of vendorfw's
+    firmware.tar or None, number of unlisted extra files there)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        names = []
+        with tarfile.open(pathlib.Path(vendorfw) / "firmware.tar") as tar:
+            for m in tar:
+                if not m.name.startswith(PREFIX) or not (m.isfile() or m.islnk()):
+                    continue
+                rel = m.name[len(PREFIX):]
+                names.append(rel)
+                if not audio_tuning.admitted(rel):
+                    continue
+                src = m
+                while src.islnk():
+                    src = tar.getmember(src.linkname)
+                target = os.path.join(tmp, FALLBACK_DIR, rel)
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+                with tar.extractfile(src) as f, open(target, "wb") as dst:
+                    shutil.copyfileobj(f, dst)
+        if not names:
+            return None, 0
+        col = AudioTuningFWCollection(path=tmp)
+        if not col.bundle:
+            return None, len(names)
+        return col.bundle, len([n for n in set(names) if n not in col.bundle])
+
+
+def rebuild_tuning_only(bundle, work, dest):
+    """vendorfw holding only this bundle, packaged as update_firmware
+    packages speaker tuning (no other firmware, no kernelcache)."""
+    from asahi_firmware.core import FWPackage
+    root = pathlib.Path(work) / "tuning-only"
+    for name, data in bundle_members(bundle, FW_DIR):
+        path = root / name
+        if data is None:
+            path.mkdir(parents=True, exist_ok=True)
+        else:
+            path.write_bytes(data)
+    col = AudioTuningFWCollection(path=str(root))
+    if col.bundle != bundle:
+        raise Refused("the bundle does not re-verify for packaging")
+    pkg = FWPackage(pathlib.Path(dest))
+    pkg.add_files(sorted(col.files()))
+    pkg.close()
+
+
 def rebuild_all_firmware(old, new, bundle):
     """old all_firmware with its audio-tuning/ part replaced by bundle."""
     with tarfile.open(old, mode="r:gz") as src, tarfile.open(new, mode="w:gz") as dst:
@@ -646,15 +693,30 @@ def install(source, esp, dry_run=False, backup_root=BACKUP_ROOT, any_mac=False,
             compatible=None, out=print, swap=exchange, rebuild=None, unit=None):
     """Returns "identical" (nothing to do), "dry-run" or "installed", or
     raises Refused. The ESP is left as it was on any failure."""
-    if rebuild is None:
-        rebuild = rebuild_default
     esp = pathlib.Path(esp)
     asahi, vendorfw = esp / "asahi", esp / "vendorfw"
     all_fw = asahi / "all_firmware.tar.gz"
-    for p in (all_fw, vendorfw / "manifest.txt", vendorfw / "firmware.cpio"):
+    # An ESP whose vendorfw/ carries only speaker tuning and that has no
+    # asahi/ (a Mac set up without the Asahi installer's firmware step, such
+    # as the J700): vendorfw is rebuilt from the bundle alone.
+    tuning_only = not asahi.exists()
+    need = (vendorfw / "manifest.txt", vendorfw / "firmware.cpio") + (() if tuning_only else (all_fw,))
+    for p in need:
         if not p.is_file():
             raise Refused(f"{p} is missing; this does not look like an Aurora system ESP")
-    kernel = kernelcache(asahi)
+    if tuning_only:
+        if rebuild is not None:
+            raise Refused("a custom rebuild needs asahi/all_firmware.tar.gz")
+        others = [k for k in parse_manifest((vendorfw / "manifest.txt").read_text("ascii"))
+                  if not k.startswith(PREFIX)]
+        if others:
+            raise Refused(f"{esp} has no asahi/ but its vendorfw holds {len(others)} file(s) besides "
+                          f"the speaker tuning ({others[0]}, ...); it cannot be rebuilt from the bundle alone")
+        kernel = None
+    else:
+        if rebuild is None:
+            rebuild = rebuild_default
+        kernel = kernelcache(asahi)
 
     with opened_bundle(source) as (bundle, info):
         out(f"Bundle: {describe(bundle)}")
@@ -662,7 +724,7 @@ def install(source, esp, dry_run=False, backup_root=BACKUP_ROOT, any_mac=False,
             out(f"Collected on: {info.get('target')} ({info.get('model')})")
         out(f"System ESP: {esp}")
 
-        raw, extra = raw_tuning(all_fw)
+        raw, extra = packaged_bundle(vendorfw) if tuning_only else raw_tuning(all_fw)
         old = parse_manifest((vendorfw / "manifest.txt").read_text("ascii"))
         packaged = tuning_in_package(old)
         machine_check(bundle, info, raw, compatible, any_mac, unit)
@@ -673,7 +735,11 @@ def install(source, esp, dry_run=False, backup_root=BACKUP_ROOT, any_mac=False,
             ("another bundle: " + describe(raw)) if raw else "no bundle"
         if raw_same and extra:
             state += f" ({extra} unlisted extra file(s) under {FW_DIR}, ignored)"
-        out(f"  {all_fw.relative_to(esp)}: {state}")
+        if tuning_only:
+            out(f"  no asahi/: vendorfw holds only speaker tuning and is rebuilt from the bundle alone")
+            raw_same = True     # there is no all_firmware to replace
+        else:
+            out(f"  {all_fw.relative_to(esp)}: {state}")
         out(f"  {vendorfw.relative_to(esp)}: "
             f"{'identical bundle' if pkg_same else 'a different bundle' if packaged else 'no bundle'}")
         if raw_same and pkg_same:
@@ -685,15 +751,19 @@ def install(source, esp, dry_run=False, backup_root=BACKUP_ROOT, any_mac=False,
             src = tmp / "source"
             src.mkdir()
             new_fw = src / "all_firmware.tar.gz"
-            if raw_same:
-                os.symlink(all_fw, new_fw)
-            else:
-                rebuild_all_firmware(all_fw, new_fw, bundle)
-            os.symlink(kernel, src / kernel.name)
             staged = tmp / "vendorfw"
             staged.mkdir()
-            out(f"Rebuilding vendorfw (kernelcache {kernel.name}) ...")
-            rebuild(src, staged)
+            if tuning_only:
+                out("Rebuilding vendorfw from the bundle alone ...")
+                rebuild_tuning_only(bundle, src, staged)
+            else:
+                if raw_same:
+                    os.symlink(all_fw, new_fw)
+                else:
+                    rebuild_all_firmware(all_fw, new_fw, bundle)
+                os.symlink(kernel, src / kernel.name)
+                out(f"Rebuilding vendorfw (kernelcache {kernel.name}) ...")
+                rebuild(src, staged)
             added = check_package(vendorfw, staged, bundle)
             out(f"Check passed: the rebuilt vendorfw keeps all {len(old) - len(packaged)} "
                 f"other files by path and hash"
@@ -714,7 +784,8 @@ def install(source, esp, dry_run=False, backup_root=BACKUP_ROOT, any_mac=False,
             os.makedirs(backup_root, mode=0o700, exist_ok=True)
             backup = pathlib.Path(tempfile.mkdtemp(
                 prefix=time.strftime("speaker-tuning-%Y%m%d-%H%M%S-"), dir=backup_root))
-            copy_verified(all_fw, backup / "all_firmware.tar.gz")
+            if not tuning_only:
+                copy_verified(all_fw, backup / "all_firmware.tar.gz")
             copy_verified(vendorfw, backup / "vendorfw")
             out(f"Backed up the ESP files to {backup}")
 
@@ -752,7 +823,7 @@ def install(source, esp, dry_run=False, backup_root=BACKUP_ROOT, any_mac=False,
                 except OSError as e:
                     log.warning(f"Could not remove the old copy at {p}: {e}")
             os.sync()
-            out("Done: the speaker tuning is in vendorfw and all_firmware.")
+            out("Done: the speaker tuning is in vendorfw" + ("." if tuning_only else " and all_firmware."))
             out(f"The previous files are kept in {backup}.")
             return "installed"
 
