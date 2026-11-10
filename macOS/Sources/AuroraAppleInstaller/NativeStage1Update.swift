@@ -58,56 +58,57 @@
     static let maximumBytes = 64 << 20
 
     let mode: NativeRecoveryBootMode
-    /// The filled raw Stage 1. Recovery keeps it in both modes.
+    /// The filled raw Stage 1. Recovery keeps it in both modes; it is never enrolled.
     let raw: Data
-    /// The filled Mach-O boot object, on chips that enroll one.
-    let machO: Data?
+    /// The filled Mach-O boot object, which Recovery enrolls on every Mac.
+    let machO: Data
     /// The ESP file it chainloads.
     let stage2Path: String
     /// The padded object's whole size, which Recovery needs free to enroll it.
     let expandedBytes: UInt64?
 
     /// What Recovery enrolls and records in its receipt.
-    var enrolled: Data { machO ?? raw }
+    var enrolled: Data { machO }
     var enrolledSHA256: String { NativeStubFileStore.hash(enrolled) }
     var stage1Path: String { NativeStage1Update.stage1Path(mode) }
 
     init(plan: NativeESPPayloadPlan, espUUID: String) throws {
       try self.init(
-        stage1: plan.stage1, machO: plan.stage1MachO, windowMilliseconds: plan.windowMilliseconds,
-        legacy: plan.usesLegacyStage1, espUUID: espUUID)
+        stage1: plan.stage1, machO: plan.stage1MachO, executeWindow: plan.executeWindow,
+        windowMilliseconds: plan.windowMilliseconds, legacy: plan.usesLegacyStage1,
+        espUUID: espUUID)
     }
 
     /// The same fill and checks as a fresh installation, then a read-back of
     /// what Recovery checks before it enrolls.
     init(
-      stage1: Data, machO object: Data?, windowMilliseconds: UInt32, legacy: Bool, espUUID: String
+      stage1: Data, machO object: Data?, executeWindow: Bool, windowMilliseconds: UInt32,
+      legacy: Bool, espUUID: String
     )
       throws
     {
       guard !legacy else { throw NativeStage1UpdateError.unsupportedStage1 }
-      for bytes in [stage1, object].compactMap({ $0 }) where bytes.count > Self.maximumBytes {
+      // Recovery enrolls only the boot object; without one there is nothing to enroll.
+      guard let object else { throw NativeBootChainError.missingMachOStage1 }
+      for bytes in [stage1, object] where bytes.count > Self.maximumBytes {
         throw NativeStage1UpdateError.stage1TooLarge(bytes: UInt64(bytes.count))
       }
       let uuid = espUUID.lowercased()
-      let path = AuraStage1Format.stage2Path(machO: object != nil)
+      let path = AuraStage1Format.stage2Path(executeWindow: executeWindow)
       let raw = try NativeBootChain.fillStage1(
         stage1, uuid: uuid, path: path, windowMilliseconds: windowMilliseconds)
       guard let configuration = try? Stage1Configuration.read(raw),
         configuration.espUUID.lowercased() == uuid, configuration.stage2Path == path
       else { throw NativeBootChainError.invalidStage1 }
-      var filled: Data?
+      let filled: Data
       var expanded: UInt64?
-      if let object {
-        do {
-          let carried = try MachOBootObject.fill(object, raw: stage1, filled: raw)
-          expanded = try MachOBootObject.expandExecuteWindow(carried).size
-          filled = carried
-        } catch is MachOBootObject.Invalid {
-          throw NativeBootChainError.invalidStage1
-        }
+      do {
+        filled = try MachOBootObject.fill(object, raw: stage1, filled: raw)
+        if executeWindow { expanded = try MachOBootObject.expandExecuteWindow(filled).size }
+      } catch is MachOBootObject.Invalid {
+        throw NativeBootChainError.invalidStage1
       }
-      mode = object == nil ? .raw : .macho
+      mode = NativeRecoveryBootMode(executeWindow: executeWindow)
       self.raw = raw
       machO = filled
       stage2Path = path
@@ -131,7 +132,8 @@
     let groupUUID: String
     let prebootUUID: String
     let espUUID: String
-    let machO: Bool
+    /// Whether this Mac's chip uses the execute window (AuraStage1Format.usesExecuteWindow).
+    let executeWindow: Bool
   }
 
   enum NativeStage1UpdateDecision: Equatable, Sendable {
@@ -152,12 +154,13 @@
     static let reserveBytes: UInt64 = 32 << 20
     static let checkpoint = "stage1-update-staged"
 
-    static func stage1Path(_ mode: NativeRecoveryBootMode) -> String {
-      mode == .raw ? "raw/aura-raw.bin" : "macho/aura-boot.macho"
-    }
+    /// Recovery enrolls the boot object in every mode.
+    static func stage1Path(_ mode: NativeRecoveryBootMode) -> String { "macho/aura-boot.macho" }
 
-    /// Checks the stub's records against what recognition found. A Mach-O
-    /// installation an earlier installer made still names `m1n1/boot.bin`.
+    /// Checks the stub's records against what recognition found. A padded
+    /// installation an earlier installer made still names `m1n1/boot.bin`; an
+    /// M1 to M3 one it enrolled raw records "raw", and is updated to the
+    /// unpadded boot object.
     static func records(
       configuration: Data, manifest: Data, receipt: Data?, pending: Bool,
       binding: NativeStage1UpdateBinding
@@ -174,14 +177,14 @@
         config["prebootUUID"] as? String == binding.prebootUUID,
         (config["espUUID"] as? String)?.uppercased() == binding.espUUID.uppercased(),
         let name = config["volumeName"] as? String, !name.isEmpty,
-        let mode = (config["bootMode"] as? String).flatMap(NativeRecoveryBootMode.init),
+        let mode = (config["bootMode"] as? String).flatMap(NativeRecoveryBootMode.init(recorded:)),
         let path = config["stage2Path"] as? String
       else { throw NativeStage1UpdateError.changedInstallation }
-      guard mode == (binding.machO ? .macho : .raw) else {
+      guard mode == NativeRecoveryBootMode(executeWindow: binding.executeWindow) else {
         throw NativeStage1UpdateError.wrongBootMode
       }
       let paths =
-        mode == .raw
+        mode == .standard
         ? [AuraStage1Format.standardStage2Path]
         : [AuraStage1Format.confinedStage2Path, AuraStage1Format.standardStage2Path]
       guard paths.contains(path) else { throw NativeStage1UpdateError.changedInstallation }
@@ -193,7 +196,7 @@
       guard !pending, let receipt,
         let record = try? JSONSerialization.jsonObject(with: receipt) as? [String: Any],
         record["status"] as? String == "installed",
-        record["mode"] as? String == mode.rawValue,
+        (record["mode"] as? String).flatMap(NativeRecoveryBootMode.init(recorded:)) == mode,
         record["stage1SHA256"] is String, record["stage2Path"] is String
       else { throw NativeStage1UpdateError.setupUnfinished }
       return NativeStage1UpdateRecords(
@@ -224,7 +227,7 @@
     /// Recovery reads the whole padded object, so the volume needs room for it
     /// as well as the new files.
     static func requireSpace(_ candidate: NativeStage1UpdateCandidate, freeBytes: UInt64) throws {
-      let files = UInt64(candidate.raw.count + (candidate.machO?.count ?? 0))
+      let files = UInt64(candidate.raw.count + candidate.machO.count)
       let required =
         (candidate.expandedBytes ?? UInt64(candidate.raw.count)) + files + reserveBytes
       guard freeBytes >= required else {
@@ -323,10 +326,12 @@
     ) async throws {
       var configuration = records.configuration
       configuration["stage2Path"] = candidate.stage2Path
+      // An installation recorded as raw now enrolls the unpadded boot object.
+      configuration["bootMode"] = candidate.mode.rawValue
       var manifest = records.manifest
       var files = manifest["files"] as? [String: [String: Any]] ?? [:]
       var replaced = ["raw/aura-raw.bin": candidate.raw]
-      if let machO = candidate.machO { replaced["macho/aura-boot.macho"] = machO }
+      replaced["macho/aura-boot.macho"] = candidate.machO
       if let stage2Baseline { replaced["raw/boot.bin"] = stage2Baseline }
       for (name, bytes) in replaced {
         files[name] = ["sha256": NativeStubFileStore.hash(bytes), "bytes": bytes.count]
@@ -489,19 +494,19 @@
         approved: approved, metadata: metadata, disk: facts.disk, stubBytes: firmware.stubBytes,
         identityDigest: target.identityDigest)
       let volumes = try NativeStage1Update.volumes(target, snapshot: facts.disk.snapshot)
-      let machO = AuraStage1Format.usesMachO(chipID: facts.hardware.chipID)
+      let executeWindow = AuraStage1Format.usesExecuteWindow(chipID: facts.hardware.chipID)
       let binding = NativeStage1UpdateBinding(
         systemUUID: try NativeSourceBootstrap.uuid(volumes.system.uuid),
         groupUUID: try NativeSourceBootstrap.uuid(target.group),
         prebootUUID: try NativeSourceBootstrap.uuid(volumes.preboot.uuid),
-        espUUID: target.esp.uuid, machO: machO)
+        espUUID: target.esp.uuid, executeWindow: executeWindow)
 
       let archive = try await IPSWArchive.open(
         NativePayloadRangeReader(package.payloadURL, owner: owner))
       guard
         let plan = try await NativeESPPayloadPlan.make(
           metadata: metadata, archive: archive, device: approved.deviceIdentifier,
-          firmware: firmware.version.components(separatedBy: " ")[0], machOStage1: machO)
+          firmware: firmware.version.components(separatedBy: " ")[0], executeWindow: executeWindow)
       else { throw NativeStage1UpdateError.unsupportedStage1 }
       let candidate = try NativeStage1UpdateCandidate(plan: plan, espUUID: target.esp.uuid)
 

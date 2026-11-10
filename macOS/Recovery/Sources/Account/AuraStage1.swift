@@ -1,24 +1,29 @@
 import Foundation
 
-/// Which Stage 1 boot object a Mac enrolls.
+/// Which Stage 1 boot object a Mac enrolls. Every Mac enrolls aura's Mach-O
+/// boot object (aura build/aura-boot.macho); none enrolls the raw image.
 public enum AuraStage1Format {
-  /// M4-generation and later chips boot aura's Mach-O boot object: T8132
-  /// (M4), T6040/T6041 (M4 Pro/Max), T8140 (A18 Pro), T8142 and T605x (M5)
-  /// and whatever follows them. Apple numbers each generation upward, so M1 to
-  /// M3 (T8103, T8112, T8122, T600x, T602x, T603x) stay below both bounds and
-  /// keep the raw image.
-  public static func usesMachO(chipID: UInt64) -> Bool {
+  /// M4-generation and later chips keep aura and the kernel's code inside an
+  /// execute window: T8132 (M4), T6040/T6041 (M4 Pro/Max), T8140 (A18 Pro),
+  /// T8142 and T605x (M5) and whatever follows them. Their object is padded for
+  /// that window, enrolled with `--compress`, and loads the confined Stage 2.
+  /// Apple numbers each generation upward, so M1 to M3 (T8103, T8112, T8122,
+  /// T600x, T602x, T603x) stay below both bounds: they enroll the object
+  /// unpadded and load the standard Stage 2. An unpadded object needs aura
+  /// 1.0.0b10-g2296392f or later (aura#134), whose Stage 1 stops its payload scan
+  /// at the object's __PRELINK_INFO.
+  public static func usesExecuteWindow(chipID: UInt64) -> Bool {
     (0x8130...0x8FFF).contains(chipID) || (0x6040...0x6FFF).contains(chipID)
   }
 
-  /// The ESP file a raw Stage 1 loads.
+  /// The ESP file an unpadded Stage 1 loads.
   public static let standardStage2Path = "m1n1/boot.bin"
-  /// The ESP file a Mach-O Stage 1, always padded, loads. Package updates on
-  /// Mach-O chips write this one.
+  /// The ESP file a padded Stage 1 loads. Package updates on execute-window
+  /// chips write this one.
   public static let confinedStage2Path = "m1n1/boot-ctxr.bin"
 
-  public static func stage2Path(machO: Bool) -> String {
-    machO ? confinedStage2Path : standardStage2Path
+  public static func stage2Path(executeWindow: Bool) -> String {
+    executeWindow ? confinedStage2Path : standardStage2Path
   }
 }
 
@@ -121,7 +126,7 @@ public enum MachOBootObject {
   }
 
   static let required = ["__TEXT", "__TEXT_EXEC", "__PRELINK_INFO", "__LINKEDIT"]
-  /// The raw image's entry point: `--entry-point 2048` in raw mode.
+  /// The raw image's entry point, which the boot object enters at.
   static let rawEntryOffset: UInt64 = 0x800
 
   public static func check(_ data: Data) throws {
@@ -222,6 +227,15 @@ public enum MachOBootObject {
     var result = object
     result.replaceSubrange(start..<end, with: filled)
     return result
+  }
+
+  /// The kcrz kmutil should derive for an unpadded object: load address to the
+  /// end of __TEXT_EXEC, as for a padded one.
+  public static func readOnlySize(_ object: Data) throws -> UInt64 {
+    let code = try layout(object).segments["__TEXT_EXEC"]!
+    let (end, overflow) = code.fileoff.addingReportingOverflow(code.vmsize)
+    guard !overflow else { throw Invalid(reason: "__TEXT_EXEC is too large") }
+    return end
   }
 
   /// kmutil's own derivation, printed by `kmutil inspect --show-mach-boot-properties`.

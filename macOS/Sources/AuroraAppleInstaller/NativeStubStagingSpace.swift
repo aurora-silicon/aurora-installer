@@ -297,7 +297,7 @@
       self.open = open
     }
 
-    /// Refuses an M4-or-later Mac whose signed metadata says this release can't
+    /// Refuses a Mac whose signed metadata says this release can't
     /// start it. It needs only this Mac's facts, the metadata and the firmware
     /// choice, so it runs before the payload and the restore image download.
     /// A firmware that can't be chosen is reported by the stub estimate instead.
@@ -305,7 +305,6 @@
       throws
     {
       let facts = try facts()
-      guard AuraStage1Format.usesMachO(chipID: facts.hardware.chipID) else { return }
       let data = try NativeInstallationMetadata.authenticatedData(metadata)
       guard
         let firmware = try? NativeFirmwareSelection.choose(
@@ -315,7 +314,8 @@
       else { return }
       if try NativeBootChain.machORefusal(
         metadata: data, deviceIdentifier: deviceIdentifier,
-        firmware: firmware.version.components(separatedBy: " ")[0]) != nil
+        firmware: firmware.version.components(separatedBy: " ")[0],
+        executeWindow: AuraStage1Format.usesExecuteWindow(chipID: facts.hardware.chipID)) != nil
       {
         throw InstallerPlanPreparationError.releaseLacksMachOStartup
       }

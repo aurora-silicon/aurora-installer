@@ -39,7 +39,7 @@
       _ = try await NativeBootChain.admit(
         metadata: metadata, archive: archive, deviceIdentifier: package.deviceIdentifier,
         firmware: firmware.version.components(separatedBy: " ")[0],
-        machOStage1: AuraStage1Format.usesMachO(chipID: facts.hardware.chipID))
+        executeWindow: AuraStage1Format.usesExecuteWindow(chipID: facts.hardware.chipID))
     }
 
     /// The caller has already authenticated the archive and supplied the

@@ -572,7 +572,8 @@
           XCTAssertNoThrow(try check(), "\(extra)")
         }
       }
-      // An M3 Mac starts from the raw Stage 1, so nothing here concerns it.
+      // An M3 Mac enrolls the unpadded object: it needs the object and its
+      // qualification, but no confined Stage 2.
       let m3 = NativeStubStagingEstimator(
         facts: {
           .init(
@@ -581,9 +582,41 @@
               chipID: 0x8122, bootVersion: "mBoot-18000.161.10", macOSVersion: "26.6.2",
               recoveryVersion: "25.7.83.0.0,0"))
         }, boardID: { 0x30 }, open: { _ in throw Opened() })
-      let plain = try staged([:])
-      XCTAssertNoThrow(
-        try m3.refuseUnstartableMachO(deviceIdentifier: "apple,j613", metadata: plain))
+      let m3Qualified: [String: Any] = [
+        "aurora_stage1": [
+          "kind": "common-raw-v1", "qualified_machines": ["j613ap": ["14.8.3"]],
+        ]
+      ]
+      for (extra, refused) in [
+        ([:], true),
+        (
+          m3Qualified.merging([
+            "aurora_macho_boot": [
+              "kind": "padded-ctxr-v1", "stage1_member": NSNull(), "confined_members": [],
+            ]
+          ]) { _, new in new }, true
+        ),
+        (m3Qualified, false),
+        (
+          m3Qualified.merging([
+            "aurora_macho_boot": [
+              "kind": "padded-ctxr-v1", "stage1_member": "esp/aurora/stage1.macho",
+              "confined_members": [],
+            ]
+          ]) { _, new in new }, false
+        ),
+      ] as [([String: Any], Bool)] {
+        let metadata = try staged(extra)
+        if refused {
+          XCTAssertThrowsError(
+            try m3.refuseUnstartableMachO(deviceIdentifier: "apple,j613", metadata: metadata),
+            "\(extra)")
+        } else {
+          XCTAssertNoThrow(
+            try m3.refuseUnstartableMachO(deviceIdentifier: "apple,j613", metadata: metadata),
+            "\(extra)")
+        }
+      }
     }
 
     private func inventory(_ candidates: [ValidatedEngineCandidate]) -> ValidatedEngineInventory {
