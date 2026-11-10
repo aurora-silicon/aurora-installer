@@ -595,13 +595,21 @@
       let cause = notice.summary.isEmpty ? diskState : "\(notice.summary) \(diskState)"
       switch notice.reason {
       case .approvedSpaceChanged:
+        // The native helper's summary carries the measured sizes and, when
+        // snapshots hold the space, says so. Older summaries are technical.
+        let measured = ApprovedSpaceShortfall.isSummary(notice.summary)
+        let snapshots =
+          ApprovedSpaceShortfall.namesSnapshots(notice.summary)
+          ? "To get that space back, back up your Mac, then let macOS remove its local Time Machine snapshots or follow Apple’s local-snapshot guidance. Don’t delete system or update snapshots. "
+          : ""
         return FailureDisplay(
           headline: "The space available for Aurora changed",
-          plainDetail:
-            "The size you approved no longer fits the space this Mac can provide now, so the installer stopped before using it. \(diskState)",
+          plainDetail: measured
+            ? "macOS needs more of the disk than when you approved the plan, so the installer stopped before using it. \(notice.summary) \(diskState)"
+            : "The size you approved no longer fits the space this Mac can provide now, so the installer stopped before using it. \(diskState)",
           technicalDetail: technicalDetail,
           remedy: unchanged
-            ? "Choose \(replanAction) to prepare a new plan with the space available now, then review and approve it."
+            ? "\(snapshots)Choose \(replanAction) to prepare a new plan with the space available now, then review and approve it."
             : "Save the error details and check the verified installation record before trying again. \(engineDiagnosticsLocation)",
           replanAvailable: unchanged
         )
