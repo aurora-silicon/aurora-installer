@@ -60,7 +60,7 @@ jobs:
       - name: Build
         run: |
           cd aura
-          make -k -j2 ARCH=aarch64-linux-gnu- RELEASE=1
+          make -k -j2 ARCH=aarch64-linux-gnu- RELEASE=1 CHAINLOADING=1 ESP_STAGE2=1
 
       - name: Update u-boot apple device trees
         run: |
