@@ -22,6 +22,8 @@ open "/absolute/output/Aurora Installer.app" --args --simulate
 
 The preview uses simulated data and does not change disks or register a helper. See [macOS development](macOS/README.md) for tests, packaging and the source layout.
 
+An installed system boots with one picture on screen from power-on to the desktop; [flicker-free boot](https://github.com/aurora-silicon/aurora-distributions/blob/main/docs/flicker-free-boot.md) describes each boot stage, the branding a distribution or downstream configures, and how to verify it.
+
 Standalone [speaker-tuning tools](tools/speaker-tuning/README.md) and their Python firmware library remain available for existing Linux installations.
 
 ## Credits
