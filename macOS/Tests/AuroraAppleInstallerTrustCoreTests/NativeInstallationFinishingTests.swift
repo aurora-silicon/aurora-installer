@@ -259,15 +259,14 @@
         XCTAssertTrue(
           outputs.fallback.contains(
             "audio-tuning/" + aid + "/DSP/Strips/builtin_speaker_out_general.austrip"))
-        try await fixture.prepareRecovery()
-        try await fixture.completion.prepare(
-          journal: fixture.base.journal, authorization: fixture.base.authorization,
-          bootstrap: fixture.base.bootstrap)
-        let file = try NativeInstallJournalFile(
-          url: fixture.base.journal, package: fixture.base.package, owner: geteuid())
-        let snapshot = try NativeRecoveryJournalSnapshot.decode(
-          file.readJournal(), package: fixture.base.package, evidence: file.readEvidence)
-        XCTAssertEqual(snapshot.state, .ready)
+        // These boards' fixture Stage 1 is the legacy one, which has no boot
+        // object, so Recovery is never handed it to enroll raw.
+        do {
+          try await fixture.prepareRecovery()
+          XCTFail("\(machine): Recovery was prepared for a Stage 1 without a boot object")
+        } catch {
+          XCTAssertEqual(error as? NativeHandoffValidationError, .invalidEvidence, machine)
+        }
       }
     }
 

@@ -33,23 +33,34 @@ def fdt(compatible):
 class EnrollmentTests(unittest.TestCase):
     SELECTION = (HERE.parent.parent / 'Recovery/Sources/BootSelection.swift').read_text()
     MACHO = {'stage1_mode': 'macho', 'stage2_path': 'm1n1/boot-ctxr.bin'}
+    STANDARD = {'stage1_mode': 'macho-standard', 'stage2_path': 'm1n1/boot.bin'}
     RAW = {'stage1_mode': 'raw', 'stage2_path': 'm1n1/boot.bin'}
 
-    def test_a_mach_o_chip_expects_the_padded_compressed_path(self):
+    def test_a_window_chip_expects_the_padded_compressed_path(self):
         ok, how = conformance.enrollment_check(self.SELECTION, True, [self.MACHO])
         self.assertTrue(ok)
         self.assertIn('--compress', how)
         self.assertNotIn('--raw', how)
-        for chain in (self.RAW, {'stage1_mode': 'macho', 'stage2_path': 'm1n1/boot.bin'}, {}):
+        for chain in (self.RAW, self.STANDARD, {'stage1_mode': 'macho', 'stage2_path': 'm1n1/boot.bin'}, {}):
             self.assertFalse(conformance.enrollment_check(self.SELECTION, True, [self.MACHO, chain])[0], chain)
         self.assertFalse(conformance.enrollment_check(self.SELECTION.replace('--compress', ''), True, [self.MACHO])[0])
 
-    def test_any_other_chip_expects_the_raw_path_unchanged(self):
-        ok, how = conformance.enrollment_check(self.SELECTION, False, [self.RAW, {}])
+    def test_other_chips_expect_the_unpadded_mach_o_object(self):
+        ok, how = conformance.enrollment_check(self.SELECTION, False, [self.STANDARD, {}])
         self.assertTrue(ok)
-        self.assertIn('--raw --entry-point 2048 --lowest-virtual-address 0', how)
-        self.assertFalse(conformance.enrollment_check(self.SELECTION, False, [self.MACHO])[0])
-        self.assertFalse(conformance.enrollment_check(self.SELECTION.replace('"--raw"', ''), False, [self.RAW])[0])
+        self.assertNotIn('--raw', how)
+        self.assertNotIn('--compress', how)
+        for chain in (self.RAW, self.MACHO):
+            self.assertFalse(conformance.enrollment_check(self.SELECTION, False, [chain])[0], chain)
+
+    def test_any_raw_enrollment_fails_every_chip(self):
+        self.assertNotIn('"--raw"', self.SELECTION)
+        raw = self.SELECTION.replace(
+            'var arguments = ["configure-boot", "-c", stage1, "-v", volume]',
+            'var arguments = ["configure-boot", "-c", stage1, "-v", volume, "--raw"]')
+        self.assertNotEqual(raw, self.SELECTION)
+        for window, chain in ((True, self.MACHO), (False, self.STANDARD)):
+            self.assertFalse(conformance.enrollment_check(raw, window, [chain])[0])
 
     def confined(self, chain, stage2=None):
         machine = {'device_identifier': 'apple,j700'}

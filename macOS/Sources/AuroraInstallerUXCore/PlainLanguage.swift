@@ -1054,7 +1054,7 @@
           return FailureDisplay(
             headline: blockedHeadline,
             plainDetail:
-              "Macs with an M4-generation chip or later need startup software that this release’s images don’t include yet. The disk has not been changed.",
+              "This Mac needs startup software that this release’s images don’t include yet. The disk has not been changed.",
             technicalDetail: technical,
             remedy:
               "Check for a newer \(windowTitle) release. Nothing on this Mac needs to change.",

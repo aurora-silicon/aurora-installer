@@ -112,13 +112,29 @@ import Foundation
       stage1: staged, mode: .macho, chipID: t8140, espUUID: esp.uppercased(),
       stage2Path: confined, receipt: enrolled, stage2Bytes: 1 << 20)
     precondition(update == pending)
-    // A raw Mac re-enrolls its raw image the same way.
-    let rawStaged = raw(path: "m1n1/boot.bin")
+    // An M1 to M3 Mac an earlier installer enrolled raw moves to the unpadded object.
+    let rawStaged = object(carrying: raw(path: "m1n1/boot.bin"))
     let rawUpdate = try Stage1Reenrollment.verify(
-      stage1: rawStaged, mode: .raw, chipID: t8103, espUUID: esp, stage2Path: "m1n1/boot.bin",
-      receipt: receipt(stage1: raw(uuid: esp, path: "m1n1/other.bin"), mode: "raw"),
+      stage1: rawStaged, mode: .standard, chipID: t8103, espUUID: esp, stage2Path: "m1n1/boot.bin",
+      receipt: receipt(stage1: raw(uuid: esp, path: "m1n1/boot.bin"), mode: "raw"),
       stage2Bytes: 20 << 20)
-    precondition(rawUpdate?.mode == .raw)
+    precondition(rawUpdate?.mode == .standard)
+    precondition(
+      rawUpdate!.receipt(after: [:], stage2SHA256: "")["mode"] as? String == "macho-standard")
+    // The raw image itself is never staged for enrollment.
+    refuses(.wrongTarget, "a raw image instead of the boot object") {
+      do {
+        _ = try Stage1Reenrollment.verify(
+          stage1: raw(path: "m1n1/boot.bin"), mode: .standard, chipID: t8103, espUUID: esp,
+          stage2Path: "m1n1/boot.bin", receipt: receipt(stage1: rawStaged), stage2Bytes: 20 << 20)
+      } catch is MachOBootObject.Invalid { throw Stage1ReenrollmentError.wrongTarget }
+    }
+    // A recorded raw installation is offered the unpadded object it stages.
+    let offered = Stage1Reenrollment.pending(
+      receipt: receipt(stage1: raw(path: "m1n1/boot.bin"), mode: "raw"),
+      hasPendingInstallation: false, bootMode: "macho-standard", stage2Path: "m1n1/boot.bin",
+      manifest: manifest(staged: rawStaged, mode: .standard, espPath: "m1n1/boot.bin"))
+    precondition(offered?.mode == .standard)
 
     // The receipt changes only in what the new Stage 1 decides.
     let after = update!.receipt(after: enrolled, stage2SHA256: "stage2")

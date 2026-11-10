@@ -11,16 +11,16 @@
     static let binding = NativeStage1UpdateBinding(
       systemUUID: "11111111-1111-4111-8111-111111111111",
       groupUUID: "22222222-2222-4222-8222-222222222222",
-      prebootUUID: "33333333-3333-4333-8333-333333333333", espUUID: espUUID, machO: true)
+      prebootUUID: "33333333-3333-4333-8333-333333333333", espUUID: espUUID, executeWindow: true)
 
-    /// This release's padded-window Stage 1 for the fixture ESP, as a fresh
-    /// installation would make it.
-    static func candidate(machO: Bool = true) async throws -> NativeStage1UpdateCandidate {
+    /// This release's Stage 1 for the fixture ESP, as a fresh installation would
+    /// make it: padded for the execute window, or unpadded on M1 to M3.
+    static func candidate(executeWindow: Bool = true) async throws -> NativeStage1UpdateCandidate {
       let plan = try await NativeESPFileTests.plan()
       let raw = NativeMachOStage1Tests.loadable(plan.stage1)
       return try NativeStage1UpdateCandidate(
-        stage1: raw, machO: machO ? NativeMachOStage1Tests.object(wrapping: raw) : nil,
-        windowMilliseconds: 0, legacy: false, espUUID: espUUID)
+        stage1: raw, machO: NativeMachOStage1Tests.object(wrapping: raw),
+        executeWindow: executeWindow, windowMilliseconds: 0, legacy: false, espUUID: espUUID)
     }
 
     static func json(_ value: [String: Any]) throws -> Data {
@@ -97,18 +97,22 @@
       let configuration = try Stage1Configuration.read(candidate.raw)
       XCTAssertEqual(configuration.espUUID, Self.espUUID.lowercased())
       XCTAssertEqual(configuration.stage2Path, "m1n1/boot-ctxr.bin")
-      let object = try XCTUnwrap(candidate.machO)
+      let object = candidate.machO
       try MachOBootObject.check(object)
       XCTAssertEqual(try Stage1Configuration.read(object).stage2Path, "m1n1/boot-ctxr.bin")
       XCTAssertEqual(candidate.enrolled, object)
       XCTAssertEqual(
         candidate.expandedBytes, try MachOBootObject.expandExecuteWindow(object).size)
 
-      let raw = try await Self.candidate(machO: false)
-      XCTAssertEqual(raw.mode, .raw)
-      XCTAssertEqual(raw.stage2Path, AuraStage1Format.standardStage2Path)
-      XCTAssertNil(raw.expandedBytes)
-      XCTAssertEqual(raw.enrolled, raw.raw)
+      // M1 to M3 enroll the same object unpadded, loading the standard Stage 2.
+      let standard = try await Self.candidate(executeWindow: false)
+      XCTAssertEqual(standard.mode, .standard)
+      XCTAssertEqual(standard.stage2Path, AuraStage1Format.standardStage2Path)
+      XCTAssertNil(standard.expandedBytes)
+      XCTAssertEqual(standard.enrolled, standard.machO)
+      XCTAssertNotEqual(standard.enrolled, standard.raw)
+      try MachOBootObject.check(standard.machO)
+      XCTAssertEqual(try Stage1Configuration.read(standard.machO).stage2Path, "m1n1/boot.bin")
     }
 
     func testAnObjectThatIsTooLargeOrALegacyStage1IsRefused() async throws {
@@ -116,23 +120,31 @@
       let huge = Data(count: NativeStage1UpdateCandidate.maximumBytes + 1)
       XCTAssertThrowsError(
         try NativeStage1UpdateCandidate(
-          stage1: plan.stage1, machO: huge, windowMilliseconds: 0, legacy: false,
-          espUUID: Self.espUUID)
+          stage1: plan.stage1, machO: huge, executeWindow: true, windowMilliseconds: 0,
+          legacy: false, espUUID: Self.espUUID)
       ) {
         XCTAssertEqual(
           $0 as? NativeStage1UpdateError, .stage1TooLarge(bytes: UInt64(huge.count)))
       }
       XCTAssertThrowsError(
         try NativeStage1UpdateCandidate(
-          stage1: plan.stage1, machO: nil, windowMilliseconds: 0, legacy: true,
-          espUUID: Self.espUUID)
+          stage1: plan.stage1, machO: nil, executeWindow: false, windowMilliseconds: 0,
+          legacy: true, espUUID: Self.espUUID)
       ) { XCTAssertEqual($0 as? NativeStage1UpdateError, .unsupportedStage1) }
+      // Without the boot object there is nothing Recovery would enroll: never the raw image.
+      for executeWindow in [false, true] {
+        XCTAssertThrowsError(
+          try NativeStage1UpdateCandidate(
+            stage1: plan.stage1, machO: nil, executeWindow: executeWindow, windowMilliseconds: 0,
+            legacy: false, espUUID: Self.espUUID)
+        ) { XCTAssertEqual($0 as? NativeBootChainError, .missingMachOStage1) }
+      }
       // An object that doesn't carry this Stage 1 fails the fresh-install check.
       XCTAssertThrowsError(
         try NativeStage1UpdateCandidate(
           stage1: NativeMachOStage1Tests.loadable(plan.stage1),
           machO: NativeMachOStage1Tests.object(wrapping: Data(repeating: 7, count: 0x1000)),
-          windowMilliseconds: 0, legacy: false, espUUID: Self.espUUID)
+          executeWindow: true, windowMilliseconds: 0, legacy: false, espUUID: Self.espUUID)
       ) { XCTAssertEqual($0 as? NativeBootChainError, .invalidStage1) }
     }
 
@@ -140,7 +152,7 @@
       let candidate = try await Self.candidate()
       let expanded = try XCTUnwrap(candidate.expandedBytes)
       let required =
-        expanded + UInt64(candidate.raw.count + candidate.machO!.count)
+        expanded + UInt64(candidate.raw.count + candidate.machO.count)
         + NativeStage1Update.reserveBytes
       try NativeStage1Update.requireSpace(candidate, freeBytes: required)
       XCTAssertThrowsError(try NativeStage1Update.requireSpace(candidate, freeBytes: required - 1))
@@ -178,7 +190,8 @@
       _ = try Self.records(configuration: Self.configuration(stage2Path: "m1n1/boot-ctxr.bin"))
       let raw = NativeStage1UpdateBinding(
         systemUUID: Self.binding.systemUUID, groupUUID: Self.binding.groupUUID,
-        prebootUUID: Self.binding.prebootUUID, espUUID: Self.espUUID.lowercased(), machO: false)
+        prebootUUID: Self.binding.prebootUUID, espUUID: Self.espUUID.lowercased(),
+        executeWindow: false)
       var receipt =
         try JSONSerialization.jsonObject(with: Self.receipt()) as! [String: Any]
       receipt["mode"] = "raw"
@@ -190,7 +203,7 @@
     func testAChangedOrMismatchedInstallationIsNeverTouched() throws {
       let other = NativeStage1UpdateBinding(
         systemUUID: "44444444-4444-4444-8444-444444444444", groupUUID: Self.binding.groupUUID,
-        prebootUUID: Self.binding.prebootUUID, espUUID: Self.espUUID, machO: true)
+        prebootUUID: Self.binding.prebootUUID, espUUID: Self.espUUID, executeWindow: true)
       let cases: [(Data, NativeStage1UpdateError, String)] = [
         (try Self.configuration(other), .changedInstallation, "another System volume"),
         (

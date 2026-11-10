@@ -132,8 +132,8 @@
           "length_bytes": $0.lengthBytes,
         ]
       }
-      let machOStage1 = AuraStage1Format.usesMachO(chipID: machine.hardware.chipID)
-      result["uses_macho_stage1"] = machOStage1
+      let executeWindow = AuraStage1Format.usesExecuteWindow(chipID: machine.hardware.chipID)
+      result["uses_execute_window"] = executeWindow
       if let archive, let firmware {
         do {
           let boot: NativeBootChainAdmission
@@ -141,17 +141,17 @@
           do {
             boot = try await NativeBootChain.admit(
               metadata: metadata, archive: archive, deviceIdentifier: device,
-              firmware: firmware.version, machOStage1: machOStage1)
+              firmware: firmware.version, executeWindow: executeWindow)
           } catch NativeBootChainError.missingConfinedStage2 {
             confinedStage2Missing = true
             boot = try await NativeBootChain.admit(
               metadata: metadata, archive: archive, deviceIdentifier: device,
-              firmware: firmware.version, machOStage1: machOStage1,
+              firmware: firmware.version, executeWindow: executeWindow,
               requireConfinedStage2: false)
           }
           var chain: [String: Any] = [
             "esp_layout": boot.espLayout, "window_milliseconds": boot.windowMilliseconds,
-            "stage1_mode": boot.stage1MachOMember == nil ? "raw" : "macho",
+            "stage1_mode": NativeRecoveryBootMode(executeWindow: boot.executeWindow).rawValue,
             "stage2_path": boot.stage2Path, "confined_stage2_missing": confinedStage2Missing,
           ]
           if let member = boot.stage1MachOMember { chain["stage1_macho_member"] = member }

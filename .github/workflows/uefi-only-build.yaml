@@ -35,14 +35,14 @@ jobs:
           path: linux
           sparse-checkout: 'arch/arm64/boot/dts/apple/'
 
-      # Aurora U-Boot 2026.07-ge1ef8b636fc9 (aurora-wip, u-boot PRs 32 and 36 merged), the
-      # U-Boot the distributions pin with aura 1.0.0b6. It loads the kernel into the CTXR
-      # window on M4 and later.
+      # Aurora U-Boot 2026.07-g250385f8c8aa (aurora-wip, u-boot PRs 32, 36, 45, 30, 21 and 46 merged).
+      # It loads the kernel into the CTXR window on M4 and later, a zboot kernel
+      # included (it decompresses the inner Image into the window).
       - name: Checkout u-boot
         uses: actions/checkout@v5
         with:
           repository: aurora-silicon/u-boot
-          ref: e1ef8b636fc915278490f556477cfbb021b23a11
+          ref: 250385f8c8aaafd47a8f7990f6efe0443c28d0b5
           path: u-boot
 
       - name: Install aarch64-linux-gnu- toolchain

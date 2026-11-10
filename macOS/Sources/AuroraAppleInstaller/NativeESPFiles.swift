@@ -13,8 +13,11 @@
     var entries: [Entry]
     let icon: IPSWArchiveMember
     let stage1: Data
-    /// aura's Mach-O boot object for `stage1`, enrolled instead of it.
+    /// aura's Mach-O boot object for `stage1`, enrolled instead of it. Every
+    /// plan that installs a new Stage 1 has one.
     var stage1MachO: Data? = nil
+    /// Whether that object is padded for the execute window.
+    var executeWindow = false
     /// That object's whole size once padded.
     var expandedStage1Bytes: UInt64? = nil
     let windowMilliseconds: UInt32
@@ -22,11 +25,11 @@
     let usesLegacyStage1: Bool
 
     /// The ESP file the Stage 1 this plan installs chainloads.
-    var stage2Path: String { AuraStage1Format.stage2Path(machO: stage1MachO != nil) }
+    var stage2Path: String { AuraStage1Format.stage2Path(executeWindow: executeWindow) }
 
     static func make(
       metadata: Data, archive: IPSWArchive, device: String, firmware: String,
-      machOStage1: Bool = false, legacyStage1: (@Sendable () throws -> Data)? = nil
+      executeWindow: Bool = false, legacyStage1: (@Sendable () throws -> Data)? = nil
     )
       async throws -> Self?
     {
@@ -40,7 +43,8 @@
       }
       let boot = try await NativeBootChain.admit(
         metadata: metadata, archive: archive,
-        deviceIdentifier: device, firmware: firmware, machOStage1: machOStage1)
+        deviceIdentifier: device, firmware: firmware, executeWindow: executeWindow,
+        allowsLegacyStage1: legacyStage1 != nil)
       let bytes: Data
       var machO: Data?
       let legacy: Bool
@@ -95,7 +99,7 @@
       else { throw NativePayloadPreflightError.invalidPartitions }
       return Self(
         archive: archive, entries: entries, icon: icon, stage1: bytes, stage1MachO: machO,
-        expandedStage1Bytes: boot.expandedStage1Bytes,
+        executeWindow: boot.executeWindow, expandedStage1Bytes: boot.expandedStage1Bytes,
         windowMilliseconds: boot.windowMilliseconds, firmware: firmware, usesLegacyStage1: legacy)
     }
 
@@ -128,7 +132,7 @@
           windowMilliseconds: windowMilliseconds)
       if installed != expected {
         // An earlier installer enrolled Mach-O Stage 1s unpadded, loading m1n1/boot.bin.
-        if stage1MachO != nil,
+        if executeWindow,
           (try? Stage1Configuration.read(installed).stage2Path)
             == AuraStage1Format.standardStage2Path
         {
@@ -190,7 +194,7 @@
           metadata: metadata, archive: archive,
           device: package.deviceIdentifier,
           firmware: firmware.version.components(separatedBy: " ")[0],
-          machOStage1: AuraStage1Format.usesMachO(chipID: facts.hardware.chipID))
+          executeWindow: AuraStage1Format.usesExecuteWindow(chipID: facts.hardware.chipID))
       else { return nil }
       return NativeESPFilesExecution(
         package: package, approved: approved, plan: plan,
@@ -213,8 +217,11 @@
       let icon: NativeStubFileIdentity
       let stage1: NativeStubFileIdentity
       var legacyStage1: NativeLegacyStage1.Receipt? = nil
-      /// The filled Mach-O Stage 1 (stage1MachOPath), on chips that enroll one.
+      /// The filled Mach-O Stage 1 (stage1MachOPath), which Recovery enrolls.
       var stage1MachO: NativeStubFileIdentity? = nil
+      /// Whether it is padded for the execute window. Receipts from before every
+      /// Mac enrolled the object leave it out; their object was always padded.
+      var executeWindow: Bool? = nil
     }
     static let stage1Path = "Finish Installation.app/Contents/Resources/boot.bin"
     static let stage1MachOPath = "Finish Installation.app/Contents/Resources/boot.macho"
@@ -341,6 +348,8 @@
       if let object = plan.stage1MachO {
         let machO = try MachOBootObject.fill(object, raw: plan.stage1, filled: stage1)
         machOIdentity = try await systemStore.data(machO, at: Self.stage1MachOPath)
+      } else if !plan.usesLegacyStage1 {
+        throw NativeBootChainError.missingMachOStage1
       }
       guard
         NativeESPLabelAdmission.matches(
@@ -353,7 +362,8 @@
           Receipt(
             plan: approved.planDigest, firmware: plan.firmware,
             groupUUID: group, espUUID: esp.uuid, files: entries, icon: icon, stage1: stage1Identity,
-            legacyStage1: legacy, stage1MachO: machOIdentity)
+            legacyStage1: legacy, stage1MachO: machOIdentity,
+            executeWindow: machOIdentity == nil ? nil : plan.executeWindow)
         ),
         identifier: "native-esp-files")
     }

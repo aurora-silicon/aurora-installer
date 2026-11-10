@@ -448,7 +448,7 @@ final class InstallerModel {
     }
     password.removeAll(keepingCapacity: false)
     operations = [
-      "Selected Aura \(bootSelection.mode == .raw ? "raw" : "Mach-O") boot mode — simulated"
+      "Selected Aura Mach-O \(bootSelection.mode == .macho ? "padded" : "unpadded") boot mode — simulated"
     ]
     stage = .installing
     installationTask = Task { @MainActor [weak self] in
