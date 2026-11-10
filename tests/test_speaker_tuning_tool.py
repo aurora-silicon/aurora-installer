@@ -6,6 +6,7 @@ tests: the bundle, the raw firmware archive and the kernelcache are made up.
 """
 import hashlib
 import io
+import json
 import logging
 import os
 import pathlib
@@ -632,6 +633,105 @@ class TuningOnlyEspTest(unittest.TestCase):
             st.install(self.bound(), esp, out=Quiet(), backup_root=self.backups, unit=self.unit_a)
         self.assertIn("cannot be rebuilt from the bundle alone", str(e.exception))
         self.assertEqual(snapshot(esp), before)
+
+
+def adt_node(props, children=()):
+    out = struct.pack("<II", len(props), len(children))
+    for name, value in props:
+        out += name.encode().ljust(32, b"\0") + struct.pack("<I", len(value))
+        out += value + b"\0" * (-len(value) % 4)
+    for c in children:
+        out += c
+    return out
+
+
+def synthetic_adt(acoustic=35, spts=bytes(range(16)), serial=b"SYNTHETIC0A"):
+    audio = [("name", b"audio\0"), ("acoustic-id", acoustic.to_bytes(4, "little"))]
+    if spts is not None:
+        audio.append(("speaker-thiele-small", spts))
+    product = adt_node([("name", b"product\0")], [adt_node(audio)])
+    return adt_node([("name", b"device-tree\0"), ("target-type", b"J999\0"),
+                     ("model", b"Mac99,1\0"), ("serial-number", serial + b"\0" * 21)],
+                    [adt_node([("name", b"arm-io\0")]), product]) + b"\xff" * 64
+
+
+class CollectLinuxTest(unittest.TestCase):
+    """collect-linux (ADT + a mounted macOS volume) against collect on that
+    macOS (ioreg/sysctl), on the same synthetic Mac."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = pathlib.Path(self._tmp.name)
+        self.mac = self.tmp / "macos"
+        tunings(self.mac / "System/Library/Audio/Tunings")
+        dsp = self.mac / audio_tuning.lsm2_lattice.AUDIODSP
+        dsp.parent.mkdir(parents=True)
+        dsp.write_bytes(pathlib.Path(audio_tuning.AUDIODSP_PATH).read_bytes())
+        (self.mac / "System/Library/CoreServices").mkdir(parents=True)
+        (self.mac / "System/Library/CoreServices/SystemVersion.plist").write_bytes(
+            plistlib.dumps({"ProductBuildVersion": "00A000", "ProductVersion": "99.0"}))
+        self.adt = self.tmp / "adt.bin"
+        self.adt.write_bytes(synthetic_adt())
+        self.root = {"target-type": b"J999\0", "serial-number": b"SYNTHETIC0A" + b"\0" * 21}
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def macos_collect(self, spts=bytes(range(16))):
+        out = self.tmp / "macos.tar.gz"
+        with mock.patch.object(st.audio_tuning, "AUDIODSP_PATH",
+                               str(self.mac / audio_tuning.lsm2_lattice.AUDIODSP)):
+            return st.collect(out, tunings_root=str(self.mac / "System/Library/Audio/Tunings"),
+                              run=fake_run(spts=spts, root=self.root))
+
+    def linux_collect(self, **kw):
+        with mock.patch.object(st, "read_unit", lambda: audio_tuning.unit_id(b"SYNTHETIC0A")), \
+                mock.patch.object(st, "dt_speaker_id", lambda: None):
+            return st.collect_linux(self.mac, self.adt, self.tmp / "linux.tar.gz", **kw)
+
+    def test_same_bundle_as_macos(self):
+        _, mac_bundle, mac_info = self.macos_collect()
+        path, bundle, info = self.linux_collect()
+        self.assertEqual(bundle, mac_bundle)
+        self.assertEqual(info, mac_info)
+        meta = json.loads(bundle[audio_tuning.MANIFEST])
+        self.assertEqual(meta["board"], "j999")
+        self.assertEqual(meta["unit_id"], audio_tuning.unit_id(b"SYNTHETIC0A"))
+        self.assertEqual(meta["macos_build"], "00A000")
+        self.assertIn(audio_tuning.SPTS, bundle)
+        with st.opened_bundle(path) as (again, _):
+            self.assertEqual(again, bundle)
+
+    def test_without_calibration(self):
+        self.adt.write_bytes(synthetic_adt(spts=None))
+        _, mac_bundle, _ = self.macos_collect(spts=None)
+        _, bundle, _ = self.linux_collect()
+        self.assertEqual(bundle, mac_bundle)
+        self.assertNotIn(audio_tuning.SPTS, bundle)
+
+    def test_another_macs_adt_is_refused(self):
+        self.adt.write_bytes(synthetic_adt(serial=b"SYNTHETIC0B"))
+        with self.assertRaises(st.Refused):
+            self.linux_collect()
+
+    def test_not_a_macos_volume(self):
+        with self.assertRaises(st.Refused):
+            st.collect_linux(self.tmp, self.adt, self.tmp / "x.tar.gz")
+
+    def test_find_adt(self):
+        mtd = self.tmp / "mtd"
+        mtd.write_text('dev:    size   erasesize  name\nmtd0: 00004000 00004000 "aura_stage1.log"\n'
+                       'mtd2: 00068000 00004000 "adt"\n')
+        self.assertEqual(st.find_adt(str(mtd)), "/dev/mtd2ro")
+        mtd.write_text('dev:    size   erasesize  name\n')
+        with self.assertRaises(st.Refused):
+            st.find_adt(str(mtd))
+
+    def test_truncated_adt(self):
+        from asahi_firmware import adt
+        with self.assertRaises(adt.AdtError):
+            adt.parse(synthetic_adt()[:100])
+
 
 
 class ScriptTest(unittest.TestCase):

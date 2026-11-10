@@ -32,6 +32,7 @@ MAX_INFO_BYTES = 64 << 10
 DT_ESP = "/proc/device-tree/chosen/asahi,efi-system-partition"
 DT_COMPATIBLE = "/proc/device-tree/compatible"
 DT_SERIAL = "/proc/device-tree/serial-number"
+DT_SPEAKER_ID = "/proc/device-tree/chosen/asahi,speaker-id"
 RUNNING_BUNDLES = ("/lib/firmware/vendor/apple", "/run/aurora-firmware/vendorfw/apple")
 BACKUP_ROOT = "/var/lib/aurora-rollback"
 LOCK = "/run/aurora-speaker-tuning.lock"
@@ -159,9 +160,11 @@ def write_collection(bundle, info, out):
         raise
 
 
-def collect(out=None, tunings_root=audio_tuning.TUNINGS_ROOT, run=subprocess.run):
-    """Collect this Mac's bundle and write the tarball. Returns its path."""
-    col = AudioTuningFWCollection(tunings_root=tunings_root, run=run)
+def collect(out=None, tunings_root=audio_tuning.TUNINGS_ROOT, run=subprocess.run, offline=None):
+    """Collect this Mac's bundle and write the tarball. Returns its path.
+    offline: an audio_tuning.OfflineMac (collect-linux) instead of the
+    running macOS."""
+    col = AudioTuningFWCollection(tunings_root=tunings_root, run=run, offline=offline)
     if not col.bundle:
         raise Refused("this Mac's speaker tuning was not collected (see the messages above)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -170,13 +173,13 @@ def collect(out=None, tunings_root=audio_tuning.TUNINGS_ROOT, run=subprocess.run
         if verified(tmp) != col.bundle:
             raise Refused("the written bundle does not read back identically")
     s = summary(col.bundle)
-    target = sysctl("hw.target", run)
+    target = sysctl("hw.target", run) if offline is None else offline.target()
     info = {
         "kind": INFO_KIND,
         "schema": 1,
         "target": target,
         "compatible": target_name(target) if target else None,
-        "model": sysctl("hw.model", run),
+        "model": sysctl("hw.model", run) if offline is None else offline.model(),
         "aid": s["aid"],
         "macos_build": s["macos_build"],
     }
@@ -186,6 +189,50 @@ def collect(out=None, tunings_root=audio_tuning.TUNINGS_ROOT, run=subprocess.run
     out = pathlib.Path(out)
     write_collection(col.bundle, info, out)
     return out, col.bundle, info
+
+
+def find_adt(proc_mtd="/proc/mtd"):
+    """The read-only MTD device of the ADT partition aura exposes ("adt")."""
+    try:
+        with open(proc_mtd) as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) == 4 and parts[3] == '"adt"' and parts[0].endswith(":"):
+                    return f"/dev/{parts[0][:-1]}ro"
+    except OSError:
+        pass
+    raise Refused("no ADT: this boot chain does not expose the Apple device tree "
+                  "(no \"adt\" partition in /proc/mtd); pass --adt FILE or run collect-macos.sh on macOS")
+
+
+def dt_speaker_id(path=DT_SPEAKER_ID):
+    """The loader's /chosen/asahi,speaker-id (big-endian u32), or None."""
+    try:
+        raw = pathlib.Path(path).read_bytes()
+    except OSError:
+        return None
+    return int.from_bytes(raw, "big") if len(raw) == 4 else None
+
+
+def collect_linux(macos_root, adt_path=None, out=None):
+    """Collect this Mac's bundle on Linux: its ADT and its own macOS system
+    volume, mounted read-only at macos_root. The same bundle as collect on
+    that macOS, except the speaker ID when the boot chain does not export it."""
+    root = pathlib.Path(macos_root)
+    if not (root / "System/Library/CoreServices/SystemVersion.plist").is_file():
+        raise Refused(f"{root} is not a macOS system volume (no SystemVersion.plist)")
+    adt_path = adt_path or find_adt()
+    with open(adt_path, "rb") as f:
+        adt_bytes = f.read()
+    offline = audio_tuning.OfflineMac(adt_bytes, str(root), dt_speaker_id())
+    board, unit = offline.identity()
+    here = read_unit()
+    if unit is not None and here is not None and unit != here:
+        raise Refused("the ADT is not this Mac's (its unit is not the running device tree's)")
+    if out is None:
+        name = f"aurora-speaker-tuning-{(offline.target() or 'mac').lower()}-linux.tar.gz"
+        out = pathlib.Path.home() / name
+    return collect(out, offline=offline)
 
 
 # ---------------------------------------------------------------- bundle input
@@ -856,6 +903,12 @@ def main(argv=None):
     c = sub.add_parser("collect", help="on macOS: write this Mac's speaker tuning tarball")
     c.add_argument("-o", "--output",
                    help="tarball path (default ~/aurora-speaker-tuning-<mac>-AID<n>.tar.gz)")
+    cl = sub.add_parser("collect-linux",
+                        help="on Linux: collect from this Mac's ADT and its macOS volume mounted read-only")
+    cl.add_argument("--macos-root", required=True,
+                    help="the macOS system volume, mounted read-only (e.g. apfs-fuse -o ro)")
+    cl.add_argument("--adt", help="ADT blob (default: the \"adt\" MTD partition aura exposes)")
+    cl.add_argument("-o", "--output", required=True, help="tarball path")
     i = sub.add_parser("install", help="on Linux: add a bundle to the ESP firmware")
     i.add_argument("bundle", help="tarball from collect-macos.sh, or a directory holding audio-tuning/")
     i.add_argument("-n", "--dry-run", action="store_true", help="check and rebuild, change nothing")
@@ -867,10 +920,13 @@ def main(argv=None):
     v.add_argument("--esp", help="system ESP mount point")
     args = ap.parse_args(argv)
     try:
-        if args.cmd == "collect":
-            if sys.platform != "darwin":
-                raise Refused("collect runs on the Mac's own macOS")
-            path, bundle, info = collect(args.output)
+        if args.cmd in ("collect", "collect-linux"):
+            if args.cmd == "collect":
+                if sys.platform != "darwin":
+                    raise Refused("collect runs on the Mac's own macOS (on Linux: collect-linux)")
+                path, bundle, info = collect(args.output)
+            else:
+                path, bundle, info = collect_linux(args.macos_root, args.adt, args.output)
             s = summary(bundle)
             print(f"AID: {s['aid']}")
             print(f"Files: {s['files']} tuning files ({len(bundle)} in the bundle)")
@@ -884,8 +940,12 @@ def main(argv=None):
             print(f"Mac: {info['target']} ({info['model']}), macOS {s['macos_build']}")
             print(f"Wrote {path}")
             print(f"SHA-256 {file_sha256(path)}")
-            print("Copy it to Linux on this Mac and run there:")
-            print(f"  sudo tools/speaker-tuning/install-linux.sh {path.name}")
+            if args.cmd == "collect":
+                print("Copy it to Linux on this Mac and run there:")
+                print(f"  sudo tools/speaker-tuning/install-linux.sh {path.name}")
+            else:
+                print("Install it with:")
+                print(f"  sudo tools/speaker-tuning/install-linux.sh {path}")
             return 0
         if not sys.platform.startswith("linux"):
             raise Refused(f"{args.cmd} runs on the installed Linux system")
