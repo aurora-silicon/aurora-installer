@@ -15,3 +15,6 @@ dist
 /python-3.9.6-macos11\.pkg
 /python-3.9.6-macos11\.pkg\.asc
 /releases/stub.py
+
+# Owner-local lsm2 readback is never source.
+lsm2-param-fill.bin
