@@ -8,6 +8,7 @@ import struct
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from unittest.mock import patch
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from asahi_firmware import audio_tuning, lsm2_fill as fill
@@ -16,10 +17,14 @@ AID, BUILD, UNIT = "AID901", "00A001", "1" * 64
 STRIP = AID + "/DSP/Strips/synthetic.austrip"
 
 
-def files(short=True):
+COMPONENT = "c" * 64
+
+
+def files(short=True, extra=()):
     ids = sorted(fill.base_ids())
     if short:
         ids = ids[58:]
+    ids += list(extra)
     data = struct.pack(">III", 0, 0, len(ids))
     data += b"".join(struct.pack(">If", i, (n + 1) / 13) for n, i in enumerate(ids))
     effect = {"unit": {"subtype": fill.SUBTYPE}, "displayname": "Synthetic",
@@ -27,10 +32,12 @@ def files(short=True):
     return {STRIP: plistlib.dumps({"strips": [{"effects": [effect]}]})}
 
 
-def readback(*_):
-    return 17, [{"id": i, "name": f"Generated parameter {i}",
-                 "bits": struct.unpack("<I", struct.pack("<f", (n + 1) / 7))[0]}
-                for n, i in enumerate(sorted(fill.base_ids(), reverse=True))]
+def readback(*_, extra=(), version=17):
+    ids = sorted(fill.base_ids() | set(extra), reverse=True)
+    return {"unit_version": version, "component_sha256": COMPONENT,
+            "published": [{"id": i, "name": f"Generated parameter {i}",
+                           "bits": struct.unpack("<I", struct.pack("<f", (n + 1) / 7))[0]}
+                          for n, i in enumerate(ids)]}
 
 
 class FillTest(unittest.TestCase):
@@ -51,15 +58,18 @@ class FillTest(unittest.TestCase):
         self.assertEqual(json.loads(raw)["presets"][0]["fill_ids"], [])
 
     def test_missing_and_id_mismatch_readback(self):
-        for how in ("missing", "mismatch", "duplicate", "nonfinite", "unnamed"):
+        for how in ("missing", "mismatch", "duplicate", "nonfinite", "noversion", "nocomponent"):
             def bad(*args):
-                version, records = readback()
+                result = readback()
+                records = result["published"]
+                # records[-1] is the lowest base ID, which the short preset omits.
                 if how == "missing": records.pop()
                 elif how == "mismatch": records[-1]["id"] = 0xffffffff
                 elif how == "duplicate": records[-1]["id"] = records[0]["id"]
                 elif how == "nonfinite": records[-1]["bits"] = 0x7f800000
-                else: records[-1]["name"] = ""
-                return version, records
+                elif how == "noversion": result["unit_version"] = None
+                else: result["component_sha256"] = ""
+                return result
             with self.subTest(how=how), self.assertRaises(ValueError):
                 fill.collect(files(), AID, BUILD, UNIT, bad)
 
@@ -80,6 +90,103 @@ class FillTest(unittest.TestCase):
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
             self.assertEqual(path.read_bytes(), raw)
 
+class SchemaAndVersion(unittest.TestCase):
+    """J713-shaped cases: counts and IDs only, generated values."""
+    EXTRA = 21512  # append-map ID carried by a short preset
+
+    def test_short_preset_with_published_append_id_is_accepted(self):
+        source = files(extra=[self.EXTRA])
+        saved = next(fill.presets(source))[2]
+        self.assertEqual((len(saved), len(fill.missing_ids(saved))), (964, 58))
+        self.assertTrue(fill.needs_fill(source))
+        raw = fill.collect(source, AID, BUILD, UNIT, lambda *a: readback(extra=[self.EXTRA]))
+        capture, = fill.validate(raw, AID, BUILD, UNIT)["presets"]
+        self.assertEqual(len(capture["fill_ids"]), 58)
+        self.assertNotIn(self.EXTRA, capture["fill_ids"])
+        self.assertEqual(len(capture["published"]), 1022)
+
+    def test_unit_published_ids_beyond_the_schema_are_kept_as_provenance(self):
+        # The unit may publish many more IDs than the preset saves.
+        more = sorted(fill.extension_ids())[:182]
+        raw = fill.collect(files(), AID, BUILD, UNIT, lambda *a: readback(extra=more))
+        capture, = json.loads(raw)["presets"]
+        self.assertEqual(len(capture["published"]), 1021 + 182)
+        self.assertEqual(len(capture["fill_ids"]), 58)
+
+    def test_append_id_the_unit_does_not_publish_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "does not publish 1 saved"):
+            fill.collect(files(extra=[self.EXTRA]), AID, BUILD, UNIT, readback)
+
+    def test_unknown_saved_id_is_refused_before_hosting(self):
+        unknown = 21513  # next to the append ID, but in no schema
+        self.assertNotIn(unknown, fill.base_ids() | fill.extension_ids())
+        host = unittest.mock.Mock(side_effect=AssertionError("must not host the AU"))
+        with self.assertRaisesRegex(ValueError, "outside the known lsm2 schema: 21513"):
+            fill.collect(files(extra=[unknown]), AID, BUILD, UNIT, host)
+        with self.assertRaisesRegex(ValueError, "outside the known lsm2 schema"):
+            fill.collect(files(extra=[unknown]), AID, BUILD, UNIT,
+                         lambda *a: readback(extra=[unknown]))
+
+    def test_short_is_defined_by_missing_base_ids_not_record_count(self):
+        # 1,021 records but one base ID swapped for an append ID: short.
+        ids = sorted(fill.base_ids())[1:] + [self.EXTRA]
+        self.assertEqual(len(ids), 1021)
+        self.assertEqual(len(fill.missing_ids(set(ids))), 1)
+        data = struct.pack(">III", 0, 0, len(ids)) + b"".join(struct.pack(">If", i, 0.5) for i in ids)
+        effect = {"unit": {"subtype": fill.SUBTYPE}, "aupreset": {"data": data}}
+        source = {STRIP: plistlib.dumps({"strips": [{"effects": [effect]}]})}
+        self.assertTrue(fill.needs_fill(source))
+        raw = fill.collect(source, AID, BUILD, UNIT, lambda *a: readback(extra=[self.EXTRA]))
+        self.assertEqual(len(json.loads(raw)["presets"][0]["fill_ids"]), 1)
+
+    def test_unit_version_zero_is_bound_by_component(self):
+        raw = fill.collect(files(), AID, BUILD, UNIT, lambda *a: readback(version=0))
+        capture, = json.loads(raw)["presets"]
+        self.assertEqual((capture["unit_version"], capture["component_sha256"]), (0, COMPONENT))
+        self.assertEqual(audio_tuning.fill_record(raw, AID, BUILD, UNIT)["unit_versions"], [0])
+
+    def test_unit_version_rule(self):
+        # The J713 ClassInfo key set: no auversion, preset format version 0.
+        j713 = {k: 0 for k in ("manufacturer", "type", "subtype", "version", "name", "data",
+                               "DefaultAudioChannelLayout")}
+        self.assertEqual(fill.unit_version(j713, 0), 0)
+        self.assertEqual(fill.unit_version(j713, 9), 9)
+        self.assertEqual(fill.unit_version({"auversion": 9}, 0), 9)
+        self.assertEqual(fill.unit_version({"auversion": 9}, 9), 9)
+        for info, registry in (({"auversion": 9}, 8), ({"auversion": "9"}, 0),
+                               ({"auversion": -1}, 0), ({"auversion": 2**32}, 0)):
+            with self.subTest(info=info, registry=registry), self.assertRaises(ValueError):
+                fill.unit_version(info, registry)
+
+    def test_component_digest_and_unreadable_component(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "component"
+            path.write_bytes(b"synthetic component")
+            self.assertEqual(fill.component_digest(str(path)),
+                             hashlib.sha256(b"synthetic component").hexdigest())
+            with self.assertRaisesRegex(ValueError, "component unreadable"):
+                fill.component_digest(str(path) + ".absent")
+
+    def test_captures_from_different_units_are_refused(self):
+        source = files()
+        second = AID + "/DSP/Strips/second.austrip"
+        source[second] = source[STRIP]
+        calls = iter((readback(), readback(version=18)))
+        with self.assertRaisesRegex(ValueError, "different units"):
+            fill.collect(source, AID, BUILD, UNIT, lambda *a: next(calls))
+
+    def test_empty_names_and_nonfinite_unused_values_are_provenance_only(self):
+        def odd(*_):
+            result = readback(extra=[self.EXTRA])
+            for r in result["published"]:
+                if r["id"] == self.EXTRA:
+                    r["bits"] = 0x7fc00000  # carried by the preset, never filled
+                r["name"] = ""
+            return result
+        raw = fill.collect(files(extra=[self.EXTRA]), AID, BUILD, UNIT, odd)
+        self.assertEqual(len(json.loads(raw)["presets"][0]["fill_ids"]), 58)
+
+
 class IsolatedReadback(unittest.TestCase):
     def test_worker_failure_timeout_and_private_stderr_are_not_logged(self):
         import subprocess
@@ -95,7 +202,7 @@ class IsolatedReadback(unittest.TestCase):
 
     def test_worker_uses_pipes_and_timeout(self):
         import subprocess
-        payload = json.dumps({"unit_version": 17, "published": readback()[1]}).encode()
+        payload = json.dumps(readback()).encode()
         with patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0, payload, b"")) as run:
             self.assertEqual(fill.isolated_read_parameters("synthetic", {}, {}), readback())
         self.assertEqual(run.call_args.kwargs["timeout"], 60)
