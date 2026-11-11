@@ -121,7 +121,7 @@ def tar_add(tar, name, data=None, mtime=None):
         tar.addfile(ti)
     else:
         ti.type = tarfile.REGTYPE
-        ti.mode = 0o644
+        ti.mode = 0o600 if name.endswith("/lsm2-param-fill.bin") else 0o644
         ti.size = len(data)
         tar.addfile(ti, io.BytesIO(data))
 
@@ -160,13 +160,18 @@ def write_collection(bundle, info, out):
         raise
 
 
-def collect(out=None, tunings_root=audio_tuning.TUNINGS_ROOT, run=subprocess.run, offline=None):
+def collect(out=None, tunings_root=audio_tuning.TUNINGS_ROOT, run=subprocess.run, offline=None,
+            force_lsm2_fill=False):
     """Collect this Mac's bundle and write the tarball. Returns its path.
     offline: an audio_tuning.OfflineMac (collect-linux) instead of the
     running macOS."""
-    col = AudioTuningFWCollection(tunings_root=tunings_root, run=run, offline=offline)
+    col = AudioTuningFWCollection(tunings_root=tunings_root, run=run, offline=offline,
+                                  force_lsm2_fill=force_lsm2_fill)
     if not col.bundle:
         raise Refused("this Mac's speaker tuning was not collected (see the messages above)")
+    if force_lsm2_fill and audio_tuning.lsm2_fill.NAME not in col.bundle \
+            and any(audio_tuning.lsm2_fill.presets(col.bundle)):
+        raise Refused("requested lsm2 parameter readback was not collected (see the messages above)")
     with tempfile.TemporaryDirectory() as tmp:
         if not col.write_fallback(tmp):
             raise Refused("could not write the speaker tuning bundle")
@@ -901,6 +906,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="speaker_tuning")
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("collect", help="on macOS: write this Mac's speaker tuning tarball")
+    c.add_argument("--lsm2-fill-readback", action="store_true",
+                   help="also collect private parameter readback for full lsm2 presets (dry-run verification)")
     c.add_argument("-o", "--output",
                    help="tarball path (default ~/aurora-speaker-tuning-<mac>-AID<n>.tar.gz)")
     cl = sub.add_parser("collect-linux",
@@ -924,7 +931,7 @@ def main(argv=None):
             if args.cmd == "collect":
                 if sys.platform != "darwin":
                     raise Refused("collect runs on the Mac's own macOS (on Linux: collect-linux)")
-                path, bundle, info = collect(args.output)
+                path, bundle, info = collect(args.output, force_lsm2_fill=args.lsm2_fill_readback)
             else:
                 path, bundle, info = collect_linux(args.macos_root, args.adt, args.output)
             s = summary(bundle)
