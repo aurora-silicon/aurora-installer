@@ -19,6 +19,9 @@ sudo aurora-wifi-firmware update    # put the installed macOS's firmware on the 
 sudo aurora-wifi-firmware revert    # put the files from before the last change back
 ```
 
+After a `revert` the boot service leaves that macOS build alone; `update`,
+or the next macOS update, brings the firmware back.
+
 The `aurora-wifi-firmware` service runs `boot` at every start-up, so a Mac
 follows its macOS as macOS does.
 

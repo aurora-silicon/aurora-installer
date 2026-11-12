@@ -853,7 +853,11 @@ def main(argv=None):
                 return 0
             if a.cmd == "revert":
                 revert(esp)
-                write_state(dict(read_state(), result="reverted by hand", pending=None))
+                # The boot unit leaves this macOS build alone from now on;
+                # `update` (or a newer macOS) brings it back.
+                st = read_state()
+                write_state(dict(st, result="reverted by hand", pending=None,
+                                 refused_build=st.get("build")))
                 return 0
             state = read_state()
             if a.cmd == "boot":
