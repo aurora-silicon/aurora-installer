@@ -21,6 +21,13 @@ final class InstallerModel {
   }
   /// The staged Stage 1 is enrolled; Restart skips setup's Stage 2 comparison.
   var stage1Updated = false { didSet { changed() } }
+  /// Who signs Stage 2 on this Mac (Utilities on the setup screen). The
+  /// installer's configuration sets the default, else Aurora-managed.
+  var startupKeys: StartupKeyOwner =
+    (try? RecoveryActions.configuration.get().secureBootKeys) ?? .aurora
+  {
+    didSet { changed() }
+  }
   var password = "" { didSet { changed() } }
   var authorizationOwner: RecoveryOwner? { didSet { changed() } }
   var authorizationUsesSourceOwner = false { didSet { changed() } }
@@ -414,6 +421,7 @@ final class InstallerModel {
       let credential = password
       password.removeAll(keepingCapacity: false)
       let selection = bootSelection
+      let keys = startupKeys
       stage = .installing
       operations = []
       if stage1Update != nil {
@@ -422,7 +430,9 @@ final class InstallerModel {
       }
       DispatchQueue.global(qos: .userInitiated).async {
         do {
-          try RecoveryActions.install(selection: selection, owner: owner, password: credential) {
+          try RecoveryActions.install(
+            selection: selection, keys: keys, owner: owner, password: credential
+          ) {
             amount, operation in
             DispatchQueue.main.async {
               self.progress = amount
@@ -448,7 +458,8 @@ final class InstallerModel {
     }
     password.removeAll(keepingCapacity: false)
     operations = [
-      "Selected Aura Mach-O \(bootSelection.mode == .macho ? "padded" : "unpadded") boot mode — simulated"
+      "Selected Aura Mach-O \(bootSelection.mode == .macho ? "padded" : "unpadded") boot mode — simulated",
+      "Startup security keys: \(startupKeys.title.lowercased()) (\(startupKeys.rawValue)) — simulated",
     ]
     stage = .installing
     installationTask = Task { @MainActor [weak self] in

@@ -28,6 +28,11 @@ struct RecoveryInstallationJournal: Codable {
   /// The execute window this setup enrolls or has enrolled, from its boot mode.
   /// A raw setup has no such field.
   var executeWindowSize: UInt64? = nil
+  /// The key owner choice (aurora, owner or both) whose keys the staged Stage 1
+  /// holds, and the owner's public key in hex. Setups recorded before the
+  /// choice existed have neither and enroll their Stage 1 as staged.
+  var startupKeyOwner: String? = nil
+  var ownerStage2PublicKey: String? = nil
 
   func validate(system: String, group: String, esp: String, stage1: String, stage2: String) throws {
     guard operation.hasPrefix("operation-"),

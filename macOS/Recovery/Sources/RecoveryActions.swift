@@ -415,7 +415,8 @@ enum RecoveryActions {
       "\(name) failed: \(reason). Open Window → Installer Log for the command output.")
   }
   static func install(
-    selection: BootSelection, owner: RecoveryOwner, password: String,
+    selection: BootSelection, keys choice: StartupKeyOwner = .aurora, owner: RecoveryOwner,
+    password: String,
     progress: @escaping (Double, String) -> Void
   ) throws {
     // Repeat the check here so bypassing the GUI cannot reach any write.
@@ -464,6 +465,13 @@ enum RecoveryActions {
       (try? Stage1Configuration.read(stage1).stage2Path) == config.stage2Path,
       "The startup software in these files doesn't load this installation's Stage 2. Run the Aurora installer again."
     )
+    // Only a Stage 1 with a key block can hold the owner's key. One without it
+    // checks Stage 2 with its built-in key, if at all.
+    let holdsKeys = Stage1KeyBlock.isPresent(in: stage1)
+    try check(
+      holdsKeys || choice == .aurora,
+      "This startup software can't hold your own key. Choose Aurora-managed keys, or use a newer Aurora installer. Nothing was changed."
+    )
     // A successful setup must retain a usable per-device repair baseline.
     _ = try RecoveryBaseline.firmware(
       manifest: m, root: payloadRoot())
@@ -480,7 +488,8 @@ enum RecoveryActions {
     try fm.createDirectory(
       at: state, withIntermediateDirectories: true,
       attributes: [.posixPermissions: 0o700])
-    let target = try esp().appendingPathComponent(destination)
+    let espRoot = try esp()
+    let target = espRoot.appendingPathComponent(destination)
     let marker = volume.appendingPathComponent(".IAPhysicalMedia")
     let disabledMarker = volume.appendingPathComponent("IAPhysicalMedia-disabled.plist")
     let core = volume.appendingPathComponent("System/Library/CoreServices")
@@ -507,6 +516,7 @@ enum RecoveryActions {
       if journal.phase.mayRestoreFiles {
         try transaction.restore()
         try restoreISC(journal, at: iscVar)
+        try StartupKeyFiles.remove(esp: espRoot)
         journal.phase = .prepared
       }
       InstallerLog.shared.append("Resuming the recorded startup setup.")
@@ -530,6 +540,37 @@ enum RecoveryActions {
       journal.phase = phase
       try RecoveryFileTransaction.write(try JSONEncoder().encode(journal), to: pendingInstallation)
     }
+    // Until enrollment starts, setup makes its keys again. From then on the
+    // staged Stage 1 and the startup partition keep the recorded ones.
+    let auroraKeys = AuroraStage2Keys.trusted(lab: config.secureBootLabKey == true)
+    let keys: StartupKeys?
+    if journal.phase == .prepared {
+      let made = try StartupKeys.make(choice, aurora: auroraKeys)
+      journal.startupKeyOwner = choice.rawValue
+      journal.ownerStage2PublicKey = made.ownerPublicKey.map(StartupKeys.hex)
+      keys = made
+    } else if let recorded = journal.startupKeyOwner {
+      guard let owner = StartupKeyOwner(rawValue: recorded),
+        let made = try? StartupKeys.recorded(
+          owner, ownerPublicKey: journal.ownerStage2PublicKey.flatMap(StartupKeys.bytes(hex:)),
+          aurora: auroraKeys)
+      else {
+        throw RecoveryFailure(
+          message: "The interrupted setup's startup security keys are invalid. Its files were kept."
+        )
+      }
+      keys = made
+    } else {
+      keys = nil
+    }
+    if let keys {
+      InstallerLog.shared.append(
+        holdsKeys
+          ? keys.summary
+          : "Startup security keys: aurora-managed (aurora). This startup software has no key block, so it keeps its built-in key."
+      )
+    }
+    let enrolledStage1 = try (holdsKeys ? keys?.filled(stage1) : nil) ?? stage1
     try record(journal.phase)
     InstallerLog.shared.persist(to: operation.appendingPathComponent("installer.log"))
     let stage1Path = operation.appendingPathComponent("stage1")
@@ -538,7 +579,7 @@ enum RecoveryActions {
         phase: journal.phase, persist: record,
         stage: {
           // Inside this block so that a refusal restores the files and clears the journal.
-          try stageStage1(stage1, mode: selection.mode, at: stage1Path)
+          try stageStage1(enrolledStage1, mode: selection.mode, at: stage1Path)
         },
         authorizePolicy: {
           try transaction.clearImmutableFlags()
@@ -564,11 +605,15 @@ enum RecoveryActions {
                 .appendingPathComponent(groupUUID + "/var"), at: iscVar)
           }
           try atomic(stage2, to: target)
+          if let keys {
+            try StartupKeyFiles.write(keys, esp: espRoot) { try atomic($0, to: $1) }
+          }
         },
         verifyBundle: {
           try check(
             try Data(contentsOf: target) == stage2,
             "The pending startup bundle changed; its recovery record was preserved.")
+          if let keys { try StartupKeyFiles.verify(keys, esp: espRoot) }
         },
         enroll: {
           progress(
@@ -591,6 +636,8 @@ enum RecoveryActions {
           // A raw installation's receipt keeps its shape.
           if selection.mode == .standard { installation["nestedVirtualization"] = false }
           if let executeWindow { installation["executeWindowSize"] = executeWindow }
+          // A later Stage 1 update fills the same keys; public keys only.
+          for (key, value) in keys?.receiptFields ?? [:] { installation[key] = value }
           try RecoveryFileTransaction.write(
             try JSONSerialization.data(
               withJSONObject: installation, options: [.prettyPrinted, .sortedKeys]), to: receipt)
@@ -617,6 +664,7 @@ enum RecoveryActions {
         do {
           try transaction.restore()
           try restoreISC(journal, at: iscVar)
+          try StartupKeyFiles.remove(esp: espRoot)
           try fm.removeItem(at: pendingInstallation)
           try RecoveryFileTransaction.flushDirectory(state)
         } catch {
@@ -1019,6 +1067,22 @@ extension RecoveryActions {
       InstallerLog.shared.append("This startup software is already enrolled. Nothing was changed.")
       return false
     }
+    // The new Stage 1 keeps the keys setup chose: Aurora's current ones and the owner's.
+    let keys: StartupKeys?
+    do {
+      keys = try StartupKeys.recorded(
+        receipt: record, aurora: AuroraStage2Keys.trusted(lab: config.secureBootLabKey == true))
+    } catch {
+      throw RecoveryFailure(
+        message:
+          "This installation's startup security keys are recorded wrongly. Nothing was changed.")
+    }
+    let holdsKeys = Stage1KeyBlock.isPresent(in: stage1)
+    try check(
+      holdsKeys || keys.map({ $0.owner == .aurora }) ?? true,
+      "The new startup software can't hold this Mac's own key. Nothing was changed.")
+    if let keys, holdsKeys { InstallerLog.shared.append(keys.summary) }
+    let enrolledStage1 = try (holdsKeys ? keys?.filled(stage1) : nil) ?? stage1
     progress(0.15, "Checking the recovery environment")
     try run("/sbin/mount", ["-u", "-w", volume.path])
     let fm = FileManager.default
@@ -1033,7 +1097,7 @@ extension RecoveryActions {
     let disabledMarker = volume.appendingPathComponent("IAPhysicalMedia-disabled.plist")
     try Stage1ReenrollmentRunner.run(
       stage: {
-        try stageStage1(stage1, mode: mode, at: stage1Path)
+        try stageStage1(enrolledStage1, mode: mode, at: stage1Path)
       },
       authorizePolicy: {
         progress(0.3, "Authorizing the boot environment")
