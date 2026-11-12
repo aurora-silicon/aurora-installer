@@ -158,6 +158,20 @@
           let decoded = try FirmwareImage.decode(kernel)
           guard decoded.type == "krnl" else { throw NativeFirmwareInputFailure.invalidSource }
           try merge(FirmwareImage.controllerFirmware(in: decoded.bytes), into: &outputs)
+          // The ProRes engine's power-up rows (M4 Pro and M4 Max Macs), read
+          // from this Mac's own kernel like the rest and never shipped. A
+          // kernel the reader does not understand leaves ProRes off.
+          if ProResInitFirmware.machines.contains(source.machine) {
+            do {
+              if let rows = try ProResInitFirmware.extract(from: decoded.bytes) {
+                try merge([ProResInitFirmware.name: rows], into: &outputs)
+              } else {
+                InstallerLog.record(.error, "ProRes initialization rows not in this kernel.")
+              }
+            } catch let failure as ProResInitFirmware.Failure {
+              InstallerLog.record(.error, "ProRes initialization rows not collected: \(failure)")
+            }
+          }
         }
         let recoveryPath = target.group + "/usr/standalone/firmware/arm64eBaseSystem.dmg"
         guard
