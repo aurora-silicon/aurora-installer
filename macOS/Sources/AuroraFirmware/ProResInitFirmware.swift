@@ -329,7 +329,9 @@ public enum ProResInitFirmware {
       guard first & 0x9F00_0000 == 0x9000_0000, second & 0x7F00_0000 == 0x1100_0000,
         (second >> 5) & 0x1F == first & 0x1F
       else { continue }
-      let raw = Int64(((first >> 5) & 0x7FFFF) << 2 | (first >> 29) & 3)
+      let high: UInt32 = (first >> 5) & 0x7FFFF
+      let low: UInt32 = (first >> 29) & 3
+      let raw = Int64(high << 2 | low)
       let pages = (raw ^ 0x10_0000) - 0x10_0000
       let pc = address &+ UInt64(position - code.startIndex)
       var immediate = UInt64((second >> 10) & 0xFFF)

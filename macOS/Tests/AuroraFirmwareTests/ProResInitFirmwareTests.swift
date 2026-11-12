@@ -26,8 +26,10 @@ final class ProResInitFirmwareTests: XCTestCase {
   static let constAddress = base + 0x8000
 
   static func rows(_ count: Int, seed: UInt32) -> [(offset: UInt32, mask: UInt32, value: UInt32)] {
-    (0..<UInt32(count)).map {
-      ($0 * 4 + 0x100, 0xFF << ($0 % 4 * 8), ((seed + $0) % 0xFF) << ($0 % 4 * 8))
+    (0..<UInt32(count)).map { (index: UInt32) -> (offset: UInt32, mask: UInt32, value: UInt32) in
+      let shift: UInt32 = index % 4 * 8
+      let byte: UInt32 = (seed + index) % 0xFF
+      return (offset: index * 4 + 0x100, mask: UInt32(0xFF) << shift, value: byte << shift)
     }
   }
 
