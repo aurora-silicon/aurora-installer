@@ -185,9 +185,18 @@ def installed_macos(esp, devices=None, opener=apfs_ro.Container):
     return found
 
 
+class Staged:
+    """A file copied out of the macOS volume: its path, size and hash, so the
+    tree is not held in memory."""
+
+    def __init__(self, path, size, sha):
+        self.path, self.size, self.sha = path, size, sha
+
+
 def stage_wifi(vol, dest):
     """Copies the volume's Wi-Fi firmware tree to dest, links kept as links
-    (the collection resolves them as macOS does). Returns {rel: bytes|link}."""
+    (the collection resolves them as macOS does). Returns
+    {rel: Staged | ('link', target)}."""
     tree = {}
     total = 0
 
@@ -208,7 +217,7 @@ def stage_wifi(vol, dest):
             fd = os.open(full, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
             with os.fdopen(fd, "wb") as f:
                 f.write(data)
-            tree[rel] = data
+            tree[rel] = Staged(full, len(data), sha256(data))
         elif kind == 10:
             target = vol.readlink(ino)
             # Only links inside the tree, as the installer keeps them.
@@ -253,6 +262,15 @@ def parse_manifest(text):
 
 def wifi_in(manifest):
     return {k: v for k, v in manifest.items() if k.startswith(PKG_PREFIX)}
+
+
+def esp_wifi_digest(esp):
+    """One hash over the ESP package's Wi-Fi entries (names and hashes)."""
+    with contextlib.suppress(OSError, Refused):
+        current = wifi_in(parse_manifest((pathlib.Path(esp) / "vendorfw" / "manifest.txt")
+                                         .read_text("ascii")))
+        return sha256("".join(f"{k} {v}\n" for k, v in sorted(current.items())).encode())
+    return None
 
 
 def missing_for_board(files, board, chips):
@@ -335,33 +353,37 @@ def system_esp(esp=None):
 # ---------------------------------------------------------------- rebuild
 
 def tar_entries(tree):
-    """tarfile members for a raw Wi-Fi tree ({rel: bytes|('link', target)}),
-    under firmware/wifi/, directories first, as the installer writes them."""
+    """(TarInfo, file or None) for a raw Wi-Fi tree ({rel: bytes | Staged |
+    ('link', target)}) under firmware/wifi/, directories first, as the
+    installer writes them. Staged files are opened one at a time."""
     dirs = set()
     for rel in tree:
         parts = rel.split("/")[:-1]
         for i in range(1, len(parts) + 1):
             dirs.add("/".join(parts[:i]))
-    out = []
-    root = tarfile.TarInfo(RAW_PREFIX.rstrip("/"))
-    root.type, root.mode = tarfile.DIRTYPE, 0o755
-    out.append((root, None))
+
+    def info(name, kind, mode):
+        ti = tarfile.TarInfo(name)
+        ti.type, ti.mode, ti.uname, ti.gname, ti.mtime = kind, mode, "root", "wheel", 0
+        return ti
+    yield info(RAW_PREFIX.rstrip("/"), tarfile.DIRTYPE, 0o755), None
     for d in sorted(dirs):
-        ti = tarfile.TarInfo(RAW_PREFIX + d)
-        ti.type, ti.mode = tarfile.DIRTYPE, 0o755
-        out.append((ti, None))
+        yield info(RAW_PREFIX + d, tarfile.DIRTYPE, 0o755), None
     for rel in sorted(tree):
         v = tree[rel]
-        ti = tarfile.TarInfo(RAW_PREFIX + rel)
         if isinstance(v, tuple):
-            ti.type, ti.linkname, ti.mode = tarfile.SYMTYPE, v[1], 0o755
-            out.append((ti, None))
+            ti = info(RAW_PREFIX + rel, tarfile.SYMTYPE, 0o755)
+            ti.linkname = v[1]
+            yield ti, None
+        elif isinstance(v, Staged):
+            ti = info(RAW_PREFIX + rel, tarfile.REGTYPE, 0o644)
+            ti.size = v.size
+            with open(v.path, "rb") as f:
+                yield ti, f
         else:
-            ti.type, ti.size, ti.mode = tarfile.REGTYPE, len(v), 0o644
-            out.append((ti, io.BytesIO(v)))
-    for ti, _ in out:
-        ti.uname, ti.gname, ti.mtime = "root", "wheel", 0
-    return out
+            ti = info(RAW_PREFIX + rel, tarfile.REGTYPE, 0o644)
+            ti.size = len(v)
+            yield ti, io.BytesIO(v)
 
 
 def rebuild_all_firmware(old, new, tree):
@@ -399,7 +421,8 @@ def raw_wifi(all_fw):
 
 
 def tree_digest(tree):
-    return {rel: ("link:" + v[1]) if isinstance(v, tuple) else sha256(v) for rel, v in tree.items()}
+    return {rel: ("link:" + v[1]) if isinstance(v, tuple) else
+            v.sha if isinstance(v, Staged) else sha256(v) for rel, v in tree.items()}
 
 
 def rebuild_vendorfw(old_dir, new_dir, wifi):
@@ -754,6 +777,7 @@ def verify(state, esp, out=print, log_text=None, wait=VERIFY_WAIT, sleep=time.sl
         state.pop("pending", None)
         state["result"] = "verified"
         state["firmware"] = up[3]
+        state["esp_wifi"] = esp_wifi_digest(esp)
         write_state(state, state_dir)
         return "ok"
     why = (f"brcmfmac reported '{bad}'" if bad else
@@ -839,6 +863,15 @@ def main(argv=None):
             found = installed_macos(esp)
             if not found:
                 raise NotNow("no installed macOS System volume with Wi-Fi firmware was readable")
+            # At boot, a macOS build already checked against this ESP package
+            # needs no second read of its tree.
+            if a.cmd == "boot" and found[0].build == state.get("build") \
+                    and state.get("result") in ("verified", "identical") \
+                    and not state.get("pending") \
+                    and state.get("esp_wifi") and state.get("esp_wifi") == esp_wifi_digest(esp):
+                print(f"The ESP holds macOS {found[0].build}'s Wi-Fi firmware (checked before). "
+                      f"Nothing to do.")
+                return 0
             if a.cmd == "boot" and found[0].build == state.get("refused_build"):
                 print(f"macOS {found[0].build}'s Wi-Fi firmware did not come up here before; "
                       f"keeping the current files (run 'aurora-wifi-firmware update' to retry).")
@@ -846,7 +879,9 @@ def main(argv=None):
             r = update(esp, found[0], board, dry_run=a.cmd == "check")
             if r == "identical" and a.cmd != "check":
                 write_state(dict(state, build=found[0].build, version=found[0].version,
-                                 result=state.get("result") or "identical"))
+                                 result="verified" if state.get("result") == "verified"
+                                 and state.get("build") == found[0].build else "identical",
+                                 esp_wifi=esp_wifi_digest(esp)))
             return 0
     except Refused as e:
         print(f"Refused: {e}", file=sys.stderr)

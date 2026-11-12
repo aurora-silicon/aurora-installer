@@ -210,6 +210,16 @@ class UpdateTest(Case):
         # Running again changes nothing.
         self.assertEqual(self.update(esp, self.macos(new_tree)), "identical")
 
+    def test_esp_digest_follows_the_wifi_set_only(self):
+        esp = make_esp(self.root, wifi_tree("old"))
+        before = awf.esp_wifi_digest(esp)
+        self.assertIsNotNone(before)
+        self.update(esp, self.macos(wifi_tree("new")))
+        after = awf.esp_wifi_digest(esp)
+        self.assertNotEqual(before, after)
+        self.assertEqual(self.update(esp, self.macos(wifi_tree("new"))), "identical")
+        self.assertEqual(awf.esp_wifi_digest(esp), after)
+
     def test_package_matches_a_full_rebuild(self):
         """vendorfw after the update equals what asahi_firmware builds from
         the updated tree (Wi-Fi first, then the rest)."""
