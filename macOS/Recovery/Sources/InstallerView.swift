@@ -33,6 +33,8 @@ final class InstallerView: NSViewController, NSTextFieldDelegate, NSMenuItemVali
   /// Install was pressed while this Mac was still being checked again; the
   /// password waits in its field and installation starts once the check passes.
   private var authorizationSubmitPending = false
+  /// The choice in the open startup security keys sheet.
+  private var startupKeyButtons: [StartupKeyOwner: NSButton] = [:]
   /// Window → Installer Log; made the first time it is opened.
   private(set) var logWindow: InstallerLogWindowController?
 
@@ -253,7 +255,15 @@ final class InstallerView: NSViewController, NSTextFieldDelegate, NSMenuItemVali
     stack.setCustomSpacing(24, after: icon)
     // Every Aurora startup volume carries the Aurora mark the window already
     // shows, so its icon and name are left out; a blank line keeps the layout.
-    stack.addArrangedSubview(label(" ", size: 14))
+    // Setup puts its advanced key choice there instead.
+    if updating || model.recoveryInterface {
+      stack.addArrangedSubview(label(" ", size: 14))
+    } else {
+      let keys = RecoveryTextButton(
+        title: "Startup Security Keys…", target: self, action: #selector(startupKeysPressed))
+      keys.identifier = NSUserInterfaceItemIdentifier("startupKeys")
+      stack.addArrangedSubview(keys)
+    }
     place(stack)
   }
 
@@ -706,6 +716,72 @@ final class InstallerView: NSViewController, NSTextFieldDelegate, NSMenuItemVali
   func validateMenuItem(_ item: NSMenuItem) -> Bool {
     guard item.action == #selector(toggleInstallerLog(_:)) else { return true }
     return RecoveryLogMenu.validate(item, showing: logWindow?.isShowing == true)
+  }
+
+  /// The advanced choice of who signs this Mac's startup software.
+  @objc private func startupKeysPressed() {
+    guard sheets.active == nil, model.stage == .welcome else { return }
+    let choices: [(StartupKeyOwner, String, String)] = [
+      (
+        .aurora, "Aurora-managed (recommended)",
+        "Aurora signs the startup software it ships. No signing key is kept on this Mac."
+      ),
+      (
+        .owner, "My own key",
+        "Setup makes a signing key that Linux keeps, and you sign startup software updates yourself. Aurora can’t ship signed updates for this Mac’s startup chain."
+      ),
+      (.both, "Both", "This Mac accepts startup software signed by Aurora or by your own key."),
+    ]
+    let body = vertical(spacing: 12)
+    body.alignment = .leading
+    startupKeyButtons = [:]
+    for (owner, title, detail) in choices {
+      let row = vertical(spacing: 2)
+      row.alignment = .leading
+      let button = NSButton(
+        radioButtonWithTitle: title, target: self, action: #selector(startupKeyChosen(_:)))
+      button.font = AuroraTheme.control
+      button.state = owner == model.startupKeys ? .on : .off
+      button.identifier = NSUserInterfaceItemIdentifier("startupKeys." + owner.rawValue)
+      row.addArrangedSubview(button)
+      let explanation = label(detail, size: 12, alignment: .left)
+      explanation.preferredMaxLayoutWidth = 410
+      explanation.widthAnchor.constraint(equalToConstant: 410).isActive = true
+      row.addArrangedSubview(explanation)
+      body.addArrangedSubview(row)
+      startupKeyButtons[owner] = button
+    }
+    let cancel = RecoverySecondaryButton(
+      title: "Cancel", target: self, action: #selector(startupKeysCancelled))
+    cancel.keyEquivalent = "\u{1b}"
+    let done = RecoveryPrimaryButton(
+      title: "Done", target: self, action: #selector(startupKeysDone))
+    done.keyEquivalent = "\r"
+    body.layoutSubtreeIfNeeded()
+    present(
+      RecoverySheet(
+        title: "Startup security keys",
+        message:
+          "Choose which keys this Mac’s startup software accepts. Signatures are checked and recorded; nothing is refused yet.",
+        width: 490, height: 400, body: body, bodyHeight: body.fittingSize.height,
+        buttons: [cancel, done]))
+  }
+
+  @objc private func startupKeyChosen(_ sender: NSButton) {
+    for button in startupKeyButtons.values { button.state = button === sender ? .on : .off }
+  }
+
+  @objc private func startupKeysDone() {
+    if let chosen = startupKeyButtons.first(where: { $0.value.state == .on })?.key {
+      model.startupKeys = chosen
+    }
+    startupKeyButtons = [:]
+    closePanel()
+  }
+
+  @objc private func startupKeysCancelled() {
+    startupKeyButtons = [:]
+    closePanel()
   }
 
   @objc private func donePanelPressed() {
