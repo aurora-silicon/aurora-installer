@@ -67,7 +67,10 @@ import Foundation
 
     // The shipped Aurora key is the lab key, with aura's key id.
     precondition(AuroraStage2Keys.lab20261111 == lab)
-    precondition(AuroraStage2Keys.current == [lab])
+    // No release key exists yet, and only a lab install trusts the lab key.
+    precondition(AuroraStage2Keys.release.isEmpty)
+    precondition(AuroraStage2Keys.trusted(lab: false).isEmpty)
+    precondition(AuroraStage2Keys.trusted(lab: true) == [lab])
     precondition(StartupKeys.keyID(lab) == "ac020765a9ed5164")
     precondition(StartupKeys.keyID(ownerPub) == "8f73cefd62612f1f")
 
@@ -98,13 +101,17 @@ import Foundation
     let wrapped = Data([0x55] + unfilled + [0x66]).dropFirst()
     precondition(Stage1KeyBlock.isPresent(in: wrapped))
 
-    // Each choice fills the keys the contract names, at floor 1 without enforcing.
+    // Each choice fills the keys the contract names, at floor 1 without
+    // enforcing. A user install (no release key yet) leaves Aurora-managed
+    // unfilled and gives Both the owner key alone; a lab install adds the lab key.
     let generate = { seed }
-    for (owner, name) in [
-      (StartupKeyOwner.aurora, "stage1-aurora.bin"), (.owner, "stage1-owner.bin"),
-      (.both, "stage1-both.bin"),
+    for (owner, labInstall, name) in [
+      (StartupKeyOwner.aurora, false, "stage1-unfilled.bin"), (.owner, false, "stage1-owner.bin"),
+      (.both, false, "stage1-owner.bin"), (.aurora, true, "stage1-aurora.bin"),
+      (.owner, true, "stage1-owner.bin"), (.both, true, "stage1-both.bin"),
     ] {
-      let keys = try StartupKeys.make(owner, seed: generate)
+      let aurora = AuroraStage2Keys.trusted(lab: labInstall)
+      let keys = try StartupKeys.make(owner, aurora: aurora, seed: generate)
       let filled = try keys.filled(unfilled)
       let expected = try fixture(name)
       precondition(filled == expected, "\(owner) fill")
@@ -113,19 +120,24 @@ import Foundation
       for secret in [seed, ownerPub] {
         precondition(!summary.contains(StartupKeys.hex(secret)), "the log line carries key bytes")
       }
-      precondition(summary.contains(owner == .owner ? "8f73cefd62612f1f" : "ac020765a9ed5164"))
+      precondition(summary.contains("ac020765a9ed5164") == (labInstall && owner != .owner))
+      precondition(summary.contains("8f73cefd62612f1f") == (owner != .aurora))
+      precondition(
+        summary.contains("no Aurora release key yet") == (!labInstall && owner == .aurora))
+      precondition(summary.contains("only the owner key") == (!labInstall && owner == .both))
       // A record rebuilds the same block without the seed.
-      let recorded = try StartupKeys.recorded(owner, ownerPublicKey: keys.ownerPublicKey)
+      let recorded = try StartupKeys.recorded(
+        owner, ownerPublicKey: keys.ownerPublicKey, aurora: aurora)
       precondition(recorded.ownerSeed == nil && recorded.stage1Keys == keys.stage1Keys)
     }
     // A receipt keeps the choice and public key, and a Stage 1 update rebuilds the set from it.
     for owner in StartupKeyOwner.allCases {
-      let keys = try StartupKeys.make(owner, seed: generate)
+      let keys = try StartupKeys.make(owner, aurora: [lab], seed: generate)
       let fields = keys.receiptFields
       precondition(!fields.values.contains(StartupKeys.hex(seed)), "a receipt carries the seed")
       precondition(fields["startupKeys"] == owner.rawValue)
       let receipt: [String: Any] = fields.merging(["status": "installed"]) { a, _ in a }
-      let rebuilt = try StartupKeys.recorded(receipt: receipt)
+      let rebuilt = try StartupKeys.recorded(receipt: receipt, aurora: [lab])
       precondition(rebuilt?.stage1Keys == keys.stage1Keys && rebuilt?.owner == owner)
     }
     let older = try StartupKeys.recorded(receipt: ["status": "installed"])

@@ -22,15 +22,22 @@ public enum StartupKeyOwner: String, CaseIterable, Codable {
 
 /// Aurora's Stage 2 signing keys, as raw 32-byte Ed25519 public keys.
 public enum AuroraStage2Keys {
-  /// `aurora-lab-20261111` (key id ac020765a9ed5164). This is the lab key
-  /// that signs test builds; the release key replaces it once it exists.
+  /// Aurora's release keys. Empty until the release key exists; until then an
+  /// Aurora-managed setup leaves the key block as aura built it.
+  public static let release: [Data] = []
+
+  /// `aurora-lab-20261111` (key id ac020765a9ed5164), the lab key that signs
+  /// test builds. Only an install-config.json with `secureBootLabKey` trusts it.
   public static let lab20261111 = Data([
     0xdb, 0x81, 0xb5, 0x28, 0x32, 0x4a, 0xc8, 0x17, 0xe1, 0xc9, 0x1e, 0x62, 0x79, 0xe8, 0x3f, 0x5b,
     0xc0, 0x4d, 0xef, 0x2c, 0x51, 0xb8, 0xb5, 0x8d, 0x4e, 0xbc, 0x53, 0x21, 0x06, 0x7a, 0xe6, 0x2b,
   ])
 
-  /// The keys an Aurora-managed Stage 1 accepts.
-  public static let current = [lab20261111]
+  /// The Aurora keys a Stage 1 accepts: the release keys, plus the lab key
+  /// on a lab install.
+  public static func trusted(lab: Bool) -> [Data] {
+    release + (lab ? [lab20261111] : [])
+  }
 }
 
 /// The keys one setup puts in Stage 1's key block. A set made at setup also
@@ -50,7 +57,7 @@ public struct StartupKeys {
   /// Makes a set for `owner`, with a new owner key unless Aurora alone
   /// signs. `seed` makes the owner key's 32-byte seed.
   public static func make(
-    _ owner: StartupKeyOwner, aurora: [Data] = AuroraStage2Keys.current,
+    _ owner: StartupKeyOwner, aurora: [Data] = AuroraStage2Keys.trusted(lab: false),
     seed: () throws -> Data = Ed25519.newSeed
   ) throws -> StartupKeys {
     guard owner != .aurora else {
@@ -64,7 +71,8 @@ public struct StartupKeys {
 
   /// Rebuilds a recorded set. Its owner key, if any, is public only.
   public static func recorded(
-    _ owner: StartupKeyOwner, ownerPublicKey: Data?, aurora: [Data] = AuroraStage2Keys.current
+    _ owner: StartupKeyOwner, ownerPublicKey: Data?,
+    aurora: [Data] = AuroraStage2Keys.trusted(lab: false)
   ) throws -> StartupKeys {
     guard (owner == .aurora) == (ownerPublicKey == nil),
       ownerPublicKey.map({ $0.count == Stage1KeyBlock.keyBytes }) ?? true
@@ -74,13 +82,16 @@ public struct StartupKeys {
   }
 
   /// The set a setup receipt records, nil for a setup made before the choice existed.
-  public static func recorded(receipt: [String: Any]) throws -> StartupKeys? {
+  public static func recorded(
+    receipt: [String: Any], aurora: [Data] = AuroraStage2Keys.trusted(lab: false)
+  ) throws -> StartupKeys? {
     guard let value = receipt["startupKeys"] else { return nil }
     guard let name = value as? String, let owner = StartupKeyOwner(rawValue: name) else {
       throw Stage1KeyBlock.Invalid(reason: "the recorded key owner is unknown")
     }
     return try recorded(
-      owner, ownerPublicKey: (receipt["ownerStage2PublicKey"] as? String).flatMap(bytes(hex:)))
+      owner, ownerPublicKey: (receipt["ownerStage2PublicKey"] as? String).flatMap(bytes(hex:)),
+      aurora: aurora)
   }
 
   /// What a setup receipt records so a later Stage 1 update fills the same
@@ -100,17 +111,29 @@ public struct StartupKeys {
     }
   }
 
-  /// `stage1` with these keys filled in, at the minimum security version, checking without enforcing.
+  /// `stage1` with these keys filled in, at the minimum security version,
+  /// checking without enforcing. With no keys to fill (Aurora-managed before a
+  /// release key exists) the block stays as built, so Stage 1 keeps the key
+  /// built into it.
   public func filled(_ stage1: Data) throws -> Data {
-    try Stage1KeyBlock.filled(
+    if stage1Keys.isEmpty { return stage1 }
+    return try Stage1KeyBlock.filled(
       stage1, keys: stage1Keys, minimumSecurityVersion: Self.minimumSecurityVersion)
   }
 
   /// One line for the installer log: the choice and key ids, never key bytes.
   public var summary: String {
-    "Startup security keys: \(owner.title.lowercased()) (\(owner.rawValue)); Stage 1 key ids "
-      + stage1Keys.map(Self.keyID).joined(separator: ", ")
+    let choice = "Startup security keys: \(owner.title.lowercased()) (\(owner.rawValue))"
+    if stage1Keys.isEmpty {
+      return choice
+        + ": no Aurora release key yet, so the Stage 1 key block is left empty and Stage 1 keeps its built-in key; signatures checked, not enforced."
+    }
+    let missing =
+      owner == .both && auroraKeys.isEmpty
+      ? " No Aurora release key yet, so only the owner key." : ""
+    return choice + "; Stage 1 key ids " + stage1Keys.map(Self.keyID).joined(separator: ", ")
       + "; minimum security version \(Self.minimumSecurityVersion); signatures checked, not enforced."
+      + missing
   }
 
   /// aura's key id: the first 8 bytes of the public key's SHA-256, in hex.

@@ -542,16 +542,18 @@ enum RecoveryActions {
     }
     // Until enrollment starts, setup makes its keys again. From then on the
     // staged Stage 1 and the startup partition keep the recorded ones.
+    let auroraKeys = AuroraStage2Keys.trusted(lab: config.secureBootLabKey == true)
     let keys: StartupKeys?
     if journal.phase == .prepared {
-      let made = try StartupKeys.make(choice)
+      let made = try StartupKeys.make(choice, aurora: auroraKeys)
       journal.startupKeyOwner = choice.rawValue
       journal.ownerStage2PublicKey = made.ownerPublicKey.map(StartupKeys.hex)
       keys = made
     } else if let recorded = journal.startupKeyOwner {
       guard let owner = StartupKeyOwner(rawValue: recorded),
         let made = try? StartupKeys.recorded(
-          owner, ownerPublicKey: journal.ownerStage2PublicKey.flatMap(StartupKeys.bytes(hex:)))
+          owner, ownerPublicKey: journal.ownerStage2PublicKey.flatMap(StartupKeys.bytes(hex:)),
+          aurora: auroraKeys)
       else {
         throw RecoveryFailure(
           message: "The interrupted setup's startup security keys are invalid. Its files were kept."
@@ -1068,7 +1070,8 @@ extension RecoveryActions {
     // The new Stage 1 keeps the keys setup chose: Aurora's current ones and the owner's.
     let keys: StartupKeys?
     do {
-      keys = try StartupKeys.recorded(receipt: record)
+      keys = try StartupKeys.recorded(
+        receipt: record, aurora: AuroraStage2Keys.trusted(lab: config.secureBootLabKey == true))
     } catch {
       throw RecoveryFailure(
         message:

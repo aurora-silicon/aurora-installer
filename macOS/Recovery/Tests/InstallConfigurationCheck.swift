@@ -31,7 +31,8 @@ import Foundation
       ("volumeName", "../macOS"), ("volumeName", "bad\nname"), ("volumeName", ""),
       ("unknown", "unused"), ("allowCustomBootArguments", 1),
       ("allowCustomBootArguments", "true"), ("secureBootKeys", "mine"),
-      ("secureBootKeys", true), ("secureBootKeys", "Aurora"),
+      ("secureBootKeys", true), ("secureBootKeys", "Aurora"), ("secureBootLabKey", "true"),
+      ("secureBootLabKey", 1),
     ] as [(String, Any)] {
       var changed = value
       changed[key] = bad
@@ -42,7 +43,13 @@ import Foundation
     }
     precondition(config.allowCustomBootArguments == nil)
     // The key owner default is optional and names one of the three choices.
-    precondition(config.secureBootKeys == nil)
+    precondition(config.secureBootKeys == nil && config.secureBootLabKey == nil)
+    for lab in [false, true] {
+      var scoped = value
+      scoped["secureBootLabKey"] = lab
+      let decoded = try InstallConfiguration.decode(JSONSerialization.data(withJSONObject: scoped))
+      precondition(decoded.secureBootLabKey == lab)
+    }
     for owner in StartupKeyOwner.allCases {
       var chosen = value
       chosen["secureBootKeys"] = owner.rawValue
