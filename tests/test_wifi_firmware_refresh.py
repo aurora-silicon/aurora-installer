@@ -320,6 +320,87 @@ class VerifyRevertTest(Case):
         self.assertEqual(awf.tree_hashes(esp), old)
 
 
+class MainTest(Case):
+    """The commands as the boot unit and a person run them."""
+
+    def setUp(self):
+        super().setUp()
+        self.esp = make_esp(self.root, wifi_tree("old"))
+        self.mac = self.macos(wifi_tree("new"))
+        self.saved = {k: getattr(awf, k) for k in ("STATE_DIR", "BACKUP_ROOT", "wifi_board",
+                                                   "installed_macos", "exchange", "verify")}
+        awf.STATE_DIR, awf.BACKUP_ROOT = self.state, self.backups
+        awf.wifi_board = lambda dt=None: BOARD
+        awf.installed_macos = lambda esp, **kw: [self.mac]
+        awf.exchange = lambda a, b: False
+        self.geteuid = awf.os.geteuid
+        awf.os.geteuid = lambda: 0
+
+    def tearDown(self):
+        for k, v in self.saved.items():
+            setattr(awf, k, v)
+        awf.os.geteuid = self.geteuid
+        super().tearDown()
+
+    def run_main(self, *argv):
+        with open(os.devnull, "w") as null:
+            old = sys.stdout, sys.stderr
+            sys.stdout = sys.stderr = null
+            try:
+                return awf.main(["--esp", str(self.esp), *argv])
+            finally:
+                sys.stdout, sys.stderr = old
+
+    def test_boot_updates_then_skips_a_checked_build(self):
+        self.assertEqual(self.run_main("boot"), 0)
+        st = awf.read_state()
+        self.assertEqual(st["result"], "updated")
+        # The next boot: brcmfmac came up with the new file.
+        awf.verify = lambda state, esp, **kw: self.saved["verify"](
+            dict(state, pending=dict(state["pending"], boot_id="earlier")), esp,
+            log_text=VerifyRevertTest.UP_LINE, wait=0,
+            unpacked_sha=lambda n: state["pending"]["expect"], swap=lambda a, b: False)
+        self.assertEqual(self.run_main("boot"), 0)
+        awf.verify = self.saved["verify"]
+        st = awf.read_state()
+        self.assertEqual(st["result"], "verified")
+        self.assertEqual(st["esp_wifi"], awf.esp_wifi_digest(self.esp))
+        # Later boots do not read the macOS tree again.
+        stage = awf.stage_wifi
+        awf.stage_wifi = lambda *a, **k: self.fail("the macOS tree was read again")
+        try:
+            self.assertEqual(self.run_main("boot"), 0)
+        finally:
+            awf.stage_wifi = stage
+        self.assertEqual(awf.read_state()["result"], "verified")
+
+    def test_a_hand_revert_is_not_undone_at_boot(self):
+        self.assertEqual(self.run_main("update"), 0)
+        changed = awf.tree_hashes(self.esp)
+        self.assertEqual(self.run_main("revert"), 0)
+        reverted = awf.tree_hashes(self.esp)
+        self.assertNotEqual(reverted, changed)
+        self.assertEqual(self.run_main("boot"), 0)
+        self.assertEqual(awf.tree_hashes(self.esp), reverted)
+        # update brings it back, and the boot unit follows again.
+        self.assertEqual(self.run_main("update"), 0)
+        self.assertEqual(awf.esp_wifi_digest(self.esp), awf.sha256("".join(
+            f"{k} {v.sha}\n" for k, v in sorted(awf.converted(self.staged_new()).items())).encode()))
+        self.assertIsNone(awf.read_state().get("refused_build"))
+
+    def staged_new(self):
+        raw = self.root / "raw-new"
+        if not raw.exists():
+            for rel, v in wifi_tree("new").items():
+                p = raw / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                if isinstance(v, tuple):
+                    os.symlink(v[1], p)
+                else:
+                    p.write_bytes(v)
+        return raw
+
+
 class SelectionTest(Case):
     def test_newest_macos_and_not_the_stub(self):
         esp = make_esp(self.root, wifi_tree("old"))

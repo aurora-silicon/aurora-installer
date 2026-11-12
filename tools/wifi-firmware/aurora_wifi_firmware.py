@@ -613,14 +613,15 @@ def commit(esp, pairs, backup, swap=exchange):
 
 # ---------------------------------------------------------------- state
 
-def read_state(state_dir=STATE_DIR):
+def read_state(state_dir=None):
+    state_dir = state_dir or STATE_DIR
     with contextlib.suppress(OSError, ValueError):
         return json.loads((pathlib.Path(state_dir) / "state.json").read_text())
     return {}
 
 
-def write_state(state, state_dir=STATE_DIR):
-    d = pathlib.Path(state_dir)
+def write_state(state, state_dir=None):
+    d = pathlib.Path(state_dir or STATE_DIR)
     d.mkdir(mode=0o700, parents=True, exist_ok=True)
     tmp = d / "state.json.tmp"
     tmp.write_text(json.dumps(state, indent=1, sort_keys=True) + "\n")
@@ -662,9 +663,10 @@ def plan(esp, macos=None, board=None, out=print):
             "current": current, "chips": chips, "board": board}
 
 
-def update(esp, macos=None, board=None, dry_run=False, backup_root=BACKUP_ROOT,
-           state_dir=STATE_DIR, out=print, swap=exchange):
+def update(esp, macos=None, board=None, dry_run=False, backup_root=None,
+           state_dir=None, out=print, swap=exchange):
     """Returns "identical", "dry-run" or "updated", or raises Refused/NotNow."""
+    backup_root = pathlib.Path(backup_root or BACKUP_ROOT)
     p = plan(esp, macos, board, out)
     esp, vendorfw, all_fw, macos = p["esp"], p["vendorfw"], p["all_fw"], p["macos"]
     with tempfile.TemporaryDirectory(prefix="aurora-wifi-firmware-") as tmp:
@@ -755,7 +757,7 @@ def unpacked(name, roots=("/run/aurora-firmware/vendorfw", "/lib/firmware/vendor
 
 
 def verify(state, esp, out=print, log_text=None, wait=VERIFY_WAIT, sleep=time.sleep,
-           unpacked_sha=unpacked, swap=exchange, state_dir=STATE_DIR):
+           unpacked_sha=unpacked, swap=exchange, state_dir=None):
     """The first boot after a change: did brcmfmac come up with the new
     firmware? "ok", "reverted" or "waiting" (still the boot that changed it)."""
     pend = state.get("pending") or {}
@@ -792,7 +794,8 @@ def verify(state, esp, out=print, log_text=None, wait=VERIFY_WAIT, sleep=time.sl
     return "reverted"
 
 
-def revert(esp, backup=None, out=print, swap=exchange, backup_root=BACKUP_ROOT):
+def revert(esp, backup=None, out=print, swap=exchange, backup_root=None):
+    backup_root = backup_root or BACKUP_ROOT
     esp = pathlib.Path(esp)
     if backup is None:
         olds = sorted(p for p in pathlib.Path(backup_root).iterdir()
@@ -877,15 +880,17 @@ def main(argv=None):
                       f"Nothing to do.")
                 return 0
             if a.cmd == "boot" and found[0].build == state.get("refused_build"):
-                print(f"macOS {found[0].build}'s Wi-Fi firmware did not come up here before; "
-                      f"keeping the current files (run 'aurora-wifi-firmware update' to retry).")
+                why = "was put back by hand" if state.get("result") == "reverted by hand" \
+                    else "did not come up here before"
+                print(f"macOS {found[0].build}'s Wi-Fi firmware {why}; keeping the current files "
+                      f"(run 'aurora-wifi-firmware update' to use it).")
                 return 0
             r = update(esp, found[0], board, dry_run=a.cmd == "check")
             if r == "identical" and a.cmd != "check":
                 write_state(dict(state, build=found[0].build, version=found[0].version,
                                  result="verified" if state.get("result") == "verified"
                                  and state.get("build") == found[0].build else "identical",
-                                 esp_wifi=esp_wifi_digest(esp)))
+                                 esp_wifi=esp_wifi_digest(esp), refused_build=None))
             return 0
     except Refused as e:
         print(f"Refused: {e}", file=sys.stderr)
