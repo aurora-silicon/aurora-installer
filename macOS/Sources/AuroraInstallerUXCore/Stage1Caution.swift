@@ -18,6 +18,9 @@
     private static let untriedM4Board =
       "Support for this Mac is experimental: the Aurora team has not started Aurora on one yet. It shares its M4-family chip and aura’s Stage 1 with a tested Mac, but its own board is untested, so Aurora may not start."
 
+    private static let m4MacMini =
+      "Support for the Mac mini with M4 is experimental. An earlier build of this installer completed on one, but the system it installed did not start Aurora. With the current published installer payloads, Aurora is not expected to start yet. Aurora has started on one only with changes that are still under review; with those changes, HDMI, the front USB ports and Ethernet worked. Even with those changes, the rear USB-C ports and GPU acceleration did not work."
+
     private static let newMaxBoard =
       "Support for the 16-inch MacBook Pro with M4 Max is experimental: Aurora has run on one, but not from this installer, and the Linux device tree this installer uses for it has not started on one yet, so Aurora may not start."
 
@@ -38,7 +41,7 @@
       "apple,j623": untriedM4Board,
       "apple,j624": untriedM4Board,
       "apple,j715": untriedM4Board,
-      "apple,j773g": untriedM4Board,
+      "apple,j773g": m4MacMini,
       "apple,j614c": untriedM4Board,
       "apple,j773s": untriedM4Board,
       "apple,j575c": untriedM4Board,
