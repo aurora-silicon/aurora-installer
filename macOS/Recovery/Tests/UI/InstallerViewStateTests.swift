@@ -210,6 +210,67 @@ final class InstallerViewStateTests: XCTestCase {
     XCTAssertEqual(try primary(controller).button.title, "Restart")
   }
 
+  private func startupKeyChoices(_ sheet: NSWindow) -> [NSButton] {
+    views(NSButton.self, in: sheet.contentView).filter {
+      $0.identifier?.rawValue.hasPrefix("startupKeys.") == true
+    }
+  }
+
+  func testStartupKeysAreAnAdvancedChoiceThatDefaultsToAurora() throws {
+    let model = InstallerModel()
+    XCTAssertEqual(model.startupKeys, .aurora)
+    let (window, controller) = show(model)
+    let open = try XCTUnwrap(button("Startup Security Keys…", in: controller.view))
+    XCTAssertGreaterThan(frame(open).minY, frame(try primary(controller).button).maxY)
+
+    open.performClick(nil)
+    let sheet = try XCTUnwrap(window.attachedSheet)
+    XCTAssertTrue(labels(in: sheet.contentView).contains("Startup security keys"))
+    var choices = startupKeyChoices(sheet)
+    XCTAssertEqual(choices.map(\.title), ["Aurora-managed (recommended)", "My own key", "Both"])
+    XCTAssertEqual(choices.filter { $0.state == .on }, [choices[0]])
+    XCTAssertTrue(
+      labels(in: sheet.contentView).contains {
+        $0.contains("Aurora can’t ship signed updates for this Mac’s startup chain")
+      })
+    // Every explanation fits inside the sheet above its buttons.
+    let cancel = try XCTUnwrap(button("Cancel", in: sheet.contentView))
+    for choice in choices {
+      XCTAssertGreaterThan(frame(choice).minY, frame(cancel).maxY)
+      XCTAssertLessThan(frame(choice).maxY, sheet.frame.height)
+    }
+
+    choices[1].performClick(nil)
+    XCTAssertEqual(choices.filter { $0.state == .on }, [choices[1]])
+    cancel.performClick(nil)
+    wait("the sheet to close") { window.attachedSheet == nil }
+    XCTAssertEqual(model.startupKeys, .aurora, "Cancel keeps the earlier choice")
+
+    open.performClick(nil)
+    let again = try XCTUnwrap(window.attachedSheet)
+    choices = startupKeyChoices(again)
+    XCTAssertEqual(choices.filter { $0.state == .on }, [choices[0]])
+    choices[2].performClick(nil)
+    try XCTUnwrap(button("Done", in: again.contentView)).performClick(nil)
+    wait("the sheet to close") { window.attachedSheet == nil }
+    XCTAssertEqual(model.startupKeys, .both)
+
+    // Setup carries the choice.
+    let (prompt, _) = try promptWithPassword(model, window, controller)
+    wait("the repeated check") { !model.checkingEnvironment }
+    try XCTUnwrap(button("Install", in: prompt.contentView)).performClick(nil)
+    wait("installation to start") { model.stage == .installing }
+    XCTAssertTrue(model.operations.contains { $0.hasPrefix("Startup security keys: both (both)") })
+  }
+
+  func testUpdatesAndRestoresLeaveTheKeyChoiceOut() throws {
+    let model = InstallerModel()
+    model.stage1Update = Stage1Reenrollment(
+      mode: .macho, stage1SHA256: "", stage2Path: AuraStage1Format.confinedStage2Path)
+    let (_, controller) = show(model)
+    XCTAssertNil(button("Startup Security Keys…", in: controller.view))
+  }
+
   func testCancelWhileWaitingKeepsThePromptClosed() throws {
     let model = InstallerModel()
     let (window, controller) = show(model)

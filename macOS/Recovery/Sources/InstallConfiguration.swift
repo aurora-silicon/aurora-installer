@@ -18,6 +18,8 @@ struct InstallConfiguration: Decodable {
   let stage2Path: String
   let bootstrap: BootstrapAuthorization?
   let allowCustomBootArguments: Bool?
+  /// Who signs Stage 2 when setup doesn't choose otherwise; Aurora when absent.
+  let secureBootKeys: StartupKeyOwner?
 
   static func decode(_ data: Data) throws -> InstallConfiguration {
     let keys: Set<String> = [
@@ -25,8 +27,9 @@ struct InstallConfiguration: Decodable {
       "bootMode", "stage2Path", "bootstrap",
     ]
     guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-      Set(object.keys).subtracting(["allowCustomBootArguments"]) == keys
+      Set(object.keys).subtracting(["allowCustomBootArguments", "secureBootKeys"]) == keys
         && (object["allowCustomBootArguments"] == nil || object["allowCustomBootArguments"] is Bool)
+        && (object["secureBootKeys"] == nil || object["secureBootKeys"] is String)
     else { throw InstallConfigurationError.invalid }
     let config = try JSONDecoder().decode(Self.self, from: data)
     // An unpadded Stage 1 loads the standard Stage 2, and a padded one the confined one.

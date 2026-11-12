@@ -30,7 +30,8 @@ import Foundation
       ("espUUID", "00000000-0000-0000-0000-000000000000"),
       ("volumeName", "../macOS"), ("volumeName", "bad\nname"), ("volumeName", ""),
       ("unknown", "unused"), ("allowCustomBootArguments", 1),
-      ("allowCustomBootArguments", "true"),
+      ("allowCustomBootArguments", "true"), ("secureBootKeys", "mine"),
+      ("secureBootKeys", true), ("secureBootKeys", "Aurora"),
     ] as [(String, Any)] {
       var changed = value
       changed[key] = bad
@@ -40,6 +41,14 @@ import Foundation
       } catch {}
     }
     precondition(config.allowCustomBootArguments == nil)
+    // The key owner default is optional and names one of the three choices.
+    precondition(config.secureBootKeys == nil)
+    for owner in StartupKeyOwner.allCases {
+      var chosen = value
+      chosen["secureBootKeys"] = owner.rawValue
+      let decoded = try InstallConfiguration.decode(JSONSerialization.data(withJSONObject: chosen))
+      precondition(decoded.secureBootKeys == owner)
+    }
     for allowed in [false, true] {
       var scoped = value
       scoped["allowCustomBootArguments"] = allowed
