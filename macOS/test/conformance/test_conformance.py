@@ -66,7 +66,7 @@ class EnrollmentTests(unittest.TestCase):
         machine = {'device_identifier': 'apple,j700'}
         dry = {d: {'boot_chain': chain} for d in conformance.DESKTOPS}
         profiles = {d: {'payload': {'confined_stage2': stage2 or {}}} for d in conformance.DESKTOPS}
-        return {c['check']: c for c in conformance.confined_stage2_checks(machine, dry, profiles, '1.0.0b6')}
+        return {c['check']: c for c in conformance.confined_stage2_checks(machine, dry, profiles, ['1.0.0b6'])}
 
     def test_a_payload_without_it_fails_only_the_published_scope(self):
         checks = self.confined({'confined_stage2_missing': True, 'esp_layout': {}})
@@ -257,6 +257,23 @@ class PinLabelTests(unittest.TestCase):
     def test_only_the_tagged_commit_carries_the_bare_release_label(self):
         self.assertEqual(self.label(self.TAG), '1.0.0b1')
         self.assertEqual(self.label(self.MAIN), '1.0.0b1-g32dccf02')
+
+    def labels(self, commit):
+        tags = json.dumps([{'name': 'v1.0.0b1', 'commit': {'sha': self.TAG}}]).encode()
+        with mock.patch.object(conformance, 'fetch', lambda url, cache, headers=None: tags):
+            return conformance.aura_labels('1.0.0b1', commit, '/nonexistent')
+
+    def test_a_packaged_build_of_the_tag_matches_the_pin(self):
+        labels = self.labels(self.TAG)
+        self.assertEqual(labels, ['1.0.0b1', '1.0.0b1-g0ca7bf85'])
+        self.assertTrue(conformance.is_pinned_aura('##aura_ver##1.0.0b1-g0ca7bf85', labels))
+        self.assertTrue(conformance.is_pinned_aura('##aura_ver##1.0.0b1', labels))
+        self.assertFalse(conformance.is_pinned_aura('##aura_ver##1.0.0b10', labels))
+
+    def test_an_untagged_pin_matches_only_its_own_commit(self):
+        labels = self.labels(self.MAIN)
+        self.assertEqual(labels, ['1.0.0b1-g32dccf02'])
+        self.assertFalse(conformance.is_pinned_aura('##aura_ver##1.0.0b1', labels))
 
     def test_stage1_proofs_name_the_build_that_booted(self):
         constraints = json.loads((HERE / 'fixtures/constraints.json').read_text())

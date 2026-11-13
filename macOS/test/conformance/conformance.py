@@ -81,14 +81,27 @@ def installer_pins():
 
 
 def aura_label(version, commit, cache):
-    """The version marker an aura build of `commit` carries: the bare release
-    label only when the commit is that release's tag (the packaging passes
-    AURA_VERSION_TAG then), otherwise VERSION-g<8 hex>."""
+    """The name of an aura build of `commit`: the bare release label when the
+    commit is that release's tag, otherwise VERSION-g<8 hex>."""
+    return aura_labels(version, commit, cache)[0]
+
+
+def aura_labels(version, commit, cache):
+    """Every version marker an aura build of `commit` may carry, preferred name
+    first. A tagged commit built with AURA_VERSION_TAG says VERSION; the distro
+    packages build the release tarball without it and say VERSION-g<8 hex>, so
+    both name the pinned build."""
     tags = json.loads(fetch('https://api.github.com/repos/aurora-silicon/aura/tags?per_page=100', cache,
                             github_headers()))
+    described = '%s-g%s' % (version, commit[:8])
     if any(t['name'] == 'v' + version and t['commit']['sha'] == commit for t in tags):
-        return version
-    return '%s-g%s' % (version, commit[:8])
+        return [version, described]
+    return [described]
+
+
+def is_pinned_aura(marker, labels):
+    """Whether a `##aura_ver##LABEL` marker names one of the pinned labels."""
+    return any(marker.endswith('##' + label) for label in labels)
 
 
 def distro_sources(path):
@@ -429,7 +442,7 @@ def evaluate(machine, mode, distro, dry, context):
             problems.append('%s: no Stage 1 for %s on the %s stub' % (desktop, board, fw['version']))
             continue
         versions = payload['stage1_versions']
-        if not any(v.endswith('##' + context['pins']['aura_label']) for v in versions):
+        if not any(is_pinned_aura(v, context['pins']['aura_labels']) for v in versions):
             published.append('%s %s' % (desktop, ', '.join(v.split('##')[-1] for v in versions) or 'unlabelled'))
         notes.append('%s %d B' % (desktop, chain['stage1_bytes']))
     checks.append(check('published stage1', not published, 'payload Stage 1 is not aura %s: %s' % (
@@ -443,7 +456,8 @@ def evaluate(machine, mode, distro, dry, context):
     if limit and fw['version'] in limit['stub_os'] and size and size >= min(limit['rejected_bytes']):
         problems.append('iBoot on %s (%s stub) rejects the pinned %d B aura Stage 1: %s' % (
             board, fw['version'], size, limit['evidence']))
-    proven = context['pins']['aura_label'] in context['constraints']['proven_stage1'].get(board, {}).get('aura', [])
+    proven = any(label in context['constraints']['proven_stage1'].get(board, {}).get('aura', [])
+                 for label in context['pins']['aura_labels'])
     caution = stage1_caution(machine, dry, context)
     if caution and caution['ok'] and problems:
         problems.append('the installer warns and goes ahead, so this install would not start')
@@ -472,7 +486,7 @@ def evaluate(machine, mode, distro, dry, context):
             notes2.add('%s carries %d %s trees; aura boots the last' % (desktop, len(trees), machine['device_identifier']))
         if not contents['u_boot']:
             problems.append('%s: Stage 2 carries no U-Boot' % desktop)
-        if not any(v.endswith('##' + context['pins']['aura_label']) for v in contents['versions']):
+        if not any(is_pinned_aura(v, context['pins']['aura_labels']) for v in contents['versions']):
             published.append('%s %s with U-Boot %s' % (
                 desktop, ', '.join(v.split('##')[-1] for v in contents['versions']), contents['u_boot']))
     checks.append(check('stage2', not problems, '; '.join(problems) or
@@ -482,7 +496,7 @@ def evaluate(machine, mode, distro, dry, context):
         context['pins']['aura_label'], '; '.join(published)) if published else 'payload Stage 2 is aura ' +
         context['pins']['aura_label'], scope='published'))
     if sample.get('uses_execute_window'):
-        checks.extend(confined_stage2_checks(machine, dry, profiles, context['pins']['aura_label']))
+        checks.extend(confined_stage2_checks(machine, dry, profiles, context['pins']['aura_labels']))
 
     # 5. U-Boot and aura pins: the distro branch, and the published image's sources
     branch, built = context['branches'][distro], context['built'][distro]
@@ -569,7 +583,7 @@ def enrollment_check(selection, uses_window, chains):
                     for c in chains)), how
 
 
-def confined_stage2_checks(machine, dry, profiles, aura_label):
+def confined_stage2_checks(machine, dry, profiles, aura_labels):
     """The Stage 2 a padded Stage 1 loads holds this board's trees and U-Boot, at the pin.
     Today's images may not carry one yet, which only a published-scope check reports."""
     problems, published, checked = [], [], 0
@@ -591,8 +605,8 @@ def confined_stage2_checks(machine, dry, profiles, aura_label):
             problems.append('%s: %s carries device trees %s' % (desktop, members[0], sorted(map(str, trees))))
         if not contents['u_boot']:
             problems.append('%s: %s carries no U-Boot' % (desktop, members[0]))
-        if not any(v.endswith('##' + aura_label) for v in contents['versions']):
-            published.append('%s %s is not aura %s' % (desktop, members[0], aura_label))
+        if not any(is_pinned_aura(v, aura_labels) for v in contents['versions']):
+            published.append('%s %s is not aura %s' % (desktop, members[0], aura_labels[0]))
     if problems:
         confined = check('confined stage2', False, '; '.join(problems))
     elif not checked:
@@ -603,7 +617,7 @@ def confined_stage2_checks(machine, dry, profiles, aura_label):
             CONFINED_STAGE2, machine['device_identifier']))
     return [confined,
             check('published confined stage2', not published, '; '.join(published) or
-                  'payload carries %s from aura %s' % (CONFINED_STAGE2, aura_label), scope='published')]
+                  'payload carries %s from aura %s' % (CONFINED_STAGE2, aura_labels[0]), scope='published')]
 
 
 CAUTION_RECOVERY = ('Always Use', 'Erase Linux', 'macOS needs to be reinstalled')
@@ -813,7 +827,8 @@ def main():
     pins = installer_pins()
     version = fetch('https://raw.githubusercontent.com/aurora-silicon/aura/%s/VERSION' % pins['aura'],
                     args.cache).decode().strip()
-    pins['aura_label'] = aura_label(version, pins['aura'], args.cache)
+    pins['aura_labels'] = aura_labels(version, pins['aura'], args.cache)
+    pins['aura_label'] = pins['aura_labels'][0]
     if args.stage1:
         pins['stage1_bytes'] = Path(args.stage1).stat().st_size
     else:
