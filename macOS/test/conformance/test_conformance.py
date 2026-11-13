@@ -128,6 +128,18 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(result['hardware']['chipID'], 0x6000)
         self.assertEqual(result['snapshot']['partitions'][1]['type'], 'Apple_APFS')
 
+    def test_j773g_identity_only_profile_resolves_the_t8132_chip(self):
+        machine = {
+            'device_identifier': 'apple,j773g',
+            'soc': 't8132',
+            'firmware': {'system_iboot': 'mBoot-18000.161.10', 'system_os': '27.0'},
+            'disk': None,
+        }
+        result = conformance.swift_machine(machine, 'fresh', CONSTRAINTS)
+        self.assertEqual(result['deviceIdentifier'], 'apple,j773g')
+        self.assertEqual(result['hardware']['chipID'], 0x8132)
+        self.assertEqual(result['snapshot']['partitions'][1]['type'], 'Apple_APFS')
+
 
 class Stage2Tests(unittest.TestCase):
     def test_reads_device_trees_uboot_and_version(self):
