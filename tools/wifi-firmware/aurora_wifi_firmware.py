@@ -26,7 +26,8 @@ it in:
 Both are backed up to /var/lib/aurora-rollback/ first. The new firmware is
 used from the next boot; nothing is reloaded at runtime. The boot after a
 change checks that the drivers came up with it and puts the previous files
-back when they did not.
+back when they did not. MT7932 radios are then restarted with the previous
+files, so that boot keeps its Wi-Fi.
 
     aurora-wifi-firmware status
     aurora-wifi-firmware check           dry run: what update would do
@@ -1059,8 +1060,11 @@ def kernel_log(run=subprocess.run):
     return ""
 
 
-def unpacked(name, roots=("/run/aurora-firmware/vendorfw", "/lib/firmware/vendor",
-                          "/usr/lib/firmware/vendor")):
+UNPACKED_ROOTS = ("/run/aurora-firmware/vendorfw", "/lib/firmware/vendor",
+                  "/usr/lib/firmware/vendor")
+
+
+def unpacked(name, roots=UNPACKED_ROOTS):
     for r in roots:
         f = pathlib.Path(r) / name
         if f.is_file():
@@ -1118,6 +1122,111 @@ def radio_probe(name, text, sys_root=None, up=hci_up):
 
 PART_TYPES = {cls.key: cls for cls in (BroadcomWiFi, BroadcomBluetooth, MediaTekMT7932)}
 
+# MT7932 PCI functions, Bluetooth first: the Wi-Fi function's reset needs the
+# Bluetooth one gone, as in the kernel's own radio restart after a sleep.
+MT7932_FUNCTIONS = (("0x14c3", "0x793b"), ("0x14c3", "0x7932"))
+RELOAD_WAIT = 90
+
+
+def restore_unpacked(vendorfw, owns, roots=UNPACKED_ROOTS):
+    """Write vendorfw's files that owns() accepts over the copies this boot
+    unpacked, where the drivers load them from. Returns the names changed."""
+    changed = []
+    with tarfile.open(pathlib.Path(vendorfw) / "firmware.tar") as tar:
+        for m in tar.getmembers():
+            if m.isdir() or not owns(m.name) or ".." in m.name.split("/") \
+                    or m.name.startswith("/"):
+                continue
+            src = m
+            while src.islnk():
+                src = tar.getmember(src.linkname)
+            data = tar.extractfile(src).read()
+            for r in roots:
+                f = pathlib.Path(r) / m.name
+                if not f.is_file():
+                    continue
+                if file_sha256(f) != sha256(data):
+                    tmp = f.with_name(f".{f.name}.aurora-wifi-firmware")
+                    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
+                                 src.mode & 0o777)
+                    with os.fdopen(fd, "wb") as out:
+                        out.write(data)
+                        out.flush()
+                        os.fsync(out.fileno())
+                    os.chmod(tmp, src.mode & 0o777)
+                    os.replace(tmp, f)
+                    changed.append(m.name)
+                break
+    return changed
+
+
+def sysfs_write(path, run=subprocess.run, timeout=60):
+    """Write 1 to a sysfs attribute in a child, so that a removal the kernel
+    holds up cannot hang this tool."""
+    try:
+        p = run(["/bin/sh", "-c", 'echo 1 > "$1"', "sh", str(path)], timeout=timeout,
+                capture_output=True, text=True)
+    except subprocess.TimeoutExpired:
+        return f"{path} did not return within {timeout} s"
+    return None if p.returncode == 0 else f"{path}: {(p.stderr or '').strip() or p.returncode}"
+
+
+def mt7932_functions(sys_root=None):
+    """[(vendor, device, sysfs device dir)] of the MT7932 functions present,
+    in MT7932_FUNCTIONS order."""
+    base = pathlib.Path(sys_root or SYS) / "bus" / "pci" / "devices"
+    found = {}
+    with contextlib.suppress(OSError):
+        for dev in sorted(base.iterdir()):
+            with contextlib.suppress(OSError):
+                ids = ((dev / "vendor").read_text().strip(), (dev / "device").read_text().strip())
+                if ids in MT7932_FUNCTIONS and ids not in found:
+                    found[ids] = dev
+    return [(v, d, found[(v, d)]) for v, d in MT7932_FUNCTIONS if (v, d) in found]
+
+
+def reload_mt7932(vendorfw, probes, out=print, sys_root=None, roots=UNPACKED_ROOTS,
+                  write=sysfs_write, probe=None, log_text=None, wait=RELOAD_WAIT,
+                  sleep=time.sleep):
+    """After the previous files went back on the ESP: put them over this
+    boot's unpacked copies and restart the MT7932 functions (remove both,
+    rescan their bridge), so the drivers load them again now. "reloaded",
+    "partly" (the functions came back, not every probe is up) or "failed"."""
+    probe = probe or radio_probe
+    try:
+        changed = restore_unpacked(vendorfw, mt7932.owned, roots)
+    except (OSError, tarfile.TarError, KeyError) as e:
+        out(f"Could not restore the unpacked MT7932 firmware ({e}); it loads at the next boot.")
+        return "failed"
+    fns = mt7932_functions(sys_root)
+    if not fns:
+        out("No MT7932 PCI function found; the previous firmware loads at the next boot.")
+        return "failed"
+    bridge = fns[0][2].resolve().parent
+    for _, _, dev in fns:
+        err = write(dev / "remove")
+        if err:
+            out(f"Could not restart the MT7932 radios ({err}); "
+                "the previous firmware loads at the next boot.")
+            return "failed"
+    err = write(bridge / "rescan")
+    if err:
+        out(f"The MT7932 radios were removed but not found again ({err}); "
+            "they come back at the next boot.")
+        return "failed"
+    deadline = time.monotonic() + wait
+    while True:
+        text = log_text() if callable(log_text) else (log_text if log_text is not None else "")
+        up = {x: probe(x, text) for x in probes}
+        if all(up.values()) or time.monotonic() >= deadline:
+            break
+        sleep(3)
+    down = [x for x, ok in up.items() if not ok]
+    out(f"Restarted the MT7932 radios with the previous firmware ({len(changed)} unpacked "
+        f"file(s) restored)" + (f"; {', '.join(down)} not up within {wait} s." if down else
+                               f"; {', '.join(probes)} up again."))
+    return "partly" if down else "reloaded"
+
 
 def failure(text, keys):
     """The first kernel log words that say one of these parts did not come up."""
@@ -1131,7 +1240,7 @@ def failure(text, keys):
 
 
 def verify(state, esp, out=print, log_text=None, wait=VERIFY_WAIT, sleep=time.sleep,
-           unpacked_sha=unpacked, swap=exchange, state_dir=None, probe=None):
+           unpacked_sha=unpacked, swap=exchange, state_dir=None, probe=None, reload=None):
     """The first boot after a change: did the drivers come up with the new
     firmware? "ok", "reverted" or "waiting" (still the boot that changed it)."""
     pend = state.get("pending") or {}
@@ -1175,6 +1284,14 @@ def verify(state, esp, out=print, log_text=None, wait=VERIFY_WAIT, sleep=time.sl
     state["result"] = "reverted"
     state["refused_build"] = state.get("build")
     write_state(state, state_dir)
+    # The new MT7932 firmware is still running and the Neo may have no other
+    # network: load the previous files now instead of at the next boot.
+    if "mt7932" in keys:
+        state["reload"] = (reload or reload_mt7932)(
+            pathlib.Path(pend["backup"]) / "vendorfw",
+            [x for x in required if x.endswith(("mt7932-fullmac", "mt7932_bt_pcie"))],
+            out=out)
+        write_state(state, state_dir)
     return "reverted"
 
 

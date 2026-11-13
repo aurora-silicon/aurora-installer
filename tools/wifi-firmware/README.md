@@ -86,6 +86,11 @@ follows its macOS as macOS does.
    `hci_bcm4377` or `mt7932_bt_pcie` that is powered). Otherwise it puts the
    previous files back (they load at the following boot) and does not try
    that macOS build again by itself; `aurora-wifi-firmware update` retries.
+   MT7932 radios do not wait for that boot: the tool writes the previous
+   files over this boot's unpacked copies and restarts both PCI functions
+   (Bluetooth removed first, then Wi-Fi, then their bridge rescanned, as the
+   kernel does when the radio lost its firmware in a sleep), so a Neo whose
+   only network is Wi-Fi gets it back without a reboot.
 
 Nothing from macOS leaves the Mac. Apple's firmware is never part of this
 repository or of a distribution package; it goes from the Mac's own macOS
