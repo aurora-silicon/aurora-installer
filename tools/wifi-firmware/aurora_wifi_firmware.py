@@ -75,7 +75,7 @@ BACKUP_PREFIX = "wifi-firmware-"
 KEEP_BACKUPS = 2
 MOUNTPOINT = "/run/aurora-wifi-firmware-esp"
 STAGE_BUDGET = 512 << 20
-VERIFY_WAIT = 90
+VERIFY_WAIT = 150
 # brcmfmac's own words for a firmware that did not come up.
 FAILED = ("Dongle setup failed", "brcmf_fw_crashed", "firmware: failed to load brcm/brcmfmac",
           "brcmf_pcie_download_fw_nvram: FW failed to initialize", "brcmf_pcie_setup: Dongle setup")
@@ -427,7 +427,8 @@ class Part:
 class BroadcomWiFi(Part):
     key, label = "wifi", "Broadcom Wi-Fi"
     sources = ((WIFI, RAW_PREFIX, None),)
-    probes = always = ("brcmfmac",)
+    probes = ("brcmfmac", "link:brcmfmac")
+    always = ("brcmfmac",)
 
     def __init__(self, board, chips):
         self.board, self.chips = board, chips
@@ -483,7 +484,7 @@ class MediaTekMT7932(Part):
     key, label = "mt7932", "MediaTek MT7932 Wi-Fi and Bluetooth"
     sources = ((mt7932.WIFI_DIR, None, lambda rel: rel in mt7932.WIFI_SOURCES),
                (mt7932.BT_DIR, None, lambda rel: rel.startswith("MT7932")))
-    probes = ("net:mt7932-fullmac", "hci:mt7932_bt_pcie")
+    probes = ("net:mt7932-fullmac", "link:mt7932-fullmac", "hci:mt7932_bt_pcie")
 
     def owns(self, name):
         return mt7932.owned(name)
@@ -1090,18 +1091,24 @@ def hci_up(index):
 
 def radio_probe(name, text, sys_root=None, up=hci_up):
     """brcmfmac: it reported a running firmware. net:<driver>: a network
-    interface of that driver exists. hci:<driver>: a Bluetooth controller of
-    that driver is up."""
+    interface of that driver exists. link:<driver>: one is associated
+    (operstate up). hci:<driver>: a Bluetooth controller of that driver is up."""
     if name == "brcmfmac":
         return UP.search(text) is not None
     kind, _, driver = name.partition(":")
-    root = pathlib.Path(sys_root or SYS) / "class" / {"net": "net", "hci": "bluetooth"}[kind]
+    root = pathlib.Path(sys_root or SYS) / "class" / {"net": "net", "link": "net",
+                                                     "hci": "bluetooth"}[kind]
     with contextlib.suppress(OSError):
         for dev in sorted(root.iterdir()):
             if os.path.basename(os.path.realpath(dev / "device" / "driver")) != driver:
                 continue
             if kind == "net":
                 return True
+            if kind == "link":
+                with contextlib.suppress(OSError):
+                    if (dev / "operstate").read_text().strip() == "up":
+                        return True
+                continue
             m = re.fullmatch(r"hci([0-9]+)", dev.name)
             if m:
                 state = up(int(m[1]))

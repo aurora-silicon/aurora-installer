@@ -164,7 +164,8 @@ class MT7932UpdateTest(Case):
         self.assertFalse(any(n.startswith("brcm/") for n in after))
         st = awf.read_state(self.state)
         self.assertEqual(st["pending"]["parts"], ["mt7932"])
-        self.assertEqual(st["pending"]["probes"], ["hci:mt7932_bt_pcie", "net:mt7932-fullmac"])
+        self.assertEqual(st["pending"]["probes"], ["hci:mt7932_bt_pcie", "link:mt7932-fullmac",
+                                                   "net:mt7932-fullmac"])
         self.assertEqual(set(st["pending"]["expect"]), {mt7932.OUT_RAM, mt7932.ALIAS_B1})
         self.assertEqual(self.update(esp, mac), "identical")
 
@@ -226,6 +227,13 @@ class MT7932VerifyTest(Case):
         self.assertEqual(awf.tree_hashes(esp), self.old)
         self.assertIn("hci:mt7932_bt_pcie did not come up", self.out[-2])
 
+    def test_wifi_that_no_longer_associates_reverts(self):
+        """The interface exists but does not associate, as it did before the change."""
+        esp, st = self.changed()
+        r = self.verify(esp, st, probe=lambda n, t: not n.startswith("link:"))
+        self.assertEqual(r, "reverted")
+        self.assertIn("link:mt7932-fullmac did not come up", self.out[-2])
+
     def test_firmware_gate_failure_reverts(self):
         esp, st = self.changed()
         text = "mt7932-fullmac 0000:01:00.0: FIRMWARE_GATE_FAILED: phase=x error=-22\n"
@@ -269,7 +277,7 @@ class BroadcomBluetoothTest(Case):
                          awf.tree_digest(tree))
         st = awf.read_state(self.state)
         self.assertEqual(st["pending"]["parts"], ["wifi", "bluetooth"])
-        self.assertEqual(st["pending"]["probes"], ["brcmfmac", "hci:hci_bcm4377"])
+        self.assertEqual(st["pending"]["probes"], ["brcmfmac", "hci:hci_bcm4377", "link:brcmfmac"])
         self.assertEqual(st["pending"]["expect"]["brcm/brcmbt4387c2-apple,hokkaido-u.bin"],
                          awf.sha256(b"bt new"))
         self.assertEqual(self.update(esp, self.macos(tree)), "identical")
@@ -398,6 +406,11 @@ class ProbeTest(Case):
         self.assertFalse(awf.radio_probe("hci:mt7932_bt_pcie", "", sys_root, up=lambda i: False))
         self.assertTrue(awf.radio_probe("hci:mt7932_bt_pcie", "", sys_root, up=lambda i: None))
         self.assertFalse(awf.radio_probe("hci:hci_bcm4377", "", sys_root, up=lambda i: True))
+        op = sys_root / "class" / "net" / "neo-wifi0" / "operstate"
+        op.write_text("dormant\n")
+        self.assertFalse(awf.radio_probe("link:mt7932-fullmac", "", sys_root))
+        op.write_text("up\n")
+        self.assertTrue(awf.radio_probe("link:mt7932-fullmac", "", sys_root))
 
 
 if __name__ == "__main__":
