@@ -108,12 +108,17 @@
         try generic.read(
           fixture.group + "/var/db/AdminUserRecoveryInfo.plist", maximum: 1 << 20))
       XCTAssertThrowsError(try generic.sourceOwnerMetadata(groupUUID: fixture.group))
+      // Folder modes alone decide nothing: every folder shared, as macOS
+      // 27.2 leaves var and var/db, is still a root-owned path.
       for directory in ["var", "var/db"] {
-        let path = group.appendingPathComponent(directory)
-        XCTAssertEqual(chmod(path.path, 0o777), 0)
-        XCTAssertThrowsError(try fixture.admit())
-        XCTAssertEqual(chmod(path.path, 0o755), 0)
+        XCTAssertEqual(chmod(group.appendingPathComponent(directory).path, 0o777), 0)
       }
+      XCTAssertEqual(try fixture.admit().ownerUUID, fixture.owner)
+      // Anyone can add a name there for some other root file.
+      let second = group.appendingPathComponent("var/db/second-name")
+      XCTAssertEqual(link(fixture.admins.path, second.path), 0)
+      XCTAssertThrowsError(try fixture.admit())
+      XCTAssertEqual(unlink(second.path), 0)
       XCTAssertEqual(chmod(fixture.admins.path, 0o666), 0)
       XCTAssertThrowsError(try fixture.admit())
     }
@@ -370,8 +375,8 @@
           forResource: "source-preboot-admin-layouts", withExtension: "json",
           subdirectory: "Fixtures"))
       let layouts = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url)).layouts
-      XCTAssertGreaterThanOrEqual(layouts.count, 18)
-      XCTAssertEqual(layouts.filter { $0.expected == "admit" }.count, 6)
+      XCTAssertGreaterThanOrEqual(layouts.count, 24)
+      XCTAssertEqual(layouts.filter { $0.expected == "admit" }.count, 10)
       for layout in layouts {
         let fixture = try OwnerFixture()
         defer { fixture.base.remove() }
@@ -400,7 +405,7 @@
           }
         try content.write(to: fixture.admins)
         if let folder = layout.extraLink {
-          let directory = folder == "group" ? group : db
+          let directory = ["group": group, "var": variable, "db": db][folder]!
           XCTAssertEqual(
             link(fixture.admins.path, directory.appendingPathComponent("second-name").path), 0,
             layout.name)
@@ -416,7 +421,14 @@
             XCTAssertEqual(chmod(item.path, mode_t(value, radix: 8)!), 0, layout.name)
           }
         }
-        try apply(layout.file, to: fixture.admins)
+        if layout.file == "other-owner" {
+          // A name for a file this test does not own, standing in for a
+          // file root does not own.
+          try FileManager.default.removeItem(at: fixture.admins)
+          XCTAssertEqual(link("/private/etc/hosts", fixture.admins.path), 0, layout.name)
+        } else {
+          try apply(layout.file, to: fixture.admins)
+        }
         try apply(layout.db, to: db)
         try apply(layout.var, to: variable)
         try apply(layout.group, to: group)

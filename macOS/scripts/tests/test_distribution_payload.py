@@ -201,15 +201,19 @@ class DistributionPayloadTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'existing payload member inventory differs'):
             payload.assemble(self.bundle, self.app, output, reuse_payload=True, release_id='fixture')
 
-    def test_a_payload_without_the_mach_o_files_still_serves_every_other_mac(self):
+    def test_a_payload_without_a_confined_stage2_still_serves_m1_to_m3(self):
         # One payload serves every Mac; the native installer refuses M4 and later on it.
         (self.bundle / 'esp/m1n1/boot-ctxr.bin').unlink()
         metadata, _ = self.assembled('no-ctxr')
         self.assertEqual(metadata['aurora_macho_boot'], {
             'kind': 'padded-ctxr-v1', 'stage1_member': 'esp/aurora/stage1.macho', 'confined_members': []})
+
+    def test_a_common_stage1_without_its_boot_object_is_refused(self):
+        # Every Mac enrolls the boot object; the raw image is never enrolled.
+        (self.bundle / 'esp/m1n1/boot-ctxr.bin').unlink()
         (self.bundle / 'esp/aurora/stage1.macho').unlink()
-        metadata, _ = self.assembled('no-macho')
-        self.assertEqual(metadata['aurora_macho_boot']['stage1_member'], None)
+        with self.assertRaisesRegex(ValueError, 'no Mach-O boot object'):
+            self.assembled('no-macho')
 
     def test_mach_o_files_that_are_present_are_checked(self):
         shared = self.bundle / 'esp/m1n1/boot-ctxr.bin'
@@ -335,7 +339,7 @@ class DistributionPayloadTests(unittest.TestCase):
         oled = {'apple,k114c', 'apple,k114s', 'apple,k116c', 'apple,k116s'}
         self.assertEqual(set(caution), oled | {'apple,j575d', 'apple,j614s', 'apple,j604', 'apple,j623',
                                         'apple,j624', 'apple,j715', 'apple,j773g', 'apple,j614c',
-                                        'apple,j773s', 'apple,j575c', 'apple,j813', 'apple,j873g',
+                                        'apple,j616c', 'apple,j773s', 'apple,j575c', 'apple,j813', 'apple,j873g',
                                         'apple,j704', 'apple,j815', 'apple,j804', 'apple,j833ct'})
         for identifier in list(caution) + ['apple,j314s', 'apple,j316s', 'apple,j314c', 'apple,j316c',
                                            'apple,j375c', 'apple,j375d']:

@@ -457,6 +457,12 @@
         return (.deviceUnsupported, updateArchiveSummary(version: version))
       case NativeFirmwareSelectionError.unsupportedDevice:
         return (.deviceUnsupported, "The installer engine doesn't support this Mac model.")
+      case NativeFirmwareSelectionError.pinnedSourceMismatch(let build):
+        return (
+          .firmwarePreparation,
+          "Apple's server returned a different macOS restore image than build \(build). "
+            + "Nothing on the disk changed."
+        )
       case is NativeFirmwareSelectionError:
         return (.firmwarePreparation, "Compatible boot firmware could not be selected (\(name)).")
       case NativePreflightRefusal.notFreshInstallation:
@@ -501,6 +507,9 @@
     static func executionFailure(_ error: any Error) -> (EngineFailureReason, String) {
       if let shortfall = error as? MacOSFreeSpaceShortfall {
         return (.macOSSpaceRequired, shortfall.summary)
+      }
+      if let shortfall = error as? ApprovedSpaceShortfall {
+        return (.approvedSpaceChanged, shortfall.summary)
       }
       let name = errorName(error)
       switch error {

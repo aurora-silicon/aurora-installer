@@ -127,7 +127,9 @@
         else { throw NativeStubFileError.invalidPlan }
         return object
       }
-      var document = try plist(await read("BuildManifest.plist"))
+      try source.requirePinnedSource(bytes: archive.sizeBytes)
+      let manifestBytes = try await read("BuildManifest.plist")
+      var document = try plist(manifestBytes)
       let caches = try plist(await read("usr/standalone/bootcaches.plist"))
       var version = try plist(await read("SystemVersion.plist"))
       guard let bless = caches["bless2"] as? [String: Any],
@@ -160,6 +162,7 @@
         !recoveryMember.isDirectory, recoveryMember.sizeBytes > 0,
         recoveryMember.sizeBytes <= 8 << 30
       else { throw NativeStubFileError.invalidPlan }
+      try source.requirePinnedManifest(manifestBytes, buildNumber: buildNumber)
       self.restorePath = restore
       self.recoveryMember = recoveryMember
       recoveryImage = update?.header

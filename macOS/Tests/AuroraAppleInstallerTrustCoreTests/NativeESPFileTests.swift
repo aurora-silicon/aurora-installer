@@ -7,7 +7,9 @@
   @testable import AuroraAppleInstallerTrustCore
 
   final class NativeESPFileTests: XCTestCase, @unchecked Sendable {
-    static func inputs() throws -> (Data, Data, [String: String]) {
+    /// The fixture's metadata, payload and locked ESP layout. `withObject: false`
+    /// leaves out the payload's Mach-O Stage 1, as a payload from before it had.
+    static func inputs(withObject: Bool = true) throws -> (Data, Data, [String: String]) {
       let url = try XCTUnwrap(
         Bundle.module.url(
           forResource: "native-firmware-selection-vectors",
@@ -21,18 +23,55 @@
       rows[0]["size"] = "8MiB"
       templates[0]["partitions"] = rows
       metadata["os_list"] = templates
-      let payload = try XCTUnwrap(Data(base64Encoded: document["completeArchive"] as! String))
+      let archive = try XCTUnwrap(Data(base64Encoded: document["completeArchive"] as! String))
+      let payload = withObject ? try withStage1MachO(archive) : archive
       let reference = try XCTUnwrap(
         (document["boot"] as! [[String: Any]]).first {
           $0["name"] as? String == "j700ap-26.6.2-True-all"
         })
       let expected = reference["expected"] as! [String: Any]
-      return (
-        try JSONSerialization.data(withJSONObject: metadata), payload,
-        expected["layout"] as! [String: String]
-      )
+      var layout = expected["layout"] as! [String: String]
+      // The boot object goes to the ESP beside the common Stage 1.
+      if withObject { layout["esp/aurora/stage1.macho"] = "aurora/stage1.macho" }
+      return (try JSONSerialization.data(withJSONObject: metadata), payload, layout)
     }
     static let legacyBase = Data("synthetic legacy boot\0STACKBOT".utf8)
+
+    /// Every Mac enrolls the boot object, so the fixture payload carries
+    /// `esp/aurora/stage1.macho` for its common Stage 1, added by zip(1).
+    static func withStage1MachO(_ payload: Data, optional: Bool = false) throws -> Data {
+      let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+        "aurora-fixture-macho-" + UUID().uuidString)
+      defer { try? FileManager.default.removeItem(at: directory) }
+      try FileManager.default.createDirectory(
+        at: directory.appendingPathComponent("esp/aurora"), withIntermediateDirectories: true)
+      let zip = directory.appendingPathComponent("payload.zip")
+      try payload.write(to: zip)
+      func run(_ tool: String, _ arguments: [String], output: URL? = nil) throws -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: tool)
+        process.arguments = arguments
+        process.currentDirectoryURL = directory
+        if let output {
+          FileManager.default.createFile(atPath: output.path, contents: nil)
+          process.standardOutput = try FileHandle(forWritingTo: output)
+        }
+        if output != nil { process.standardError = FileHandle.nullDevice }
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus
+      }
+      let raw = directory.appendingPathComponent("esp/aurora/stage1.bin")
+      let read = try run("/usr/bin/unzip", ["-p", zip.path, "esp/aurora/stage1.bin"], output: raw)
+      // An archive without a common Stage 1 has nothing to wrap.
+      if optional, try read != 0 || Data(contentsOf: raw).isEmpty { return payload }
+      XCTAssertEqual(read, 0)
+      try NativeMachOStage1Tests.object(wrapping: Data(contentsOf: raw)).write(
+        to: directory.appendingPathComponent("esp/aurora/stage1.macho"))
+      XCTAssertEqual(
+        try run("/usr/bin/zip", ["-q", "-X", "-0", zip.path, "esp/aurora/stage1.macho"]), 0)
+      return try Data(contentsOf: zip)
+    }
 
     static func plan(deviceIdentifier: String = "apple,j700") async throws -> NativeESPPayloadPlan {
       let (metadata, payload, _) = try inputs()
@@ -298,8 +337,9 @@
       let esp: URL
       let receipt: URL
       var labelOnMount = false
-      /// `machO` stages a Mach-O Stage 1 for the plan's raw one, as on M4 and
-      /// later; `machOSource` wraps another raw image instead.
+      /// Every plan stages the payload's unpadded Mach-O Stage 1, as on M1 to M3.
+      /// `machO` stages it padded for the execute window, as on M4 and later;
+      /// `machOSource` wraps another raw image instead.
       init(
         deviceIdentifier: String = "apple,j700", machO: Bool = false,
         machOSource: ((Data) -> Data)? = nil
@@ -311,6 +351,7 @@
         if machO || machOSource != nil {
           plan.stage1MachO = NativeMachOStage1Tests.object(
             wrapping: machOSource?(plan.stage1) ?? plan.stage1)
+          plan.executeWindow = true
           // A real payload carries its own file; any member not otherwise installed stands in.
           if let member = plan.archive.members.first(where: { $0.name == "esp/m1n1/boot.bin" }) {
             plan.entries.append(.init(member: member, path: AuraStage1Format.confinedStage2Path))

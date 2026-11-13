@@ -1,10 +1,16 @@
 {
-  "about": "Layouts of macOS's Preboot list of Recovery administrators, <group>/var/db/AdminUserRecoveryInfo.plist, and what the source-owner proof decides for each. Modes are octal; 'symlink' replaces the item with a symbolic link to a copy; 'missing' removes it. extraLink names the folder that gets a second hard link to the file. content: xml, binary, empty, garbage, array, oversize. Measured layouts name their source; the others are synthetic. All values are synthetic test data; no account or volume identifier from any Mac is recorded.",
+  "about": "Layouts of macOS's Preboot list of Recovery administrators, <group>/var/db/AdminUserRecoveryInfo.plist, and what the source-owner proof decides for each. Modes are octal; 'symlink' replaces the item with a symbolic link to a copy; 'missing' removes it; a file 'other-owner' is a hard link to a file of another owner. extraLink names the folder that gets a second hard link to the file. content: xml, binary, empty, garbage, array, oversize. Measured layouts name their source; the others are synthetic. All values are synthetic test data; no account or volume identifier from any Mac is recorded.",
   "layouts": [
     {
       "name": "macos-26-measured",
       "source": "Measured read-only on macOS 26.6.2 (25G83), 2026-11-08: group 0777 root, var 0755, var/db 0755, file 0644, 1 link, XML",
       "group": "0777", "var": "0755", "db": "0755", "file": "0644", "content": "xml",
+      "expected": "admit"
+    },
+    {
+      "name": "macos-27.2-measured",
+      "source": "Measured read-only with stat on two Macs, reported independently: macOS 27.2 (26B123) on a MacBook Air M4 after diskutil apfs updatePreboot, and a second macOS 27.x Mac with the same layout: group 0755 root, var 0777 root, var/db 0777 root, no sticky bits, file 0644 root",
+      "group": "0755", "var": "0777", "db": "0777", "file": "0644", "content": "xml",
       "expected": "admit"
     },
     {
@@ -26,10 +32,28 @@
       "expected": "admit"
     },
     {
+      "name": "every-folder-shared",
+      "source": "Synthetic: group, var and var/db all 0777; only root-owned components and a single-name root file remain",
+      "group": "0777", "var": "0777", "db": "0777", "file": "0644", "content": "xml",
+      "expected": "admit"
+    },
+    {
+      "name": "group-writable-folders",
+      "source": "Synthetic: folders writable by their group; folder modes alone decide nothing",
+      "group": "0775", "var": "0775", "db": "0775", "file": "0644", "content": "xml",
+      "expected": "admit"
+    },
+    {
       "name": "second-name-under-protected-folder",
       "source": "Synthetic: another hard link to the file in the shared group folder; var/db stays root-only",
       "group": "0777", "var": "0755", "db": "0755", "file": "0644", "content": "xml",
       "extraLink": "group", "expected": "admit"
+    },
+    {
+      "name": "second-name-under-protected-db",
+      "source": "Synthetic: macOS 27.2's shared var holds a second name for the file; var/db stays root-only",
+      "group": "0755", "var": "0777", "db": "0755", "file": "0644", "content": "xml",
+      "extraLink": "var", "expected": "admit"
     },
     {
       "name": "owner-only-file",
@@ -38,28 +62,22 @@
       "expected": "admit"
     },
     {
+      "name": "second-name-under-shared-db",
+      "source": "Synthetic refusal: macOS 27.2 layout with a second name in var/db, which could be a link to any root-owned file on the volume",
+      "group": "0755", "var": "0777", "db": "0777", "file": "0644", "content": "xml",
+      "extraLink": "db", "expected": "the file has 2 hard links in a folder others can write"
+    },
+    {
       "name": "second-name-under-shared-folder",
       "source": "Synthetic refusal: a second name in a folder others can write could be a link to another root file",
       "group": "0777", "var": "0755", "db": "1777", "file": "0644", "content": "xml",
       "extraLink": "db", "expected": "the file has 2 hard links in a folder others can write"
     },
     {
-      "name": "shared-db-folder",
-      "source": "Synthetic refusal: var/db writable by others without the sticky bit",
-      "group": "0777", "var": "0755", "db": "0777", "file": "0644", "content": "xml",
-      "expected": "var/db is writable by other users (mode 0777)"
-    },
-    {
-      "name": "group-writable-var",
-      "source": "Synthetic refusal",
-      "group": "0777", "var": "0775", "db": "0755", "file": "0644", "content": "xml",
-      "expected": "var is writable by other users (mode 0775)"
-    },
-    {
-      "name": "group-writable-group-folder",
-      "source": "Synthetic refusal: only 0777 exactly or the sticky bit is accepted for the group folder",
-      "group": "0775", "var": "0755", "db": "0755", "file": "0644", "content": "xml",
-      "expected": "<group> is writable by other users (mode 0775)"
+      "name": "other-owner-file",
+      "source": "Synthetic refusal: macOS 27.2 layout with a file owned by someone else (a hard link to a file of another owner)",
+      "group": "0755", "var": "0777", "db": "0777", "file": "other-owner", "content": "xml",
+      "expected": "the file is not owned by root (owner 0)"
     },
     {
       "name": "writable-file",
@@ -68,9 +86,21 @@
       "expected": "the file is writable by other users (mode 0666)"
     },
     {
+      "name": "group-writable-file",
+      "source": "Synthetic refusal: macOS 27.2 layout with a file its group can write",
+      "group": "0755", "var": "0777", "db": "0777", "file": "0664", "content": "xml",
+      "expected": "the file is writable by other users (mode 0664)"
+    },
+    {
       "name": "linked-file",
       "source": "Synthetic refusal",
       "group": "0777", "var": "0755", "db": "0755", "file": "symlink", "content": "xml",
+      "expected": "the file is a symbolic link"
+    },
+    {
+      "name": "linked-file-under-shared-db",
+      "source": "Synthetic refusal: macOS 27.2 layout with the file replaced by a symbolic link",
+      "group": "0755", "var": "0777", "db": "0777", "file": "symlink", "content": "xml",
       "expected": "the file is a symbolic link"
     },
     {
@@ -78,6 +108,12 @@
       "source": "Synthetic refusal",
       "group": "0777", "var": "0755", "db": "symlink", "file": "0644", "content": "xml",
       "expected": "var/db is a symbolic link"
+    },
+    {
+      "name": "linked-var-folder",
+      "source": "Synthetic refusal",
+      "group": "0777", "var": "symlink", "db": "0755", "file": "0644", "content": "xml",
+      "expected": "var is a symbolic link"
     },
     {
       "name": "empty-file",

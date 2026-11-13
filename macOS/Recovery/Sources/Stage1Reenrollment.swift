@@ -46,7 +46,7 @@ extension Stage1Reenrollment {
     manifest: [String: Any]?
   ) -> Stage1Reenrollment? {
     guard !hasPendingInstallation, let receipt, receipt["status"] as? String == "installed",
-      let mode = AuraBootMode(rawValue: bootMode), let manifest,
+      let mode = AuraBootMode(recorded: bootMode), let manifest,
       manifest["defaultMode"] as? String == bootMode,
       (manifest["modes"] as? [String: [String: Any]])?[bootMode]?["espPath"] as? String
         == stage2Path,
@@ -73,11 +73,11 @@ extension Stage1Reenrollment {
     guard !stage1.isEmpty, stage1.count <= maximumBytes else {
       throw Stage1ReenrollmentError.tooLarge(bytes: stage1.count)
     }
-    if mode == .macho { try MachOBootObject.check(stage1) }
+    try MachOBootObject.check(stage1)
     guard let configuration = try? Stage1Configuration.read(stage1),
       configuration.espUUID.lowercased() == espUUID.lowercased(),
       configuration.stage2Path == stage2Path,
-      stage2Path == AuraStage1Format.stage2Path(machO: mode == .macho)
+      stage2Path == AuraStage1Format.stage2Path(executeWindow: mode == .macho)
     else { throw Stage1ReenrollmentError.wrongTarget }
     let hash = RecoveryDigest.sha256(stage1)
     if receipt["stage1SHA256"] as? String == hash, receipt["stage2Path"] as? String == stage2Path,

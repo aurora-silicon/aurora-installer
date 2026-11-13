@@ -271,22 +271,37 @@
     func testBoardBootObjectsAndESPLayoutMatchTheLockedBackend() async throws {
       let fixture = try fixture()
       XCTAssertEqual(fixture.boot.count, 56)
+      // The vectors predate the boot object every Mac now enrolls: each archive
+      // with a common Stage 1 gets its object, and a selection that fell back to
+      // a board's raw Stage 1 or to none is refused instead.
+      var admitted = 0
       for vector in fixture.boot {
+        let bytes = try XCTUnwrap(fixture.archives[vector.archive])
         let archive = try await IPSWArchive.open(
-          BootFixtureSource(
-            bytes: try XCTUnwrap(fixture.archives[vector.archive])))
+          BootFixtureSource(bytes: try NativeESPFileTests.withStage1MachO(bytes, optional: true)))
+        let common = vector.expected?.member == NativeBootChain.commonStage1
         do {
           let selected = try await NativeBootChain.admit(
             metadata: Data(vector.metadata.utf8), archive: archive,
             deviceIdentifier: vector.device, firmware: vector.firmware)
           let expected = try XCTUnwrap(vector.expected, vector.name)
+          XCTAssertTrue(
+            common, "\(vector.name) admitted \(String(describing: selected.stage1Member))")
           XCTAssertEqual(selected.stage1Member, expected.member, vector.name)
+          XCTAssertEqual(selected.stage1MachOMember, NativeBootChain.commonStage1MachO, vector.name)
           XCTAssertEqual(selected.windowMilliseconds, expected.window, vector.name)
-          XCTAssertEqual(selected.espLayout, expected.layout, vector.name)
+          var layout = expected.layout
+          layout[NativeBootChain.commonStage1MachO] = "aurora/stage1.macho"
+          XCTAssertEqual(selected.espLayout, layout, vector.name)
+          admitted += 1
         } catch {
-          if vector.expected != nil { XCTFail("\(vector.name): \(error)") }
+          if common { XCTFail("\(vector.name): \(error)") }
+          if vector.expected != nil {
+            XCTAssertEqual(error as? NativeBootChainError, .missingMachOStage1, vector.name)
+          }
         }
       }
+      XCTAssertGreaterThan(admitted, 0)
     }
 
     func testFilledBootObjectsMatchTheReferenceBytesAndKeepTheirLength() throws {

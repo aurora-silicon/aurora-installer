@@ -33,29 +33,40 @@ def fdt(compatible):
 class EnrollmentTests(unittest.TestCase):
     SELECTION = (HERE.parent.parent / 'Recovery/Sources/BootSelection.swift').read_text()
     MACHO = {'stage1_mode': 'macho', 'stage2_path': 'm1n1/boot-ctxr.bin'}
+    STANDARD = {'stage1_mode': 'macho-standard', 'stage2_path': 'm1n1/boot.bin'}
     RAW = {'stage1_mode': 'raw', 'stage2_path': 'm1n1/boot.bin'}
 
-    def test_a_mach_o_chip_expects_the_padded_compressed_path(self):
+    def test_a_window_chip_expects_the_padded_compressed_path(self):
         ok, how = conformance.enrollment_check(self.SELECTION, True, [self.MACHO])
         self.assertTrue(ok)
         self.assertIn('--compress', how)
         self.assertNotIn('--raw', how)
-        for chain in (self.RAW, {'stage1_mode': 'macho', 'stage2_path': 'm1n1/boot.bin'}, {}):
+        for chain in (self.RAW, self.STANDARD, {'stage1_mode': 'macho', 'stage2_path': 'm1n1/boot.bin'}, {}):
             self.assertFalse(conformance.enrollment_check(self.SELECTION, True, [self.MACHO, chain])[0], chain)
         self.assertFalse(conformance.enrollment_check(self.SELECTION.replace('--compress', ''), True, [self.MACHO])[0])
 
-    def test_any_other_chip_expects_the_raw_path_unchanged(self):
-        ok, how = conformance.enrollment_check(self.SELECTION, False, [self.RAW, {}])
+    def test_other_chips_expect_the_unpadded_mach_o_object(self):
+        ok, how = conformance.enrollment_check(self.SELECTION, False, [self.STANDARD, {}])
         self.assertTrue(ok)
-        self.assertIn('--raw --entry-point 2048 --lowest-virtual-address 0', how)
-        self.assertFalse(conformance.enrollment_check(self.SELECTION, False, [self.MACHO])[0])
-        self.assertFalse(conformance.enrollment_check(self.SELECTION.replace('"--raw"', ''), False, [self.RAW])[0])
+        self.assertNotIn('--raw', how)
+        self.assertNotIn('--compress', how)
+        for chain in (self.RAW, self.MACHO):
+            self.assertFalse(conformance.enrollment_check(self.SELECTION, False, [chain])[0], chain)
+
+    def test_any_raw_enrollment_fails_every_chip(self):
+        self.assertNotIn('"--raw"', self.SELECTION)
+        raw = self.SELECTION.replace(
+            'var arguments = ["configure-boot", "-c", stage1, "-v", volume]',
+            'var arguments = ["configure-boot", "-c", stage1, "-v", volume, "--raw"]')
+        self.assertNotEqual(raw, self.SELECTION)
+        for window, chain in ((True, self.MACHO), (False, self.STANDARD)):
+            self.assertFalse(conformance.enrollment_check(raw, window, [chain])[0])
 
     def confined(self, chain, stage2=None):
         machine = {'device_identifier': 'apple,j700'}
         dry = {d: {'boot_chain': chain} for d in conformance.DESKTOPS}
         profiles = {d: {'payload': {'confined_stage2': stage2 or {}}} for d in conformance.DESKTOPS}
-        return {c['check']: c for c in conformance.confined_stage2_checks(machine, dry, profiles, '1.0.0b6')}
+        return {c['check']: c for c in conformance.confined_stage2_checks(machine, dry, profiles, ['1.0.0b6'])}
 
     def test_a_payload_without_it_fails_only_the_published_scope(self):
         checks = self.confined({'confined_stage2_missing': True, 'esp_layout': {}})
@@ -246,6 +257,23 @@ class PinLabelTests(unittest.TestCase):
     def test_only_the_tagged_commit_carries_the_bare_release_label(self):
         self.assertEqual(self.label(self.TAG), '1.0.0b1')
         self.assertEqual(self.label(self.MAIN), '1.0.0b1-g32dccf02')
+
+    def labels(self, commit):
+        tags = json.dumps([{'name': 'v1.0.0b1', 'commit': {'sha': self.TAG}}]).encode()
+        with mock.patch.object(conformance, 'fetch', lambda url, cache, headers=None: tags):
+            return conformance.aura_labels('1.0.0b1', commit, '/nonexistent')
+
+    def test_a_packaged_build_of_the_tag_matches_the_pin(self):
+        labels = self.labels(self.TAG)
+        self.assertEqual(labels, ['1.0.0b1', '1.0.0b1-g0ca7bf85'])
+        self.assertTrue(conformance.is_pinned_aura('##aura_ver##1.0.0b1-g0ca7bf85', labels))
+        self.assertTrue(conformance.is_pinned_aura('##aura_ver##1.0.0b1', labels))
+        self.assertFalse(conformance.is_pinned_aura('##aura_ver##1.0.0b10', labels))
+
+    def test_an_untagged_pin_matches_only_its_own_commit(self):
+        labels = self.labels(self.MAIN)
+        self.assertEqual(labels, ['1.0.0b1-g32dccf02'])
+        self.assertFalse(conformance.is_pinned_aura('##aura_ver##1.0.0b1', labels))
 
     def test_stage1_proofs_name_the_build_that_booted(self):
         constraints = json.loads((HERE / 'fixtures/constraints.json').read_text())

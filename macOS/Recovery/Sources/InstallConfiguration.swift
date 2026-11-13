@@ -18,6 +18,10 @@ struct InstallConfiguration: Decodable {
   let stage2Path: String
   let bootstrap: BootstrapAuthorization?
   let allowCustomBootArguments: Bool?
+  /// Who signs Stage 2 when setup doesn't choose otherwise; Aurora when absent.
+  let secureBootKeys: StartupKeyOwner?
+  /// A lab install also trusts Aurora's lab key. Set only by lab tooling.
+  let secureBootLabKey: Bool?
 
   static func decode(_ data: Data) throws -> InstallConfiguration {
     let keys: Set<String> = [
@@ -25,13 +29,17 @@ struct InstallConfiguration: Decodable {
       "bootMode", "stage2Path", "bootstrap",
     ]
     guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-      Set(object.keys).subtracting(["allowCustomBootArguments"]) == keys
+      Set(object.keys).subtracting([
+        "allowCustomBootArguments", "secureBootKeys", "secureBootLabKey",
+      ]) == keys
         && (object["allowCustomBootArguments"] == nil || object["allowCustomBootArguments"] is Bool)
+        && (object["secureBootKeys"] == nil || object["secureBootKeys"] is String)
+        && (object["secureBootLabKey"] == nil || object["secureBootLabKey"] is Bool)
     else { throw InstallConfigurationError.invalid }
     let config = try JSONDecoder().decode(Self.self, from: data)
-    // A raw Stage 1 loads the standard Stage 2, and a padded Mach-O one the confined one.
-    guard config.schema == 2, let mode = AuraBootMode(rawValue: config.bootMode),
-      config.stage2Path == AuraStage1Format.stage2Path(machO: mode == .macho),
+    // An unpadded Stage 1 loads the standard Stage 2, and a padded one the confined one.
+    guard config.schema == 2, let mode = AuraBootMode(recorded: config.bootMode),
+      config.stage2Path == AuraStage1Format.stage2Path(executeWindow: mode == .macho),
       !config.volumeName.isEmpty, config.volumeName.count <= 80,
       !config.volumeName.contains("/"),
       config.volumeName.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) })

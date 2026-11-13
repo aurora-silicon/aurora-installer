@@ -6,7 +6,9 @@
 # asahi_firmware, read only. Writes a tarball to copy to Linux on the same
 # Mac, where install-linux.sh adds it to the ESP firmware.
 #
-# Usage: tools/speaker-tuning/collect-macos.sh [-o OUTPUT.tar.gz]
+# Usage: tools/speaker-tuning/collect-macos.sh [-o OUTPUT.tar.gz] [--lsm2-fill-readback]
+# Short lsm2 presets read their missing records from this Mac's running AU.
+# --lsm2-fill-readback also records full presets for private dry-run checks.
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd -P)

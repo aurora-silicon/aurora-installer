@@ -262,15 +262,17 @@ def check_confined_stage2(bundle, stage2_members):
 
 
 def check_stage1_macho(esp):
-    """M4 and later Macs enroll aura's Mach-O boot object for the common Stage 1.
-    A payload without one still serves M1 to M3, and the native installer
-    refuses the later Macs on it.
+    """Every Mac enrolls aura's Mach-O boot object for the common Stage 1, so a
+    payload with the common Stage 1 must carry it: the native installer never
+    enrolls the raw image.
 
     aura's tools/macho_boot_object.py carries the raw image unchanged at the
     start of __TEXT_EXEC, file offset 0x10000, with no __TEXT_BOOT_EXEC.
     """
     path = esp / 'aurora/stage1.macho'
     if not path.exists():
+        if (esp / 'aurora/stage1.bin').exists():
+            raise ValueError('esp/aurora/stage1.bin has no Mach-O boot object (esp/aurora/stage1.macho)')
         return
     raw = regular(esp / 'aurora/stage1.bin').read_bytes()
     obj = regular(path).read_bytes()

@@ -12,13 +12,27 @@ import Foundation
     ]
     let config = try InstallConfiguration.decode(JSONSerialization.data(withJSONObject: value))
     precondition(config.volumeName == "Aurora Test" && config.bootMode == "raw")
+    // Both Mach-O modes are accepted with their own Stage 2.
+    for (mode, path) in [("macho-standard", "m1n1/boot.bin"), ("macho", "m1n1/boot-ctxr.bin")] {
+      var current = value
+      current["bootMode"] = mode
+      current["stage2Path"] = path
+      _ = try InstallConfiguration.decode(JSONSerialization.data(withJSONObject: current))
+      current["stage2Path"] = path == "m1n1/boot.bin" ? "m1n1/boot-ctxr.bin" : "m1n1/boot.bin"
+      do {
+        _ = try InstallConfiguration.decode(JSONSerialization.data(withJSONObject: current))
+        preconditionFailure("accepted \(mode) with the other Stage 2")
+      } catch {}
+    }
     for (key, bad) in [
       ("schema", 1), ("schema", true), ("bootMode", "Mach-O"), ("bootMode", "pkg"),
       ("stage2Path", "../boot.bin"), ("systemUUID", "disk0s1"),
       ("espUUID", "00000000-0000-0000-0000-000000000000"),
       ("volumeName", "../macOS"), ("volumeName", "bad\nname"), ("volumeName", ""),
       ("unknown", "unused"), ("allowCustomBootArguments", 1),
-      ("allowCustomBootArguments", "true"),
+      ("allowCustomBootArguments", "true"), ("secureBootKeys", "mine"),
+      ("secureBootKeys", true), ("secureBootKeys", "Aurora"), ("secureBootLabKey", "true"),
+      ("secureBootLabKey", 1),
     ] as [(String, Any)] {
       var changed = value
       changed[key] = bad
@@ -28,6 +42,20 @@ import Foundation
       } catch {}
     }
     precondition(config.allowCustomBootArguments == nil)
+    // The key owner default is optional and names one of the three choices.
+    precondition(config.secureBootKeys == nil && config.secureBootLabKey == nil)
+    for lab in [false, true] {
+      var scoped = value
+      scoped["secureBootLabKey"] = lab
+      let decoded = try InstallConfiguration.decode(JSONSerialization.data(withJSONObject: scoped))
+      precondition(decoded.secureBootLabKey == lab)
+    }
+    for owner in StartupKeyOwner.allCases {
+      var chosen = value
+      chosen["secureBootKeys"] = owner.rawValue
+      let decoded = try InstallConfiguration.decode(JSONSerialization.data(withJSONObject: chosen))
+      precondition(decoded.secureBootKeys == owner)
+    }
     for allowed in [false, true] {
       var scoped = value
       scoped["allowCustomBootArguments"] = allowed

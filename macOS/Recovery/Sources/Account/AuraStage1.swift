@@ -1,24 +1,29 @@
 import Foundation
 
-/// Which Stage 1 boot object a Mac enrolls.
+/// Which Stage 1 boot object a Mac enrolls. Every Mac enrolls aura's Mach-O
+/// boot object (aura build/aura-boot.macho); none enrolls the raw image.
 public enum AuraStage1Format {
-  /// M4-generation and later chips boot aura's Mach-O boot object: T8132
-  /// (M4), T6040/T6041 (M4 Pro/Max), T8140 (A18 Pro), T8142 and T605x (M5)
-  /// and whatever follows them. Apple numbers each generation upward, so M1 to
-  /// M3 (T8103, T8112, T8122, T600x, T602x, T603x) stay below both bounds and
-  /// keep the raw image.
-  public static func usesMachO(chipID: UInt64) -> Bool {
+  /// M4-generation and later chips keep aura and the kernel's code inside an
+  /// execute window: T8132 (M4), T6040/T6041 (M4 Pro/Max), T8140 (A18 Pro),
+  /// T8142 and T605x (M5) and whatever follows them. Their object is padded for
+  /// that window, enrolled with `--compress`, and loads the confined Stage 2.
+  /// Apple numbers each generation upward, so M1 to M3 (T8103, T8112, T8122,
+  /// T600x, T602x, T603x) stay below both bounds: they enroll the object
+  /// unpadded and load the standard Stage 2. An unpadded object needs aura
+  /// 1.0.0b10-g2296392f or later (aura#134), whose Stage 1 stops its payload scan
+  /// at the object's __PRELINK_INFO.
+  public static func usesExecuteWindow(chipID: UInt64) -> Bool {
     (0x8130...0x8FFF).contains(chipID) || (0x6040...0x6FFF).contains(chipID)
   }
 
-  /// The ESP file a raw Stage 1 loads.
+  /// The ESP file an unpadded Stage 1 loads.
   public static let standardStage2Path = "m1n1/boot.bin"
-  /// The ESP file a Mach-O Stage 1, always padded, loads. Package updates on
-  /// Mach-O chips write this one.
+  /// The ESP file a padded Stage 1 loads. Package updates on execute-window
+  /// chips write this one.
   public static let confinedStage2Path = "m1n1/boot-ctxr.bin"
 
-  public static func stage2Path(machO: Bool) -> String {
-    machO ? confinedStage2Path : standardStage2Path
+  public static func stage2Path(executeWindow: Bool) -> String {
+    executeWindow ? confinedStage2Path : standardStage2Path
   }
 }
 
@@ -90,13 +95,102 @@ public enum Stage1Configuration {
     return (first.upperBound, body)
   }
 
-  private static func crc32(_ bytes: [UInt8]) -> UInt32 {
+  static func crc32(_ bytes: [UInt8]) -> UInt32 {
     var crc: UInt32 = 0xFFFF_FFFF
     for byte in bytes {
       crc ^= UInt32(byte)
       for _ in 0..<8 { crc = crc >> 1 ^ (crc & 1 == 0 ? 0 : 0xEDB8_8320) }
     }
     return ~crc
+  }
+}
+
+/// The key block in a Stage 1 that aura builds with signature checks (aura
+/// src/secboot.c): magic, then version, key count, the lowest security version
+/// Stage 1 accepts, flags, four 32-byte Ed25519 public key slots, then the
+/// CRC-32 of those fields. It is filled before kmutil enrolls the Stage 1, so the
+/// boot policy covers the keys like the rest of it. `filled` writes the same
+/// bytes as aura's `tools/secboot_sign.py fill-keys`.
+public enum Stage1KeyBlock {
+  public struct Invalid: Error, LocalizedError {
+    public let reason: String
+    public var errorDescription: String? {
+      "The startup software's key block is invalid: \(reason)."
+    }
+  }
+
+  public struct Contents: Equatable {
+    public let keys: [Data]
+    public let minimumSecurityVersion: UInt32
+    /// Stage 1 refuses what it cannot verify; without it Stage 1 checks, records and boots.
+    public let enforce: Bool
+  }
+
+  static let magic = Data("AURORA-S1-KEY01\0".utf8)
+  public static let maximumKeys = 4
+  public static let keyBytes = 32
+  static let enforceFlag: UInt32 = 1
+  /// Version, count, minimum security version and flags, then the key slots.
+  static let fieldsSize = 16 + maximumKeys * keyBytes
+
+  /// Whether `image` carries exactly one key block this installer can fill.
+  public static func isPresent(in image: Data) -> Bool {
+    (try? offset(in: Data(image))) != nil
+  }
+
+  /// Returns `image` with its key block holding `keys`, every other byte unchanged.
+  public static func filled(
+    _ image: Data, keys: [Data], minimumSecurityVersion: UInt32, enforce: Bool = false
+  ) throws -> Data {
+    let image = Data(image)
+    guard (1...maximumKeys).contains(keys.count), keys.allSatisfy({ $0.count == keyBytes }) else {
+      throw Invalid(reason: "it holds one to four 32-byte Ed25519 public keys")
+    }
+    let offset = try offset(in: image)
+    var fields = [UInt8]()
+    for word in [UInt32(1), UInt32(keys.count), minimumSecurityVersion, enforce ? enforceFlag : 0] {
+      fields += withUnsafeBytes(of: word.littleEndian, Array.init)
+    }
+    for key in keys { fields += key }
+    fields += [UInt8](repeating: 0, count: fieldsSize - fields.count)
+    var result = image
+    result.replaceSubrange(
+      offset..<(offset + fieldsSize + 4),
+      with: fields + withUnsafeBytes(of: Stage1Configuration.crc32(fields).littleEndian, Array.init)
+    )
+    return result
+  }
+
+  /// The keys a filled block holds, or nil when it was never filled and the
+  /// Stage 1's built-in key stays in charge. A damaged block is an error.
+  public static func read(_ image: Data) throws -> Contents? {
+    let image = Data(image)
+    let offset = try offset(in: image)
+    let bytes = [UInt8](image[offset..<(offset + fieldsSize + 4)])
+    func word(_ at: Int) -> UInt32 {
+      (0..<4).reduce(UInt32(0)) { $0 | UInt32(bytes[at + $1]) << (8 * $1) }
+    }
+    let count = Int(word(4))
+    if count == 0 { return nil }
+    guard count <= maximumKeys, word(12) & ~enforceFlag == 0,
+      word(fieldsSize) == Stage1Configuration.crc32(Array(bytes.prefix(fieldsSize)))
+    else { throw Invalid(reason: "its count, flags or checksum is wrong") }
+    return Contents(
+      keys: (0..<count).map { Data(bytes[(16 + $0 * keyBytes)..<(16 + ($0 + 1) * keyBytes)]) },
+      minimumSecurityVersion: word(8), enforce: word(12) & enforceFlag != 0)
+  }
+
+  /// The block's offset past its magic.
+  private static func offset(in image: Data) throws -> Int {
+    guard let first = image.range(of: magic),
+      image.range(of: magic, in: first.upperBound..<image.endIndex) == nil,
+      first.upperBound + fieldsSize + 4 <= image.endIndex
+    else { throw Invalid(reason: "it has no single key block") }
+    let version = image[first.upperBound..<(first.upperBound + 4)]
+    guard version.elementsEqual([1, 0, 0, 0]) else {
+      throw Invalid(reason: "its version is not supported")
+    }
+    return first.upperBound
   }
 }
 
@@ -121,7 +215,7 @@ public enum MachOBootObject {
   }
 
   static let required = ["__TEXT", "__TEXT_EXEC", "__PRELINK_INFO", "__LINKEDIT"]
-  /// The raw image's entry point: `--entry-point 2048` in raw mode.
+  /// The raw image's entry point, which the boot object enters at.
   static let rawEntryOffset: UInt64 = 0x800
 
   public static func check(_ data: Data) throws {
@@ -222,6 +316,15 @@ public enum MachOBootObject {
     var result = object
     result.replaceSubrange(start..<end, with: filled)
     return result
+  }
+
+  /// The kcrz kmutil should derive for an unpadded object: load address to the
+  /// end of __TEXT_EXEC, as for a padded one.
+  public static func readOnlySize(_ object: Data) throws -> UInt64 {
+    let code = try layout(object).segments["__TEXT_EXEC"]!
+    let (end, overflow) = code.fileoff.addingReportingOverflow(code.vmsize)
+    guard !overflow else { throw Invalid(reason: "__TEXT_EXEC is too large") }
+    return end
   }
 
   /// kmutil's own derivation, printed by `kmutil inspect --show-mach-boot-properties`.
