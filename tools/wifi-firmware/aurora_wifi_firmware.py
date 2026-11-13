@@ -1272,6 +1272,7 @@ def main(argv=None):
             # At boot, a macOS build already checked against this ESP package
             # needs no second read of its tree.
             if a.cmd == "boot" and found[0].build == state.get("build") \
+                    and found[0].device == state.get("device", found[0].device) \
                     and state.get("result") in ("verified", "identical") \
                     and not state.get("pending") \
                     and state.get("esp_wifi") and state.get("esp_wifi") == esp_wifi_digest(esp):

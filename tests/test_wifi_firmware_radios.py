@@ -335,6 +335,41 @@ class MacOSDirTest(Case):
         self.assertEqual(members(esp)[mt7932.ALIAS_B1][1], bt_image("27.0"))
         self.assertEqual(awf.read_state(self.state)["build"], "26A428")
 
+    def test_boot_reads_the_installed_macos_after_a_directory_update(self):
+        """A set taken with --macos is not the installed macOS's, even with the same build."""
+        esp = neo_esp(self.root)
+        mac = awf.macos_at(self.root_with())
+        awf.update(esp, mac, None, backup_root=self.backups, state_dir=self.state,
+                   out=self.out.append, swap=lambda a, b: False, probe=lambda n, t: True,
+                   log_text="")
+        st = awf.read_state(self.state)
+        st.pop("pending")
+        st["result"], st["esp_wifi"] = "verified", awf.esp_wifi_digest(esp)
+        awf.write_state(st, self.state)
+        installed = macos_mt7932()
+        installed.build = "26A428"
+        saved = {k: getattr(awf, k) for k in ("STATE_DIR", "BACKUP_ROOT", "wifi_board",
+                                               "installed_macos", "exchange", "radio_probe")}
+        geteuid = awf.os.geteuid
+        try:
+            awf.STATE_DIR, awf.BACKUP_ROOT = self.state, self.backups
+            awf.wifi_board = lambda dt=None: None
+            awf.installed_macos = lambda esp, **kw: [installed]
+            awf.exchange = lambda a, b: False
+            awf.radio_probe = lambda n, t: True
+            awf.os.geteuid = lambda: 0
+            with open(os.devnull, "w") as null:
+                import contextlib
+                with contextlib.redirect_stdout(null), contextlib.redirect_stderr(null):
+                    self.assertEqual(awf.main(["--esp", str(esp), "boot"]), 0)
+        finally:
+            for k, v in saved.items():
+                setattr(awf, k, v)
+            awf.os.geteuid = geteuid
+        st = awf.read_state(self.state)
+        self.assertEqual(st["device"], "/dev/fake")
+        self.assertEqual(st["result"], "updated")
+
     def test_not_a_macos_root(self):
         with self.assertRaisesRegex(awf.Refused, "not a macOS root"):
             awf.macos_at(self.root)
