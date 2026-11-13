@@ -156,6 +156,27 @@
     static func alignDown(_ value: UInt64) -> UInt64 { value / unit * unit }
   }
 
+  /// One restore image, named by more than its version. macOS 27.2 (26B123)
+  /// and 27.2.1 (26B131) report the same iBoot version but carry different
+  /// DCP and SEP firmware, so a stub built from the wrong one would look
+  /// supported. The stub stage checks all three before it writes anything.
+  struct NativeFirmwarePin: Decodable, Equatable, Sendable {
+    /// `BuildNumber` of the selected build identity.
+    let build: String
+    /// The image's whole size, as the server reports it.
+    let sourceBytes: UInt64
+    /// SHA-256 of the image's `BuildManifest.plist`, as `sha256:<hex>`.
+    let manifestSHA256: String
+
+    func validate(sourceURL: URL) throws {
+      guard !build.isEmpty, build.utf8.count <= 16,
+        build.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }),
+        sourceBytes > 0, SHA256Digest(rawValue: manifestSHA256) != nil,
+        sourceURL.lastPathComponent.hasSuffix("_" + build + "_Restore.ipsw")
+      else { throw NativeFirmwareSelectionError.invalidSource }
+    }
+  }
+
   struct NativeInspectionHardware: Decodable, Sendable {
     let chipID: UInt64
     let bootVersion: String?
@@ -176,6 +197,8 @@
       let expert: Bool
       let models: [String]?
       let sourceURL: String
+      /// The exact restore image, when the version can't name it alone.
+      let pin: NativeFirmwarePin?
     }
     let runtimeVersion: String
     let sourceSHA256: String

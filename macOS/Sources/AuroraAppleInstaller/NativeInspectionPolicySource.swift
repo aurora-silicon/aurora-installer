@@ -4,6 +4,10 @@
   // carries from before the Aurora name; do not edit it.
   // This table admits backend capability; the signed catalog separately
   // admits the selected public release and model qualification.
+  // A firmware entry with a `pin` names one build by size and manifest
+  // digest. The 26B123 entry's models are exactly the boards recorded in
+  // scripts/firmware-qualification.json (checked by its test): a board is
+  // added only once its kernel support for that firmware has shipped.
   enum NativeInspectionPolicySource {
     static let json = #"""
       {
@@ -430,6 +434,20 @@
             ],
             "sourceURL": "https://updates.cdn-apple.com/2025FallFCS/patches/089-71124/49AD260A-D47F-4B5E-A793-30446187196E/com_apple_MobileAsset_MacSoftwareUpdate/f6d1ac9149f6a06401ff87fae5b262c420bfc5f7.zip",
             "version": "14.8.3"
+          },
+          {
+            "expert": false,
+            "minimumBoot": "mBoot-20457.41.3",
+            "minimumMacOS": "27.2",
+            "minimumRecovery": "26.2.123.0.0,0",
+            "models": [],
+            "pin": {
+              "build": "26B123",
+              "manifestSHA256": "sha256:0fbfae04175cde81ef36d273aa280d39ffe5a54eacba8494b45a59daca462510",
+              "sourceBytes": 25595669503
+            },
+            "sourceURL": "https://updates.cdn-apple.com/2026FallFCS/c9671975-52db-4fb5-9af2-00217169ba8d/UniversalMac_27.2_26B123_Restore.ipsw",
+            "version": "27.2"
           }
         ],
         "runtimeVersion": "v0.9.2-aurora.14",
