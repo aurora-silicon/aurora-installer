@@ -6,7 +6,15 @@
       "source_url": "https://updates.cdn-apple.com/2026FallFCS/c9671975-52db-4fb5-9af2-00217169ba8d/UniversalMac_27.2_26B123_Restore.ipsw",
       "source_bytes": 25595669503,
       "manifest_sha256": "sha256:0fbfae04175cde81ef36d273aa280d39ffe5a54eacba8494b45a59daca462510",
-      "boards": {}
+      "boards": {
+        "j413": {
+          "kernel": "7.3.0-aurora-fleet69",
+          "distributions": [
+            "arch"
+          ],
+          "evidence": "https://github.com/aurora-silicon/aurora-installer/pull/137"
+        }
+      }
     }
   }
 }

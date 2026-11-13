@@ -440,7 +440,9 @@
             "minimumBoot": "mBoot-20457.41.3",
             "minimumMacOS": "27.2",
             "minimumRecovery": "26.2.123.0.0,0",
-            "models": [],
+            "models": [
+              "j413"
+            ],
             "pin": {
               "build": "26B123",
               "manifestSHA256": "sha256:0fbfae04175cde81ef36d273aa280d39ffe5a54eacba8494b45a59daca462510",

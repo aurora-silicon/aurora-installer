@@ -59,11 +59,11 @@
           + "UniversalMac_27.2_26B123_Restore.ipsw")
       XCTAssertEqual(entry.minimumBoot, "mBoot-20457.41.3")
       XCTAssertEqual(entry.minimumMacOS, "27.2")
-      XCTAssertEqual(entry.models, [])
+      XCTAssertEqual(entry.models, ["j413"])
       // It is last, so it wins wherever a board qualifies for it.
       XCTAssertEqual(sealed.firmware.last?.pin?.build, Self.build)
-      // Until a board is qualified, an M2 on macOS 27.2 keeps the 13.5 stub.
-      XCTAssertEqual(try choose("apple,j413", air272, policy: sealed).version, "13.5")
+      // The M2 on macOS 27.2 gets the 27.2 stub.
+      XCTAssertEqual(try choose("apple,j413", air272, policy: sealed).version, "27.2")
     }
 
     func testAQualifiedBoardOnMacOS272TakesThePinnedImage() throws {
