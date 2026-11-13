@@ -57,10 +57,12 @@ class FWPackage(object):
             for i in self.manifest:
                 fd.write(i + "\n")
 
-    def add_file(self, name, data):
+    def add_file(self, name, data, mode=None):
         ti = tarfile.TarInfo(name)
         if name == "apple/audio-tuning/lsm2-param-fill.bin":
             ti.mode = 0o600
+        if mode is not None:
+            ti.mode = mode
         key = (data.sha, ti.mode)
         fd = None
         if key in self.hashes:
