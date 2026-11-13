@@ -209,13 +209,19 @@ class MT7932VerifyTest(Case):
         return esp, st
 
     def verify(self, esp, st, text="", probe=lambda n, t: True):
+        self.reloads = []
+
+        def reload(vendorfw, probes, out):
+            self.reloads.append((vendorfw, probes))
+            return "reloaded"
         return awf.verify(st, esp, out=self.out.append, log_text=text, wait=0,
                           unpacked_sha=lambda n: st["pending"]["expect"][n], probe=probe,
-                          state_dir=self.state, swap=lambda a, b: False)
+                          state_dir=self.state, swap=lambda a, b: False, reload=reload)
 
     def test_up_is_verified(self):
         esp, st = self.changed()
         self.assertEqual(self.verify(esp, st), "ok")
+        self.assertEqual(self.reloads, [])
         st = awf.read_state(self.state)
         self.assertEqual(st["result"], "verified")
         self.assertEqual(st["esp_wifi"], awf.esp_wifi_digest(esp))
@@ -234,6 +240,15 @@ class MT7932VerifyTest(Case):
         self.assertEqual(r, "reverted")
         self.assertIn("link:mt7932-fullmac did not come up", self.out[-2])
 
+    def test_rollback_restarts_the_radios_with_the_previous_files(self):
+        esp, st = self.changed()
+        backup = pathlib.Path(st["pending"]["backup"])
+        required = st["pending"]["probes"]
+        self.assertEqual(self.verify(esp, st, probe=lambda n, t: not n.startswith("link:")),
+                         "reverted")
+        self.assertEqual(self.reloads, [(backup / "vendorfw", required)])
+        self.assertEqual(awf.read_state(self.state)["reload"], "reloaded")
+
     def test_firmware_gate_failure_reverts(self):
         esp, st = self.changed()
         text = "mt7932-fullmac 0000:01:00.0: FIRMWARE_GATE_FAILED: phase=x error=-22\n"
@@ -244,6 +259,86 @@ class MT7932VerifyTest(Case):
         esp, st = self.changed()
         text = "some-driver 0000:02:00.0: Direct firmware load for mediatek/x failed\n"
         self.assertEqual(self.verify(esp, st, text), "ok")
+
+
+class ReloadTest(Case):
+    """Restarting the MT7932 functions with the previous files after a rollback."""
+    def setUp(self):
+        super().setUp()
+        self.backup = neo_esp(self.root / "backup") / "vendorfw"
+        self.run_dir = self.root / "run"
+        live = self.run_dir / mt7932.OUT_RAM
+        live.parent.mkdir(parents=True)
+        live.write_bytes(b"new RAM image")
+        os.chmod(live, 0o644)
+        cal = self.run_dir / "mediatek/mt7932/wcal.bin"
+        cal.write_bytes(PRIVATE["mediatek/mt7932/wcal.bin"])
+        os.chmod(cal, 0o600)
+        (self.run_dir / "apple").mkdir()
+        (self.run_dir / "apple/isp_1921_01XX.dat").write_bytes(b"camera here")
+        self.sys = self.root / "sys"
+        bridge = self.sys / "devices/pci0000:00/0000:00:00.0"
+        for fn, dev in (("0000:01:00.0", "0x7932"), ("0000:01:00.1", "0x793b")):
+            d = bridge / fn
+            d.mkdir(parents=True)
+            (d / "vendor").write_text("0x14c3\n")
+            (d / "device").write_text(dev + "\n")
+            links = self.sys / "bus/pci/devices"
+            links.mkdir(parents=True, exist_ok=True)
+            os.symlink(d, links / fn)
+        other = self.sys / "devices/pci0000:00/0000:00:01.0"
+        other.mkdir(parents=True)
+        (other / "vendor").write_text("0x106b\n")
+        (other / "device").write_text("0x1234\n")
+        os.symlink(other, self.sys / "bus/pci/devices/0000:00:01.0")
+        self.bridge = bridge
+        self.writes = []
+
+    def write(self, path, fail=None):
+        self.writes.append(pathlib.Path(path).resolve())
+        return fail if fail and fail in str(path) else None
+
+    def reload(self, probe=lambda n, t: True, write=None):
+        return awf.reload_mt7932(self.backup, ["net:mt7932-fullmac", "hci:mt7932_bt_pcie"],
+                                 out=self.out.append, sys_root=self.sys, roots=(self.run_dir,),
+                                 write=write or self.write, probe=probe, wait=0)
+
+    def test_restores_unpacked_copies_and_restarts_bluetooth_first(self):
+        self.assertEqual(self.reload(), "reloaded")
+        live = self.run_dir / mt7932.OUT_RAM
+        self.assertEqual(live.read_bytes(), RAW["sunrise/" + mt7932.RAM])
+        self.assertEqual(live.stat().st_mode & 0o777, 0o644)
+        cal = self.run_dir / "mediatek/mt7932/wcal.bin"
+        self.assertEqual(cal.stat().st_mode & 0o777, 0o600)
+        # Only the files this boot unpacked, and only the radio's.
+        self.assertFalse((self.run_dir / mt7932.OUT_PATCH).exists())
+        self.assertEqual((self.run_dir / "apple/isp_1921_01XX.dat").read_bytes(), b"camera here")
+        b = self.bridge.resolve()
+        self.assertEqual(self.writes, [b / "0000:01:00.1/remove", b / "0000:01:00.0/remove",
+                                       b / "rescan"])
+        self.assertIn("1 unpacked file(s) restored", self.out[-1])
+
+    def test_a_radio_not_back_is_reported(self):
+        r = self.reload(probe=lambda n, t: not n.startswith("hci:"))
+        self.assertEqual(r, "partly")
+        self.assertIn("hci:mt7932_bt_pcie not up", self.out[-1])
+
+    def test_a_removal_that_fails_stops_before_the_rescan(self):
+        r = self.reload(write=lambda p: self.write(p, fail="01:00.0"))
+        self.assertEqual(r, "failed")
+        self.assertNotIn(self.bridge.resolve() / "rescan", self.writes)
+        self.assertIn("next boot", self.out[-1])
+
+    def test_no_functions_is_left_to_the_next_boot(self):
+        import shutil
+        shutil.rmtree(self.sys)
+        self.assertEqual(self.reload(), "failed")
+        self.assertEqual(self.writes, [])
+
+    def test_sysfs_write_timeout(self):
+        def run(*a, **kw):
+            raise awf.subprocess.TimeoutExpired(a[0], 1)
+        self.assertIn("did not return", awf.sysfs_write("/sys/x/remove", run=run, timeout=1))
 
 
 class BroadcomBluetoothTest(Case):
