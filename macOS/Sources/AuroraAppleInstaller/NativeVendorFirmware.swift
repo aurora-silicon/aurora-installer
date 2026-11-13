@@ -21,6 +21,8 @@
     var environment: NativeHandoffEnvironment = .live
     var disks: NativeAPFSPlatform = .live
     var ambientLight: @Sendable () throws -> Data? = { try NativeAmbientLightInputs.live() }
+    /// The host certificate chain a Touch ID keyboard pairs with.
+    var touchIDHostChain: @Sendable () throws -> Data? = { try NativeTouchIDHostChain.live() }
     var openImage: @Sendable (URL, URL) throws -> NativeFirmwareMountedImage = {
       try NativeFirmwareMountedImage.open(image: $0, parent: $1)
     }
@@ -266,6 +268,12 @@
           try merge(calibration, into: &outputs)
           try merge(calibration, into: &fallback)
         }
+        // Per-machine like the ALS calibration: only this Mac's package has it.
+        let hostChain = try InstallerPerformance.measure("vendor_touchid_host_chain") {
+          try NativeTouchIDHostChain.collect(touchIDHostChain)
+        }
+        try merge(hostChain, into: &outputs)
+        try merge(hostChain, into: &fallback)
         // The speaker protection's parameters: this Mac's own Apple tuning,
         // stored like the other per-machine firmware and never shipped.
         let tuning = try InstallerPerformance.measure("vendor_audio_tuning") {

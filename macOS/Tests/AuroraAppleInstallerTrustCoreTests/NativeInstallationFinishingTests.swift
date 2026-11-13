@@ -123,6 +123,9 @@
           package: base.package, approved: base.approved, plan: plan, peripherals: peripherals,
           owner: geteuid(), environment: environment, disks: esp.images.platform.disks,
           ambientLight: { self.machine == "j314s" ? Data("synthetic generic ALS".utf8) : nil },
+          touchIDHostChain: {
+            self.machine == "j314s" ? Data(SyntheticHostChain.chain()) : nil
+          },
           openImage: { _, parent in
             self.imageOpens += 1
             let directory = parent.appendingPathComponent("firmware-image-" + UUID().uuidString)
@@ -247,6 +250,7 @@
         XCTAssertEqual(manifest.contains("apple/tpmtfw-j314s.bin"), machine == "j314s")
         XCTAssertEqual(manifest.contains("apple/aop-als-cal.bin"), machine == "j314s")
         XCTAssertEqual(manifest.contains("apple/HmCA-synthetic"), machine == "j314s")
+        XCTAssertEqual(manifest.contains("apple/stac-host-chain.der"), machine == "j314s")
         XCTAssertFalse(manifest.contains("apple/tpmtfw-j274.bin"))
         let aid = machine == "j314s" ? "AID8" : "AID1"
         XCTAssertTrue(
@@ -256,6 +260,8 @@
           manifest.contains("apple/audio-tuning/speaker-thiele-small.bin"), machine == "j314s")
         let outputs = try vendorOutputs(fixture)
         XCTAssertTrue(outputs.fallback.contains("audio-tuning/manifest.json"))
+        XCTAssertEqual(
+          outputs.fallback.contains("apple/stac-host-chain.der"), machine == "j314s")
         XCTAssertTrue(
           outputs.fallback.contains(
             "audio-tuning/" + aid + "/DSP/Strips/builtin_speaker_out_general.austrip"))
