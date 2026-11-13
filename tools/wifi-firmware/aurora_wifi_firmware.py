@@ -1295,6 +1295,7 @@ def main(argv=None):
             r = update(esp, found[0], board, dry_run=a.cmd == "check")
             if r == "identical" and a.cmd != "check":
                 write_state(dict(state, build=found[0].build, version=found[0].version,
+                                 device=found[0].device, volume=found[0].volume.name,
                                  result="verified" if state.get("result") == "verified"
                                  and state.get("build") == found[0].build else "identical",
                                  esp_wifi=esp_wifi_digest(esp), refused_build=None))
