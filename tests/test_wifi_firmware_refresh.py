@@ -206,7 +206,8 @@ class UpdateTest(Case):
                                             .read_text("ascii")), old)
         st = awf.read_state(self.state)
         self.assertEqual(st["build"], "25C56")
-        self.assertEqual(st["pending"]["expect"], new[name])
+        self.assertEqual(st["pending"]["expect"], {name: new[name]})
+        self.assertEqual(st["pending"]["probes"], ["brcmfmac"])
         # Running again changes nothing.
         self.assertEqual(self.update(esp, self.macos(new_tree)), "identical")
 
@@ -240,7 +241,7 @@ class UpdateTest(Case):
     def test_refuses_macos_without_this_board(self):
         esp = make_esp(self.root, wifi_tree("old"))
         before = awf.tree_hashes(esp)
-        with self.assertRaisesRegex(awf.Refused, "lacks this Mac's board"):
+        with self.assertRaisesRegex(awf.Refused, "lacks what this Mac loads"):
             self.update(esp, self.macos(wifi_tree("new", boards=("maldives",))))
         self.assertEqual(awf.tree_hashes(esp), before)
 
@@ -282,7 +283,7 @@ class VerifyRevertTest(Case):
     def test_verified_boot_clears_pending(self):
         esp, _, st = self.changed()
         r = awf.verify(st, esp, out=self.out.append, log_text=self.UP_LINE, wait=0,
-                       unpacked_sha=lambda n: st["pending"]["expect"], state_dir=self.state,
+                       unpacked_sha=lambda n: st["pending"]["expect"][n], state_dir=self.state,
                        swap=lambda a, b: False)
         self.assertEqual(r, "ok")
         st = awf.read_state(self.state)
@@ -293,7 +294,7 @@ class VerifyRevertTest(Case):
         esp, old, st = self.changed()
         text = "brcmfmac 0000:01:00.0: brcmf_pcie_setup: Dongle setup failed\n"
         r = awf.verify(st, esp, out=self.out.append, log_text=text, wait=0,
-                       unpacked_sha=lambda n: st["pending"]["expect"], state_dir=self.state,
+                       unpacked_sha=lambda n: st["pending"]["expect"][n], state_dir=self.state,
                        swap=lambda a, b: False)
         self.assertEqual(r, "reverted")
         self.assertEqual(awf.tree_hashes(esp), old)
@@ -302,7 +303,7 @@ class VerifyRevertTest(Case):
     def test_no_report_reverts(self):
         esp, old, st = self.changed()
         r = awf.verify(st, esp, out=self.out.append, log_text="", wait=0,
-                       unpacked_sha=lambda n: st["pending"]["expect"], state_dir=self.state,
+                       unpacked_sha=lambda n: st["pending"]["expect"][n], state_dir=self.state,
                        swap=lambda a, b: False)
         self.assertEqual(r, "reverted")
         self.assertEqual(awf.tree_hashes(esp), old)
@@ -359,7 +360,7 @@ class MainTest(Case):
         awf.verify = lambda state, esp, **kw: self.saved["verify"](
             dict(state, pending=dict(state["pending"], boot_id="earlier")), esp,
             log_text=VerifyRevertTest.UP_LINE, wait=0,
-            unpacked_sha=lambda n: state["pending"]["expect"], swap=lambda a, b: False)
+            unpacked_sha=lambda n: state["pending"]["expect"][n], swap=lambda a, b: False)
         self.assertEqual(self.run_main("boot"), 0)
         awf.verify = self.saved["verify"]
         st = awf.read_state()
@@ -384,8 +385,12 @@ class MainTest(Case):
         self.assertEqual(awf.tree_hashes(self.esp), reverted)
         # update brings it back, and the boot unit follows again.
         self.assertEqual(self.run_main("update"), 0)
+        manifest = awf.radio_in(awf.parse_manifest(
+            (self.esp / "vendorfw" / "manifest.txt").read_text("ascii")))
+        self.assertEqual(awf.wifi_in(manifest), {
+            k: v.sha for k, v in awf.converted(self.staged_new()).items()})
         self.assertEqual(awf.esp_wifi_digest(self.esp), awf.sha256("".join(
-            f"{k} {v.sha}\n" for k, v in sorted(awf.converted(self.staged_new()).items())).encode()))
+            f"{k} {v}\n" for k, v in sorted(manifest.items())).encode()))
         self.assertIsNone(awf.read_state().get("refused_build"))
 
     def staged_new(self):

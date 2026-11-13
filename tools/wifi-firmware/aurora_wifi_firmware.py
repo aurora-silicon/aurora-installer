@@ -1,25 +1,32 @@
 #!/usr/bin/python3 -I
 # SPDX-License-Identifier: MIT
-"""Keep an installed system's Broadcom Wi-Fi firmware on the installed macOS's.
+"""Keep an installed system's Wi-Fi and Bluetooth firmware on the installed macOS's.
 
-macOS loads the Wi-Fi firmware its own system volume ships, so a macOS update
-brings new Wi-Fi firmware. A Linux install keeps the set its installer took:
-the Asahi installer's from its stub's Recovery image (macOS 13.5 for most
-installs), the Aurora installer's from the macOS that ran it. This tool reads
-/usr/share/firmware/wifi from the installed macOS's System volume, from Linux
-and read only (apfs_ro: the System volume is not encrypted, with or without
-FileVault), converts it with this repository's asahi_firmware, and when the
-result differs from the ESP's package it puts it in:
+macOS loads the radio firmware its own system volume ships, so a macOS
+update brings new Wi-Fi and Bluetooth firmware. A Linux install keeps the set
+its installer took: the Asahi installer's from its stub's Recovery image
+(macOS 13.5 for most installs), the Aurora installer's from the macOS that
+ran it. This tool reads the installed macOS's System volume from Linux, read
+only (apfs_ro: the System volume is not encrypted, with or without
+FileVault), converts the radio firmware with this repository's
+asahi_firmware, and when the result differs from the ESP's package it puts
+it in:
 
-  asahi/all_firmware.tar.gz  firmware/wifi/ becomes the macOS tree, so a
-                             later rebuild (asahi-fwupdate) gives the same set
-  vendorfw/                  brcm/brcmfmac* becomes the converted set; every
-                             other file stays, by path and hash
+  Broadcom Wi-Fi       /usr/share/firmware/wifi -> brcm/brcmfmac*
+  Broadcom Bluetooth   /usr/share/firmware/bluetooth -> brcm/brcmbt*
+  MediaTek MT7932      AppleSunriseWLAN's IZUBA files and
+                       /usr/share/firmware/bluetooth/MT7932* -> mediatek/...
+
+  asahi/all_firmware.tar.gz  firmware/wifi/ and firmware/bluetooth/ become
+                             the macOS trees (Broadcom), so a later rebuild
+                             (asahi-fwupdate) gives the same set
+  vendorfw/                  the converted files replace the old set; every
+                             other file stays, by path, hash and mode
 
 Both are backed up to /var/lib/aurora-rollback/ first. The new firmware is
 used from the next boot; nothing is reloaded at runtime. The boot after a
-change checks that brcmfmac came up with it and puts the previous files back
-when it did not.
+change checks that the drivers came up with it and puts the previous files
+back when they did not.
 
     aurora-wifi-firmware status
     aurora-wifi-firmware check           dry run: what update would do
@@ -30,8 +37,8 @@ when it did not.
 Exit codes: 0 done or nothing to do, 1 refused (nothing changed), 2 not now,
 3 internal error.
 """
-import argparse, contextlib, ctypes, errno, hashlib, io, json, logging, os, pathlib, \
-    plistlib, re, shutil, subprocess, sys, tarfile, tempfile, time
+import argparse, contextlib, ctypes, errno, fcntl, hashlib, io, json, logging, os, pathlib, \
+    plistlib, re, shutil, socket, struct, subprocess, sys, tarfile, tempfile, time
 
 HERE = pathlib.Path(__file__).resolve().parent
 for cand in (HERE, HERE.parents[1]):
@@ -43,25 +50,32 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 import apfs_ro  # noqa: E402
+from asahi_firmware import mt7932  # noqa: E402
+from asahi_firmware.bluetooth import BluetoothFWCollection  # noqa: E402
 from asahi_firmware.core import FWFile, FWPackage  # noqa: E402
 from asahi_firmware.wifi import WiFiFWCollection  # noqa: E402
 
 log = logging.getLogger("aurora-wifi-firmware")
 
-WIFI = "usr/share/firmware/wifi"
+FIRMWARE = "usr/share/firmware"
+WIFI = FIRMWARE + "/wifi"
+BLUETOOTH = FIRMWARE + "/bluetooth"
 SYSTEM_VERSION = "System/Library/CoreServices/SystemVersion.plist"
 RAW_PREFIX = "firmware/wifi/"
+RAW_BT_PREFIX = "firmware/bluetooth/"
 PKG_PREFIX = "brcm/brcmfmac"
+BT_PREFIX = "brcm/brcmbt"
 APFS_GUID = "7c3457ef-0000-11aa-aa11-00306543ecac"
 DT = pathlib.Path("/proc/device-tree")
 DT_ESP = "chosen/asahi,efi-system-partition"
+SYS = pathlib.Path("/sys")
 STATE_DIR = pathlib.Path("/var/lib/aurora-wifi-firmware")
 BACKUP_ROOT = pathlib.Path("/var/lib/aurora-rollback")
 BACKUP_PREFIX = "wifi-firmware-"
 KEEP_BACKUPS = 2
 MOUNTPOINT = "/run/aurora-wifi-firmware-esp"
 STAGE_BUDGET = 512 << 20
-VERIFY_WAIT = 90
+VERIFY_WAIT = 150
 # brcmfmac's own words for a firmware that did not come up.
 FAILED = ("Dongle setup failed", "brcmf_fw_crashed", "firmware: failed to load brcm/brcmfmac",
           "brcmf_pcie_download_fw_nvram: FW failed to initialize", "brcmf_pcie_setup: Dongle setup")
@@ -159,7 +173,7 @@ class MacOS:
 
 
 def installed_macos(esp, devices=None, opener=apfs_ro.Container):
-    """Every readable macOS System volume that ships Wi-Fi firmware, the
+    """Every readable macOS System volume that ships radio firmware, the
     stub's left out, newest build first."""
     skip = stub_groups(esp)
     found = []
@@ -176,13 +190,67 @@ def installed_macos(esp, devices=None, opener=apfs_ro.Container):
                 continue
             try:
                 info = plistlib.loads(v.read_file(v.resolve(SYSTEM_VERSION)[0]))
-                v.resolve(WIFI)
+                v.resolve(FIRMWARE)
             except (apfs_ro.ApfsError, ValueError, plistlib.InvalidFileException) as e:
-                log.info(f"{dev} '{v.name}': no Wi-Fi firmware ({e})")
+                log.info(f"{dev} '{v.name}': no radio firmware ({e})")
                 continue
             found.append(MacOS(dev, v, info.get("ProductBuildVersion"), info.get("ProductVersion")))
     found.sort(key=lambda m: build_key(m.build), reverse=True)
     return found
+
+
+class DirVolume:
+    """A macOS root copied or mounted somewhere (--macos DIR), with the
+    apfs_ro volume calls the tool uses. Read only, nothing outside root."""
+    role, encrypted, group = apfs_ro.ROLE_SYSTEM, False, None
+
+    def __init__(self, root):
+        self.root = pathlib.Path(root).resolve()
+        self.name = str(self.root)
+        self.paths = {}
+
+    def _ino(self, path):
+        ino = len(self.paths) + 2
+        self.paths[ino] = path
+        return ino
+
+    @staticmethod
+    def _kind(path):
+        return 10 if path.is_symlink() else 4 if path.is_dir() else 8
+
+    def resolve(self, path):
+        parts = [x for x in path.split("/") if x]
+        full = self.root
+        for n, part in enumerate(parts):
+            if part in (".", ".."):
+                raise apfs_ro.ApfsError(f"{path}: unsupported component")
+            full = full / part
+            if not os.path.lexists(full):
+                raise apfs_ro.ApfsError(f"{path}: {part} not found")
+            if full.is_symlink() and n < len(parts) - 1:
+                raise apfs_ro.ApfsError(f"{path}: {part} is a link")
+        return self._ino(full), self._kind(full)
+
+    def children(self, ino):
+        d = self.paths[ino]
+        return {e.name: (self._ino(pathlib.Path(e.path)), self._kind(pathlib.Path(e.path)))
+                for e in os.scandir(d)}
+
+    def read_file(self, ino):
+        return self.paths[ino].read_bytes()
+
+    def readlink(self, ino):
+        return os.readlink(self.paths[ino])
+
+
+def macos_at(root):
+    """The macOS whose root is the directory root (its SystemVersion.plist)."""
+    vol = DirVolume(root)
+    try:
+        info = plistlib.loads(vol.read_file(vol.resolve(SYSTEM_VERSION)[0]))
+    except (OSError, apfs_ro.ApfsError, ValueError, plistlib.InvalidFileException) as e:
+        raise Refused(f"{root} is not a macOS root: {e}")
+    return MacOS(str(vol.root), vol, info.get("ProductBuildVersion"), info.get("ProductVersion"))
 
 
 class Staged:
@@ -193,10 +261,10 @@ class Staged:
         self.path, self.size, self.sha = path, size, sha
 
 
-def stage_wifi(vol, dest):
-    """Copies the volume's Wi-Fi firmware tree to dest, links kept as links
-    (the collection resolves them as macOS does). Returns
-    {rel: Staged | ('link', target)}."""
+def stage_tree(vol, path, dest, want=None):
+    """Copies the volume's directory path to dest, links kept as links (the
+    collections resolve them as macOS does); with want, only the entries
+    want(rel) accepts. Returns {rel: Staged | ('link', target)}."""
     tree = {}
     total = 0
 
@@ -209,11 +277,14 @@ def stage_wifi(vol, dest):
                 if "/" in name or name in (".", "..") or "\0" in name:
                     continue
                 rec(cino, ck, f"{rel}/{name}" if rel else name)
-        elif kind == 8:
+            return
+        if want is not None and not want(rel):
+            return
+        if kind == 8:
             data = vol.read_file(ino)
             total += len(data)
             if total > STAGE_BUDGET:
-                raise Refused("the macOS Wi-Fi firmware tree is over the size budget")
+                raise Refused(f"/{path} on the macOS volume is over the size budget")
             fd = os.open(full, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
             with os.fdopen(fd, "wb") as f:
                 f.write(data)
@@ -227,11 +298,19 @@ def stage_wifi(vol, dest):
             os.symlink(target, full)
             tree[rel] = ("link", target)
 
-    ino, kind = vol.resolve(WIFI)
+    try:
+        ino, kind = vol.resolve(path)
+    except apfs_ro.ApfsError as e:
+        raise Refused(f"/{path} is not on the macOS volume ({e})")
     if kind != 4:
-        raise Refused(f"/{WIFI} on the macOS volume is not a directory")
+        raise Refused(f"/{path} on the macOS volume is not a directory")
     rec(ino, kind, "")
     return tree
+
+
+def stage_wifi(vol, dest):
+    """The volume's Wi-Fi firmware tree (stage_tree of /usr/share/firmware/wifi)."""
+    return stage_tree(vol, WIFI, dest)
 
 
 def converted(raw_dir):
@@ -264,11 +343,17 @@ def wifi_in(manifest):
     return {k: v for k, v in manifest.items() if k.startswith(PKG_PREFIX)}
 
 
+def radio_in(manifest):
+    """The entries of every radio firmware set this tool follows."""
+    return {k: v for k, v in manifest.items()
+            if k.startswith(PKG_PREFIX) or k.startswith(BT_PREFIX) or mt7932.owned(k)}
+
+
 def esp_wifi_digest(esp):
-    """One hash over the ESP package's Wi-Fi entries (names and hashes)."""
+    """One hash over the ESP package's radio firmware entries (names and hashes)."""
     with contextlib.suppress(OSError, Refused):
-        current = wifi_in(parse_manifest((pathlib.Path(esp) / "vendorfw" / "manifest.txt")
-                                         .read_text("ascii")))
+        current = radio_in(parse_manifest((pathlib.Path(esp) / "vendorfw" / "manifest.txt")
+                                          .read_text("ascii")))
         return sha256("".join(f"{k} {v}\n" for k, v in sorted(current.items())).encode())
     return None
 
@@ -297,6 +382,164 @@ def board_chips(files, board):
         if m:
             out.add(m[1])
     return out
+
+
+def bt_board_names(files, board):
+    """This board's Broadcom Bluetooth names ('brcm/brcmbt4387c2-apple,<board>-u.bin')."""
+    pat = re.compile(re.escape(BT_PREFIX) + r"[0-9]{4}[a-z][0-9]-apple," + re.escape(board)
+                     + r"(?:-[a-z])?\.(?:bin|ptb)")
+    return {k for k in files if pat.fullmatch(k)}
+
+
+# ---------------------------------------------------------------- radio parts
+#
+# A part is one radio's firmware set: where it is on the macOS volume, how it
+# is converted, which vendorfw names it replaces, what this Mac needs from it,
+# and how the boot after a change tells that the driver came up with it.
+
+class Part:
+    key = ""
+    label = ""
+    sources = ()        # (macOS directory, all_firmware prefix or None, want or None)
+    probes = ()         # driver checks for the boot after a change
+    always = ()         # probes that must come up even if they were down before
+
+    def owns(self, name):
+        raise NotImplementedError
+
+    def convert(self, staged):
+        """staged: {macOS directory: local copy} -> {vendorfw name: FWFile}."""
+        raise NotImplementedError
+
+    def missing(self, new, current):
+        return []
+
+    def expect(self, new):
+        """{name: sha} the unpacked firmware must match after the change."""
+        return {}
+
+    @staticmethod
+    def failures():
+        """(driver name or None, words): kernel log lines meaning it did not come up."""
+        return ()
+
+
+class BroadcomWiFi(Part):
+    key, label = "wifi", "Broadcom Wi-Fi"
+    sources = ((WIFI, RAW_PREFIX, None),)
+    probes = ("brcmfmac", "link:brcmfmac")
+    always = ("brcmfmac",)
+
+    def __init__(self, board, chips):
+        self.board, self.chips = board, chips
+
+    def owns(self, name):
+        return name.startswith(PKG_PREFIX)
+
+    def convert(self, staged):
+        return converted(staged[WIFI])
+
+    def missing(self, new, current):
+        return missing_for_board(new, self.board, self.chips)
+
+    def stem(self):
+        return f"{PKG_PREFIX}{sorted(self.chips)[0]}-pcie.apple,{self.board}.bin"
+
+    def expect(self, new):
+        return {self.stem(): new[self.stem()].sha} if self.stem() in new else {}
+
+    @staticmethod
+    def failures():
+        return tuple((None, f) for f in FAILED)
+
+
+class BroadcomBluetooth(Part):
+    key, label = "bluetooth", "Broadcom Bluetooth"
+    sources = ((BLUETOOTH, RAW_BT_PREFIX, None),)
+    probes = ("hci:hci_bcm4377",)
+
+    def __init__(self, board, names):
+        self.board, self.names = board, names
+
+    def owns(self, name):
+        return name.startswith(BT_PREFIX)
+
+    def convert(self, staged):
+        return dict(sorted(BluetoothFWCollection(str(staged[BLUETOOTH])).files()))
+
+    def missing(self, new, current):
+        # Every name this board loads today (firmware and PTB, per vendor).
+        return sorted(n for n in self.names if n not in new)
+
+    def expect(self, new):
+        return {n: new[n].sha for n in sorted(self.names) if n.endswith(".bin") and n in new}
+
+    @staticmethod
+    def failures():
+        return (("hci_bcm4377", "Unable to load firmware"), ("hci_bcm4377", "failed to load PTB"),
+                ("hci_bcm4377", "Failed to load firmware"))
+
+
+class MediaTekMT7932(Part):
+    key, label = "mt7932", "MediaTek MT7932 Wi-Fi and Bluetooth"
+    sources = ((mt7932.WIFI_DIR, None, lambda rel: rel in mt7932.WIFI_SOURCES),
+               (mt7932.BT_DIR, None, lambda rel: rel.startswith("MT7932")))
+    probes = ("net:mt7932-fullmac", "link:mt7932-fullmac", "hci:mt7932_bt_pcie")
+
+    def owns(self, name):
+        return mt7932.owned(name)
+
+    def convert(self, staged):
+        try:
+            return dict(mt7932.MT7932FWCollection(str(staged[mt7932.WIFI_DIR]),
+                                                  str(staged[mt7932.BT_DIR])).files())
+        except mt7932.Invalid as e:
+            raise Refused(f"the macOS MT7932 firmware does not convert: {e}")
+
+    def missing(self, new, current):
+        # Every Wi-Fi name the ESP has today, and a Bluetooth image of each
+        # kind it has today.
+        out = [n for n in (mt7932.OUT_PATCH, mt7932.OUT_RAM, mt7932.OUT_PPR, mt7932.OUT_CONFIG)
+               if n in current and n not in new]
+        for kind in ("B0", "B1"):
+            if any(re.fullmatch(rf"mediatek/MT7932{kind}_OS_TypeB_.*\.bin", k) for k in current) \
+                    and not any(re.fullmatch(rf"mediatek/MT7932{kind}_OS_TypeB_.*\.bin", k)
+                                for k in new):
+                out.append(f"mediatek/MT7932{kind}_OS_TypeB_*.bin")
+        return out
+
+    def expect(self, new):
+        return {n: new[n].sha for n in (mt7932.OUT_RAM, mt7932.ALIAS_B1) if n in new}
+
+    @staticmethod
+    def failures():
+        return (("mt7932-fullmac", "FIRMWARE_GATE_FAILED"),
+                ("mt7932-fullmac", "local input mediatek/mt7932/IZUBA"),
+                ("mt7932-fullmac", "local input mediatek/mt7932/ppr.bin"),
+                ("mt7932-fullmac", "local input mediatek/mt7932/config-original.bin"),
+                ("mt7932_bt_pcie", "Direct firmware load for mediatek/"))
+
+
+def radio_parts(current, board):
+    """The parts this Mac's ESP package carries today, from its vendorfw
+    names and the device tree's Broadcom board."""
+    parts = []
+    if board:
+        chips = board_chips(current, board)
+        if not chips:
+            raise Refused(f"the ESP's vendorfw has no Wi-Fi firmware for this Mac's board "
+                          f"({board}); reinstall the firmware with the installer")
+        parts.append(BroadcomWiFi(board, chips))
+        bt = bt_board_names(current, board)
+        if bt:
+            parts.append(BroadcomBluetooth(board, bt))
+    if mt7932.OUT_RAM in current:
+        parts.append(MediaTekMT7932())
+    return parts
+
+
+def owned_in(manifest, parts):
+    return {k: v for k, v in manifest.items() if any(p.owns(k) for p in parts)}
 
 
 def find_esp(run=subprocess.run, dt=DT, root="/"):
@@ -352,10 +595,10 @@ def system_esp(esp=None):
 
 # ---------------------------------------------------------------- rebuild
 
-def tar_entries(tree):
-    """(TarInfo, file or None) for a raw Wi-Fi tree ({rel: bytes | Staged |
-    ('link', target)}) under firmware/wifi/, directories first, as the
-    installer writes them. Staged files are opened one at a time."""
+def tar_entries(tree, prefix=RAW_PREFIX):
+    """(TarInfo, file or None) for a raw firmware tree ({rel: bytes | Staged |
+    ('link', target)}) under prefix (firmware/wifi/), directories first, as
+    the installer writes them. Staged files are opened one at a time."""
     dirs = set()
     for rel in tree:
         parts = rel.split("/")[:-1]
@@ -366,53 +609,60 @@ def tar_entries(tree):
         ti = tarfile.TarInfo(name)
         ti.type, ti.mode, ti.uname, ti.gname, ti.mtime = kind, mode, "root", "wheel", 0
         return ti
-    yield info(RAW_PREFIX.rstrip("/"), tarfile.DIRTYPE, 0o755), None
+    yield info(prefix.rstrip("/"), tarfile.DIRTYPE, 0o755), None
     for d in sorted(dirs):
-        yield info(RAW_PREFIX + d, tarfile.DIRTYPE, 0o755), None
+        yield info(prefix + d, tarfile.DIRTYPE, 0o755), None
     for rel in sorted(tree):
         v = tree[rel]
         if isinstance(v, tuple):
-            ti = info(RAW_PREFIX + rel, tarfile.SYMTYPE, 0o755)
+            ti = info(prefix + rel, tarfile.SYMTYPE, 0o755)
             ti.linkname = v[1]
             yield ti, None
         elif isinstance(v, Staged):
-            ti = info(RAW_PREFIX + rel, tarfile.REGTYPE, 0o644)
+            ti = info(prefix + rel, tarfile.REGTYPE, 0o644)
             ti.size = v.size
             with open(v.path, "rb") as f:
                 yield ti, f
         else:
-            ti = info(RAW_PREFIX + rel, tarfile.REGTYPE, 0o644)
+            ti = info(prefix + rel, tarfile.REGTYPE, 0o644)
             ti.size = len(v)
             yield ti, io.BytesIO(v)
 
 
-def rebuild_all_firmware(old, new, tree):
-    """old all_firmware with its firmware/wifi/ part replaced by tree."""
+def rebuild_all_firmware(old, new, trees):
+    """old all_firmware with each prefix's part replaced by its tree
+    (trees: {prefix: tree}, or one tree for firmware/wifi/)."""
+    if not isinstance(trees, dict) or not all(isinstance(k, str) and k.endswith("/")
+                                              and k.startswith("firmware/") for k in trees):
+        trees = {RAW_PREFIX: trees}
     with tarfile.open(old, mode="r:gz") as src, tarfile.open(new, mode="w:gz") as dst:
-        wrote = False
+        wrote = set()
         for m in src:
             name = m.name[2:] if m.name.startswith("./") else m.name
-            if name.rstrip("/") + "/" == RAW_PREFIX or name.startswith(RAW_PREFIX):
-                if not wrote:
-                    for ti, fd in tar_entries(tree):
+            prefix = next((p for p in trees
+                           if name.rstrip("/") + "/" == p or name.startswith(p)), None)
+            if prefix is not None:
+                if prefix not in wrote:
+                    for ti, fd in tar_entries(trees[prefix], prefix):
                         dst.addfile(ti, fd)
-                    wrote = True
+                    wrote.add(prefix)
                 continue
             dst.addfile(m, src.extractfile(m) if m.isfile() else None)
-        if not wrote:
-            for ti, fd in tar_entries(tree):
-                dst.addfile(ti, fd)
+        for prefix in trees:
+            if prefix not in wrote:
+                for ti, fd in tar_entries(trees[prefix], prefix):
+                    dst.addfile(ti, fd)
 
 
-def raw_wifi(all_fw):
-    """{rel: sha256 | 'link:'+target} of all_firmware's firmware/wifi/."""
+def raw_tree(all_fw, prefix):
+    """{rel: sha256 | 'link:'+target} of all_firmware's prefix part."""
     out = {}
     with tarfile.open(all_fw, mode="r:gz") as tar:
         for m in tar:
             name = m.name[2:] if m.name.startswith("./") else m.name
-            if not name.startswith(RAW_PREFIX) or m.isdir():
+            if not name.startswith(prefix) or m.isdir():
                 continue
-            rel = name[len(RAW_PREFIX):]
+            rel = name[len(prefix):]
             if m.issym():
                 out[rel] = "link:" + m.linkname
             elif m.isfile():
@@ -420,26 +670,34 @@ def raw_wifi(all_fw):
     return out
 
 
+def raw_wifi(all_fw):
+    """{rel: sha256 | 'link:'+target} of all_firmware's firmware/wifi/."""
+    return raw_tree(all_fw, RAW_PREFIX)
+
+
 def tree_digest(tree):
     return {rel: ("link:" + v[1]) if isinstance(v, tuple) else
             v.sha if isinstance(v, Staged) else sha256(v) for rel, v in tree.items()}
 
 
-def rebuild_vendorfw(old_dir, new_dir, wifi):
-    """vendorfw with brcm/brcmfmac* replaced by wifi ({name: FWFile}) and
-    every other file kept, in update_firmware's order (Wi-Fi first)."""
+def rebuild_vendorfw(old_dir, new_dir, files, owns=None):
+    """vendorfw with the names owns() accepts (brcm/brcmfmac* by default)
+    replaced by files ({name: FWFile}) and every other file kept with its
+    mode, in update_firmware's order (the radios first)."""
+    owns = owns or (lambda name: name.startswith(PKG_PREFIX))
     kept = []
     with tarfile.open(pathlib.Path(old_dir) / "firmware.tar") as tar:
         for m in tar.getmembers():
-            if m.isdir() or m.name.startswith(PKG_PREFIX):
+            if m.isdir() or owns(m.name):
                 continue
             src = m
             while src.islnk():
                 src = tar.getmember(src.linkname)
-            kept.append((m.name, FWFile(m.name, tar.extractfile(src).read())))
+            kept.append((m.name, FWFile(m.name, tar.extractfile(src).read()), src.mode))
     pkg = FWPackage(str(new_dir))
-    pkg.add_files(sorted(wifi.items()))
-    pkg.add_files(kept)
+    pkg.add_files(files.items())
+    for name, data, mode in kept:
+        pkg.add_file(name, data, mode=mode)
     pkg.close()
 
 
@@ -455,20 +713,36 @@ def package_extras(vendorfw):
     return out
 
 
-def check_package(old_dir, new_dir, wifi):
-    """Refuse unless the new package keeps every old file outside Wi-Fi by
-    path and hash and holds exactly this Wi-Fi set."""
+def tar_modes(path):
+    with tarfile.open(path) as tar:
+        out = {}
+        for m in tar.getmembers():
+            src = m
+            while src.islnk():
+                src = tar.getmember(src.linkname)
+            if not m.isdir():
+                out[m.name] = src.mode
+        return out
+
+
+def check_package(old_dir, new_dir, files, owns=None):
+    """Refuse unless the new package keeps every old file outside the
+    replaced set by path, hash and mode and holds exactly the new set."""
+    owns = owns or (lambda name: name.startswith(PKG_PREFIX))
     old = parse_manifest((pathlib.Path(old_dir) / "manifest.txt").read_text("ascii"))
     new = parse_manifest((pathlib.Path(new_dir) / "manifest.txt").read_text("ascii"))
-    lost = [k for k in sorted(old) if not k.startswith(PKG_PREFIX) and new.get(k) != old[k]]
+    lost = [k for k in sorted(old) if not owns(k) and new.get(k) != old[k]]
+    old_m = tar_modes(pathlib.Path(old_dir) / "firmware.tar")
+    new_m = tar_modes(pathlib.Path(new_dir) / "firmware.tar")
+    lost += [k for k in sorted(old_m) if not owns(k) and k in old and new_m.get(k) != old_m[k]]
     old_x, new_x = package_extras(old_dir), package_extras(new_dir)
     lost += [k for k in sorted(old_x) if new_x.get(k) != old_x[k]]
     if lost:
         raise Refused(f"the rebuilt vendorfw would lose or change {len(lost)} other file(s): "
                       + ", ".join(lost[:6]) + (" ..." if len(lost) > 6 else ""))
-    want = {k: v.sha for k, v in wifi.items()}
-    if wifi_in(new) != want:
-        raise Refused("the rebuilt vendorfw does not hold exactly the converted Wi-Fi set")
+    want = {k: v.sha for k, v in files.items()}
+    if {k: v for k, v in new.items() if owns(k)} != want:
+        raise Refused("the rebuilt vendorfw does not hold exactly the converted set")
     with tarfile.open(pathlib.Path(new_dir) / "firmware.tar") as tar:
         for name, digest in want.items():
             m = tar.getmember(name)
@@ -639,73 +913,105 @@ def prune_backups(backup_root, keep=KEEP_BACKUPS):
 # ---------------------------------------------------------------- update
 
 def plan(esp, macos=None, board=None, out=print):
-    """What update would do: a dict with the chosen macOS, the converted
-    set and whether the ESP already holds it. Raises Refused."""
+    """What update would do: a dict with the chosen macOS and this Mac's
+    radio parts. Raises Refused."""
     esp = pathlib.Path(esp)
     vendorfw, all_fw = esp / "vendorfw", esp / "asahi" / "all_firmware.tar.gz"
     for p in (vendorfw / "manifest.txt", vendorfw / "firmware.tar", vendorfw / "firmware.cpio"):
         if not p.is_file():
             raise Refused(f"{p} is missing; this does not look like an Aurora system ESP")
-    current = wifi_in(parse_manifest((vendorfw / "manifest.txt").read_text("ascii")))
-    chips = board_chips(current, board)
-    if not chips:
-        raise Refused(f"the ESP's vendorfw has no Wi-Fi firmware for this Mac's board ({board}); "
-                      f"reinstall the firmware with the installer")
+    manifest = parse_manifest((vendorfw / "manifest.txt").read_text("ascii"))
+    parts = radio_parts(manifest, board)
+    if not parts:
+        raise Refused("the ESP's vendorfw has no radio firmware this tool follows")
     if macos is None:
         found = installed_macos(esp)
         if not found:
-            raise NotNow("no installed macOS System volume with Wi-Fi firmware was readable")
+            raise NotNow("no installed macOS System volume with radio firmware was readable")
         macos = found[0]
         if len(found) > 1:
             out("Installed macOS: " + "; ".join(m.describe() for m in found) + " (newest used)")
     out(f"Source: {macos.describe()}")
     return {"esp": esp, "vendorfw": vendorfw, "all_fw": all_fw, "macos": macos,
-            "current": current, "chips": chips, "board": board}
+            "manifest": manifest, "parts": parts, "board": board,
+            "current": owned_in(manifest, parts)}
+
+
+def has_dir(vol, path):
+    try:
+        return vol.resolve(path)[1] == 4
+    except apfs_ro.ApfsError:
+        return False
 
 
 def update(esp, macos=None, board=None, dry_run=False, backup_root=None,
-           state_dir=None, out=print, swap=exchange):
+           state_dir=None, out=print, swap=exchange, probe=None, log_text=None):
     """Returns "identical", "dry-run" or "updated", or raises Refused/NotNow."""
     backup_root = pathlib.Path(backup_root or BACKUP_ROOT)
     p = plan(esp, macos, board, out)
     esp, vendorfw, all_fw, macos = p["esp"], p["vendorfw"], p["all_fw"], p["macos"]
     with tempfile.TemporaryDirectory(prefix="aurora-wifi-firmware-") as tmp:
         tmp = pathlib.Path(tmp)
-        raw = tmp / "wifi"
-        tree = stage_wifi(macos.volume, raw)
-        wifi = converted(raw)
-        missing = missing_for_board(wifi, board, p["chips"])
-        if missing:
-            raise Refused(f"macOS {macos.build}'s Wi-Fi firmware lacks this Mac's board: "
-                          + ", ".join(missing))
-        new = {k: v.sha for k, v in wifi.items()}
-        raw_same = not all_fw.is_file() or raw_wifi(all_fw) == tree_digest(tree)
-        pkg_same = p["current"] == new
-        stem = f"{PKG_PREFIX}{sorted(p['chips'])[0]}-pcie.apple,{board}.bin"
-        out(f"Board {board} ({', '.join(sorted(p['chips']))}): {stem}")
-        out(f"  ESP:   {p['current'].get(stem, 'none')[:16]}  ({len(p['current'])} Wi-Fi files)")
-        out(f"  macOS: {new.get(stem, 'none')[:16]}  ({len(new)} Wi-Fi files)")
-        if pkg_same and raw_same:
-            out(f"The ESP already holds macOS {macos.build}'s Wi-Fi firmware. Nothing to do.")
+        parts, files, trees, raw_same = [], {}, {}, True
+        for part in p["parts"]:
+            gone = [src for src, _, _ in part.sources if not has_dir(macos.volume, src)]
+            if gone:
+                out(f"{part.label}: macOS {macos.build} has no /{gone[0]}; "
+                    f"the ESP's files stay")
+                continue
+            staged = {}
+            for n, (src, prefix, want) in enumerate(part.sources):
+                staged[src] = tmp / f"{part.key}-{n}"
+                tree = stage_tree(macos.volume, src, staged[src], want)
+                if prefix and all_fw.is_file():
+                    trees[prefix] = tree
+                    raw_same = raw_same and raw_tree(all_fw, prefix) == tree_digest(tree)
+            new = part.convert(staged)
+            missing = part.missing(new, p["current"])
+            if missing:
+                raise Refused(f"macOS {macos.build}'s {part.label} firmware lacks what this Mac "
+                              f"loads: " + ", ".join(missing))
+            cur = {k: v for k, v in p["current"].items() if part.owns(k)}
+            same = cur == {k: v.sha for k, v in new.items()}
+            out(f"{part.label}: ESP {len(cur)} files, macOS {len(new)} files"
+                + (" (the same)" if same else ""))
+            for name, fw in sorted(part.expect(new).items()):
+                out(f"  {name}: ESP {p['current'].get(name, 'none')[:16]}  macOS {fw[:16]}")
+            parts.append(part)
+            files.update(sorted(new.items()))
+        if not parts:
+            raise Refused(f"macOS {macos.build} ships none of the radio firmware on the ESP")
+        owns = lambda name: any(part.owns(name) for part in parts)  # noqa: E731
+        current = {k: v for k, v in p["current"].items() if owns(k)}
+        new = {k: v.sha for k, v in files.items()}
+        if current == new and raw_same:
+            out(f"The ESP already holds macOS {macos.build}'s radio firmware. Nothing to do.")
             return "identical"
 
         staged = tmp / "vendorfw"
         staged.mkdir()
-        rebuild_vendorfw(vendorfw, staged, wifi)
-        check_package(vendorfw, staged, wifi)
+        rebuild_vendorfw(vendorfw, staged, files, owns)
+        check_package(vendorfw, staged, files, owns)
         new_fw = tmp / "all_firmware.tar.gz"
         if not raw_same:
-            rebuild_all_firmware(all_fw, new_fw, tree)
-            if raw_wifi(new_fw) != tree_digest(tree):
-                raise Refused("the rebuilt all_firmware does not hold exactly the macOS tree")
-        out("Check passed: the rebuilt vendorfw keeps every other file by path and hash and "
-            "holds exactly the converted set.")
+            rebuild_all_firmware(all_fw, new_fw, trees)
+            for prefix, tree in trees.items():
+                if raw_tree(new_fw, prefix) != tree_digest(tree):
+                    raise Refused("the rebuilt all_firmware does not hold exactly the macOS tree")
+        out("Check passed: the rebuilt vendorfw keeps every other file by path, hash and mode "
+            "and holds exactly the converted set.")
         if dry_run:
             out(f"Dry run: would back up to {backup_root}/{BACKUP_PREFIX}<time>-<id> and replace "
                 + ("" if raw_same else "asahi/all_firmware.tar.gz and ")
                 + "vendorfw/. Nothing was changed.")
             return "dry-run"
 
+        # The drivers that are up now must be up after the change.
+        probe = probe or radio_probe
+        optional = [x for part in parts for x in part.probes if x not in part.always]
+        text = (log_text if log_text is not None else kernel_log()) if optional else ""
+        required = sorted({x for part in parts for x in part.always}
+                          | {x for x in optional if probe(x, text)})
         need = tree_size(staged) + (0 if raw_same else new_fw.stat().st_size) + (4 << 20)
         st = os.statvfs(esp)
         if st.f_bavail * st.f_frsize < need:
@@ -719,13 +1025,17 @@ def update(esp, macos=None, board=None, dry_run=False, backup_root=None,
         out(f"Backed up the ESP files to {backup}")
         pairs = ([] if raw_same else [(new_fw, all_fw)]) + [(staged, vendorfw)]
         commit(esp, pairs, backup, swap)
+        expect = {}
+        for part in parts:
+            expect.update(part.expect(files))
         write_state({"build": macos.build, "version": macos.version, "device": macos.device,
                      "volume": macos.volume.name, "result": "updated",
-                     "pending": {"backup": str(backup), "expect": new.get(stem),
-                                 "name": stem, "boot_id": boot_id()}},
+                     "parts": [part.key for part in parts],
+                     "pending": {"backup": str(backup), "expect": expect, "probes": required,
+                                 "parts": [part.key for part in parts], "boot_id": boot_id()}},
                     state_dir)
         prune_backups(backup_root)
-        out(f"Done: macOS {macos.build}'s Wi-Fi firmware is on the ESP and loads at the next boot. "
+        out(f"Done: macOS {macos.build}'s radio firmware is on the ESP and loads at the next boot. "
             f"The previous files are in {backup}.")
         return "updated"
 
@@ -739,12 +1049,14 @@ def boot_id():
 
 
 def kernel_log(run=subprocess.run):
-    p = run(["journalctl", "-k", "-b", "0", "--no-pager", "-o", "cat"],
-            capture_output=True, text=True, errors="replace")
-    if p.returncode == 0 and p.stdout:
-        return p.stdout
-    p = run(["dmesg"], capture_output=True, text=True, errors="replace")
-    return p.stdout if p.returncode == 0 else ""
+    for cmd in (["journalctl", "-k", "-b", "0", "--no-pager", "-o", "cat"], ["dmesg"]):
+        try:
+            p = run(cmd, capture_output=True, text=True, errors="replace")
+        except OSError:
+            continue
+        if p.returncode == 0 and p.stdout:
+            return p.stdout
+    return ""
 
 
 def unpacked(name, roots=("/run/aurora-firmware/vendorfw", "/lib/firmware/vendor",
@@ -756,36 +1068,108 @@ def unpacked(name, roots=("/run/aurora-firmware/vendorfw", "/lib/firmware/vendor
     return None
 
 
+HCIGETDEVINFO = 0x800448D3   # _IOR('H', 211, int)
+HCI_UP = 1
+
+
+def hci_up(index):
+    """Whether HCI device index is up (setup done, firmware running); None
+    when this Python cannot ask."""
+    try:
+        s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI)
+    except (AttributeError, OSError):
+        return None
+    with s:
+        # struct hci_dev_info: dev_id u16, name[8], bdaddr[6], flags u32, ...
+        buf = bytearray(struct.pack("<H", index) + bytes(126))
+        try:
+            fcntl.ioctl(s.fileno(), HCIGETDEVINFO, buf, True)
+        except OSError:
+            return None
+        return bool(struct.unpack_from("<I", buf, 16)[0] & HCI_UP)
+
+
+def radio_probe(name, text, sys_root=None, up=hci_up):
+    """brcmfmac: it reported a running firmware. net:<driver>: a network
+    interface of that driver exists. link:<driver>: one is associated
+    (operstate up). hci:<driver>: a Bluetooth controller of that driver is up."""
+    if name == "brcmfmac":
+        return UP.search(text) is not None
+    kind, _, driver = name.partition(":")
+    root = pathlib.Path(sys_root or SYS) / "class" / {"net": "net", "link": "net",
+                                                     "hci": "bluetooth"}[kind]
+    with contextlib.suppress(OSError):
+        for dev in sorted(root.iterdir()):
+            if os.path.basename(os.path.realpath(dev / "device" / "driver")) != driver:
+                continue
+            if kind == "net":
+                return True
+            if kind == "link":
+                with contextlib.suppress(OSError):
+                    if (dev / "operstate").read_text().strip() == "up":
+                        return True
+                continue
+            m = re.fullmatch(r"hci([0-9]+)", dev.name)
+            if m:
+                state = up(int(m[1]))
+                return True if state is None else state
+    return False
+
+
+PART_TYPES = {cls.key: cls for cls in (BroadcomWiFi, BroadcomBluetooth, MediaTekMT7932)}
+
+
+def failure(text, keys):
+    """The first kernel log words that say one of these parts did not come up."""
+    lines = text.splitlines()
+    for key in keys:
+        for driver, words in PART_TYPES[key].failures():
+            for line in lines:
+                if words in line and (driver is None or driver in line):
+                    return words
+    return None
+
+
 def verify(state, esp, out=print, log_text=None, wait=VERIFY_WAIT, sleep=time.sleep,
-           unpacked_sha=unpacked, swap=exchange, state_dir=None):
-    """The first boot after a change: did brcmfmac come up with the new
+           unpacked_sha=unpacked, swap=exchange, state_dir=None, probe=None):
+    """The first boot after a change: did the drivers come up with the new
     firmware? "ok", "reverted" or "waiting" (still the boot that changed it)."""
     pend = state.get("pending") or {}
     if not pend:
         return "ok"
     if pend.get("boot_id") and pend.get("boot_id") == boot_id():
         return "waiting"
-    got = unpacked_sha(pend["name"])
+    probe = probe or radio_probe
+    expect = pend.get("expect") or {}
+    if isinstance(expect, str):     # a change made by an earlier version: one Wi-Fi file
+        expect = {pend["name"]: expect}
+    required = pend.get("probes", ["brcmfmac"])
+    keys = [k for k in pend.get("parts", ["wifi"]) if k in PART_TYPES]
+    got = {name: unpacked_sha(name) for name in expect}
     deadline = time.monotonic() + wait
     while True:
         text = log_text() if callable(log_text) else (log_text if log_text is not None else kernel_log())
-        up = UP.search(text)
-        bad = next((f for f in FAILED if f in text), None)
-        if up or bad or time.monotonic() >= deadline:
+        bad = failure(text, keys)
+        up = {x: probe(x, text) for x in required}
+        if all(up.values()) or bad or time.monotonic() >= deadline:
             break
         sleep(3)
-    if got == pend.get("expect") and up and not bad:
-        out(f"brcmfmac came up with macOS {state.get('build')}'s firmware: {up[1]} version {up[3]}")
+    down = [x for x, ok in up.items() if not ok]
+    if got == expect and not down and not bad:
+        fw = UP.search(text)
+        out(f"The drivers came up with macOS {state.get('build')}'s firmware"
+            + (f": {fw[1]} version {fw[3]}" if fw else f" ({', '.join(required)})"))
         state.pop("pending", None)
         state["result"] = "verified"
-        state["firmware"] = up[3]
+        if fw:
+            state["firmware"] = fw[3]
         state["esp_wifi"] = esp_wifi_digest(esp)
         write_state(state, state_dir)
         return "ok"
-    why = (f"brcmfmac reported '{bad}'" if bad else
-           "the unpacked firmware is not the one put on the ESP" if got != pend.get("expect") else
-           f"brcmfmac did not report a running firmware within {wait} s")
-    out(f"The new Wi-Fi firmware did not come up ({why}); putting the previous files back.")
+    why = (f"the kernel reported '{bad}'" if bad else
+           "the unpacked firmware is not the one put on the ESP" if got != expect else
+           f"{', '.join(down)} did not come up within {wait} s")
+    out(f"The new radio firmware did not come up ({why}); putting the previous files back.")
     revert(esp, pathlib.Path(pend["backup"]), out=out, swap=swap)
     state.pop("pending", None)
     state["result"] = "reverted"
@@ -802,7 +1186,7 @@ def revert(esp, backup=None, out=print, swap=exchange, backup_root=None):
                       if p.name.startswith(BACKUP_PREFIX) and p.is_dir()) \
             if pathlib.Path(backup_root).is_dir() else []
         if not olds:
-            raise Refused(f"no Wi-Fi firmware backup in {backup_root}")
+            raise Refused(f"no radio firmware backup in {backup_root}")
         backup = olds[-1]
     pairs = []
     if (backup / "all_firmware.tar.gz").is_file():
@@ -811,7 +1195,7 @@ def revert(esp, backup=None, out=print, swap=exchange, backup_root=None):
         raise Refused(f"{backup} holds no vendorfw")
     pairs.append((backup / "vendorfw", esp / "vendorfw"))
     commit(esp, pairs, backup, swap)
-    out(f"Restored the ESP's Wi-Fi firmware files from {backup}; they load at the next boot.")
+    out(f"Restored the ESP's radio firmware files from {backup}; they load at the next boot.")
     return "reverted"
 
 
@@ -819,13 +1203,24 @@ def revert(esp, backup=None, out=print, swap=exchange, backup_root=None):
 
 def status(esp, board, out=print):
     vendorfw = pathlib.Path(esp) / "vendorfw" / "manifest.txt"
-    current = wifi_in(parse_manifest(vendorfw.read_text("ascii"))) if vendorfw.is_file() else {}
-    out(f"Wi-Fi board: {board}")
-    for chip in sorted(board_chips(current, board)):
-        name = f"{PKG_PREFIX}{chip}-pcie.apple,{board}.bin"
-        out(f"ESP firmware {name}: {current[name][:16]}; unpacked: {(unpacked(name) or 'none')[:16]}")
-    up = UP.search(kernel_log())
-    out(f"Running firmware: {up[1]} {up[3]} ({up[2]})" if up else "Running firmware: not reported")
+    manifest = parse_manifest(vendorfw.read_text("ascii")) if vendorfw.is_file() else {}
+    out(f"Broadcom board: {board or 'none'}")
+    with contextlib.suppress(Refused):
+        for part in radio_parts(manifest, board):
+            names = sorted(k for k in manifest if part.owns(k))
+            out(f"{part.label}: {len(names)} files on the ESP")
+            shown = part.expect({k: FWFile(k, b"") for k in names}) or {}
+            for name in sorted(shown):
+                out(f"  {name}: ESP {manifest[name][:16]}; unpacked: "
+                    f"{(unpacked(name) or 'none')[:16]}")
+    text = kernel_log()
+    up = UP.search(text)
+    if board:
+        out(f"Running Wi-Fi firmware: {up[1]} {up[3]} ({up[2]})" if up
+            else "Running Wi-Fi firmware: not reported")
+    for x in ("hci:hci_bcm4377", "net:mt7932-fullmac", "hci:mt7932_bt_pcie"):
+        if radio_probe(x, text):
+            out(f"Up: {x}")
     for m in installed_macos(esp):
         out(f"Installed: {m.describe()}")
     st = read_state()
@@ -838,6 +1233,9 @@ def main(argv=None):
     ap.add_argument("cmd", nargs="?", default="update",
                     choices=["status", "check", "update", "boot", "revert"])
     ap.add_argument("--esp", help="the system ESP (default: the one the device tree names)")
+    ap.add_argument("--macos", metavar="DIR",
+                    help="take the firmware from this macOS root (a mounted or copied System "
+                         "volume) instead of the installed macOS; check and update only")
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO if a.verbose else logging.WARNING,
@@ -847,9 +1245,6 @@ def main(argv=None):
         return 1
     try:
         board = wifi_board()
-        if board is None:
-            print("This Mac has no Broadcom Wi-Fi board in its device tree; nothing to do.")
-            return 0
         with system_esp(a.esp) as esp:
             if a.cmd == "status":
                 status(esp, board)
@@ -867,27 +1262,40 @@ def main(argv=None):
                 if verify(state, esp) == "waiting":
                     return 0
                 state = read_state()
-            found = installed_macos(esp)
+            manifest = esp / "vendorfw" / "manifest.txt"
+            if manifest.is_file() and not radio_parts(
+                    parse_manifest(manifest.read_text("ascii")), board):
+                print("The ESP holds no Wi-Fi or Bluetooth firmware this tool follows; "
+                      "nothing to do.")
+                return 0
+            if a.macos:
+                if a.cmd not in ("check", "update"):
+                    raise Refused("--macos goes with check or update")
+                found = [macos_at(a.macos)]
+            else:
+                found = installed_macos(esp)
             if not found:
-                raise NotNow("no installed macOS System volume with Wi-Fi firmware was readable")
+                raise NotNow("no installed macOS System volume with radio firmware was readable")
             # At boot, a macOS build already checked against this ESP package
             # needs no second read of its tree.
             if a.cmd == "boot" and found[0].build == state.get("build") \
+                    and found[0].device == state.get("device", found[0].device) \
                     and state.get("result") in ("verified", "identical") \
                     and not state.get("pending") \
                     and state.get("esp_wifi") and state.get("esp_wifi") == esp_wifi_digest(esp):
-                print(f"The ESP holds macOS {found[0].build}'s Wi-Fi firmware (checked before). "
+                print(f"The ESP holds macOS {found[0].build}'s radio firmware (checked before). "
                       f"Nothing to do.")
                 return 0
             if a.cmd == "boot" and found[0].build == state.get("refused_build"):
                 why = "was put back by hand" if state.get("result") == "reverted by hand" \
                     else "did not come up here before"
-                print(f"macOS {found[0].build}'s Wi-Fi firmware {why}; keeping the current files "
+                print(f"macOS {found[0].build}'s radio firmware {why}; keeping the current files "
                       f"(run 'aurora-wifi-firmware update' to use it).")
                 return 0
             r = update(esp, found[0], board, dry_run=a.cmd == "check")
             if r == "identical" and a.cmd != "check":
                 write_state(dict(state, build=found[0].build, version=found[0].version,
+                                 device=found[0].device, volume=found[0].volume.name,
                                  result="verified" if state.get("result") == "verified"
                                  and state.get("build") == found[0].build else "identical",
                                  esp_wifi=esp_wifi_digest(esp), refused_build=None))
