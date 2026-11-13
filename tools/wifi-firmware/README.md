@@ -35,6 +35,11 @@ sudo aurora-wifi-firmware revert    # put the files from before the last change 
 After a `revert` the boot service leaves that macOS build alone; `update`,
 or the next macOS update, brings the firmware back.
 
+`check` and `update` take `--macos DIR` to read a macOS root somewhere else
+(a mounted or copied System volume) instead of the installed macOS. The boot
+service still follows the installed macOS: after the first boot with such a
+set, it puts the installed macOS's set back for the boot after.
+
 The `aurora-wifi-firmware` service runs `boot` at every start-up, so a Mac
 follows its macOS as macOS does.
 

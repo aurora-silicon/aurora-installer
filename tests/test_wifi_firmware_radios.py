@@ -305,6 +305,46 @@ class OlderStateTest(Case):
         self.assertEqual(r, "ok")
 
 
+class MacOSDirTest(Case):
+    """--macos DIR: a macOS root on disk instead of the installed macOS."""
+
+    def root_with(self, b1=(B1_NEW, None)):
+        root = self.root / "macos"
+        plist = (b'<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>'
+                 b"<key>ProductBuildVersion</key><string>26A428</string>"
+                 b"<key>ProductVersion</key><string>27.0</string></dict></plist>")
+        files = {awf.SYSTEM_VERSION: plist, f"{mt7932.BT_DIR}/{B0}": RAW["bluetooth/" + B0],
+                 f"{mt7932.BT_DIR}/{b1[0]}": b1[1] or bt_image("27.0"),
+                 f"{mt7932.BT_DIR}/{PTX}": RAW["bluetooth/" + PTX]}
+        for n in mt7932.WIFI_SOURCES:
+            files[f"{mt7932.WIFI_DIR}/{n}"] = RAW["sunrise/" + n]
+        for rel, data in files.items():
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel).write_bytes(data)
+        os.symlink(B0, root / mt7932.BT_DIR / "MT7932B0_link.bin")
+        return root
+
+    def test_update_from_a_directory(self):
+        esp = neo_esp(self.root)
+        mac = awf.macos_at(self.root_with())
+        self.assertEqual((mac.build, mac.version), ("26A428", "27.0"))
+        r = awf.update(esp, mac, None, backup_root=self.backups, state_dir=self.state,
+                       out=self.out.append, swap=lambda a, b: False, probe=lambda n, t: True,
+                       log_text="")
+        self.assertEqual(r, "updated")
+        self.assertEqual(members(esp)[mt7932.ALIAS_B1][1], bt_image("27.0"))
+        self.assertEqual(awf.read_state(self.state)["build"], "26A428")
+
+    def test_not_a_macos_root(self):
+        with self.assertRaisesRegex(awf.Refused, "not a macOS root"):
+            awf.macos_at(self.root)
+
+    def test_no_way_out_of_the_root(self):
+        vol = awf.DirVolume(self.root_with())
+        with self.assertRaises(awf.apfs_ro.ApfsError):
+            vol.resolve("../macos/" + awf.SYSTEM_VERSION)
+
+
 class ProbeTest(Case):
     def sysfs(self, cls, dev, driver):
         d = self.root / "sys" / "class" / cls / dev

@@ -199,6 +199,60 @@ def installed_macos(esp, devices=None, opener=apfs_ro.Container):
     return found
 
 
+class DirVolume:
+    """A macOS root copied or mounted somewhere (--macos DIR), with the
+    apfs_ro volume calls the tool uses. Read only, nothing outside root."""
+    role, encrypted, group = apfs_ro.ROLE_SYSTEM, False, None
+
+    def __init__(self, root):
+        self.root = pathlib.Path(root).resolve()
+        self.name = str(self.root)
+        self.paths = {}
+
+    def _ino(self, path):
+        ino = len(self.paths) + 2
+        self.paths[ino] = path
+        return ino
+
+    @staticmethod
+    def _kind(path):
+        return 10 if path.is_symlink() else 4 if path.is_dir() else 8
+
+    def resolve(self, path):
+        parts = [x for x in path.split("/") if x]
+        full = self.root
+        for n, part in enumerate(parts):
+            if part in (".", ".."):
+                raise apfs_ro.ApfsError(f"{path}: unsupported component")
+            full = full / part
+            if not os.path.lexists(full):
+                raise apfs_ro.ApfsError(f"{path}: {part} not found")
+            if full.is_symlink() and n < len(parts) - 1:
+                raise apfs_ro.ApfsError(f"{path}: {part} is a link")
+        return self._ino(full), self._kind(full)
+
+    def children(self, ino):
+        d = self.paths[ino]
+        return {e.name: (self._ino(pathlib.Path(e.path)), self._kind(pathlib.Path(e.path)))
+                for e in os.scandir(d)}
+
+    def read_file(self, ino):
+        return self.paths[ino].read_bytes()
+
+    def readlink(self, ino):
+        return os.readlink(self.paths[ino])
+
+
+def macos_at(root):
+    """The macOS whose root is the directory root (its SystemVersion.plist)."""
+    vol = DirVolume(root)
+    try:
+        info = plistlib.loads(vol.read_file(vol.resolve(SYSTEM_VERSION)[0]))
+    except (OSError, apfs_ro.ApfsError, ValueError, plistlib.InvalidFileException) as e:
+        raise Refused(f"{root} is not a macOS root: {e}")
+    return MacOS(str(vol.root), vol, info.get("ProductBuildVersion"), info.get("ProductVersion"))
+
+
 class Staged:
     """A file copied out of the macOS volume: its path, size and hash, so the
     tree is not held in memory."""
@@ -1172,6 +1226,9 @@ def main(argv=None):
     ap.add_argument("cmd", nargs="?", default="update",
                     choices=["status", "check", "update", "boot", "revert"])
     ap.add_argument("--esp", help="the system ESP (default: the one the device tree names)")
+    ap.add_argument("--macos", metavar="DIR",
+                    help="take the firmware from this macOS root (a mounted or copied System "
+                         "volume) instead of the installed macOS; check and update only")
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO if a.verbose else logging.WARNING,
@@ -1204,7 +1261,12 @@ def main(argv=None):
                 print("The ESP holds no Wi-Fi or Bluetooth firmware this tool follows; "
                       "nothing to do.")
                 return 0
-            found = installed_macos(esp)
+            if a.macos:
+                if a.cmd not in ("check", "update"):
+                    raise Refused("--macos goes with check or update")
+                found = [macos_at(a.macos)]
+            else:
+                found = installed_macos(esp)
             if not found:
                 raise NotNow("no installed macOS System volume with radio firmware was readable")
             # At boot, a macOS build already checked against this ESP package
