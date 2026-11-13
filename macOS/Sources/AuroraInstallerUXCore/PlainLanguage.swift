@@ -78,8 +78,8 @@
     public static let encryptLinuxDiskTitle = "Encrypt the Aurora disk"
     public static let encryptLinuxDiskPassword =
       "The Aurora password you create at first boot will unlock the encrypted disk after installation."
-    public static let encryptLinuxDiskNoRecovery =
-      "There is no separate recovery key, so keep the password somewhere safe."
+    public static let encryptLinuxDiskRecoveryKey =
+      "After setup, Aurora shows a recovery key once. Write it down: it unlocks the disk if you forget the password."
     public static let encryptionChoiceNotRecorded =
       "The encryption choice wasn’t saved, so Aurora will encrypt its disk at first boot."
     public static let encryptionOptOutRecorded =
