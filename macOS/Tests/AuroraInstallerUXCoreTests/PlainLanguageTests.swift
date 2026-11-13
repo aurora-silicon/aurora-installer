@@ -789,6 +789,11 @@
         "The Aurora password you create at first boot will unlock the encrypted disk after installation."
       )
       XCTAssertFalse(PlainLanguage.encryptLinuxDiskPassword.lowercased().contains("macos"))
+      // As FileVault in Setup Assistant: a recovery key, shown once.
+      XCTAssertEqual(
+        PlainLanguage.encryptLinuxDiskRecoveryKey,
+        "After setup, Aurora shows a recovery key once. Write it down: it unlocks the disk if you forget the password."
+      )
       XCTAssertEqual(
         PlainLanguage.encryptionChoiceNotRecorded,
         "The encryption choice wasn’t saved, so Aurora will encrypt its disk at first boot."
