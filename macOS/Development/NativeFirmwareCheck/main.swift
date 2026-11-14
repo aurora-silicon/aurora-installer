@@ -65,6 +65,29 @@ private actor MeasuredIPSWReader: FirmwareRangeReading {
           try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]) + Data([10]))
         return
       }
+      if [3, 4].contains(CommandLine.arguments.count) && CommandLine.arguments[1] == "prores" {
+        // prores <kernelcache IM4P> [output]: the ProRes initialization rows
+        // the installer collects from that kernel. Reports sizes and digests
+        // only; the rows go to the output file when one is named.
+        let input = try Data(
+          contentsOf: URL(fileURLWithPath: CommandLine.arguments[2]), options: .alwaysMapped)
+        let decoded = try FirmwareImage.decode(input)
+        guard decoded.type == "krnl" else { throw RestoreFailure("Not a kernel cache.") }
+        let rows = try ProResInitFirmware.extract(from: decoded.bytes)
+        if let rows, CommandLine.arguments.count == 4 {
+          try rows.write(
+            to: URL(fileURLWithPath: CommandLine.arguments[3]), options: .withoutOverwriting)
+        }
+        let report: [String: Any] = [
+          "kernelSHA256": SHA256.hash(data: input).map { String(format: "%02x", $0) }.joined(),
+          "name": ProResInitFirmware.name, "bytes": rows?.count ?? 0,
+          "sha256": rows.map { SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() }
+            ?? "",
+        ]
+        FileHandle.standardOutput.write(
+          try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]) + Data([10]))
+        return
+      }
       if CommandLine.arguments.count == 4 && CommandLine.arguments[1] == "multitouch" {
         let path = CommandLine.arguments[2]
         let descriptor = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
