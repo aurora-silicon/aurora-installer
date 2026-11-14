@@ -158,6 +158,8 @@ class Case(unittest.TestCase):
                          kw.get("version", "26.2"))
 
     def update(self, esp, macos, **kw):
+        kw.setdefault("probe", lambda name, text: False)
+        kw.setdefault("log_text", "")
         return awf.update(esp, macos, BOARD, backup_root=self.backups, state_dir=self.state,
                           out=self.out.append, swap=lambda a, b: False, **kw)
 
@@ -207,7 +209,7 @@ class UpdateTest(Case):
         st = awf.read_state(self.state)
         self.assertEqual(st["build"], "25C56")
         self.assertEqual(st["pending"]["expect"], {name: new[name]})
-        self.assertEqual(st["pending"]["probes"], ["brcmfmac", "link:brcmfmac"])
+        self.assertEqual(st["pending"]["probes"], ["brcmfmac"])
         # Running again changes nothing.
         self.assertEqual(self.update(esp, self.macos(new_tree)), "identical")
 
