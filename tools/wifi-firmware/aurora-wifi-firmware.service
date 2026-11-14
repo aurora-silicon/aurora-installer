@@ -1,0 +1,26 @@
+[Unit]
+Description=Wi-Fi and Bluetooth firmware of the installed macOS
+Documentation=https://github.com/aurora-silicon/aurora-installer/blob/main/tools/wifi-firmware/README.md
+# macOS runs the Wi-Fi and Bluetooth firmware its system volume ships. At
+# every boot this checks the installed macOS's firmware against the ESP's
+# and, when macOS has newer firmware, puts it on the ESP for the next boot
+# (backed up first). The boot after a change checks that the drivers came up
+# with it and puts the previous files back if they did not. Nothing is
+# reloaded in the running boot.
+ConditionPathExists=/proc/device-tree/chosen/asahi,efi-system-partition
+After=local-fs.target systemd-udev-settle.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/aurora-wifi-firmware boot
+# 1 = refused (nothing changed, the reason is in the journal), 2 = not now
+# (no readable macOS volume, the ESP busy): outcomes, not unit failures.
+SuccessExitStatus=1 2
+TimeoutStartSec=900
+Nice=10
+IOSchedulingClass=idle
+StateDirectory=aurora-wifi-firmware
+StateDirectoryMode=0700
+
+[Install]
+WantedBy=multi-user.target

@@ -15,6 +15,9 @@
     /// Recovery image patches an earlier one. Only whole-image update
     /// archives, such as macOS 14.8.3's, have a native decoder.
     case updateArchiveOnly(version: String)
+    /// The restore image isn't the build the policy pins: its size,
+    /// manifest or build number differs.
+    case pinnedSourceMismatch(build: String)
   }
 
   struct NativeFirmwareSelection: Equatable, Sendable {
@@ -32,6 +35,25 @@
     let version: String
     let sourceURL: URL
     let stubBytes: UInt64
+    /// Set when the policy names one exact build for this version.
+    var pin: NativeFirmwarePin? = nil
+
+    /// The image the server offers must be the pinned one, byte count first:
+    /// it is known before any member is read.
+    func requirePinnedSource(bytes: Int) throws {
+      guard let pin else { return }
+      guard bytes >= 0, UInt64(bytes) == pin.sourceBytes else {
+        throw NativeFirmwareSelectionError.pinnedSourceMismatch(build: pin.build)
+      }
+    }
+
+    /// The selected manifest and build identity must be the pinned ones.
+    func requirePinnedManifest(_ manifest: Data, buildNumber: String) throws {
+      guard let pin else { return }
+      guard SHA256Digest(hashing: manifest).rawValue == pin.manifestSHA256,
+        buildNumber == pin.build
+      else { throw NativeFirmwareSelectionError.pinnedSourceMismatch(build: pin.build) }
+    }
 
     /// Execution requires usable versions. Inspection's conservative size
     /// fallback is intentionally not an installation admission rule.
@@ -84,10 +106,12 @@
         components.query == nil, components.fragment == nil,
         !components.path.isEmpty, let url = components.url
       else { throw NativeFirmwareSelectionError.invalidSource }
+      try selected.pin?.validate(sourceURL: url)
       return Self(
         version: selected.version, sourceURL: url,
         stubBytes: try NativeInspectionPolicy.Version.atLeast(selected.version, "26.0")
-          ? 5_999_951_872 : 2_499_805_184)
+          ? 5_999_951_872 : 2_499_805_184,
+        pin: selected.pin)
     }
   }
 

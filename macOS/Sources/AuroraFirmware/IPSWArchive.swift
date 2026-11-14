@@ -155,6 +155,8 @@ public struct IPSWArchive: Sendable {
 
   public let members: [IPSWArchiveMember]
   private let source: any FirmwareRangeReading
+  /// The whole archive's size, as its source reports it.
+  public var sizeBytes: Int { source.sizeBytes }
   private let directoryOffset: Int
   private let records: [Int: IPSWArchiveMember]
   private let recordEnds: [Int: Int]
