@@ -6,56 +6,34 @@
   /// offered as erasable is one the helper accepts, and the helper decides.
   ///
   /// Erase deletes a row's partitions and leaves their extent unallocated.
-  /// It never touches what macOS or a kept startup option needs to start up:
-  /// Apple's system container and Recovery partition, the running macOS, any
-  /// container with a full system in it, or an EFI partition the bootloader
-  /// of a startup container that stays still names.
+  /// It preserves Apple's system container and Recovery partition, the
+  /// running macOS, and EFI partitions needed by startup containers that stay.
   enum NativePartitionErase {
-    /// A volume role only a full macOS has. A startup container may keep a
-    /// VM volume, so that role says nothing.
-    static let macOSRoles: Set<String> = ["Update"]
-
     static func refusal(members: [RemovalPartition], disk: NativeCollectedDisk) -> String? {
       let snapshot = disk.snapshot
       guard !members.isEmpty else { return "There’s nothing to erase here." }
-      // Apple's partitions by position as well as type: the first, the last,
-      // and anything before the running macOS.
+      // The running store must be identifiable even when the selected row
+      // contains another full macOS installation.
       let parts = snapshot.partitions.sorted { $0.offset < $1.offset }
-      let macOS = parts.first { $0.uuid == snapshot.macOSStoreUUID }
+      guard parts.contains(where: { $0.uuid == snapshot.macOSStoreUUID }) else {
+        return "The macOS you’re running couldn’t be identified, so nothing can be erased."
+      }
       for part in members {
+        if part.uuid == snapshot.macOSStoreUUID {
+          return "The macOS you’re running is never erased."
+        }
+        // Position still protects Apple's first and last partitions when a
+        // damaged partition table reports an unexpected type.
         if ["Apple_APFS_ISC", "Apple_APFS_Recovery"].contains(part.type)
           || part.uuid == parts.first?.uuid || part.uuid == parts.last?.uuid
         {
           return "Apple’s system partitions are never erased."
         }
-        if macOS.map({ part.offset < $0.offset }) ?? true {
-          return
-            "\(part.identifier) sits before the macOS you’re running, where Apple keeps its system partitions, so it isn’t erased here."
-        }
-        guard part.type == "Apple_APFS" else { continue }
-        guard part.uuid != snapshot.macOSStoreUUID else {
-          return "The macOS you’re running is never erased."
-        }
-        guard let container = snapshot.containers.first(where: { $0.storeUUID == part.uuid })
-        else {
-          return
-            "\(part.identifier) couldn’t be listed as an APFS container, so it can’t be told apart from a macOS installation."
-        }
-        guard container.volumes.contains(where: { $0.roles == ["System"] }) else { continue }
-        // Only a startup container's system may go: no Library and no
-        // volume only macOS has.
-        guard let facts = disk.containers.first(where: { $0.storeUUID == part.uuid }),
-          !facts.systems.isEmpty
-        else {
-          return
-            "\(part.identifier) has a system volume that couldn’t be checked, so it can’t be told apart from a macOS installation."
-        }
-        if let system = facts.systems.first(where: { !$0.stub })
-          ?? (container.volumes.contains { !macOSRoles.isDisjoint(with: $0.roles) }
-            ? facts.systems.first : nil)
+        if part.type == "Apple_APFS",
+          !snapshot.containers.contains(where: { $0.storeUUID == part.uuid })
         {
           return
-            "“\(system.label)” is a macOS installation or another full system, and Erase never deletes one."
+            "\(part.identifier) couldn’t be listed as an APFS container, so its contents can’t be reviewed for erasure."
         }
       }
       // An EFI partition stays while a kept container may start from it.

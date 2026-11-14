@@ -42,9 +42,11 @@
       public internal(set) var memberUUIDs: [String] = []
       /// Why Erase may not delete this region's partitions; nil when it may.
       public internal(set) var eraseRefusal: String?
-      /// Erase is offered for Linux and other partitions, never for macOS or
-      /// Apple's own, and only when the shared erase rule admits them.
-      public var isErasable: Bool { [.linux, .other].contains(kind) && eraseRefusal == nil }
+      /// Erase is offered for non-running installations and data partitions
+      /// only when the shared erase rule admits them.
+      public var isErasable: Bool {
+        [.macOS, .linux, .other].contains(kind) && !isRunningMacOS && eraseRefusal == nil
+      }
 
       public init(
         kind: Kind, identifier: String? = nil, uuid: String? = nil, offsetBytes: UInt64,
@@ -191,7 +193,6 @@
         }.sorted { $0.offset < $1.offset }
         regions[index].memberUUIDs = members.map(\.uuid)
         switch region.kind {
-        case .macOS: regions[index].eraseRefusal = "macOS is never erased here."
         case .appleSystem:
           regions[index].eraseRefusal = "Apple’s system partitions are never erased."
         default:

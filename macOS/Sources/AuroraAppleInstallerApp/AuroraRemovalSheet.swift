@@ -184,7 +184,7 @@ struct AuroraRemovalSheet: View {
         Text(
           ticket.kind == .freeSpace
             ? "Your macOS files stay as they are."
-            : "Everything in the erased partitions is permanently lost. Your macOS files stay as they are."
+            : "Everything in the erased partitions is permanently lost. Files in the macOS you’re running stay as they are."
         )
         .font(InstallerTheme.body).fixedSize(horizontal: false, vertical: true)
         if let actionError {

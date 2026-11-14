@@ -1,4 +1,12 @@
-# Erasing an existing Linux installation
+# Erasing partitions and existing installations
+
+## Erase a partition to free space
+
+On the Partitions screen, **Erase…** is available for Aurora installations, other Linux installations, Windows/data partitions, APFS data containers and secondary macOS installations. The running macOS container, Apple’s system container and Apple Recovery remain protected, regardless of the running macOS container’s position on disk. An EFI partition needed by a kept startup container remains protected too.
+
+The review lists the exact partitions and all APFS volumes that will be deleted. After explicit confirmation and administrator approval, the helper scans again, refuses changed identities or a busy volume, switches startup to the running macOS when needed, and deletes only the reviewed row. The space stays unallocated; no macOS container is resized. Erasing a secondary macOS destroys every volume and all data in that container.
+
+## Erase Linux and return space to macOS
 
 Use **Erase Linux…** on the already-installed screen, or **Installation → Erase Linux…**, while no installation or download is running. One compact review lists every erased and retained partition, startup-disk changes, returned capacity and notes. Continue opens a separate approval page with the confirmation phrase and administrator account; Back returns to the review and clears the entered approval. The exact phrase is `erase linux and its data`, followed by a macOS administrator account and password. There is no Return-key shortcut for the destructive button.
 

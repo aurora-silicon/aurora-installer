@@ -207,7 +207,7 @@ class UpdateTest(Case):
         st = awf.read_state(self.state)
         self.assertEqual(st["build"], "25C56")
         self.assertEqual(st["pending"]["expect"], {name: new[name]})
-        self.assertEqual(st["pending"]["probes"], ["brcmfmac"])
+        self.assertEqual(st["pending"]["probes"], ["brcmfmac", "link:brcmfmac"])
         # Running again changes nothing.
         self.assertEqual(self.update(esp, self.macos(new_tree)), "identical")
 

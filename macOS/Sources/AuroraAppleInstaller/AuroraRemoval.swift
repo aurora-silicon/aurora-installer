@@ -379,7 +379,7 @@
       guard
         let region = layout.regions.first(where: {
           $0.uuid?.caseInsensitiveCompare(anchor) == .orderedSame
-        }), region.kind == .linux || region.kind == .other
+        }), [.macOS, .linux, .other].contains(region.kind), !region.isRunningMacOS
       else { throw RemovalFailure(message: RemovalText.eraseTargetGone) }
       if let refusal = region.eraseRefusal {
         throw RemovalFailure(message: refusal + " Nothing was changed.")

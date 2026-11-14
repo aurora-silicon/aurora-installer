@@ -114,9 +114,7 @@
       }
     }
 
-    func testEraseNeverOffersMacOSApplesPartitionsAFullSystemOrABootChainsEFIPartition()
-      throws
-    {
+    func testEraseProtectsTheRunningMacOSApplesPartitionsAndKeptBootChains() throws {
       var fixture = try Fixture.base()
       // A container with a full system (a Library) but no readable version.
       let full = fixture.addContainer(
@@ -156,17 +154,14 @@
       for anchor in protected {
         XCTAssertEqual(refusal(anchor), RemovalText.eraseTargetGone, anchor)
       }
-      XCTAssertEqual(
-        refusal(full),
-        "“Old macOS” is a macOS installation or another full system, and Erase never deletes one. Nothing was changed."
-      )
+      XCTAssertNil(refusal(full))
       XCTAssertEqual(
         refusal(esp),
         "“Asahi” starts Linux from the EFI partition disk0s6. Erase “Asahi” together with it. Nothing was changed."
       )
       // The screen offers none of them, for the same reasons.
       let layout = try NativeDiskLayout(collect())
-      for region in layout.regions where region.uuid.map([full, esp].contains) == true {
+      for region in layout.regions where region.uuid == esp {
         XCTAssertFalse(region.isErasable)
         XCTAssertNotNil(region.eraseRefusal)
       }
@@ -176,6 +171,67 @@
       // needed by anything that stays.
       XCTAssertNil(refusal(Fixture.uuid(801)))
       XCTAssertTrue(disk.operations.isEmpty)
+    }
+
+    func testErasingASecondaryMacOSDeletesOnlyItsContainerAndPreservesTheRunningMacOS()
+      throws
+    {
+      let fixture = try Fixture.base()
+      let secondary = fixture.addContainer(
+        uuid: Fixture.uuid(701), size: 60 << 30, after: 1 << 30,
+        volumes: Fixture.systemVolumes("Second macOS", number: 71),
+        systems: [
+          NativeSystemVolumeFacts(
+            group: Fixture.uuid(719), label: "Second macOS", stub: false, version: "27.2")
+        ])
+      let before = fixture.disk.state
+      let layout = try NativeDiskLayout(fixture.collect())
+      let row = try XCTUnwrap(layout.regions.first { $0.uuid == secondary })
+      XCTAssertEqual(row.kind, .macOS)
+      XCTAssertTrue(row.isErasable)
+      let plan = try AuroraRemovalPlan(
+        erasing: secondary, disks: fixture.disk, collect: fixture.collect)
+      XCTAssertEqual(plan.members.map(\.uuid), [secondary])
+      XCTAssertEqual(plan.ticket(id: UUID()).deletions.count, 1)
+      try AuroraRemovalExecutor(disks: fixture.disk, collect: fixture.collect).execute(plan) {
+        _ in
+      }
+      XCTAssertEqual(fixture.disk.operations, ["container:\(secondary)"])
+      XCTAssertEqual(
+        fixture.disk.state.partitions,
+        before.partitions.filter { $0.uuid != secondary })
+      XCTAssertEqual(
+        fixture.disk.state.containers,
+        before.containers.filter { $0.storeUUID != secondary })
+    }
+
+    func testTheRunningStoreIsProtectedEvenWhenItIsNotTheFirstMacOS() throws {
+      let fixture = try Fixture.base()
+      let secondary = fixture.addContainer(
+        uuid: Fixture.uuid(701), size: 60 << 30, after: 1 << 30,
+        volumes: Fixture.systemVolumes("Second macOS", number: 71),
+        systems: [
+          NativeSystemVolumeFacts(
+            group: Fixture.uuid(719), label: "Second macOS", stub: false, version: "27.2")
+        ])
+      let before = fixture.disk.state
+      let container = try XCTUnwrap(before.containers.first { $0.storeUUID == secondary })
+      let snapshot = RemovalSnapshot(
+        disk: before.disk, devicePath: before.devicePath, diskSize: before.diskSize,
+        macOSStoreUUID: secondary, macOSContainerUUID: container.uuid,
+        partitions: before.partitions, containers: before.containers)
+      let disk = NativeCollectedDisk(snapshot: snapshot, containers: fixture.facts.value)
+      let running = try XCTUnwrap(snapshot.partitions.first { $0.uuid == secondary })
+      let previous = try XCTUnwrap(
+        snapshot.partitions.first { $0.uuid == before.macOSStoreUUID })
+      XCTAssertEqual(
+        NativePartitionErase.refusal(members: [running], disk: disk),
+        "The macOS you’re running is never erased.")
+      XCTAssertNil(NativePartitionErase.refusal(members: [previous], disk: disk))
+      let layout = try NativeDiskLayout(disk)
+      XCTAssertFalse(try XCTUnwrap(layout.regions.first { $0.uuid == secondary }).isErasable)
+      XCTAssertTrue(
+        try XCTUnwrap(layout.regions.first { $0.uuid == before.macOSStoreUUID }).isErasable)
     }
 
     // MARK: Execution
@@ -395,12 +451,12 @@
         XCTAssertEqual(
           NativePartitionErase.refusal(members: [part], disk: disk),
           part.uuid == Fixture.uuid(950)
-            ? "disk0s9 sits before the macOS you’re running, where Apple keeps its system partitions, so it isn’t erased here."
+            ? nil
             : "Apple’s system partitions are never erased.", part.identifier)
       }
     }
 
-    func testAnAPFSContainerThatIsntListedOrLooksLikeMacOSIsKept() throws {
+    func testAnUnlistedAPFSContainerIsKeptButASecondarySystemMayBeErased() throws {
       var fixture = try Fixture.base()
       let unlisted = fixture.add(
         "Apple_APFS", uuid: Fixture.uuid(901), size: 20 << 30, after: 1 << 30)
@@ -417,12 +473,11 @@
       XCTAssertEqual(
         NativePartitionErase.refusal(
           members: disk.snapshot.partitions.filter { $0.uuid == unlisted }, disk: disk),
-        "disk0s4 couldn’t be listed as an APFS container, so it can’t be told apart from a macOS installation."
+        "disk0s4 couldn’t be listed as an APFS container, so its contents can’t be reviewed for erasure."
       )
-      XCTAssertEqual(
+      XCTAssertNil(
         NativePartitionErase.refusal(
-          members: disk.snapshot.partitions.filter { $0.uuid == swap }, disk: disk),
-        "“Looks Stubbed” is a macOS installation or another full system, and Erase never deletes one."
+          members: disk.snapshot.partitions.filter { $0.uuid == swap }, disk: disk)
       )
     }
 
@@ -506,7 +561,7 @@
       XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: journals.path), [])
     }
 
-    func testAStartupContainerWithAVMVolumeIsStillErasableButAFullMacOSIsNot() throws {
+    func testAStartupContainerAndASecondaryMacOSWithVMVolumesAreBothErasable() throws {
       var fixture = try Fixture.base()
       var volumes = Fixture.systemVolumes("Aurora", number: 93)
       volumes.append(RemovalVolume(uuid: Fixture.uuid(938), name: "VM", roles: ["VM"]))
@@ -531,10 +586,7 @@
           members: disk.snapshot.partitions.filter { $0.uuid == uuid }, disk: disk)
       }
       XCTAssertNil(refusal(stub))
-      XCTAssertEqual(
-        refusal(macOS),
-        "“Second macOS” is a macOS installation or another full system, and Erase never deletes one."
-      )
+      XCTAssertNil(refusal(macOS))
     }
 
     func testAnUnparseableEFINameMakesTheBootloaderUnknown() {
@@ -562,7 +614,7 @@
       )
     }
 
-    func testAPartitionBeforeARunningSecondMacOSIsKeptWithItsOwnReason() throws {
+    func testAPartitionBeforeTheRunningMacOSMayBeErased() throws {
       let base = try Fixture.base()
       var snapshot = base.disk.state
       // The running macOS sits after a Linux partition.
@@ -572,10 +624,7 @@
         offset: isc.end + 4096, size: 1 << 20, name: "")
       snapshot.partitions.append(linux)
       let disk = NativeCollectedDisk(snapshot: snapshot, containers: base.facts.value)
-      XCTAssertEqual(
-        NativePartitionErase.refusal(members: [linux], disk: disk),
-        "disk0s9 sits before the macOS you’re running, where Apple keeps its system partitions, so it isn’t erased here."
-      )
+      XCTAssertNil(NativePartitionErase.refusal(members: [linux], disk: disk))
     }
 
     func testABusyVolumeLeavesEverythingMountedAgainOrSaysWhatIsnt() throws {

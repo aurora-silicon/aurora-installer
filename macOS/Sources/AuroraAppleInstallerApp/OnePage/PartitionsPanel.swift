@@ -129,6 +129,7 @@ struct PartitionRowView: View {
   @ViewBuilder private var actions: some View {
     switch row.kind {
     case .macOS:
+      if row.erase != nil { eraseButton }
       if let target = row.shrink {
         Button("Shrink…") { onShrink(target) }
           .partitionRowButton()

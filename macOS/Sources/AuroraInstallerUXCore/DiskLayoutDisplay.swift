@@ -93,7 +93,7 @@
       public let startupContainerUUID: String?
       /// Only the startup container an unfinished installation left.
       public let partial: Bool
-      /// Every row but macOS: whether Erase may delete it.
+      /// Every row but the running macOS: whether Erase may delete it.
       public let erase: Availability?
       /// Set when Erase is available: exactly what it deletes.
       public let eraseTarget: EraseTarget?
@@ -295,7 +295,9 @@
           rows.append(
             Row(
               id: id, kind: .macOS, name: region.name, bytes: region.lengthBytes,
-              icon: icon(region), shrink: shrink))
+              icon: icon(region),
+              erase: region.isRunningMacOS ? nil : eraseAvailability(region),
+              eraseTarget: eraseTarget(region, index: index), shrink: shrink))
         case .linux:
           segments.append(
             Segment(
@@ -403,7 +405,7 @@
     }
 
     public static func leaves(_ freedBytes: UInt64) -> String {
-      "Leaves \(PlainLanguage.bytes(freedBytes)) of free space you can install into. macOS isn’t resized, and its files stay as they are."
+      "Leaves \(PlainLanguage.bytes(freedBytes)) of free space you can install into. The macOS you’re running isn’t resized, and its files stay as they are."
     }
   }
 #endif

@@ -33,7 +33,7 @@
           recognized: recognized, partial: partial, isRunningMacOS: kind == .macOS && number == 3,
           memberUUIDs: uuids ?? [],
           eraseRefusal: refusal
-            ?? (kind == .macOS ? "macOS is never erased here." : nil)))
+            ?? (kind == .macOS && number == 3 ? "The macOS you’re running is never erased." : nil)))
       offset += bytes
       return identifier ?? "free@\(offset - bytes)"
     }
@@ -111,6 +111,26 @@
         [.appleSystem, .macOS, .aurora, .free, .aurora, .otherLinux, .appleSystem])
       XCTAssertEqual(layout.segments[1].usedBytes, 150 * gb)
       XCTAssertTrue(layout.isComplex)
+    }
+
+    func testASecondaryMacOSOffersEraseWhileTheRunningMacOSDoesNot() throws {
+      var disk = LayoutFixture()
+      let running = disk.add(.macOS, "Macintosh HD", 260 * gb, free: 110 * gb)
+      disk.add(.free, "Free", 20 * gb)
+      let secondary = disk.add(.macOS, "Second macOS", 80 * gb, free: 40 * gb)
+      let layout = disk.display()
+      let kept = try XCTUnwrap(layout.row(running))
+      XCTAssertNil(kept.erase)
+      XCTAssertNil(kept.eraseTarget)
+      XCTAssertNil(layout.afterErasing(running))
+      let erased = try XCTUnwrap(layout.row(secondary))
+      XCTAssertEqual(erased.kind, .macOS)
+      XCTAssertEqual(erased.erase, .available)
+      XCTAssertEqual(erased.eraseTarget?.memberUUIDs, ["uuid-\(secondary)"])
+      let after = try XCTUnwrap(layout.afterErasing(secondary))
+      XCTAssertEqual(after.map(\.kind), [.appleSystem, .macOS, .free, .appleSystem])
+      XCTAssertEqual(after[1].bytes, 260 * gb)
+      XCTAssertEqual(after[2].bytes, 100 * gb)
     }
 
     func testShrinkIsOfferedFromFiftyGigabytesFreeAndAlwaysKeepsThirtyEight() {
@@ -230,7 +250,7 @@
       XCTAssertEqual(target.freedBytes, 208 * gb)
       XCTAssertEqual(
         EraseSheetText.leaves(target.freedBytes),
-        "Leaves 208 GB of free space you can install into. macOS isn’t resized, and its files stay as they are."
+        "Leaves 208 GB of free space you can install into. The macOS you’re running isn’t resized, and its files stay as they are."
       )
       // macOS has no after view: Erase never applies to it.
       XCTAssertNil(layout.afterErasing("disk0s2"))
