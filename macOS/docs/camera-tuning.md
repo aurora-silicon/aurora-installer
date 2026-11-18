@@ -8,6 +8,8 @@ The extractors recognize the model-wide setfiles required by the shared Linux IS
 | --- | --- | ---: | ---: |
 | IMX558 / H17 (J700) | `apple/isp_1925_03XX.dat` | `0xcba6` | `0xcbc0` |
 | IMX958 (J616s) | `apple/isp_2224_01XX.dat` | `0x6ff4` | `0x6ff4` |
+| IMX958 (J815 modules) | `apple/isp_2226_01XX.dat` | `0x7040` | `0x7040` |
+| IMX958 (J815 modules) | `apple/isp_2226_02XX.dat` | `0x7000` | `0x7000` |
 
 The archive entries are rounded to 64 bytes with zeroes; padding is never copied from the next object in the daemon. Truncated inputs are rejected by the native converter and omitted with a warning by the legacy extractor. Existing legacy setfiles remain available. The native J700 required-file set stays J700-specific; registering J616s tuning does not admit a new board or change source authentication.
 

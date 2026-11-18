@@ -27,6 +27,8 @@ public enum NeoFirmwareConversions {
     CameraEntry(magic: 0x1922_0201, name: "1922_02XX", size: 0xad40),
     CameraEntry(magic: 0x1925_0306, name: "1925_03XX", size: 0xcbc0, fileSize: 0xcba6),
     CameraEntry(magic: 0x2224_0106, name: "2224_01XX", size: 0x6ff4),
+    CameraEntry(magic: 0x2226_0101, name: "2226_01XX", size: 0x7040),
+    CameraEntry(magic: 0x2226_0201, name: "2226_02XX", size: 0x7000),
   ]
   public static let requiredCameraNames: Set<String> = [
     "apple/isp_1921_01XX.dat", "apple/isp_1922_02XX.dat", "apple/isp_1925_03XX.dat",

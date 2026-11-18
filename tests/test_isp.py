@@ -21,7 +21,7 @@ def tuning(magic):
 class CameraExtractionTests(unittest.TestCase):
     def test_h17_extraction_fallback_and_package_round_trip(self):
         # Only synthetic inputs; no device calibration or vendor bytes.
-        for magic in (0x19250306, 0x22240106):
+        for magic in (0x19250306, 0x22240106, 0x22260101, 0x22260201):
             with self.subTest(magic=hex(magic)), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 daemon = root / 'usr/libexec/appleh16camerad'
@@ -48,7 +48,7 @@ class CameraExtractionTests(unittest.TestCase):
                 self.assertEqual(dict(ISPFWCollection(root).files())[name].data, result)
 
     def test_truncated_setfile_is_not_packaged(self):
-        for magic in (0x19250306, 0x22240106):
+        for magic in (0x19250306, 0x22240106, 0x22260101, 0x22260201):
             with self.subTest(magic=hex(magic)), tempfile.TemporaryDirectory() as tmp:
                 source = Path(tmp) / 'appleh16camerad'
                 source.write_bytes(tuning(magic)[:-1])
