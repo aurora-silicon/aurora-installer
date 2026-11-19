@@ -11,6 +11,7 @@ import json
 import os
 import pathlib
 import tarfile
+import time
 import unittest
 
 from test_wifi_firmware_refresh import BOARD, Case, FakeVol, make_esp, wifi_tree, awf
@@ -261,6 +262,23 @@ class MT7932VerifyTest(Case):
         self.assertEqual(self.verify(esp, st, text), "ok")
 
 
+class FakeEvents:
+    waits = []
+
+    def __init__(self):
+        type(self).waits = []
+
+    def wait(self, timeout):
+        self.waits.append(timeout)
+        return False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        pass
+
+
 class ReloadTest(Case):
     """Restarting the MT7932 functions with the previous files after a rollback."""
     def setUp(self):
@@ -298,10 +316,11 @@ class ReloadTest(Case):
         self.writes.append(pathlib.Path(path).resolve())
         return fail if fail and fail in str(path) else None
 
-    def reload(self, probe=lambda n, t: True, write=None):
+    def reload(self, probe=lambda n, t: True, write=None, wait=0, events=None):
         return awf.reload_mt7932(self.backup, ["net:mt7932-fullmac", "hci:mt7932_bt_pcie"],
                                  out=self.out.append, sys_root=self.sys, roots=(self.run_dir,),
-                                 write=write or self.write, probe=probe, wait=0)
+                                 write=write or self.write, probe=probe, wait=wait,
+                                 events=events or FakeEvents)
 
     def test_restores_unpacked_copies_and_restarts_bluetooth_first(self):
         self.assertEqual(self.reload(), "reloaded")
@@ -335,10 +354,85 @@ class ReloadTest(Case):
         self.assertEqual(self.reload(), "failed")
         self.assertEqual(self.writes, [])
 
-    def test_sysfs_write_timeout(self):
-        def run(*a, **kw):
-            raise awf.subprocess.TimeoutExpired(a[0], 1)
-        self.assertIn("did not return", awf.sysfs_write("/sys/x/remove", run=run, timeout=1))
+    def test_an_event_ends_the_wait_at_once(self):
+        state = {"up": False}
+
+        class Event(FakeEvents):
+            def wait(self, timeout):
+                super().wait(timeout)
+                state["up"] = True      # the HCI device came up
+                return True
+        t = time.monotonic()
+        r = self.reload(probe=lambda n, t: state["up"], wait=90, events=Event)
+        self.assertEqual(r, "reloaded")
+        self.assertLess(time.monotonic() - t, 5)
+        self.assertEqual(len(Event.waits), 1)
+        self.assertLessEqual(Event.waits[0], 90)
+        self.assertIn("up again", self.out[-1])
+
+    def test_no_event_ends_at_the_timeout(self):
+        t = time.monotonic()
+        r = self.reload(probe=lambda n, t: not n.startswith("net:"), wait=0.5,
+                        events=awf.RadioEvents)
+        took = time.monotonic() - t
+        self.assertEqual(r, "partly")
+        self.assertGreaterEqual(took, 0.5)
+        self.assertLess(took, 5)
+        self.assertIn("net:mt7932-fullmac not up within 0.5 s", self.out[-1])
+
+    def test_events_wait_is_bounded(self):
+        with awf.RadioEvents() as ev:
+            t = time.monotonic()
+            while time.monotonic() - t < 0.3:   # other uevents may wake it early
+                ev.wait(0.3 - (time.monotonic() - t))
+            self.assertLess(time.monotonic() - t, 3)
+        self.assertEqual(ev.socks, [])
+
+    def test_sysfs_write_timeout_kills_the_child(self):
+        fifo = self.root / "remove"
+        os.mkfifo(fifo)                 # nobody reads: the write blocks
+        t = time.monotonic()
+        err = awf.sysfs_write(fifo, timeout=0.5)
+        self.assertLess(time.monotonic() - t, 5)
+        self.assertEqual(err, f"{fifo} did not return within 0.5 s")
+
+    def test_sysfs_write_errors_and_success(self):
+        self.assertIsNone(awf.sysfs_write(self.root / "ok"))
+        self.assertIn(str(self.root / "no/such"), awf.sysfs_write(self.root / "no/such"))
+
+    def test_a_removal_stuck_in_the_kernel_fails_within_the_bound(self):
+        stuck = []
+
+        class Stuck:
+            """A child in uninterruptible sleep: SIGKILL never lands."""
+            returncode = None
+
+            def __init__(self, argv, **kw):
+                self.kw = kw
+                self.killed = False
+                stuck.append(self)
+
+            def communicate(self, timeout=None):
+                time.sleep(timeout)
+                raise awf.subprocess.TimeoutExpired("sh", timeout)
+
+            def kill(self):
+                self.killed = True
+
+        def write(path):
+            return awf.sysfs_write(path, timeout=0.3, reap=0.1, spawn=Stuck)
+        t = time.monotonic()
+        r = self.reload(write=write)
+        self.assertLess(time.monotonic() - t, 3)
+        self.assertEqual(r, "failed")
+        self.assertEqual(len(stuck), 1)
+        self.assertTrue(stuck[0].killed)
+        self.assertTrue(stuck[0].kw["start_new_session"])
+        self.assertIn(stuck[0], awf.ABANDONED)
+        awf.ABANDONED.remove(stuck[0])
+        self.assertIn("0000:01:00.1/remove did not return within 0.3 s and is stuck",
+                      self.out[-1])
+        self.assertIn("next boot", self.out[-1])
 
 
 class BroadcomBluetoothTest(Case):

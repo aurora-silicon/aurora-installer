@@ -39,7 +39,7 @@ Exit codes: 0 done or nothing to do, 1 refused (nothing changed), 2 not now,
 3 internal error.
 """
 import argparse, contextlib, ctypes, errno, fcntl, hashlib, io, json, logging, os, pathlib, \
-    plistlib, re, shutil, socket, struct, subprocess, sys, tarfile, tempfile, time
+    plistlib, re, select, shutil, socket, struct, subprocess, sys, tarfile, tempfile, time
 
 HERE = pathlib.Path(__file__).resolve().parent
 for cand in (HERE, HERE.parents[1]):
@@ -1160,15 +1160,100 @@ def restore_unpacked(vendorfw, owns, roots=UNPACKED_ROOTS):
     return changed
 
 
-def sysfs_write(path, run=subprocess.run, timeout=60):
+# Children of writes that did not return, killed but not reaped: kept so that
+# nothing waits on them or warns about them while this tool runs.
+ABANDONED = []
+
+
+def sysfs_write(path, timeout=60, reap=2, spawn=subprocess.Popen):
     """Write 1 to a sysfs attribute in a child, so that a removal the kernel
-    holds up cannot hang this tool."""
+    holds up cannot hang this tool. None, or what went wrong."""
+    # A removal waiting on a stuck driver sleeps uninterruptibly in the
+    # kernel, and a SIGKILL only lands when the write returns. So the child
+    # gets `reap` seconds after the kill and is then abandoned, still in the
+    # kernel: subprocess.run(timeout=) would wait for it after the kill, and
+    # a thread would keep this process from exiting while it is stuck. The
+    # child has its own session; this tool reports the failure and goes on,
+    # and its oneshot unit finishes when the tool exits.
     try:
-        p = run(["/bin/sh", "-c", 'echo 1 > "$1"', "sh", str(path)], timeout=timeout,
-                capture_output=True, text=True)
+        p = spawn(["/bin/sh", "-c", 'echo 1 > "$1"', "sh", str(path)],
+                  stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                  stderr=subprocess.PIPE, text=True, start_new_session=True)
+    except OSError as e:
+        return f"{path}: {e}"
+    try:
+        _, err = p.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
+        with contextlib.suppress(OSError):
+            p.kill()
+        try:
+            p.communicate(timeout=reap)
+        except subprocess.TimeoutExpired:
+            ABANDONED.append(p)
+            return f"{path} did not return within {timeout} s and is stuck in the kernel"
         return f"{path} did not return within {timeout} s"
-    return None if p.returncode == 0 else f"{path}: {(p.stderr or '').strip() or p.returncode}"
+    return None if p.returncode == 0 else f"{path}: {(err or '').strip() or p.returncode}"
+
+
+NETLINK_KOBJECT_UEVENT = 15
+RTMGRP_LINK = 1
+SOL_HCI, HCI_FILTER, HCI_DEV_NONE = 0, 2, 0xFFFF
+# struct hci_ufilter: HCI event packets, event 0xfd (stack internal), whose
+# HCI_EV_SI_DEVICE reports an HCI device registered, up or down.
+HCI_SI_FILTER = struct.pack("<IIIH2x", 1 << 4, 0, 1 << ((0xFD & 63) - 32), 0)
+
+
+class RadioEvents:
+    """Wakes on what can bring a radio probe up: a kernel uevent (a PCI
+    function, network interface or HCI device added, a driver bound), an
+    rtnetlink link change (operstate) and an HCI device coming up. Open it
+    before the restart so that no event is missed. A source this Python or
+    user cannot open is left out; with none, wait() waits out its timeout."""
+
+    def __init__(self):
+        self.socks = []
+        for args, opt, addr in (
+                ((socket.AF_NETLINK, socket.SOCK_DGRAM, NETLINK_KOBJECT_UEVENT), None, (0, 1)),
+                ((socket.AF_NETLINK, socket.SOCK_RAW, socket.NETLINK_ROUTE), None,
+                 (0, RTMGRP_LINK)),
+                (("AF_BLUETOOTH", socket.SOCK_RAW, "BTPROTO_HCI"),
+                 (SOL_HCI, HCI_FILTER, HCI_SI_FILTER), (HCI_DEV_NONE,))):
+            s = None
+            try:
+                args = tuple(getattr(socket, a) if isinstance(a, str) else a for a in args)
+                s = socket.socket(*args)
+                if opt:
+                    s.setsockopt(*opt)
+                s.bind(addr)
+                self.socks.append(s)
+            except (AttributeError, OSError, TypeError):
+                if s is not None:
+                    s.close()
+
+    def wait(self, timeout):
+        """Until one of the sources has an event or timeout seconds passed;
+        whether there was an event."""
+        timeout = max(timeout, 0)
+        if not self.socks:
+            time.sleep(timeout)
+            return False
+        ready, _, _ = select.select(self.socks, [], [], timeout)
+        for s in ready:
+            with contextlib.suppress(OSError):
+                while s.recv(65536, socket.MSG_DONTWAIT):
+                    pass
+        return bool(ready)
+
+    def close(self):
+        for s in self.socks:
+            s.close()
+        self.socks = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
 
 
 def mt7932_functions(sys_root=None):
@@ -1187,7 +1272,7 @@ def mt7932_functions(sys_root=None):
 
 def reload_mt7932(vendorfw, probes, out=print, sys_root=None, roots=UNPACKED_ROOTS,
                   write=sysfs_write, probe=None, log_text=None, wait=RELOAD_WAIT,
-                  sleep=time.sleep):
+                  events=RadioEvents):
     """After the previous files went back on the ESP: put them over this
     boot's unpacked copies and restart the MT7932 functions (remove both,
     rescan their bridge), so the drivers load them again now. "reloaded",
@@ -1203,24 +1288,27 @@ def reload_mt7932(vendorfw, probes, out=print, sys_root=None, roots=UNPACKED_ROO
         out("No MT7932 PCI function found; the previous firmware loads at the next boot.")
         return "failed"
     bridge = fns[0][2].resolve().parent
-    for _, _, dev in fns:
-        err = write(dev / "remove")
+    with events() as ev:
+        for _, _, dev in fns:
+            err = write(dev / "remove")
+            if err:
+                out(f"Could not restart the MT7932 radios ({err}); "
+                    "the previous firmware loads at the next boot.")
+                return "failed"
+        err = write(bridge / "rescan")
         if err:
-            out(f"Could not restart the MT7932 radios ({err}); "
-                "the previous firmware loads at the next boot.")
+            out(f"The MT7932 radios were removed but not found again ({err}); "
+                "they come back at the next boot.")
             return "failed"
-    err = write(bridge / "rescan")
-    if err:
-        out(f"The MT7932 radios were removed but not found again ({err}); "
-            "they come back at the next boot.")
-        return "failed"
-    deadline = time.monotonic() + wait
-    while True:
-        text = log_text() if callable(log_text) else (log_text if log_text is not None else "")
-        up = {x: probe(x, text) for x in probes}
-        if all(up.values()) or time.monotonic() >= deadline:
-            break
-        sleep(3)
+        # Checked again on each event, until all are up or the time is out.
+        deadline = time.monotonic() + wait
+        while True:
+            text = log_text() if callable(log_text) else (log_text if log_text is not None else "")
+            up = {x: probe(x, text) for x in probes}
+            left = deadline - time.monotonic()
+            if all(up.values()) or left <= 0:
+                break
+            ev.wait(left)
     down = [x for x, ok in up.items() if not ok]
     out(f"Restarted the MT7932 radios with the previous firmware ({len(changed)} unpacked "
         f"file(s) restored)" + (f"; {', '.join(down)} not up within {wait} s." if down else

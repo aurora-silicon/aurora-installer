@@ -90,7 +90,10 @@ follows its macOS as macOS does.
    files over this boot's unpacked copies and restarts both PCI functions
    (Bluetooth removed first, then Wi-Fi, then their bridge rescanned, as the
    kernel does when the radio lost its firmware in a sleep), so a Neo whose
-   only network is Wi-Fi gets it back without a reboot.
+   only network is Wi-Fi gets it back without a reboot. It waits for the
+   radios on kernel events (uevents, link changes, the Bluetooth controller
+   coming up) for at most 90 s. A removal stuck in the kernel is given up
+   after 60 s and the previous files load at the next boot.
 
 Nothing from macOS leaves the Mac. Apple's firmware is never part of this
 repository or of a distribution package; it goes from the Mac's own macOS
