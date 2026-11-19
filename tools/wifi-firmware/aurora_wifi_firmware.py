@@ -75,6 +75,11 @@ BACKUP_PREFIX = "wifi-firmware-"
 KEEP_BACKUPS = 2
 MOUNTPOINT = "/run/aurora-wifi-firmware-esp"
 STAGE_BUDGET = 512 << 20
+# How long the boot after a change waits for each required radio probe.
+# The wait ends as soon as every required probe is up or a driver reports
+# a failure; the limit only decides when a radio that never reported
+# counts as down. Wi-Fi association (link:) can depend on NetworkManager
+# reaching a known network, which is the slowest of the probes.
 VERIFY_WAIT = 150
 # brcmfmac's own words for a firmware that did not come up.
 FAILED = ("Dongle setup failed", "brcmf_fw_crashed", "firmware: failed to load brcm/brcmfmac",

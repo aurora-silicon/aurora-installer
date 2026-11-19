@@ -13,6 +13,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -312,10 +313,10 @@ class VerifyRevertTest(Case):
 
     def test_same_boot_waits(self):
         esp, _, st = self.changed()
-        st["pending"]["boot_id"] = awf.boot_id()
-        if st["pending"]["boot_id"] is None:
-            self.skipTest("no boot_id here")
-        self.assertEqual(awf.verify(st, esp, log_text="", wait=0, state_dir=self.state), "waiting")
+        st["pending"]["boot_id"] = "boot-that-changed-it"
+        with mock.patch.object(awf, "boot_id", return_value="boot-that-changed-it"):
+            self.assertEqual(awf.verify(st, esp, log_text="", wait=0, state_dir=self.state),
+                             "waiting")
 
     def test_revert_by_hand(self):
         esp, old, _ = self.changed()
