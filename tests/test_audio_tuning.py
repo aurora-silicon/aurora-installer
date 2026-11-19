@@ -728,14 +728,45 @@ class LatticeTest(unittest.TestCase):
 
 
 class BuzzKillMatrixTest(unittest.TestCase):
-    """The BuzzKill quadrature matrix: carried when the component has one,
-    otherwise the bundle is still written without it."""
+    """The BuzzKill quadrature matrix: collected on request and carried when
+    the component has one, otherwise the bundle is still written without
+    it. Not collected by default until a speakerguardd release reads it."""
 
-    def collect_with(self, root, component):
+    def collect_with(self, root, component, buzzkill=True):
         path = root / "component"
         path.write_bytes(component)
         return AudioTuningFWCollection(tunings_root=str(root), run=fake_run(AID35),
-                                       audiodsp=str(path))
+                                       audiodsp=str(path), buzzkill=buzzkill)
+
+    def test_not_collected_by_default(self):
+        # No released speakerguardd reads the record, and every one refuses
+        # a manifest that has it (speakerguardd#138).
+        self.assertFalse(audio_tuning.COLLECT_BUZZKILL)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            tunings(root)
+            with self.assertNoLogs("asahi_firmware.audio_tuning", "WARNING"):
+                col = self.collect_with(root, self.component(), buzzkill=None)
+            self.assertTrue(col.bundle)
+            self.assertNotIn("buzzkill-quadrature.bin", col.bundle)
+            self.assertNotIn("buzzkill_quadrature", json.loads(col.bundle["manifest.json"]))
+
+    def test_without_buzzkill_is_the_bundle_collected_without_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            tunings(root)
+            carried = self.collect_with(root, self.component()).bundle
+            plain = self.collect_with(root, self.component(), buzzkill=False).bundle
+            self.assertIn("buzzkill-quadrature.bin", carried)
+            self.assertEqual(audio_tuning.without_buzzkill(carried), plain)
+            self.assertIs(audio_tuning.without_buzzkill(plain), plain)
+            # Still a complete bundle that reads back unchanged.
+            out = pathlib.Path(tmp) / "out"
+            col = AudioTuningFWCollection.__new__(AudioTuningFWCollection)
+            col.fwfiles, col.bundle = [], {}
+            col._publish(audio_tuning.without_buzzkill(carried))
+            self.assertTrue(col.write_fallback(str(out)))
+            self.assertEqual(AudioTuningFWCollection(str(out)).bundle, plain)
 
     def component(self, matrix_const=None):
         from test_buzzkill_matrix import const

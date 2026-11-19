@@ -67,6 +67,7 @@ def summary(bundle):
         "shared": len(meta.get("shared_files") or []),
         "loudness": meta.get("loudness_manager") is not None,
         "lattice": meta.get("lsm2_mask_lattice") is not None,
+        "buzzkill": meta.get(audio_tuning.BUZZKILL_KEY) is not None,
     }
 
 
@@ -78,7 +79,8 @@ def describe(bundle):
     return (f"{s['aid']}, {s['files']} tuning files{extra}, calibration "
             f"{'present' if s['calibration'] else 'absent'}, speaker ID {spid}, "
             f"macOS {s['macos_build']}, lsm2 masker lattice "
-            f"{'present' if s['lattice'] else 'absent (collect again on macOS)'}")
+            f"{'present' if s['lattice'] else 'absent (collect again on macOS)'}"
+            + (", BuzzKill matrix" if s["buzzkill"] else ""))
 
 
 def verified(path):
@@ -161,12 +163,13 @@ def write_collection(bundle, info, out):
 
 
 def collect(out=None, tunings_root=audio_tuning.TUNINGS_ROOT, run=subprocess.run, offline=None,
-            force_lsm2_fill=False):
+            force_lsm2_fill=False, buzzkill=None):
     """Collect this Mac's bundle and write the tarball. Returns its path.
     offline: an audio_tuning.OfflineMac (collect-linux) instead of the
-    running macOS."""
+    running macOS. buzzkill: also collect the BuzzKill quadrature matrix
+    (default audio_tuning.COLLECT_BUZZKILL)."""
     col = AudioTuningFWCollection(tunings_root=tunings_root, run=run, offline=offline,
-                                  force_lsm2_fill=force_lsm2_fill)
+                                  force_lsm2_fill=force_lsm2_fill, buzzkill=buzzkill)
     if not col.bundle:
         raise Refused("this Mac's speaker tuning was not collected (see the messages above)")
     if force_lsm2_fill and audio_tuning.lsm2_fill.NAME not in col.bundle \
@@ -219,7 +222,7 @@ def dt_speaker_id(path=DT_SPEAKER_ID):
     return int.from_bytes(raw, "big") if len(raw) == 4 else None
 
 
-def collect_linux(macos_root, adt_path=None, out=None):
+def collect_linux(macos_root, adt_path=None, out=None, buzzkill=None):
     """Collect this Mac's bundle on Linux: its ADT and its own macOS system
     volume, mounted read-only at macos_root. The same bundle as collect on
     that macOS, except the speaker ID when the boot chain does not export it."""
@@ -237,7 +240,7 @@ def collect_linux(macos_root, adt_path=None, out=None):
     if out is None:
         name = f"aurora-speaker-tuning-{(offline.target() or 'mac').lower()}-linux.tar.gz"
         out = pathlib.Path.home() / name
-    return collect(out, offline=offline)
+    return collect(out, offline=offline, buzzkill=buzzkill)
 
 
 # ---------------------------------------------------------------- bundle input
@@ -695,9 +698,12 @@ def read_compatible(path=DT_COMPATIBLE):
 
 
 def install(source, esp, dry_run=False, backup_root=BACKUP_ROOT, any_mac=False,
-            compatible=None, out=print, swap=exchange, rebuild=None, unit=None):
+            compatible=None, out=print, swap=exchange, rebuild=None, unit=None, buzzkill=None):
     """Returns "identical" (nothing to do), "dry-run" or "installed", or
-    raises Refused. The ESP is left as it was on any failure."""
+    raises Refused. The ESP is left as it was on any failure.
+    buzzkill: keep a BuzzKill quadrature matrix the bundle carries (default
+    audio_tuning.COLLECT_BUZZKILL); otherwise it is installed without it."""
+    keep_buzzkill = audio_tuning.COLLECT_BUZZKILL if buzzkill is None else bool(buzzkill)
     esp = pathlib.Path(esp)
     asahi, vendorfw = esp / "asahi", esp / "vendorfw"
     all_fw = asahi / "all_firmware.tar.gz"
@@ -724,6 +730,10 @@ def install(source, esp, dry_run=False, backup_root=BACKUP_ROOT, any_mac=False,
         kernel = kernelcache(asahi)
 
     with opened_bundle(source) as (bundle, info):
+        if not keep_buzzkill and summary(bundle)["buzzkill"]:
+            bundle = audio_tuning.without_buzzkill(bundle)
+            out("The bundle carries the BuzzKill quadrature matrix, which no speakerguardd release "
+                "reads yet (and every one refuses): it is installed without it.")
         out(f"Bundle: {describe(bundle)}")
         if info is not None:
             out(f"Collected on: {info.get('target')} ({info.get('model')})")
@@ -908,6 +918,9 @@ def main(argv=None):
     c = sub.add_parser("collect", help="on macOS: write this Mac's speaker tuning tarball")
     c.add_argument("--lsm2-fill-readback", action="store_true",
                    help="also collect private parameter readback for full lsm2 presets (dry-run verification)")
+    buzz_help = ("also collect the BuzzKill quadrature matrix (rigs; no speakerguardd release reads it "
+                 "yet, and every one refuses a bundle that has it)")
+    c.add_argument("--buzzkill-matrix", action="store_true", default=None, help=buzz_help)
     c.add_argument("-o", "--output",
                    help="tarball path (default ~/aurora-speaker-tuning-<mac>-AID<n>.tar.gz)")
     cl = sub.add_parser("collect-linux",
@@ -916,6 +929,7 @@ def main(argv=None):
                     help="the macOS system volume, mounted read-only (e.g. apfs-fuse -o ro)")
     cl.add_argument("--adt", help="ADT blob (default: the \"adt\" MTD partition aura exposes)")
     cl.add_argument("-o", "--output", required=True, help="tarball path")
+    cl.add_argument("--buzzkill-matrix", action="store_true", default=None, help=buzz_help)
     i = sub.add_parser("install", help="on Linux: add a bundle to the ESP firmware")
     i.add_argument("bundle", help="tarball from collect-macos.sh, or a directory holding audio-tuning/")
     i.add_argument("-n", "--dry-run", action="store_true", help="check and rebuild, change nothing")
@@ -923,6 +937,9 @@ def main(argv=None):
     i.add_argument("--backup-dir", default=BACKUP_ROOT, help=f"backup root (default {BACKUP_ROOT})")
     i.add_argument("--any-mac", action="store_true",
                    help="skip the check that the bundle came from this model and AID")
+    i.add_argument("--keep-buzzkill-matrix", action="store_true", default=None,
+                   help="keep a BuzzKill quadrature matrix the bundle carries (by default it is left out: "
+                        "no speakerguardd release reads it yet, and every one refuses a bundle that has it)")
     v = sub.add_parser("verify", help="on Linux, after the reboot: check the unpacked bundle")
     v.add_argument("--esp", help="system ESP mount point")
     args = ap.parse_args(argv)
@@ -931,9 +948,11 @@ def main(argv=None):
             if args.cmd == "collect":
                 if sys.platform != "darwin":
                     raise Refused("collect runs on the Mac's own macOS (on Linux: collect-linux)")
-                path, bundle, info = collect(args.output, force_lsm2_fill=args.lsm2_fill_readback)
+                path, bundle, info = collect(args.output, force_lsm2_fill=args.lsm2_fill_readback,
+                                             buzzkill=args.buzzkill_matrix)
             else:
-                path, bundle, info = collect_linux(args.macos_root, args.adt, args.output)
+                path, bundle, info = collect_linux(args.macos_root, args.adt, args.output,
+                                                   buzzkill=args.buzzkill_matrix)
             s = summary(bundle)
             print(f"AID: {s['aid']}")
             print(f"Files: {s['files']} tuning files ({len(bundle)} in the bundle)")
@@ -941,6 +960,9 @@ def main(argv=None):
             print(f"Speaker ID: {'unknown' if s['speaker_id'] is None else s['speaker_id']}")
             print(f"DSP database: {s['database_source']}")
             print("lsm2 masker lattice: read from AudioDSP (one per slice, identical)")
+            if s["buzzkill"]:
+                print("BuzzKill quadrature matrix: read from AudioDSP (only a speakerguardd that reads it "
+                      "accepts this bundle)")
             if s["shared"] or s["loudness"]:
                 print(f"Shared files: {s['shared']}, loudness manager: "
                       f"{'yes' if s['loudness'] else 'no'}")
@@ -964,7 +986,8 @@ def main(argv=None):
         with locked(), system_esp(args.esp) as esp:
             result = install(args.bundle, esp, dry_run=args.dry_run,
                              backup_root=args.backup_dir, any_mac=args.any_mac,
-                             compatible=read_compatible(), unit=read_unit())
+                             compatible=read_compatible(), unit=read_unit(),
+                             buzzkill=args.keep_buzzkill_matrix)
         if result == "installed":
             print("Next: reboot, then check the unpacked bundle with")
             print("  sudo tools/speaker-tuning/install-linux.sh --verify")

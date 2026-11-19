@@ -66,6 +66,16 @@ DATABASE = "DeviceDSPDatabase.plist"
 LATTICE = "lsm2-mask-lattice.bin"
 # The BuzzKill detector's quadrature matrix (buzzkill_matrix), as its 80 bytes.
 BUZZKILL = "buzzkill-quadrature.bin"
+BUZZKILL_KEY = "buzzkill_quadrature"
+# Whether a new bundle carries that matrix. speakerguardd v2 reads a schema-2
+# manifest strictly: a key it does not know refuses the whole bundle, and the
+# speakers stay at the kernel's floor. No speakerguardd release reads
+# `buzzkill_quadrature` yet (speakerguardd#138 adds the reader); every one up
+# to 1.0.0alpha.1-42 refuses a bundle that has it. So, until a release reads
+# it, the matrix is collected only on request (rigs, the parity gate), as the
+# native installer does. A bundle that already carries it is still verified
+# and read; `without_buzzkill` gives the same bundle without it.
+COLLECT_BUZZKILL = False
 # Where it is read: the AudioDSP component of the running macOS.
 AUDIODSP_PATH = "/" + lsm2_lattice.AUDIODSP
 
@@ -422,8 +432,25 @@ def manifest(aid, acoustic, files, spts, build, selection=None, speaker=None,
     # present when it was read; without it the voicing compiler refuses
     # Buzz boxes.
     if buzzkill is not None:
-        doc["buzzkill_quadrature"] = buzzkill_record(buzzkill)
+        doc[BUZZKILL_KEY] = buzzkill_record(buzzkill)
     return doc
+
+
+def encode_manifest(doc):
+    return json.dumps(doc, indent=2, sort_keys=True).encode("utf-8")
+
+
+def without_buzzkill(bundle):
+    """The bundle as the collector writes it without the BuzzKill matrix:
+    no matrix file and no `buzzkill_quadrature` record; every other file and
+    manifest entry unchanged. A bundle without the matrix is returned as is."""
+    doc = json.loads(bundle[MANIFEST])
+    if BUZZKILL not in bundle and BUZZKILL_KEY not in doc:
+        return bundle
+    doc.pop(BUZZKILL_KEY, None)
+    out = {rel: data for rel, data in bundle.items() if rel != BUZZKILL}
+    out[MANIFEST] = encode_manifest(doc)
+    return out
 
 
 def tree(acoustic, files, spts, build, selection=None, source_count=None, speaker=None,
@@ -488,10 +515,9 @@ def tree(acoustic, files, spts, build, selection=None, source_count=None, speake
         out[lsm2_fill.NAME] = fill
     if buzzkill is not None:
         out[BUZZKILL] = bytes(buzzkill)
-    out[MANIFEST] = json.dumps(manifest(aid, acoustic, files, spts, build, selection, speaker,
-                                        shared, loudness, source, bytes(lattice), board, unit, fill,
-                                        None if buzzkill is None else bytes(buzzkill)),
-                               indent=2, sort_keys=True).encode("utf-8")
+    out[MANIFEST] = encode_manifest(manifest(aid, acoustic, files, spts, build, selection, speaker,
+                                             shared, loudness, source, bytes(lattice), board, unit,
+                                             fill, None if buzzkill is None else bytes(buzzkill)))
     return out
 
 
@@ -588,11 +614,14 @@ class AudioTuningFWCollection(object):
     extracted fallback archive (path = the directory holding audio-tuning/)."""
 
     def __init__(self, path=None, tunings_root=TUNINGS_ROOT, run=subprocess.run, audiodsp=None,
-                 offline=None, force_lsm2_fill=False):
+                 offline=None, force_lsm2_fill=False, buzzkill=None):
         """offline: an OfflineMac, to collect from a mounted macOS system
-        volume and the Mac's ADT (Linux) instead of the running macOS."""
+        volume and the Mac's ADT (Linux) instead of the running macOS.
+        buzzkill: also collect the BuzzKill quadrature matrix (default
+        COLLECT_BUZZKILL); a re-collection (path) keeps what the bundle has."""
         self.fwfiles = []
         self.bundle = {}
+        self.collect_buzzkill = COLLECT_BUZZKILL if buzzkill is None else bool(buzzkill)
         try:
             if offline is not None:
                 self.load(offline.tunings_root, None, offline.audiodsp, offline)
@@ -684,13 +713,15 @@ class AudioTuningFWCollection(object):
             except Exception as e:
                 log.warning(f"lsm2 fill not collected: {e}; short presets remain muted; "
                             "collect again on this Mac's running macOS")
-        # The BuzzKill matrix the same way; without one the bundle still
-        # serves every Mac whose graph has no Buzz box.
-        try:
-            buzzkill = buzzkill_matrix.read(audiodsp)
-        except ValueError as e:
-            log.warning(f"Speaker tuning collected without the BuzzKill quadrature matrix: {e}")
-            buzzkill = None
+        # The BuzzKill matrix the same way, when asked (COLLECT_BUZZKILL);
+        # without one the bundle still serves every Mac whose graph has no
+        # Buzz box.
+        buzzkill = None
+        if getattr(self, "collect_buzzkill", COLLECT_BUZZKILL):
+            try:
+                buzzkill = buzzkill_matrix.read(audiodsp)
+            except ValueError as e:
+                log.warning(f"Speaker tuning collected without the BuzzKill quadrature matrix: {e}")
         self._publish(tree(acoustic, files, props[1], build, selection, count, speaker,
                            shared, loudness, source, lattice, board, unit, fill, buzzkill))
         log.info(f"  Collected speaker tuning AID{acoustic} ({len(files)} files"
@@ -797,7 +828,7 @@ class AudioTuningFWCollection(object):
                     or not unit or fill.get("unit_id") != unit):
                 raise ValueError("malformed lsm2 fill record")
             records = records + [fill]
-        buzzkill = meta.get("buzzkill_quadrature")
+        buzzkill = meta.get(BUZZKILL_KEY)
         if buzzkill is not None:
             if not isinstance(buzzkill, dict) or buzzkill.get("path") != BUZZKILL \
                     or buzzkill.get("version") != buzzkill_matrix.VERSION \
