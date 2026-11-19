@@ -25,6 +25,15 @@ public enum AuraStage1Format {
   public static func stage2Path(executeWindow: Bool) -> String {
     executeWindow ? confinedStage2Path : standardStage2Path
   }
+
+  /// Lab bring-up builds also accept a Stage 1 that chainloads aura's own ESP
+  /// path. The installer still writes the standard paths; a lab operator
+  /// retargets install-config.json and the staged payloads by hand.
+  public static let labStage2Path = "aura/stage2.bin"
+
+  public static func accepts(stage2Path path: String, executeWindow: Bool) -> Bool {
+    path == stage2Path(executeWindow: executeWindow) || path == labStage2Path
+  }
 }
 
 /// The configuration block in aura's Stage 1 (aura src/stage1_config.c): magic,

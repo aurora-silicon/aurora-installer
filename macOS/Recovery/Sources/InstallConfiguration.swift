@@ -39,7 +39,7 @@ struct InstallConfiguration: Decodable {
     let config = try JSONDecoder().decode(Self.self, from: data)
     // An unpadded Stage 1 loads the standard Stage 2, and a padded one the confined one.
     guard config.schema == 2, let mode = AuraBootMode(recorded: config.bootMode),
-      config.stage2Path == AuraStage1Format.stage2Path(executeWindow: mode == .macho),
+      AuraStage1Format.accepts(stage2Path: config.stage2Path, executeWindow: mode == .macho),
       !config.volumeName.isEmpty, config.volumeName.count <= 80,
       !config.volumeName.contains("/"),
       config.volumeName.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) })
