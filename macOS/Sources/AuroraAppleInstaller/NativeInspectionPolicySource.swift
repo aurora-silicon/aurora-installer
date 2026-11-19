@@ -470,6 +470,7 @@
             "minimumMacOS": "27.2",
             "minimumRecovery": "26.2.123.0.0,0",
             "models": [
+              "j473",
               "j615",
               "j713",
               "j714c",

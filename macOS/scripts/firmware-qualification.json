@@ -7,6 +7,13 @@
       "source_bytes": 25595669503,
       "manifest_sha256": "sha256:0fbfae04175cde81ef36d273aa280d39ffe5a54eacba8494b45a59daca462510",
       "boards": {
+        "j473": {
+          "kernel": "lab bring-up only: integration/aurora with arch/arm64/boot/dts/apple/t8112-j473.dts and aura#227 (macOS 27.2 DCP and ISP on M1-M3) in the payload's Stage 2",
+          "distributions": [
+            "lab branch lab/fw272-airs, not released"
+          ],
+          "evidence": "https://github.com/aurora-silicon/aura/pull/227"
+        },
         "j615": {
           "kernel": "lab bring-up only: integration/aurora with aurora-silicon/linux#2147 (GPU on 7.3) and aura#227 (macOS 27.2 DCP and ISP on M1-M3) in the payload's Stage 2",
           "distributions": [
