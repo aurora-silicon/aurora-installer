@@ -64,21 +64,28 @@ follows its macOS as macOS does.
    Wi-Fi firmware, regulatory data (`.clm_blob`) and NVRAM, and every
    Bluetooth firmware and PTB name the ESP has for the board. MT7932: every
    Wi-Fi file and a Bluetooth image of each kind, each with the layout its
-   driver checks. When the ESP already holds exactly this set, nothing
-   happens. A radio whose files this macOS does not ship keeps its files.
-4. **Rebuild.** `vendorfw/` is rebuilt with the new files and every other
+   driver checks. When the ESP already holds exactly this set, and
+   `asahi/all_firmware.tar.gz`'s raw trees convert to it too, nothing
+   happens. The raw trees are compared by what they convert to, not byte
+   for byte: the installer took them from the Recovery image, which lacks
+   files no converter reads. A radio whose files this macOS does not ship
+   keeps its files.
+4. **Space.** The ESP must hold the new `vendorfw/` (and `all_firmware`)
+   beside the current one until the swap. Too little free space is refused
+   before anything is built.
+5. **Rebuild.** `vendorfw/` is rebuilt with the new files and every other
    file kept, by path, hash and mode (checked before anything is written).
    On Broadcom Macs `asahi/all_firmware.tar.gz` gets the macOS trees under
    `firmware/wifi/` and `firmware/bluetooth/`, so a later rebuild
    (`asahi-fwupdate`) gives the same set.
-5. **Swap.** Both are backed up to `/var/lib/aurora-rollback/wifi-firmware-*`
+6. **Swap.** Both are backed up to `/var/lib/aurora-rollback/wifi-firmware-*`
    (the last two backups are kept), copied to the ESP and swapped in. On any
    failure the ESP keeps its old files.
-6. **Next boot.** The boot unpacks `vendorfw/` as always and the drivers load
+7. **Next boot.** The boot unpacks `vendorfw/` as always and the drivers load
    the new firmware. Nothing is reloaded in the running system: on a Mac
    whose only network is Wi-Fi, reloading the driver can leave it
    unreachable.
-7. **Verify.** The first boot after a change checks that the unpacked files
+8. **Verify.** The first boot after a change checks that the unpacked files
    are the ones put on the ESP, that no driver reported a firmware error and
    that the drivers came up: brcmfmac reported a running firmware, and each
    radio that was up when the change was made is up again (a network
@@ -94,6 +101,11 @@ volume to the same Mac's ESP.
 Requirements: python3, liblzfse (LZFSE-compressed files on the macOS volume;
 set `AURORA_LZFSE_LIB` where the library is not on the search path),
 util-linux (`lsblk`, `blkid`, `findmnt`, `mount`), systemd.
+
+At boot, a refusal is remembered with the macOS build and the ESP's radio
+set it was made for; later boots skip the work until the build or the
+ESP's set changes or, for a lack of space, the ESP has the space.
+`aurora-wifi-firmware update` always tries again.
 
 Exit codes: 0 done or nothing to do, 1 refused (nothing changed), 2 not now
 (no readable macOS volume, the ESP mounted read only), 3 internal error.
