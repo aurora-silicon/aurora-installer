@@ -405,7 +405,7 @@
     public static let channelMenuTitle = "Release channel"
     public static let channelStable = "Stable"
     public static let channelRC = "Release candidate"
-    public static let channelTesting = "Testing"
+    public static let channelNightly = "Nightly"
     public static let channelEdge = "Edge"
     public static let channelEdgeNotPublished = "No release available"
     public static let channelNoMacRelease = "No Mac release yet"
@@ -418,7 +418,7 @@
       switch channel {
       case .stable: channelStable
       case .rc: rcBadge
-      case .testing: channelTesting
+      case .testing: channelNightly
       case .edge: channelEdge
       }
     }
@@ -1153,7 +1153,7 @@
             headline: "Edge isn’t available yet",
             plainDetail: "An Edge release is not available. Installation has not started.",
             technicalDetail: technical,
-            remedy: "Choose Testing for development releases, or check Edge again later."
+            remedy: "Choose Nightly for development releases, or check Edge again later."
           )
         case .releaseResourcesUnavailable:
           return FailureDisplay(

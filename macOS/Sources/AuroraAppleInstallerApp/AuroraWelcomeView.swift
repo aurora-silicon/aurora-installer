@@ -5,6 +5,7 @@ import SwiftUI
 struct AuroraWelcomeView: View {
   @Binding var selection: AuroraInstallationSelection
   var device: MacHeaderDisplay = .unknown
+  var channel: ReleaseChannel? = nil
   var onContinue: () -> Void
   private let columns = Array(repeating: GridItem(.flexible(minimum: 0), spacing: 18), count: 3)
   private let distributionColumns = Array(
@@ -15,7 +16,7 @@ struct AuroraWelcomeView: View {
     VStack(spacing: 0) {
       // The same column as every other page: the logo's left edge to the
       // device identity's right edge.
-      InstallerMasthead(device: device).inPageColumn().padding(.top, 20)
+      InstallerMasthead(device: device, channel: channel).inPageColumn().padding(.top, 20)
       Text("Choose your distribution and desktop.")
         .font(.system(size: 20, weight: .medium))
         .inPageColumn().padding(.top, 28)

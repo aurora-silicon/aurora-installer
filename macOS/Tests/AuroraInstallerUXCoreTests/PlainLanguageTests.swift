@@ -123,13 +123,13 @@
     func testChannelBadgesNameEveryChannel() {
       XCTAssertEqual(PlainLanguage.badge(for: .stable), "Stable")
       XCTAssertEqual(PlainLanguage.badge(for: .rc), "Release candidate")
-      XCTAssertEqual(PlainLanguage.badge(for: .testing), "Testing")
+      XCTAssertEqual(PlainLanguage.badge(for: .testing), "Nightly")
       XCTAssertEqual(PlainLanguage.badge(for: .edge), "Edge")
     }
 
     func testChannelMenuItemsNameTheThreeStatesApart() {
-      XCTAssertEqual(PlainLanguage.channelMenuItem(.testing, availability: nil), "Testing")
-      XCTAssertEqual(PlainLanguage.channelMenuItem(.testing, availability: .available), "Testing")
+      XCTAssertEqual(PlainLanguage.channelMenuItem(.testing, availability: nil), "Nightly")
+      XCTAssertEqual(PlainLanguage.channelMenuItem(.testing, availability: .available), "Nightly")
       XCTAssertEqual(
         PlainLanguage.channelMenuItem(.stable, availability: .noRelease),
         "Stable — No Mac release yet")

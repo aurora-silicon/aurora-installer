@@ -36,7 +36,7 @@ jobs:
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
       XCODEBUILDMCP_SENTRY_DISABLED: 'true'
-      AURORA_DEVELOPER_BUILD: '1'
+      AURORA_DEVELOPER_BUILD: ${{ inputs.test-local-payloads && '1' || '0' }}
       AURORA_ENABLE_OMARCHY: '0'
       AURORA_LOCAL_PAYLOAD_TEST_BUILD: ${{ inputs.test-local-payloads && '1' || '0' }}
       AURORA_SIGNING_KEYCHAIN_TIMEOUT: '5400'
@@ -68,7 +68,9 @@ jobs:
           repository: aurora-silicon/aurora-distributions
           ref: ${{ inputs.profiles-revision }}
           path: delivery
-          sparse-checkout: site/installer/Profiles
+          sparse-checkout: |
+            keys
+            site/installer/Profiles
           persist-credentials: false
       - name: Load the current signed distribution catalogs
         run: |
@@ -88,7 +90,7 @@ jobs:
           import os,shutil,sys
           root=Path(sys.argv[1]);source=Path(os.environ['GITHUB_WORKSPACE'])/'delivery/site/installer/Profiles'
           expected={f'{d}-{s}' for d in ('fedora','arch','nixos') for s in ('kde','gnome','minimal')}
-          assert {p.name for p in source.iterdir()}==expected
+          assert expected <= {p.name for p in source.iterdir()} <= expected | {'omarchy-hyprland'}
           for profile in expected:
               destination=root/'Profiles'/profile
               destination.mkdir(parents=True)
@@ -128,9 +130,18 @@ jobs:
               assert installer['latestVersion']==os.environ['APP_VERSION']
               assert installer['downloadURL'].endswith('/releases/tag/'+os.environ['RELEASE_TAG'])
           assert len(schemas)==1 and len(set(map(frozenset,models_by_profile.values())))==1
-          # Every profile is one image for every supported Mac, the MacBook Neo included.
-          supported=set(json.loads(Path('scripts/supported-models.json').read_text())['supported'])
-          assert all(models==supported for models in models_by_profile.values())
+          keys=Path(os.environ['GITHUB_WORKSPACE'])/'delivery/keys'
+
+          def models_in(path):
+              identifiers=json.loads(path.read_text())['supported']
+              assert len(identifiers)==len(set(identifiers)), path
+              return set(identifiers)
+
+          published=models_in(keys/'supported-models.json')
+          assert published in (models_in(keys/'supported-models-58.json'),
+                               models_in(keys/'supported-models-65.json'))
+          assert 'apple,j700' in published and published<=models_in(Path('scripts/supported-models.json'))
+          assert all(models==published for models in models_by_profile.values())
           PY
       - name: Install the pinned native build driver
         run: |

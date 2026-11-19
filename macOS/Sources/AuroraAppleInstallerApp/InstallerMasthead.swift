@@ -35,6 +35,7 @@ struct MacHeaderDisplay {
 struct InstallerMasthead: View {
   var distribution: AuroraDistribution? = nil
   let device: MacHeaderDisplay
+  var channel: ReleaseChannel? = nil
   private static let markSpacing: CGFloat = 10
   private static let deviceSymbolSpacing: CGFloat = 14
   private static let markSize: CGFloat = 32
@@ -48,6 +49,11 @@ struct InstallerMasthead: View {
         AuroraMark().frame(width: Self.markSize, height: Self.markSize)
         Text(distribution?.title ?? "Aurora").font(.system(size: 17, weight: .semibold))
           .lineLimit(1)
+        if channel == .testing {
+          Text(PlainLanguage.channelNightly)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
       }
       .padding(.leading, -Self.markInset)
       Spacer(minLength: 16)

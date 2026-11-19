@@ -257,7 +257,7 @@ struct OnePageInstallerView: View {
   }
 
   private var header: some View {
-    InstallerMasthead(distribution: selection.distribution, device: device)
+    InstallerMasthead(distribution: selection.distribution, device: device, channel: channel)
   }
 
   // MARK: The middle of the page

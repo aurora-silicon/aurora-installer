@@ -274,7 +274,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     else {
       return nil
     }
-    let channel = ReleaseChannelPreference().resolve(configuration: configuration)
+    let channel = ReleaseChannelPreference().resolve(
+      configuration: configuration, profileID: selection.profileID)
     // Unreadable or unsafe rollback state shows no list rather than skipping
     // the rollback check.
     let previouslyAccepted: AcceptedCatalogIdentity?
@@ -412,7 +413,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
 
     let configuration = try loadConfiguration()
     let workspace = try installerWorkspace()
-    let channel = ReleaseChannelPreference().resolve(configuration: configuration)
+    let channel = ReleaseChannelPreference().resolve(
+      configuration: configuration, profileID: selection.profileID)
     InstallerLog.progress(
       "Fetching the signed release catalog for \(selection.profileID) on the "
         + "\(channel.rawValue) channel")

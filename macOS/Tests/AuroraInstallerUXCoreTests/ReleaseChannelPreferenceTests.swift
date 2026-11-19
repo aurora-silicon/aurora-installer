@@ -30,7 +30,7 @@
       XCTAssertEqual(preference.resolve(descriptorDefault: .stable), .rc)
     }
 
-    func testEdgeRequiresAnExplicitPickInThisLaunch() {
+    func testAnExplicitEdgePickIsRememberedForThisLaunch() {
       let preference = ReleaseChannelPreference(store: store)
       XCTAssertEqual(preference.resolve(descriptorDefault: .testing), .testing)
       preference.select(.edge)
@@ -60,13 +60,50 @@
       XCTAssertEqual(UserDefaults.standard.object(forKey: "ReleaseChannel") as? String, legacy)
     }
 
-    func testAFreshLaunchShowsAndFetchesTheBundledDefault() throws {
-      let configuration = try InstallerReleaseConfigurationLocator().load(
-        from: Self.packageRoot.appendingPathComponent("Release", isDirectory: true))
-      let preference = ReleaseChannelPreference(store: store)
+    func testQualifiedEdgeIsTheNeoDefault() throws {
+      let configuration = try Self.bundledConfiguration()
+      let preference = ReleaseChannelPreference(store: store, deviceIdentifier: "apple,j700")
 
       XCTAssertNil(preference.stored)
-      XCTAssertEqual(preference.resolve(configuration: configuration), configuration.defaultChannel)
+      XCTAssertEqual(
+        preference.resolve(configuration: configuration, profileID: "fedora-kde"), .edge)
+      preference.select(.testing)
+      XCTAssertEqual(
+        preference.resolve(configuration: configuration, profileID: "fedora-kde"), .testing)
+      preference.select(nil)
+      XCTAssertEqual(
+        preference.resolve(configuration: configuration, profileID: "fedora-kde"), .edge)
+    }
+
+    func testOtherNeoProfilesUseNightly() throws {
+      let configuration = try Self.bundledConfiguration()
+      let preference = ReleaseChannelPreference(store: store, deviceIdentifier: "apple,j700")
+      for profile in ["fedora-gnome", "arch-kde", "nixos-kde"] {
+        XCTAssertEqual(
+          preference.resolve(configuration: configuration, profileID: profile), .testing)
+      }
+    }
+
+    func testOtherAndUnidentifiedMacsUseNightlyByDefault() throws {
+      let configuration = try Self.bundledConfiguration()
+      let deviceIdentifiers: [String?] = ["apple,j313", nil]
+      for deviceIdentifier in deviceIdentifiers {
+        let preference = ReleaseChannelPreference(store: store, deviceIdentifier: deviceIdentifier)
+        XCTAssertEqual(
+          preference.resolve(configuration: configuration, profileID: "fedora-kde"), .testing)
+      }
+    }
+
+    func testLegacyNeoDescriptorsKeepTheTestingDefault() throws {
+      let bundled = try Self.bundledConfiguration()
+      let legacy = InstallerReleaseConfiguration(
+        channels: bundled.channels, defaultChannel: .testing, trustRoot: bundled.trustRoot,
+        helperMachServiceName: bundled.helperMachServiceName,
+        helperCodeSigningRequirement: bundled.helperCodeSigningRequirement,
+        legacyDevelopmentChannel: true)
+      let preference = ReleaseChannelPreference(store: store, deviceIdentifier: "apple,j700")
+
+      XCTAssertEqual(preference.resolve(configuration: legacy, profileID: "fedora-kde"), .testing)
     }
 
     func testASavedChoiceWinsOverTheBundledDefault() throws {
@@ -78,7 +115,8 @@
 
       preference.select(other)
 
-      XCTAssertEqual(preference.resolve(configuration: configuration), other)
+      XCTAssertEqual(
+        preference.resolve(configuration: configuration, profileID: "fedora-kde"), other)
     }
 
     func testTheWindowAndTheDownloadResolveTheChannelTheSameWay() throws {
@@ -101,13 +139,21 @@
       // Wiring guard only; the resolver's behaviour is tested above.
       XCTAssertTrue(
         scene.contains(
-          "@State private var channel = ReleaseChannelPreference().resolveFromMainBundle()\n"))
+          "@State private var channel = ReleaseChannelPreference().resolveFromMainBundle(\n"
+            + "    profileID: AuroraInstallationSelection().profileID)"))
       XCTAssertTrue(
         scene.contains(
           "environment: LiveInstallerEnvironment(selection: selection), channel: channel,"))
       XCTAssertFalse(scene.contains("channel = ."))
       XCTAssertTrue(
-        download.contains("ReleaseChannelPreference().resolve(configuration: configuration)"))
+        scene.contains("resolveFromMainBundle(profileID: selection.profileID)"))
+      XCTAssertTrue(
+        download.contains("configuration: configuration, profileID: selection.profileID)"))
+    }
+
+    private static func bundledConfiguration() throws -> InstallerReleaseConfiguration {
+      try InstallerReleaseConfigurationLocator().load(
+        from: packageRoot.appendingPathComponent("Release", isDirectory: true))
     }
 
     private static var packageRoot: URL {

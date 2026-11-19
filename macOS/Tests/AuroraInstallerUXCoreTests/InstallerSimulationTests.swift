@@ -86,17 +86,17 @@
     func testTheThreeChannelStatesPreviewDistinctly() async throws {
       let expected: [(InstallerSimulationScenario, ReleaseChannelAvailability, String, String)] = [
         (
-          .noMacRelease, .noRelease, "Testing — No Mac release yet",
+          .noMacRelease, .noRelease, "Nightly — No Mac release yet",
           "No Mac release on this channel yet"
         ),
         (
           .modelNotOnChannel,
           .modelUnavailable(
             supportedDeviceIdentifiers: InstallerSimulationEnvironment.simulatedCatalogDevices),
-          "Testing — Not available for this Mac", PlainLanguage.blockedHeadline
+          "Nightly — Not available for this Mac", PlainLanguage.blockedHeadline
         ),
         (
-          .channelUnreachable, .checkFailed(.network), "Testing — Couldn’t load",
+          .channelUnreachable, .checkFailed(.network), "Nightly — Couldn’t load",
           "This channel’s release list wasn’t found"
         ),
       ]
