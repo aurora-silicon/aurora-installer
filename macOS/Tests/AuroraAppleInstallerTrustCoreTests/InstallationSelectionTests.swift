@@ -60,8 +60,8 @@ final class InstallationSelectionTests: XCTestCase {
     let key = Curve25519.Signing.PrivateKey()
     let model: [String: Any] = [
       "deviceIdentifier": "apple,j700", "status": "enabled", "installationProfile": "arch-gnome",
-      "asahiInstallerTag": "v0.9.2", "asahiInstallerRevision": String(repeating: "a", count: 40),
-      "asahiInstallerDataRevision": String(repeating: "b", count: 40),
+      "engineInstallerTag": "v0.9.2", "engineInstallerRevision": String(repeating: "a", count: 40),
+      "engineInstallerDataRevision": String(repeating: "b", count: 40),
       "downstreamRevision": String(repeating: "c", count: 40),
       "metadataDigest": "sha256:" + String(repeating: "e", count: 64),
       "payloadDigest": "sha256:" + String(repeating: "f", count: 64),

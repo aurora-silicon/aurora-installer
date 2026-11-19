@@ -4,12 +4,12 @@
 
 macOS loads the radio firmware its own system volume ships, so a macOS
 update brings new Wi-Fi and Bluetooth firmware. A Linux install keeps the set
-its installer took: the Asahi installer's from its stub's Recovery image
-(macOS 13.5 for most installs), the Aurora installer's from the macOS that
-ran it. This tool reads the installed macOS's System volume from Linux, read
+its installer took: from its stub's Recovery image (macOS 13.5 for most
+installs made with the older installer engine), or from the macOS that ran
+the Aurora installer. This tool reads the installed macOS's System volume from Linux, read
 only (apfs_ro: the System volume is not encrypted, with or without
 FileVault), converts the radio firmware with this repository's
-asahi_firmware, and when the result differs from the ESP's package it puts
+aurora_firmware, and when the result differs from the ESP's package it puts
 it in:
 
   Broadcom Wi-Fi       /usr/share/firmware/wifi -> brcm/brcmfmac*
@@ -17,9 +17,9 @@ it in:
   MediaTek MT7932      AppleSunriseWLAN's IZUBA files and
                        /usr/share/firmware/bluetooth/MT7932* -> mediatek/...
 
-  asahi/all_firmware.tar.gz  firmware/wifi/ and firmware/bluetooth/ become
+  aurora/all_firmware.tar.gz firmware/wifi/ and firmware/bluetooth/ become
                              the macOS trees (Broadcom), so a later rebuild
-                             (asahi-fwupdate) gives the same set
+                             (aurora-fwupdate) gives the same set
   vendorfw/                  the converted files replace the old set; every
                              other file stays, by path, hash and mode
 
@@ -42,7 +42,7 @@ import argparse, contextlib, ctypes, errno, fcntl, hashlib, io, json, logging, o
 
 HERE = pathlib.Path(__file__).resolve().parent
 for cand in (HERE, HERE.parents[1]):
-    if (cand / "asahi_firmware" / "wifi.py").is_file():
+    if (cand / "aurora_firmware" / "wifi.py").is_file():
         if str(cand) not in sys.path:
             sys.path.insert(0, str(cand))
         break
@@ -50,10 +50,10 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 import apfs_ro  # noqa: E402
-from asahi_firmware import mt7932  # noqa: E402
-from asahi_firmware.bluetooth import BluetoothFWCollection  # noqa: E402
-from asahi_firmware.core import FWFile, FWPackage  # noqa: E402
-from asahi_firmware.wifi import WiFiFWCollection  # noqa: E402
+from aurora_firmware import esp as esp_names, mt7932  # noqa: E402
+from aurora_firmware.bluetooth import BluetoothFWCollection  # noqa: E402
+from aurora_firmware.core import FWFile, FWPackage  # noqa: E402
+from aurora_firmware.wifi import WiFiFWCollection  # noqa: E402
 
 log = logging.getLogger("aurora-wifi-firmware")
 
@@ -67,7 +67,7 @@ PKG_PREFIX = "brcm/brcmfmac"
 BT_PREFIX = "brcm/brcmbt"
 APFS_GUID = "7c3457ef-0000-11aa-aa11-00306543ecac"
 DT = pathlib.Path("/proc/device-tree")
-DT_ESP = "chosen/asahi,efi-system-partition"
+DT_ESP_NAME = "efi-system-partition"   # /chosen/aurora,<name> (esp_names)
 SYS = pathlib.Path("/sys")
 STATE_DIR = pathlib.Path("/var/lib/aurora-wifi-firmware")
 BACKUP_ROOT = pathlib.Path("/var/lib/aurora-rollback")
@@ -110,6 +110,12 @@ def build_key(build):
 
 # ---------------------------------------------------------------- this Mac
 
+def all_firmware(esp):
+    """The ESP's raw firmware archive, in its installer state directory."""
+    esp = pathlib.Path(esp)
+    return (esp_names.state_dir(esp) or esp / esp_names.STATE_DIR) / "all_firmware.tar.gz"
+
+
 def dt_string(rel, dt=DT):
     try:
         return (dt / rel).read_bytes().split(b"\0", 1)[0].decode("ascii").strip() or None
@@ -151,9 +157,9 @@ def apfs_partitions(run=subprocess.run):
 
 def stub_groups(esp):
     """Volume groups of the stub macOS this Linux install boots through
-    (asahi/stub_info.json "vgid"): a boot stub, not an installed macOS."""
-    with contextlib.suppress(OSError, ValueError, AttributeError):
-        vgid = json.loads((pathlib.Path(esp) / "asahi" / "stub_info.json").read_text())["vgid"]
+    (aurora/stub_info.json "vgid"): a boot stub, not an installed macOS."""
+    with contextlib.suppress(OSError, ValueError, AttributeError, TypeError):
+        vgid = json.loads((esp_names.state_dir(esp) / "stub_info.json").read_text())["vgid"]
         return {str(vgid).lower()}
     return set()
 
@@ -314,7 +320,7 @@ def stage_wifi(vol, dest):
 
 
 def converted(raw_dir):
-    """{vendorfw name: FWFile} of a raw Wi-Fi tree, as asahi_firmware.update
+    """{vendorfw name: FWFile} of a raw Wi-Fi tree, as aurora_firmware.update
     packages it."""
     return dict(sorted(WiFiFWCollection(str(raw_dir)).files()))
 
@@ -545,9 +551,11 @@ def owned_in(manifest, parts):
 def find_esp(run=subprocess.run, dt=DT, root="/"):
     """(path of the system ESP, the mountpoint when this tool mounted it).
     The device tree's ESP PARTUUID unless a .builder marker says otherwise,
-    else /boot/efi or /boot holding m1n1, as mount_sys_esp in asahi-scripts."""
+    else /boot/efi or /boot holding the Stage 2 directory, as mount_sys_esp
+    in aurora-scripts."""
     r = pathlib.Path(root)
-    uuid = dt_string(DT_ESP, dt) or ""
+    uuid = next(filter(None, (dt_string("chosen/" + name, dt)
+                              for name in esp_names.chosen_names(DT_ESP_NAME))), "")
     builder = (r / "boot/efi/.builder").exists() or (r / "boot/.builder").exists()
     if uuid and not builder:
         dev = r / "dev/disk/by-partuuid" / uuid.lower()
@@ -573,11 +581,11 @@ def find_esp(run=subprocess.run, dt=DT, root="/"):
             raise NotNow(f"could not mount the system ESP {device}: {p.stderr.decode().strip()}")
         return pathlib.Path(MOUNTPOINT), MOUNTPOINT
     for cand in ("boot/efi", "boot"):
-        if (r / cand / "m1n1").exists():
+        if any((r / cand / name).exists() for name in esp_names.STAGE2_DIRS):
             log.warning(f"System ESP not identified in the device tree, using /{cand}")
             return r / cand, None
-    raise Refused("the system ESP was not found: no asahi,efi-system-partition in the device "
-                  "tree and no m1n1 under /boot/efi or /boot")
+    raise Refused("the system ESP was not found: no aurora,efi-system-partition in the device "
+                  "tree and no Stage 2 directory under /boot/efi or /boot")
 
 
 @contextlib.contextmanager
@@ -916,7 +924,7 @@ def plan(esp, macos=None, board=None, out=print):
     """What update would do: a dict with the chosen macOS and this Mac's
     radio parts. Raises Refused."""
     esp = pathlib.Path(esp)
-    vendorfw, all_fw = esp / "vendorfw", esp / "asahi" / "all_firmware.tar.gz"
+    vendorfw, all_fw = esp / "vendorfw", all_firmware(esp)
     for p in (vendorfw / "manifest.txt", vendorfw / "firmware.tar", vendorfw / "firmware.cpio"):
         if not p.is_file():
             raise Refused(f"{p} is missing; this does not look like an Aurora system ESP")
@@ -1002,7 +1010,7 @@ def update(esp, macos=None, board=None, dry_run=False, backup_root=None,
             "and holds exactly the converted set.")
         if dry_run:
             out(f"Dry run: would back up to {backup_root}/{BACKUP_PREFIX}<time>-<id> and replace "
-                + ("" if raw_same else "asahi/all_firmware.tar.gz and ")
+                + ("" if raw_same else "aurora/all_firmware.tar.gz and ")
                 + "vendorfw/. Nothing was changed.")
             return "dry-run"
 
@@ -1190,7 +1198,7 @@ def revert(esp, backup=None, out=print, swap=exchange, backup_root=None):
         backup = olds[-1]
     pairs = []
     if (backup / "all_firmware.tar.gz").is_file():
-        pairs.append((backup / "all_firmware.tar.gz", esp / "asahi" / "all_firmware.tar.gz"))
+        pairs.append((backup / "all_firmware.tar.gz", all_firmware(esp)))
     if not (backup / "vendorfw" / "manifest.txt").is_file():
         raise Refused(f"{backup} holds no vendorfw")
     pairs.append((backup / "vendorfw", esp / "vendorfw"))

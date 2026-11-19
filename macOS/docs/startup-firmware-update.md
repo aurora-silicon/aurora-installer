@@ -39,18 +39,18 @@ A slot is also the only way to move M1, M2 and M3 installations: their stub cont
 
 `decide(installation:slots:target:space:)` is the pure part, tested without disks:
 
-- The target must be pinned. The current build comes from `asahi/stub_info.json` on the EFI partition (`manifest_info.build_number`, `system_version.ProductVersion`), which every installer since the native stub stage writes. Without it the installation is refused rather than guessed at.
+- The target must be pinned. The current build comes from `aurora/stub_info.json` on the EFI partition (`manifest_info.build_number`, `system_version.ProductVersion`), which every installer since the native stub stage writes. Without it the installation is refused rather than guessed at.
 - Same build: nothing to do. Older target: refused. A slot with the target build already: reported, nothing created. A slot with another build: refused until it is removed.
 - Placement: the free extent right after the installation, then the smallest free extent that fits, then a macOS resize of exactly the slot's size. Extents are used from their 1 MiB-aligned start.
 - Steps, in order: shrink macOS (if needed), create the container, restore the stub from the pinned image, stage Recovery inputs naming the installation's EFI partition, write the slot's vendor firmware, then the owner's enrollment in the slot's Recovery.
 
 ### Vendor firmware
 
-The vendor firmware on the EFI partition (`vendorfw/`, `asahi/all_firmware.tar.gz`) is built from the stub's files plus this Mac's own calibration. A slot doesn't replace it. Its set goes to `aurora/firmware/<build>/` on the same partition, and `aurora/firmware/slots.json` maps the firmware version the device tree reports (`chosen/asahi,os-fw-version`, for example `27.2.0`) to that build. An initramfs that knows the index loads the matching set; one that doesn't keeps loading the top-level set, as today. When the old container is removed, the slot's set becomes the top-level set.
+The vendor firmware on the EFI partition (`vendorfw/`, `aurora/all_firmware.tar.gz`) is built from the stub's files plus this Mac's own calibration. A slot doesn't replace it. Its set goes to `aurora/firmware/<build>/` on the same partition, and `aurora/firmware/slots.json` maps the firmware version the device tree reports (`chosen/aurora,os-fw-version`, for example `27.2.0`) to that build. An initramfs that knows the index loads the matching set; one that doesn't keeps loading the top-level set, as today. When the old container is removed, the slot's set becomes the top-level set.
 
 ### What the owner does
 
-The same as after a fresh install: shut down, hold the power button until the startup options appear, choose the slot's volume ("Aurora Fedora Remix 27.2"), and let its Recovery enroll Stage 1 with the owner's password (`bputil` and `kmutil configure-boot`, as the installation's own Recovery does). The Mac then starts the slot. To go back, choose the old volume in the startup options, or run `asahi-bless` from Linux.
+The same as after a fresh install: shut down, hold the power button until the startup options appear, choose the slot's volume ("Aurora Fedora Remix 27.2"), and let its Recovery enroll Stage 1 with the owner's password (`bputil` and `kmutil configure-boot`, as the installation's own Recovery does). The Mac then starts the slot. To go back, choose the old volume in the startup options, or run `aurora-bless` from Linux.
 
 ### Not built yet
 

@@ -8,7 +8,7 @@
   public struct DiskLayoutDisplay: Equatable, Sendable {
     /// Shrink is offered only for a macOS with at least this much free.
     public static let shrinkOfferedFreeBytes: UInt64 = 50_000_000_000
-    /// What a shrunk macOS always keeps free (Asahi's MIN_FREE_OS).
+    /// What a shrunk macOS always keeps free (the installer engine's MIN_FREE_OS).
     public static let macOSKeepsFreeBytes = PlanDisplay.recommendedMacOSFreeBytes
 
     public enum SegmentKind: String, Equatable, Sendable {

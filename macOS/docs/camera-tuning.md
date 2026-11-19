@@ -13,7 +13,7 @@ The archive entries are rounded to 64 bytes with zeroes; padding is never copied
 
 These constants are interoperability facts from the public [Linux ISP setfile table](https://github.com/aurora-silicon/linux/blob/8348f8244b208b5185b0764ebb21183a678e9e86/drivers/media/platform/apple/isp/isp-cam.c). No daemon, setfile, plist or factory-record bytes are included in source. Synthetic tests check extraction, padding, truncation and the `usr/libexec` collection path.
 
-Both installers already preserve the current machine's raw Hardware-volume factory records under `com.apple.factorydata/` in `asahi/all_firmware.tar.gz`. That includes `iCCl-<module serial>` when present. These archives belong to that individual installation and must never be distributed. The native collector retains its store/volume identity, ownership, path and read-stability checks.
+Both installers already preserve the current machine's raw Hardware-volume factory records under `com.apple.factorydata/` in `aurora/all_firmware.tar.gz`. That includes `iCCl-<module serial>` when present. These archives belong to that individual installation and must never be distributed. The native collector retains its store/volume identity, ownership, path and read-stability checks.
 
 Preserving iCCl is not calibration upload. The kernel currently has no validated iCCl envelope/payload parser, module-serial binding or firmware command. Keep the raw record local until that contract is established. Do not rename a random record to a global calibration filename, substitute another module's record, or feed iCCl to `CH_SET_FILE_LOAD`, which consumes sensor setfiles.
 

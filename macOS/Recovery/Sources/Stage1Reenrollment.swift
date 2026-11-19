@@ -77,7 +77,7 @@ extension Stage1Reenrollment {
     guard let configuration = try? Stage1Configuration.read(stage1),
       configuration.espUUID.lowercased() == espUUID.lowercased(),
       configuration.stage2Path == stage2Path,
-      stage2Path == AuraStage1Format.stage2Path(executeWindow: mode == .macho)
+      AuraStage1Format.isStage2Path(stage2Path, executeWindow: mode == .macho)
     else { throw Stage1ReenrollmentError.wrongTarget }
     let hash = RecoveryDigest.sha256(stage1)
     if receipt["stage1SHA256"] as? String == hash, receipt["stage2Path"] as? String == stage2Path,

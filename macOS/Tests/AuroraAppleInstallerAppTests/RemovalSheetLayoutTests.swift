@@ -142,7 +142,7 @@
             bounds.contains(control), "\(label): \(identifier) \(control) outside \(bounds)",
             file: file, line: line)
         }
-        if scenario != .asahi, !showsAccountFields || scenario == .success {
+        if scenario != .olderLinux, !showsAccountFields || scenario == .success {
           let fields = showsAccountFields ? "-account" : ""
           try savePreview(hosted, name: "\(scenario)\(fields)-\(name)")
         }
@@ -163,7 +163,7 @@
       }
 
       func testRemovalSheetFitsA14InchAnd13InchScreen() throws {
-        for scenario in [RemovalPreviewScenario.success, .asahi, .freeSpace, .startupDisk] {
+        for scenario in [RemovalPreviewScenario.success, .olderLinux, .freeSpace, .startupDisk] {
           for placement in RemovalSheetLayoutTests.placements {
             for showsAccountFields in [false, true] {
               try assertFits(

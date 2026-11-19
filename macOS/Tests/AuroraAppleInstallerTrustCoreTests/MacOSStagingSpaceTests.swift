@@ -555,8 +555,8 @@
       }
       for (extra, refused) in [
         ([:], true), (declaring(true, []), true),
-        (declaring(false, ["esp/m1n1/boot-ctxr.bin"]), true),
-        (qualified, false), (declaring(true, ["esp/m1n1/boot-ctxr-j700.bin"]), false),
+        (declaring(false, ["esp/aurora/boot-ctxr.bin"]), true),
+        (qualified, false), (declaring(true, ["esp/aurora/boot-ctxr-j700.bin"]), false),
       ] as [([String: Any], Bool)] {
         // Before anything downloads: the restore image is never opened for this.
         let metadata = try staged(extra)

@@ -8,17 +8,17 @@ import Foundation
       "groupUUID": "22222222-2222-4222-8222-222222222222",
       "prebootUUID": "33333333-3333-4333-8333-333333333333",
       "espUUID": "44444444-4444-4444-8444-444444444444",
-      "bootMode": "raw", "stage2Path": "m1n1/boot.bin",
+      "bootMode": "raw", "stage2Path": "aurora/boot.bin",
     ]
     let config = try InstallConfiguration.decode(JSONSerialization.data(withJSONObject: value))
     precondition(config.volumeName == "Aurora Test" && config.bootMode == "raw")
     // Both Mach-O modes are accepted with their own Stage 2.
-    for (mode, path) in [("macho-standard", "m1n1/boot.bin"), ("macho", "m1n1/boot-ctxr.bin")] {
+    for (mode, path) in [("macho-standard", "aurora/boot.bin"), ("macho", "aurora/boot-ctxr.bin")] {
       var current = value
       current["bootMode"] = mode
       current["stage2Path"] = path
       _ = try InstallConfiguration.decode(JSONSerialization.data(withJSONObject: current))
-      current["stage2Path"] = path == "m1n1/boot.bin" ? "m1n1/boot-ctxr.bin" : "m1n1/boot.bin"
+      current["stage2Path"] = path == "aurora/boot.bin" ? "aurora/boot-ctxr.bin" : "aurora/boot.bin"
       do {
         _ = try InstallConfiguration.decode(JSONSerialization.data(withJSONObject: current))
         preconditionFailure("accepted \(mode) with the other Stage 2")
@@ -96,16 +96,16 @@ import Foundation
       _ = try InstallConfiguration.decode(JSONSerialization.data(withJSONObject: macho))
       preconditionFailure("accepted a Mach-O installation that loads the standard Stage 2")
     } catch {}
-    macho["stage2Path"] = "m1n1/boot-ctxr.bin"
+    macho["stage2Path"] = "aurora/boot-ctxr.bin"
     let confined = try InstallConfiguration.decode(JSONSerialization.data(withJSONObject: macho))
-    precondition(confined.bootMode == "macho" && confined.stage2Path == "m1n1/boot-ctxr.bin")
+    precondition(confined.bootMode == "macho" && confined.stage2Path == "aurora/boot-ctxr.bin")
     var raw = value
-    raw["stage2Path"] = "m1n1/boot-ctxr.bin"
+    raw["stage2Path"] = "aurora/boot-ctxr.bin"
     do {
       _ = try InstallConfiguration.decode(JSONSerialization.data(withJSONObject: raw))
       preconditionFailure("accepted a raw installation that loads the confined Stage 2")
     } catch {}
-    macho["stage2Path"] = "m1n1/boot-other.bin"
+    macho["stage2Path"] = "aurora/boot-other.bin"
     do {
       _ = try InstallConfiguration.decode(JSONSerialization.data(withJSONObject: macho))
       preconditionFailure("accepted an unknown Stage 2 path")

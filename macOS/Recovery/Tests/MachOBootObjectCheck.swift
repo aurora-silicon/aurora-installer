@@ -317,7 +317,7 @@ import Foundation
     } catch {}
   }
 
-  /// Vectors from aura's tools/fill_stage1_config.py.
+  /// Vectors filled the way aura's tools/fill_stage1_config.py fills the block.
   static func checkConfiguration() throws {
     let uuid = "3ce364b1-1de6-4418-a00d-5b2d95884ad7"
     func block(_ path: String, crc: UInt32, magic: String = "AURORA-S1-CFG01\0") -> Data {
@@ -328,19 +328,19 @@ import Foundation
       return Data(bytes)
     }
     let code = Data(repeating: 0x5A, count: 0x40)
-    let standard = code + block("m1n1/boot.bin", crc: 0x3C0C_2E4E) + code
-    let confined = code + block("m1n1/boot-ctxr.bin", crc: 0x158D_6EE6) + code
+    let standard = code + block("aurora/boot.bin", crc: 0x544C_FA97) + code
+    let confined = code + block("aurora/boot-ctxr.bin", crc: 0xB530_92AA) + code
     let read = try Stage1Configuration.read(standard)
-    precondition(read.espUUID == uuid && read.stage2Path == "m1n1/boot.bin")
+    precondition(read.espUUID == uuid && read.stage2Path == "aurora/boot.bin")
     let readConfined = try Stage1Configuration.read(confined)
-    precondition(readConfined.stage2Path == "m1n1/boot-ctxr.bin")
+    precondition(readConfined.stage2Path == "aurora/boot-ctxr.bin")
     let moved = try Stage1Configuration.retargeted(
       standard, stage2Path: AuraStage1Format.confinedStage2Path)
     precondition(moved == confined, "a retargeted block must match aura's own fill")
     let back = try Stage1Configuration.retargeted(
       moved, stage2Path: AuraStage1Format.standardStage2Path)
     precondition(back == standard)
-    func refused(_ image: Data, path: String = "m1n1/boot-ctxr.bin", _ why: String) {
+    func refused(_ image: Data, path: String = "aurora/boot-ctxr.bin", _ why: String) {
       do {
         _ = try Stage1Configuration.retargeted(image, stage2Path: path)
         preconditionFailure("retargeted: \(why)")
@@ -348,11 +348,11 @@ import Foundation
     }
     refused(code, "no block")
     refused(standard + standard, "two blocks")
-    refused(code + block("m1n1/boot.bin", crc: 0), "a wrong checksum")
-    var empty = code + block("m1n1/boot.bin", crc: 0x3C0C_2E4E)
+    refused(code + block("aurora/boot.bin", crc: 0), "a wrong checksum")
+    var empty = code + block("aurora/boot.bin", crc: 0x544C_FA97)
     empty.removeLast(1)
     refused(empty, "a truncated block")
-    for path in ["", "m1n1;boot.bin", "m1n1\\boot.bin", "é", String(repeating: "a", count: 191)] {
+    for path in ["", "aurora;boot.bin", "aurora\\boot.bin", "é", String(repeating: "a", count: 191)] {
       refused(standard, path: path, "the path \(path)")
     }
   }

@@ -102,6 +102,12 @@ def aura_labels(version, commit, cache):
     return [described]
 
 
+# LEGACY-ASAHI(2027-02-28): names from before the rename that older distro
+# sources.json files and Stage 2 builds still carry; read, never written.
+LEGACY_UBOOT_SOURCE = 'uboot-asahi'
+LOADER_MARKERS = rb'##(?:aura|m1n1)_ver##[ -~]*'
+
+
 def is_pinned_aura(marker, labels):
     """Whether a `##aura_ver##LABEL` marker names one of the pinned labels."""
     return any(marker.endswith('##' + label) for label in labels)
@@ -109,7 +115,7 @@ def is_pinned_aura(marker, labels):
 
 def distro_sources(path):
     data = json.loads((Path(path) / 'sources.json').read_text())
-    uboot = data.get('uboot-aurora') or data.get('uboot-asahi') or {}
+    uboot = data.get('uboot-aurora') or data.get(LEGACY_UBOOT_SOURCE) or {}
     return {'aura': data.get('aura', {}).get('commit'), 'aura_version': data.get('aura', {}).get('version'),
             'u_boot': uboot.get('commit'), 'kernel': data.get('kernel-aurora', {}).get('commit'),
             'kernel_repository': data.get('kernel-aurora', {}).get('repository')}
@@ -332,7 +338,7 @@ def synthetic_disk():
 def stage2_contents(data):
     """The aura version marker, device trees and U-Boot carried by a Stage 2 file."""
     end = data.rfind(b'STACKBOT') + 8
-    version = set(m.decode() for m in re.findall(rb'##(?:aura|m1n1)_ver##[ -~]*', data[:end]))
+    version = set(m.decode() for m in re.findall(LOADER_MARKERS, data[:end]))
     trees, uboot, position = [], None, end
     while 0 < position < len(data):
         if data[position:position + 2] == b'\x1f\x8b':
@@ -382,7 +388,7 @@ def fdt_root(blob):
 
 
 def stage1_version(data):
-    return sorted(set(m.decode() for m in re.findall(rb'##(?:aura|m1n1)_ver##[ -~]*', data)))
+    return sorted(set(m.decode() for m in re.findall(LOADER_MARKERS, data)))
 
 
 def esp_archive(remote, members, wanted, path):
@@ -476,8 +482,8 @@ def evaluate(machine, mode, distro, dry, context):
         chain, payload = dry[desktop].get('boot_chain'), profiles[desktop]['payload']
         if not chain:
             continue
-        selected = [k for k, v in chain['esp_layout'].items() if v == 'm1n1/boot.bin']
-        if selected != ['esp/m1n1/boot-%s.bin' % board.removesuffix('ap')]:
+        selected = [k for k, v in chain['esp_layout'].items() if v == STANDARD_STAGE2]
+        if selected != ['esp/aurora/boot-%s.bin' % board.removesuffix('ap')]:
             problems.append('%s: Stage 2 for %s is %s, not its board file' % (desktop, board, selected))
             continue
         contents = payload['stage2'].get(board)
@@ -565,9 +571,9 @@ def evaluate(machine, mode, distro, dry, context):
     return checks
 
 
-CONFINED_STAGE2 = 'm1n1/boot-ctxr.bin'
-STANDARD_STAGE2 = 'm1n1/boot.bin'
-CONFINED_MEMBER = re.compile(r'esp/m1n1/boot-ctxr(-[a-z0-9]+)?\.bin')
+CONFINED_STAGE2 = 'aurora/boot-ctxr.bin'
+STANDARD_STAGE2 = 'aurora/boot.bin'
+CONFINED_MEMBER = re.compile(r'esp/aurora/boot-ctxr(-[a-z0-9]+)?\.bin')
 
 
 def enrollment_check(selection, uses_window, chains):
@@ -867,15 +873,15 @@ def main():
             # M4 and later Macs enroll the Mach-O Stage 1, which the dry run fills from
             # stage1.bin, so it needs that object's real bytes too, and what it loads.
             wanted = {'esp/aurora/stage1.bin', 'esp/aurora/stage1.macho', 'aurora-volume.icns'} | {
-                'esp/m1n1/boot-%s.bin' % b for b in boards} | {
+                'esp/aurora/boot-%s.bin' % b for b in boards} | {
                 name for name in members if CONFINED_MEMBER.fullmatch(name)}
             archive = Path(args.cache) / (profile + '-' + model['payloadDigest'][7:19] + '-esp-v3.zip')
             if not archive.exists():
                 esp_archive(remote, members, wanted, archive)
             with zipfile.ZipFile(archive) as z:
                 stage1 = z.read('esp/aurora/stage1.bin')
-                stage2 = {b + 'ap': stage2_contents(z.read('esp/m1n1/boot-%s.bin' % b)) for b in boards
-                          if 'esp/m1n1/boot-%s.bin' % b in z.namelist()}
+                stage2 = {b + 'ap': stage2_contents(z.read('esp/aurora/boot-%s.bin' % b)) for b in boards
+                          if 'esp/aurora/boot-%s.bin' % b in z.namelist()}
                 confined = {name: stage2_contents(z.read(name)) for name in z.namelist()
                             if CONFINED_MEMBER.fullmatch(name)}
             public_state = {url: (lambda r: True if r[0] and r[1] in (size, -1) else r)(public(url)) for url, size in parts}
@@ -981,7 +987,7 @@ def verify_parts(profile, parts, directory):
 
 
 def distro_sources_from(data):
-    uboot = data.get('uboot-aurora') or data.get('uboot-asahi') or {}
+    uboot = data.get('uboot-aurora') or data.get(LEGACY_UBOOT_SOURCE) or {}
     return {'aura': data.get('aura', {}).get('commit'), 'aura_version': data.get('aura', {}).get('version'),
             'u_boot': uboot.get('commit'), 'kernel': data.get('kernel-aurora', {}).get('commit'),
             'kernel_repository': data.get('kernel-aurora', {}).get('repository')}

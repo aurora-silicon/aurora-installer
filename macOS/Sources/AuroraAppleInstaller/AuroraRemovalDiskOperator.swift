@@ -162,9 +162,9 @@
         try string(info, "ParentWholeDisk") == disk && info["Content"] as? String == "EFI"
       } read: { tree in
         (
-          try tree.read(["m1n1", "boot.bin"], limit: 64 << 20),
-          try tree.read(["asahi", "stub_info.json"], limit: 1 << 20),
-          try tree.read(["asahi", "installer.log"], limit: 32 << 20)
+          try RemovalESPNames.read(tree, RemovalESPNames.stage2Directories, "boot.bin", 64 << 20),
+          try RemovalESPNames.read(tree, RemovalESPNames.stateDirectories, "stub_info.json", 1 << 20),
+          try RemovalESPNames.read(tree, RemovalESPNames.stateDirectories, "installer.log", 32 << 20)
         )
       }
       let stub = try withVolume(installation.system.identifier, uuid: installation.system.uuid) {

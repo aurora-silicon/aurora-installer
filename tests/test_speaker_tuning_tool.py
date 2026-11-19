@@ -27,8 +27,8 @@ sys.path.insert(0, str(ROOT / "tools" / "speaker-tuning"))
 sys.path.insert(0, str(ROOT / "tests"))
 
 import speaker_tuning as st  # noqa: E402
-from asahi_firmware import audio_tuning  # noqa: E402
-from asahi_firmware.audio_tuning import AudioTuningFWCollection  # noqa: E402
+from aurora_firmware import audio_tuning, esp as esp_names  # noqa: E402
+from aurora_firmware.audio_tuning import AudioTuningFWCollection  # noqa: E402
 from macho_fixtures import CPU_X86_64, fat, padded, synthetic_lattice, thin  # noqa: E402
 
 
@@ -102,12 +102,12 @@ def add(tar, name, data):
     tar.addfile(ti, io.BytesIO(data))
 
 
-def make_esp(base, extra_raw=()):
-    """A synthetic system ESP: asahi/ with a raw archive and a kernelcache,
+def make_esp(base, extra_raw=(), state=esp_names.STATE_DIR):
+    """A synthetic system ESP: aurora/ with a raw archive and a kernelcache,
     vendorfw/ built from them with the real rebuild."""
     esp = base / "esp"
-    (esp / "asahi").mkdir(parents=True)
-    with tarfile.open(esp / "asahi" / "all_firmware.tar.gz", "w:gz") as tar:
+    (esp / state).mkdir(parents=True)
+    with tarfile.open(esp / state / "all_firmware.tar.gz", "w:gz") as tar:
         for name in ("firmware/", "firmware/wifi/", "firmware/bluetooth/"):
             ti = tarfile.TarInfo(name)
             ti.type = tarfile.DIRTYPE
@@ -116,9 +116,9 @@ def make_esp(base, extra_raw=()):
         add(tar, "apple/aop-als-cal.bin", b"synthetic calibration")
         for name, data in extra_raw:
             add(tar, name, data)
-    (esp / "asahi" / "kernelcache.release.synthetic").write_bytes(synthetic_kernelcache())
+    (esp / state / "kernelcache.release.synthetic").write_bytes(synthetic_kernelcache())
     (esp / "vendorfw").mkdir()
-    st.rebuild_default(esp / "asahi", esp / "vendorfw")
+    st.rebuild_default(esp / state, esp / "vendorfw")
     return esp
 
 
@@ -337,23 +337,70 @@ class EspTest(unittest.TestCase):
             with self.assertRaises(st.Refused):
                 st.find_esp(run=run, dt_esp=str(dt), root=str(root))
 
-    def test_builder_marker_or_no_uuid_falls_back_to_m1n1(self):
+    def test_builder_marker_or_no_uuid_falls_back_to_stage2_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
-            (root / "boot" / "m1n1").mkdir(parents=True)
+            (root / "boot" / esp_names.STAGE2_DIR).mkdir(parents=True)
             run, calls = self.run_with("")
             path, mounted = st.find_esp(run=run, dt_esp=str(root / "none"), root=str(root))
             self.assertEqual((path, mounted, calls), (root / "boot", None, []))
-            (root / "boot" / "efi" / "m1n1").mkdir(parents=True)
+            (root / "boot" / "efi" / esp_names.STAGE2_DIR).mkdir(parents=True)
             (root / "boot" / "efi" / ".builder").write_bytes(b"")
             dt = root / "esp-uuid"
             dt.write_bytes(b"aaaa\0")
             path, _ = st.find_esp(run=run, dt_esp=str(dt), root=str(root))
             self.assertEqual(path, root / "boot" / "efi")
-            (root / "boot" / "efi" / "m1n1").rmdir()
-            (root / "boot" / "m1n1").rmdir()
+            (root / "boot" / "efi" / esp_names.STAGE2_DIR).rmdir()
+            (root / "boot" / esp_names.STAGE2_DIR).rmdir()
             with self.assertRaises(st.Refused):
                 st.find_esp(run=run, dt_esp=str(dt), root=str(root))
+
+
+class LegacyNamesTest(unittest.TestCase):
+    """Installations made before the aurora rename (LEGACY-ASAHI(2027-02-28))."""
+
+    def test_install_into_legacy_state_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = pathlib.Path(tmp)
+            esp = make_esp(tmp, state=esp_names.LEGACY_STATE_DIR)
+            src = bundle_dir(tmp)
+            result = st.install(src, esp, out=Quiet(), backup_root=tmp / "rollback")
+            self.assertEqual(result, "installed")
+            self.assertFalse((esp / esp_names.STATE_DIR).exists())
+            raw, _ = st.raw_tuning(esp / esp_names.LEGACY_STATE_DIR / "all_firmware.tar.gz")
+            with st.opened_bundle(src) as (bundle, _):
+                self.assertEqual(raw, bundle)
+
+    def test_state_dir_prefers_current_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            esp = pathlib.Path(tmp)
+            self.assertIsNone(esp_names.state_dir(esp))
+            (esp / esp_names.LEGACY_STATE_DIR).mkdir()
+            (esp / esp_names.LEGACY_STATE_DIR / "stub_info.json").write_text("{}")
+            self.assertEqual(esp_names.state_dir(esp), esp / esp_names.LEGACY_STATE_DIR)
+            # aurora/ holding only Stage 2 is not the state directory.
+            (esp / esp_names.STATE_DIR).mkdir()
+            (esp / esp_names.STATE_DIR / "boot.bin").write_bytes(b"stage 2")
+            self.assertEqual(esp_names.state_dir(esp), esp / esp_names.LEGACY_STATE_DIR)
+            (esp / esp_names.STATE_DIR / "all_firmware.tar.gz").write_bytes(b"")
+            self.assertEqual(esp_names.state_dir(esp), esp / esp_names.STATE_DIR)
+
+    def test_chosen_falls_back_to_legacy_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            chosen = pathlib.Path(tmp)
+            current, legacy = esp_names.chosen_paths("speaker-id", chosen)
+            self.assertIsNone(esp_names.read_chosen("speaker-id", chosen))
+            legacy.write_bytes(b"\0\0\0\1")
+            self.assertEqual(esp_names.read_chosen("speaker-id", chosen), b"\0\0\0\1")
+            current.write_bytes(b"\0\0\0\2")
+            self.assertEqual(esp_names.read_chosen("speaker-id", chosen), b"\0\0\0\2")
+
+    def test_esp_fallback_finds_legacy_stage2_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "boot" / "efi" / esp_names.LEGACY_STAGE2_DIR).mkdir(parents=True)
+            path, mounted = st.find_esp(run=None, dt_esp=str(root / "none"), root=str(root))
+            self.assertEqual((path, mounted), (root / "boot" / "efi", None))
 
 
 class InstallTest(unittest.TestCase):
@@ -384,7 +431,7 @@ class InstallTest(unittest.TestCase):
         self.assertIn("apple/audio-tuning/manifest.json", manifest)
         self.assertIn("apple/aop-als-cal.bin", manifest)
         self.assertTrue((self.esp / "vendorfw" / "u-boot").is_dir())
-        raw, extra = st.raw_tuning(self.esp / "asahi" / "all_firmware.tar.gz")
+        raw, extra = st.raw_tuning(self.esp / esp_names.STATE_DIR / "all_firmware.tar.gz")
         with st.opened_bundle(src) as (bundle, _):
             self.assertEqual(raw, bundle)
         self.assertEqual(extra, 0)
@@ -409,13 +456,13 @@ class InstallTest(unittest.TestCase):
     def test_vendorfw_only_rebuild_keeps_all_firmware(self):
         src = bundle_dir(self.tmp)
         self.install(src)
-        fw = self.esp / "asahi" / "all_firmware.tar.gz"
+        fw = self.esp / esp_names.STATE_DIR / "all_firmware.tar.gz"
         kept = fw.read_bytes()
         # A rebuild by a firmware tool without speaker tuning support.
         os.rename(self.esp / "vendorfw", self.tmp / "with-tuning")
         (self.esp / "vendorfw").mkdir()
         with mock.patch.object(st.audio_tuning.AudioTuningFWCollection, "files", lambda self: []):
-            st.rebuild_default(self.esp / "asahi", self.esp / "vendorfw")
+            st.rebuild_default(self.esp / esp_names.STATE_DIR, self.esp / "vendorfw")
         result, text = self.install(src)
         self.assertEqual(result, "installed", text)
         self.assertEqual(fw.read_bytes(), kept)
@@ -536,7 +583,7 @@ class InstallTest(unittest.TestCase):
         self.assertEqual(result, "installed", text)
         manifest = st.parse_manifest((self.esp / "vendorfw" / "manifest.txt").read_text())
         self.assertNotIn("apple/audio-tuning/speaker-thiele-small.bin", manifest)
-        raw, _ = st.raw_tuning(self.esp / "asahi" / "all_firmware.tar.gz")
+        raw, _ = st.raw_tuning(self.esp / esp_names.STATE_DIR / "all_firmware.tar.gz")
         with st.opened_bundle(src) as (bundle, _):
             self.assertEqual(raw, bundle)
 
@@ -555,7 +602,7 @@ class InstallTest(unittest.TestCase):
 
 
 class TuningOnlyEspTest(unittest.TestCase):
-    """An ESP without asahi/ whose vendorfw/ holds only speaker tuning (the
+    """An ESP without aurora/ whose vendorfw/ holds only speaker tuning (the
     J700's layout): vendorfw is rebuilt from the bundle alone."""
     ROOT_A = {"target-type": b"J999AP\0", "serial-number": b"SYNTHETIC0A" + b"\0" * 21}
     ROOT_B = {"target-type": b"J999AP\0", "serial-number": b"SYNTHETIC0B" + b"\0" * 21}
@@ -569,7 +616,7 @@ class TuningOnlyEspTest(unittest.TestCase):
         with st.opened_bundle(bundle_dir(old, salt=b" old", spts=None)) as (bundle, _):
             self.esp = self.tmp / "esp"
             (self.esp / "vendorfw").mkdir(parents=True)
-            (self.esp / "m1n1").mkdir()
+            (self.esp / esp_names.STAGE2_DIR).mkdir()
             with tempfile.TemporaryDirectory() as work:
                 st.rebuild_tuning_only(bundle, work, self.esp / "vendorfw")
         self.unit_a = audio_tuning.unit_id(b"SYNTHETIC0A")
@@ -594,7 +641,7 @@ class TuningOnlyEspTest(unittest.TestCase):
         result, text = self.install(src)
         self.assertEqual(result, "installed", text)
         self.assertIn("bundle alone", text)
-        self.assertFalse((self.esp / "asahi").exists())
+        self.assertIsNone(esp_names.state_dir(self.esp))
         after = snapshot(self.esp)
         self.assertEqual(sorted(after), sorted(before))
         manifest = st.parse_manifest((self.esp / "vendorfw" / "manifest.txt").read_text())
@@ -627,7 +674,7 @@ class TuningOnlyEspTest(unittest.TestCase):
         other = self.tmp / "other"
         other.mkdir()
         esp = make_esp(other)
-        shutil.rmtree(esp / "asahi")
+        shutil.rmtree(esp / esp_names.STATE_DIR)
         before = snapshot(esp)
         with self.assertRaises(st.Refused) as e:
             st.install(self.bound(), esp, out=Quiet(), backup_root=self.backups, unit=self.unit_a)
@@ -728,7 +775,7 @@ class CollectLinuxTest(unittest.TestCase):
             st.find_adt(str(mtd))
 
     def test_truncated_adt(self):
-        from asahi_firmware import adt
+        from aurora_firmware import adt
         with self.assertRaises(adt.AdtError):
             adt.parse(synthetic_adt()[:100])
 

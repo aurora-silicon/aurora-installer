@@ -1,6 +1,7 @@
 #if os(macOS)
   import AuroraFirmware
   import Foundation
+  import RecoveryAccountCore
 
   /// Reconstructs the owner-reviewed plan from the current disk and selected
   /// payload before a preserved reinstall may open any writable target.
@@ -66,10 +67,16 @@
         bootImageBytes: UInt64(members[0].sizeBytes),
         rootImageBytes: UInt64(members[1].sizeBytes))
       guard
-        let esp = try await NativeESPPayloadPlan.make(
+        var esp = try await NativeESPPayloadPlan.make(
           metadata: metadata, archive: archive, device: approved.deviceIdentifier,
           firmware: firmwareVersion, executeWindow: executeWindow, legacyStage1: legacyStage1)
       else { throw NativePreservedInstallError.unavailable }
+      // A kept Stage 1 from before the rename loads Stage 2 from the old directory.
+      if let path = try? Stage1Configuration.read(installedStage1).stage2Path,
+        AuraLegacyNames.isLegacyStage2Path(path), !esp.legacyStage2Directory
+      {
+        esp = esp.keepingLegacyStage2Directory()
+      }
       let configurationPath = InstallConf.relativePath.precomposedStringWithCanonicalMapping
         .lowercased()
       let signedPaths = Set(

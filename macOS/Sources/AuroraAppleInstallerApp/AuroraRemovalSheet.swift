@@ -511,7 +511,7 @@ struct AuroraRemovalSheet: View {
             "“\(eraseTarget?.name ?? "The partitions")” was erased. Its space is now free to install into."
           return
         }
-        completed = [.success, .asahi, .freeSpace, .startupDisk].contains(scenario)
+        completed = [.success, .olderLinux, .freeSpace, .startupDisk].contains(scenario)
         if [.interrupted, .reclaimFailed, .disconnected].contains(scenario) { onRequiresReview() }
         message = scenario.message
         return
@@ -651,7 +651,7 @@ private struct RemovalSheetHeightCapReader: NSViewRepresentable {
 #if DEBUG
   enum RemovalPreviewScenario: String, CaseIterable {
     case success = "Complete removal"
-    case asahi = "Older Linux installation"
+    case olderLinux = "Older Linux installation"
     case startupDisk = "Starts up from Aurora"
     case startupFailed = "Startup disk not changed"
     case freeSpace = "Free space only"
@@ -702,7 +702,7 @@ private struct RemovalSheetHeightCapReader: NSViewRepresentable {
             ]),
           "No installation was found, but 32.8 GB directly after macOS is unallocated. macOS can take it back. Nothing will be deleted."
         )
-      case .asahi:
+      case .olderLinux:
         return (
           ticket(
             macOS: 461_600_000_000,
@@ -747,7 +747,7 @@ private struct RemovalSheetHeightCapReader: NSViewRepresentable {
       switch self {
       case .success:
         "“Aurora” and its data have been removed. The freed space is now part of macOS."
-      case .asahi:
+      case .olderLinux:
         "“Arch Linux ARM” and its data have been removed. The freed space is now part of macOS."
       case .freeSpace: "The free space is now part of macOS."
       case .startupDisk:
@@ -755,9 +755,9 @@ private struct RemovalSheetHeightCapReader: NSViewRepresentable {
       case .startupFailed:
         "macOS didn’t set “Macintosh HD” as the startup disk. It reported: “Failed to authenticate owner”. Nothing was deleted."
       case .none:
-        "No Aurora installation, or other installation made with the Asahi installer, was found, and there’s no unallocated space after macOS. Nothing was changed."
+        "No Aurora installation, or other installation made with the same installer engine, was found, and there’s no unallocated space after macOS. Nothing was changed."
       case .ambiguous:
-        "Found disk0s4 (EFI partition, “EFI - ARCH”, 524.3 MB); disk0s5 (Linux partition, 29.8 GB) without the startup container every installation made with the Asahi installer has. This looks like a partly removed installation, which needs a manual review. Nothing was changed."
+        "Found disk0s4 (EFI partition, “EFI - ARCH”, 524.3 MB); disk0s5 (Linux partition, 29.8 GB) without the startup container every installation made with the installer engine has. This looks like a partly removed installation, which needs a manual review. Nothing was changed."
       case .helperUnavailable:
         PlainLanguage.removalServiceNotResponding
       case .credentials:

@@ -20,7 +20,7 @@
     /// The one fresh-install journal that created exactly this installation's
     /// startup container, EFI partition and Linux partitions and installed
     /// them; nil when none did. The native installer keeps this record instead
-    /// of the asahi installer's `asahi/installer.log` and m1n1 step-2 object.
+    /// of the installer engine's `installer.log` and Stage 2 object on the ESP.
     func installer(of installation: RemovalInstallation, in snapshot: RemovalSnapshot) throws
       -> String?
   }

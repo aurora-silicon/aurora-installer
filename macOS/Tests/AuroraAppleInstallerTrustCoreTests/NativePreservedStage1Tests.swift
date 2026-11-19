@@ -12,9 +12,9 @@
         let installed =
           plan.usesLegacyStage1
           ? try NativeLegacyStage1.fill(
-            plan.stage1, uuid: uuid, path: "m1n1/boot.bin")
+            plan.stage1, uuid: uuid, path: plan.stage2Path)
           : try NativeBootChain.fillStage1(
-            plan.stage1, uuid: uuid, path: "m1n1/boot.bin",
+            plan.stage1, uuid: uuid, path: plan.stage2Path,
             windowMilliseconds: plan.windowMilliseconds)
         let admitted = try plan.admitPreservedStage1(installed, espUUID: uuid)
         XCTAssertEqual(admitted.bytes, installed.count)
@@ -37,8 +37,8 @@
       }
       let standard = try filled(AuraStage1Format.standardStage2Path)
       let confined = try filled(AuraStage1Format.confinedStage2Path)
-      let other = try filled("m1n1/other.bin")
-      // An unpadded Stage 1 loads m1n1/boot.bin; a padded one loads m1n1/boot-ctxr.bin.
+      let other = try filled("aurora/other.bin")
+      // An unpadded Stage 1 loads aurora/boot.bin; a padded one loads aurora/boot-ctxr.bin.
       for (machO, own, foreign) in [(false, standard, confined), (true, confined, standard)] {
         plan.executeWindow = machO
         let admitted = try plan.admitPreservedStage1(own, espUUID: uuid)
@@ -52,6 +52,21 @@
           XCTAssertThrowsError(
             try plan.admitPreservedStage1(refused, espUUID: uuid, allowDifferentStage1Code: true))
         }
+        // A Stage 1 from before the rename loads the same file from the old directory;
+        // the plan that keeps it writes Stage 2 there.
+        let kept = plan.keepingLegacyStage2Directory()
+        let path = AuraLegacyNames.stage2Path(plan.stage2Path)
+        XCTAssertEqual(kept.stage2Path, path)
+        XCTAssertFalse(
+          kept.entries.contains {
+            [AuraStage1Format.standardStage2Path, AuraStage1Format.confinedStage2Path]
+              .contains($0.path)
+          })
+        let legacy = try filled(path)
+        XCTAssertEqual(
+          try kept.admitPreservedStage1(legacy, espUUID: uuid).sha256,
+          NativeStubFileStore.hash(legacy))
+        XCTAssertThrowsError(try plan.admitPreservedStage1(legacy, espUUID: uuid))
       }
     }
 
@@ -87,7 +102,7 @@
       XCTAssertFalse(plan.usesLegacyStage1)
       let uuid = UUID().uuidString.lowercased()
       var installed = try NativeBootChain.fillStage1(
-        plan.stage1, uuid: uuid, path: "m1n1/boot.bin",
+        plan.stage1, uuid: uuid, path: "aurora/boot.bin",
         windowMilliseconds: plan.windowMilliseconds)
       installed[0] ^= 1  // Another distro built the enrolled code differently.
       XCTAssertThrowsError(try plan.admitPreservedStage1(installed, espUUID: uuid))

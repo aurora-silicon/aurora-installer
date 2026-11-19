@@ -10,7 +10,7 @@ import unittest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from asahi_firmware import lsm2_lattice as L  # noqa: E402
+from aurora_firmware import lsm2_lattice as L  # noqa: E402
 from macho_fixtures import (CPU_X86_64, fat, other_lattice, padded,  # noqa: E402
                             synthetic_lattice, thin)
 

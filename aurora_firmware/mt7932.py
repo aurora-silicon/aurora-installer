@@ -12,7 +12,7 @@ import logging, os, re
 
 from .core import FWFile
 
-log = logging.getLogger("asahi_firmware.mt7932")
+log = logging.getLogger("aurora_firmware.mt7932")
 
 # Paths inside a macOS System volume.
 WIFI_DIR = "System/Library/DriverExtensions/com.apple.AppleSunriseWLAN.dext/IZUBA"

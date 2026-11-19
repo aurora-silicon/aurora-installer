@@ -89,7 +89,7 @@
         Dictionary(uniqueKeysWithValues: result.entries.map { ($0.member.name, $0.path) }), expected
       )
       for path in [
-        "EFI/BOOT/BOOTAA64.EFI", "m1n1/boot.bin", "Aurora Installer.app/Contents/Info.plist",
+        "EFI/BOOT/BOOTAA64.EFI", "aurora/boot.bin", "Aurora Installer.app/Contents/Info.plist",
       ] {
         XCTAssertTrue(NativeESPPayloadPlan.safeFATPath(path))
       }
@@ -117,10 +117,13 @@
       let raw = try Data(contentsOf: bootURL)
       try NativeLegacyStage1.verify(
         raw, receipt: XCTUnwrap(receipt.legacyStage1), uuid: receipt.espUUID.lowercased(),
-        path: "m1n1/boot.bin")
+        path: legacy.stage2Path)
       let filled = try NativeLegacyStage1.fill(
-        Self.legacyBase, uuid: receipt.espUUID.lowercased(), path: "m1n1/boot.bin")
+        Self.legacyBase, uuid: receipt.espUUID.lowercased(), path: legacy.stage2Path)
       XCTAssertEqual(raw, filled)
+      // A kept legacy Stage 1 loads Stage 2 from the directory it always used.
+      XCTAssertTrue(AuraLegacyNames.isLegacyStage2Path(legacy.stage2Path))
+      XCTAssertTrue(receipt.files.contains { $0.path == legacy.stage2Path })
       let before = try Data(contentsOf: fixture.receipt)
       try await fixture.prepare()
       XCTAssertEqual(try Data(contentsOf: fixture.receipt), before)
@@ -174,7 +177,7 @@
         stage1,
         try NativeBootChain.fillStage1(
           fixture.plan.stage1,
-          uuid: receipt.espUUID.lowercased(), path: "m1n1/boot.bin",
+          uuid: receipt.espUUID.lowercased(), path: "aurora/boot.bin",
           windowMilliseconds: fixture.plan.windowMilliseconds))
     }
 
@@ -197,7 +200,7 @@
         } else if fault == "owner" {
           fixture.images.changedOwner = true
         } else {
-          let path = fixture.esp.appendingPathComponent("m1n1/boot.bin")
+          let path = fixture.esp.appendingPathComponent("aurora/boot.bin")
           let descriptor = open(path.path, O_RDWR | O_NOFOLLOW | O_CLOEXEC)
           XCTAssertGreaterThanOrEqual(descriptor, 0)
           defer { close(descriptor) }
@@ -353,7 +356,7 @@
             wrapping: machOSource?(plan.stage1) ?? plan.stage1)
           plan.executeWindow = true
           // A real payload carries its own file; any member not otherwise installed stands in.
-          if let member = plan.archive.members.first(where: { $0.name == "esp/m1n1/boot.bin" }) {
+          if let member = plan.archive.members.first(where: { $0.name == "esp/aurora/boot.bin" }) {
             plan.entries.append(.init(member: member, path: AuraStage1Format.confinedStage2Path))
           }
         }

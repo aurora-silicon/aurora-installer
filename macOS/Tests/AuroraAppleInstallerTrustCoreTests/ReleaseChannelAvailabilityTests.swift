@@ -291,7 +291,7 @@
     private func modelCatalog(devices: [String], channel: ReleaseChannel = .testing) -> Data {
       let models = devices.map { device in
         """
-        {"deviceIdentifier":"\(device)","status":"enabled","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","metadataDigest":"sha256:\(String(repeating: "2", count: 64))","payloadDigest":"sha256:\(String(repeating: "3", count: 64))","evidenceRevision":"evidence-s4","metadataArtifact":{"sourceURL":"https://downloads.example.com/metadata.json","fileName":"metadata.json","sizeBytes":1},"payloadArtifact":{"sourceURL":"https://downloads.example.com/payload.zip","fileName":"payload.zip","sizeBytes":1}}
+        {"deviceIdentifier":"\(device)","status":"enabled","engineInstallerTag":"v0.9.0","engineInstallerRevision":"\(String(repeating: "a", count: 40))","engineInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","metadataDigest":"sha256:\(String(repeating: "2", count: 64))","payloadDigest":"sha256:\(String(repeating: "3", count: 64))","evidenceRevision":"evidence-s4","metadataArtifact":{"sourceURL":"https://downloads.example.com/metadata.json","fileName":"metadata.json","sizeBytes":1},"payloadArtifact":{"sourceURL":"https://downloads.example.com/payload.zip","fileName":"payload.zip","sizeBytes":1}}
         """
       }
       return Data(

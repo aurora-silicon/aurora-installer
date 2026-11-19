@@ -3,7 +3,7 @@ set -eu
 
 BASE_URL="${M5_BASE_URL:-http://192.168.68.61:8088}"
 ARCHIVE="m5-j813ap-tethered-installer.tar.gz"
-WORKDIR="$(mktemp -d /tmp/asahi-m5.XXXXXX)"
+WORKDIR="$(mktemp -d /tmp/aurora-m5.XXXXXX)"
 
 export LC_ALL=en_US.UTF-8
 export LANG=en_US.UTF-8

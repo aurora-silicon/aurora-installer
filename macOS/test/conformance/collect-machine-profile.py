@@ -164,12 +164,17 @@ def apfs(part):
             'free': free, 'volumes': vols}
 
 
+# Boot loader properties: the current prefix, the one boot loaders used before
+# the rename (LEGACY-ASAHI(2027-02-28)), then U-Boot's.
+CHOSEN_PREFIXES = ('aurora,', 'asahi,', 'u-boot,')
+
+
 def main():
     disk = '/dev/nvme0n1'
     chosen = {}
     for name in sorted(os.listdir(CHOSEN)):
-        if any(name.startswith(p) for p in ('asahi,', 'u-boot,')) and 'mac-address' not in name \
-                and name not in ('asahi,efi-system-partition',):
+        if any(name.startswith(p) for p in CHOSEN_PREFIXES) and 'mac-address' not in name \
+                and name.split(',', 1)[1] != 'efi-system-partition':
             chosen[name] = dt_str(os.path.join(CHOSEN, name))
     comp = dt('/proc/device-tree/compatible').split(b'\0')
     g = gpt(disk)
@@ -191,7 +196,8 @@ def main():
         'compatible': [c.decode() for c in comp if c],
         'model': dt_str('/proc/device-tree/model'),
         'chosen': chosen,
-        'esp_partuuid': dt_str(CHOSEN + '/asahi,efi-system-partition'),
+        'esp_partuuid': next(filter(None, (dt_str(CHOSEN + '/' + p + 'efi-system-partition')
+                                           for p in CHOSEN_PREFIXES[:2])), None),
         'kernel': os.uname().release,
         'disk': g,
     }

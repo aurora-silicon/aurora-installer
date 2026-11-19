@@ -824,7 +824,7 @@
           .contains(PlainLanguage.encryptionOptOutRecorded))
     }
 
-    func testCopyAuditOmitsAsahiExceptTheInstallerEngine() throws {
+    func testCopyAuditOmitsTheOldProjectName() throws {
       let tests = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
         .deletingLastPathComponent()
@@ -840,10 +840,9 @@
           guard file.pathExtension == "swift" else { continue }
           let text = try String(contentsOf: file, encoding: .utf8)
           for snippet in swiftStringLiterals(in: text) {
-            guard snippet.localizedCaseInsensitiveContains("asahi") else { continue }
-            if snippet.localizedCaseInsensitiveContains("Asahi installer") {
-              continue
-            }
+            // The project name the installer engine had before the aurora rename.
+            guard snippet.range(of: #"(^|[^a-z])asahi"#, options: [.regularExpression, .caseInsensitive]) != nil
+            else { continue }
             offenders.append("\(file.lastPathComponent): \(snippet)")
           }
         }

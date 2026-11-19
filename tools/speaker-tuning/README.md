@@ -13,7 +13,7 @@ tools/speaker-tuning/collect-macos.sh
 
 This uses only the system `/usr/bin/python3` (it may ask to install the
 Command Line Tools the first time) and reads the repository's
-`asahi_firmware` without writing to it. No sudo is needed. It prints the AID,
+`aurora_firmware` without writing to it. No sudo is needed. It prints the AID,
 the number of tuning files, whether the per-unit calibration
 (`speaker-thiele-small`) is present, and writes
 `~/aurora-speaker-tuning-<mac>-AID<n>.tar.gz` (mode 0600). Pass `-o FILE` to
@@ -56,7 +56,7 @@ The ADT gives what `ioreg -p IODeviceTree` gives on macOS (`acoustic-id`,
 tuning files, the AudioDSP component (the lsm2 lattice) and the build
 (`SystemVersion.plist`). The result is the bundle `collect-macos.sh` writes on
 that macOS, with one exception: the speaker ID (the IORegistry `speakerID`)
-has no ADT source, so it comes from `/chosen/asahi,speaker-id` when the boot
+has no ADT source, so it comes from `/chosen/aurora,speaker-id` when the boot
 chain exports it and is unknown otherwise. An ADT whose `serial-number` is
 not the running device tree's is refused. Nothing on the macOS volume or the
 ADT is written.
@@ -76,8 +76,8 @@ sudo tools/speaker-tuning/install-linux.sh aurora-speaker-tuning-j413ap-AID13.ta
 
 It needs `python3` (on NixOS without one it runs itself under
 `nix shell nixpkgs#python3`). It finds the system ESP the same way
-asahi-fwupdate does (the device tree's ESP PARTUUID, or `/boot/efi` or
-`/boot` holding m1n1), mounting it only if it is not mounted. `--esp DIR`
+aurora-fwupdate does (the device tree's ESP PARTUUID, or `/boot/efi` or
+`/boot` holding the Stage 2 directory), mounting it only if it is not mounted. `--esp DIR`
 overrides that. Then it
 
 1. re-verifies the bundle against its `manifest.json` with
@@ -88,11 +88,11 @@ overrides that. Then it
    speakerguardd would refuse it too. A bundle collected before `unit_id`
    installs with a warning, and speakerguardd then runs the speakers without
    its calibration (open loop) until it is collected again,
-2. stops with "already present, identical" if both `asahi/all_firmware.tar.gz`
+2. stops with "already present, identical" if both `aurora/all_firmware.tar.gz`
    and `vendorfw/` already hold this bundle,
 3. writes a copy of `all_firmware.tar.gz` with its `audio-tuning/` replaced by
    the bundle, and rebuilds `vendorfw/` from it and the ESP's kernelcache with
-   this repository's `asahi_firmware.update`, in a temporary directory,
+   this repository's `aurora_firmware.update`, in a temporary directory,
 4. refuses unless the rebuilt `manifest.txt` keeps every old entry outside
    `apple/audio-tuning/` by path and SHA-256, the `u-boot/` copies are kept,
    and the tuning entries are exactly the bundle,
@@ -121,7 +121,7 @@ since boot (it should be 0).
 
 ## Notes
 
-- Fedora's `asahi-fwupdate` uses the system `python3-asahi_firmware`, which
+- Fedora's `aurora-fwupdate` uses the system `python3-aurora_firmware`, which
   does not collect speaker tuning yet. If it rebuilds `vendorfw/`, the bundle
   drops out of `vendorfw/` but stays in `all_firmware.tar.gz`. Running
   `install-linux.sh` again with the same tarball rebuilds `vendorfw/` only.

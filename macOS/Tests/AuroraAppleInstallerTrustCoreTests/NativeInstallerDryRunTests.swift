@@ -63,7 +63,7 @@
     private func metadata() throws -> Data {
       let template: [String: Any] = [
         "omarchy_target": "apple-silicon-full-os", "name": "Fixture", "default_os_name": "Fixture",
-        "boot_object": "aura.bin", "next_object": "m1n1/boot.bin", "package": "fixture.zip",
+        "boot_object": "aura.bin", "next_object": "aurora/boot.bin", "package": "fixture.zip",
         "icon": "aurora-volume.icns",
         "partitions": [
           [

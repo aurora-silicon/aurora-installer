@@ -63,7 +63,7 @@ class DistributionPayloadTests(unittest.TestCase):
         self.image = {'installation_profile': 'fedora-kde', 'layout_kind': 'fedora-btrfs-v1',
                       'root_subvolume': 'root', 'efi_bytes': 524288000, 'efi_volume_id': 'A1B2C3D4', 'images': images}
         (self.bundle / 'image.json').write_text(json.dumps(self.image))
-        for name in ('m1n1/boot.bin', 'm1n1/boot-ctxr.bin', 'EFI/BOOT/BOOTAA64.EFI', 'aurora/stage1.bin'):
+        for name in ('aurora/boot.bin', 'aurora/boot-ctxr.bin', 'EFI/BOOT/BOOTAA64.EFI', 'aurora/stage1.bin'):
             path = self.bundle / 'esp' / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(name.encode())
         self.write_stage_one_macho()
         self.write_neo_stage_two()
@@ -82,19 +82,19 @@ class DistributionPayloadTests(unittest.TestCase):
     def write_neo_stage_two(self, sha256=None, boards=M4_OR_LATER + ('j71', 'j999')):
         records = {}
         for board in boards:
-            dedicated = self.bundle / ('esp/m1n1/boot-%s.bin' % board)
+            dedicated = self.bundle / ('esp/aurora/boot-%s.bin' % board)
             dedicated.write_bytes(b'dedicated-stage-two-fixture-' + board.encode()
                                   + device_tree(COMPATIBLES[board]))
-            records[board + 'ap'] = {'member': 'esp/m1n1/boot-%s.bin' % board,
+            records[board + 'ap'] = {'member': 'esp/aurora/boot-%s.bin' % board,
                                      'bytes': dedicated.stat().st_size,
                                      'sha256': (sha256 if board == 'j700' else None) or payload.digest(dedicated)}
-        manifest = {'schema': 1, 'sourceSha256': payload.digest(self.bundle / 'esp/m1n1/boot.bin'),
+        manifest = {'schema': 1, 'sourceSha256': payload.digest(self.bundle / 'esp/aurora/boot.bin'),
                     'boards': records}
         (self.bundle / 'stage2.json').write_text(json.dumps(manifest))
 
     def remove_neo_stage_two(self):
         (self.bundle / 'stage2.json').unlink()
-        (self.bundle / 'esp/m1n1/boot-j700.bin').unlink()
+        (self.bundle / 'esp/aurora/boot-j700.bin').unlink()
 
     def test_generic_payload_binds_profile_volume_id_and_native_recovery(self):
         output = self.root / 'output'
@@ -123,17 +123,17 @@ class DistributionPayloadTests(unittest.TestCase):
                 compatible = ['apple,' + board, 'apple,t8103', 'apple,arm-platform']
             trees[board] = device_tree(compatible)
         combined = aura + b''.join(trees.values()) + trailer
-        (self.bundle / 'esp/m1n1/boot.bin').write_bytes(combined)
-        (self.bundle / 'esp/m1n1/boot-ctxr.bin').write_bytes(combined)
+        (self.bundle / 'esp/aurora/boot.bin').write_bytes(combined)
+        (self.bundle / 'esp/aurora/boot-ctxr.bin').write_bytes(combined)
         records = {}
         for board in boards:
-            path = self.bundle / f'esp/m1n1/boot-{board}.bin'
+            path = self.bundle / f'esp/aurora/boot-{board}.bin'
             if board in payload.OLED_STAGE2_REQUIRED:
                 path.unlink(missing_ok=True)
                 continue
             data = aura + trees[board] + trailer
             path.write_bytes(data)
-            records[board + 'ap'] = {'member': f'esp/m1n1/boot-{board}.bin',
+            records[board + 'ap'] = {'member': f'esp/aurora/boot-{board}.bin',
                                      'bytes': len(data), 'sha256': payload.digest(path),
                                      'deviceTrees': 1}
         manifest = {'schema': 1, 'sourceSha256': hashlib.sha256(combined).hexdigest(),
@@ -151,12 +151,12 @@ class DistributionPayloadTests(unittest.TestCase):
         for name, data in before.items():
             self.assertEqual((self.bundle / name).read_bytes(), data, name)
         for board in payload.OLED_STAGE2_REQUIRED:
-            member = f'esp/m1n1/boot-{board}.bin'
+            member = f'esp/aurora/boot-{board}.bin'
             self.assertEqual(metadata['aurora_stage2']['board_members'][board + 'ap'], member)
             data = (self.bundle / member).read_bytes()
             self.assertEqual(payload.board_chip(self.bundle / member, board), 0x6050)
-            self.assertEqual((self.bundle / f'esp/m1n1/boot-ctxr-{board}.bin').read_bytes(), data)
-            self.assertIn(f'esp/m1n1/boot-ctxr-{board}.bin',
+            self.assertEqual((self.bundle / f'esp/aurora/boot-ctxr-{board}.bin').read_bytes(), data)
+            self.assertIn(f'esp/aurora/boot-ctxr-{board}.bin',
                           metadata['aurora_macho_boot']['confined_members'])
             self.assertEqual(metadata['aurora_stage1']['qualified_machines'][board + 'ap'], ['27.2'])
         manifest = (self.bundle / 'stage2.json').read_bytes()
@@ -167,17 +167,17 @@ class DistributionPayloadTests(unittest.TestCase):
         self.common_with_missing_oled(omit_tree='k116s')
         with self.assertRaisesRegex(ValueError, 'no device tree for k116s'):
             self.assembled('missing-oled')
-        self.assertFalse(list((self.bundle / 'esp/m1n1').glob('boot-k*.bin')))
+        self.assertFalse(list((self.bundle / 'esp/aurora').glob('boot-k*.bin')))
 
     def test_oled_cannot_use_a_different_existing_board_build(self):
         manifest = self.common_with_missing_oled()
-        path = self.bundle / 'esp/m1n1/boot-j614s.bin'
+        path = self.bundle / 'esp/aurora/boot-j614s.bin'
         path.write_bytes(path.read_bytes() + b'different-build')
         manifest['boards']['j614sap'].update(bytes=path.stat().st_size, sha256=payload.digest(path))
         (self.bundle / 'stage2.json').write_text(json.dumps(manifest))
         with self.assertRaisesRegex(ValueError, 'authenticated OLED Stage 2 components'):
             self.assembled('wrong-oled-source')
-        self.assertFalse(list((self.bundle / 'esp/m1n1').glob('boot-k*.bin')))
+        self.assertFalse(list((self.bundle / 'esp/aurora').glob('boot-k*.bin')))
 
     def test_oled_rejects_a_non_mach_o_chip(self):
         self.common_with_missing_oled(wrong_chip='k114c')
@@ -205,22 +205,22 @@ class DistributionPayloadTests(unittest.TestCase):
 
     def test_a_payload_without_a_confined_stage2_still_serves_m1_to_m3(self):
         # One payload serves every Mac; the native installer refuses M4 and later on it.
-        (self.bundle / 'esp/m1n1/boot-ctxr.bin').unlink()
+        (self.bundle / 'esp/aurora/boot-ctxr.bin').unlink()
         metadata, _ = self.assembled('no-ctxr')
         self.assertEqual(metadata['aurora_macho_boot'], {
             'kind': 'padded-ctxr-v1', 'stage1_member': 'esp/aurora/stage1.macho', 'confined_members': []})
 
     def test_a_common_stage1_without_its_boot_object_is_refused(self):
         # Every Mac enrolls the boot object; the raw image is never enrolled.
-        (self.bundle / 'esp/m1n1/boot-ctxr.bin').unlink()
+        (self.bundle / 'esp/aurora/boot-ctxr.bin').unlink()
         (self.bundle / 'esp/aurora/stage1.macho').unlink()
         with self.assertRaisesRegex(ValueError, 'no Mach-O boot object'):
             self.assembled('no-macho')
 
     def test_mach_o_files_that_are_present_are_checked(self):
-        shared = self.bundle / 'esp/m1n1/boot-ctxr.bin'
+        shared = self.bundle / 'esp/aurora/boot-ctxr.bin'
         metadata, _ = self.assembled('shared')
-        self.assertEqual(metadata['aurora_macho_boot']['confined_members'], ['esp/m1n1/boot-ctxr.bin'])
+        self.assertEqual(metadata['aurora_macho_boot']['confined_members'], ['esp/aurora/boot-ctxr.bin'])
         (self.bundle / 'esp/aurora/stage1.macho').unlink()
         with self.assertRaisesRegex(ValueError, 'stage1.macho'):
             self.assembled('no-object')
@@ -233,57 +233,57 @@ class DistributionPayloadTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '16 MiB'):
             self.assembled('large-stage-two')
         shared.unlink()
-        (self.bundle / 'esp/m1n1/boot-ctxr-j700.bin').symlink_to(self.bundle / 'esp/m1n1/boot-j700.bin')
+        (self.bundle / 'esp/aurora/boot-ctxr-j700.bin').symlink_to(self.bundle / 'esp/aurora/boot-j700.bin')
         with self.assertRaisesRegex(ValueError, 'regular'):
             self.assembled('linked-stage-two')
 
     def test_board_files_must_cover_every_m4_or_later_board_as_the_installer_looks(self):
-        shared = self.bundle / 'esp/m1n1/boot-ctxr.bin'
+        shared = self.bundle / 'esp/aurora/boot-ctxr.bin'
         shared.unlink()
-        (self.bundle / 'esp/m1n1/boot-ctxr-j700.bin').write_bytes(b'board file')
+        (self.bundle / 'esp/aurora/boot-ctxr-j700.bin').write_bytes(b'board file')
         # The native installer would refuse every other M4 or later Mac on this
         # payload. The future J999 and the A7 J71 need nothing.
         others = sorted(payload.BOARD_STAGE2_REQUIRED)
         with self.assertRaisesRegex(ValueError, r'boards ' + ', '.join(others) + '$'):
             self.assembled('neo-only')
         for board in others:
-            (self.bundle / ('esp/m1n1/boot-ctxr-%s.bin' % board)).write_bytes(b'board file')
+            (self.bundle / ('esp/aurora/boot-ctxr-%s.bin' % board)).write_bytes(b'board file')
         metadata, output = self.assembled('every-board')
         self.assertEqual(metadata['aurora_macho_boot']['confined_members'],
-                         ['esp/m1n1/boot-ctxr-%s.bin' % board for board in sorted(M4_OR_LATER)])
+                         ['esp/aurora/boot-ctxr-%s.bin' % board for board in sorted(M4_OR_LATER)])
         with zipfile.ZipFile(output / metadata['package']) as archive:
-            self.assertEqual(archive.read('esp/m1n1/boot-ctxr-j700.bin'), b'board file')
+            self.assertEqual(archive.read('esp/aurora/boot-ctxr-j700.bin'), b'board file')
         # A board the release doesn't support may carry its own file too.
-        (self.bundle / 'esp/m1n1/boot-ctxr-j999.bin').write_bytes(b'board file')
+        (self.bundle / 'esp/aurora/boot-ctxr-j999.bin').write_bytes(b'board file')
         self.assembled('unsupported-board-file')
         # The shared file covers a board without its own.
-        (self.bundle / 'esp/m1n1/boot-ctxr-j614s.bin').unlink()
+        (self.bundle / 'esp/aurora/boot-ctxr-j614s.bin').unlink()
         shared.write_bytes(b'shared')
         self.assembled('board-and-shared')
 
     def test_a_board_file_must_be_for_an_m4_or_later_board_here(self):
         self.write_neo_stage_two(boards=M4_OR_LATER + ('j274',))
-        (self.bundle / 'esp/m1n1/boot-ctxr-j274.bin').write_bytes(b'board file')
+        (self.bundle / 'esp/aurora/boot-ctxr-j274.bin').write_bytes(b'board file')
         with self.assertRaisesRegex(ValueError, 'boot-ctxr-j274.bin'):
             self.assembled('m1-board')
-        (self.bundle / 'esp/m1n1/boot-ctxr-j274.bin').unlink()
-        (self.bundle / 'esp/m1n1/boot-ctxr-j71.bin').write_bytes(b'board file')
+        (self.bundle / 'esp/aurora/boot-ctxr-j274.bin').unlink()
+        (self.bundle / 'esp/aurora/boot-ctxr-j71.bin').write_bytes(b'board file')
         with self.assertRaisesRegex(ValueError, 'boot-ctxr-j71.bin'):
             self.assembled('a7-board')
-        (self.bundle / 'esp/m1n1/boot-ctxr-j71.bin').unlink()
-        (self.bundle / 'esp/m1n1/boot-ctxr-j999.bin').write_bytes(b'board file')
+        (self.bundle / 'esp/aurora/boot-ctxr-j71.bin').unlink()
+        (self.bundle / 'esp/aurora/boot-ctxr-j999.bin').write_bytes(b'board file')
         with self.assertRaisesRegex(ValueError, 'boot-ctxr-j999.bin'):
             self.assembled('unknown-board')
-        (self.bundle / 'esp/m1n1/boot-ctxr-j999.bin').unlink()
-        (self.bundle / 'esp/m1n1/boot-ctxr-other.bin').write_bytes(b'board file')
+        (self.bundle / 'esp/aurora/boot-ctxr-j999.bin').unlink()
+        (self.bundle / 'esp/aurora/boot-ctxr-other.bin').write_bytes(b'board file')
         with self.assertRaisesRegex(ValueError, 'unexpected'):
             self.assembled('odd-name')
 
     def test_an_a7_board_names_no_mac_chip(self):
-        path = self.bundle / 'esp/m1n1/boot-j71.bin'
+        path = self.bundle / 'esp/aurora/boot-j71.bin'
         self.assertIsNone(payload.board_chip(path, 'j71'))
         self.assertFalse(payload.uses_macho(None))
-        self.assertEqual(payload.board_chip(self.bundle / 'esp/m1n1/boot-j713.bin', 'j713'), 0x8132)
+        self.assertEqual(payload.board_chip(self.bundle / 'esp/aurora/boot-j713.bin', 'j713'), 0x8132)
 
     def test_the_chip_rule_matches_the_installer(self):
         for chip in (0x8132, 0x6040, 0x6041, 0x8140, 0x8142, 0x6050, 0x8150):
@@ -317,13 +317,13 @@ class DistributionPayloadTests(unittest.TestCase):
         self.assertIn('j700ap', boards)
         self.assertEqual(set(metadata['aurora_stage1']['qualified_machines']), boards)
         self.assertEqual(metadata['aurora_stage2']['board_members']['j700ap'],
-                         'esp/m1n1/boot-j700.bin')
+                         'esp/aurora/boot-j700.bin')
         for key in ('excluded_device_classes', 'allowed_device_classes', 'supported_fw',
                     'required_neo_peripherals', 'neo_regulatory_policy'):
             self.assertNotIn(key, metadata)
         with zipfile.ZipFile(output / metadata['package']) as archive:
             names = archive.namelist()
-        self.assertIn('esp/m1n1/boot-j700.bin', names)
+        self.assertIn('esp/aurora/boot-j700.bin', names)
         self.assertFalse(any(name.startswith('installer-inputs/') for name in names))
         receipt = json.loads((output / 'delivery.json').read_text())
         self.assertFalse(receipt['private_neo_inputs'])

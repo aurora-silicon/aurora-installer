@@ -2,7 +2,7 @@
 import os, plistlib, subprocess, logging
 from .core import FWFile
 
-log = logging.getLogger("asahi_firmware.als")
+log = logging.getLogger("aurora_firmware.als")
 FACTORY_DIR = "/System/Volumes/Hardware/FactoryData/System/Library/Caches/com.apple.factorydata"
 FILENAME = "apple/aop-als-cal.bin"
 

@@ -7,6 +7,29 @@
   final class AuroraRemovalDiskOperatorTests: XCTestCase {
     typealias F = RemovalFixtures
 
+    func testESPFilesAreReadFromTheCurrentDirectoryFirst() throws {
+      struct Tree: RemovalFileReading {
+        let files: [String: Data]
+        func read(_ components: [String], limit: Int) throws -> Data? {
+          files[components.joined(separator: "/")]
+        }
+      }
+      let legacy = RemovalESPNames.stateDirectories[1] + "/stub_info.json"
+      let current = RemovalESPNames.stateDirectories[0] + "/stub_info.json"
+      XCTAssertEqual(RemovalESPNames.stateDirectories[0], "aurora")
+      XCTAssertEqual(
+        try RemovalESPNames.read(
+          Tree(files: [legacy: Data("old".utf8)]), RemovalESPNames.stateDirectories,
+          "stub_info.json", 64), Data("old".utf8))
+      XCTAssertEqual(
+        try RemovalESPNames.read(
+          Tree(files: [legacy: Data("old".utf8), current: Data("new".utf8)]),
+          RemovalESPNames.stateDirectories, "stub_info.json", 64), Data("new".utf8))
+      XCTAssertNil(
+        try RemovalESPNames.read(
+          Tree(files: [:]), RemovalESPNames.stage2Directories, "boot.bin", 64))
+    }
+
     func testNativePlistParserMatchesTheModelAndUsesFixedCommands() throws {
       for model in [F.converged(), F.alarm(), F.fedora(), F.freeSpaceOnly(), F.windows()] {
         let disk = FakeDiskutil(model).makeOperator()
@@ -479,7 +502,7 @@
         try data.write(to: url)
       }
       if let esp {
-        try put(files.espBootObject, esp, "m1n1/boot.bin")
+        try put(files.espBootObject, esp, "aurora/boot.bin")
         try put(files.stubInfo, esp, "asahi/stub_info.json")
         try put(files.installerLog, esp, "asahi/installer.log")
       }

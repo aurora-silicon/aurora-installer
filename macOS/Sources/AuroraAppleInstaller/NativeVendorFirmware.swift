@@ -314,16 +314,16 @@
             fallback.keys.sorted().map { FirmwarePackageInput(name: $0, bytes: fallback[$0]!) },
             symbolicLinks: aliases)
           try NativeFirmwareInputFiles.write(
-            fallbackArchive, to: work.appendingPathComponent("asahi/all_firmware.tar.gz"))
+            fallbackArchive, to: work.appendingPathComponent("aurora/all_firmware.tar.gz"))
         }
         let workTree = try InstallerPerformance.measure("vendor_work_tree") {
           try NativeHandoffFileTree(work, protected: true, owner: owner)
         }
         let workStore = NativeStubFileStore(tree: workTree, owner: owner)
         let fallbackIdentity = try InstallerPerformance.measure("vendor_fallback_identity") {
-          try workStore.identity("asahi/all_firmware.tar.gz", maximum: 256 << 20)
+          try workStore.identity("aurora/all_firmware.tar.gz", maximum: 256 << 20)
         }
-        var installerData = ["asahi/all_firmware.tar.gz": fallbackIdentity]
+        var installerData = ["aurora/all_firmware.tar.gz": fallbackIdentity]
         try InstallerPerformance.measure("vendor_stub_info") {
           let sourceReceipt =
             try JSONSerialization.jsonObject(
@@ -331,9 +331,9 @@
           try NativeFirmwareInputFiles.write(
             JSONSerialization.data(
               withJSONObject: sourceReceipt["stub_info"]!, options: [.sortedKeys]),
-            to: work.appendingPathComponent("asahi/stub_info.json"))
-          installerData["asahi/stub_info.json"] = try workStore.identity(
-            "asahi/stub_info.json", maximum: 1 << 20)
+            to: work.appendingPathComponent("aurora/stub_info.json"))
+          installerData["aurora/stub_info.json"] = try workStore.identity(
+            "aurora/stub_info.json", maximum: 1 << 20)
         }
         try await InstallerPerformance.measuring("vendor_installer_data") {
           for record in sourceRecords where record.installerDataName != nil {
@@ -349,11 +349,11 @@
               throw NativeFirmwareInputFailure.invalidSource
             }
             let identity = try await workStore.local(
-              URL(fileURLWithPath: String(cString: path)), at: "asahi/" + name, compressed: false)
+              URL(fileURLWithPath: String(cString: path)), at: "aurora/" + name, compressed: false)
             guard identity == record.identity else {
               throw NativeFirmwareInputFailure.invalidSource
             }
-            installerData["asahi/" + name] = identity
+            installerData["aurora/" + name] = identity
           }
         }
         try await InstallerPerformance.measuring("vendor_esp_publish") {

@@ -1,6 +1,7 @@
 #if os(macOS)
   import Darwin
   import Foundation
+  import RecoveryAccountCore
 
   /// Something removal reads the installation's small files from.
   protocol RemovalFileReading {
@@ -10,6 +11,27 @@
   }
 
   extension RemovalFileTree: RemovalFileReading {}
+
+  /// Where an installation keeps its files on the EFI partition: the current
+  /// directories first, then the ones installations made before the rename use.
+  enum RemovalESPNames {
+    static let stage2Directories = [
+      AuraLegacyNames.currentStage2Directory, AuraLegacyNames.stage2Directory,
+    ].map { String($0.dropLast()) }
+    static let stateDirectories = [
+      AuraLegacyNames.currentStateDirectory, AuraLegacyNames.stateDirectory,
+    ].map { String($0.dropLast()) }
+
+    /// `name` from the first of `directories` that has it; nil when none does.
+    static func read(
+      _ tree: any RemovalFileReading, _ directories: [String], _ name: String, _ limit: Int
+    ) throws -> Data? {
+      for directory in directories {
+        if let data = try tree.read([directory, name], limit: limit) { return data }
+      }
+      return nil
+    }
+  }
 
   /// Reads files from a FAT32 file system without mounting it. An EFI partition
   /// that Linux didn't cleanly unmount is a dirty FAT: DiskArbitration refuses

@@ -348,7 +348,7 @@
       for vector in fixture.filled {
         let filled = try NativeBootChain.fillStage1(
           fixture.stage1, uuid: "12345678-1234-1234-1234-123456789abc",
-          path: "m1n1/boot.bin", windowMilliseconds: vector.window)
+          path: "aurora/boot.bin", windowMilliseconds: vector.window)
         XCTAssertEqual(filled.count, fixture.stage1.count)
         XCTAssertEqual(SHA256Digest(hashing: filled).rawValue, "sha256:" + vector.sha256)
       }
@@ -359,12 +359,12 @@
       ] {
         XCTAssertThrowsError(
           try NativeBootChain.fillStage1(
-            image, uuid: "12345678-1234-1234-1234-123456789abc", path: "m1n1/boot.bin",
+            image, uuid: "12345678-1234-1234-1234-123456789abc", path: "aurora/boot.bin",
             windowMilliseconds: 0))
       }
       for path in [
-        "../boot.bin", "/boot.bin", "m1n1//boot.bin", "m1n1/./boot.bin",
-        "m1n1/boot;bin", "m1n1/é.bin", String(repeating: "a", count: 191),
+        "../boot.bin", "/boot.bin", "aurora//boot.bin", "aurora/./boot.bin",
+        "aurora/boot;bin", "aurora/é.bin", String(repeating: "a", count: 191),
       ] {
         XCTAssertThrowsError(
           try NativeBootChain.fillStage1(
@@ -373,18 +373,18 @@
       }
       XCTAssertThrowsError(
         try NativeBootChain.fillStage1(
-          fixture.stage1, uuid: "12345678-1234-1234-1234-123456789ABC", path: "m1n1/boot.bin",
+          fixture.stage1, uuid: "12345678-1234-1234-1234-123456789ABC", path: "aurora/boot.bin",
           windowMilliseconds: 0))
       XCTAssertThrowsError(
         try NativeBootChain.fillStage1(
-          fixture.stage1, uuid: "12345678-1234-1234-1234-123456789abc", path: "m1n1/boot.bin",
+          fixture.stage1, uuid: "12345678-1234-1234-1234-123456789abc", path: "aurora/boot.bin",
           windowMilliseconds: 100000))
       var version = fixture.stage1
       let offset = try XCTUnwrap(version.range(of: magic)).upperBound
       version[offset] = 2
       XCTAssertThrowsError(
         try NativeBootChain.fillStage1(
-          version, uuid: "12345678-1234-1234-1234-123456789abc", path: "m1n1/boot.bin",
+          version, uuid: "12345678-1234-1234-1234-123456789abc", path: "aurora/boot.bin",
           windowMilliseconds: 0))
     }
 

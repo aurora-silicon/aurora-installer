@@ -233,7 +233,7 @@
         let bootMode = config["bootMode"] as? String,
         let mode = NativeRecoveryBootMode(recorded: bootMode),
         let stage2Path = config["stage2Path"] as? String,
-        stage2Path == AuraStage1Format.stage2Path(executeWindow: mode.executeWindow),
+        AuraStage1Format.isStage2Path(stage2Path, executeWindow: mode.executeWindow),
         let name = config["volumeName"] as? String
       else {
         throw NativeHandoffValidationError.invalidTarget
@@ -278,9 +278,16 @@
         $0.name.hasPrefix("esp/") && !$0.name.hasSuffix("/")
       }
       // Only a padded configuration names the confined Stage 2 (checked above).
-      let layout = try evidence.espLayout(
+      var layout = try evidence.espLayout(
         members: Set(espMembers.map(\.name)), firmware: firmware,
-        executeWindow: stage2Path == AuraStage1Format.confinedStage2Path)
+        executeWindow: AuraStage1Format.isConfinedStage2Path(stage2Path))
+      // A reset that kept a Stage 1 from before the rename wrote Stage 2 where it loads it.
+      if AuraLegacyNames.isLegacyStage2Path(stage2Path) {
+        let moved: Set = [
+          AuraStage1Format.standardStage2Path, AuraStage1Format.confinedStage2Path,
+        ]
+        layout = layout.mapValues { moved.contains($0) ? AuraLegacyNames.stage2Path($0) : $0 }
+      }
       var treeHash = SHA256()
       var installedBytes: UInt64 = 0
       for member in espMembers.sorted(by: { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) })

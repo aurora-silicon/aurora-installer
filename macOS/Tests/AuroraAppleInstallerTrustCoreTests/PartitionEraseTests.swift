@@ -129,13 +129,13 @@
       let esp = Fixture.uuid(811)
       fixture.addContainer(
         uuid: Fixture.uuid(801), size: 2_499_805_184, after: 1 << 30,
-        volumes: Fixture.systemVolumes("Asahi", number: 81),
+        volumes: Fixture.systemVolumes("Remix", number: 81),
         systems: [
           NativeSystemVolumeFacts(
-            group: Fixture.uuid(819), label: "Asahi", stub: true, version: "13.5",
+            group: Fixture.uuid(819), label: "Remix", stub: true, version: "13.5",
             bootPartitions: [esp])
         ])
-      fixture.add("EFI", uuid: esp, size: 500 << 20, name: "EFI - ASAHI", after: 2 << 30)
+      fixture.add("EFI", uuid: esp, size: 500 << 20, name: "EFI - REMIX", after: 2 << 30)
       fixture.add("Linux Filesystem", uuid: Fixture.uuid(812), size: 4 << 30)
       let disk = FakeRemovalDisk(fixture.disk.state, install: nil)
       let collect = fixture.collector(disk)
@@ -157,7 +157,7 @@
       XCTAssertNil(refusal(full))
       XCTAssertEqual(
         refusal(esp),
-        "“Asahi” starts Linux from the EFI partition disk0s6. Erase “Asahi” together with it. Nothing was changed."
+        "“Remix” starts Linux from the EFI partition disk0s6. Erase “Remix” together with it. Nothing was changed."
       )
       // The screen offers none of them, for the same reasons.
       let layout = try NativeDiskLayout(collect())
@@ -384,10 +384,10 @@
       var fixture = try Fixture.base()
       fixture.addContainer(
         uuid: Fixture.uuid(801), size: 2_499_805_184, after: 1 << 30,
-        volumes: Fixture.systemVolumes("Asahi", number: 81),
+        volumes: Fixture.systemVolumes("Remix", number: 81),
         systems: [
           NativeSystemVolumeFacts(
-            group: Fixture.uuid(819), label: "Asahi", stub: true, version: "13.5")
+            group: Fixture.uuid(819), label: "Remix", stub: true, version: "13.5")
         ])
       let esp = fixture.add("EFI", uuid: Fixture.uuid(811), size: 500 << 20, after: 2 << 30)
       fixture.add("Linux Filesystem", uuid: Fixture.uuid(812), size: 4 << 30)
@@ -396,7 +396,7 @@
       ) {
         XCTAssertEqual(
           ($0 as? RemovalFailure)?.message,
-          "The bootloader of “Asahi” couldn’t be read, so any EFI partition might be the one it starts from. Erase “Asahi” first. Nothing was changed."
+          "The bootloader of “Remix” couldn’t be read, so any EFI partition might be the one it starts from. Erase “Remix” first. Nothing was changed."
         )
       }
       // The container itself may still go.
@@ -425,7 +425,7 @@
       XCTAssertEqual(NativeDiskCollector.bootPartitions(Naming(value: "other=1")), [])
       XCTAssertEqual(
         NativeDiskCollector.bootPartitions(
-          Naming(value: "chosen.asahi,efi-system-partition=\(Fixture.uuid(811).lowercased())")),
+          Naming(value: "chosen.aurora,efi-system-partition=\(Fixture.uuid(811).lowercased())")),
         [Fixture.uuid(811)])
     }
 
@@ -593,7 +593,7 @@
       struct Naming: RemovalFileReading {
         func read(_ components: [String], limit: Int) throws -> Data? {
           Data(
-            "STACKBOTchosen.asahi,efi-system-partition=not-a-uuid\nchosen.asahi,efi-system-partition=\(Fixture.uuid(811))\0"
+            "STACKBOTchosen.aurora,efi-system-partition=not-a-uuid\nchosen.aurora,efi-system-partition=\(Fixture.uuid(811))\0"
               .utf8)
         }
       }

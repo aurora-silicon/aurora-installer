@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from asahi_firmware.isp import ISPFWCollection, ISP_SETFILE_MAP
-from asahi_firmware.core import FWPackage
+from aurora_firmware.isp import ISPFWCollection, ISP_SETFILE_MAP
+from aurora_firmware.core import FWPackage
 
 
 def tuning(magic):

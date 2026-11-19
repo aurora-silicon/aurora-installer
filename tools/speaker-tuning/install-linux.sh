@@ -9,9 +9,9 @@
 #   tools/speaker-tuning/install-linux.sh --verify     (after the reboot)
 #
 # The bundle is re-verified against its manifest, the ESP's
-# asahi/all_firmware.tar.gz and vendorfw/ are backed up to
+# aurora/all_firmware.tar.gz and vendorfw/ are backed up to
 # /var/lib/aurora-rollback/, vendorfw/ is rebuilt with this repository's
-# asahi_firmware, the rebuild must keep every old file by path and hash, and
+# aurora_firmware, the rebuild must keep every old file by path and hash, and
 # both are swapped in. On any failure the old files stay in place.
 set -eu
 

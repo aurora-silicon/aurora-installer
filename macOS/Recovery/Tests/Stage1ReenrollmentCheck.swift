@@ -60,7 +60,7 @@ import Foundation
     return data
   }
 
-  static func receipt(stage1: Data, stage2Path: String = "m1n1/boot.bin", mode: String = "macho")
+  static func receipt(stage1: Data, stage2Path: String = "aurora/boot.bin", mode: String = "macho")
     -> [String: Any]
   {
     [
@@ -93,9 +93,9 @@ import Foundation
   }
 
   static func main() throws {
-    // An Alpha 17 installation: an unpadded object that loads m1n1/boot.bin.
-    let earlier = object(carrying: raw(path: "m1n1/boot.bin"))
-    let staged = object(carrying: raw(path: "m1n1/boot-ctxr.bin"))
+    // An Alpha 17 installation: an unpadded object that loads aurora/boot.bin.
+    let earlier = object(carrying: raw(path: "aurora/boot.bin"))
+    let staged = object(carrying: raw(path: "aurora/boot-ctxr.bin"))
     try MachOBootObject.check(staged)
     let confined = AuraStage1Format.confinedStage2Path
 
@@ -113,10 +113,10 @@ import Foundation
       stage2Path: confined, receipt: enrolled, stage2Bytes: 1 << 20)
     precondition(update == pending)
     // An M1 to M3 Mac an earlier installer enrolled raw moves to the unpadded object.
-    let rawStaged = object(carrying: raw(path: "m1n1/boot.bin"))
+    let rawStaged = object(carrying: raw(path: "aurora/boot.bin"))
     let rawUpdate = try Stage1Reenrollment.verify(
-      stage1: rawStaged, mode: .standard, chipID: t8103, espUUID: esp, stage2Path: "m1n1/boot.bin",
-      receipt: receipt(stage1: raw(uuid: esp, path: "m1n1/boot.bin"), mode: "raw"),
+      stage1: rawStaged, mode: .standard, chipID: t8103, espUUID: esp, stage2Path: "aurora/boot.bin",
+      receipt: receipt(stage1: raw(uuid: esp, path: "aurora/boot.bin"), mode: "raw"),
       stage2Bytes: 20 << 20)
     precondition(rawUpdate?.mode == .standard)
     precondition(
@@ -125,15 +125,15 @@ import Foundation
     refuses(.wrongTarget, "a raw image instead of the boot object") {
       do {
         _ = try Stage1Reenrollment.verify(
-          stage1: raw(path: "m1n1/boot.bin"), mode: .standard, chipID: t8103, espUUID: esp,
-          stage2Path: "m1n1/boot.bin", receipt: receipt(stage1: rawStaged), stage2Bytes: 20 << 20)
+          stage1: raw(path: "aurora/boot.bin"), mode: .standard, chipID: t8103, espUUID: esp,
+          stage2Path: "aurora/boot.bin", receipt: receipt(stage1: rawStaged), stage2Bytes: 20 << 20)
       } catch is MachOBootObject.Invalid { throw Stage1ReenrollmentError.wrongTarget }
     }
     // A recorded raw installation is offered the unpadded object it stages.
     let offered = Stage1Reenrollment.pending(
-      receipt: receipt(stage1: raw(path: "m1n1/boot.bin"), mode: "raw"),
-      hasPendingInstallation: false, bootMode: "macho-standard", stage2Path: "m1n1/boot.bin",
-      manifest: manifest(staged: rawStaged, mode: .standard, espPath: "m1n1/boot.bin"))
+      receipt: receipt(stage1: raw(path: "aurora/boot.bin"), mode: "raw"),
+      hasPendingInstallation: false, bootMode: "macho-standard", stage2Path: "aurora/boot.bin",
+      manifest: manifest(staged: rawStaged, mode: .standard, espPath: "aurora/boot.bin"))
     precondition(offered?.mode == .standard)
 
     // The receipt changes only in what the new Stage 1 decides.
@@ -168,7 +168,7 @@ import Foundation
       ),
       (enrolled, false, "raw", manifest(staged: staged, espPath: confined), "another mode"),
       (
-        enrolled, false, "macho", manifest(staged: staged, espPath: "m1n1/boot.bin"),
+        enrolled, false, "macho", manifest(staged: staged, espPath: "aurora/boot.bin"),
         "a payload for another Stage 2"
       ),
     ] as [([String: Any], Bool, String, [String: Any], String)] {
@@ -188,9 +188,9 @@ import Foundation
         mode: .macho, chipID: t8140, espUUID: esp, stage2Path: confined, receipt: enrolled,
         stage2Bytes: 1 << 20)
     }
-    refuses(.wrongTarget, "an unpadded object loading m1n1/boot.bin") {
+    refuses(.wrongTarget, "an unpadded object loading aurora/boot.bin") {
       _ = try Stage1Reenrollment.verify(
-        stage1: earlier, mode: .macho, chipID: t8140, espUUID: esp, stage2Path: "m1n1/boot.bin",
+        stage1: earlier, mode: .macho, chipID: t8140, espUUID: esp, stage2Path: "aurora/boot.bin",
         receipt: receipt(stage1: staged), stage2Bytes: 1 << 20)
     }
     refuses(.missingStage2(path: confined), "an ESP without the confined Stage 2") {

@@ -278,7 +278,7 @@
       var bootObject = Data("m1n1 stage 1 ##m1n1_ver##v1.5.2\0 code STACKBOT".utf8)
       bootObject.append(
         Data(
-          "chosen.asahi,efi-system-partition=\(espLower)\nchainload=\(espLower);m1n1/boot.bin\n"
+          "chosen.aurora,efi-system-partition=\(espLower)\nchainload=\(espLower);m1n1/boot.bin\n"
             .utf8))
       bootObject.append(Data([0, 0, 0, 0]))
       let stubInfo =

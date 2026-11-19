@@ -2,12 +2,12 @@
 
 from distutils.core import setup
 
-setup(name='asahi_firmware',
+setup(name='aurora_firmware',
       version='0.1',
-      description='Asahi Linux firmware tools',
+      description='Aurora firmware tools',
       author='Hector Martin',
       author_email='marcan@marcan.st',
-      url='https://github.com/AsahiLinux/asahi-installer/',
-      packages=['asahi_firmware'],
-      entry_points={"console_scripts": ["asahi-fwextract = asahi_firmware.update:main"]}
+      url='https://github.com/aurora-silicon/aurora-installer/',
+      packages=['aurora_firmware'],
+      entry_points={"console_scripts": ["aurora-fwextract = aurora_firmware.update:main"]}
      )

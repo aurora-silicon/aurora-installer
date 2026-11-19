@@ -8,7 +8,7 @@
     /// The kept ESP lacks room for the payload's files and their rollback copies.
     case espFull(requiredBytes: UInt64, availableBytes: UInt64)
     /// The installed Stage 1 is a Mach-O one an earlier installer enrolled
-    /// unpadded, loading `m1n1/boot.bin`. This installer only resets padded ones.
+    /// unpadded, loading the standard Stage 2. This installer only resets padded ones.
     case earlierStage1
   }
 

@@ -17,13 +17,65 @@ public enum AuraStage1Format {
   }
 
   /// The ESP file an unpadded Stage 1 loads.
-  public static let standardStage2Path = "m1n1/boot.bin"
+  public static let standardStage2Path = "aurora/boot.bin"
   /// The ESP file a padded Stage 1 loads. Package updates on execute-window
   /// chips write this one.
-  public static let confinedStage2Path = "m1n1/boot-ctxr.bin"
+  public static let confinedStage2Path = "aurora/boot-ctxr.bin"
 
+  /// The Stage 2 a new installation's Stage 1 loads.
   public static func stage2Path(executeWindow: Bool) -> String {
     executeWindow ? confinedStage2Path : standardStage2Path
+  }
+
+  /// The Stage 2 paths an existing installation may name for this mode: the
+  /// current one, then the one installations made before the rename use.
+  public static func acceptedStage2Paths(executeWindow: Bool) -> [String] {
+    let current = stage2Path(executeWindow: executeWindow)
+    return [current, AuraLegacyNames.stage2Path(current)]
+  }
+
+  /// Whether `path` is this mode's Stage 2 under either name.
+  public static func isStage2Path(_ path: String, executeWindow: Bool) -> Bool {
+    acceptedStage2Paths(executeWindow: executeWindow).contains(path)
+  }
+
+  /// Whether `path` is the confined Stage 2 under either name.
+  public static func isConfinedStage2Path(_ path: String) -> Bool {
+    isStage2Path(path, executeWindow: true)
+  }
+}
+
+/// Names installations made before the aurora rename still carry: the Stage 2
+/// directory their enrolled Stage 1 loads from, the payload directory older
+/// releases ship Stage 2 in, and the installer state directory on the ESP.
+/// They are only read or kept, never chosen for a new installation.
+/// LEGACY-ASAHI(2027-02-28): remove once no supported installation uses them.
+public enum AuraLegacyNames {
+  /// The Stage 2 directory, on the ESP and under a payload's `esp/`.
+  public static let currentStage2Directory = "aurora/"
+  public static let stage2Directory = "m1n1/"
+  /// The installer state directory on the ESP (all_firmware.tar.gz,
+  /// stub_info.json, installer.log).
+  public static let currentStateDirectory = "aurora/"
+  public static let stateDirectory = "asahi/"
+  /// The /chosen property naming the ESP in a legacy text Stage 1 configuration.
+  public static let espProperty = "asahi,efi-system-partition"
+  public static let currentESPProperty = "aurora,efi-system-partition"
+
+  /// `path` in the current Stage 2 directory, moved to the legacy one.
+  public static func stage2Path(_ path: String) -> String {
+    path.hasPrefix(currentStage2Directory)
+      ? stage2Directory + path.dropFirst(currentStage2Directory.count) : path
+  }
+
+  /// `path` in the legacy Stage 2 directory, moved to the current one.
+  public static func currentStage2Path(_ path: String) -> String {
+    path.hasPrefix(stage2Directory)
+      ? currentStage2Directory + path.dropFirst(stage2Directory.count) : path
+  }
+
+  public static func isLegacyStage2Path(_ path: String) -> Bool {
+    path.hasPrefix(stage2Directory)
   }
 }
 

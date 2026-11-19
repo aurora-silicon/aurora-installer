@@ -3,7 +3,7 @@
 #
 # Collect this Mac's speaker tuning on its own macOS, for an existing Aurora
 # install. Uses only the system /usr/bin/python3 and this repository's
-# asahi_firmware, read only. Writes a tarball to copy to Linux on the same
+# aurora_firmware, read only. Writes a tarball to copy to Linux on the same
 # Mac, where install-linux.sh adds it to the ESP firmware.
 #
 # Usage: tools/speaker-tuning/collect-macos.sh [-o OUTPUT.tar.gz] [--lsm2-fill-readback]

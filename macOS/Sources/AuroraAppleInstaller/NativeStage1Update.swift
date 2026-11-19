@@ -76,14 +76,14 @@
       try self.init(
         stage1: plan.stage1, machO: plan.stage1MachO, executeWindow: plan.executeWindow,
         windowMilliseconds: plan.windowMilliseconds, legacy: plan.usesLegacyStage1,
-        espUUID: espUUID)
+        espUUID: espUUID, stage2Path: plan.stage2Path)
     }
 
     /// The same fill and checks as a fresh installation, then a read-back of
     /// what Recovery checks before it enrolls.
     init(
       stage1: Data, machO object: Data?, executeWindow: Bool, windowMilliseconds: UInt32,
-      legacy: Bool, espUUID: String
+      legacy: Bool, espUUID: String, stage2Path: String? = nil
     )
       throws
     {
@@ -94,7 +94,10 @@
         throw NativeStage1UpdateError.stage1TooLarge(bytes: UInt64(bytes.count))
       }
       let uuid = espUUID.lowercased()
-      let path = AuraStage1Format.stage2Path(executeWindow: executeWindow)
+      let path = stage2Path ?? AuraStage1Format.stage2Path(executeWindow: executeWindow)
+      guard AuraStage1Format.isStage2Path(path, executeWindow: executeWindow) else {
+        throw NativeBootChainError.invalidStage1
+      }
       let raw = try NativeBootChain.fillStage1(
         stage1, uuid: uuid, path: path, windowMilliseconds: windowMilliseconds)
       guard let configuration = try? Stage1Configuration.read(raw),
@@ -111,7 +114,7 @@
       mode = NativeRecoveryBootMode(executeWindow: executeWindow)
       self.raw = raw
       machO = filled
-      stage2Path = path
+      self.stage2Path = path
       expandedBytes = expanded
     }
   }
@@ -158,7 +161,8 @@
     static func stage1Path(_ mode: NativeRecoveryBootMode) -> String { "macho/aura-boot.macho" }
 
     /// Checks the stub's records against what recognition found. A padded
-    /// installation an earlier installer made still names `m1n1/boot.bin`; an
+    /// installation an earlier installer made still names the standard Stage 2,
+    /// possibly under its name from before the rename; an
     /// M1 to M3 one it enrolled raw records "raw", and is updated to the
     /// unpadded boot object.
     static func records(
@@ -183,10 +187,12 @@
       guard mode == NativeRecoveryBootMode(executeWindow: binding.executeWindow) else {
         throw NativeStage1UpdateError.wrongBootMode
       }
+      // Either name: installations made before the rename name the old Stage 2 directory.
       let paths =
         mode == .standard
-        ? [AuraStage1Format.standardStage2Path]
-        : [AuraStage1Format.confinedStage2Path, AuraStage1Format.standardStage2Path]
+        ? AuraStage1Format.acceptedStage2Paths(executeWindow: false)
+        : AuraStage1Format.acceptedStage2Paths(executeWindow: true)
+          + AuraStage1Format.acceptedStage2Paths(executeWindow: false)
       guard paths.contains(path) else { throw NativeStage1UpdateError.changedInstallation }
       guard let payloads = try? JSONSerialization.jsonObject(with: manifest) as? [String: Any],
         payloads["schema"] as? Int == 2,
@@ -239,7 +245,7 @@
     /// The new Stage 1 loads `path`, which only the distribution writes.
     static func requireStage2(bytes: Int?, path: String) throws {
       let limit =
-        path == AuraStage1Format.confinedStage2Path ? Int(ExecuteWindow.auraSlot) : 64 << 20
+        AuraStage1Format.isConfinedStage2Path(path) ? Int(ExecuteWindow.auraSlot) : 64 << 20
       guard let bytes, bytes > 0, bytes <= limit else {
         throw NativeStage1UpdateError.missingStage2(path: path)
       }
@@ -508,7 +514,6 @@
           metadata: metadata, archive: archive, device: approved.deviceIdentifier,
           firmware: firmware.version.components(separatedBy: " ")[0], executeWindow: executeWindow)
       else { throw NativeStage1UpdateError.unsupportedStage1 }
-      let candidate = try NativeStage1UpdateCandidate(plan: plan, espUUID: target.esp.uuid)
 
       let mounts = NativeHandoffMounts(environment)
       let systemURL = try mounts.mounted(volumes.system.identifier, uuid: volumes.system.uuid)
@@ -525,6 +530,19 @@
         // Missing or unreadable records aren't an installation this can update.
         throw NativeStage1UpdateError.changedInstallation
       }
+      // The new Stage 1 needs its Stage 2 on the ESP, written by the distribution.
+      let espURL = try mounts.mounted(
+        target.esp.identifier, uuid: target.esp.uuid, key: "DiskUUID")
+      let esp = try NativeHandoffFileTree(
+        espURL, protected: false, owner: owner, volumeRoot: true,
+        volumeDevice: target.esp.identifier, verifyMount: environment.verifyMount)
+      // An installation from before the rename keeps loading Stage 2 from the old
+      // directory until its distribution writes one under the current name.
+      let current = (try? esp.read(plan.stage2Path, maximum: 64 << 20).count) ?? 0
+      let candidate = try NativeStage1UpdateCandidate(
+        plan: AuraLegacyNames.isLegacyStage2Path(records.stage2Path) && current == 0
+          ? plan.keepingLegacyStage2Directory() : plan,
+        espUUID: target.esp.uuid)
       let decision = NativeStage1Update.decide(candidate, records: records)
       if decision == .unchanged {
         InstallerLog.progress("The boot loader is already up to date. Nothing was changed.")
@@ -532,12 +550,6 @@
           base, planDigest: approved.planDigest, staged: nil)
       }
 
-      // The new Stage 1 needs its Stage 2 on the ESP, written by the distribution.
-      let espURL = try mounts.mounted(
-        target.esp.identifier, uuid: target.esp.uuid, key: "DiskUUID")
-      let esp = try NativeHandoffFileTree(
-        espURL, protected: false, owner: owner, volumeRoot: true,
-        volumeDevice: target.esp.identifier, verifyMount: environment.verifyMount)
       try NativeStage1Update.requireStage2(
         bytes: try? esp.read(candidate.stage2Path, maximum: 64 << 20).count,
         path: candidate.stage2Path)

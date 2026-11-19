@@ -119,7 +119,7 @@
     }
 
     /// The same ESP with a working FAT: the root directory, `bootBin` at
-    /// m1n1/boot.bin when given, and `used` more allocated clusters.
+    /// aurora/boot.bin when given, and `used` more allocated clusters.
     static func formatted(used: Int, bootBin: Data? = nil) -> Data {
       var bytes = image(serial: 0x4866_D833, dirty: false)
       func link(_ cluster: Int, to value: UInt32) {
@@ -142,7 +142,7 @@
       link(2, to: 0x0FFF_FFFF)
       var next = 3
       if let bootBin {
-        entry("M1N1       ", directory: true, first: 3, size: 0, at: data(2))
+        entry("AURORA     ", directory: true, first: 3, size: 0, at: data(2))
         link(3, to: 0x0FFF_FFFF)
         entry("BOOT    BIN", directory: false, first: 4, size: bootBin.count, at: data(3))
         let clusters = max(1, (bootBin.count + 4095) / 4096)
@@ -450,7 +450,7 @@
           image.subdata(in: Int(offset)..<Int(offset) + count)
         }
       }
-      let boot = try XCTUnwrap(files.first { $0.path == "m1n1/boot.bin" }).bytes
+      let boot = try XCTUnwrap(files.first { $0.path == "aurora/boot.bin" }).bytes
       let same = try volume(Self.formatted(used: 0, bootBin: boot))
       let other = try volume(Self.formatted(used: 0, bootBin: boot + Data([0])))
       XCTAssertEqual(

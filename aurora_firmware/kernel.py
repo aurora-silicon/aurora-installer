@@ -5,7 +5,7 @@ from .core import FWFile
 from .asmedia import extract_asmedia
 from . import prores
 
-log = logging.getLogger("asahi_firmware.kernel")
+log = logging.getLogger("aurora_firmware.kernel")
 
 class KernelFWCollection(object):
     def __init__(self, source_path, machine=None):

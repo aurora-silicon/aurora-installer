@@ -74,7 +74,7 @@
       await session.install(into: .freeSpace(offsetBytes: 12_345))
       await session.install(into: .shrink(sourceIdentifier: "disk0s5"))
       XCTAssertEqual(environment.prepareCount, 0)
-      // Asahi has no Reset.
+      // The other Linux installation has no Reset.
       XCTAssertFalse(session.canReset("disk0s5"))
       await session.reset("disk0s5")
       XCTAssertEqual(environment.preservedPrepareCount, 0)

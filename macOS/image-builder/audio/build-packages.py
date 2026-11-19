@@ -8,11 +8,16 @@ import shutil
 import struct
 import subprocess
 
-PINS = {
-    'speakerguardd': 'e03febfe52a540e9255036a01e18030e0a5135f9',
-    'asahi-audio': 'b2da7512e9bfcd5837355d2393f3c43219acf6b9',
-    'alsa-ucm-conf-asahi': 'e55107ad9ba220a2772dbe4d55438cd1ec669288',
+# Package name: (source repository under github.com/aurora-silicon, pinned commit).
+# Two repositories still carry their names from before the aurora rename.
+SOURCES = {
+    'speakerguardd': ('speakerguardd', 'e03febfe52a540e9255036a01e18030e0a5135f9'),
+    'aurora-audio': ('asahi-audio', 'b2da7512e9bfcd5837355d2393f3c43219acf6b9'),
+    'alsa-ucm-conf-aurora': ('alsa-ucm-conf-asahi', 'e55107ad9ba220a2772dbe4d55438cd1ec669288'),
 }
+PINS = {name: commit for name, (_, commit) in SOURCES.items()}
+# LEGACY-ASAHI(2027-02-28): package names these replace on existing images.
+REPLACES = {'aurora-audio': 'asahi-audio', 'alsa-ucm-conf-aurora': 'alsa-ucm-conf-asahi'}
 
 
 def sha(path):
@@ -52,15 +57,18 @@ def main():
         inventory = {str(p.relative_to(root)): sha(p) for p in sorted(root.rglob('*')) if p.is_file()}
         doc = root / 'usr/share/doc' / name / 'aurora-build.json'
         doc.parent.mkdir(parents=True, exist_ok=True)
-        doc.write_text(json.dumps({'repository': 'https://github.com/aurora-silicon/' + name,
+        repository = 'https://github.com/aurora-silicon/' + SOURCES[name][0]
+        doc.write_text(json.dumps({'repository': repository,
                                    'commit': PINS[name], 'files': inventory}, indent=2) + '\n')
         info = [f'pkgname = {name}', f'pkgbase = {name}', f'pkgver = {version}',
                 f'pkgdesc = Aurora Apple Silicon audio: {name}',
-                f'url = https://github.com/aurora-silicon/{name}', f'builddate = {stamp}',
+                f'url = {repository}', f'builddate = {stamp}',
                 'packager = Aurora Silicon', 'arch = aarch64',
-                'license = BSD' if name == 'alsa-ucm-conf-asahi' else 'license = MIT',
+                'license = BSD' if name == 'alsa-ucm-conf-aurora' else 'license = MIT',
                 f'size = {sum(p.stat().st_size for p in root.rglob("*") if p.is_file())}',
-                *['depend = ' + dep for dep in dependencies]]
+                *['depend = ' + dep for dep in dependencies],
+                *[f'{field} = {REPLACES[name]}' for field in ('provides', 'conflict', 'replaces')
+                  if name in REPLACES]]
         (root / '.PKGINFO').write_text('\n'.join(info) + '\n')
         archive = output / f'{name}-{version}-aarch64.pkg.tar.zst'
         subprocess.run(['tar', '--sort=name', '--owner=0', '--group=0', '--numeric-owner',
@@ -103,19 +111,20 @@ def main():
     drop.write_text('[Service]\nExecCondition=/usr/lib/speakerguardd/use-feedback-guard\n')
     package('speakerguardd', '0.1.0.aurora2-' + PINS['speakerguardd'][:12], root, ['glibc', 'libgcc'])
 
-    root = stage / 'alsa-ucm-conf-asahi'
-    shutil.copytree(sources['alsa-ucm-conf-asahi'] / 'ucm2', root / 'usr/share/alsa/ucm2')
-    install(sources['alsa-ucm-conf-asahi'] / 'LICENSE.asahi', root,
-            'usr/share/licenses/alsa-ucm-conf-asahi/LICENSE.asahi')
-    package('alsa-ucm-conf-asahi', '10.aurora1-' + PINS['alsa-ucm-conf-asahi'][:12], root,
+    root = stage / 'alsa-ucm-conf-aurora'
+    shutil.copytree(sources['alsa-ucm-conf-aurora'] / 'ucm2', root / 'usr/share/alsa/ucm2')
+    # The upstream licence file keeps its name in the source repository.
+    licence = sorted(sources['alsa-ucm-conf-aurora'].glob('LICENSE.*'))[0]
+    install(licence, root, 'usr/share/licenses/alsa-ucm-conf-aurora/' + licence.name)
+    package('alsa-ucm-conf-aurora', '10.aurora1-' + PINS['alsa-ucm-conf-aurora'][:12], root,
             ['alsa-ucm-conf'])
 
-    root = stage / 'asahi-audio'
-    subprocess.run(['make', '-C', str(sources['asahi-audio']), 'install',
+    root = stage / 'aurora-audio'
+    subprocess.run(['make', '-C', str(sources['aurora-audio']), 'install',
                     'DESTDIR=' + str(root), 'PREFIX=/usr'], check=True)
-    install(sources['asahi-audio'] / 'LICENSE', root, 'usr/share/licenses/asahi-audio/LICENSE')
-    package('asahi-audio', '4.1.aurora1-' + PINS['asahi-audio'][:12], root,
-            ['alsa-ucm-conf-asahi', 'pipewire-audio', 'wireplumber', 'bankstown',
+    install(sources['aurora-audio'] / 'LICENSE', root, 'usr/share/licenses/aurora-audio/LICENSE')
+    package('aurora-audio', '4.1.aurora1-' + PINS['aurora-audio'][:12], root,
+            ['alsa-ucm-conf-aurora', 'pipewire-audio', 'wireplumber', 'bankstown',
              'lsp-plugins-lv2', 'speakersafetyd', 'speakerguardd'])
     (output / 'manifest.json').write_text(json.dumps(records, indent=2) + '\n')
     print(json.dumps(records, indent=2))

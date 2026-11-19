@@ -54,7 +54,7 @@ import hashlib, json, logging, os, plistlib, re, shutil, stat, subprocess, sys
 from . import buzzkill_matrix, lsm2_fill, lsm2_lattice
 from .core import FWFile
 
-log = logging.getLogger("asahi_firmware.audio_tuning")
+log = logging.getLogger("aurora_firmware.audio_tuning")
 
 TUNINGS_ROOT = "/System/Library/Audio/Tunings"
 PACKAGE_PREFIX = "apple/audio-tuning/"
@@ -525,7 +525,7 @@ class OfflineMac(object):
     `ioreg -p IODeviceTree` shows on macOS. The build is the volume's
     SystemVersion.plist ProductBuildVersion (`kern.osversion` on macOS).
     The speaker ID (the IORegistry `speakerID`) has no ADT source: it is
-    taken from the Linux device tree's `/chosen/asahi,speaker-id` when the
+    taken from the Linux device tree's `/chosen/aurora,speaker-id` when the
     boot chain exports it, else unknown, as on macOS when it is missing."""
 
     def __init__(self, adt_bytes, macos_root, speaker_id=None):

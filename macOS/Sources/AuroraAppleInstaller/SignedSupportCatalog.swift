@@ -10,9 +10,9 @@ public struct PinnedInstallerRecord: Equatable, Sendable {
   public let deviceIdentifier: String
   public let operation: String
   public let installationProfile: String?
-  public let asahiInstallerTag: String
-  public let asahiInstallerRevision: String
-  public let asahiInstallerDataRevision: String
+  public let engineInstallerTag: String
+  public let engineInstallerRevision: String
+  public let engineInstallerDataRevision: String
   public let downstreamRevision: String
   public let engineVersion: String?
   public let engineDigest: String
@@ -26,9 +26,9 @@ public struct PinnedInstallerRecord: Equatable, Sendable {
     deviceIdentifier: String,
     operation: String = "install",
     installationProfile: String? = nil,
-    asahiInstallerTag: String,
-    asahiInstallerRevision: String,
-    asahiInstallerDataRevision: String,
+    engineInstallerTag: String,
+    engineInstallerRevision: String,
+    engineInstallerDataRevision: String,
     downstreamRevision: String,
     engineVersion: String?,
     engineDigest: String,
@@ -41,9 +41,9 @@ public struct PinnedInstallerRecord: Equatable, Sendable {
     self.deviceIdentifier = deviceIdentifier
     self.operation = operation
     self.installationProfile = installationProfile
-    self.asahiInstallerTag = asahiInstallerTag
-    self.asahiInstallerRevision = asahiInstallerRevision
-    self.asahiInstallerDataRevision = asahiInstallerDataRevision
+    self.engineInstallerTag = engineInstallerTag
+    self.engineInstallerRevision = engineInstallerRevision
+    self.engineInstallerDataRevision = engineInstallerDataRevision
     self.downstreamRevision = downstreamRevision
     self.engineVersion = engineVersion
     self.engineDigest = engineDigest
@@ -200,8 +200,8 @@ struct SignedSupportCatalogVerifier: Sendable {
       guard isDeviceIdentifier(model.deviceIdentifier) else {
         throw SupportCatalogError.invalidField("models[\(index)].deviceIdentifier")
       }
-      guard isSemanticVersionTag(model.asahiInstallerTag) else {
-        throw SupportCatalogError.invalidField("models[\(index)].asahiInstallerTag")
+      guard isSemanticVersionTag(model.engineInstallerTag) else {
+        throw SupportCatalogError.invalidField("models[\(index)].engineInstallerTag")
       }
       // Schema 5 names no engine: every model runs the built-in native one.
       guard model.engineDigest == nil, model.engineVersion == nil,
@@ -214,14 +214,14 @@ struct SignedSupportCatalogVerifier: Sendable {
       guard SHA256Digest(rawValue: model.payloadDigest) != nil else {
         throw SupportCatalogError.invalidField("models[\(index)].payloadDigest")
       }
-      guard isGitRevision(model.asahiInstallerRevision) else {
+      guard isGitRevision(model.engineInstallerRevision) else {
         throw SupportCatalogError.invalidField(
-          "models[\(index)].asahiInstallerRevision"
+          "models[\(index)].engineInstallerRevision"
         )
       }
-      guard isGitRevision(model.asahiInstallerDataRevision) else {
+      guard isGitRevision(model.engineInstallerDataRevision) else {
         throw SupportCatalogError.invalidField(
-          "models[\(index)].asahiInstallerDataRevision"
+          "models[\(index)].engineInstallerDataRevision"
         )
       }
       guard isGitRevision(model.downstreamRevision) else {
@@ -250,9 +250,9 @@ struct SignedSupportCatalogVerifier: Sendable {
         deviceIdentifier: model.deviceIdentifier,
         operation: "install",
         installationProfile: model.installationProfile,
-        asahiInstallerTag: model.asahiInstallerTag,
-        asahiInstallerRevision: model.asahiInstallerRevision,
-        asahiInstallerDataRevision: model.asahiInstallerDataRevision,
+        engineInstallerTag: model.engineInstallerTag,
+        engineInstallerRevision: model.engineInstallerRevision,
+        engineInstallerDataRevision: model.engineInstallerDataRevision,
         downstreamRevision: model.downstreamRevision,
         engineVersion: NativeExecutionIdentity.version,
         engineDigest: NativeExecutionIdentity.digest,
@@ -406,9 +406,12 @@ private struct ModelRecord: Decodable {
   let status: ModelStatus
   let operation: String?
   let installationProfile: String?
-  let asahiInstallerTag: String
-  let asahiInstallerRevision: String
-  let asahiInstallerDataRevision: String
+  private let currentInstallerTag: String?
+  private let currentInstallerRevision: String?
+  private let currentInstallerDataRevision: String?
+  private let legacyInstallerTag: String?
+  private let legacyInstallerRevision: String?
+  private let legacyInstallerDataRevision: String?
   let downstreamRevision: String
   let engineVersion: String?
   let engineDigest: String?
@@ -420,6 +423,30 @@ private struct ModelRecord: Decodable {
   let metadataArtifact: ModelArtifactRecord?
   let payloadArtifact: ModelArtifactRecord?
   let repairManifestArtifact: ModelArtifactRecord?
+
+  /// The installer engine release a model was qualified with. Catalogs signed
+  /// before the field was renamed carry it under the legacy keys.
+  var engineInstallerTag: String { currentInstallerTag ?? legacyInstallerTag ?? "" }
+  var engineInstallerRevision: String {
+    currentInstallerRevision ?? legacyInstallerRevision ?? ""
+  }
+  var engineInstallerDataRevision: String {
+    currentInstallerDataRevision ?? legacyInstallerDataRevision ?? ""
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case deviceIdentifier, status, operation, installationProfile
+    case currentInstallerTag = "engineInstallerTag"
+    case currentInstallerRevision = "engineInstallerRevision"
+    case currentInstallerDataRevision = "engineInstallerDataRevision"
+    // LEGACY-ASAHI(2027-02-28): the keys catalogs used before the rename.
+    case legacyInstallerTag = "asahiInstallerTag"
+    case legacyInstallerRevision = "asahiInstallerRevision"
+    case legacyInstallerDataRevision = "asahiInstallerDataRevision"
+    case downstreamRevision, engineVersion, engineDigest, metadataDigest, payloadDigest
+    case repairManifestDigest, evidenceRevision, engineArtifact, metadataArtifact
+    case payloadArtifact, repairManifestArtifact
+  }
 }
 
 private struct ModelArtifactRecord: Decodable {

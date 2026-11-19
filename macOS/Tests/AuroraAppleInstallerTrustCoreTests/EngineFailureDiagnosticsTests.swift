@@ -27,7 +27,7 @@
         curl -H 'Bearer abcdefgh12345678'
         ok=1
         value b'\\x00secret-bytes' and b"other"
-        AsahiAdapterError: machine owner password is invalid
+        EngineAdapterError: machine owner password is invalid
 
         """.utf8)
       let redacted = EngineStandardErrorRedactor.redact(raw, truncated: false, secrets: [])

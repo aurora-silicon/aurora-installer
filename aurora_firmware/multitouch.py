@@ -4,7 +4,7 @@ import plistlib, base64, struct, os, logging
 from .img4 import img4p_extract
 from .core import FWFile
 
-log = logging.getLogger("asahi_firmware.multitouch")
+log = logging.getLogger("aurora_firmware.multitouch")
 
 def load_plist_xml(d):
     root = ET.fromstring(d.decode("ascii"))
@@ -199,7 +199,7 @@ class MultitouchFWCollection(object):
 
     def load(self, source_path):
         if not os.path.exists(source_path):
-            #log.warning("fud_firmware is missing. You may need to update your stub with the Asahi Linux installer for Touch Bar functionality.")
+            #log.warning("fud_firmware is missing. You may need to update your stub with the Aurora installer for Touch Bar functionality.")
             return
 
         for fname in os.listdir(source_path):

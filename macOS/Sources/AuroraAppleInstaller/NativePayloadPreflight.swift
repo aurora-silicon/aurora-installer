@@ -65,10 +65,10 @@
         filesystem = contract.1
       }
       guard template["package"] as? String == payloadName,
-        // aura.bin names aura's Stage 1; payloads made before aura name it
-        // m1n1.bin. The native engine reads Stage 1 from the payload's ESP.
-        ["aura.bin", "m1n1.bin"].contains(template["boot_object"] as? String ?? ""),
-        template["next_object"] as? String == "m1n1/boot.bin",
+        // aura.bin names aura's Stage 1; the native engine reads Stage 1
+        // from the payload's ESP.
+        template["boot_object"] as? String == "aura.bin",
+        template["next_object"] as? String == AuraStage1Format.standardStage2Path,
         template["icon"] as? String == icon
       else { throw NativePayloadPreflightError.invalidMetadata }
       if let mode = template["recovery_gui"], !(mode is NSNull),
@@ -94,7 +94,7 @@
       else { throw NativePayloadPreflightError.invalidPartitions }
       try await archive.validateEntries()
       let members = Dictionary(uniqueKeysWithValues: archive.members.map { ($0.name, $0) })
-      for name in ["boot.img", "root.img", "esp/m1n1/boot.bin", "esp/EFI/BOOT/BOOTAA64.EFI", icon] {
+      for name in ["boot.img", "root.img", "esp/" + AuraStage1Format.standardStage2Path, "esp/EFI/BOOT/BOOTAA64.EFI", icon] {
         guard let member = members[name], !member.isDirectory, member.sizeBytes > 0 else {
           throw NativePayloadPreflightError.invalidPayload
         }

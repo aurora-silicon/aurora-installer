@@ -45,13 +45,13 @@ import Foundation
         precondition(mode.executeWindowSize == 128 << 20)
         precondition(arguments == ["configure-boot", "-c", stage1, "-v", volume, "--compress"])
         precondition(
-          AuraStage1Format.stage2Path(executeWindow: mode == .macho) == "m1n1/boot-ctxr.bin")
+          AuraStage1Format.stage2Path(executeWindow: mode == .macho) == "aurora/boot-ctxr.bin")
       } else {
         // M1 to M3: the same object unpadded, as kmutil takes any boot object, loading boot.bin.
         precondition(mode == .standard, String(chip, radix: 16))
         precondition(mode.executeWindowSize == nil)
         precondition(arguments == ["configure-boot", "-c", stage1, "-v", volume])
-        precondition(AuraStage1Format.stage2Path(executeWindow: mode == .macho) == "m1n1/boot.bin")
+        precondition(AuraStage1Format.stage2Path(executeWindow: mode == .macho) == "aurora/boot.bin")
       }
     }
     // The payload keeps one Stage 2 under one name; the configuration says where it goes.
@@ -70,8 +70,19 @@ import Foundation
     precondition(legacy.mode == .standard)
     let encoded = try JSONEncoder().encode(BootSelection(mode: .standard))
     precondition(String(decoding: encoded, as: UTF8.self) == #"{"mode":"macho-standard"}"#)
-    precondition(AuraStage1Format.stage2Path(executeWindow: true) == "m1n1/boot-ctxr.bin")
-    precondition(AuraStage1Format.stage2Path(executeWindow: false) == "m1n1/boot.bin")
+    precondition(AuraStage1Format.stage2Path(executeWindow: true) == "aurora/boot-ctxr.bin")
+    precondition(AuraStage1Format.stage2Path(executeWindow: false) == "aurora/boot.bin")
+    // Installations made before the rename name the old Stage 2 directory; they
+    // are accepted for their mode, never chosen.
+    for executeWindow in [false, true] {
+      let current = AuraStage1Format.stage2Path(executeWindow: executeWindow)
+      let legacy = AuraLegacyNames.stage2Path(current)
+      precondition(legacy != current && AuraLegacyNames.isLegacyStage2Path(legacy))
+      precondition(AuraStage1Format.acceptedStage2Paths(executeWindow: executeWindow) == [current, legacy])
+      precondition(AuraStage1Format.isStage2Path(legacy, executeWindow: executeWindow))
+      precondition(!AuraStage1Format.isStage2Path(legacy, executeWindow: !executeWindow))
+      precondition(AuraLegacyNames.currentStage2Path(legacy) == current)
+    }
     print(
       "PASS no mode or chip enrolls a raw image; M4 and later pad and compress, M1 to M3 enroll the unpadded object; recorded raw reads as unpadded; Stage 2 path per mode; paths with spaces; JSON round trip"
     )

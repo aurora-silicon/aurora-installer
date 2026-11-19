@@ -209,7 +209,7 @@
       let fatOffsets: [Int]
       /// Where each top-level entry's 8.3 record is.
       let records: [String: Int]
-      /// Each entry's first cluster, by its path ("m1n1/boot.bin").
+      /// Each entry's first cluster, by its path ("aurora/boot.bin").
       let firstCluster: [String: UInt32]
 
       mutating func setFAT(_ cluster: UInt32, _ value: UInt32) {

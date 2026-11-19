@@ -26,13 +26,13 @@
       let stubBytes: UInt64
       /// Where the installation's Root partition ends.
       let endOffset: UInt64
-      /// `asahi/stub_info.json` on the EFI partition: the build the current
+      /// `aurora/stub_info.json` on the EFI partition: the build the current
       /// vendor firmware came from. Nil when the file is missing or unreadable.
       let build: String?
       let version: String?
 
       /// Reads the `manifest_info.build_number` and `system_version` fields
-      /// an installer wrote to `asahi/stub_info.json`.
+      /// an installer wrote to `aurora/stub_info.json`.
       static func stubInfo(_ data: Data?) -> (build: String?, version: String?) {
         guard let data, data.count <= 1 << 20,
           let info = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -238,7 +238,7 @@
     }
 
     /// `slots.json`: firmware version Linux reads from the device tree
-    /// (`chosen/asahi,os-fw-version`) to the slot build whose files it loads.
+    /// (`chosen/aurora,os-fw-version`) to the slot build whose files it loads.
     static func slotIndex(existing: Data?, version: String, build: String) throws -> Data {
       var index = [String: String]()
       if let existing {

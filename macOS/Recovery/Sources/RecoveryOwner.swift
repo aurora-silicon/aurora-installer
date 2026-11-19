@@ -73,7 +73,7 @@ enum RecoveryOwnerResolver {
     guard expected == current else { throw RecoveryOwnerError.changed }
   }
 
-  // Asahi's initial stub has copied administrator metadata but no local APFS
+  // The engine's initial stub has copied administrator metadata but no local APFS
   // users. Its existing macOS owner can authorize that bootstrap. Bind this
   // explicitly to the source recorded by stage 1, never to the Recovery login.
   static func resolve(
