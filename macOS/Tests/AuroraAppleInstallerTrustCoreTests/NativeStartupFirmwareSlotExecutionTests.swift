@@ -5,6 +5,10 @@
   @testable import AuroraAppleInstallerTrustCore
 
   final class NativeStartupFirmwareSlotExecutionTests: XCTestCase {
+    private struct NoPlan: Error, CustomStringConvertible {
+      let decision: String
+      var description: String { "Expected a slot to be created, got \(decision)" }
+    }
     private typealias Slot = NativeStartupFirmwareSlot
     private let gib: UInt64 = 1 << 30
     private let esp = "A1B2C3D4-0000-4000-8000-000000000001"
@@ -30,10 +34,13 @@
       let space = Slot.Space(
         free: shrink ? [] : [.init(offset: 300 * gib, size: 20 * gib)],
         macOSShrinkableBytes: 100 * gib)
-      guard
-        case .create(let plan) = try Slot.decide(
-          installation: installation, slots: [], target: target, space: space)
-      else { throw XCTSkip("no plan") }
+      let decision = try Slot.decide(
+        installation: installation, slots: [], target: target, space: space)
+      guard case .create(let plan) = decision else {
+        // Every test here starts from this plan; a decision that stops
+        // creating one is the regression they guard, so it fails them.
+        throw NoPlan(decision: "\(decision)")
+      }
       return plan
     }
 
