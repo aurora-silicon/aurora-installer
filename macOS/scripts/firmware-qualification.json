@@ -6,7 +6,22 @@
       "source_url": "https://updates.cdn-apple.com/2026FallFCS/c9671975-52db-4fb5-9af2-00217169ba8d/UniversalMac_27.2_26B123_Restore.ipsw",
       "source_bytes": 25595669503,
       "manifest_sha256": "sha256:0fbfae04175cde81ef36d273aa280d39ffe5a54eacba8494b45a59daca462510",
-      "boards": {},
+      "boards": {
+        "j615": {
+          "kernel": "lab bring-up only: integration/aurora with aurora-silicon/linux#2147 (GPU on 7.3) and aura#227 (macOS 27.2 DCP and ISP on M1-M3) in the payload's Stage 2",
+          "distributions": [
+            "lab branch lab/fw272-airs, not released"
+          ],
+          "evidence": "https://github.com/aurora-silicon/aura/pull/227"
+        },
+        "j713": {
+          "kernel": "lab bring-up only: integration/aurora with the J713 display, GPU and NVMe hand-off changes (aurora-silicon/linux#2189, aura#299, aura#305)",
+          "distributions": [
+            "lab branch lab/fw272-airs, not released"
+          ],
+          "evidence": "https://github.com/aurora-silicon/aura/pull/305"
+        }
+      },
       "experimental_boards": {
         "j714c": {
           "device_tree": "arch/arm64/boot/dts/apple/t6050-j714c.dts",

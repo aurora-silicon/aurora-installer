@@ -60,11 +60,26 @@
       XCTAssertEqual(entry.minimumBoot, "mBoot-20457.41.3")
       XCTAssertEqual(entry.minimumMacOS, "27.2")
       XCTAssertEqual(
-        entry.models, ["j714c", "j714s", "j716c", "j716s", "j775c", "j775d", "j873s"])
+        entry.models,
+        ["j615", "j713", "j714c", "j714s", "j716c", "j716s", "j775c", "j775d", "j873s"])
       // It is last, so it wins wherever a board qualifies for it.
       XCTAssertEqual(sealed.firmware.last?.pin?.build, Self.build)
       // Experimental T6050 admission does not change the M2 firmware choice.
       XCTAssertEqual(try choose("apple,j413", air272, policy: sealed).version, "13.5")
+    }
+
+    func testJ615AndJ713OnMacOS272TakeTheSealedPin() throws {
+      let sealed = try NativeInspectionPolicy.sealed()
+      let boards: [(String, UInt64)] = [("apple,j615", 0x8122), ("apple,j713", 0x8132)]
+      for (board, chip) in boards {
+        let mac = NativeInspectionHardware(
+          chipID: chip, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2",
+          recoveryVersion: "26.2.123.0.0,0")
+        let selection = try choose(board, mac, policy: sealed)
+        XCTAssertEqual(selection.version, "27.2", board)
+        XCTAssertEqual(selection.pin?.build, Self.build, board)
+        XCTAssertEqual(selection.stubBytes, 5_999_951_872, board)
+      }
     }
 
     func testAQualifiedBoardOnMacOS272TakesThePinnedImage() throws {
