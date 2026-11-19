@@ -1,5 +1,6 @@
 #if os(macOS)
   import Foundation
+  import RecoveryAccountCore
 
   /// What removal found between macOS and Apple Recovery. Recognition is by
   /// structure; names are only reported. Files on the installation then have
@@ -15,7 +16,7 @@
 
     static let minimumFreeSpace: UInt64 = 1 << 30
     static let memberGap: UInt64 = 16 << 20
-    // asahi-installer's STUB_SIZE is 2,499,805,184 bytes; a stub on macOS 26
+    // The installer engine's STUB_SIZE is 2,499,805,184 bytes; a stub on macOS 26
     // firmware (the MacBook Neo) is 5,999,951,872.
     static let stubSizes: [ClosedRange<UInt64>] = [
       2_300_000_000...2_700_000_000, 5_800_000_000...6_200_000_000,
@@ -168,7 +169,7 @@
     let installerRecord: RemovalInstallerRecord
     let stubHasLibrary: Bool
     let stubBootObject: SHA256Digest?
-    /// aura or legacy m1n1, from the startup container boot object's version marker.
+    /// aura or the loader before it, from the startup container boot object's version marker.
     let stubBootLoader: BootLoaderVersion?
     let stubEFIPartitions: [String]?
 
@@ -190,20 +191,20 @@
 
     /// nil when every check passes; otherwise the first check that failed, as a phrase.
     func problem(for installation: RemovalInstallation) -> String? {
-      guard espBootObject != nil else { return "its EFI partition has no m1n1/boot.bin" }
+      guard espBootObject != nil else { return "its EFI partition has no aurora/boot.bin" }
       guard stubInfo != nil, let stubVolumeGroup else {
-        return "its EFI partition has no readable asahi/stub_info.json"
+        return "its EFI partition has no readable aurora/stub_info.json"
       }
       guard stubVolumeGroup == installation.system.group else {
         return
-          "the asahi/stub_info.json on its EFI partition names a different startup container"
+          "the aurora/stub_info.json on its EFI partition names a different startup container"
       }
       switch installerRecord {
       case .missing:
-        return "its EFI partition has no installer record (asahi/installer.log)"
+        return "its EFI partition has no installer record (aurora/installer.log)"
       case .unreadable:
         return
-          "the installer record on its EFI partition (asahi/installer.log) has entries that couldn’t be read"
+          "the installer record on its EFI partition (aurora/installer.log) has entries that couldn’t be read"
       case .partitions(let created):
         let found = installation.members.map {
           RemovalCreatedPartition(uuid: $0.uuid, type: $0.type)
@@ -230,13 +231,13 @@
       }
       guard !stubHasLibrary else {
         return
-          "its startup container holds a full system (a Library folder), unlike a startup container made by the Asahi installer"
+          "its startup container holds a full system (a Library folder), unlike a startup container made by the installer engine"
       }
       guard stubBootObject != nil else {
         return "its startup container has no bootloader boot object (Finish Installation.app)"
       }
       guard stubBootLoader != nil else {
-        return "the boot object in its startup container isn’t aura or m1n1"
+        return "the boot object in its startup container isn’t aura or the loader before it"
       }
       guard let links = stubEFIPartitions, links.count == 1,
         let link = UUID(uuidString: links[0]), link.uuidString == installation.esp.uuid
@@ -254,8 +255,8 @@
       return uuid.uuidString
     }
 
-    /// asahi-installer logs `New partition: Partition(name=..., type=..., uuid=...)`
-    /// for every partition it adds, and copies the log to the ESP's asahi/.
+    /// The installer engine logs `New partition: Partition(name=..., type=..., uuid=...)`
+    /// for every partition it adds, and copies the log to the ESP's state directory.
     /// Any record that doesn't parse, or a repeated UUID, makes the whole log unreadable.
     static func createdPartitions(log: Data) -> [RemovalCreatedPartition]? {
       let marker = "New partition: Partition("
@@ -284,8 +285,8 @@
 
     /// The EFI partitions a startup container's bootloader chainloads. Aurora's J700
     /// Stage 1 (the MacBook Neo) names its one ESP in a versioned, CRC-checked
-    /// config block; aura and asahi's m1n1 keep variables after the first "STACKBOT" up
-    /// to the first NUL, one per line (the Asahi-derived Stage 1 variable format).
+    /// config block; aura and the loader before it keep variables after the first
+    /// "STACKBOT" up to the first NUL, one per line (the text Stage 1 variable format).
     /// nil when neither is there.
     static func efiPartitions(bootObject: Data) -> [String]? {
       if let aurora = auroraStage1Partition(bootObject: bootObject) { return [aurora] }
@@ -293,9 +294,12 @@
       let tail = bootObject[marker.upperBound...]
       let region = tail.prefix { $0 != 0 }
       guard region.count < tail.count, region.allSatisfy({ $0 < 0x80 }) else { return nil }
-      let key = "chosen.asahi,efi-system-partition="
-      return String(decoding: region, as: UTF8.self).split(separator: "\n")
-        .filter { $0.hasPrefix(key) }.map { String($0.dropFirst(key.count)) }
+      let keys = [AuraLegacyNames.currentESPProperty, AuraLegacyNames.espProperty].map {
+        "chosen.\($0)="
+      }
+      return String(decoding: region, as: UTF8.self).split(separator: "\n").compactMap { line in
+        keys.first(where: { line.hasPrefix($0) }).map { String(line.dropFirst($0.count)) }
+      }
     }
 
     /// Aurora's J700 Stage 1 config block (aurora-silicon/aura
@@ -402,10 +406,10 @@
     static func nothingFound(gap: UInt64) -> String {
       if gap == 0 {
         return
-          "No Aurora installation, or other installation made with the Asahi installer, was found, and there’s no unallocated space after macOS. Nothing was changed."
+          "No Aurora installation, or other installation made with the same installer engine, was found, and there’s no unallocated space after macOS. Nothing was changed."
       }
       return
-        "No Aurora installation, or other installation made with the Asahi installer, was found. \(size(gap)) directly after macOS is unallocated; that’s too little to return, so it was left as it is. Nothing was changed."
+        "No Aurora installation, or other installation made with the same installer engine, was found. \(size(gap)) directly after macOS is unallocated; that’s too little to return, so it was left as it is. Nothing was changed."
     }
 
     static func otherSystem(_ parts: [RemovalPartition], _ snapshot: RemovalSnapshot) -> String {
@@ -413,7 +417,7 @@
     }
 
     static func foreign(_ parts: [RemovalPartition], _ snapshot: RemovalSnapshot) -> String {
-      "Found \(parts.count == 1 ? "a partition that isn’t" : "partitions that aren’t") part of an installation made with the Asahi installer: \(list(parts, snapshot)). Removal only deletes partitions it can prove belong to one installation, so it stopped."
+      "Found \(parts.count == 1 ? "a partition that isn’t" : "partitions that aren’t") part of an installation made with the installer engine: \(list(parts, snapshot)). Removal only deletes partitions it can prove belong to one installation, so it stopped."
     }
 
     static func several(_ parts: [RemovalPartition], _ snapshot: RemovalSnapshot) -> String {
@@ -421,7 +425,7 @@
     }
 
     static func partial(_ parts: [RemovalPartition], _ snapshot: RemovalSnapshot) -> String {
-      "Found \(list(parts, snapshot)) without the startup container every installation made with the Asahi installer has. This looks like a partly removed installation, which needs a manual review."
+      "Found \(list(parts, snapshot)) without the startup container every installation made with the installer engine has. This looks like a partly removed installation, which needs a manual review."
     }
 
     static func shape(_ parts: [RemovalPartition], _ snapshot: RemovalSnapshot) -> String {

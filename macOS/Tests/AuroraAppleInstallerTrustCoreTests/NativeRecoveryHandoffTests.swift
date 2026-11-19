@@ -132,7 +132,7 @@
 
     func testHandoffLayoutKeepsTheConfinedStage2OfAPaddedMachOStage1() throws {
       // The handoff re-derives the ESP layout the installer wrote. For a padded
-      // Mach-O Stage 1 that layout has m1n1/boot-ctxr.bin; without it, the file
+      // Mach-O Stage 1 that layout has aurora/boot-ctxr.bin; without it, the file
       // the installer wrote looks foreign and the handoff refuses.
       let fixture = try NativeRecoveryHandoffFixture()
       defer { fixture.remove() }
@@ -141,14 +141,14 @@
         metadata: Data((fixture.vector["metadata"] as! String).utf8))
       let members = Set(
         (fixture.vector["espFiles"] as! [String: String]).keys.map { "esp/" + $0 }
-          + ["esp/m1n1/boot-ctxr.bin"])
+          + ["esp/aurora/boot-ctxr.bin"])
       let firmware = evidence.qualifiedCommonFirmware.first ?? "26.6.2"
       let padded = try evidence.espLayout(
         members: members, firmware: firmware, executeWindow: true)
-      XCTAssertEqual(padded["esp/m1n1/boot-ctxr.bin"], AuraStage1Format.confinedStage2Path)
-      XCTAssertEqual(padded["esp/m1n1/boot.bin"], AuraStage1Format.standardStage2Path)
+      XCTAssertEqual(padded["esp/aurora/boot-ctxr.bin"], AuraStage1Format.confinedStage2Path)
+      XCTAssertEqual(padded["esp/aurora/boot.bin"], AuraStage1Format.standardStage2Path)
       let raw = try evidence.espLayout(members: members, firmware: firmware, executeWindow: false)
-      XCTAssertNil(raw["esp/m1n1/boot-ctxr.bin"])
+      XCTAssertNil(raw["esp/aurora/boot-ctxr.bin"])
       XCTAssertFalse(raw.values.contains(AuraStage1Format.confinedStage2Path))
     }
 
@@ -292,7 +292,7 @@
           try Data("changed".utf8).write(
             to: fixture.system.appendingPathComponent(".VolumeIcon.icns"))
         case "efi":
-          try Data("changed".utf8).write(to: fixture.esp.appendingPathComponent("m1n1/boot.bin"))
+          try Data("changed".utf8).write(to: fixture.esp.appendingPathComponent("aurora/boot.bin"))
         case "root": fixture.rejectRoot = true
         case "owner": fixture.rejectOwner = true
         case "signature": fixture.rejectSignature = true
@@ -542,7 +542,7 @@
     }
 
     /// What a padded Mach-O installation leaves: the configuration naming
-    /// m1n1/boot-ctxr.bin, the file in the payload and on the ESP, and the ESP
+    /// aurora/boot-ctxr.bin, the file in the payload and on the ESP, and the ESP
     /// evidence and its checkpoint counting it.
     func writeMachOInstallation(confined: Data) throws {
       let member = "esp/" + AuraStage1Format.confinedStage2Path
@@ -571,7 +571,7 @@
         snapshot: journalSnapshot(), metadata: Data((vector["metadata"] as! String).utf8))
       let names = Set(
         (vector["espFiles"] as! [String: String]).keys.map { "esp/" + $0 }
-          + ["esp/m1n1/boot-j700.bin", "esp/m1n1/boot.bin", "esp/aurora/stage1.bin", member])
+          + ["esp/aurora/boot-j700.bin", "esp/aurora/boot.bin", "esp/aurora/stage1.bin", member])
       let layout = try evidence.espLayout(members: names, firmware: "26.6.2", executeWindow: true)
       var tree = SHA256()
       var installed: UInt64 = 0

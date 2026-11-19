@@ -394,7 +394,7 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
       """
     return Data(
       """
-      {"schemaVersion":\(pinsEngineArchive ? 4 : 5),"sequence":\(sequence),"issuedAt":"\(issued)","expiresAt":"\(expires)","models":[{"deviceIdentifier":"\(deviceIdentifier)","status":"enabled","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","metadataDigest":"sha256:\(String(repeating: "e", count: 64))","payloadDigest":"sha256:\(String(repeating: "f", count: 64))","evidenceRevision":"evidence-s3"\(engine)\(delivery)}]}
+      {"schemaVersion":\(pinsEngineArchive ? 4 : 5),"sequence":\(sequence),"issuedAt":"\(issued)","expiresAt":"\(expires)","models":[{"deviceIdentifier":"\(deviceIdentifier)","status":"enabled","engineInstallerTag":"v0.9.0","engineInstallerRevision":"\(String(repeating: "a", count: 40))","engineInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","metadataDigest":"sha256:\(String(repeating: "e", count: 64))","payloadDigest":"sha256:\(String(repeating: "f", count: 64))","evidenceRevision":"evidence-s3"\(engine)\(delivery)}]}
       """.utf8
     )
   }

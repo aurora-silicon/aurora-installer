@@ -27,7 +27,7 @@
         plan.members.map(\.uuid),
         [F.convergedInstall.stub, F.convergedInstall.esp] + F.convergedInstall.linux)
       XCTAssertEqual(
-        plan.evidence?.stubBootLoader, BootLoaderVersion(loader: .m1n1, version: "v1.5.2"))
+        plan.evidence?.stubBootLoader, BootLoaderVersion(loader: .legacy, version: "v1.5.2"))
     }
 
     func testANeoStubBootingAuraStage1IsRecognised() throws {
@@ -124,7 +124,7 @@
         plan.members.map(\.uuid),
         [F.convergedInstall.stub, F.convergedInstall.esp] + F.convergedInstall.linux)
       XCTAssertEqual(
-        plan.evidence?.stubBootLoader, BootLoaderVersion(loader: .m1n1, version: "v1.6.1"))
+        plan.evidence?.stubBootLoader, BootLoaderVersion(loader: .legacy, version: "v1.6.1"))
     }
 
     func testAuroraStage1RejectsAnotherESP() {
@@ -260,11 +260,11 @@
     func testSmallOrNoGapIsReportedAsNothingToDo() {
       assertRefusal(
         FakeRemovalDisk(F.snapshot(macOSSize: 400_000_000_000, [.free(500_000_000)]), install: nil),
-        "No Aurora installation, or other installation made with the Asahi installer, was found. 500.0 MB directly after macOS is unallocated; that’s too little to return, so it was left as it is. Nothing was changed."
+        "No Aurora installation, or other installation made with the same installer engine, was found. 500.0 MB directly after macOS is unallocated; that’s too little to return, so it was left as it is. Nothing was changed."
       )
       assertRefusal(
         FakeRemovalDisk(F.snapshot(macOSSize: 400_000_000_000, []), install: nil),
-        "No Aurora installation, or other installation made with the Asahi installer, was found, and there’s no unallocated space after macOS. Nothing was changed."
+        "No Aurora installation, or other installation made with the same installer engine, was found, and there’s no unallocated space after macOS. Nothing was changed."
       )
     }
 
@@ -273,14 +273,14 @@
     func testForeignAPFSContainerIsRefusedByName() {
       assertRefusal(
         FakeRemovalDisk(F.foreignAPFS(), install: nil),
-        "Found a partition that isn’t part of an installation made with the Asahi installer: disk0s3 (APFS container, 50.0 GB, volumes “Shared”). Removal only deletes partitions it can prove belong to one installation, so it stopped. Nothing was changed."
+        "Found a partition that isn’t part of an installation made with the installer engine: disk0s3 (APFS container, 50.0 GB, volumes “Shared”). Removal only deletes partitions it can prove belong to one installation, so it stopped. Nothing was changed."
       )
     }
 
     func testWindowsPartitionIsRefusedByName() {
       assertRefusal(
         FakeRemovalDisk(F.windows(), install: nil),
-        "Found a partition that isn’t part of an installation made with the Asahi installer: disk0s3 (Microsoft Basic Data, “BOOTCAMP”, 60.0 GB). Removal only deletes partitions it can prove belong to one installation, so it stopped. Nothing was changed."
+        "Found a partition that isn’t part of an installation made with the installer engine: disk0s3 (Microsoft Basic Data, “BOOTCAMP”, 60.0 GB). Removal only deletes partitions it can prove belong to one installation, so it stopped. Nothing was changed."
       )
     }
 
@@ -294,7 +294,7 @@
     func testFreeSpaceBehindAnotherPartitionIsRefusedAndExplained() {
       assertRefusal(
         FakeRemovalDisk(F.nonContiguousFree(), install: nil),
-        "Found disk0s3 (Linux partition, 10.0 GB) without the startup container every installation made with the Asahi installer has. This looks like a partly removed installation, which needs a manual review. 32.8 GB of unallocated space isn’t directly after macOS: disk0s3 sits between them, so macOS can’t grow into it. Nothing was changed."
+        "Found disk0s3 (Linux partition, 10.0 GB) without the startup container every installation made with the installer engine has. This looks like a partly removed installation, which needs a manual review. 32.8 GB of unallocated space isn’t directly after macOS: disk0s3 sits between them, so macOS can’t grow into it. Nothing was changed."
       )
     }
 
@@ -310,7 +310,7 @@
       let disk = FakeRemovalDisk(snapshot, install: F.alarmInstall)
       assertRefusal(
         disk,
-        "Found a partition that isn’t part of an installation made with the Asahi installer: disk0s6 (Microsoft Basic Data, “BOOTCAMP”, 60.0 GB). Removal only deletes partitions it can prove belong to one installation, so it stopped. Nothing was changed."
+        "Found a partition that isn’t part of an installation made with the installer engine: disk0s6 (Microsoft Basic Data, “BOOTCAMP”, 60.0 GB). Removal only deletes partitions it can prove belong to one installation, so it stopped. Nothing was changed."
       )
       XCTAssertEqual(disk.evidenceReads, 0)
     }
@@ -341,7 +341,7 @@
         ])
       assertRefusal(
         FakeRemovalDisk(snapshot, install: nil),
-        "Found disk0s3 (EFI partition, “EFI - ASAHI”, 524.3 MB); disk0s4 (Linux partition, 29.8 GB) without the startup container every installation made with the Asahi installer has. This looks like a partly removed installation, which needs a manual review. Nothing was changed."
+        "Found disk0s3 (EFI partition, “EFI - ASAHI”, 524.3 MB); disk0s4 (Linux partition, 29.8 GB) without the startup container every installation made with the installer engine has. This looks like a partly removed installation, which needs a manual review. Nothing was changed."
       )
     }
 
@@ -379,7 +379,7 @@
         error in
         let message = (error as? RemovalFailure)?.message ?? ""
         XCTAssertTrue(
-          message.contains("its EFI partition has no installer record (asahi/installer.log)"),
+          message.contains("its EFI partition has no installer record (aurora/installer.log)"),
           message)
       }
     }
@@ -390,7 +390,7 @@
     }
 
     /// Its own completed journal is the proof.
-    func testANativeInstallItsJournalInstalledIsRemovedWithoutAsahiFiles() throws {
+    func testANativeInstallItsJournalInstalledIsRemovedWithoutEngineFiles() throws {
       let disk = nativeInstallation()
       let binding = String(repeating: "e", count: 64)
       let journals = FakeJournals([:], installers: [F.convergedInstall.stub: binding])
@@ -427,7 +427,7 @@
     }
 
     /// An installation whose asahi files prove it never needs a journal.
-    func testAnAsahiInstallIsNotTiedToANativeJournal() throws {
+    func testAnEngineInstallIsNotTiedToANativeJournal() throws {
       let journals = FakeJournals([:], installers: [F.convergedInstall.stub: "unused"])
       let plan = try AuroraRemovalPlan(disks: FakeRemovalDisk(), journals: journals)
       XCTAssertNil(plan.nativeJournal)
@@ -544,7 +544,7 @@
         name: "")
       assertRefusal(
         FakeRemovalDisk(luks, install: F.alarmInstall),
-        "Found a partition that isn’t part of an installation made with the Asahi installer: disk0s5 (CA7D7CCB-63ED-4C53-861C-1742536059CC, 29.8 GB). Removal only deletes partitions it can prove belong to one installation, so it stopped. Nothing was changed."
+        "Found a partition that isn’t part of an installation made with the installer engine: disk0s5 (CA7D7CCB-63ED-4C53-861C-1742536059CC, 29.8 GB). Removal only deletes partitions it can prove belong to one installation, so it stopped. Nothing was changed."
       )
       let grown = F.snapshot(
         macOSSize: 400_000_000_000,
@@ -623,22 +623,22 @@
       let esp = F.alarmInstall.esp.lowercased()
       let other = F.id(77).lowercased()
       let cases: [(String, (inout RemovalInstallFiles) -> Void)] = [
-        ("its EFI partition has no m1n1/boot.bin", { $0.espBootObject = nil }),
-        ("its EFI partition has no readable asahi/stub_info.json", { $0.stubInfo = nil }),
+        ("its EFI partition has no aurora/boot.bin", { $0.espBootObject = nil }),
+        ("its EFI partition has no readable aurora/stub_info.json", { $0.stubInfo = nil }),
         (
-          "its EFI partition has no readable asahi/stub_info.json",
+          "its EFI partition has no readable aurora/stub_info.json",
           { $0.stubInfo = Data("{not json".utf8) }
         ),
         (
-          "the asahi/stub_info.json on its EFI partition names a different startup container",
+          "the aurora/stub_info.json on its EFI partition names a different startup container",
           { $0.stubInfo = Data(#"{"vgid": "\#(F.id(601))"}"#.utf8) }
         ),
         (
-          "its EFI partition has no installer record (asahi/installer.log)",
+          "its EFI partition has no installer record (aurora/installer.log)",
           { $0.installerLog = nil }
         ),
         (
-          "the installer record on its EFI partition (asahi/installer.log) has entries that couldn’t be read",
+          "the installer record on its EFI partition (aurora/installer.log) has entries that couldn’t be read",
           { $0.installerLog?.append(Data("\nINFO New partition: Partition(name='disk0s9'".utf8)) }
         ),
         (
@@ -651,7 +651,7 @@
           }
         ),
         (
-          "its startup container holds a full system (a Library folder), unlike a startup container made by the Asahi installer",
+          "its startup container holds a full system (a Library folder), unlike a startup container made by the installer engine",
           { $0.stubHasLibrary = true }
         ),
         (
@@ -659,24 +659,24 @@
           { $0.stubBootObject = nil }
         ),
         (
-          "the boot object in its startup container isn’t aura or m1n1",
+          "the boot object in its startup container isn’t aura or the loader before it",
           {
             $0.stubBootObject = Data(
-              "kernel STACKBOT chosen.asahi,efi-system-partition=\(esp)\n\0".utf8)
+              "kernel STACKBOT chosen.aurora,efi-system-partition=\(esp)\n\0".utf8)
           }
         ),
         (
           "the bootloader in its startup container doesn’t point to this EFI partition",
           {
             $0.stubBootObject = Data(
-              "##m1n1_ver##1\0STACKBOTchosen.asahi,efi-system-partition=\(other)\n\0".utf8)
+              "##m1n1_ver##1\0STACKBOTchosen.aurora,efi-system-partition=\(other)\n\0".utf8)
           }
         ),
         (
           "the bootloader in its startup container doesn’t point to this EFI partition",
           {
             $0.stubBootObject = Data(
-              "##m1n1_ver##1\0STACKBOTchosen.asahi,efi-system-partition=\(esp)\nchosen.asahi,efi-system-partition=\(esp)\n\0"
+              "##m1n1_ver##1\0STACKBOTchosen.aurora,efi-system-partition=\(esp)\nchosen.aurora,efi-system-partition=\(esp)\n\0"
                 .utf8)
           }
         ),
@@ -684,7 +684,7 @@
           "the bootloader in its startup container doesn’t point to this EFI partition",
           {
             $0.stubBootObject = Data(
-              "##m1n1_ver##1\0STACKBOTchosen.asahi,efi-system-partition=\(esp)".utf8)
+              "##m1n1_ver##1\0STACKBOTchosen.aurora,efi-system-partition=\(esp)".utf8)
           }
         ),
       ]

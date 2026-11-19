@@ -67,7 +67,7 @@ The table is found by its structure alone, with no offset, hash or symbol. For e
 
 Each slice must hold exactly one accepted candidate, and all slices the same 800 bytes. No table, two tables, a malformed component, a missing component or slices that disagree fail the collection, which then leaves the whole tuning out (an error in the log). There is no fallback table. The collector is the same on every Mac, whatever its protection unit, so every bundle it writes has the lattice.
 
-The table is stored unchanged as `lsm2-mask-lattice.bin`. The firmware rebuild and the Linux reader check it again with the same rule. Implementations: `asahi_firmware/lsm2_lattice.py` (Python; `python3 -m asahi_firmware.lsm2_lattice [component]` reports where it found the table and its SHA-256, never the values) and `NativeLSM2Lattice` (Swift).
+The table is stored unchanged as `lsm2-mask-lattice.bin`. The firmware rebuild and the Linux reader check it again with the same rule. Implementations: `aurora_firmware/lsm2_lattice.py` (Python; `python3 -m aurora_firmware.lsm2_lattice [component]` reports where it found the table and its SHA-256, never the values) and `NativeLSM2Lattice` (Swift).
 
 ## Short lsm2 presets
 
@@ -87,7 +87,7 @@ The hosting contracts are Apple's [AudioComponentRegister](https://developer.app
 
 ## Outputs
 
-The files go into the vendor firmware package (`vendorfw/firmware.tar`, `vendorfw/firmware.cpio` and its `manifest.txt` with SHA-256 per file), under `apple/audio-tuning/`. They also go into the raw fallback archive (`asahi/all_firmware.tar.gz`), under `audio-tuning/`:
+The files go into the vendor firmware package (`vendorfw/firmware.tar`, `vendorfw/firmware.cpio` and its `manifest.txt` with SHA-256 per file), under `apple/audio-tuning/`. They also go into the raw fallback archive (`aurora/all_firmware.tar.gz`), under `audio-tuning/`:
 
 ```
 apple/audio-tuning/
@@ -105,7 +105,7 @@ apple/audio-tuning/
   lsm2-mask-lattice.bin            (the lsm2 masker lattice, 800 bytes)
 ```
 
-On Linux the package is unpacked under `/lib/firmware/vendor/`, so the bundle is `/lib/firmware/vendor/apple/audio-tuning/`. The ESP copy in `vendorfw/firmware.tar` is the source of truth when that tree is absent. A firmware rebuild from the fallback archive (`asahi_firmware.update`) re-verifies every file against `manifest.json` before it repackages them; a changed file leaves the tuning out.
+On Linux the package is unpacked under `/lib/firmware/vendor/`, so the bundle is `/lib/firmware/vendor/apple/audio-tuning/`. The ESP copy in `vendorfw/firmware.tar` is the source of truth when that tree is absent. A firmware rebuild from the fallback archive (`aurora_firmware.update`) re-verifies every file against `manifest.json` before it repackages them; a changed file leaves the tuning out.
 
 ### `manifest.json`, schema 2
 
@@ -153,12 +153,12 @@ The bundle is a superset of the one saku's collector writes (`audio-tuning-AID<n
 ## Implementations
 
 - Native installer (Swift): `NativeAudioTuningInputs`, called from `NativeVendorFirmware` as the `vendor_audio_tuning` phase. It reads both layouts the same way as the Python collector: `AID<n>/DSP/DSPDatabase.plist` when the folder has it (kept byte for byte when it holds only `AID<n>`), the shared database otherwise, and it writes the same `device_dsp_database_source`, `shared_files`, `loudness_manager` and `lsm2_mask_lattice` records. It omits `loudness_manager` instead of writing null, as it does for `speaker_id`.
-- Standalone Python collector and firmware rebuild: `asahi_firmware/audio_tuning.py` (`AudioTuningFWCollection`), used by `tools/speaker-tuning/` and `asahi_firmware/update.py`.
+- Standalone Python collector and firmware rebuild: `aurora_firmware/audio_tuning.py` (`AudioTuningFWCollection`), used by `tools/speaker-tuning/` and `aurora_firmware/update.py`.
 - Linux reader and validator: `aurora-speaker-tuning` in aurora-silicon/speakerguardd (v2 branch). It loads the bundle from `/lib/firmware/vendor/apple/audio-tuning/`, from the ESP's `vendorfw/firmware.tar`, or from saku's collector bundle. It verifies the manifest, parses binary and XML property lists, and exposes the protection parameter sets and the speaker graph and strip definitions.
 
 ## Existing installs
 
-A system installed before the installer collected speaker tuning can get it without reinstalling. `tools/speaker-tuning/collect-macos.sh` runs on the Mac's own macOS with the system Python and writes the bundle to a tarball. `tools/speaker-tuning/install-linux.sh` runs on the installed Linux system, re-verifies the bundle, adds it to `asahi/all_firmware.tar.gz`, rebuilds `vendorfw/` with `asahi_firmware.update`, refuses unless the rebuild keeps every other file of the old package by path and hash, backs both up and swaps them in atomically. See [tools/speaker-tuning/README.md](../../tools/speaker-tuning/README.md).
+A system installed before the installer collected speaker tuning can get it without reinstalling. `tools/speaker-tuning/collect-macos.sh` runs on the Mac's own macOS with the system Python and writes the bundle to a tarball. `tools/speaker-tuning/install-linux.sh` runs on the installed Linux system, re-verifies the bundle, adds it to `aurora/all_firmware.tar.gz`, rebuilds `vendorfw/` with `aurora_firmware.update`, refuses unless the rebuild keeps every other file of the old package by path and hash, backs both up and swaps them in atomically. See [tools/speaker-tuning/README.md](../../tools/speaker-tuning/README.md).
 
 ## Privacy
 

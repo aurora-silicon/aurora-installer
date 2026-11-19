@@ -1,8 +1,8 @@
 # Aurora J700 audio packages
 
-The standard Asahi audio packages do not yet contain the J700 UCM and DSP profiles. A Neo image requires all three pinned repositories in `build-packages.py`: `speakerguardd`, `alsa-ucm-conf-asahi`, and `asahi-audio`.
+The distribution audio packages do not yet contain the J700 UCM and DSP profiles. A Neo image requires all three pinned packages in `build-packages.py`: `speakerguardd`, `alsa-ucm-conf-aurora` and `aurora-audio`. Each package's source repository is listed in `SOURCES`; the two audio packages replace the packages that had their names before the aurora rename.
 
-Build and test `speakerguardd` with `cargo test --locked` and `cargo build --locked --release --target aarch64-unknown-linux-gnu`. Then run `build-packages.py --speakerguardd CHECKOUT --alsa-ucm-conf-asahi CHECKOUT --asahi-audio CHECKOUT --output NEW_DIRECTORY`. Install every package in the resulting manifest together, in the image root with `pacman --root IMAGE_ROOT -U ...`, before image finalization.
+Build and test `speakerguardd` with `cargo test --locked` and `cargo build --locked --release --target aarch64-unknown-linux-gnu`. Then run `build-packages.py --speakerguardd CHECKOUT --alsa-ucm-conf-aurora CHECKOUT --aurora-audio CHECKOUT --output NEW_DIRECTORY`. Install every package in the resulting manifest together, in the image root with `pacman --root IMAGE_ROOT -U ...`, before image finalization.
 
 The packages retain the kernel speaker interlock. The feed-forward daemon explicitly selects `AppleJ700` because its capture-only AOP sibling can enumerate first. A model-specific condition skips the stock feedback daemon on J700 while keeping it available on other Macs. The J700 udev rule starts `speakerguardd` when its sense PCM appears; do not enable this J700-only service globally in a universal image.
 

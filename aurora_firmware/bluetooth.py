@@ -4,7 +4,7 @@ from collections import namedtuple, defaultdict
 
 from .core import FWFile
 
-log = logging.getLogger("asahi_firmware.bluetooth")
+log = logging.getLogger("aurora_firmware.bluetooth")
 
 BluetoothChip = namedtuple(
     "BluetoothChip", ("chip", "stepping", "board_type", "vendor")

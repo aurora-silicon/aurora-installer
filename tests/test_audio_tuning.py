@@ -17,8 +17,8 @@ import unittest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from asahi_firmware import audio_tuning  # noqa: E402
-from asahi_firmware.audio_tuning import AudioTuningFWCollection  # noqa: E402
+from aurora_firmware import audio_tuning  # noqa: E402
+from aurora_firmware.audio_tuning import AudioTuningFWCollection  # noqa: E402
 from macho_fixtures import (CPU_X86_64, fat, other_lattice, padded,  # noqa: E402
                             synthetic_lattice, thin)
 
@@ -198,7 +198,7 @@ class CompletenessTest(unittest.TestCase):
             strips = tunings(root) / "DSP" / "Strips"
             strips.chmod(0)
             try:
-                with self.assertLogs("asahi_firmware.audio_tuning", "WARNING"):
+                with self.assertLogs("aurora_firmware.audio_tuning", "WARNING"):
                     self.assertNothing(collect(root))
             finally:
                 strips.chmod(0o755)
@@ -311,7 +311,7 @@ class CompletenessTest(unittest.TestCase):
         def broken(args, capture_output=True):
             raise OSError("ioreg failed")
         with tempfile.TemporaryDirectory() as tmp:
-            with self.assertLogs("asahi_firmware.audio_tuning", "WARNING"):
+            with self.assertLogs("aurora_firmware.audio_tuning", "WARNING"):
                 col = AudioTuningFWCollection(tunings_root=tmp, run=broken)
             self.assertNothing(col)
             self.assertFalse(col.write_fallback(tmp))
@@ -326,7 +326,7 @@ class CompletenessTest(unittest.TestCase):
             # A file where AID35/ must be a directory stops the write midway.
             (out / "audio-tuning").mkdir(parents=True)
             (out / "audio-tuning" / "AID35").write_bytes(b"in the way")
-            with self.assertLogs("asahi_firmware.audio_tuning", "WARNING"):
+            with self.assertLogs("aurora_firmware.audio_tuning", "WARNING"):
                 self.assertFalse(col.write_fallback(str(out)))
             self.assertFalse((out / "audio-tuning").exists())
 
@@ -396,7 +396,7 @@ class SpeakerIDTest(unittest.TestCase):
             root = pathlib.Path(tmp)
             tunings(root)
             (root / "Config" / "AID35.plist").unlink()
-            with self.assertLogs("asahi_firmware.audio_tuning", "WARNING"):
+            with self.assertLogs("aurora_firmware.audio_tuning", "WARNING"):
                 col = AudioTuningFWCollection(
                     tunings_root=str(root), run=fake_run(AID35, speakers=[SPEAKER]))
             self.assertEqual(col.files(), [])
@@ -659,7 +659,7 @@ class LatticeTest(unittest.TestCase):
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
                 root = pathlib.Path(tmp)
                 tunings(root)
-                with self.assertLogs("asahi_firmware.audio_tuning", "ERROR") as logs:
+                with self.assertLogs("aurora_firmware.audio_tuning", "ERROR") as logs:
                     col = self.collect_with(root, component)
                 self.assertIn("lsm2 masker lattice", "\n".join(logs.output))
                 self.assertEqual(col.bundle, {})
@@ -669,7 +669,7 @@ class LatticeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             tunings(root)
-            with self.assertLogs("asahi_firmware.audio_tuning", "ERROR"):
+            with self.assertLogs("aurora_firmware.audio_tuning", "ERROR"):
                 col = AudioTuningFWCollection(tunings_root=str(root), run=fake_run(AID35),
                                               audiodsp=str(root / "absent"))
             self.assertEqual(col.bundle, {})
@@ -719,7 +719,7 @@ class LatticeTest(unittest.TestCase):
             out, bundle = fallback(tmp)
             (bundle / "lsm2-mask-lattice.bin").unlink()
             rewrite(bundle, lambda m: m.pop("lsm2_mask_lattice"))
-            with self.assertLogs("asahi_firmware.audio_tuning", "WARNING") as logs:
+            with self.assertLogs("aurora_firmware.audio_tuning", "WARNING") as logs:
                 col = AudioTuningFWCollection(str(out))
             self.assertIn("no lsm2 masker lattice", "\n".join(logs.output))
             self.assertTrue(col.bundle)
@@ -763,7 +763,7 @@ class BuzzKillMatrixTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             tunings(root)
-            with self.assertLogs("asahi_firmware.audio_tuning", "WARNING") as logs:
+            with self.assertLogs("aurora_firmware.audio_tuning", "WARNING") as logs:
                 col = self.collect_with(root, self.component(b"\x11" * 256))
             self.assertIn("BuzzKill quadrature matrix", "\n".join(logs.output))
             self.assertTrue(col.bundle)
@@ -857,7 +857,7 @@ class IdentityTest(unittest.TestCase):
         # A bundle collected before the identity still verifies, with a warning.
         meta = {k: v for k, v in good.items() if k not in ("board", "unit_id")}
         path.write_text(json.dumps(meta))
-        with self.assertLogs("asahi_firmware.audio_tuning", "WARNING") as logs:
+        with self.assertLogs("aurora_firmware.audio_tuning", "WARNING") as logs:
             self.assertTrue(AudioTuningFWCollection(str(out)).files())
         self.assertTrue(any("does not name the Mac" in m for m in logs.output))
 

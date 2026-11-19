@@ -14,7 +14,7 @@ import Foundation
 /// output length, a big-endian stored length and the stored bytes: kept as
 /// they are when the two lengths agree, an XZ stream otherwise. The
 /// reference engine decodes this member the same way
-/// (`asahi-installer` `util.py`, `copy_recompress` and `PBZX`).
+/// (the reference engine's `util.py`, `copy_recompress` and `PBZX`).
 ///
 /// A patch with control data rewrites an earlier image and is refused.
 public enum UpdateArchiveFullImage {

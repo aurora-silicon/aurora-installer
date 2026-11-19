@@ -158,13 +158,13 @@ import Foundation
     // A padded Stage 1's installation restores the Stage 2 it loads, and only that one.
     let confined = root.appendingPathComponent("confined")
     var confinedFiles = files
-    confinedFiles["m1n1/boot-ctxr.bin"] = confinedFiles.removeValue(
+    confinedFiles["aurora/boot-ctxr.bin"] = confinedFiles.removeValue(
       forKey: RecoveryBaseline.stage2Path)
     try RecoveryBaseline.restore(
       files: confinedFiles, root: confined, backup: root.appendingPathComponent("confined-before"),
-      stage2Path: "m1n1/boot-ctxr.bin", write: write)
-    precondition(fm.fileExists(atPath: confined.appendingPathComponent("m1n1/boot-ctxr.bin").path))
-    precondition(!fm.fileExists(atPath: confined.appendingPathComponent("m1n1/boot.bin").path))
+      stage2Path: "aurora/boot-ctxr.bin", write: write)
+    precondition(fm.fileExists(atPath: confined.appendingPathComponent("aurora/boot-ctxr.bin").path))
+    precondition(!fm.fileExists(atPath: confined.appendingPathComponent("aurora/boot.bin").path))
     refused {
       try RecoveryBaseline.restore(
         files: confinedFiles, root: confined, backup: root.appendingPathComponent("not-standard"),

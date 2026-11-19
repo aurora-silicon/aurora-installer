@@ -30,7 +30,7 @@ jobs:
       - name: Checkout linux
         uses: actions/checkout@v5
         with:
-          repository: AsahiLinux/linux
+          repository: aurora-silicon/linux
           ref: ${{ vars.UEFI_LINUX_TAG }}
           path: linux
           sparse-checkout: 'arch/arm64/boot/dts/apple/'
@@ -77,13 +77,13 @@ jobs:
 
       - name: Create aura uefi only boot.bin
         run: |
-          mkdir -p out/esp/m1n1/
+          mkdir -p out/esp/aurora/
           gzip -k u-boot/u-boot-nodtb.bin
           cat aura/build/aura.bin \
               u-boot/dts/upstream/src/arm64/apple/t60*.dtb \
               u-boot/dts/upstream/src/arm64/apple/t81*.dtb \
               u-boot/u-boot-nodtb.bin.gz \
-              > out/esp/m1n1/boot.bin
+              > out/esp/aurora/boot.bin
           cd out
           zip -r ${{ env.UEFI_ONLY_VERSION }}.zip esp
 

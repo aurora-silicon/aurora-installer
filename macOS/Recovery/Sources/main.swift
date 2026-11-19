@@ -14,7 +14,7 @@ final class InstallerModel {
   /// `--preview-update` simulates one in preview builds.
   var stage1Update: Stage1Reenrollment? =
     RecoveryActions.isPreview && CommandLine.arguments.contains("--preview-update")
-    ? Stage1Reenrollment(mode: .macho, stage1SHA256: "", stage2Path: "m1n1/boot-ctxr.bin")
+    ? Stage1Reenrollment(mode: .macho, stage1SHA256: "", stage2Path: AuraStage1Format.confinedStage2Path)
     : RecoveryActions.inRecovery ? RecoveryActions.pendingStage1Update() : nil
   {
     didSet { changed() }

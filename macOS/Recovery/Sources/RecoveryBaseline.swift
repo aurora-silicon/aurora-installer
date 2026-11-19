@@ -10,7 +10,8 @@ enum RecoveryBaseline {
   static let vendorPaths = [
     "vendorfw/firmware.tar", "vendorfw/firmware.cpio", "vendorfw/manifest.txt",
   ]
-  static let stage2Path = "m1n1/boot.bin"
+  /// The standard Stage 2 (AuraStage1Format.standardStage2Path).
+  static let stage2Path = "aurora/boot.bin"
   static let optionalVendorPath = "vendorfw/u-boot/asmedia/asm2214a-apple.bin"
 
   static func hash(_ data: Data) -> String {

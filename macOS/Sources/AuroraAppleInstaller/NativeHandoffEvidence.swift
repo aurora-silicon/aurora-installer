@@ -171,7 +171,7 @@
     }
 
     /// `executeWindow` must match the layout the installer wrote: with a padded
-    /// Stage 1 the confined Stage 2 goes to `m1n1/boot-ctxr.bin`.
+    /// Stage 1 the confined Stage 2 goes to `aurora/boot-ctxr.bin`.
     func espLayout(members: Set<String>, firmware: String, executeWindow: Bool) throws
       -> [String: String]
     {

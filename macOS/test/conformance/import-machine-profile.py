@@ -35,6 +35,17 @@ class Scrubber:
         return self.map[value]
 
 
+def loader(chosen, name, required=False):
+    """/chosen/aurora,<name>; a profile captured under a boot loader from before
+    the rename has it as asahi,<name> with m1n1 for aura (LEGACY-ASAHI(2027-02-28))."""
+    for key in ('aurora,' + name, 'asahi,' + name.replace('aura-', 'm1n1-')):
+        if key in chosen:
+            return chosen[key]
+    if required:
+        raise SystemExit('the profile has no /chosen/aurora,' + name)
+    return None
+
+
 def convert(raw, name, description, captured):
     scrub = Scrubber()
     compatible = raw['compatible']
@@ -64,14 +75,14 @@ def convert(raw, name, description, captured):
         'device_identifier': compatible[0], 'soc': compatible[1].split(',')[1],
         'model': raw['model'],
         'firmware': {
-            'system_iboot': chosen['asahi,iboot1-version'],
-            'system_os': chosen['asahi,system-fw-version'],
-            'stub_iboot': chosen['asahi,iboot2-version'],
-            'stub_os': chosen['asahi,os-fw-version'],
+            'system_iboot': loader(chosen, 'iboot1-version', required=True),
+            'system_os': loader(chosen, 'system-fw-version', required=True),
+            'stub_iboot': loader(chosen, 'iboot2-version', required=True),
+            'stub_os': loader(chosen, 'os-fw-version', required=True),
         },
         'running': {
-            'stage1': chosen.get('asahi,m1n1-stage1-version'),
-            'stage2': chosen.get('asahi,m1n1-stage2-version'),
+            'stage1': loader(chosen, 'aura-stage1-version'),
+            'stage2': loader(chosen, 'aura-stage2-version'),
             'u_boot': chosen.get('u-boot,version'), 'kernel': raw['kernel'],
         },
         'disk': {'size': raw['disk']['size'], 'block_size': raw['disk']['block_size'],

@@ -180,8 +180,9 @@
     var containers: [RemovalContainer]
   }
 
-  /// One installation made by the Asahi installer engine: this app's own
-  /// layout, older omarchy-mac installs and plain Asahi installs alike.
+  /// One installation made by the installer engine: this app's own layout,
+  /// older omarchy-mac installs and installs by the engine's original
+  /// installer alike.
   struct RemovalInstallation: Codable, Equatable, Sendable {
     let name: String
     let stub: RemovalPartition
@@ -238,7 +239,7 @@
     /// proved by the installer's own journal.
     let partial: RemovalPartialInstallation?
     /// The binding of the native installer journal that proves `installation`
-    /// is its own, when the asahi installer's files on it don't.
+    /// is its own, when the installer engine's files on it don't.
     let nativeJournal: String?
     let members: [RemovalPartition]
     let macOS: RemovalPartition
@@ -275,8 +276,8 @@
           let detail = (error as? RemovalFailure)?.message ?? "macOS couldn't read them"
           throw RemovalFailure(message: RemovalText.unreadable(found, detail: detail))
         }
-        // The native installer writes neither asahi/installer.log nor an m1n1
-        // step-2 object; its own journal is the proof for what it installed.
+        // The native installer writes neither the engine's installer.log nor its
+        // Stage 2 object; its own journal is the proof for what it installed.
         var nativeJournal: String?
         if let reason = evidence.problem(for: found) {
           guard let journals, let journal = try journals.installer(of: found, in: snapshot) else {

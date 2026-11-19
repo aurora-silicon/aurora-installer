@@ -23,9 +23,31 @@
     let windowMilliseconds: UInt32
     let firmware: String
     let usesLegacyStage1: Bool
+    /// Whether Stage 2 goes to the directory installations made before the
+    /// rename load it from, because the Stage 1 this plan keeps loads it there.
+    var legacyStage2Directory = false
 
     /// The ESP file the Stage 1 this plan installs chainloads.
-    var stage2Path: String { AuraStage1Format.stage2Path(executeWindow: executeWindow) }
+    var stage2Path: String {
+      let path = AuraStage1Format.stage2Path(executeWindow: executeWindow)
+      return legacyStage2Directory ? AuraLegacyNames.stage2Path(path) : path
+    }
+
+    /// This plan with Stage 2 written where a kept Stage 1 from before the
+    /// rename loads it. Every other file keeps its path.
+    /// LEGACY-ASAHI(2027-02-28)
+    func keepingLegacyStage2Directory() -> Self {
+      var plan = self
+      let moved: Set = [
+        AuraStage1Format.standardStage2Path, AuraStage1Format.confinedStage2Path,
+      ]
+      plan.entries = entries.map {
+        moved.contains($0.path)
+          ? Entry(member: $0.member, path: AuraLegacyNames.stage2Path($0.path)) : $0
+      }
+      plan.legacyStage2Directory = true
+      return plan
+    }
 
     static func make(
       metadata: Data, archive: IPSWArchive, device: String, firmware: String,
@@ -97,10 +119,12 @@
         total < (try NativeInstallationMetadata.bytes(size)), icon.sizeBytes > 0,
         icon.sizeBytes <= 64 << 20
       else { throw NativePayloadPreflightError.invalidPartitions }
-      return Self(
+      let plan = Self(
         archive: archive, entries: entries, icon: icon, stage1: bytes, stage1MachO: machO,
         executeWindow: boot.executeWindow, expandedStage1Bytes: boot.expandedStage1Bytes,
         windowMilliseconds: boot.windowMilliseconds, firmware: firmware, usesLegacyStage1: legacy)
+      // A kept legacy text Stage 1 always loads the Stage 2 directory from before the rename.
+      return legacy ? plan.keepingLegacyStage2Directory() : plan
     }
 
     static func safeFATPath(_ path: String) -> Bool {
@@ -131,10 +155,10 @@
           stage1, uuid: espUUID.lowercased(), path: stage2Path,
           windowMilliseconds: windowMilliseconds)
       if installed != expected {
-        // An earlier installer enrolled Mach-O Stage 1s unpadded, loading m1n1/boot.bin.
+        // An earlier installer enrolled Mach-O Stage 1s unpadded, loading the standard Stage 2.
         if executeWindow,
-          (try? Stage1Configuration.read(installed).stage2Path)
-            == AuraStage1Format.standardStage2Path
+          let path = try? Stage1Configuration.read(installed).stage2Path,
+          AuraStage1Format.isStage2Path(path, executeWindow: false)
         {
           throw NativePreservedInstallError.earlierStage1
         }
@@ -332,7 +356,7 @@
       let legacy: NativeLegacyStage1.Receipt?
       if plan.usesLegacyStage1 {
         stage1 = try NativeLegacyStage1.fill(
-          plan.stage1, uuid: esp.uuid.lowercased(), path: "m1n1/boot.bin")
+          plan.stage1, uuid: esp.uuid.lowercased(), path: plan.stage2Path)
         legacy = NativeLegacyStage1.Receipt(
           configuration: "legacy-text-v1",
           base: NativeStubFileIdentity(

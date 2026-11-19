@@ -14,8 +14,8 @@ import tarfile
 import unittest
 
 from test_wifi_firmware_refresh import BOARD, Case, FakeVol, make_esp, wifi_tree, awf
-from asahi_firmware import mt7932
-from asahi_firmware.core import FWFile, FWPackage
+from aurora_firmware import esp as esp_names, mt7932
+from aurora_firmware.core import FWFile, FWPackage
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 VECTORS = json.loads((ROOT / "macOS/Tests/NativeFirmwareFixtureSupport/Fixtures/"
@@ -271,9 +271,9 @@ class BroadcomBluetoothTest(Case):
         self.assertEqual(m["brcm/brcmbt4387c2-apple,hokkaido-u.ptb"], awf.sha256(b"ptb new"))
         self.assertEqual(m["brcm/brcmbt4387c2-apple,maldives-u.bin"], awf.sha256(b"bt mal"))
         self.assertEqual(m["apple/same-as-bt.bin"], awf.sha256(b"bluetooth"))
-        raw = awf.raw_tree(esp / "asahi" / "all_firmware.tar.gz", awf.RAW_BT_PREFIX)
+        raw = awf.raw_tree(esp / esp_names.STATE_DIR / "all_firmware.tar.gz", awf.RAW_BT_PREFIX)
         self.assertEqual(set(raw), set(self.BT))
-        self.assertEqual(awf.raw_wifi(esp / "asahi" / "all_firmware.tar.gz"),
+        self.assertEqual(awf.raw_wifi(esp / esp_names.STATE_DIR / "all_firmware.tar.gz"),
                          awf.tree_digest(tree))
         st = awf.read_state(self.state)
         self.assertEqual(st["pending"]["parts"], ["wifi", "bluetooth"])

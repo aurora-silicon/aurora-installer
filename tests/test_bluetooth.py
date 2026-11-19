@@ -4,7 +4,7 @@ import pathlib, sys, tempfile, unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from asahi_firmware.bluetooth import BluetoothFWCollection  # noqa: E402
+from aurora_firmware.bluetooth import BluetoothFWCollection  # noqa: E402
 
 C2 = "BCM4388C2_24.1.240.1875_PCIE_macOS_Willamette_Hostomel_CLPC_3ANT_OS_{v}_20260618.bin"
 C2_PTB = "BCM4388C2_EVTv3_PCIE_macOS_Willamette_Hostomel_CLPC_3ANT_OS_{v}_K_R_20240919.ptb"

@@ -263,7 +263,7 @@
         legacyStage1: { NativeESPFileTests.legacyBase })
       let esp = try XCTUnwrap(possibleESP)
       let installed = try NativeLegacyStage1.fill(
-        esp.stage1, uuid: target.esp.uuid.lowercased(), path: "m1n1/boot.bin")
+        esp.stage1, uuid: target.esp.uuid.lowercased(), path: esp.stage2Path)
       let prepared = try await NativePreservedInstallAdmission.check(
         approved: approved, metadata: metadata, archive: archive, disk: disk,
         stubBytes: 2_499_805_184, firmwareVersion: "26.6.2",
@@ -328,7 +328,7 @@
           legacyStage1: { NativeESPFileTests.legacyBase })
         let installed = try NativeLegacyStage1.fill(
           XCTUnwrap(possibleESP).stage1, uuid: target.esp.uuid.lowercased(),
-          path: "m1n1/boot.bin")
+          path: XCTUnwrap(possibleESP).stage2Path)
         return try await NativePreservedInstallAdmission.check(
           approved: approved, metadata: metadata, archive: archive, disk: disk,
           stubBytes: 2_499_805_184, firmwareVersion: "26.6.2",

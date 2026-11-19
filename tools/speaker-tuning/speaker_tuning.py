@@ -4,11 +4,11 @@
 `collect` runs on the Mac's own macOS and writes a tarball holding the
 audio-tuning/ bundle (see macOS/docs/speaker-tuning.md). `install` runs on
 the installed Linux system: it re-verifies that bundle, adds it to the ESP's
-asahi/all_firmware.tar.gz, rebuilds vendorfw/ with asahi_firmware.update,
+aurora/all_firmware.tar.gz, rebuilds vendorfw/ with aurora_firmware.update,
 checks that the rebuild only adds to the old package, backs both up and swaps
 them in. `verify` checks the unpacked bundle after the reboot.
 
-The repository's own asahi_firmware is used, read only, ahead of any copy
+The repository's own aurora_firmware is used, read only, ahead of any copy
 installed system wide (which may lack the speaker tuning collection).
 """
 import argparse, contextlib, ctypes, errno, fcntl, hashlib, io, json, logging, os, \
@@ -18,8 +18,8 @@ REPO = pathlib.Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from asahi_firmware import audio_tuning  # noqa: E402
-from asahi_firmware.audio_tuning import AudioTuningFWCollection, FALLBACK_DIR, MANIFEST  # noqa: E402
+from aurora_firmware import audio_tuning, esp as esp_names  # noqa: E402
+from aurora_firmware.audio_tuning import AudioTuningFWCollection, FALLBACK_DIR, MANIFEST  # noqa: E402
 
 log = logging.getLogger("speaker-tuning")
 
@@ -29,10 +29,10 @@ PREFIX = audio_tuning.PACKAGE_PREFIX            # apple/audio-tuning/
 FW_DIR = FALLBACK_DIR + "/"                     # audio-tuning/ in all_firmware
 PACKAGE_FILES = ("firmware.tar", "firmware.cpio", "manifest.txt")
 MAX_INFO_BYTES = 64 << 10
-DT_ESP = "/proc/device-tree/chosen/asahi,efi-system-partition"
+DT_ESP = None                                   # /chosen/aurora,efi-system-partition (esp_names)
 DT_COMPATIBLE = "/proc/device-tree/compatible"
 DT_SERIAL = "/proc/device-tree/serial-number"
-DT_SPEAKER_ID = "/proc/device-tree/chosen/asahi,speaker-id"
+DT_SPEAKER_ID = None                            # /chosen/aurora,speaker-id (esp_names)
 RUNNING_BUNDLES = ("/lib/firmware/vendor/apple", "/run/aurora-firmware/vendorfw/apple")
 BACKUP_ROOT = "/var/lib/aurora-rollback"
 LOCK = "/run/aurora-speaker-tuning.lock"
@@ -211,10 +211,15 @@ def find_adt(proc_mtd="/proc/mtd"):
 
 
 def dt_speaker_id(path=DT_SPEAKER_ID):
-    """The loader's /chosen/asahi,speaker-id (big-endian u32), or None."""
-    try:
-        raw = pathlib.Path(path).read_bytes()
-    except OSError:
+    """The loader's /chosen/aurora,speaker-id (big-endian u32), or None."""
+    if path is None:
+        raw = esp_names.read_chosen("speaker-id")
+    else:
+        try:
+            raw = pathlib.Path(path).read_bytes()
+        except OSError:
+            raw = None
+    if raw is None:
         return None
     return int.from_bytes(raw, "big") if len(raw) == 4 else None
 
@@ -315,12 +320,19 @@ def opened_bundle(source):
 
 def find_esp(run=subprocess.run, dt_esp=DT_ESP, root="/"):
     """(path of the system ESP, whether we mounted it). Follows
-    mount_sys_esp in asahi-scripts: the device tree's ESP PARTUUID unless a
-    .builder marker says otherwise, else /boot/efi or /boot holding m1n1."""
+    mount_sys_esp in aurora-scripts: the device tree's ESP PARTUUID unless a
+    .builder marker says otherwise, else /boot/efi or /boot holding the
+    Stage 2 directory."""
     r = pathlib.Path(root)
     uuid = ""
-    with contextlib.suppress(OSError):
-        uuid = pathlib.Path(dt_esp).read_bytes().replace(b"\0", b"").decode("ascii").strip()
+    if dt_esp is None:
+        raw = esp_names.read_chosen("efi-system-partition") or b""
+    else:
+        raw = b""
+        with contextlib.suppress(OSError):
+            raw = pathlib.Path(dt_esp).read_bytes()
+    with contextlib.suppress(UnicodeDecodeError):
+        uuid = raw.replace(b"\0", b"").decode("ascii").strip()
     builder = (r / "boot/efi/.builder").exists() or (r / "boot/.builder").exists()
     if uuid and not builder:
         dev = r / "dev/disk/by-partuuid" / uuid.lower()
@@ -347,20 +359,20 @@ def find_esp(run=subprocess.run, dt_esp=DT_ESP, root="/"):
                           f"{p.stderr.decode().strip()}")
         return pathlib.Path(MOUNTPOINT), MOUNTPOINT
     for cand in ("boot/efi", "boot"):
-        if (r / cand / "m1n1").exists():
+        if any((r / cand / name).exists() for name in esp_names.STAGE2_DIRS):
             log.warning(f"System ESP not identified in the device tree, using /{cand}")
             return r / cand, None
-    raise Refused("the system ESP was not found: no asahi,efi-system-partition in the device "
-                  "tree and no m1n1 under /boot/efi or /boot")
+    raise Refused("the system ESP was not found: no aurora,efi-system-partition in the device "
+                  "tree and no Stage 2 directory under /boot/efi or /boot")
 
 
-def kernelcache(asahi):
-    """The kernelcache asahi_firmware.update would pick: the first directory
+def kernelcache(state):
+    """The kernelcache aurora_firmware.update would pick: the first directory
     entry starting with kernelcache."""
-    for name in os.listdir(asahi):
+    for name in os.listdir(state):
         if name.startswith("kernelcache"):
-            return asahi / name
-    raise Refused(f"no kernelcache in {asahi}")
+            return state / name
+    raise Refused(f"no kernelcache in {state}")
 
 
 def parse_manifest(text):
@@ -456,7 +468,7 @@ def packaged_bundle(vendorfw):
 def rebuild_tuning_only(bundle, work, dest):
     """vendorfw holding only this bundle, packaged as update_firmware
     packages speaker tuning (no other firmware, no kernelcache)."""
-    from asahi_firmware.core import FWPackage
+    from aurora_firmware.core import FWPackage
     root = pathlib.Path(work) / "tuning-only"
     for name, data in bundle_members(bundle, FW_DIR):
         path = root / name
@@ -623,8 +635,8 @@ def tree_size(path):
 
 def rebuild_default(source, dest):
     """vendorfw from source (all_firmware.tar.gz and a kernelcache), as
-    asahi-fwupdate builds it, but with this repository's asahi_firmware."""
-    from asahi_firmware.update import update_firmware
+    aurora-fwupdate builds it, but with this repository's aurora_firmware."""
+    from aurora_firmware.update import update_firmware
     update_firmware(pathlib.Path(source), pathlib.Path(dest))
 
 
@@ -699,29 +711,31 @@ def install(source, esp, dry_run=False, backup_root=BACKUP_ROOT, any_mac=False,
     """Returns "identical" (nothing to do), "dry-run" or "installed", or
     raises Refused. The ESP is left as it was on any failure."""
     esp = pathlib.Path(esp)
-    asahi, vendorfw = esp / "asahi", esp / "vendorfw"
-    all_fw = asahi / "all_firmware.tar.gz"
+    fw_state, vendorfw = esp_names.state_dir(esp), esp / "vendorfw"
+    tuning_only = fw_state is None
+    if tuning_only:
+        fw_state = esp / esp_names.STATE_DIR
+    all_fw = fw_state / "all_firmware.tar.gz"
     # An ESP whose vendorfw/ carries only speaker tuning and that has no
-    # asahi/ (a Mac set up without the Asahi installer's firmware step, such
-    # as the J700): vendorfw is rebuilt from the bundle alone.
-    tuning_only = not asahi.exists()
+    # installer state directory (a Mac set up without the installer's firmware
+    # step, such as the J700): vendorfw is rebuilt from the bundle alone.
     need = (vendorfw / "manifest.txt", vendorfw / "firmware.cpio") + (() if tuning_only else (all_fw,))
     for p in need:
         if not p.is_file():
             raise Refused(f"{p} is missing; this does not look like an Aurora system ESP")
     if tuning_only:
         if rebuild is not None:
-            raise Refused("a custom rebuild needs asahi/all_firmware.tar.gz")
+            raise Refused("a custom rebuild needs aurora/all_firmware.tar.gz")
         others = [k for k in parse_manifest((vendorfw / "manifest.txt").read_text("ascii"))
                   if not k.startswith(PREFIX)]
         if others:
-            raise Refused(f"{esp} has no asahi/ but its vendorfw holds {len(others)} file(s) besides "
+            raise Refused(f"{esp} has no aurora/ but its vendorfw holds {len(others)} file(s) besides "
                           f"the speaker tuning ({others[0]}, ...); it cannot be rebuilt from the bundle alone")
         kernel = None
     else:
         if rebuild is None:
             rebuild = rebuild_default
-        kernel = kernelcache(asahi)
+        kernel = kernelcache(fw_state)
 
     with opened_bundle(source) as (bundle, info):
         out(f"Bundle: {describe(bundle)}")
@@ -741,7 +755,7 @@ def install(source, esp, dry_run=False, backup_root=BACKUP_ROOT, any_mac=False,
         if raw_same and extra:
             state += f" ({extra} unlisted extra file(s) under {FW_DIR}, ignored)"
         if tuning_only:
-            out(f"  no asahi/: vendorfw holds only speaker tuning and is rebuilt from the bundle alone")
+            out(f"  no aurora/: vendorfw holds only speaker tuning and is rebuilt from the bundle alone")
             raw_same = True     # there is no all_firmware to replace
         else:
             out(f"  {all_fw.relative_to(esp)}: {state}")
@@ -794,7 +808,7 @@ def install(source, esp, dry_run=False, backup_root=BACKUP_ROOT, any_mac=False,
             copy_verified(vendorfw, backup / "vendorfw")
             out(f"Backed up the ESP files to {backup}")
 
-            staged_fw = asahi / "all_firmware.tar.gz.new"
+            staged_fw = fw_state / "all_firmware.tar.gz.new"
             staged_pkg = esp / "vendorfw.new"
             undo = []
             try:
@@ -902,7 +916,7 @@ def main(argv=None):
     # The firmware package logs every file it adds at INFO on the root logger.
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
     log.setLevel(logging.INFO)
-    logging.getLogger("asahi_firmware.audio_tuning").setLevel(logging.INFO)
+    logging.getLogger("aurora_firmware.audio_tuning").setLevel(logging.INFO)
     ap = argparse.ArgumentParser(prog="speaker_tuning")
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("collect", help="on macOS: write this Mac's speaker tuning tarball")
@@ -919,7 +933,7 @@ def main(argv=None):
     i = sub.add_parser("install", help="on Linux: add a bundle to the ESP firmware")
     i.add_argument("bundle", help="tarball from collect-macos.sh, or a directory holding audio-tuning/")
     i.add_argument("-n", "--dry-run", action="store_true", help="check and rebuild, change nothing")
-    i.add_argument("--esp", help="system ESP mount point (default: found as asahi-fwupdate does)")
+    i.add_argument("--esp", help="system ESP mount point (default: found as aurora-fwupdate does)")
     i.add_argument("--backup-dir", default=BACKUP_ROOT, help=f"backup root (default {BACKUP_ROOT})")
     i.add_argument("--any-mac", action="store_true",
                    help="skip the check that the bundle came from this model and AID")

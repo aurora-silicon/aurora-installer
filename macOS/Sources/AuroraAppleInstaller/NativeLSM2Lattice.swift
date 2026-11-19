@@ -19,7 +19,7 @@
   /// 640-point spectrum) and end at 321. Exactly one such table must exist in
   /// each slice and every slice must hold the same bytes. Anything else is an
   /// error: there is no fallback table. The Python collector
-  /// (`asahi_firmware/lsm2_lattice.py`) applies the same rule.
+  /// (`aurora_firmware/lsm2_lattice.py`) applies the same rule.
   enum NativeLSM2Lattice {
     /// The component, relative to the root of the system volume.
     static let componentPath =

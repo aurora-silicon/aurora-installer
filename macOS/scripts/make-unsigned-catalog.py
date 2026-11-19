@@ -53,9 +53,9 @@ COMMON_INPUT_KEYS = frozenset(
         "payload_name",
         "metadata_name",
         "evidence_revision",
-        "asahi_installer_tag",
-        "asahi_installer_revision",
-        "asahi_installer_data_revision",
+        "engine_installer_tag",
+        "engine_installer_revision",
+        "engine_installer_data_revision",
         "downstream_revision",
         "device_identifiers",
         "installer",
@@ -70,11 +70,22 @@ DEVICE_IDENTIFIER_PATTERN = re.compile(r"^apple,[0-9a-z]+$")
 EVIDENCE_REVISION_PATTERN = re.compile(r"^[0-9a-z.-]+$")
 INSTALLER_VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 REVISION_PATTERN = re.compile(r"^[0-9a-f]{40}$")
-ASAHI_TAG_PATTERN = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+$")
+ENGINE_TAG_PATTERN = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+$")
 
 MAXIMUM_PART_COUNT = 16
 PART_PATTERN = re.compile(r"\.part(\d{2})$")
 READ_BLOCK_BYTES = 8 * 1024 * 1024
+
+
+def legacy_engine_fields(inputs: dict) -> dict:
+    """The same engine fields under the keys installers released before the
+    rename require, so they keep reading new catalogs.
+    LEGACY-ASAHI(2027-02-28): drop once no supported installer needs them."""
+    return {
+        "asahiInstallerTag": inputs["engine_installer_tag"],
+        "asahiInstallerRevision": inputs["engine_installer_revision"],
+        "asahiInstallerDataRevision": inputs["engine_installer_data_revision"],
+    }
 
 
 def digest(path: Path) -> str:
@@ -261,7 +272,7 @@ def load_inputs(path: Path, developer: bool = False) -> dict:
         "payload_name",
         "metadata_name",
         "evidence_revision",
-        "asahi_installer_tag",
+        "engine_installer_tag",
     ):
         value = document[key]
         if not isinstance(value, str) or not value:
@@ -276,14 +287,14 @@ def load_inputs(path: Path, developer: bool = False) -> dict:
             "inputs evidence_revision must be lowercase [0-9a-z.-]: "
             f"{document['evidence_revision']}"
         )
-    if not ASAHI_TAG_PATTERN.match(document["asahi_installer_tag"]):
+    if not ENGINE_TAG_PATTERN.match(document["engine_installer_tag"]):
         raise SystemExit(
-            f"inputs asahi_installer_tag must look like vX.Y.Z: "
-            f"{document['asahi_installer_tag']}"
+            f"inputs engine_installer_tag must look like vX.Y.Z: "
+            f"{document['engine_installer_tag']}"
         )
     for key in (
-        "asahi_installer_revision",
-        "asahi_installer_data_revision",
+        "engine_installer_revision",
+        "engine_installer_data_revision",
         "downstream_revision",
     ):
         value = document[key]
@@ -404,9 +415,10 @@ def model_group(inputs: dict, group: dict, assets: Path, base_url: str) -> tuple
         payload_artifact["parts"] = part_records(payload, parts, base_url)
     shared = {
         "status": "enabled",
-        "asahiInstallerTag": inputs["asahi_installer_tag"],
-        "asahiInstallerRevision": inputs["asahi_installer_revision"],
-        "asahiInstallerDataRevision": inputs["asahi_installer_data_revision"],
+        "engineInstallerTag": inputs["engine_installer_tag"],
+        "engineInstallerRevision": inputs["engine_installer_revision"],
+        "engineInstallerDataRevision": inputs["engine_installer_data_revision"],
+        **legacy_engine_fields(inputs),
         "downstreamRevision": inputs["downstream_revision"],
         "metadataDigest": f"sha256:{digest(metadata)}",
         "payloadDigest": f"sha256:{digest(payload)}",

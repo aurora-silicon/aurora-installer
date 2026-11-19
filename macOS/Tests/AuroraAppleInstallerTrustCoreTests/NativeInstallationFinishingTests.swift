@@ -320,7 +320,7 @@
       let tar = Process()
       tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
       tar.arguments = [
-        "-tzf", fixture.esp.esp.appendingPathComponent("asahi/all_firmware.tar.gz").path,
+        "-tzf", fixture.esp.esp.appendingPathComponent("aurora/all_firmware.tar.gz").path,
       ]
       let pipe = Pipe()
       tar.standardOutput = pipe
@@ -386,8 +386,8 @@
     func testNativeFirmwareRecoveryAndFinalCheckpointAreAcceptedTogether() async throws {
       let fixture = try await Fixture()
       let receipt = try await fixture.prepareVendor()
-      XCTAssertTrue(receipt.installerData.keys.contains("asahi/SystemVersion.plist"))
-      XCTAssertTrue(receipt.installerData.keys.contains("asahi/BuildManifest.plist"))
+      XCTAssertTrue(receipt.installerData.keys.contains("aurora/SystemVersion.plist"))
+      XCTAssertTrue(receipt.installerData.keys.contains("aurora/BuildManifest.plist"))
       let second = try await fixture.prepareVendor()
       XCTAssertEqual(receipt, second)
       XCTAssertEqual(fixture.imageOpens, 1)
@@ -445,10 +445,10 @@
       let restored = try await fixture.prepareVendor()
       XCTAssertEqual(restored, expected)
       XCTAssertEqual(fixture.imageOpens, 2)
-      let fallback = fixture.esp.esp.appendingPathComponent("asahi/all_firmware.tar.gz")
+      let fallback = fixture.esp.esp.appendingPathComponent("aurora/all_firmware.tar.gz")
       XCTAssertEqual(
         try NativeStubFileStore.hash(Data(contentsOf: fallback)),
-        expected.installerData["asahi/all_firmware.tar.gz"]?.sha256)
+        expected.installerData["aurora/all_firmware.tar.gz"]?.sha256)
     }
 
     func testRecoveryResumesPartialDataAndMissingAppWithoutReplacingSystem() async throws {

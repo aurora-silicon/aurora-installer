@@ -346,9 +346,9 @@
       )
       let record = PinnedInstallerRecord(
         deviceIdentifier: "apple,j314s",
-        asahiInstallerTag: "v0.9.0",
-        asahiInstallerRevision: String(repeating: "a", count: 40),
-        asahiInstallerDataRevision: String(repeating: "b", count: 40),
+        engineInstallerTag: "v0.9.0",
+        engineInstallerRevision: String(repeating: "a", count: 40),
+        engineInstallerDataRevision: String(repeating: "b", count: 40),
         downstreamRevision: String(repeating: "c", count: 40),
         engineVersion: NativeExecutionIdentity.version,
         engineDigest: NativeExecutionIdentity.digest,
@@ -449,7 +449,7 @@
       )
       return Data(
         """
-        {"schemaVersion":5,"sequence":40,"issuedAt":"\(issued)","expiresAt":"\(expires)","models":[{"deviceIdentifier":"\(record.deviceIdentifier)","status":"enabled","asahiInstallerTag":"\(record.asahiInstallerTag)","asahiInstallerRevision":"\(record.asahiInstallerRevision)","asahiInstallerDataRevision":"\(record.asahiInstallerDataRevision)","downstreamRevision":"\(record.downstreamRevision)","metadataDigest":"\(record.metadataDigest)","payloadDigest":"\(record.payloadDigest)","evidenceRevision":"\(record.evidenceRevision)","metadataArtifact":{"sourceURL":"\(metadata.sourceURL.absoluteString)","fileName":"\(metadata.fileName)","sizeBytes":\(metadata.expectedSizeBytes)},"payloadArtifact":{"sourceURL":"\(payload.sourceURL.absoluteString)","fileName":"\(payload.fileName)","sizeBytes":\(payload.expectedSizeBytes)}}]}
+        {"schemaVersion":5,"sequence":40,"issuedAt":"\(issued)","expiresAt":"\(expires)","models":[{"deviceIdentifier":"\(record.deviceIdentifier)","status":"enabled","engineInstallerTag":"\(record.engineInstallerTag)","engineInstallerRevision":"\(record.engineInstallerRevision)","engineInstallerDataRevision":"\(record.engineInstallerDataRevision)","downstreamRevision":"\(record.downstreamRevision)","metadataDigest":"\(record.metadataDigest)","payloadDigest":"\(record.payloadDigest)","evidenceRevision":"\(record.evidenceRevision)","metadataArtifact":{"sourceURL":"\(metadata.sourceURL.absoluteString)","fileName":"\(metadata.fileName)","sizeBytes":\(metadata.expectedSizeBytes)},"payloadArtifact":{"sourceURL":"\(payload.sourceURL.absoluteString)","fileName":"\(payload.fileName)","sizeBytes":\(payload.expectedSizeBytes)}}]}
         """.utf8
       )
     }

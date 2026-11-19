@@ -184,14 +184,14 @@
       }
     }
 
-    func testBootObjectMayNameAuraOrTheLegacyM1n1Stage1() async throws {
+    func testBootObjectMustNameAura() async throws {
       let fixture = try fixture()
       let vector = try XCTUnwrap(fixture.vectors.first { $0.accepted })
       let archive = try await IPSWArchive.open(
         PayloadFixtureSource(
           bytes: try XCTUnwrap(fixture.archives[vector.archive])))
       for (name, accepted) in [
-        ("aura.bin", true), ("m1n1.bin", true), ("boot.bin", false), ("", false),
+        ("aura.bin", true), ("stage1.bin", false), ("boot.bin", false), ("", false),
       ] {
         var document = try XCTUnwrap(
           JSONSerialization.jsonObject(with: Data(vector.metadata.utf8)) as? [String: Any])

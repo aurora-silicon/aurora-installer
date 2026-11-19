@@ -70,7 +70,7 @@
       // A padded Stage 1 chainloads the confined Stage 2 on this ESP.
       for image in [machO, raw] {
         let configuration = try Stage1Configuration.read(image)
-        XCTAssertEqual(configuration.stage2Path, "m1n1/boot-ctxr.bin")
+        XCTAssertEqual(configuration.stage2Path, "aurora/boot-ctxr.bin")
         XCTAssertEqual(configuration.espUUID, receipt.espUUID.lowercased())
       }
       let before = try Data(contentsOf: fixture.receipt)
@@ -87,14 +87,14 @@
       }
       XCTAssertEqual(
         try Stage1Configuration.retargeted(
-          filled("m1n1/boot.bin"), stage2Path: "m1n1/boot-ctxr.bin"),
-        try filled("m1n1/boot-ctxr.bin"))
+          filled("aurora/boot.bin"), stage2Path: "aurora/boot-ctxr.bin"),
+        try filled("aurora/boot-ctxr.bin"))
       let object = Self.object(wrapping: plan.stage1)
       let carried = try MachOBootObject.fill(
-        object, raw: plan.stage1, filled: filled("m1n1/boot.bin"))
+        object, raw: plan.stage1, filled: filled("aurora/boot.bin"))
       XCTAssertEqual(
-        try Stage1Configuration.retargeted(carried, stage2Path: "m1n1/boot-ctxr.bin"),
-        try MachOBootObject.fill(object, raw: plan.stage1, filled: filled("m1n1/boot-ctxr.bin")))
+        try Stage1Configuration.retargeted(carried, stage2Path: "aurora/boot-ctxr.bin"),
+        try MachOBootObject.fill(object, raw: plan.stage1, filled: filled("aurora/boot-ctxr.bin")))
     }
 
     func testAnUnpaddedStage1ReceiptRecordsTheObject() async throws {
@@ -103,7 +103,7 @@
       let bootBin = fixture.images.base.mounts.appendingPathComponent(
         "disk8s1/" + NativeESPFilesExecution.stage1Path)
       XCTAssertEqual(
-        try Stage1Configuration.read(Data(contentsOf: bootBin)).stage2Path, "m1n1/boot.bin")
+        try Stage1Configuration.read(Data(contentsOf: bootBin)).stage2Path, "aurora/boot.bin")
       let receipt =
         try JSONSerialization.jsonObject(
           with: Data(contentsOf: fixture.receipt)) as! [String: Any]
@@ -147,7 +147,7 @@
     /// The fixture payload with its Stage 1 made `loadable`, and with
     /// `esp/aurora/stage1.macho` and `extra` added by zip(1).
     static func payload(
-      extra: [String] = ["esp/m1n1/boot-ctxr.bin"], extraBytes: [String: Int] = [:],
+      extra: [String] = ["esp/aurora/boot-ctxr.bin"], extraBytes: [String: Int] = [:],
       machO: @escaping (Data) -> Data
     ) async throws -> (Data, Data, Data) {
       let (metadata, payload, _) = try NativeESPFileTests.inputs()
@@ -194,12 +194,12 @@
         XCTAssertEqual(try XCTUnwrap(plan).stage1MachO, object)
         XCTAssertEqual(try XCTUnwrap(plan).executeWindow, machO)
         XCTAssertEqual(
-          try XCTUnwrap(plan).stage2Path, machO ? "m1n1/boot-ctxr.bin" : "m1n1/boot.bin")
+          try XCTUnwrap(plan).stage2Path, machO ? "aurora/boot-ctxr.bin" : "aurora/boot.bin")
         XCTAssertEqual(
           try XCTUnwrap(plan).entries.first { $0.member.name == "esp/aurora/stage1.macho" }?.path,
           "aurora/stage1.macho")
         XCTAssertEqual(
-          try XCTUnwrap(plan).entries.contains { $0.path == "m1n1/boot-ctxr.bin" }, machO)
+          try XCTUnwrap(plan).entries.contains { $0.path == "aurora/boot-ctxr.bin" }, machO)
       }
       let (_, mismatched, _) = try await Self.payload {
         var other = $0
@@ -263,7 +263,7 @@
         XCTAssertEqual(admitted.stage1MachOMember, NativeBootChain.commonStage1MachO, device)
         XCTAssertFalse(admitted.executeWindow, device)
         XCTAssertNil(admitted.expandedStage1Bytes, device)
-        XCTAssertEqual(admitted.stage2Path, "m1n1/boot.bin", device)
+        XCTAssertEqual(admitted.stage2Path, "aurora/boot.bin", device)
       }
       let fixture = try await NativeESPFileTests.Fixture()
       XCTAssertFalse(fixture.plan.executeWindow)
@@ -276,7 +276,7 @@
       try MachOBootObject.check(enrolled)
       XCTAssertEqual(receipt.stage1MachO?.sha256, NativeStubFileStore.hash(enrolled))
       XCTAssertEqual(receipt.executeWindow, false)
-      XCTAssertEqual(try Stage1Configuration.read(enrolled).stage2Path, "m1n1/boot.bin")
+      XCTAssertEqual(try Stage1Configuration.read(enrolled).stage2Path, "aurora/boot.bin")
       // Its size is the object's own: nothing is padded.
       XCTAssertEqual(enrolled.count, try XCTUnwrap(fixture.plan.stage1MachO).count)
       _ = object
@@ -285,26 +285,26 @@
     func testAMachOChipGetsBothStage2FilesAndARawChipOnlyItsOwn() async throws {
       let (metadata, payload, _) = try await Self.payload { Self.object(wrapping: $0) }
       let machO = try await admit(payload, metadata: metadata, machO: true)
-      XCTAssertEqual(machO.stage2Path, "m1n1/boot-ctxr.bin")
-      XCTAssertEqual(machO.espLayout["esp/m1n1/boot-ctxr.bin"], "m1n1/boot-ctxr.bin")
-      XCTAssertEqual(machO.espLayout.values.filter { $0 == "m1n1/boot.bin" }.count, 1)
+      XCTAssertEqual(machO.stage2Path, "aurora/boot-ctxr.bin")
+      XCTAssertEqual(machO.espLayout["esp/aurora/boot-ctxr.bin"], "aurora/boot-ctxr.bin")
+      XCTAssertEqual(machO.espLayout.values.filter { $0 == "aurora/boot.bin" }.count, 1)
       let raw = try await admit(payload, metadata: metadata, machO: false)
-      XCTAssertEqual(raw.stage2Path, "m1n1/boot.bin")
-      XCTAssertNil(raw.espLayout["esp/m1n1/boot-ctxr.bin"])
-      XCTAssertFalse(raw.espLayout.values.contains("m1n1/boot-ctxr.bin"))
-      XCTAssertEqual(raw.espLayout.values.filter { $0 == "m1n1/boot.bin" }.count, 1)
+      XCTAssertEqual(raw.stage2Path, "aurora/boot.bin")
+      XCTAssertNil(raw.espLayout["esp/aurora/boot-ctxr.bin"])
+      XCTAssertFalse(raw.espLayout.values.contains("aurora/boot-ctxr.bin"))
+      XCTAssertEqual(raw.espLayout.values.filter { $0 == "aurora/boot.bin" }.count, 1)
     }
 
     func testABoardsOwnConfinedStage2WinsOverTheSharedOne() async throws {
       let (metadata, payload, _) = try await Self.payload(
-        extra: ["esp/m1n1/boot-ctxr.bin", "esp/m1n1/boot-ctxr-j700.bin"]
+        extra: ["esp/aurora/boot-ctxr.bin", "esp/aurora/boot-ctxr-j700.bin"]
       ) { Self.object(wrapping: $0) }
       let layout = try await admit(payload, metadata: metadata, machO: true).espLayout
-      XCTAssertEqual(layout["esp/m1n1/boot-ctxr-j700.bin"], "m1n1/boot-ctxr.bin")
-      XCTAssertNil(layout["esp/m1n1/boot-ctxr.bin"])
-      XCTAssertEqual(layout.values.filter { $0 == "m1n1/boot-ctxr.bin" }.count, 1)
+      XCTAssertEqual(layout["esp/aurora/boot-ctxr-j700.bin"], "aurora/boot-ctxr.bin")
+      XCTAssertNil(layout["esp/aurora/boot-ctxr.bin"])
+      XCTAssertEqual(layout.values.filter { $0 == "aurora/boot-ctxr.bin" }.count, 1)
       // Another board's file is never installed.
-      let (_, other, _) = try await Self.payload(extra: ["esp/m1n1/boot-ctxr-j999.bin"]) {
+      let (_, other, _) = try await Self.payload(extra: ["esp/aurora/boot-ctxr-j999.bin"]) {
         Self.object(wrapping: $0)
       }
       do {
@@ -316,7 +316,7 @@
     }
 
     func testAConfinedStage2LargerThanAurasSlotIsRefused() async throws {
-      let name = "esp/m1n1/boot-ctxr.bin"
+      let name = "esp/aurora/boot-ctxr.bin"
       let (metadata, fits, _) = try await Self.payload(extraBytes: [name: 16 << 20]) {
         Self.object(wrapping: $0)
       }
@@ -403,13 +403,13 @@
     func testMetadataThatDeclaresTheMachOFilesMustMatchThePayload() async throws {
       let (metadata, payload, _) = try await Self.payload { Self.object(wrapping: $0) }
       let matching = try Self.declaring(
-        metadata, stage1: true, confined: ["esp/m1n1/boot-ctxr.bin"])
+        metadata, stage1: true, confined: ["esp/aurora/boot-ctxr.bin"])
       for machO in [true, false] {
         _ = try await admit(payload, metadata: matching, machO: machO)
       }
       for (stage1, confined) in [
-        (false, ["esp/m1n1/boot-ctxr.bin"]), (true, []),
-        (true, ["esp/m1n1/boot-ctxr.bin", "esp/m1n1/boot-ctxr-j700.bin"]),
+        (false, ["esp/aurora/boot-ctxr.bin"]), (true, []),
+        (true, ["esp/aurora/boot-ctxr.bin", "esp/aurora/boot-ctxr-j700.bin"]),
       ] {
         let wrong = try Self.declaring(metadata, stage1: stage1, confined: confined)
         do {
@@ -435,14 +435,14 @@
       func declared(_ stage1: Bool, _ confined: [String]) throws -> Data {
         try Self.declaring(metadata, stage1: stage1, confined: confined)
       }
-      XCTAssertEqual(try refusal(declared(false, ["esp/m1n1/boot-ctxr.bin"])), .missingMachOStage1)
+      XCTAssertEqual(try refusal(declared(false, ["esp/aurora/boot-ctxr.bin"])), .missingMachOStage1)
       XCTAssertEqual(try refusal(declared(true, [])), .missingConfinedStage2)
       XCTAssertEqual(
-        try refusal(declared(true, ["esp/m1n1/boot-ctxr-j616s.bin"])), .missingConfinedStage2)
-      XCTAssertNil(try refusal(declared(true, ["esp/m1n1/boot-ctxr-j700.bin"])))
-      XCTAssertNil(try refusal(declared(true, ["esp/m1n1/boot-ctxr.bin"])))
+        try refusal(declared(true, ["esp/aurora/boot-ctxr-j616s.bin"])), .missingConfinedStage2)
+      XCTAssertNil(try refusal(declared(true, ["esp/aurora/boot-ctxr-j700.bin"])))
+      XCTAssertNil(try refusal(declared(true, ["esp/aurora/boot-ctxr.bin"])))
       // A declaration this installer can't read refuses the metadata.
-      XCTAssertThrowsError(try refusal(declared(true, ["esp/m1n1/other.bin"])))
+      XCTAssertThrowsError(try refusal(declared(true, ["esp/aurora/other.bin"])))
       // M1 to M3 need the boot object too, but no confined Stage 2.
       func standard(_ metadata: Data, firmware: String = "26.6.2") throws -> NativeBootChainError? {
         try NativeBootChain.machORefusal(
@@ -512,7 +512,7 @@
             with: Data(contentsOf: data.appendingPathComponent("AuraPayloads/manifest.json")))
           as! [String: Any]
         let mode = machO ? "macho" : "macho-standard"
-        let stage2Path = machO ? "m1n1/boot-ctxr.bin" : "m1n1/boot.bin"
+        let stage2Path = machO ? "aurora/boot-ctxr.bin" : "aurora/boot.bin"
         XCTAssertEqual(config["bootMode"] as? String, mode)
         XCTAssertEqual(config["stage2Path"] as? String, stage2Path)
         XCTAssertEqual(manifest["defaultMode"] as? String, mode)

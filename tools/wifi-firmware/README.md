@@ -4,8 +4,8 @@ macOS runs the Wi-Fi and Bluetooth firmware its own system volume ships, so
 every macOS update can bring new radio firmware. A Linux install keeps the
 set its installer took:
 
-- the Asahi installer takes it from its stub's Recovery image, macOS 13.5
-  (22G74) for most installs. A MacBook Pro M1 Pro installed that way runs
+- the older installer engine takes it from its stub's Recovery image,
+  macOS 13.5 (22G74) for most installs. A MacBook Pro M1 Pro installed that way runs
   BCM4387 firmware 20.96.31 (May 2023) while its macOS 26.2 runs 20.131.4;
 - the Aurora installer takes it from the macOS it runs on (the installed
   system volume, or for the MacBook Neo's MediaTek MT7932 the IPSW of the
@@ -48,10 +48,10 @@ follows its macOS as macOS does.
 1. **Which macOS.** Every APFS container on the Mac is read with `apfs_ro`, a
    small read-only APFS reader (no mount, no kernel module, no FUSE). The
    System volume is not encrypted, with or without FileVault, so no password
-   is needed. The boot stub's volume group (`asahi/stub_info.json`) is left
+   is needed. The boot stub's volume group (`aurora/stub_info.json`) is left
    out. With more than one macOS installed, the newest build is used.
 2. **Convert.** The radio files are copied out of the volume and converted
-   with this repository's `asahi_firmware`, the converters the installers
+   with this repository's `aurora_firmware`, the converters the installers
    use: `wifi` and `bluetooth` into `brcm/brcmfmac*` and `brcm/brcmbt*`,
    `mt7932` into the names the MT7932 drivers load (the same conversion as
    the native installer's `NeoFirmwareConversions`). The MT7932 Bluetooth
@@ -68,9 +68,9 @@ follows its macOS as macOS does.
    happens. A radio whose files this macOS does not ship keeps its files.
 4. **Rebuild.** `vendorfw/` is rebuilt with the new files and every other
    file kept, by path, hash and mode (checked before anything is written).
-   On Broadcom Macs `asahi/all_firmware.tar.gz` gets the macOS trees under
+   On Broadcom Macs `aurora/all_firmware.tar.gz` gets the macOS trees under
    `firmware/wifi/` and `firmware/bluetooth/`, so a later rebuild
-   (`asahi-fwupdate`) gives the same set.
+   (`aurora-fwupdate`) gives the same set.
 5. **Swap.** Both are backed up to `/var/lib/aurora-rollback/wifi-firmware-*`
    (the last two backups are kept), copied to the ESP and swapped in. On any
    failure the ESP keeps its old files.
@@ -105,7 +105,7 @@ make -C tools/wifi-firmware install DESTDIR="$pkgdir" PREFIX=/usr
 make -C tools/wifi-firmware check
 ```
 
-installs the launcher, the tool with `apfs_ro` and the `asahi_firmware`
+installs the launcher, the tool with `apfs_ro` and the `aurora_firmware`
 modules it needs (`__init__`, `core`, `cpio`, `wifi`, `bluetooth`,
 `mt7932`), and
 `aurora-wifi-firmware.service` (enable it). `apfs_ro.py` is vendored from

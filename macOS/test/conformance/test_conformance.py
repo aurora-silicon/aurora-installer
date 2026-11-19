@@ -32,16 +32,16 @@ def fdt(compatible):
 
 class EnrollmentTests(unittest.TestCase):
     SELECTION = (HERE.parent.parent / 'Recovery/Sources/BootSelection.swift').read_text()
-    MACHO = {'stage1_mode': 'macho', 'stage2_path': 'm1n1/boot-ctxr.bin'}
-    STANDARD = {'stage1_mode': 'macho-standard', 'stage2_path': 'm1n1/boot.bin'}
-    RAW = {'stage1_mode': 'raw', 'stage2_path': 'm1n1/boot.bin'}
+    MACHO = {'stage1_mode': 'macho', 'stage2_path': 'aurora/boot-ctxr.bin'}
+    STANDARD = {'stage1_mode': 'macho-standard', 'stage2_path': 'aurora/boot.bin'}
+    RAW = {'stage1_mode': 'raw', 'stage2_path': 'aurora/boot.bin'}
 
     def test_a_window_chip_expects_the_padded_compressed_path(self):
         ok, how = conformance.enrollment_check(self.SELECTION, True, [self.MACHO])
         self.assertTrue(ok)
         self.assertIn('--compress', how)
         self.assertNotIn('--raw', how)
-        for chain in (self.RAW, self.STANDARD, {'stage1_mode': 'macho', 'stage2_path': 'm1n1/boot.bin'}, {}):
+        for chain in (self.RAW, self.STANDARD, {'stage1_mode': 'macho', 'stage2_path': 'aurora/boot.bin'}, {}):
             self.assertFalse(conformance.enrollment_check(self.SELECTION, True, [self.MACHO, chain])[0], chain)
         self.assertFalse(conformance.enrollment_check(self.SELECTION.replace('--compress', ''), True, [self.MACHO])[0])
 
@@ -79,18 +79,18 @@ class EnrollmentTests(unittest.TestCase):
         self.assertEqual(conformance.verdict(list(checks.values())), 'FAIL')
 
     def test_a_payload_with_it_is_checked_like_a_board_stage_two(self):
-        layout = {'esp/m1n1/boot-ctxr-j700.bin': 'm1n1/boot-ctxr.bin'}
+        layout = {'esp/aurora/boot-ctxr-j700.bin': 'aurora/boot-ctxr.bin'}
         good = {'device_trees': [{'compatible': 'apple,j700'}], 'u_boot': '2026.07',
                 'versions': ['##aura_ver##1.0.0b6']}
         chain = {'confined_stage2_missing': False, 'esp_layout': layout}
-        checks = self.confined(chain, {'esp/m1n1/boot-ctxr-j700.bin': good})
+        checks = self.confined(chain, {'esp/aurora/boot-ctxr-j700.bin': good})
         self.assertTrue(checks['confined stage2']['ok'])
         self.assertTrue(checks['published confined stage2']['ok'])
         other = dict(good, device_trees=[{'compatible': 'apple,j700'}, {'compatible': 'apple,j413'}])
-        self.assertFalse(self.confined(chain, {'esp/m1n1/boot-ctxr-j700.bin': other})['confined stage2']['ok'])
+        self.assertFalse(self.confined(chain, {'esp/aurora/boot-ctxr-j700.bin': other})['confined stage2']['ok'])
         self.assertFalse(self.confined(chain)['confined stage2']['ok'])
-        self.assertTrue(conformance.CONFINED_MEMBER.fullmatch('esp/m1n1/boot-ctxr.bin'))
-        self.assertFalse(conformance.CONFINED_MEMBER.fullmatch('esp/m1n1/boot-j700.bin'))
+        self.assertTrue(conformance.CONFINED_MEMBER.fullmatch('esp/aurora/boot-ctxr.bin'))
+        self.assertFalse(conformance.CONFINED_MEMBER.fullmatch('esp/aurora/boot-j700.bin'))
 
 
 class FixtureTests(unittest.TestCase):

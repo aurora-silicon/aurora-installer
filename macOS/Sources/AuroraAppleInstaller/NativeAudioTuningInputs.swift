@@ -43,7 +43,7 @@
     static let tuningsPrefix = "System/Library/Audio/Tunings"
     /// Names in the firmware package (`/lib/firmware/vendor/` on Linux).
     static let packagePrefix = "apple/audio-tuning/"
-    /// Names in the raw fallback archive (`asahi/all_firmware.tar.gz`).
+    /// Names in the raw fallback archive (`aurora/all_firmware.tar.gz`).
     static let fallbackPrefix = "audio-tuning/"
     static let manifestName = "manifest.json"
     static let thieleSmallName = "speaker-thiele-small.bin"

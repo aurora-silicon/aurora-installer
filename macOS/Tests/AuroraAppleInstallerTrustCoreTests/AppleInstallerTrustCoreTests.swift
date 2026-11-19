@@ -266,7 +266,7 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
     guard case .admitted(let record) = result.admission(for: "apple,j314s") else {
       return XCTFail("Expected the signed M1 Pro record to be admitted")
     }
-    XCTAssertEqual(record.asahiInstallerTag, "v0.9.0")
+    XCTAssertEqual(record.engineInstallerTag, "v0.9.0")
     XCTAssertEqual(
       result.admission(for: "apple,j614s"),
       .unsupported(deviceIdentifier: "apple,j614s")
@@ -276,7 +276,7 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
   func testSignedNativeCatalogOmitsTheExecutionArchive() throws {
     let issued = ISO8601DateFormatter().string(from: now.addingTimeInterval(-3_600))
     let model = """
-      {"deviceIdentifier":"apple,j314s","status":"enabled","installationProfile":"nixos-kde","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","metadataDigest":"sha256:\(String(repeating: "e", count: 64))","payloadDigest":"sha256:\(String(repeating: "f", count: 64))","evidenceRevision":"native-1","metadataArtifact":{"sourceURL":"https://downloads.example.com/metadata.json","fileName":"metadata.json","sizeBytes":1},"payloadArtifact":{"sourceURL":"https://downloads.example.com/payload.zip","fileName":"payload.zip","sizeBytes":1}}
+      {"deviceIdentifier":"apple,j314s","status":"enabled","installationProfile":"nixos-kde","engineInstallerTag":"v0.9.0","engineInstallerRevision":"\(String(repeating: "a", count: 40))","engineInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","metadataDigest":"sha256:\(String(repeating: "e", count: 64))","payloadDigest":"sha256:\(String(repeating: "f", count: 64))","evidenceRevision":"native-1","metadataArtifact":{"sourceURL":"https://downloads.example.com/metadata.json","fileName":"metadata.json","sizeBytes":1},"payloadArtifact":{"sourceURL":"https://downloads.example.com/payload.zip","fileName":"payload.zip","sizeBytes":1}}
       """
     let document = """
       {"schemaVersion":5,"sequence":50,"issuedAt":"\(issued)","models":[\(model)]}
@@ -765,7 +765,7 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
     let payloadField = payloadParts.map { ",\"parts\":\($0)" } ?? ""
     return Data(
       """
-      {"schemaVersion":5,"sequence":21,"issuedAt":"\(issued)","expiresAt":"\(expires)","models":[{"deviceIdentifier":"apple,j314s","status":"enabled","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","metadataDigest":"sha256:\(String(repeating: "e", count: 64))","payloadDigest":"sha256:\(String(repeating: "f", count: 64))","evidenceRevision":"evidence-parts-1","metadataArtifact":{"sourceURL":"https://downloads.example.com/metadata.json","fileName":"metadata.json","sizeBytes":1\(metadataField)},"payloadArtifact":{"sourceURL":"https://downloads.example.com/payload.zip","fileName":"payload.zip","sizeBytes":12\(payloadField)}}]}
+      {"schemaVersion":5,"sequence":21,"issuedAt":"\(issued)","expiresAt":"\(expires)","models":[{"deviceIdentifier":"apple,j314s","status":"enabled","engineInstallerTag":"v0.9.0","engineInstallerRevision":"\(String(repeating: "a", count: 40))","engineInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","metadataDigest":"sha256:\(String(repeating: "e", count: 64))","payloadDigest":"sha256:\(String(repeating: "f", count: 64))","evidenceRevision":"evidence-parts-1","metadataArtifact":{"sourceURL":"https://downloads.example.com/metadata.json","fileName":"metadata.json","sizeBytes":1\(metadataField)},"payloadArtifact":{"sourceURL":"https://downloads.example.com/payload.zip","fileName":"payload.zip","sizeBytes":12\(payloadField)}}]}
       """.utf8
     )
   }
@@ -880,7 +880,7 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
         + String(repeating: "d", count: 64)
         + #"","engineArtifact":{"sourceURL":"https://downloads.example.com/engine.tar.gz","fileName":"engine.tar.gz","sizeBytes":1}"#
     return """
-      {"deviceIdentifier":"\(deviceIdentifier)","status":"\(status)","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","metadataDigest":"sha256:\(String(repeating: "e", count: 64))","payloadDigest":"sha256:\(String(repeating: "f", count: 64))","evidenceRevision":"\(evidence)"\(engine)\(schemaVersion >= 2 ? artifacts : "")}
+      {"deviceIdentifier":"\(deviceIdentifier)","status":"\(status)","engineInstallerTag":"v0.9.0","engineInstallerRevision":"\(String(repeating: "a", count: 40))","engineInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","metadataDigest":"sha256:\(String(repeating: "e", count: 64))","payloadDigest":"sha256:\(String(repeating: "f", count: 64))","evidenceRevision":"\(evidence)"\(engine)\(schemaVersion >= 2 ? artifacts : "")}
       """
   }
 

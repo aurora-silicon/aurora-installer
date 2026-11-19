@@ -13,7 +13,7 @@
       // bytes. A tester who tries one channel and then the other must not be
       // refused because the first channel's file is still staged.
       let first = try makeFixture(
-        metadataContent: "asahi metadata",
+        metadataContent: "aurora metadata",
         evidenceRevision: "4.0.2-mac.1.20260907")
       let second = try makeFixture(
         metadataContent: "aurora metadata",
@@ -578,7 +578,7 @@
         } ?? ""
       return Data(
         """
-        {"schemaVersion":\(schemaVersion),"sequence":30,"issuedAt":"\(issued)","expiresAt":"\(expires)"\(installer),"models":[{"deviceIdentifier":"apple,j314s","status":"enabled","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","metadataDigest":"\(digest(metadata))","payloadDigest":"\(digest(payload))","evidenceRevision":"\(evidenceRevision)"\(delivery)}]}
+        {"schemaVersion":\(schemaVersion),"sequence":30,"issuedAt":"\(issued)","expiresAt":"\(expires)"\(installer),"models":[{"deviceIdentifier":"apple,j314s","status":"enabled","engineInstallerTag":"v0.9.0","engineInstallerRevision":"\(String(repeating: "a", count: 40))","engineInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","metadataDigest":"\(digest(metadata))","payloadDigest":"\(digest(payload))","evidenceRevision":"\(evidenceRevision)"\(delivery)}]}
         """.utf8
       )
     }

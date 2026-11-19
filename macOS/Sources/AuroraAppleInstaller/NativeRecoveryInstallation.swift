@@ -73,7 +73,12 @@
       else { throw NativeHandoffValidationError.invalidEvidence }
       let mode = NativeRecoveryBootMode(executeWindow: espReceipt.executeWindow ?? true)
       let bootMode = mode.rawValue
-      let stage2Path = AuraStage1Format.stage2Path(executeWindow: mode.executeWindow)
+      // The Stage 2 the ESP files step wrote: the current name, or the old one
+      // when a kept Stage 1 from before the rename loads it.
+      let stage2Path =
+        AuraStage1Format.acceptedStage2Paths(executeWindow: mode.executeWindow).first(where: {
+          path in espReceipt.files.contains(where: { $0.path == path })
+        }) ?? AuraStage1Format.stage2Path(executeWindow: mode.executeWindow)
       let stage2 = try esp.identity(stage2Path)
       guard let stage2Entry = espReceipt.files.first(where: { $0.path == stage2Path }),
         stage2 == stage2Entry.identity

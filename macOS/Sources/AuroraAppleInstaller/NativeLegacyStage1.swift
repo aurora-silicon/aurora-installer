@@ -1,5 +1,6 @@
 #if os(macOS)
   import Foundation
+  import RecoveryAccountCore
 
   enum NativeLegacyStage1 {
     struct Receipt: Codable, Equatable, Sendable {
@@ -25,7 +26,8 @@
         path.utf8.allSatisfy({ $0 >= 0x20 && $0 < 0x7f && $0 != 0x3b })
       else { throw NativeBootChainError.invalidStage1 }
       return base
-        + Data("chosen.asahi,efi-system-partition=\(uuid)\nchainload=\(uuid);\(path)\n".utf8)
+        + Data(
+          "chosen.\(AuraLegacyNames.espProperty)=\(uuid)\nchainload=\(uuid);\(path)\n".utf8)
         + Data(repeating: 0, count: 4)
     }
 

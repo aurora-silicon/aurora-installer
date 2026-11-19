@@ -68,7 +68,7 @@
         lengthBytes: 5_368_709_120, name: "Recovery")
     }
 
-    /// Two Aurora installations, free space between them, then Asahi.
+    /// Two Aurora installations, free space between them, then another Linux.
     static func mixed() -> LayoutFixture {
       var disk = LayoutFixture()
       disk.add(.macOS, "Macintosh HD", 260 * gb, free: 110 * gb)
@@ -263,7 +263,7 @@
       let needed = disk.add(
         .linux, "Old ESP", 1 * gb,
         refusal:
-          "“Asahi” starts Linux from the EFI partition disk0s4. Erase “Asahi” together with it."
+          "“Remix” starts Linux from the EFI partition disk0s4. Erase “Remix” together with it."
       )
       let layout = disk.display()
       // A partition no installation explains gets a row of its own.
@@ -274,7 +274,7 @@
       XCTAssertEqual(EraseSheetText.removes(other), "Removes this partition (100 GB).")
       // A partition the rule refuses says why, and offers nothing to erase.
       let refused = try! XCTUnwrap(layout.row(needed))
-      XCTAssertEqual(refused.erase?.reason?.hasPrefix("“Asahi” starts Linux"), true)
+      XCTAssertEqual(refused.erase?.reason?.hasPrefix("“Remix” starts Linux"), true)
       XCTAssertNil(refused.eraseTarget)
       XCTAssertNil(layout.afterErasing(needed))
     }

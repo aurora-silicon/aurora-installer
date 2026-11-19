@@ -13,7 +13,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from asahi_firmware.wifi import WiFiFWCollection  # noqa: E402
+from aurora_firmware.wifi import WiFiFWCollection  # noqa: E402
 
 SKUS = ("ID", "X0", "X2", "X3")
 FIRMWARE = b"synthetic C2 firmware"

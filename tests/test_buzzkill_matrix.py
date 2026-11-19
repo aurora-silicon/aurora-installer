@@ -8,7 +8,7 @@ import unittest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from asahi_firmware import buzzkill_matrix as M  # noqa: E402
+from aurora_firmware import buzzkill_matrix as M  # noqa: E402
 from macho_fixtures import CPU_X86_64, fat, thin  # noqa: E402
 
 # Made-up sections that only satisfy the structural rule. Not macOS's values.

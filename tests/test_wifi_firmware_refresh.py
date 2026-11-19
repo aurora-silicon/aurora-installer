@@ -2,8 +2,8 @@
 """tools/wifi-firmware: the installed macOS's Wi-Fi firmware onto the ESP.
 
 Synthetic trees only: a fake System volume with the apfs_ro reader's API, and
-an ESP whose asahi/all_firmware.tar.gz and vendorfw/ come from this
-repository's asahi_firmware, as an install writes them.
+an ESP whose aurora/all_firmware.tar.gz and vendorfw/ come from this
+repository's aurora_firmware, as an install writes them.
 """
 import io
 import json
@@ -19,7 +19,8 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools" / "wifi-firmware"))
 
 import aurora_wifi_firmware as awf  # noqa: E402
-from asahi_firmware.core import FWFile, FWPackage  # noqa: E402
+from aurora_firmware import esp as esp_names  # noqa: E402
+from aurora_firmware.core import FWFile, FWPackage  # noqa: E402
 
 BOARD = "hokkaido"
 
@@ -34,7 +35,7 @@ def wifi_tree(tag, boards=("hokkaido", "maldives")):
         t[f"{d}/{b}.txcb"] = f"{tag} {b} txcap".encode()
         t[f"{d}/P-{b}_M-YSBC_V-u__m-7.5.txt"] = f"boardrev=0x{len(tag):x}\nname={tag}\n".encode()
         t[f"{d}/{b}-X0.trx"] = ("link", f"{b}.trx")
-    # Asahi's collection skips these directories.
+    # The installer's collection skips these directories.
     t["C-4387__s-C2/perf/hokkaido.trx"] = b"perf build"
     return t
 
@@ -112,8 +113,8 @@ def make_esp(root, tree, extra_wifi=None):
     """An ESP as an install leaves it: all_firmware with firmware/wifi/ and
     bluetooth/, vendorfw built from it plus a non-Wi-Fi file and u-boot/."""
     esp = pathlib.Path(root) / "esp"
-    (esp / "asahi").mkdir(parents=True)
-    with tarfile.open(esp / "asahi" / "all_firmware.tar.gz", "w:gz") as tar:
+    (esp / esp_names.STATE_DIR).mkdir(parents=True)
+    with tarfile.open(esp / esp_names.STATE_DIR / "all_firmware.tar.gz", "w:gz") as tar:
         bt = tarfile.TarInfo("firmware/bluetooth/BCM4387C2_hokkaido.bin")
         bt.size = 9
         tar.addfile(bt, io.BytesIO(b"bluetooth"))
@@ -138,7 +139,7 @@ def make_esp(root, tree, extra_wifi=None):
     pkg.add_file("asmedia/asm2214a-apple.bin", FWFile("asm", b"asmedia"))
     pkg.add_file("apple/same-as-bt.bin", FWFile("dup", b"bluetooth"))
     pkg.close()
-    (esp / "asahi" / "stub_info.json").write_text(json.dumps({"vgid": "AAAAAAAA-0000-0000-0000-000000000000"}))
+    (esp / esp_names.STATE_DIR / "stub_info.json").write_text(json.dumps({"vgid": "AAAAAAAA-0000-0000-0000-000000000000"}))
     return esp
 
 
@@ -191,9 +192,9 @@ class UpdateTest(Case):
         self.assertEqual(new[name], awf.sha256(b"new hokkaido firmware"))
         self.assertNotEqual(new[name], old[name])
         # all_firmware now carries the macOS tree, so a later rebuild agrees.
-        self.assertEqual(awf.raw_wifi(esp / "asahi" / "all_firmware.tar.gz"),
+        self.assertEqual(awf.raw_wifi(esp / esp_names.STATE_DIR / "all_firmware.tar.gz"),
                          awf.tree_digest(new_tree))
-        with tarfile.open(esp / "asahi" / "all_firmware.tar.gz") as tar:
+        with tarfile.open(esp / esp_names.STATE_DIR / "all_firmware.tar.gz") as tar:
             names = tar.getnames()
         self.assertIn("firmware/bluetooth/BCM4387C2_hokkaido.bin", names)
         self.assertIn("fud_firmware/j413/mtfw.bin", names)
@@ -224,7 +225,7 @@ class UpdateTest(Case):
         self.assertEqual(awf.esp_wifi_digest(esp), after)
 
     def test_package_matches_a_full_rebuild(self):
-        """vendorfw after the update equals what asahi_firmware builds from
+        """vendorfw after the update equals what aurora_firmware builds from
         the updated tree (Wi-Fi first, then the rest)."""
         esp = make_esp(self.root, wifi_tree("old"))
         new_tree = wifi_tree("new")

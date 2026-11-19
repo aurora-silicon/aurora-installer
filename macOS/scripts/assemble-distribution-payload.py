@@ -191,7 +191,7 @@ def oled_stage2_images(combined, manifest):
 
 
 def complete_oled_stage2(bundle, manifest):
-    combined = regular(bundle / 'esp/m1n1/boot.bin').read_bytes()
+    combined = regular(bundle / 'esp/aurora/boot.bin').read_bytes()
     images = oled_stage2_images(combined, manifest)
     if not images:
         return {}
@@ -201,15 +201,15 @@ def complete_oled_stage2(bundle, manifest):
     # files and the common image are never replaced.
     for board, (data, count) in images.items():
         for name in (f'boot-{board}.bin', f'boot-ctxr-{board}.bin'):
-            path = bundle / 'esp/m1n1' / name
+            path = bundle / 'esp/aurora' / name
             if (path.exists() or path.is_symlink()) and regular(path).read_bytes() != data:
                 raise ValueError('OLED Stage 2 target already differs: ' + name)
-        additions[board + 'ap'] = {'member': f'esp/m1n1/boot-{board}.bin',
+        additions[board + 'ap'] = {'member': f'esp/aurora/boot-{board}.bin',
                                  'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest(),
                                  'deviceTrees': count}
     for board, (data, _) in images.items():
         for name in (f'boot-{board}.bin', f'boot-ctxr-{board}.bin'):
-            path = bundle / 'esp/m1n1' / name
+            path = bundle / 'esp/aurora' / name
             if not path.exists():
                 with path.open('xb') as stream:
                     stream.write(data)
@@ -230,12 +230,12 @@ def check_confined_stage2(bundle, stage2_members):
     Returns the members, for the metadata to declare.
     """
     esp = bundle / 'esp'
-    confined = sorted((esp / 'm1n1').glob('boot-ctxr*.bin'))
+    confined = sorted((esp / 'aurora').glob('boot-ctxr*.bin'))
     if not confined:
         return []
     if not (esp / 'aurora/stage1.macho').exists():
         raise ValueError('boot-ctxr files need esp/aurora/stage1.macho, the Stage 1 that loads them')
-    boards = {member.removeprefix('esp/m1n1/boot-').removesuffix('.bin'): bundle / member
+    boards = {member.removeprefix('esp/aurora/boot-').removesuffix('.bin'): bundle / member
               for member in stage2_members.values()}
     shared, own = False, set()
     for path in confined:
@@ -261,7 +261,7 @@ def check_confined_stage2(bundle, stage2_members):
                          if board in supported and board not in own and uses_macho(board_chip(path, board)))
         if missing:
             raise ValueError('no boot-ctxr file for the M4 or later boards ' + ', '.join(missing))
-    return ['esp/m1n1/' + path.name for path in confined]
+    return ['esp/aurora/' + path.name for path in confined]
 
 
 def check_stage1_macho(esp):
@@ -297,7 +297,7 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
     if manifest_path.exists():
         source_manifest_sha256 = digest(regular(manifest_path))
         manifest = json.loads(regular(manifest_path).read_text())
-        if manifest.get('schema') != 1 or manifest.get('sourceSha256') != digest(regular(bundle / 'esp/m1n1/boot.bin')):
+        if manifest.get('schema') != 1 or manifest.get('sourceSha256') != digest(regular(bundle / 'esp/aurora/boot.bin')):
             raise ValueError('Stage 2 source identity mismatch')
         records = manifest.get('boards')
         if not isinstance(records, dict) or not records:
@@ -306,7 +306,7 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
             if not re.fullmatch(r'[jk][0-9]+[a-z]*ap', board):
                 raise ValueError('invalid Stage 2 board')
             member = record.get('member')
-            if member != 'esp/m1n1/boot-' + board.removesuffix('ap') + '.bin':
+            if member != 'esp/aurora/boot-' + board.removesuffix('ap') + '.bin':
                 raise ValueError('invalid Stage 2 member')
             path = regular(bundle / member)
             if path.stat().st_size != record.get('bytes') or digest(path) != record.get('sha256'):
@@ -382,7 +382,7 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
     # every released installer reads; they predate the Aurora name.
     template = {
         'omarchy_target': 'apple-silicon-full-os', 'name': title + ' (' + profile.split('-')[1] + ')',
-        'default_os_name': title, 'boot_object': 'm1n1.bin', 'next_object': 'm1n1/boot.bin',
+        'default_os_name': title, 'boot_object': 'aura.bin', 'next_object': 'aurora/boot.bin',
         'package': payload.name, 'icon': 'aurora-volume.icns', 'layout_kind': image['layout_kind'],
         'installation_profile': profile, 'recovery_gui': 'omarchy-native-v1',
         # Developer machine/firmware admission; device qualification is separate.

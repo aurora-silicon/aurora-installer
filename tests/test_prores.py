@@ -11,7 +11,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from asahi_firmware import prores as P  # noqa: E402
+from aurora_firmware import prores as P  # noqa: E402
 
 BASE = 0xFFFFFE0007000000
 TEXT = BASE + 0x4000

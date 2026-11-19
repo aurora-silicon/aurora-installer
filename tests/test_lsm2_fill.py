@@ -11,7 +11,7 @@ import unittest
 import unittest.mock
 from unittest.mock import patch
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from asahi_firmware import audio_tuning, lsm2_fill as fill
+from aurora_firmware import audio_tuning, lsm2_fill as fill
 
 AID, BUILD, UNIT = "AID901", "00A001", "1" * 64
 STRIP = AID + "/DSP/Strips/synthetic.austrip"
@@ -213,7 +213,7 @@ class PrivateTransport(unittest.TestCase):
     def test_vendor_tar_cpio_and_collection_keep_private_modes(self):
         import io
         import tarfile
-        from asahi_firmware.core import FWFile, FWPackage
+        from aurora_firmware.core import FWFile, FWPackage
         path = "apple/audio-tuning/" + fill.NAME
         with tempfile.TemporaryDirectory() as tmp:
             pkg = FWPackage(tmp)

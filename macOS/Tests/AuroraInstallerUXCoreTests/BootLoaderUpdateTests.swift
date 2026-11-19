@@ -143,7 +143,7 @@
         let display = PlainLanguage.engineFailure(
           EngineFailureNotice(
             reason: .bootLoaderUpdateRefused, exitStatus: 1, diskUnchanged: unchanged,
-            summary: "The EFI partition has no m1n1/boot-ctxr.bin yet."),
+            summary: "The EFI partition has no aurora/boot-ctxr.bin yet."),
           technicalDetail: "detail")
         XCTAssertEqual(display.headline, "The boot loader wasn’t updated")
         XCTAssertTrue(display.plainDetail.hasPrefix("The EFI partition has no"))

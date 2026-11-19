@@ -12,12 +12,12 @@ final class BootLoaderVersionTests: XCTestCase {
     XCTAssertEqual(found.description, "aura 1.0b1")
   }
 
-  func testLegacyM1n1Marker() throws {
+  func testLegacyMarker() throws {
     let found = try XCTUnwrap(
       BootLoaderVersion.find(in: Data("code ##m1n1_ver##v1.5.2\0 more".utf8)))
-    XCTAssertEqual(found, BootLoaderVersion(loader: .m1n1, version: "v1.5.2"))
+    XCTAssertEqual(found, BootLoaderVersion(loader: .legacy, version: "v1.5.2"))
     XCTAssertTrue(found.isLegacy)
-    XCTAssertEqual(found.description, "m1n1 v1.5.2")
+    XCTAssertEqual(found.description, "legacy v1.5.2")
   }
 
   func testAuraMarkerWinsOverLegacy() {

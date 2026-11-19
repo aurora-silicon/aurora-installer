@@ -29,7 +29,7 @@
 
     static func configuration(
       _ binding: NativeStage1UpdateBinding = binding, mode: String = "macho",
-      stage2Path: String = "m1n1/boot.bin", extra: [String: Any] = [:]
+      stage2Path: String = "aurora/boot.bin", extra: [String: Any] = [:]
     ) throws -> Data {
       var value: [String: Any] = [
         "schema": 2, "volumeName": "Aurora Alarm", "systemUUID": binding.systemUUID,
@@ -45,7 +45,7 @@
       ["sha256": NativeStubFileStore.hash(bytes), "bytes": bytes.count]
     }
 
-    /// An Alpha 17 Mach-O installation: an unpadded Stage 1 loading m1n1/boot.bin.
+    /// An Alpha 17 Mach-O installation: an unpadded Stage 1 loading aurora/boot.bin.
     static let earlierRaw = Data("earlier raw stage 1".utf8)
     static let earlierObject = Data("earlier unpadded Mach-O stage 1".utf8)
     static let stage2 = Data("standard stage 2".utf8)
@@ -65,12 +65,12 @@
       throws -> Data
     {
       try json([
-        "schema": 2, "defaultMode": mode, "modes": [mode: ["espPath": "m1n1/boot.bin"]],
+        "schema": 2, "defaultMode": mode, "modes": [mode: ["espPath": "aurora/boot.bin"]],
         "vendorFirmware": vendor.keys.sorted(), "files": files.mapValues(identity),
       ])
     }
 
-    static func receipt(stage1: Data = earlierObject, stage2Path: String = "m1n1/boot.bin")
+    static func receipt(stage1: Data = earlierObject, stage2Path: String = "aurora/boot.bin")
       throws -> Data
     {
       try json([
@@ -96,10 +96,10 @@
       XCTAssertEqual(candidate.stage2Path, AuraStage1Format.confinedStage2Path)
       let configuration = try Stage1Configuration.read(candidate.raw)
       XCTAssertEqual(configuration.espUUID, Self.espUUID.lowercased())
-      XCTAssertEqual(configuration.stage2Path, "m1n1/boot-ctxr.bin")
+      XCTAssertEqual(configuration.stage2Path, "aurora/boot-ctxr.bin")
       let object = candidate.machO
       try MachOBootObject.check(object)
-      XCTAssertEqual(try Stage1Configuration.read(object).stage2Path, "m1n1/boot-ctxr.bin")
+      XCTAssertEqual(try Stage1Configuration.read(object).stage2Path, "aurora/boot-ctxr.bin")
       XCTAssertEqual(candidate.enrolled, object)
       XCTAssertEqual(
         candidate.expandedBytes, try MachOBootObject.expandExecuteWindow(object).size)
@@ -112,7 +112,7 @@
       XCTAssertEqual(standard.enrolled, standard.machO)
       XCTAssertNotEqual(standard.enrolled, standard.raw)
       try MachOBootObject.check(standard.machO)
-      XCTAssertEqual(try Stage1Configuration.read(standard.machO).stage2Path, "m1n1/boot.bin")
+      XCTAssertEqual(try Stage1Configuration.read(standard.machO).stage2Path, "aurora/boot.bin")
     }
 
     func testAnObjectThatIsTooLargeOrALegacyStage1IsRefused() async throws {
@@ -174,7 +174,7 @@
           XCTAssertEqual($0 as? NativeStage1UpdateError, .missingStage2(path: confined))
         }
       }
-      try NativeStage1Update.requireStage2(bytes: 20 << 20, path: "m1n1/boot.bin")
+      try NativeStage1Update.requireStage2(bytes: 20 << 20, path: "aurora/boot.bin")
       XCTAssertTrue(
         NativeStage1UpdateError.missingStage2(path: confined).summary.contains(
           "install its updates"))
@@ -184,10 +184,10 @@
 
     func testARecognizedInstallationIsAcceptedIncludingAnEarlierMachOOne() throws {
       let records = try Self.records()
-      XCTAssertEqual(records.stage2Path, "m1n1/boot.bin")
+      XCTAssertEqual(records.stage2Path, "aurora/boot.bin")
       XCTAssertEqual(records.volumeName, "Aurora Alarm")
       // The padded layout, a raw Mac, and the ESP UUID in either case are accepted too.
-      _ = try Self.records(configuration: Self.configuration(stage2Path: "m1n1/boot-ctxr.bin"))
+      _ = try Self.records(configuration: Self.configuration(stage2Path: "aurora/boot-ctxr.bin"))
       let raw = NativeStage1UpdateBinding(
         systemUUID: Self.binding.systemUUID, groupUUID: Self.binding.groupUUID,
         prebootUUID: Self.binding.prebootUUID, espUUID: Self.espUUID.lowercased(),
@@ -212,7 +212,7 @@
         ),
         (try Self.configuration(mode: "raw"), .wrongBootMode, "a raw installation on Mach-O"),
         (
-          try Self.configuration(stage2Path: "m1n1/other.bin"), .changedInstallation,
+          try Self.configuration(stage2Path: "aurora/other.bin"), .changedInstallation,
           "an unknown Stage 2"
         ),
         (try Self.configuration(extra: ["unexpected": true]), .changedInstallation, "unknown key"),
@@ -289,7 +289,7 @@
 
     func testAnUnchangedStage1IsANoOpAndAnEarlierOneIsUpdated() async throws {
       let candidate = try await Self.candidate()
-      // Alpha 17: an unpadded object loading m1n1/boot.bin is enrolled.
+      // Alpha 17: an unpadded object loading aurora/boot.bin is enrolled.
       XCTAssertEqual(NativeStage1Update.decide(candidate, records: try Self.records()), .update)
       // Already enrolled and already Recovery's copy: nothing to do.
       var files = Self.payloadFiles()
@@ -297,16 +297,16 @@
       files["macho/aura-boot.macho"] = candidate.machO
       var manifest =
         try JSONSerialization.jsonObject(with: Self.manifest(files: files)) as! [String: Any]
-      manifest["modes"] = ["macho": ["espPath": "m1n1/boot-ctxr.bin"]]
+      manifest["modes"] = ["macho": ["espPath": "aurora/boot-ctxr.bin"]]
       let current = try Self.records(
-        configuration: Self.configuration(stage2Path: "m1n1/boot-ctxr.bin"),
+        configuration: Self.configuration(stage2Path: "aurora/boot-ctxr.bin"),
         manifest: Self.json(manifest),
-        receipt: Self.receipt(stage1: candidate.enrolled, stage2Path: "m1n1/boot-ctxr.bin"))
+        receipt: Self.receipt(stage1: candidate.enrolled, stage2Path: "aurora/boot-ctxr.bin"))
       XCTAssertEqual(NativeStage1Update.decide(candidate, records: current), .unchanged)
       // Enrolled, but an unfinished update left another object for Recovery.
       let leftover = try Self.records(
-        configuration: Self.configuration(stage2Path: "m1n1/boot-ctxr.bin"),
-        receipt: Self.receipt(stage1: candidate.enrolled, stage2Path: "m1n1/boot-ctxr.bin"))
+        configuration: Self.configuration(stage2Path: "aurora/boot-ctxr.bin"),
+        receipt: Self.receipt(stage1: candidate.enrolled, stage2Path: "aurora/boot-ctxr.bin"))
       XCTAssertEqual(NativeStage1Update.decide(candidate, records: leftover), .restage)
     }
 
@@ -376,7 +376,7 @@
         try JSONSerialization.jsonObject(
           with: Data(contentsOf: data.appendingPathComponent("install-config.json")))
         as! [String: Any]
-      XCTAssertEqual(config["stage2Path"] as? String, "m1n1/boot-ctxr.bin")
+      XCTAssertEqual(config["stage2Path"] as? String, "aurora/boot-ctxr.bin")
       XCTAssertEqual(config["systemUUID"] as? String, Self.binding.systemUUID)
       let manifest =
         try JSONSerialization.jsonObject(
@@ -385,7 +385,7 @@
       XCTAssertEqual(manifest["defaultMode"] as? String, "macho")
       XCTAssertEqual(
         (manifest["modes"] as? [String: [String: String]])?["macho"]?["espPath"],
-        "m1n1/boot-ctxr.bin")
+        "aurora/boot-ctxr.bin")
       let files = try XCTUnwrap(manifest["files"] as? [String: [String: Any]])
       XCTAssertEqual(files["macho/aura-boot.macho"]?["sha256"] as? String, candidate.enrolledSHA256)
       XCTAssertEqual(manifest["vendorFirmware"] as? [String], Self.vendor.keys.sorted())
@@ -530,12 +530,12 @@
 
       let before = try await notice(
         NativeStage1UpdateFailure(
-          underlying: NativeStage1UpdateError.missingStage2(path: "m1n1/boot-ctxr.bin"),
+          underlying: NativeStage1UpdateError.missingStage2(path: "aurora/boot-ctxr.bin"),
           diskChanged: false))
       XCTAssertEqual(before.reason, .bootLoaderUpdateRefused)
       XCTAssertTrue(before.diskUnchanged)
       XCTAssertEqual(
-        before.summary, NativeStage1UpdateError.missingStage2(path: "m1n1/boot-ctxr.bin").summary)
+        before.summary, NativeStage1UpdateError.missingStage2(path: "aurora/boot-ctxr.bin").summary)
       let authorizationFailed = try await notice(
         NativeStage1UpdateFailure(
           underlying: NativeHandoffValidationError.authorizationFailed, diskChanged: true))
@@ -549,7 +549,7 @@
         NativeStage1UpdateError.setupUnfinished, .changedInstallation, .wrongBootMode,
         .unsupportedStage1, .stage1TooLarge(bytes: 70 << 20),
         .notEnoughSpace(requiredBytes: 200 << 20, availableBytes: 1),
-        .missingStage2(path: "m1n1/boot-ctxr.bin"),
+        .missingStage2(path: "aurora/boot-ctxr.bin"),
       ] {
         XCTAssertLessThanOrEqual(
           error.summary.count, EngineFailureNotice.maximumSummaryCharacters, "\(error)")

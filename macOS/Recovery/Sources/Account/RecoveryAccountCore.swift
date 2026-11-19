@@ -156,7 +156,7 @@ public enum RecoveryAccountInstaller {
       let device = before["DeviceIdentifier"] as? String,
       device.range(of: "\\Adisk[0-9]+s[0-9]+\\z", options: .regularExpression) != nil
     else { throw AccountSetupFailure("The account Data volume does not match the installation.") }
-    // The Data volume is mounted before Asahi creates its paired System
+    // The Data volume is mounted before the installer engine creates its paired System
     // volume. A normal remount refreshes the group property StorageKit reads.
     // Never force an unmount or change an on-disk group UUID.
     _ = try AccountNativeCommand.checked("/usr/sbin/diskutil", ["unmount", device])

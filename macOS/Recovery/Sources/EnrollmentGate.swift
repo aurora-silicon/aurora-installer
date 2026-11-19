@@ -55,7 +55,7 @@ enum EnrollmentGate {
       let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
       return (name, value)
     }
-    // Match Asahi's precedence: the current environment is authoritative.
+    // Match the installer engine's precedence: the current environment is authoritative.
     // OS Type is an older fallback and can describe a different policy field.
     let current = fields.filter { $0.0 == "Current OS environment" }.map { $0.1.lowercased() }
     let environments =

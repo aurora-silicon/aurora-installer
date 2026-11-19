@@ -63,7 +63,7 @@ ISP_SETFILE_MAP = {s.magic: s for s in ISP_SETFILES}
 ISP_SETFILE_COUNT = len(ISP_SETFILES)
 assert len(ISP_SETFILE_MAP) == ISP_SETFILE_COUNT
 
-log = logging.getLogger("asahi_firmware.isp")
+log = logging.getLogger("aurora_firmware.isp")
 
 def round_up(x, y):
     return ((x + (y - 1)) & (-y))
