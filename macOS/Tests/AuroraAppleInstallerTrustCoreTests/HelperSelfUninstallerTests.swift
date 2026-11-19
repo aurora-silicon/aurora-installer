@@ -41,30 +41,54 @@
       XCTAssertEqual(recorder.events, ["unload:probe.helper", "exit"])
     }
 
-    func testUninstallingAfterRemovalWaitsThenRunsInTheBackground() async throws {
+    func testUninstallingAfterRemovalWaitsForTheReplyToBeDelivered() async throws {
       let paths = try makeInstalledHelper()
       let recorder = Recorder()
+      let delivery = HelperReplyDelivery()
 
-      uninstaller(paths, recorder, delay: .milliseconds(50)).uninstallAfterRemoval()
-      XCTAssertEqual(recorder.events, [], "unloading waits")
+      uninstaller(paths, recorder, deadline: .seconds(30))
+        .uninstallAfterRemoval(delivered: delivery)
+      XCTAssertEqual(recorder.events, [], "unloading waits for the app's receipt")
+      XCTAssertTrue(FileManager.default.fileExists(atPath: paths.jobFile.path))
+      XCTAssertTrue(FileManager.default.fileExists(atPath: paths.binary.path))
 
-      for _ in 0..<200 where recorder.events.isEmpty {
-        try await Task.sleep(for: .milliseconds(10))
-      }
+      delivery.fire()
+      try await recorder.waitForEvents(2)
       XCTAssertEqual(recorder.events, ["unload:probe.helper", "exit"])
+      XCTAssertFalse(FileManager.default.fileExists(atPath: paths.jobFile.path))
       XCTAssertTrue(FileManager.default.fileExists(atPath: paths.state.path))
     }
 
-    func testRegistrationRemainsUntilReplyDelayHasElapsed() throws {
+    func testADeliveryThatAlreadyHappenedRetiresAtOnce() async throws {
       let paths = try makeInstalledHelper()
       let recorder = Recorder()
 
-      uninstaller(paths, recorder, delay: .seconds(30)).uninstallAfterRemoval()
+      uninstaller(paths, recorder, deadline: .seconds(30))
+        .uninstallAfterRemoval(delivered: .immediate)
 
-      XCTAssertTrue(FileManager.default.fileExists(atPath: paths.jobFile.path))
-      XCTAssertTrue(FileManager.default.fileExists(atPath: paths.binary.path))
-      XCTAssertTrue(FileManager.default.fileExists(atPath: paths.state.path))
-      XCTAssertEqual(recorder.events, [], "unloading waits for the reply to reach the app")
+      try await recorder.waitForEvents(2)
+      XCTAssertEqual(recorder.events, ["unload:probe.helper", "exit"])
+    }
+
+    func testAnAppThatNeverClosesItsConnectionStillRetiresTheHelper() async throws {
+      let paths = try makeInstalledHelper()
+      let recorder = Recorder()
+      let delivery = HelperReplyDelivery()
+
+      uninstaller(paths, recorder, deadline: .milliseconds(50))
+        .uninstallAfterRemoval(delivered: delivery)
+
+      try await recorder.waitForEvents(2)
+      XCTAssertEqual(recorder.events, ["unload:probe.helper", "exit"])
+      XCTAssertTrue(delivery.hasFired)
+    }
+
+    func testWaitingOnADeliveryEndsWhenTheWaiterIsCancelled() async {
+      let delivery = HelperReplyDelivery()
+      let waiter = Task { await delivery.wait() }
+      waiter.cancel()
+      await waiter.value
+      XCTAssertFalse(delivery.hasFired)
     }
 
     // MARK: Fixtures
@@ -78,8 +102,36 @@
     private final class Recorder: @unchecked Sendable {
       private let lock = NSLock()
       private var recorded: [String] = []
+      private var waiter: (count: Int, continuation: CheckedContinuation<Void, Never>)?
       var events: [String] { lock.withLock { recorded } }
-      func record(_ event: String) { lock.withLock { recorded.append(event) } }
+
+      func record(_ event: String) {
+        let resume = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+          recorded.append(event)
+          guard let waiter, recorded.count >= waiter.count else { return nil }
+          self.waiter = nil
+          return waiter.continuation
+        }
+        resume?.resume()
+      }
+
+      /// Returns once `count` events are recorded; fails the test after 10 s.
+      func waitForEvents(_ count: Int) async throws {
+        let timeout = Task {
+          try await Task.sleep(for: .seconds(10))
+          XCTFail("expected \(count) events, got \(events)")
+          for _ in 0..<count { record("timeout") }
+        }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+          let ready = lock.withLock {
+            if recorded.count >= count { return true }
+            waiter = (count, continuation)
+            return false
+          }
+          if ready { continuation.resume() }
+        }
+        timeout.cancel()
+      }
     }
 
     private func makeInstalledHelper() throws -> Paths {
@@ -99,11 +151,11 @@
     }
 
     private func uninstaller(
-      _ paths: Paths, _ recorder: Recorder, delay: Duration = .zero
+      _ paths: Paths, _ recorder: Recorder, deadline: Duration = .seconds(30)
     ) -> LaunchdHelperSelfUninstaller {
       LaunchdHelperSelfUninstaller(
         label: "probe.helper", jobFile: paths.jobFile, binary: paths.binary,
-        delay: delay,
+        deliveryDeadline: deadline,
         unload: { recorder.record("unload:\($0)") },
         exitProcess: { recorder.record("exit") })
     }

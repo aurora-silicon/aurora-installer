@@ -1203,7 +1203,9 @@
         workingDirectory: root, executor: UnusedRemovalHandoffExecutor(),
         credentialValidator: RemovalCredentials(reject: false), removalDisks: FakeRemovalDisk(),
         removalAdminValidator: { _ in }, selfUninstaller: uninstaller)
-      let endpoint = ClosedEngineXPCServiceEndpoint(server: service, version: "28")
+      let delivery = HelperReplyDelivery()
+      let endpoint = ClosedEngineXPCServiceEndpoint(
+        server: service, version: "28", delivery: delivery)
       let inspection = try await service.removal(
         ticketID: nil, confirmation: "", authorization: nil)
       let ticket = try XCTUnwrap(inspection.ticket)
@@ -1226,6 +1228,8 @@
         try await Task.sleep(for: .milliseconds(10))
       }
       XCTAssertEqual(uninstaller.calls, 1)
+      // Retirement waits on this connection's close, the app's receipt.
+      XCTAssertTrue(try XCTUnwrap(uninstaller.deliveries.first) === delivery)
       let record = root.appendingPathComponent("removal-\(ticket.id.uuidString).json")
       XCTAssertTrue(FileManager.default.fileExists(atPath: record.path))
     }
@@ -1624,8 +1628,11 @@
   private final class RecordingSelfUninstaller: HelperSelfUninstalling, @unchecked Sendable {
     let shouldRetire = true
     private let lock = NSLock()
-    private var count = 0
-    var calls: Int { lock.withLock { count } }
-    func uninstallAfterRemoval() { lock.withLock { count += 1 } }
+    private var recorded: [HelperReplyDelivery] = []
+    var calls: Int { lock.withLock { recorded.count } }
+    var deliveries: [HelperReplyDelivery] { lock.withLock { recorded } }
+    func uninstallAfterRemoval(delivered: HelperReplyDelivery) {
+      lock.withLock { recorded.append(delivered) }
+    }
   }
 #endif
