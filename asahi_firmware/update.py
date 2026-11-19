@@ -8,6 +8,7 @@ from .multitouch import MultitouchFWCollection
 from .kernel import KernelFWCollection
 from .isp import ISPFWCollection
 from .als import AlsFWCollection
+from .bluetooth_cal import BluetoothCalFWCollection
 from .audio_tuning import AudioTuningFWCollection
 
 def update_firmware(source, dest):
@@ -34,6 +35,9 @@ def update_firmware(source, dest):
         pkg.add_files(sorted(col.files()))
 
         col = AlsFWCollection(str(tmpdir))
+        pkg.add_files(sorted(col.files()))
+
+        col = BluetoothCalFWCollection(str(tmpdir.joinpath("com.apple.factorydata")))
         pkg.add_files(sorted(col.files()))
 
         col = AudioTuningFWCollection(str(tmpdir))
