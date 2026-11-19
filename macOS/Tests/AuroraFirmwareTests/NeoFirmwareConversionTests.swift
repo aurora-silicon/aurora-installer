@@ -31,7 +31,7 @@ final class NeoFirmwareConversionTests: XCTestCase, @unchecked Sendable {
   func testOriginalSevenCameraEntriesMatchTheAuthenticatedRegistry() throws {
     let fixture = try fixture()
     XCTAssertEqual(fixture.registry.count, 7)
-    XCTAssertEqual(NeoFirmwareConversions.cameraRegistry.count, 8)
+    XCTAssertEqual(NeoFirmwareConversions.cameraRegistry.count, 10)
     XCTAssertEqual(
       NeoFirmwareConversions.cameraRegistry.prefix(7).map(\.magic), fixture.registry.map(\.magic))
     XCTAssertEqual(
@@ -44,6 +44,8 @@ final class NeoFirmwareConversionTests: XCTestCase, @unchecked Sendable {
     for (magic, name, size, fileSize) in [
       (0x1925_0306, "1925_03XX", 0xcbc0, 0xcba6),
       (0x2224_0106, "2224_01XX", 0x6ff4, 0x6ff4),
+      (0x2226_0101, "2226_01XX", 0x7040, 0x7040),
+      (0x2226_0201, "2226_02XX", 0x7000, 0x7000),
     ] {
       var input = Data(repeating: 0, count: fileSize)
       let header = [magic, 0x2100_0000, 0, 0, 0x0100_0000, 0x0100_0000, 0, 0x03c0_0000]
