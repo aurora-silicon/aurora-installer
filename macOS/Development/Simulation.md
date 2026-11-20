@@ -19,7 +19,7 @@ All simulation controls live in the **Simulation** menu bar item. They are absen
 - **Scenario** selects one of 35 outcomes and resets the simulated session. `--simulate-scenario=NAME` (the scenario's raw name, for example `noMacRelease`) opens on that scenario, and `--simulate-continue` presses Continue once, so a screen can be captured without driving the window.
 - **Reset simulation** abandons only the in-memory run, including a stopped or uncertain outcome.
 - **Slow events** makes each event take two seconds; changing speed resets the session.
-- **Test channel** offers Stable, Release candidate and Edge (the default), and is local to the simulator. The line under it shows the Release channel menu as the app words it for this scenario: stable and rc have no Mac release, and the three channel scenarios change the test channel's state. It locks while preparing, authorizing, executing, and after execution has started.
+- **Test channel** offers Stable, Release candidate, Nightly and Edge, and is local to the simulator. It opens on Nightly, where a real Mac opens when its Edge catalog has no release for it; `InstallerSimulationEnvironment(edge:)` sets what the simulated Edge offers. The line under it shows the Release channel menu as the app words it for this scenario: stable and rc have no Mac release, and the three channel scenarios change the test channel's state. It locks while preparing, authorizing, executing, and after execution has started.
 - **Dark appearance** is on by default to match Aurora. Turn it off to test light mode.
 - **Install / Authorize** on the simulation sheet uses a dummy credential. There are no real account fields.
 

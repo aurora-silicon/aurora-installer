@@ -274,7 +274,8 @@
       // Wiring guard only; the resolver's behaviour is tested above.
       XCTAssertTrue(scene.contains(".task(id: selection.profileID)"))
       XCTAssertTrue(
-        scene.contains("channel = await LiveInstallerEnvironment.releaseChannel(for: selection)"))
+        scene.contains(
+          "let decided = await LiveInstallerEnvironment.releaseChannel(for: selection)"))
       XCTAssertTrue(
         scene.contains(
           "environment: LiveInstallerEnvironment(selection: selection), channel: channel,"))
@@ -286,7 +287,7 @@
       XCTAssertTrue(download.contains("checkEdge: edgeCheck(configuration: configuration"))
       // Settling the default only fills in the channel a preparation already
       // waited for; it must not restart that preparation.
-      XCTAssertTrue(page.contains("guard previous != nil else { return }"))
+      XCTAssertTrue(page.contains("guard previous != nil, current != nil else { return }"))
     }
 
     private final class EdgeAnswers: @unchecked Sendable {
@@ -305,7 +306,7 @@
       var check: ReleaseChannelPreference.EdgeCheck {
         { [self] deviceIdentifier in
           if delay > .zero { try? await Task.sleep(for: delay) }
-          return lock.withLock {
+          return lock.withLock { () -> ReleaseChannelAvailability in
             devices.append(deviceIdentifier)
             return answers.isEmpty ? .checkFailed(.network) : answers.removeFirst()
           }

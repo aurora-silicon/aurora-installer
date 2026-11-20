@@ -58,6 +58,14 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   }
 
   private func loadConfiguration() throws -> InstallerReleaseConfiguration {
+    try Self.releaseConfiguration(for: selection)
+  }
+
+  /// Every profile has its own descriptor, so its own signed catalog on each
+  /// channel: `Release/Profiles/<profile>/`.
+  static func releaseConfiguration(
+    for selection: AuroraInstallationSelection
+  ) throws -> InstallerReleaseConfiguration {
     guard let resources = Bundle.main.resourceURL else {
       throw AuroraProfileError.unavailable(selection.summary)
     }
@@ -67,6 +75,75 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       throw AuroraProfileError.unavailable(selection.summary)
     }
     return try InstallerReleaseConfigurationLocator().load(from: directory)
+  }
+
+  /// The channel the window shows for this selection; `nil` when the bundle
+  /// has no release descriptor for it. Every preparation resolves through the
+  /// same shared decision, so the window and the download cannot disagree.
+  static func releaseChannel(for selection: AuroraInstallationSelection) async -> ReleaseChannel? {
+    guard let configuration = try? releaseConfiguration(for: selection) else { return nil }
+    return await releaseChannel(configuration: configuration, selection: selection)
+  }
+
+  private func releaseChannel(configuration: InstallerReleaseConfiguration) async
+    -> ReleaseChannel
+  {
+    await Self.releaseChannel(configuration: configuration, selection: selection)
+  }
+
+  /// The choice made in the Release channel menu, or this launch's default:
+  /// Edge where the profile's verified Edge catalog admits this Mac, Nightly
+  /// where it verifiably doesn't.
+  private static func releaseChannel(
+    configuration: InstallerReleaseConfiguration, selection: AuroraInstallationSelection
+  ) async -> ReleaseChannel {
+    await ReleaseChannelPreference().resolve(
+      configuration: configuration, profileID: selection.profileID,
+      checkEdge: edgeCheck(configuration: configuration, selection: selection))
+  }
+
+  /// The same read the channel menu's Edge entry makes, against the same
+  /// rollback floor.
+  private static func edgeCheck(
+    configuration: InstallerReleaseConfiguration, selection: AuroraInstallationSelection
+  ) -> ReleaseChannelPreference.EdgeCheck {
+    { deviceIdentifier in
+      let stateDirectory: URL
+      do {
+        stateDirectory = try installerWorkspace(
+          buildProfile: InstallerBuildProfile.current, selection: selection
+        ).state
+      } catch {
+        return ReleaseChannelAvailability(checkError: error)
+      }
+      return await availability(
+        of: .edge, configuration: configuration, stateDirectory: stateDirectory,
+        deviceIdentifier: deviceIdentifier)
+    }
+  }
+
+  /// Reads one channel's signed catalog for this Mac. Rollback state that
+  /// cannot be read counts as unverifiable rather than skipping the check.
+  private static func availability(
+    of channel: ReleaseChannel, configuration: InstallerReleaseConfiguration,
+    stateDirectory: URL, deviceIdentifier: String
+  ) async -> ReleaseChannelAvailability {
+    let previouslyAccepted: AcceptedCatalogIdentity?
+    do {
+      previouslyAccepted = try AcceptedCatalogIdentityStore(
+        directory: stateDirectory,
+        channel: channel
+      ).load()
+    } catch {
+      return ReleaseChannelAvailability(checkError: error)
+    }
+    return await InstallerReleaseAssetCoordinator().availability(
+      configuration: configuration,
+      channel: channel,
+      deviceIdentifier: deviceIdentifier,
+      validationTime: Date(),
+      previouslyAcceptedCatalog: previouslyAccepted
+    )
   }
   private var hostInspection: AppleSiliconHostInspection?
   private var engineInspection: ValidatedEngineTranscript?
@@ -274,8 +351,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     else {
       return nil
     }
-    let channel = ReleaseChannelPreference().resolve(
-      configuration: configuration, profileID: selection.profileID)
+    let channel = await releaseChannel(configuration: configuration)
     // Unreadable or unsafe rollback state shows no list rather than skipping
     // the rollback check.
     let previouslyAccepted: AcceptedCatalogIdentity?
@@ -324,24 +400,11 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     ) { group in
       for channel in ReleaseChannel.allCases {
         group.addTask {
-          let previouslyAccepted: AcceptedCatalogIdentity?
-          do {
-            previouslyAccepted = try AcceptedCatalogIdentityStore(
-              directory: stateDirectory,
-              channel: channel
-            ).load()
-          } catch {
-            return (channel, ReleaseChannelAvailability(checkError: error))
-          }
-          return (
+          (
             channel,
-            await InstallerReleaseAssetCoordinator().availability(
-              configuration: configuration,
-              channel: channel,
-              deviceIdentifier: deviceIdentifier,
-              validationTime: Date(),
-              previouslyAcceptedCatalog: previouslyAccepted
-            )
+            await Self.availability(
+              of: channel, configuration: configuration, stateDirectory: stateDirectory,
+              deviceIdentifier: deviceIdentifier)
           )
         }
       }
@@ -413,8 +476,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
 
     let configuration = try loadConfiguration()
     let workspace = try installerWorkspace()
-    let channel = ReleaseChannelPreference().resolve(
-      configuration: configuration, profileID: selection.profileID)
+    let channel = await releaseChannel(configuration: configuration)
+    try requirePreparation(generation)
     InstallerLog.progress(
       "Fetching the signed release catalog for \(selection.profileID) on the "
         + "\(channel.rawValue) channel")
@@ -1384,6 +1447,12 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   private func installerWorkspace() throws
     -> (staging: URL, scratch: URL, state: URL, handoff: URL)
   {
+    try Self.installerWorkspace(buildProfile: buildProfile, selection: selection)
+  }
+
+  private static func installerWorkspace(
+    buildProfile: InstallerBuildProfile, selection: AuroraInstallationSelection
+  ) throws -> (staging: URL, scratch: URL, state: URL, handoff: URL) {
     guard
       let applicationSupport = FileManager.default.urls(
         for: .applicationSupportDirectory,
@@ -1408,7 +1477,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     return (staging, scratch, state, handoff)
   }
 
-  private func createPrivateDirectoryIfMissing(_ directory: URL) throws {
+  private static func createPrivateDirectoryIfMissing(_ directory: URL) throws {
     guard !FileManager.default.fileExists(atPath: directory.path) else {
       return
     }
