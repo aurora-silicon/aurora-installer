@@ -79,7 +79,12 @@ public enum NeoFirmwareConversions {
     return files
   }
 
-  public static func alsCalibration(_ lsci: Data) throws -> Data {
+  /// The ambient light sensor calibration from the `exbright` node's LSCI
+  /// record. A record that isn't the expected 156-byte layout is refused.
+  /// A record whose six channel gain ratios are not all positive gives nil:
+  /// the installation goes ahead without the file, and Linux leaves only the
+  /// light sensor off (issue #170).
+  public static func alsCalibration(_ lsci: Data) throws -> Data? {
     try require(
       lsci.startIndex == 0 && lsci.count == 156 && lsci.prefix(2) == Data([5, 4]),
       "Unsupported LSCI record.")
@@ -92,7 +97,7 @@ public enum NeoFirmwareConversions {
       values.append(1.0)
       for offset in offsets {
         let gain = Int16(bitPattern: UInt16(try lsci.little(offset, 2)))
-        try require(gain > 0, "LSCI has a non-positive gain ratio.")
+        guard gain > 0 else { return nil }
         values.append(Double(gain) / 255.0)
       }
     }

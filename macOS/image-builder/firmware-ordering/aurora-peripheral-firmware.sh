@@ -10,8 +10,10 @@ has_firmware() {
 neo=false
 if grep -aq 'apple,j700' /sys/firmware/devicetree/base/compatible; then
   neo=true
+  # The ALS calibration is optional: without it the AOP keeps its other
+  # services and only the light sensor stays off.
   for name in \
-    apple/j700-aop-als-cal.bin apple/tpmtfw-j700.bin \
+    apple/tpmtfw-j700.bin \
     mediatek/mt7932/IZUBA_WIFI_MT7932_patch_mcu_1_2_hdr.bin \
     mediatek/mt7932/IZUBA_W7932_2.bin \
     mediatek/mt7932/ppr.bin mediatek/mt7932/oca2.bin \

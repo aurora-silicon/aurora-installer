@@ -127,7 +127,7 @@
       XCTAssertGreaterThanOrEqual(records.count, 20)
       XCTAssertEqual(records.first { $0.key.hasPrefix("BWC2-") }?.value, inputs.factory)
       XCTAssertFalse(try NeoFirmwareConversions.factoryFields(inputs.factory).isEmpty)
-      XCTAssertFalse(try NeoFirmwareConversions.alsCalibration(inputs.lsci).isEmpty)
+      XCTAssertFalse(try XCTUnwrap(NeoFirmwareConversions.alsCalibration(inputs.lsci)).isEmpty)
       XCTAssertEqual(inputs.address.count, 6)
       print("Live Neo calibration inputs passed")
     }

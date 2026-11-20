@@ -414,6 +414,7 @@
         ),
         (.unclassified, "Aurora stub files could not be copied (NativeStubFileError.writeFailed)."),
         (.firmwarePreparation, "The macOS restore image could not be read (RestoreFailure)."),
+        (.peripheralInputs, "This Mac's own calibration and radio data could not be prepared."),
         (
           .recoveryPreparation,
           "The current macOS volume owner could not be verified: the check was canceled."
@@ -429,6 +430,20 @@
           technicalDetail: "detail")
         XCTAssertEqual(display.plainDetail, summary + " No disk changes were made.", "\(reason)")
       }
+    }
+
+    func testAPeripheralInputFailureDoesNotBlameTheNetwork() throws {
+      // Issue #170: the downloads had finished; the advice must not send the
+      // person to their connection or free space.
+      let display = PlainLanguage.engineFailure(
+        EngineFailureNotice(
+          reason: .peripheralInputs, exitStatus: 1, diskUnchanged: true,
+          summary: "This Mac's own calibration and radio data could not be prepared."),
+        technicalDetail: "detail")
+      let remedy = try XCTUnwrap(display.remedy)
+      XCTAssertFalse(remedy.contains("Check your internet connection"), remedy)
+      XCTAssertTrue(remedy.contains("report"), remedy)
+      XCTAssertFalse(display.replanAvailable)
     }
 
     func testAPrebootAdminListRefusalTellsHowMacOSRebuildsTheList() throws {

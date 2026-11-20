@@ -656,6 +656,15 @@
             ? "Check your internet connection and free space, then choose Check again. Verified downloads will be reused."
             : "Save the error details and check the verified installation record before trying again."
         )
+      case .peripheralInputs:
+        return FailureDisplay(
+          headline: "This Mac’s calibration data couldn’t be prepared",
+          plainDetail: cause,
+          technicalDetail: technicalDetail,
+          remedy: unchanged
+            ? "The downloads finished, so the connection and free space aren’t the cause, and checking again gives the same result. Save the error details and report them. \(engineDiagnosticsLocation)"
+            : "Save the error details and check the verified installation record before trying again."
+        )
       case .macOSUpdateRequired:
         let required = EngineFailureReason.requiredMacOSVersion(inSummary: notice.summary)
         let needed =

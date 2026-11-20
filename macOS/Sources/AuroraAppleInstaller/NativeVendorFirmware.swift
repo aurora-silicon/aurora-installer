@@ -98,7 +98,7 @@
         }
         guard NeoFirmwareConversions.requiredCameraNames.isSubset(of: Set(outputs.keys)),
           NeoFirmwareConversions.requiredRadioNames.isSubset(of: Set(outputs.keys)),
-          outputs[NeoFirmwareConversions.alsName] != nil, lsci != nil
+          lsci != nil
         else { throw NativeFirmwareInputFailure.invalidSource }
       } else if peripherals != nil {
         throw NativeFirmwareInputFailure.invalidSource
