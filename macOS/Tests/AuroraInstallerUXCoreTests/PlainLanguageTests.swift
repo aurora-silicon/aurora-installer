@@ -159,6 +159,17 @@
         PlainLanguage.channelMenuItemEnabled(.edge, selected: .testing, availability: .available))
     }
 
+    func testUnavailableEdgePointsToNightlyInTheChannelMenu() {
+      // Edge is the default wherever its catalog admits this Mac, so the
+      // remedy names the menu rather than calling Nightly the development pick.
+      let failure = PlainLanguage.failure(
+        for: InstallerReleaseConfigurationError.edgeAlphaUnavailable)
+      XCTAssertEqual(failure.headline, "Edge isn’t available yet")
+      XCTAssertEqual(
+        failure.remedy,
+        "Choose Nightly from the Release channel menu, or check Edge again later.")
+    }
+
     func testOnlyChannelsWithNothingForThisMacAreDisabled() {
       func enabled(_ channel: ReleaseChannel, _ availability: ReleaseChannelAvailability?) -> Bool {
         PlainLanguage.channelMenuItemEnabled(
