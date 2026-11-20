@@ -114,9 +114,10 @@
     /// A file with several names is read only where its tree admits that
     /// (`NativeHandoffFileTree.admitsHardLinks`): the sealed system volume
     /// shares identical files, such as speaker tuning configs, that way.
+    /// An empty file is refused unless `allowsEmpty`.
     static func read(
       _ tree: NativeHandoffFileTree, path: String, maximum: Int, owner: uid_t,
-      expected: NativeStubFileIdentity? = nil
+      expected: NativeStubFileIdentity? = nil, allowsEmpty: Bool = false
     ) throws -> Data {
       guard maximum > 0, maximum <= 256 << 20 else { throw NativeFirmwareInputFailure.budget }
       let descriptor = try tree.fileDescriptor(path)
@@ -124,7 +125,7 @@
       let identity = try NativeStubFileStore.identity(
         descriptor, owner: owner, maximum: maximum,
         admitsHardLinks: tree.admitsHardLinks(descriptor))
-      guard identity.bytes > 0, expected == nil || identity == expected else {
+      guard identity.bytes > 0 || allowsEmpty, expected == nil || identity == expected else {
         throw NativeFirmwareInputFailure.invalidSource
       }
       var data = Data()
@@ -152,8 +153,11 @@
       var unresolved: [String] = []
     }
 
+    /// Entries whose relative path `admit` refuses (macOS sidecars, for the
+    /// speaker tuning) are skipped before they are read.
     static func snapshot(
-      root: URL, prefix: String, tree: NativeHandoffFileTree, owner: uid_t
+      root: URL, prefix: String, tree: NativeHandoffFileTree, owner: uid_t,
+      admit: (String) -> Bool = { _ in true }
     ) throws -> Snapshot {
       let root = root.resolvingSymlinksInPath()
       guard NativeHandoffEvidence.safeRelative(prefix) else {
@@ -171,7 +175,8 @@
       var files = [String: Data]()
       var named = [String: String]()
       var total = 0
-      for relative in try relativeEntries(root: source, maximum: 20000, allowLinks: true) {
+      for relative in try relativeEntries(root: source, maximum: 20000, allowLinks: true)
+      where admit(relative) {
         try Task.checkCancellation()
         let url = source.appendingPathComponent(relative)
         var info = stat()

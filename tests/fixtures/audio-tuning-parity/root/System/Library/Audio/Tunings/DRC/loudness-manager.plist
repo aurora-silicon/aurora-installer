@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Format</key>
+	<dict>
+		<key>Synthetic</key>
+		<real>1.5</real>
+	</dict>
+	<key>Supported_Hardware</key>
+	<array>
+		<string>AID44</string>
+		<string>AID97</string>
+	</array>
+</dict>
+</plist>

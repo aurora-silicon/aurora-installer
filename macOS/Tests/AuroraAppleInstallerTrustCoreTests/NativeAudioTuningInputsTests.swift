@@ -239,6 +239,8 @@
       XCTAssertNil(NativeAudioTuningInputs.speakerID([["device UID": "Speaker"]]))
       XCTAssertNil(NativeAudioTuningInputs.speakerID([codec]))
       XCTAssertNil(NativeAudioTuningInputs.speakerID([speaker, speaker]))
+      // Only services that carry a speakerID count (`ioreg -k speakerID`).
+      XCTAssertEqual(NativeAudioTuningInputs.speakerID([["device UID": "Speaker"], speaker]), 3)
       for bad: Any in [
         "3", true, 3.0, Double(2.5), -1, Int64(UInt32.max) + 1, UInt64.max, Data([3, 0, 0, 0]),
       ] {
@@ -259,10 +261,8 @@
         let object = try XCTUnwrap(
           JSONSerialization.jsonObject(with: data) as? [String: Any])
         XCTAssertEqual(object["speaker_id"] as? Int, id.map(Int.init))
-        // Re-encoding the decoded manifest gives the same bytes.
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes]
-        XCTAssertEqual(try encoder.encode(manifest), data)
+        // Unknown is null, as the Python collector writes it.
+        XCTAssertEqual(object["speaker_id"] is NSNull, id == nil)
       }
       // A manifest with speaker_id null decodes as unknown.
       var object = try XCTUnwrap(
@@ -328,14 +328,15 @@
       for file in files.values {
         XCTAssertNil(file.range(of: Data("SYNTHETIC0A".utf8)))
       }
-      // Unknown: both keys omitted, and the collection still succeeds.
+      // Unknown: both keys null (as in the Python collector's bundle), and
+      // the collection still succeeds.
       let plain = try XCTUnwrap(
         JSONSerialization.jsonObject(
           with: XCTUnwrap(
             try NativeAudioTuningInputs.files(snapshot(), prefix: "")["manifest.json"]))
           as? [String: Any])
-      XCTAssertNil(plain["board"])
-      XCTAssertNil(plain["unit_id"])
+      XCTAssertTrue(plain["board"] is NSNull)
+      XCTAssertTrue(plain["unit_id"] is NSNull)
       // Malformed values are no bundle.
       for (board, unitID) in [("J616s", unit), ("j616s", unit.uppercased()), ("j616s", "abc")] {
         var bad = snapshot()
