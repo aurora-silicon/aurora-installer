@@ -106,13 +106,25 @@
     private var attempts = 0
     private var cancelled = false
     public let channel: ReleaseChannel
+    /// What Edge's catalog offers the simulated Mac, which decides whether it
+    /// opens on Edge or Nightly.
+    public let edge: ReleaseChannelAvailability
+    /// Today's Edge as most Macs see it: no qualified release yet.
+    public static let defaultEdgeAvailability = ReleaseChannelAvailability.notPublished
+    /// The simulator opens where a real Mac with today's Edge would: Nightly.
+    public static var launchChannel: ReleaseChannel {
+      ReleaseChannelPreference.launchDefault(
+        descriptorDefault: .testing, edge: defaultEdgeAvailability)
+    }
 
     public init(
       scenario: InstallerSimulationScenario, channel: ReleaseChannel = .testing,
+      edge: ReleaseChannelAvailability = InstallerSimulationEnvironment.defaultEdgeAvailability,
       delay: Duration = .milliseconds(600)
     ) {
       self.scenario = scenario
       self.channel = channel
+      self.edge = edge
       self.delay = delay
     }
 
@@ -158,11 +170,12 @@
           : nil)
     }
 
-    /// Today's channels as a Mac sees them: only Testing has a development release. The
-    /// three channel scenarios change what the test channel offers.
+    /// Today's channels as a Mac sees them: only Testing has a release for every Mac,
+    /// and Edge offers what `edge` says. The three channel scenarios change what the
+    /// test channel offers.
     public func channelAvailability() async -> [ReleaseChannel: ReleaseChannelAvailability] {
       var availability: [ReleaseChannel: ReleaseChannelAvailability] = [
-        .stable: .noRelease, .rc: .noRelease, .testing: .available, .edge: .notPublished,
+        .stable: .noRelease, .rc: .noRelease, .testing: .available, .edge: edge,
       ]
       switch scenario {
       case .noMacRelease: availability[channel] = .noRelease

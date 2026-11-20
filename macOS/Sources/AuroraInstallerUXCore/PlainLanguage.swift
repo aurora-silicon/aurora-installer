@@ -1153,7 +1153,7 @@
             headline: "Edge isn’t available yet",
             plainDetail: "An Edge release is not available. Installation has not started.",
             technicalDetail: technical,
-            remedy: "Choose Nightly for development releases, or check Edge again later."
+            remedy: "Choose Nightly from the Release channel menu, or check Edge again later."
           )
         case .releaseResourcesUnavailable:
           return FailureDisplay(

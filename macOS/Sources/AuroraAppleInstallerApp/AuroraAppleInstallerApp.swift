@@ -252,8 +252,11 @@ struct AuroraAppleInstallerApp: App {
       })
   }
 
-  @State private var channel = ReleaseChannelPreference().resolveFromMainBundle(
-    profileID: AuroraInstallationSelection().profileID)
+  /// The channel the selected profile reads: the Release channel menu's
+  /// choice, or this launch's default from the profile's verified Edge
+  /// catalog. `nil` while that catalog is read, or when the bundle has no
+  /// release descriptor for the profile.
+  @State private var channel: ReleaseChannel?
 
   var body: some Scene {
     WindowGroup(PlainLanguage.windowTitle) {
@@ -271,8 +274,14 @@ struct AuroraAppleInstallerApp: App {
         }
       }
       .id(generation)
-      .onChange(of: selection) { _, selection in
-        channel = ReleaseChannelPreference().resolveFromMainBundle(profileID: selection.profileID)
+      .task(id: selection.profileID) {
+        guard !isSimulation else { return }
+        // Another profile's channel says nothing about this one.
+        channel = nil
+        let decided = await LiveInstallerEnvironment.releaseChannel(for: selection)
+        // A newer selection's check replaces this one.
+        guard !Task.isCancelled else { return }
+        channel = decided
       }
       .task {
         guard !isSimulation, !checkedPendingInstallation else { return }
@@ -410,7 +419,17 @@ struct AuroraAppleInstallerApp: App {
               || isSimulation || channel == nil)
           Divider()
           Button(PlainLanguage.channelMenuCheckAgain) {
-            Task { await liveSession?.refreshChannelAvailability() }
+            let selection = selection
+            Task {
+              await liveSession?.refreshChannelAvailability()
+              // A default decided while Edge's catalog couldn't be checked is
+              // decided again; a verified one holds for this launch.
+              guard
+                ReleaseChannelPreference().recheckFailedEdgeDefault(
+                  profileID: selection.profileID)
+              else { return }
+              channel = await LiveInstallerEnvironment.releaseChannel(for: selection)
+            }
           }
           .disabled(
             removalNeedsReview || showsRemoval || liveSession?.canChangeChannel != true

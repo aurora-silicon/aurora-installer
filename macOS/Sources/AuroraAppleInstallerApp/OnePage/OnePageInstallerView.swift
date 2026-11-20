@@ -110,7 +110,10 @@ struct OnePageInstallerView: View {
       onSessionAvailable(session)
       await recheck()
     }
-    .onChange(of: channel) { _, _ in
+    .onChange(of: channel) { previous, current in
+      // Settling this launch's default fills in the channel a preparation
+      // already waited for, so it restarts nothing.
+      guard previous != nil, current != nil else { return }
       // Switching channel discards anything already planned: the new channel
       // may name a different release entirely.
       Task { await recheck() }
