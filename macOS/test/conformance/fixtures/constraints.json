@@ -95,9 +95,9 @@
    "bytes": 1703936,
    "evidence": "aura v1.0.0b13.1 (5dcf62d0) built 2026-11-13 by fedora-aurora#343 CI (Fedora 45 aura 1.0.0~b13.1-1 RPM, run 43419786452, the packaging flags RELEASE=1 CHAINLOADING=1 USE_CLANG=1 BUILTIN_LOGO=aurora BUILDSTD=1); /usr/share/aura/stage1/aura-raw.bin sha256 27bf122064cd6cd87139b0b1c272ccf95562641e4dcbdef5b72c61de5a69a4d6, marker 1.0.0b13-g5dcf62d0"
   },
-  "17a2820369039eb8a7ed8264d8e7028a88bd37a8": {
+  "7cd1a46cb3bf55690de5b9d37cfe03d77e1c00ce": {
    "bytes": 1638400,
-   "evidence": "aura 1.0.0b14 release commit (17a28203, aurora-silicon/aura#406, before its v1.0.0b14 tag) built 2026-11-20 on an Arch Linux host with the packaging flags RELEASE=1 CHAINLOADING=1 USE_CLANG=1 BUILTIN_LOGO=aurora BUILDSTD=1, clang 23.1.1 and rustc 1.99.0; build/aura.bin sha256 173368a8b5bdb8418b2e485d920afb8c20cadf384b954a00d137dd4d637f4cab, marker 1.0.0b14-g17a28203, Stage 1 headroom 16,560 B. Replace with the fedora-aurora RPM measurement of /usr/share/aura/stage1/aura-raw.bin once it pins the tag"
+   "evidence": "aura 1.0.0b14 release commit (7cd1a46c on release/1.0.0b14: main 3b835c25 with aurora-silicon/aura#410, plus the release files; aura#406, before its v1.0.0b14 tag) built 2026-11-20 on an Arch Linux host with the packaging flags RELEASE=1 CHAINLOADING=1 USE_CLANG=1 BUILTIN_LOGO=aurora BUILDSTD=1, clang 23.1.1 and rustc 1.99.0; build/aura.bin sha256 f78a4660f2058db2b1ad54955161993e1dd7e675e531b5877a8bcf7b07ecd882, marker 1.0.0b14-g7cd1a46c, Stage 1 headroom 16,560 B. Replace with the fedora-aurora RPM measurement of /usr/share/aura/stage1/aura-raw.bin once it pins the tag"
   }
  },
  "pinned_stage1_bytes_note": "The raw Stage 1 size of a pinned aura commit, measured from a build, so the iBoot size limits apply to the pin before its payloads exist. Ignored for any other commit.",
