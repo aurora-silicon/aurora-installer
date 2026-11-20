@@ -117,6 +117,57 @@
       }
     }
 
+    func testTheSimulatedMacDefaultsToEdgeOnlyWhereEdgeAdmitsIt() async throws {
+      // Today's simulated channels carry no Edge release, so the simulated Mac
+      // opens on Nightly, as a Mac Edge doesn't support does.
+      let today = InstallerSession(
+        environment: InstallerSimulationEnvironment(scenario: .success, delay: .zero))
+      await today.inspect()
+      await today.refreshChannelAvailability()
+      let todaysEdge = try XCTUnwrap(today.channelAvailability[.edge])
+      XCTAssertEqual(todaysEdge, .notPublished)
+      XCTAssertEqual(
+        ReleaseChannelPreference.launchDefault(descriptorDefault: .testing, edge: todaysEdge),
+        .testing)
+
+      let expected: [(ReleaseChannelAvailability, ReleaseChannel, String, Bool)] = [
+        (.available, .edge, "Edge", true),
+        (.noRelease, .testing, "Edge — No release available", false),
+        (
+          .modelUnavailable(supportedDeviceIdentifiers: ["apple,j700"]), .testing,
+          "Edge — Not available for this Mac", false
+        ),
+        // A failed check is not "unsupported": Edge stays chosen and selectable.
+        (.checkFailed(.network), .edge, "Edge — Couldn’t load", true),
+        (.checkFailed(.verification), .edge, "Edge — Couldn’t verify", true),
+      ]
+      for (edge, channel, menuItem, edgeSelectable) in expected {
+        let session = InstallerSession(
+          environment: InstallerSimulationEnvironment(scenario: .success, edge: edge, delay: .zero))
+        await session.inspect()
+        await session.refreshChannelAvailability()
+        XCTAssertEqual(session.channelAvailability[.edge], edge, menuItem)
+        XCTAssertEqual(session.channelAvailability[.testing], .available, menuItem)
+        let decided = ReleaseChannelPreference.launchDefault(
+          descriptorDefault: .testing, edge: edge)
+        XCTAssertEqual(decided, channel, menuItem)
+        XCTAssertEqual(PlainLanguage.channelMenuItem(.edge, availability: edge), menuItem)
+        XCTAssertEqual(
+          PlainLanguage.channelMenuItemEnabled(.edge, selected: decided, availability: edge),
+          edgeSelectable, menuItem)
+      }
+
+      // The window's channel is the one the simulated preparation reads.
+      let environment = InstallerSimulationEnvironment(
+        scenario: .success, channel: .edge, edge: .available, delay: .zero)
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      await session.continueToPlan()
+      session.continueToPlanReview()
+      guard case .planReview = session.phase else { return XCTFail("Expected disk review") }
+      XCTAssertEqual(environment.channel, .edge)
+    }
+
     func testSyntheticJournalPassesRealDecoder() throws {
       let data = InstallerSimulationEnvironment.journalLines.reduce(into: Data()) { $0.append($1) }
       let transcript = try AppleInstallerTrustCore().validateEngineTranscript(data)
