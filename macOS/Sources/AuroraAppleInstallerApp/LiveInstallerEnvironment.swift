@@ -91,9 +91,9 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     await Self.releaseChannel(configuration: configuration, selection: selection)
   }
 
-  /// The choice made in the Release channel menu, or this launch's default:
-  /// Edge where the profile's verified Edge catalog admits this Mac, Nightly
-  /// where it verifiably doesn't.
+  /// The choice made in the Release channel menu, or this launch's default
+  /// for a new installation: Edge where the profile's verified Edge catalog
+  /// admits this Mac and carries its own evidence, Nightly where it doesn't.
   private static func releaseChannel(
     configuration: InstallerReleaseConfiguration, selection: AuroraInstallationSelection
   ) async -> ReleaseChannel {
@@ -114,12 +114,33 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
           buildProfile: InstallerBuildProfile.current, selection: selection
         ).state
       } catch {
-        return ReleaseChannelAvailability(checkError: error)
+        return EdgeCatalogCheck(availability: ReleaseChannelAvailability(checkError: error))
       }
-      return await availability(
-        of: .edge, configuration: configuration, stateDirectory: stateDirectory,
+      return await edgeCatalogCheck(
+        configuration: configuration, stateDirectory: stateDirectory,
         deviceIdentifier: deviceIdentifier)
     }
+  }
+
+  /// Edge's catalog read once: what it offers this Mac and whether it proves it.
+  private static func edgeCatalogCheck(
+    configuration: InstallerReleaseConfiguration, stateDirectory: URL, deviceIdentifier: String
+  ) async -> EdgeCatalogCheck {
+    let previouslyAccepted: AcceptedCatalogIdentity?
+    do {
+      previouslyAccepted = try AcceptedCatalogIdentityStore(
+        directory: stateDirectory,
+        channel: .edge
+      ).load()
+    } catch {
+      return EdgeCatalogCheck(availability: ReleaseChannelAvailability(checkError: error))
+    }
+    return await InstallerReleaseAssetCoordinator().edgeCheck(
+      configuration: configuration,
+      deviceIdentifier: deviceIdentifier,
+      validationTime: Date(),
+      previouslyAcceptedCatalog: previouslyAccepted
+    )
   }
 
   /// Reads one channel's signed catalog for this Mac. Rollback state that
@@ -146,6 +167,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     )
   }
   private var hostInspection: AppleSiliconHostInspection?
+  private var knownInstallations = [NativeKnownInstallation]()
   private var engineInspection: ValidatedEngineTranscript?
   private var engineInspectionTranscript: Data?
   private var engineInspectionFailure: String?
@@ -317,6 +339,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
 
     lock.withLock {
       hostInspection = host
+      self.knownInstallations = knownInstallations
       engineInspection = engine
       engineInspectionTranscript = transcript
       engineInspectionFailure = engineFailure
@@ -371,17 +394,25 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     )
   }
 
-  /// Every channel's catalog, checked side by side for this Mac. A channel
-  /// whose rollback state cannot be read counts as unverifiable rather than
-  /// skipping the rollback check.
   func channelAvailability() async -> [ReleaseChannel: ReleaseChannelAvailability] {
-    guard let host = lock.withLock({ hostInspection }) else { return [:] }
+    await channelReport().availability
+  }
+
+  /// Every channel's catalog, checked side by side for this Mac, each read
+  /// once: Edge's read also says whether it proves this Mac. A channel whose
+  /// rollback state cannot be read counts as unverifiable rather than skipping
+  /// the rollback check.
+  func channelReport() async -> ReleaseChannelReport {
+    guard let host = lock.withLock({ hostInspection }) else {
+      return ReleaseChannelReport(availability: [:])
+    }
     let deviceIdentifier = host.identity.deviceIdentifier
     let everyChannelFailed = { (error: any Error) in
-      Dictionary(
-        uniqueKeysWithValues: ReleaseChannel.allCases.map {
-          ($0, ReleaseChannelAvailability(checkError: error))
-        })
+      ReleaseChannelReport(
+        availability: Dictionary(
+          uniqueKeysWithValues: ReleaseChannel.allCases.map {
+            ($0, ReleaseChannelAvailability(checkError: error))
+          }))
     }
     let configuration: InstallerReleaseConfiguration
     do {
@@ -396,24 +427,77 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       return everyChannelFailed(error)
     }
     return await withTaskGroup(
-      of: (ReleaseChannel, ReleaseChannelAvailability).self
+      of: (ReleaseChannel, EdgeCatalogCheck).self
     ) { group in
       for channel in ReleaseChannel.allCases {
         group.addTask {
-          (
+          guard channel != .edge else {
+            return (
+              channel,
+              await Self.edgeCatalogCheck(
+                configuration: configuration, stateDirectory: stateDirectory,
+                deviceIdentifier: deviceIdentifier)
+            )
+          }
+          return (
             channel,
-            await Self.availability(
-              of: channel, configuration: configuration, stateDirectory: stateDirectory,
-              deviceIdentifier: deviceIdentifier)
+            EdgeCatalogCheck(
+              availability: await Self.availability(
+                of: channel, configuration: configuration, stateDirectory: stateDirectory,
+                deviceIdentifier: deviceIdentifier))
           )
         }
       }
-      var result = [ReleaseChannel: ReleaseChannelAvailability]()
-      for await (channel, availability) in group {
-        result[channel] = availability
+      var availability = [ReleaseChannel: ReleaseChannelAvailability]()
+      var edgeQualifiesThisMac = false
+      for await (channel, check) in group {
+        availability[channel] = check.availability
+        if channel == .edge { edgeQualifiesThisMac = check.qualifiesThisMac }
       }
-      return result
+      return ReleaseChannelReport(
+        availability: availability, edgeQualifiesThisMac: edgeQualifiesThisMac)
     }
+  }
+
+  // MARK: Existing installations
+
+  /// The installation a Reset or boot loader update acts on: the chosen one,
+  /// or the only one there is.
+  private func existingInstallation(sourceIdentifier: String?) -> NativeKnownInstallation? {
+    let known = lock.withLock { knownInstallations }.filter { !$0.partial }
+    if let sourceIdentifier { return known.first { $0.sourceIdentifier == sourceIdentifier } }
+    return known.count == 1 ? known.first : nil
+  }
+
+  func existingInstallationChannel(sourceIdentifier: String?) -> ReleaseChannel? {
+    guard let configuration = try? loadConfiguration() else { return nil }
+    return existingInstallationChannel(
+      configuration: configuration, sourceIdentifier: sourceIdentifier)
+  }
+
+  /// The channel recorded when this app installed it, else the descriptor
+  /// default; a Release channel menu choice wins. Never this launch's Edge
+  /// default, which is for new installations.
+  private func existingInstallationChannel(
+    configuration: InstallerReleaseConfiguration, sourceIdentifier: String?
+  ) -> ReleaseChannel {
+    var recorded: ReleaseChannel?
+    if let installation = existingInstallation(sourceIdentifier: sourceIdentifier),
+      let host = lock.withLock({ hostInspection })
+    {
+      do {
+        recorded = try Self.installationChannelStore().channel(
+          for: installation, storeIdentifier: host.storage.physicalStoreIdentifier)
+      } catch {
+        InstallerLog.error("The installation's recorded release channel couldn't be read: \(error)")
+      }
+    }
+    return ReleaseChannelPreference().resolve(
+      configuration: configuration, existingInstallationChannel: recorded)
+  }
+
+  static func installationChannelStore() throws -> InstallationChannelRecordStore {
+    InstallationChannelRecordStore(directory: try pendingJobStoreDirectory())
   }
 
   // MARK: Plan preparation
@@ -476,7 +560,11 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
 
     let configuration = try loadConfiguration()
     let workspace = try installerWorkspace()
-    let channel = await releaseChannel(configuration: configuration)
+    // Reset and Update Boot Loader read the installation's own channel.
+    let channel =
+      preservingStage1
+      ? existingInstallationChannel(configuration: configuration, sourceIdentifier: preservedSource)
+      : await releaseChannel(configuration: configuration)
     try requirePreparation(generation)
     InstallerLog.progress(
       "Fetching the signed release catalog for \(selection.profileID) on the "
@@ -847,6 +935,11 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   // MARK: Execution
 
   static func pendingJobStore() throws -> PendingInstallerJobStore {
+    PendingInstallerJobStore(directory: try pendingJobStoreDirectory())
+  }
+
+  /// This build profile's private Application Support folder.
+  private static func pendingJobStoreDirectory() throws -> URL {
     guard
       let support = FileManager.default.urls(
         for: .applicationSupportDirectory, in: .userDomainMask
@@ -858,7 +951,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       try FileManager.default.createDirectory(
         at: base, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
     }
-    return PendingInstallerJobStore(directory: base)
+    return base
   }
 
   func hasPendingInstallation() throws -> Bool {
@@ -1088,6 +1181,17 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       throw EngineXPCSubmissionError.engineFailed(notice)
     }
     InstallerLog.progress("The installation service finished: next \(progress.nextAction)")
+    if operation == .install, let installed = ReleaseChannel(rawValue: lane) {
+      // A later Reset or boot loader update of it reads this channel.
+      do {
+        try Self.installationChannelStore().record(
+          installed, storeIdentifier: host.storage.physicalStoreIdentifier,
+          offsetBytes: prepared.review.plan.offsetBytes,
+          lengthBytes: prepared.review.plan.lengthBytes)
+      } catch {
+        InstallerLog.error("The installation's release channel couldn't be recorded: \(error)")
+      }
+    }
     let installConf = jobContext.installConfHandoff ?? .notRecorded
     let handoffOperation: EngineHandoffOperation =
       operation == .retryRecoveryAuthorization ? .retryRecoveryAuthorization : .install

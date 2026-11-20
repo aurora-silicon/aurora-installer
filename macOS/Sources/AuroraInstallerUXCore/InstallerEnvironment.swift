@@ -611,6 +611,23 @@
     case failedBeforeDiskChanges(EngineXPCSubmissionError)
   }
 
+  /// Every channel's verified catalog read once for this Mac, with Edge's
+  /// per-device proof from that same read, so the menu and the default
+  /// channel never come from different answers.
+  public struct ReleaseChannelReport: Equatable, Sendable {
+    public let availability: [ReleaseChannel: ReleaseChannelAvailability]
+    public let edge: EdgeCatalogCheck?
+
+    public init(
+      availability: [ReleaseChannel: ReleaseChannelAvailability], edgeQualifiesThisMac: Bool = false
+    ) {
+      self.availability = availability
+      edge = availability[.edge].map {
+        EdgeCatalogCheck(availability: $0, qualifiesThisMac: edgeQualifiesThisMac)
+      }
+    }
+  }
+
   public protocol InstallerEnvironment: Sendable {
     var isSimulation: Bool { get }
     func inspectRecoveryAccount() async throws -> RecoveryAccountReply?
@@ -720,6 +737,11 @@
     /// What each release channel's verified catalog offers this Mac. Read
     /// only: it never records a catalog or starts a download.
     func channelAvailability() async -> [ReleaseChannel: ReleaseChannelAvailability]
+    /// The same read, with Edge's proof for this Mac.
+    func channelReport() async -> ReleaseChannelReport
+    /// The channel a Reset or boot loader update of this installation reads
+    /// (`nil` source: the only one there is); `nil` when unknown here.
+    func existingInstallationChannel(sourceIdentifier: String?) -> ReleaseChannel?
   }
 
   extension InstallerEnvironment {
@@ -800,5 +822,9 @@
     public func channelAvailability() async -> [ReleaseChannel: ReleaseChannelAvailability] {
       [:]
     }
+    public func channelReport() async -> ReleaseChannelReport {
+      ReleaseChannelReport(availability: await channelAvailability())
+    }
+    public func existingInstallationChannel(sourceIdentifier: String?) -> ReleaseChannel? { nil }
   }
 #endif
