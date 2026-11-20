@@ -111,6 +111,9 @@
 
   enum NativeFirmwareInputFiles {
     /// A separate firmware budget keeps the boot and metadata readers bounded.
+    /// A file with several names is read only where its tree admits that
+    /// (`NativeHandoffFileTree.admitsHardLinks`): the sealed system volume
+    /// shares identical files, such as speaker tuning configs, that way.
     static func read(
       _ tree: NativeHandoffFileTree, path: String, maximum: Int, owner: uid_t,
       expected: NativeStubFileIdentity? = nil
@@ -118,7 +121,9 @@
       guard maximum > 0, maximum <= 256 << 20 else { throw NativeFirmwareInputFailure.budget }
       let descriptor = try tree.fileDescriptor(path)
       defer { close(descriptor) }
-      let identity = try NativeStubFileStore.identity(descriptor, owner: owner, maximum: maximum)
+      let identity = try NativeStubFileStore.identity(
+        descriptor, owner: owner, maximum: maximum,
+        admitsHardLinks: tree.admitsHardLinks(descriptor))
       guard identity.bytes > 0, expected == nil || identity == expected else {
         throw NativeFirmwareInputFailure.invalidSource
       }
