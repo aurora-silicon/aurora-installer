@@ -5,16 +5,17 @@
   /// Holds which release channel this run of the app reads.
   ///
   /// A choice from the Release channel menu wins. Otherwise each distribution
-  /// profile's default is decided once per launch from that profile's verified
-  /// Edge catalog: Edge where it admits this Mac, the bundled default (Nightly)
-  /// where it verifiably doesn't. The choice and the decisions live in memory
+  /// profile's default for a new installation is decided once per launch from
+  /// that profile's verified Edge catalog: Edge where it admits this Mac and
+  /// carries this Mac's own evidence, the bundled default (Nightly) where it
+  /// doesn't. A plan for an existing installation reads the channel it came
+  /// from instead. The choice and the decisions live in memory
   /// only, and one app process can never change another's channel. It only
   /// chooses between the channel URLs already baked into the signed app bundle, so
   /// it can never introduce a source the app was not built to trust.
   public struct ReleaseChannelPreference: Sendable {
     /// Reads one profile's Edge catalog and says what it offers this Mac.
-    public typealias EdgeCheck =
-      @Sendable (_ deviceIdentifier: String) async -> ReleaseChannelAvailability
+    public typealias EdgeCheck = @Sendable (_ deviceIdentifier: String) async -> EdgeCatalogCheck
 
     public final class Store: @unchecked Sendable {
       private let lock = NSLock()
@@ -49,21 +50,36 @@
         }
       }
 
-      func forgetFailedCheck(_ profileID: String) -> Bool {
+      /// Decides a default that came from a failed Edge check again, from
+      /// this fresh read. A verified decision holds for the launch.
+      func redecide(_ profileID: String, edge: EdgeCatalogCheck) -> LaunchDefault? {
         lock.withLock {
-          guard decided[profileID]?.edgeCheckFailed == true else { return false }
-          decided[profileID] = nil
-          checks[profileID] = nil
-          return true
+          guard let previous = decided[profileID], previous.edgeCheckFailed else { return nil }
+          let decision = LaunchDefault(descriptorDefault: previous.descriptorDefault, edge: edge)
+          decided[profileID] = decision
+          checks[profileID] = Task { decision }
+          return decision
         }
       }
     }
 
     struct LaunchDefault: Equatable, Sendable {
       let channel: ReleaseChannel
+      let descriptorDefault: ReleaseChannel
       /// Edge's catalog couldn't be fetched or verified, so this Mac's
       /// support is unknown and Check Channels Again may decide it.
       let edgeCheckFailed: Bool
+
+      init(descriptorDefault: ReleaseChannel, edge: EdgeCatalogCheck) {
+        channel = ReleaseChannelPreference.launchDefault(
+          descriptorDefault: descriptorDefault, edge: edge)
+        self.descriptorDefault = descriptorDefault
+        if case .checkFailed = edge.availability {
+          edgeCheckFailed = true
+        } else {
+          edgeCheckFailed = false
+        }
+      }
     }
 
     public static let processStore = Store()
@@ -95,15 +111,17 @@
       stored ?? descriptorDefault
     }
 
-    /// Edge wherever the profile's verified Edge catalog admits this Mac, and
-    /// the bundled default only where Edge verifiably doesn't. A catalog that
-    /// couldn't be fetched or verified says nothing about this Mac: Edge stays
-    /// the channel, and preparing it fetches the catalog again.
+    /// Edge wherever the profile's verified Edge catalog admits this Mac and
+    /// carries this Mac's own evidence, and the bundled default wherever it
+    /// doesn't. A listed Mac without its own evidence can still choose Edge.
+    /// A catalog that couldn't be fetched or verified says nothing about this
+    /// Mac: Edge stays the channel, and preparing it fetches the catalog again.
     public static func launchDefault(
-      descriptorDefault: ReleaseChannel, edge: ReleaseChannelAvailability
+      descriptorDefault: ReleaseChannel, edge: EdgeCatalogCheck
     ) -> ReleaseChannel {
-      switch edge {
-      case .available, .checkFailed: .edge
+      switch edge.availability {
+      case .available: edge.qualifiesThisMac ? .edge : descriptorDefault
+      case .checkFailed: .edge
       case .noRelease, .notPublished, .modelUnavailable: descriptorDefault
       }
     }
@@ -133,22 +151,38 @@
       let descriptorDefault = configuration.defaultChannel
       let decision = await store.decide(profileID) {
         let edge = await checkEdge(deviceIdentifier)
-        if case .checkFailed = edge {
-          return LaunchDefault(channel: .edge, edgeCheckFailed: true)
-        }
-        return LaunchDefault(
-          channel: Self.launchDefault(descriptorDefault: descriptorDefault, edge: edge),
-          edgeCheckFailed: false)
+        return LaunchDefault(descriptorDefault: descriptorDefault, edge: edge)
       }.value
       return stored ?? decision.channel
     }
 
-    /// Check Channels Again: a default decided from a failed Edge check is
-    /// decided again by the next resolve. A verified answer holds for the
-    /// launch. Returns whether there was one to decide again.
-    @discardableResult
-    public func recheckFailedEdgeDefault(profileID: String) -> Bool {
-      store.forgetFailedCheck(profileID)
+    /// The channel a plan for an existing installation reads, for Reset and
+    /// Update Boot Loader: the choice made in this run, else the channel
+    /// recorded when it was installed, else the descriptor default. This
+    /// launch's Edge default is for new installations only.
+    public func resolve(
+      configuration: InstallerReleaseConfiguration,
+      existingInstallationChannel recorded: ReleaseChannel?
+    ) -> ReleaseChannel {
+      stored ?? recorded ?? configuration.defaultChannel
+    }
+
+    /// Check Channels Again. `read` re-reads every channel once for the menu
+    /// and returns Edge's part of that same read; a default decided while Edge
+    /// couldn't be checked is decided again from it. Returns the channel the
+    /// window now shows, or `nil` to keep it: nothing was decided again, there
+    /// was no answer, or `isCurrent` says another profile or session is on
+    /// screen by the time the read finishes, so its channel stands.
+    @MainActor
+    public func checkAgain(
+      profileID: String,
+      read: () async -> EdgeCatalogCheck?,
+      isCurrent: () -> Bool
+    ) async -> ReleaseChannel? {
+      let edge = await read()
+      guard isCurrent(), let edge, let decision = store.redecide(profileID, edge: edge)
+      else { return nil }
+      return stored ?? decision.channel
     }
 
     /// The Mac whose Edge support decides the default, or `nil` when the

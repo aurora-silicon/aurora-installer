@@ -19,6 +19,9 @@
     case edgeAlphaUnavailable
     case invalidCatalogChannel
     case invalidEdgeQualification
+    /// The release list could not be downloaded: the network request itself
+    /// failed (its `URLError` code).
+    case catalogUnreachable(Int)
   }
 
   /// The release channels a build can read: the same four Aurora offers,
@@ -427,6 +430,11 @@
           configurationError == .unexpectedHTTPStatus(404)
         {
           throw InstallerReleaseConfigurationError.edgeAlphaUnavailable
+        }
+        // Named apart from a failed payload download, so the failure can
+        // point at the Release channel menu. Cancellation stays itself.
+        if let urlError = error as? URLError, urlError.code != .cancelled {
+          throw InstallerReleaseConfigurationError.catalogUnreachable(urlError.code.rawValue)
         }
         throw error
       }

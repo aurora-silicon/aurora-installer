@@ -106,25 +106,28 @@
     private var attempts = 0
     private var cancelled = false
     public let channel: ReleaseChannel
-    /// What Edge's catalog offers the simulated Mac, which decides whether it
-    /// opens on Edge or Nightly.
-    public let edge: ReleaseChannelAvailability
+    /// What Edge's catalog offers the simulated Mac and whether it proves it,
+    /// which decides whether it opens on Edge or Nightly.
+    public let edge: EdgeCatalogCheck
+    /// The channel recorded for the simulated installation, if any.
+    public let installedChannel: ReleaseChannel?
     /// Today's Edge as most Macs see it: no qualified release yet.
-    public static let defaultEdgeAvailability = ReleaseChannelAvailability.notPublished
+    public static let defaultEdge = EdgeCatalogCheck(availability: .notPublished)
     /// The simulator opens where a real Mac with today's Edge would: Nightly.
     public static var launchChannel: ReleaseChannel {
-      ReleaseChannelPreference.launchDefault(
-        descriptorDefault: .testing, edge: defaultEdgeAvailability)
+      ReleaseChannelPreference.launchDefault(descriptorDefault: .testing, edge: defaultEdge)
     }
 
     public init(
       scenario: InstallerSimulationScenario, channel: ReleaseChannel = .testing,
-      edge: ReleaseChannelAvailability = InstallerSimulationEnvironment.defaultEdgeAvailability,
+      edge: EdgeCatalogCheck = InstallerSimulationEnvironment.defaultEdge,
+      installedChannel: ReleaseChannel? = nil,
       delay: Duration = .milliseconds(600)
     ) {
       self.scenario = scenario
       self.channel = channel
       self.edge = edge
+      self.installedChannel = installedChannel
       self.delay = delay
     }
 
@@ -175,7 +178,7 @@
     /// test channel offers.
     public func channelAvailability() async -> [ReleaseChannel: ReleaseChannelAvailability] {
       var availability: [ReleaseChannel: ReleaseChannelAvailability] = [
-        .stable: .noRelease, .rc: .noRelease, .testing: .available, .edge: edge,
+        .stable: .noRelease, .rc: .noRelease, .testing: .available, .edge: edge.availability,
       ]
       switch scenario {
       case .noMacRelease: availability[channel] = .noRelease
@@ -186,6 +189,16 @@
       default: availability[channel] = .available
       }
       return availability
+    }
+
+    public func channelReport() async -> ReleaseChannelReport {
+      ReleaseChannelReport(
+        availability: await channelAvailability(), edgeQualifiesThisMac: edge.qualifiesThisMac)
+    }
+
+    /// The simulated installation's recorded channel, else Nightly.
+    public func existingInstallationChannel(sourceIdentifier: String?) -> ReleaseChannel? {
+      installedChannel ?? .testing
     }
 
     /// The supported M1 to M6 Macs and the MacBook Neo every catalog

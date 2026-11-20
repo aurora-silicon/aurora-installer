@@ -260,7 +260,10 @@ struct OnePageInstallerView: View {
   }
 
   private var header: some View {
-    InstallerMasthead(distribution: selection.distribution, device: device, channel: channel)
+    // A Reset or boot loader update shows the installation's own channel.
+    InstallerMasthead(
+      distribution: selection.distribution, device: device,
+      channel: session.existingInstallationChannel ?? channel)
   }
 
   // MARK: The middle of the page
