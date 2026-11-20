@@ -60,14 +60,15 @@
       XCTAssertEqual(UserDefaults.standard.object(forKey: "ReleaseChannel") as? String, legacy)
     }
 
-    func testAnyMacTheProfilesEdgeCatalogAdmitsDefaultsToEdge() async throws {
+    func testAnyMacWithItsOwnEdgeEvidenceDefaultsToEdge() async throws {
       // The app names no model and no profile: a Mac gets Edge as soon as the
-      // selected profile's verified Edge catalog admits it.
+      // selected profile's verified Edge catalog admits it and carries that
+      // Mac's own qualification evidence.
       let configuration = try Self.bundledConfiguration()
       for deviceIdentifier in ["apple,j700", "apple,j714s", "apple,j313"] {
         let preference = ReleaseChannelPreference(
           store: ReleaseChannelPreference.Store(), deviceIdentifier: deviceIdentifier)
-        let edge = EdgeAnswers([.available])
+        let edge = EdgeAnswers([Self.proven])
 
         XCTAssertNil(preference.resolve(configuration: configuration, profileID: "arch-kde"))
         let channel = await preference.resolve(
@@ -94,9 +95,29 @@
           store: ReleaseChannelPreference.Store(), deviceIdentifier: "apple,j313")
         let channel = await preference.resolve(
           configuration: configuration, profileID: "fedora-kde",
-          checkEdge: EdgeAnswers([availability]).check)
+          checkEdge: EdgeAnswers([EdgeCatalogCheck(availability: availability)]).check)
         XCTAssertEqual(channel, .testing, "\(availability)")
       }
+    }
+
+    func testAListedMacWithoutItsOwnEvidenceDefaultsToNightly() async throws {
+      // Being listed makes Edge selectable on this Mac, not its default; an
+      // explicit pick still gets Edge.
+      let configuration = try Self.bundledConfiguration()
+      let preference = ReleaseChannelPreference(store: store, deviceIdentifier: "apple,j313")
+      let listed = EdgeCatalogCheck(availability: .available, qualifiesThisMac: false)
+
+      let channel = await preference.resolve(
+        configuration: configuration, profileID: "fedora-kde",
+        checkEdge: EdgeAnswers([listed]).check)
+      XCTAssertEqual(channel, .testing)
+      XCTAssertTrue(listed.availability.isSelectable)
+
+      preference.select(.edge)
+      let picked = await preference.resolve(
+        configuration: configuration, profileID: "fedora-kde",
+        checkEdge: EdgeAnswers([listed]).check)
+      XCTAssertEqual(picked, .edge)
     }
 
     func testAFailedEdgeCheckNeverFallsBackToNightly() async throws {
@@ -108,36 +129,109 @@
           store: ReleaseChannelPreference.Store(), deviceIdentifier: "apple,j313")
         let channel = await preference.resolve(
           configuration: configuration, profileID: "fedora-kde",
-          checkEdge: EdgeAnswers([.checkFailed(failure)]).check)
+          checkEdge: EdgeAnswers([EdgeCatalogCheck(availability: .checkFailed(failure))]).check)
         XCTAssertEqual(channel, .edge, "\(failure)")
       }
     }
 
+    @MainActor
     func testCheckingAgainRedecidesOnlyADefaultFromAFailedCheck() async throws {
       let configuration = try Self.bundledConfiguration()
       let preference = ReleaseChannelPreference(store: store, deviceIdentifier: "apple,j313")
-      let edge = EdgeAnswers([.checkFailed(.network), .noRelease, .available])
-      func resolve() async -> ReleaseChannel {
-        await preference.resolve(
-          configuration: configuration, profileID: "fedora-kde", checkEdge: edge.check)
-      }
-
-      let first = await resolve()
+      let offline = EdgeCatalogCheck(availability: .checkFailed(.network))
+      let first = await preference.resolve(
+        configuration: configuration, profileID: "fedora-kde",
+        checkEdge: EdgeAnswers([offline]).check)
       XCTAssertEqual(first, .edge)
-      XCTAssertTrue(preference.recheckFailedEdgeDefault(profileID: "fedora-kde"))
-      let second = await resolve()
-      XCTAssertEqual(second, .testing)
+
+      // Still unreachable: Edge stays, and can be decided again later.
+      let stillOffline = await preference.checkAgain(
+        profileID: "fedora-kde", read: { offline }, isCurrent: { true })
+      XCTAssertEqual(stillOffline, .edge)
+      // The same read that refreshes the menu decides the default.
+      let again = await preference.checkAgain(
+        profileID: "fedora-kde", read: { EdgeCatalogCheck(availability: .noRelease) },
+        isCurrent: { true })
+      XCTAssertEqual(again, .testing)
+      XCTAssertEqual(
+        preference.resolve(configuration: configuration, profileID: "fedora-kde"), .testing)
+
       // A verified answer holds for the rest of this launch.
-      XCTAssertFalse(preference.recheckFailedEdgeDefault(profileID: "fedora-kde"))
-      let third = await resolve()
-      XCTAssertEqual(third, .testing)
-      XCTAssertEqual(edge.checkedDevices.count, 2)
+      let later = await preference.checkAgain(
+        profileID: "fedora-kde", read: { Self.proven }, isCurrent: { true })
+      XCTAssertNil(later)
+      let resolved = await preference.resolve(
+        configuration: configuration, profileID: "fedora-kde",
+        checkEdge: EdgeAnswers([Self.proven]).check)
+      XCTAssertEqual(resolved, .testing)
+    }
+
+    @MainActor
+    func testCheckingAgainForAProfileNoLongerOnScreenChangesNothing() async throws {
+      // The person picked another distribution while Check Channels Again was
+      // reading: the new profile's channel stands, and the old profile's
+      // default isn't decided from the late answer either.
+      let configuration = try Self.bundledConfiguration()
+      let preference = ReleaseChannelPreference(store: store, deviceIdentifier: "apple,j313")
+      let offline = EdgeCatalogCheck(availability: .checkFailed(.network))
+      _ = await preference.resolve(
+        configuration: configuration, profileID: "fedora-kde",
+        checkEdge: EdgeAnswers([offline]).check)
+      var onScreen = "fedora-kde"
+
+      let stale = await preference.checkAgain(
+        profileID: "fedora-kde",
+        read: {
+          onScreen = "arch-kde"
+          return EdgeCatalogCheck(availability: .noRelease)
+        },
+        isCurrent: { onScreen == "fedora-kde" })
+
+      XCTAssertNil(stale)
+      XCTAssertEqual(
+        preference.resolve(configuration: configuration, profileID: "fedora-kde"), .edge)
+      let unanswered = await preference.checkAgain(
+        profileID: "fedora-kde", read: { nil }, isCurrent: { true })
+      XCTAssertNil(unanswered)
+    }
+
+    func testAnExistingInstallationKeepsTheChannelItCameFrom() async throws {
+      // Reset and Update Boot Loader act on an installation that is already
+      // there: they read the channel recorded when it was installed, or
+      // Nightly when none was, never this launch's Edge default.
+      let configuration = try Self.bundledConfiguration()
+      let preference = ReleaseChannelPreference(store: store, deviceIdentifier: "apple,j700")
+      let newInstall = await preference.resolve(
+        configuration: configuration, profileID: "fedora-kde",
+        checkEdge: EdgeAnswers([Self.proven]).check)
+      XCTAssertEqual(newInstall, .edge)
+
+      // A Nightly installation from an earlier installer records nothing.
+      XCTAssertEqual(
+        preference.resolve(configuration: configuration, existingInstallationChannel: nil),
+        .testing)
+      XCTAssertEqual(
+        preference.resolve(configuration: configuration, existingInstallationChannel: .testing),
+        .testing)
+      XCTAssertEqual(
+        preference.resolve(configuration: configuration, existingInstallationChannel: .edge),
+        .edge)
+
+      // A choice in the Release channel menu still wins.
+      preference.select(.edge)
+      XCTAssertEqual(
+        preference.resolve(configuration: configuration, existingInstallationChannel: .testing),
+        .edge)
+      preference.select(.testing)
+      XCTAssertEqual(
+        preference.resolve(configuration: configuration, existingInstallationChannel: .edge),
+        .testing)
     }
 
     func testAnExplicitChoiceWinsOverTheEdgeDefault() async throws {
       let configuration = try Self.bundledConfiguration()
       let preference = ReleaseChannelPreference(store: store, deviceIdentifier: "apple,j700")
-      let edge = EdgeAnswers([.available])
+      let edge = EdgeAnswers([Self.proven])
       func resolve() async -> ReleaseChannel {
         await preference.resolve(
           configuration: configuration, profileID: "fedora-kde", checkEdge: edge.check)
@@ -161,7 +255,7 @@
       other.select(.edge)
       let picked = await other.resolve(
         configuration: configuration, profileID: "fedora-kde",
-        checkEdge: EdgeAnswers([.noRelease]).check)
+        checkEdge: EdgeAnswers([EdgeCatalogCheck(availability: .noRelease)]).check)
       XCTAssertEqual(picked, .edge)
     }
 
@@ -170,15 +264,16 @@
       // Fedora KDE's admits a Mac; the others are signed and empty.
       let configuration = try Self.bundledConfiguration()
       let preference = ReleaseChannelPreference(store: store, deviceIdentifier: "apple,j700")
-      let catalogs: [(String, ReleaseChannelAvailability, ReleaseChannel)] = [
-        ("fedora-kde", .available, .edge),
-        ("arch-kde", .noRelease, .testing),
-        ("nixos-gnome", .noRelease, .testing),
+      let catalogs: [(String, EdgeCatalogCheck, ReleaseChannel)] = [
+        ("fedora-kde", Self.proven, .edge),
+        ("arch-kde", EdgeCatalogCheck(availability: .noRelease), .testing),
+        ("nixos-gnome", EdgeCatalogCheck(availability: .noRelease), .testing),
+        ("arch-gnome", EdgeCatalogCheck(availability: .available), .testing),
       ]
-      for (profileID, availability, expected) in catalogs {
+      for (profileID, edge, expected) in catalogs {
         let channel = await preference.resolve(
           configuration: configuration, profileID: profileID,
-          checkEdge: EdgeAnswers([availability]).check)
+          checkEdge: EdgeAnswers([edge]).check)
         XCTAssertEqual(channel, expected, profileID)
       }
 
@@ -196,7 +291,8 @@
       let configuration = try Self.bundledConfiguration()
       let window = ReleaseChannelPreference(store: store, deviceIdentifier: "apple,j700")
       let download = ReleaseChannelPreference(store: store, deviceIdentifier: "apple,j700")
-      let edge = EdgeAnswers([.available, .noRelease], delay: .milliseconds(50))
+      let edge = EdgeAnswers(
+        [Self.proven, EdgeCatalogCheck(availability: .noRelease)], delay: .milliseconds(50))
 
       XCTAssertNil(window.resolve(configuration: configuration, profileID: "fedora-kde"))
       async let shown = window.resolve(
@@ -225,7 +321,7 @@
         channels: bundled.channels, defaultChannel: .rc, trustRoot: bundled.trustRoot,
         helperMachServiceName: bundled.helperMachServiceName,
         helperCodeSigningRequirement: bundled.helperCodeSigningRequirement)
-      let edge = EdgeAnswers([.available, .available, .available])
+      let edge = EdgeAnswers([Self.proven, Self.proven, Self.proven])
 
       // Only the standard build profile knows this Mac's identifier.
       let unidentified = ReleaseChannelPreference(store: store, deviceIdentifier: nil)
@@ -261,8 +357,9 @@
         if count > 0 { resolvers[file.lastPathComponent] = count }
       }
       XCTAssertEqual(offenders, [])
-      // One resolver in the app, which the window and every preparation call.
-      XCTAssertEqual(resolvers, ["LiveInstallerEnvironment.swift": 1])
+      // The app's two resolvers: a new installation's channel, which the
+      // window and every new plan share, and an existing installation's.
+      XCTAssertEqual(resolvers, ["LiveInstallerEnvironment.swift": 2])
 
       let scene = try String(
         contentsOf: app.appendingPathComponent("AuroraAppleInstallerApp.swift"), encoding: .utf8)
@@ -285,18 +382,34 @@
         download.components(separatedBy: "await releaseChannel(configuration: configuration)")
           .count - 1, 2)
       XCTAssertTrue(download.contains("checkEdge: edgeCheck(configuration: configuration"))
+      // Reset and Update Boot Loader read the installation's own channel, and
+      // every installation records the channel it came from.
+      XCTAssertTrue(
+        download.contains(
+          "existingInstallationChannel(configuration: configuration, "
+            + "sourceIdentifier: preservedSource)"))
+      XCTAssertTrue(download.contains("try Self.installationChannelStore().record("))
+      // The window shows the channel the plan on screen reads.
+      XCTAssertTrue(scene.contains("liveSession?.existingInstallationChannel ?? channel"))
+      XCTAssertTrue(page.contains("session.existingInstallationChannel ?? channel"))
+      // Check Channels Again: one read, and a stale answer is dropped.
+      XCTAssertTrue(scene.contains("ReleaseChannelPreference().checkAgain("))
+      XCTAssertTrue(scene.contains("selection.profileID == profileID && liveSession === session"))
       // Settling the default only fills in the channel a preparation already
       // waited for; it must not restart that preparation.
       XCTAssertTrue(page.contains("guard previous != nil, current != nil else { return }"))
     }
 
+    /// Edge's catalog admits this Mac and carries its own evidence.
+    private static let proven = EdgeCatalogCheck(availability: .available, qualifiesThisMac: true)
+
     private final class EdgeAnswers: @unchecked Sendable {
       private let lock = NSLock()
-      private var answers: [ReleaseChannelAvailability]
+      private var answers: [EdgeCatalogCheck]
       private var devices = [String]()
       private let delay: Duration
 
-      init(_ answers: [ReleaseChannelAvailability], delay: Duration = .zero) {
+      init(_ answers: [EdgeCatalogCheck], delay: Duration = .zero) {
         self.answers = answers
         self.delay = delay
       }
@@ -306,9 +419,10 @@
       var check: ReleaseChannelPreference.EdgeCheck {
         { [self] deviceIdentifier in
           if delay > .zero { try? await Task.sleep(for: delay) }
-          return lock.withLock { () -> ReleaseChannelAvailability in
+          return lock.withLock { () -> EdgeCatalogCheck in
             devices.append(deviceIdentifier)
-            return answers.isEmpty ? .checkFailed(.network) : answers.removeFirst()
+            return answers.isEmpty
+              ? EdgeCatalogCheck(availability: .checkFailed(.network)) : answers.removeFirst()
           }
         }
       }
