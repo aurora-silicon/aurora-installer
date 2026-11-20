@@ -70,7 +70,9 @@
     }
 
     /// The generated readback of tests/audio_tuning_parity.py (readback).
-    static func readback(_ path: String, _ effect: NSDictionary, _ files: [String: Data]) throws
+    private static func readback(
+      _ path: String, _ effect: NSDictionary, _ files: [String: Data]
+    ) throws
       -> Fill.Readback
     {
       let preset = try XCTUnwrap(effect["aupreset"] as? NSDictionary)
