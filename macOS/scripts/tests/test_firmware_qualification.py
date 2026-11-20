@@ -89,7 +89,8 @@ class FirmwareQualificationTests(unittest.TestCase):
         expected = {'j714c': '0x0a', 'j714s': '0x08', 'j716c': '0x0e', 'j716s': '0x0c',
                     'j775c': '0x10', 'j775d': '0x12', 'j873s': '0x02'}
         record = self.record['pins']['26B123']
-        self.assertEqual(record['boards'], {})
+        # The 15-inch M3 and 13-inch M4 MacBook Airs (J615, J713) run on the 26B123 stub.
+        self.assertEqual(set(record['boards']), {'j615', 'j713'})
         self.assertEqual({board: proof['manifest_identity']['board_id']
                           for board, proof in record['experimental_boards'].items()}, expected)
         pin = self.pinned['26B123']['pin']

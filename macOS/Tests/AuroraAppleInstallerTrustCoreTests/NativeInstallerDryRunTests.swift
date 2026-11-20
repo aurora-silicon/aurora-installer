@@ -6,7 +6,10 @@
   final class NativeInstallerDryRunTests: XCTestCase {
     private let gib: UInt64 = 1 << 30
 
-    private func machine(device: String, chip: UInt64, macOS: String, boot: String) throws -> Data {
+    private func machine(
+      device: String, chip: UInt64, macOS: String, boot: String,
+      recovery: String = "25.7.83.0.0,0"
+    ) throws -> Data {
       let isc = "00000000-0000-4000-8000-000000000001"
       let store = "00000000-0000-4000-8000-000000000002"
       let container = "00000000-0000-4000-8000-000000000003"
@@ -16,7 +19,7 @@
         "deviceIdentifier": device,
         "hardware": [
           "chipID": chip, "bootVersion": boot, "macOSVersion": macOS,
-          "recoveryVersion": "25.7.83.0.0,0",
+          "recoveryVersion": recovery,
         ],
         "snapshot": [
           "disk": "disk0", "devicePath": "/dev/disk0", "diskSize": 500 * gib,
@@ -114,6 +117,35 @@
       let result = try await run(
         machine(device: "apple,j614s", chip: 0x6040, macOS: "26.6.2", boot: "mBoot-20457.1.29"))
       XCTAssertNil(result["unsupported_reason"])
+    }
+
+    func testTheMacBookAirsPlanThePinnedMacOS272Stub() async throws {
+      for (device, chip) in [("apple,j615", UInt64(0x8122)), ("apple,j713", UInt64(0x8132))] {
+        let result = try await run(
+          machine(
+            device: device, chip: chip, macOS: "27.2", boot: "mBoot-20457.41.3",
+            recovery: "26.2.123.0.0,0"))
+        XCTAssertEqual(result["supported"] as? Bool, true, device)
+        let firmware = try XCTUnwrap(result["firmware"] as? [String: Any], device)
+        XCTAssertEqual(firmware["version"] as? String, "27.2", device)
+        XCTAssertEqual(
+          (firmware["source_url"] as? String)?.hasSuffix("UniversalMac_27.2_26B123_Restore.ipsw"),
+          true, device)
+        XCTAssertEqual(firmware["stub_bytes"] as? UInt64, 5_999_951_872, device)
+        XCTAssertEqual(result["inspection_stub_bytes"] as? UInt64, 5_999_951_872, device)
+        let candidates = try XCTUnwrap(result["candidates"] as? [[String: Any]], device)
+        let free = try XCTUnwrap(candidates.first { $0["kind"] as? String == "free" }, device)
+        let plan = try XCTUnwrap(free["plan"] as? [String: Any], device)
+        XCTAssertEqual(
+          plan["required_human_steps"] as? [String],
+          ["enterOneTrueRecovery", "authenticateMachineOwner"], device)
+        XCTAssertEqual(result["one_true_recovery_boot_policy"] as? [String], ["-nc"], device)
+      }
+      // Still on macOS 26.6.2, the J713 is asked to update macOS first.
+      let older = try await run(
+        machine(device: "apple,j713", chip: 0x8132, macOS: "26.6.2", boot: "mBoot-18000.161.10"))
+      XCTAssertNil(older["firmware"])
+      XCTAssertNotNil(older["firmware_error"])
     }
 
     func testUnknownModelsStopBeforePlanning() async throws {

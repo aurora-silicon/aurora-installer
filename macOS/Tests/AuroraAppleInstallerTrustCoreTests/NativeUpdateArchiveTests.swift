@@ -652,11 +652,12 @@
 
     // MARK: Apple's archive
 
-    /// Every M3 Mac the sealed policy lists, with the board and chip its
-    /// identity names in the 14.8.3 manifest.
+    /// Every M3 Mac the sealed policy lists for 14.8.3, with the board and
+    /// chip its identity names in the 14.8.3 manifest. The 15-inch M3 MacBook
+    /// Air (J615) takes the pinned macOS 27.2 stub instead.
     static let m3Boards: [(device: String, board: UInt64, chip: UInt64)] = [
       ("j433", 0x28, 0x8122), ("j434", 0x2a, 0x8122), ("j504", 0x22, 0x8122),
-      ("j613", 0x30, 0x8122), ("j615", 0x32, 0x8122), ("j514s", 0x04, 0x6030),
+      ("j613", 0x30, 0x8122), ("j514s", 0x04, 0x6030),
       ("j514c", 0x44, 0x6031), ("j514m", 0x44, 0x6034), ("j516s", 0x06, 0x6030),
       ("j516c", 0x46, 0x6031), ("j516m", 0x46, 0x6034),
     ]

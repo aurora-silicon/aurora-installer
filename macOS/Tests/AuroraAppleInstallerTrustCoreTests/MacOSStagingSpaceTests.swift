@@ -462,14 +462,15 @@
           fileName: "metadata.json", expectedDigest: SHA256Digest(hashing: data).rawValue,
           expectedSizeBytes: UInt64(data.count)),
         fileURL: url, reusedExistingFile: false)
-      // An M3 MacBook Air on macOS 15 and on macOS 26.6.2: the policy's last
-      // compatible firmware for both is 14.8.3, which Apple ships only as an
-      // update archive. Planning reads that archive like a restore image.
+      // The 13-inch M3 MacBook Air on macOS 15 and on macOS 26.6.2: the
+      // policy's last compatible firmware for both is 14.8.3, which Apple ships
+      // only as an update archive. Planning reads that archive like a restore
+      // image. (The 15-inch J615 takes the pinned macOS 27.2 stub instead.)
       let vectors = try NativeUpdateArchiveTests.vectors()
       let source = try NativeUpdateArchiveTests.updateArchive()
       for (device, board, hardware) in [
         (
-          "apple,j615", UInt64(0x32),
+          "apple,j613", UInt64(0x30),
           NativeInspectionHardware(
             chipID: 0x8122, bootVersion: "iBoot-11881.1.1", macOSVersion: "15.1",
             recoveryVersion: "24.1.0.0.0,0")

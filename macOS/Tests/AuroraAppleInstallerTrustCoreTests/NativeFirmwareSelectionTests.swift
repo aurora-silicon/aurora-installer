@@ -235,6 +235,62 @@
       }
     }
 
+    func testTheM3AndM4MacBookAirsTakeThePinnedMacOS272Stub() throws {
+      let policy = try NativeInspectionPolicy.sealed()
+      func choose(_ device: String, _ hardware: NativeInspectionHardware) throws
+        -> NativeFirmwareSelection
+      {
+        try NativeFirmwareSelection.choose(
+          deviceIdentifier: device, facts: .init(deviceIdentifier: device, hardware: hardware),
+          metadata: NativeInstallationMetadata(
+            data: JSONSerialization.data(withJSONObject: [
+              "os_list": [
+                [
+                  "omarchy_target": "apple-silicon-full-os", "default_os_name": "Fixture",
+                  "partitions": [["size": "1GiB"]],
+                ]
+              ]
+            ])),
+          policy: policy)
+      }
+      // The 15-inch M3 MacBook Air (J615) and 13-inch M4 MacBook Air (J713)
+      // run on the pinned macOS 27.2 (26B123) stub. Both Airs are on macOS
+      // 27.2 with its system firmware (mBoot-20457.41.3).
+      for (device, chip) in [("apple,j615", UInt64(0x8122)), ("apple,j713", UInt64(0x8132))] {
+        let on272 = NativeInspectionHardware(
+          chipID: chip, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2",
+          recoveryVersion: "26.2.123.0.0,0")
+        XCTAssertTrue(policy.supports(device, hardware: on272), device)
+        let selection = try choose(device, on272)
+        XCTAssertEqual(selection.version, "27.2", device)
+        XCTAssertEqual(selection.pin?.build, "26B123", device)
+        XCTAssertEqual(selection.stubBytes, 5_999_951_872, device)
+        XCTAssertEqual(
+          selection.sourceURL.lastPathComponent, "UniversalMac_27.2_26B123_Restore.ipsw", device)
+      }
+      // An older macOS is asked to update to 27.2 first rather than getting
+      // the 14.8.3 (J615) or 26.6.2 (J713) stub.
+      let m3on26 = NativeInspectionHardware(
+        chipID: 0x8122, bootVersion: "mBoot-18000.161.10", macOSVersion: "26.6.2",
+        recoveryVersion: "25.7.83.0.0,0")
+      let m3on15 = NativeInspectionHardware(
+        chipID: 0x8122, bootVersion: "iBoot-11881.1.1", macOSVersion: "15.1",
+        recoveryVersion: "24.1.0.0.0,0")
+      let m4on26 = NativeInspectionHardware(
+        chipID: 0x8132, bootVersion: "mBoot-18000.161.10", macOSVersion: "26.6.2",
+        recoveryVersion: "25.7.83.0.0,0")
+      for (device, hardware) in [
+        ("apple,j615", m3on26), ("apple,j615", m3on15), ("apple,j713", m4on26),
+      ] {
+        XCTAssertThrowsError(try choose(device, hardware)) { error in
+          XCTAssertEqual(
+            error as? NativeFirmwareSelectionError, .macOSUpdateRequired(version: "27.2"), device)
+        }
+      }
+      // The 13-inch M3 Air (J613) keeps the 14.8.3 stub, the last entry it may use.
+      XCTAssertEqual(try choose("apple,j613", m3on26).version, "14.8.3")
+    }
+
     func testOLEDMacBookProsUseTheirOwnMacOS272Firmware() throws {
       let policy = try NativeInspectionPolicy.sealed()
       let metadata = try NativeInstallationMetadata(
