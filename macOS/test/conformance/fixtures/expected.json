@@ -24,6 +24,45 @@
    "failing": [],
    "verdict": "UNTESTED-ON-HW"
   },
+  "j615/fresh/arch": {
+   "failing": [
+    "branch pins"
+   ],
+   "verdict": "FAIL"
+  },
+  "j615/fresh/fedora": {
+   "failing": [
+    "branch pins"
+   ],
+   "verdict": "FAIL"
+  },
+  "j615/fresh/nixos": {
+   "failing": [
+    "branch pins"
+   ],
+   "verdict": "FAIL"
+  },
+  "j615/side-by-side/arch": {
+   "failing": [
+    "branch pins",
+    "plan"
+   ],
+   "verdict": "FAIL"
+  },
+  "j615/side-by-side/fedora": {
+   "failing": [
+    "branch pins",
+    "plan"
+   ],
+   "verdict": "FAIL"
+  },
+  "j615/side-by-side/nixos": {
+   "failing": [
+    "branch pins",
+    "plan"
+   ],
+   "verdict": "FAIL"
+  },
   "j616s-shrunk-synthetic/fresh/arch": {
    "failing": [],
    "verdict": "UNTESTED-ON-HW"
@@ -74,6 +113,45 @@
   },
   "j616s/side-by-side/nixos": {
    "failing": [
+    "plan"
+   ],
+   "verdict": "FAIL"
+  },
+  "j713/fresh/arch": {
+   "failing": [
+    "branch pins"
+   ],
+   "verdict": "FAIL"
+  },
+  "j713/fresh/fedora": {
+   "failing": [
+    "branch pins"
+   ],
+   "verdict": "FAIL"
+  },
+  "j713/fresh/nixos": {
+   "failing": [
+    "branch pins"
+   ],
+   "verdict": "FAIL"
+  },
+  "j713/side-by-side/arch": {
+   "failing": [
+    "branch pins",
+    "plan"
+   ],
+   "verdict": "FAIL"
+  },
+  "j713/side-by-side/fedora": {
+   "failing": [
+    "branch pins",
+    "plan"
+   ],
+   "verdict": "FAIL"
+  },
+  "j713/side-by-side/nixos": {
+   "failing": [
+    "branch pins",
     "plan"
    ],
    "verdict": "FAIL"
@@ -185,6 +263,6 @@
    "verdict": "UNTESTED-ON-HW"
   }
  },
- "note": "At-pin verdicts recorded 2026-11-01 against the live Alpha 14 catalogs (37 Macs, J616s and J575d enabled, every board qualified for Stage 1) and the distro branches that pin kernel f41ac3de (fleet14c), aura a9cad94e and U-Boot d30213ea. The remaining FAIL cells are disk space for side by side (M2: Chloe's macOS; J616s without shrinking its Linux root). CI fails when a cell does worse; when one improves, update it here with the run that shows it.",
+ "note": "At-pin verdicts recorded 2026-11-01 against the live Alpha 14 catalogs (37 Macs, J616s and J575d enabled, every board qualified for Stage 1) and the distro branches that pin kernel f41ac3de (fleet14c), aura a9cad94e and U-Boot d30213ea. The remaining FAIL cells are disk space for side by side (M2: Chloe's macOS; J616s without shrinking its Linux root). CI fails when a cell does worse; when one improves, update it here with the run that shows it. The J615 and J713 cells were recorded 2026-11-21 from read-only captures of both Airs on the macOS 27.2 stub. In fresh mode only the branch aura pin fails (the distribution branches pin 2f487f26, the installer 5dcf62d0). Side by side also has no room: these 256 GB Airs already hold one installation.",
  "schema": 1
 }
