@@ -224,15 +224,28 @@
       }
       // The 27.2 entry is theirs alone: the M6 Mac mini keeps its 27.0 stub.
       XCTAssertEqual(try choose("apple,j873g", m6).version, "27.0")
-      // The 14-inch M5 MacBook Pro (J704) and 15-inch M5 MacBook Air (J815)
-      // are in the universal 26.6.2 (25G83) image, like the 13-inch J813.
+      // The 15-inch M5 MacBook Air (J815) is in the universal 26.6.2 (25G83)
+      // image, like the 13-inch J813.
       let m5 = NativeInspectionHardware(
         chipID: 0x8142, bootVersion: "mBoot-18000.161.10", macOSVersion: "26.6.2",
         recoveryVersion: "25.7.83.0.0,0")
-      for device in ["apple,j704", "apple,j815"] {
-        XCTAssertTrue(policy.supports(device, hardware: m5), device)
-        XCTAssertEqual(try choose(device, m5).version, "26.6.2", device)
+      XCTAssertTrue(policy.supports("apple,j815", hardware: m5))
+      XCTAssertEqual(try choose("apple,j815", m5).version, "26.6.2")
+      // The 14-inch M5 MacBook Pro (J704) takes the pinned macOS 27.2 (26B123)
+      // stub, as the M5 Pro and Max do. A Mac still on 26.x or 27.0 is asked to
+      // update macOS first instead of getting an older stub.
+      XCTAssertThrowsError(try choose("apple,j704", m5)) { error in
+        XCTAssertEqual(
+          error as? NativeFirmwareSelectionError, .macOSUpdateRequired(version: "27.2"))
       }
+      let m5on272 = NativeInspectionHardware(
+        chipID: 0x8142, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2.1",
+        recoveryVersion: "26.2.123.0.0,0")
+      XCTAssertTrue(policy.supports("apple,j704", hardware: m5on272))
+      let j704 = try choose("apple,j704", m5on272)
+      XCTAssertEqual(j704.version, "27.2")
+      XCTAssertEqual(
+        j704.sourceURL.lastPathComponent, "UniversalMac_27.2_26B123_Restore.ipsw")
     }
 
     func testOLEDMacBookProsUseTheirOwnMacOS272Firmware() throws {
