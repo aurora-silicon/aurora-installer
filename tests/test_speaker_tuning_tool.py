@@ -84,11 +84,19 @@ def tunings(root, acoustic=35, salt=b""):
     (root / "DeviceDSPDatabase.plist").write_bytes(plistlib.dumps(db))
 
 
-def bundle_dir(base, acoustic=35, salt=b"", spts=bytes(range(16)), root=None):
-    """A verified audio-tuning/ under base; returns base."""
+def bundle_dir(base, acoustic=35, salt=b"", spts=bytes(range(16)), root=None, buzzkill=False):
+    """A verified audio-tuning/ under base; returns base. buzzkill: collect
+    from a component that also has a BuzzKill matrix, with the matrix."""
     src = base / "tunings"
     tunings(src, acoustic, salt)
-    col = AudioTuningFWCollection(tunings_root=str(src), run=fake_run(acoustic, spts, root=root))
+    audiodsp = None
+    if buzzkill:
+        from test_buzzkill_matrix import const
+        audiodsp = base / "AudioDSP-buzzkill"
+        audiodsp.write_bytes(thin(padded(synthetic_lattice()) + const()))
+    col = AudioTuningFWCollection(tunings_root=str(src), run=fake_run(acoustic, spts, root=root),
+                                  audiodsp=None if audiodsp is None else str(audiodsp),
+                                  buzzkill=buzzkill)
     assert col.bundle
     out = base / "bundle"
     out.mkdir()
@@ -539,6 +547,35 @@ class InstallTest(unittest.TestCase):
         raw, _ = st.raw_tuning(self.esp / "asahi" / "all_firmware.tar.gz")
         with st.opened_bundle(src) as (bundle, _):
             self.assertEqual(raw, bundle)
+
+    def test_a_bundle_with_the_buzzkill_matrix_installs_without_it(self):
+        # A collection made while the collector wrote the matrix by default:
+        # no released speakerguardd reads it, and every one refuses it.
+        src = bundle_dir(self.tmp, buzzkill=True)
+        with st.opened_bundle(src) as (bundle, _):
+            self.assertIn(audio_tuning.BUZZKILL, bundle)
+            plain = audio_tuning.without_buzzkill(bundle)
+        result, text = self.install(src)
+        self.assertEqual(result, "installed", text)
+        self.assertIn("installed without it", text)
+        raw, _ = st.raw_tuning(self.esp / "asahi" / "all_firmware.tar.gz")
+        self.assertEqual(raw, plain)
+        manifest = st.parse_manifest((self.esp / "vendorfw" / "manifest.txt").read_text())
+        self.assertNotIn("apple/audio-tuning/" + audio_tuning.BUZZKILL, manifest)
+        self.assertNotIn(audio_tuning.BUZZKILL_KEY,
+                         json.loads(raw[audio_tuning.MANIFEST]))
+        result, text = self.install(src)
+        self.assertEqual(result, "identical", text)
+
+    def test_keep_buzzkill_matrix_installs_it(self):
+        src = bundle_dir(self.tmp, buzzkill=True)
+        result, text = self.install(src, buzzkill=True)
+        self.assertEqual(result, "installed", text)
+        self.assertNotIn("installed without it", text)
+        raw, _ = st.raw_tuning(self.esp / "asahi" / "all_firmware.tar.gz")
+        with st.opened_bundle(src) as (bundle, _):
+            self.assertEqual(raw, bundle)
+        self.assertIn(audio_tuning.BUZZKILL, raw)
 
     def test_verify_running_bundle(self):
         src = bundle_dir(self.tmp)

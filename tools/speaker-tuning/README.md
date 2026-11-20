@@ -26,6 +26,13 @@ component (see
 If it does not find exactly one valid table, it writes nothing and exits
 with an error.
 
+The BuzzKill detector's quadrature matrix (also in AudioDSP) is collected
+only with `--buzzkill-matrix`, for rigs. No speakerguardd release reads it
+yet, and every release up to 1.0.0alpha.1-42 refuses a bundle that carries
+it (`unknown field buzzkill_quadrature`), which leaves the speakers at the
+kernel's floor. It becomes the default once a release reads it
+(speakerguardd#138).
+
 It reads both tuning layouts: the shared `DeviceDSPDatabase.plist` up to
 macOS 26, and the per-Mac `AID<n>/DSP/DSPDatabase.plist` of macOS 27, and
 prints which one it used.
@@ -128,6 +135,10 @@ since boot (it should be 0).
 - A bundle collected before the collector read the lsm2 masker lattice still
   installs; the Neo's lsm2 protection then gives no masking credit. Collect
   it again to add the lattice.
+- A tarball collected between 2026-11-13 and this change carries the BuzzKill
+  matrix by default. `install-linux.sh` installs it without the matrix
+  (it says so), so speakerguardd accepts it; `--keep-buzzkill-matrix` keeps
+  it for a speakerguardd that reads it.
 - Collect again after a macOS update that changes the tuning. A newer bundle
   for the same AID replaces the old one.
 - The tarball and the backups hold this Mac's own calibration. Keep them on
