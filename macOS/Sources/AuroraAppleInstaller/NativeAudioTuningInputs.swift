@@ -231,7 +231,9 @@
       let key = folder(acousticID)
       guard let entry = root[key] else { return nil }
       return try NativePythonEncoding.xml(
-        .dictionary([(key, try NativePythonEncoding.plist(entry))]))
+        .dictionary([
+          NativePythonEncoding.PlistMember(key: key, value: try NativePythonEncoding.plist(entry))
+        ]))
     }
 
     /// macOS 27 keeps each Mac's entry in its own folder, with the same
@@ -463,10 +465,12 @@
       let device = Device(
         acousticID: acousticID, thieleSmall: thieleSmall, build: build(),
         speakerID: liveSpeakerID(), board: board, unitID: unit)
-      let readback: NativeLSM2Fill.Reader =
-        NativeLSM2Fill.workerExecutable.map(NativeLSM2Fill.isolated) ?? { _, _, _ in
-          throw NativeLSM2Fill.Failure("no readback worker in this process")
-        }
+      var readback: NativeLSM2Fill.Reader = { _, _, _ in
+        throw NativeLSM2Fill.Failure("no readback worker in this process")
+      }
+      if let worker = NativeLSM2Fill.workerExecutable {
+        readback = NativeLSM2Fill.isolated(worker)
+      }
       return try snapshot(root: root, tree: tree, owner: owner, device: device, readback: readback)
     }
 

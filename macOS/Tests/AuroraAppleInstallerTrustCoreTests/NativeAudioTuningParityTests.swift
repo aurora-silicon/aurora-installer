@@ -51,7 +51,7 @@
 
     /// The fixture copied with the modes a sealed volume has (no group or
     /// world write), owned by this user; its link stays a link.
-    private func root() throws -> URL {
+    private func copiedRoot() throws -> URL {
       let root = directory.appendingPathComponent("root", isDirectory: true)
       try FileManager.default.copyItem(
         at: Self.fixture.appendingPathComponent("root", isDirectory: true), to: root)
@@ -122,7 +122,7 @@
           with: Data(contentsOf: Self.fixture.appendingPathComponent("expected.json")))
           as? [String: [String: String]])
       XCTAssertEqual(Set(expected.keys), Set(Self.cases.keys))
-      let root = try root()
+      let root = try copiedRoot()
       for name in Self.cases.keys.sorted() {
         let bundle = try native(name, root: root)
         let want = try XCTUnwrap(expected[name])
@@ -149,7 +149,7 @@
         throw XCTSkip("python3 is not available")
       }
       guard probe.terminationStatus == 0 else { throw XCTSkip("python3 is not available") }
-      let root = try root()
+      let root = try copiedRoot()
       for name in Self.cases.keys.sorted() {
         let output = directory.appendingPathComponent("python-" + name, isDirectory: true)
         let process = Process()
@@ -182,7 +182,7 @@
     }
 
     func testTheFillIsBoundToItsBundle() throws {
-      let root = try root()
+      let root = try copiedRoot()
       let bundle = try native("aid97", root: root)
       let manifest = try XCTUnwrap(
         JSONSerialization.jsonObject(with: XCTUnwrap(bundle["manifest.json"])) as? [String: Any])
@@ -222,7 +222,7 @@
     }
 
     func testAFailedReadbackLeavesOnlyTheFillOut() throws {
-      let root = try root()
+      let root = try copiedRoot()
       let entry = try XCTUnwrap(Self.cases["aid97"])
       let tree = try NativeHandoffFileTree(root, protected: true, owner: geteuid())
       let device = Inputs.Device(
@@ -340,9 +340,9 @@
 
     func testRealsAndTypesEncodeAsPlistlibDoes() throws {
       // A binary property list's float32 real is widened, as plistlib does.
-      XCTAssertEqual(
-        try NativePythonEncoding.plist(NSNumber(value: Float(0.1))),
-        .real(Double(Float(0.1))))
+      guard case .real(let widened) = try NativePythonEncoding.plist(NSNumber(value: Float(0.1)))
+      else { return XCTFail("a float32 number is not a real") }
+      XCTAssertEqual(widened.bitPattern, Double(Float(0.1)).bitPattern)
       XCTAssertEqual(NativePythonEncoding.repr(Double(Float(0.1))), "0.10000000149011612")
       for (value, text) in [
         (1e16, "1e+16"), (1e15, "1000000000000000.0"), (1e-05, "1e-05"), (0.0001, "0.0001"),
@@ -351,7 +351,9 @@
       ] {
         XCTAssertEqual(NativePythonEncoding.repr(value), text)
       }
-      XCTAssertEqual(try NativePythonEncoding.plist(NSNumber(value: true)), .bool(true))
+      guard case .bool(true) = try NativePythonEncoding.plist(NSNumber(value: true)) else {
+        return XCTFail("a boolean is not a bool")
+      }
       XCTAssertThrowsError(try NativePythonEncoding.escaped("a\u{1}b"))
       XCTAssertEqual(try NativePythonEncoding.escaped("a\r\nb\rc&<>"), "a\nb\nc&amp;&lt;&gt;")
       XCTAssertEqual(

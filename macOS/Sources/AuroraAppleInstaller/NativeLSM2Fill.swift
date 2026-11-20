@@ -375,10 +375,12 @@
       private var over = false
       let done = DispatchSemaphore(value: 0)
 
+      /// Reads `descriptor` to its end (or past `limit`), then closes it.
       func read(_ descriptor: Int32, limit: Int) {
-        var buffer = [UInt8](repeating: 0, count: 1 << 16)
+        let size = 1 << 16
+        var buffer = [UInt8](repeating: 0, count: size)
         while true {
-          let count = Darwin.read(descriptor, &buffer, buffer.count)
+          let count = Darwin.read(descriptor, &buffer, size)
           if count < 0, errno == EINTR { continue }
           guard count > 0 else { break }
           lock.lock()
@@ -388,6 +390,7 @@
           lock.unlock()
           if stop { break }
         }
+        close(descriptor)
         done.signal()
       }
 
@@ -398,30 +401,60 @@
       }
     }
 
+    /// Writes `data` to `descriptor`, then closes it. A reader that went
+    /// away ends the write (EPIPE; the descriptor has no SIGPIPE).
+    private static func write(_ data: Data, to descriptor: Int32) {
+      data.withUnsafeBytes { bytes in
+        var offset = 0
+        while offset < bytes.count, let base = bytes.baseAddress {
+          let count = Darwin.write(descriptor, base + offset, bytes.count - offset)
+          if count < 0, errno == EINTR { continue }
+          guard count > 0 else { break }
+          offset += count
+        }
+      }
+      close(descriptor)
+    }
+
     private static func run(_ executable: URL, input: Data) throws -> Data {
       try Task.checkCancellation()
+      var request: [Int32] = [-1, -1]
+      var response: [Int32] = [-1, -1]
+      guard pipe(&request) == 0 else { throw Failure("lsm2 parameter readback: no pipe") }
+      guard pipe(&response) == 0 else {
+        close(request[0])
+        close(request[1])
+        throw Failure("lsm2 parameter readback: no pipe")
+      }
+      // The child gets its ends as standard input and output; this process
+      // keeps the others, which no other child inherits. A worker that dies
+      // early must not end the helper with SIGPIPE.
+      _ = fcntl(request[1], F_SETFD, FD_CLOEXEC)
+      _ = fcntl(response[0], F_SETFD, FD_CLOEXEC)
+      _ = fcntl(request[1], F_SETNOSIGPIPE, 1)
       let process = Process()
       process.executableURL = executable
       process.arguments = [NativeLSM2FillWorker.argument]
       process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL": "C"]
-      let standardInput = Pipe()
-      let standardOutput = Pipe()
-      process.standardInput = standardInput
-      process.standardOutput = standardOutput
+      process.standardInput = FileHandle(fileDescriptor: request[0], closeOnDealloc: false)
+      process.standardOutput = FileHandle(fileDescriptor: response[1], closeOnDealloc: false)
       process.standardError = FileHandle.nullDevice
       let exited = DispatchSemaphore(value: 0)
       process.terminationHandler = { _ in exited.signal() }
-      // A worker that dies early must not end the helper with SIGPIPE.
-      let writer = standardInput.fileHandleForWriting
-      _ = fcntl(writer.fileDescriptor, F_SETNOSIGPIPE, 1)
-      try process.run()
-      let output = Output()
-      let reader = standardOutput.fileHandleForReading
-      DispatchQueue.global().async { output.read(reader.fileDescriptor, limit: maximumBytes) }
-      DispatchQueue.global().async {
-        try? writer.write(contentsOf: input)
-        try? writer.close()
+      do {
+        try process.run()
+      } catch {
+        for descriptor in request + response { close(descriptor) }
+        throw error
       }
+      close(request[0])
+      close(response[1])
+      let output = Output()
+      let reader = response[0]
+      let writer = request[1]
+      let limit = Self.maximumBytes
+      DispatchQueue.global().async { output.read(reader, limit: limit) }
+      DispatchQueue.global().async { Self.write(input, to: writer) }
       let deadline = DispatchTime.now() + timeout
       var stopped: String?
       while exited.wait(timeout: .now() + .milliseconds(50)) == .timedOut {
@@ -492,6 +525,21 @@
       }
     }
 
+    /// Sets a property whose value is a CF object reference (ClassInfo, a
+    /// property list): the unit receives a pointer to the reference.
+    private static func setReference(
+      _ instance: AudioUnit, _ id: AudioUnitPropertyID, _ scope: AudioUnitScope,
+      _ element: AudioUnitElement, _ value: CFPropertyList
+    ) throws {
+      let reference = Unmanaged.passUnretained(value).toOpaque()
+      try withUnsafePointer(to: reference) {
+        try check(
+          AudioUnitSetProperty(
+            instance, id, scope, element, $0, UInt32(MemoryLayout<UnsafeMutableRawPointer>.size)))
+      }
+      withExtendedLifetime(value) {}
+    }
+
     private static func fourCC(_ value: Any?) throws -> UInt32 {
       guard let number = integer(value), (0...Int64(UInt32.max)).contains(number) else {
         throw Failure("malformed lsm2 unit description")
@@ -535,11 +583,8 @@
       guard let instance = created else { throw Failure("could not instantiate lsm2") }
       defer { _ = AudioComponentInstanceDispose(instance) }
 
-      var classInfo: CFPropertyList = preset
-      try check(
-        AudioUnitSetProperty(
-          instance, kAudioUnitProperty_ClassInfo, kAudioUnitScope_Global, 0, &classInfo,
-          UInt32(MemoryLayout<CFPropertyList>.size)))
+      try setReference(
+        instance, kAudioUnitProperty_ClassInfo, kAudioUnitScope_Global, 0, preset)
       try applyProperties(instance, path: path, effect: effect, files: files)
 
       var returned: UnsafeMutableRawPointer?
@@ -587,9 +632,10 @@
         }
         var nameBytes = withUnsafeBytes(of: info.name) { Array($0.prefix { $0 != 0 }) }
         if hasName, let text = info.cfNameString?.takeUnretainedValue() {
-          var buffer = [CChar](repeating: 0, count: 1025)
+          let capacity = 1025
+          var buffer = [CChar](repeating: 0, count: capacity)
           guard
-            CFStringGetCString(text, &buffer, buffer.count, CFStringBuiltInEncodings.UTF8.rawValue)
+            CFStringGetCString(text, &buffer, capacity, CFStringBuiltInEncodings.UTF8.rawValue)
           else { throw Failure("lsm2 parameter name is too long") }
           nameBytes = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
         }
@@ -646,12 +692,9 @@
             guard let data = files[target] else {
               throw Failure("lsm2 property path is outside the private bundle")
             }
-            var value: CFPropertyList =
+            let value: CFPropertyList =
               try PropertyListSerialization.propertyList(from: data, format: nil) as CFPropertyList
-            try check(
-              AudioUnitSetProperty(
-                instance, identifier, scope, element, &value,
-                UInt32(MemoryLayout<CFPropertyList>.size)))
+            try setReference(instance, identifier, scope, element, value)
           } else {
             throw Failure("unsupported lsm2 propstrip property type")
           }
@@ -681,9 +724,10 @@
       guard arguments.count == 2, arguments[1] == argument else { return nil }
       do {
         var request = Data()
-        var buffer = [UInt8](repeating: 0, count: 1 << 16)
+        let size = 1 << 16
+        var buffer = [UInt8](repeating: 0, count: size)
         while true {
-          let count = read(STDIN_FILENO, &buffer, buffer.count)
+          let count = read(STDIN_FILENO, &buffer, size)
           if count < 0, errno == EINTR { continue }
           guard count > 0 else { break }
           request.append(contentsOf: buffer[0..<count])

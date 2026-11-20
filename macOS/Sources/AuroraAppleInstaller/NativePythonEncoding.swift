@@ -27,7 +27,7 @@
 
     // MARK: JSON
 
-    indirect enum JSON: Equatable {
+    enum JSON {
       case null
       case bool(Bool)
       case integer(Int64)
@@ -123,7 +123,8 @@
 
     // MARK: Property lists
 
-    indirect enum Plist: Equatable {
+    /// A property list value, as `plistlib.loads` gives it.
+    enum Plist {
       case string(String)
       case bool(Bool)
       case integer(Int64)
@@ -133,24 +134,13 @@
       /// Seconds since 2001-01-01 00:00:00 UTC.
       case date(Double)
       case array([Plist])
-      case dictionary([(key: String, value: Plist)])
+      /// Members in any order; the encoder sorts them.
+      case dictionary([PlistMember])
+    }
 
-      static func == (lhs: Plist, rhs: Plist) -> Bool {
-        switch (lhs, rhs) {
-        case (.string(let a), .string(let b)): return a == b
-        case (.bool(let a), .bool(let b)): return a == b
-        case (.integer(let a), .integer(let b)): return a == b
-        case (.unsigned(let a), .unsigned(let b)): return a == b
-        case (.real(let a), .real(let b)): return a.bitPattern == b.bitPattern
-        case (.data(let a), .data(let b)): return a == b
-        case (.date(let a), .date(let b)): return a.bitPattern == b.bitPattern
-        case (.array(let a), .array(let b)): return a == b
-        case (.dictionary(let a), .dictionary(let b)):
-          return a.count == b.count
-            && zip(a, b).allSatisfy { $0.key == $1.key && $0.value == $1.value }
-        default: return false
-        }
-      }
+    struct PlistMember {
+      let key: String
+      let value: Plist
     }
 
     /// A Foundation property list object (as `PropertyListSerialization`
@@ -160,10 +150,10 @@
       let type = CFGetTypeID(value)
       if type == CFStringGetTypeID(), let text = value as? String { return .string(text) }
       if type == CFBooleanGetTypeID() {
-        return .bool(CFBooleanGetValue(unsafeBitCast(value, to: CFBoolean.self)))
+        return .bool(CFBooleanGetValue(unsafeDowncast(value, to: CFBoolean.self)))
       }
       if type == CFNumberGetTypeID() {
-        let number = unsafeBitCast(value, to: CFNumber.self)
+        let number = unsafeDowncast(value, to: CFNumber.self)
         if CFNumberIsFloatType(number) {
           var real = 0.0
           guard CFNumberGetValue(number, .float64Type, &real) else {
@@ -186,11 +176,11 @@
         return .array(try array.map { try plist($0) })
       }
       if type == CFDictionaryGetTypeID(), let dictionary = value as? NSDictionary {
-        var members = [(key: String, value: Plist)]()
+        var members = [PlistMember]()
         for (key, member) in dictionary {
           guard CFGetTypeID(key as AnyObject) == CFStringGetTypeID(), let name = key as? String
           else { throw Failure(description: "property list key is not a string") }
-          members.append((name, try plist(member)))
+          members.append(PlistMember(key: name, value: try plist(member)))
         }
         return .dictionary(members)
       }
