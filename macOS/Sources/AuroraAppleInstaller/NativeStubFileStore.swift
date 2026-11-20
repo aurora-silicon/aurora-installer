@@ -206,12 +206,17 @@
       return expected
     }
 
-    static func identity(_ descriptor: Int32, owner: uid_t, maximum: Int) throws
-      -> NativeStubFileIdentity
-    {
+    /// The size and SHA-256 of an opened regular file owned by `owner` that
+    /// no one else can write. It must have exactly one name unless the caller
+    /// proved, through its tree, that it sits on a read-only volume
+    /// (`NativeHandoffFileTree.admitsHardLinks`).
+    static func identity(
+      _ descriptor: Int32, owner: uid_t, maximum: Int, admitsHardLinks: Bool = false
+    ) throws -> NativeStubFileIdentity {
       var info = stat()
       guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
-        info.st_uid == owner, info.st_mode & 0o022 == 0, info.st_nlink == 1,
+        info.st_uid == owner, info.st_mode & 0o022 == 0,
+        info.st_nlink == 1 || (admitsHardLinks && info.st_nlink > 1),
         info.st_size >= 0, info.st_size <= maximum
       else { throw NativeStubFileError.unsafeFile }
       var hash = SHA256()

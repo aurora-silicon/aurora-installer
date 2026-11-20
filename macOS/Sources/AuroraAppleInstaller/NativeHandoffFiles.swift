@@ -98,16 +98,21 @@
     /// read only when its own filesystem is mounted read-only, where no link
     /// can be added; the single-link rule still guards every writable volume.
     private let readOnlyVolume: Bool
+    /// Whether an opened file's own filesystem is mounted read-only
+    /// (`isReadOnly`). A parameter only so tests need no read-only mount.
+    private let mountedReadOnly: @Sendable (Int32) -> Bool
 
     init(
       _ url: URL, protected: Bool, owner: uid_t = 0, volumeRoot: Bool = false,
       volumeDevice: String? = nil, readOnlyVolume: Bool = false,
       verifyMount: @Sendable (Int32, URL, String) throws -> Void = NativeHandoffFileTree
-        .verifyVolumeRoot
+        .verifyVolumeRoot,
+      mountedReadOnly: @escaping @Sendable (Int32) -> Bool = NativeHandoffFileTree.isReadOnly
     ) throws {
       self.protected = protected
       self.owner = owner
       self.readOnlyVolume = readOnlyVolume
+      self.mountedReadOnly = mountedReadOnly
       verifiedVolumeRoot = volumeRoot
       let descriptor = open(url.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
       guard descriptor >= 0 else { throw NativeHandoffValidationError.unsafePath }
@@ -134,6 +139,17 @@
     static func isReadOnly(_ fd: Int32) -> Bool {
       var filesystem = statfs()
       return fstatfs(fd, &filesystem) == 0 && filesystem.f_flags & UInt32(MNT_RDONLY) != 0
+    }
+
+    /// Whether the opened file `fd` may have more than one name. Only in a
+    /// tree made for a read-only volume (the sealed system volume, a
+    /// hash-verified image) and only when the file's own filesystem is
+    /// mounted read-only: there no link can be added, and the sealed system
+    /// volume itself shares identical files under several names. Everywhere
+    /// else (staging, leases, caches, any writable volume) a second name
+    /// could be a link someone added, so a file must have exactly one.
+    func admitsHardLinks(_ fd: Int32) -> Bool {
+      readOnlyVolume && mountedReadOnly(fd)
     }
 
     static func verifyVolumeRoot(_ fd: Int32, url: URL, device: String) throws {
@@ -247,9 +263,7 @@
           "the file is not owned by root (owner \(info.st_uid))"
         } else if info.st_mode & 0o022 != 0 {
           "the file is writable by other users (mode \(found.octalMode))"
-        } else if info.st_nlink != 1, !parentProtected,
-          !(readOnlyVolume && Self.isReadOnly(fd))
-        {
+        } else if info.st_nlink != 1, !parentProtected, !admitsHardLinks(fd) {
           "the file has \(info.st_nlink) hard links in a folder others can write"
         } else {
           nil
@@ -294,7 +308,7 @@
           info.st_size >= 0, info.st_size <= maximum,
           !protected
             || (info.st_uid == owner && info.st_mode & 0o022 == 0
-              && (info.st_nlink == 1 || (readOnlyVolume && Self.isReadOnly(fd))))
+              && (info.st_nlink == 1 || admitsHardLinks(fd)))
         else { throw NativeHandoffValidationError.unsafePath }
         return try Self.readWhole(fd, info)
       }
