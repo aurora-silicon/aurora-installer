@@ -170,6 +170,21 @@
         "Choose Nightly from the Release channel menu, or check Edge again later.")
     }
 
+    func testAnUnreachableReleaseListPointsToTheChannelMenu() {
+      // Offline, Edge stays chosen where it was the default; the failure says
+      // how to reach another channel, while a failed download stays generic.
+      let failure = PlainLanguage.failure(
+        for: InstallerReleaseConfigurationError.catalogUnreachable(
+          URLError.notConnectedToInternet.rawValue))
+      XCTAssertEqual(failure.headline, "The release list couldn’t be downloaded")
+      XCTAssertEqual(
+        failure.remedy,
+        "Check your internet connection and try again, or choose another channel from the "
+          + "Release channel menu.")
+      let download = PlainLanguage.failure(for: URLError(.networkConnectionLost))
+      XCTAssertEqual(download.headline, "The network request didn’t finish")
+    }
+
     func testOnlyChannelsWithNothingForThisMacAreDisabled() {
       func enabled(_ channel: ReleaseChannel, _ availability: ReleaseChannelAvailability?) -> Bool {
         PlainLanguage.channelMenuItemEnabled(

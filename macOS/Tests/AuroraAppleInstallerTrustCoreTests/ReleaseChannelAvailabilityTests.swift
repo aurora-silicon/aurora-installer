@@ -35,6 +35,8 @@
     func testTransportFailuresAreNetworkAndEverythingElseIsVerification() {
       let network: [any Error] = [
         URLError(.notConnectedToInternet),
+        InstallerReleaseConfigurationError.catalogUnreachable(
+          URLError.notConnectedToInternet.rawValue),
         InstallerReleaseConfigurationError.unexpectedHTTPStatus(404),
         InstallerReleaseConfigurationError.unexpectedHTTPStatus(503),
       ]
@@ -130,6 +132,118 @@
       ])
       let rejected = await availability(invalid, configuration, .edge)
       XCTAssertEqual(rejected, .checkFailed(.verification))
+    }
+
+    // MARK: Edge's per-device proof, for the default channel
+
+    func testOnlyPerDeviceEvidenceMakesEdgeTheDefaultForAMac() async throws {
+      // Listing a model makes Edge selectable on it; only that Mac's own
+      // evidence record makes Edge its default.
+      let configuration = try configuration()
+      let catalog = try qualifiedEdgeCatalog(
+        devices: [thisMac, "apple,j274"],
+        proof: ["devices": [thisMac: ["evidenceDigest": digest("5")]]])
+      let coordinator = coordinator(serving: [
+        configuration.catalogURL(for: .edge): try envelope(catalog)
+      ])
+
+      let proven = await edgeCheck(coordinator, configuration, thisMac)
+      let listed = await edgeCheck(coordinator, configuration, "apple,j274")
+
+      XCTAssertEqual(
+        proven, EdgeCatalogCheck(availability: .available, qualifiesThisMac: true))
+      XCTAssertEqual(
+        listed, EdgeCatalogCheck(availability: .available, qualifiesThisMac: false))
+    }
+
+    func testNeoEvidenceWithoutDevicesProvesOnlyTheNeo() async throws {
+      // The alpha.1 and alpha.2 catalogs predate `devices`; their Neo
+      // evidence covers the MacBook Neo and no other model.
+      let configuration = try configuration()
+      let catalog = try qualifiedEdgeCatalog(
+        devices: ["apple,j700", thisMac],
+        proof: ["neoEvidence": ["checks": ["glCTS": ["status": "passed"]]]])
+      let coordinator = coordinator(serving: [
+        configuration.catalogURL(for: .edge): try envelope(catalog)
+      ])
+
+      let neo = await edgeCheck(coordinator, configuration, "apple,j700")
+      let other = await edgeCheck(coordinator, configuration, thisMac)
+
+      XCTAssertEqual(neo, EdgeCatalogCheck(availability: .available, qualifiesThisMac: true))
+      XCTAssertEqual(other, EdgeCatalogCheck(availability: .available, qualifiesThisMac: false))
+    }
+
+    func testMalformedDeviceProofQualifiesNoMac() async throws {
+      // A `devices` value that isn't well formed proves nothing, and Neo
+      // evidence beside it does not stand in for it.
+      let configuration = try configuration()
+      let malformed: [Any] = [
+        [thisMac],
+        "\(thisMac)",
+        [thisMac: ["evidenceDigest": "sha256:short"]],
+        [thisMac: ["evidenceDigest": digest("5")], "apple,j274": digest("6")] as [String: Any],
+        [thisMac: ["evidenceDigest": digest("5")], "J274": ["evidenceDigest": digest("6")]],
+        [thisMac: [:] as [String: Any]] as [String: Any],
+        NSNull(),
+      ]
+      for devices in malformed {
+        let catalog = try qualifiedEdgeCatalog(
+          devices: [thisMac, "apple,j700"],
+          proof: ["devices": devices, "neoEvidence": ["checks": [:] as [String: Any]]])
+        let coordinator = coordinator(serving: [
+          configuration.catalogURL(for: .edge): try envelope(catalog)
+        ])
+        let mac = await edgeCheck(coordinator, configuration, thisMac)
+        let neo = await edgeCheck(coordinator, configuration, "apple,j700")
+        XCTAssertEqual(
+          mac, EdgeCatalogCheck(availability: .available, qualifiesThisMac: false), "\(devices)")
+        XCTAssertEqual(
+          neo, EdgeCatalogCheck(availability: .available, qualifiesThisMac: false), "\(devices)")
+      }
+    }
+
+    func testAnEdgeCatalogWithoutThisMacOrThatFailedCarriesNoProof() async throws {
+      let configuration = try configuration()
+      let catalog = try qualifiedEdgeCatalog(
+        devices: ["apple,j274"],
+        proof: ["devices": ["apple,j274": ["evidenceDigest": digest("5")]]])
+      let other = coordinator(serving: [
+        configuration.catalogURL(for: .edge): try envelope(catalog)
+      ])
+      let missing = coordinator(serving: [:])
+
+      let unlisted = await edgeCheck(other, configuration, thisMac)
+      let unpublished = await edgeCheck(missing, configuration, thisMac)
+
+      XCTAssertEqual(
+        unlisted,
+        EdgeCatalogCheck(
+          availability: .modelUnavailable(supportedDeviceIdentifiers: ["apple,j274"]),
+          qualifiesThisMac: false))
+      XCTAssertEqual(
+        unpublished, EdgeCatalogCheck(availability: .notPublished, qualifiesThisMac: false))
+    }
+
+    func testANetworkFailureReadingACatalogSaysSo() async throws {
+      // Preparation tells an unreachable release list apart from a failed
+      // payload download, so its message can point at the channel menu.
+      let configuration = try configuration()
+      let fetcher = InstallerReleaseCatalogFetcher(downloader: OfflineDownloader())
+      for channel in [ReleaseChannel.edge, .rc] {
+        do {
+          _ = try await fetcher.fetch(configuration: configuration, channel: channel)
+          XCTFail("an offline fetch must fail")
+        } catch {
+          XCTAssertEqual(
+            error as? InstallerReleaseConfigurationError,
+            .catalogUnreachable(URLError.notConnectedToInternet.rawValue), "\(channel)")
+        }
+      }
+      let offline = coordinator(downloader: OfflineDownloader())
+      let edge = await edgeCheck(offline, configuration, thisMac)
+      XCTAssertEqual(
+        edge, EdgeCatalogCheck(availability: .checkFailed(.network), qualifiesThisMac: false))
     }
 
     func testLegacyTestingRequiresTheSignedDevelopmentDeliveryLineage() async throws {
@@ -263,6 +377,50 @@
 
     // MARK: Fixtures
 
+    private func edgeCheck(
+      _ coordinator: InstallerReleaseAssetCoordinator,
+      _ configuration: InstallerReleaseConfiguration,
+      _ deviceIdentifier: String
+    ) async -> EdgeCatalogCheck {
+      await coordinator.edgeCheck(
+        configuration: configuration, deviceIdentifier: deviceIdentifier,
+        validationTime: now, previouslyAcceptedCatalog: nil)
+    }
+
+    private func digest(_ character: Character) -> String {
+      "sha256:" + String(repeating: character, count: 64)
+    }
+
+    /// A signed Edge catalog with a passing qualification for its payload,
+    /// plus `proof` merged into `edgeQualification`.
+    private func qualifiedEdgeCatalog(devices: [String], proof: [String: Any]) throws -> Data {
+      var object = try XCTUnwrap(
+        JSONSerialization.jsonObject(with: modelCatalog(devices: devices, channel: .edge))
+          as? [String: Any])
+      let source = { (repository: String) in
+        [
+          "repository": repository, "branch": "aurora-edge",
+          "revision": String(repeating: "a", count: 40), "tree": String(repeating: "b", count: 40),
+        ]
+      }
+      var qualification: [String: Any] = [
+        "schemaVersion": 1, "releaseKind": "alpha", "status": "passed", "imageRunID": 41,
+        "payloadDigest": digest("3"), "evidenceDigest": digest("4"),
+        "linux": source("aurora-silicon/linux"), "mesa": source("aurora-silicon/mesa"),
+      ]
+      qualification.merge(proof) { _, new in new }
+      object["edgeQualification"] = qualification
+      return try JSONSerialization.data(withJSONObject: object)
+    }
+
+    private func coordinator(downloader: any ReleaseDocumentDownloading)
+      -> InstallerReleaseAssetCoordinator
+    {
+      InstallerReleaseAssetCoordinator(
+        catalogFetcher: InstallerReleaseCatalogFetcher(downloader: downloader),
+        assetPreparer: InstallerAssetPreparer())
+    }
+
     private func availability(
       _ coordinator: InstallerReleaseAssetCoordinator,
       _ configuration: InstallerReleaseConfiguration,
@@ -346,6 +504,12 @@
           containerIdentifier: "disk3", physicalStoreIdentifier: "disk0s2", isInternal: true,
           containerSizeBytes: 1_000, containerFreeBytes: 500, minimumPreferredSizeBytes: 600)
       )
+    }
+  }
+
+  private struct OfflineDownloader: ReleaseDocumentDownloading {
+    func download(from url: URL, maximumBytes: Int, role: String) async throws -> Data {
+      throw URLError(.notConnectedToInternet)
     }
   }
 
