@@ -360,7 +360,7 @@
       XCTAssertEqual(try NativePythonEncoding.escaped("a\r\nb\rc&<>"), "a\nb\nc&amp;&lt;&gt;")
       XCTAssertEqual(
         NativePythonEncoding.quoted("\u{e9}\u{1F600}\u{7f}\"\\/"),
-        #""é😀\u007f\"\\/""#)
+        #""\u00e9\ud83d\ude00\u007f\"\\/""#)
     }
 
     /// The real lsm2 unit on this Mac, when macOS has it: hosted in this

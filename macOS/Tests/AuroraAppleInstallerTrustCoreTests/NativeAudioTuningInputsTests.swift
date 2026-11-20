@@ -148,6 +148,8 @@
           "schema", "kind", "source_file_count", "complete", "acoustic_id", "aid",
           "macos_build", "speaker_thiele_small", "device_dsp_database", "config", "files",
           "based_on", "device_dsp_database_source", "shared_files", "lsm2_mask_lattice",
+          // Null when unknown or absent, as the Python collector writes them.
+          "board", "unit_id", "speaker_id", "loudness_manager",
         ])
       XCTAssertEqual(object["device_dsp_database_source"] as? String, "DeviceDSPDatabase.plist")
       XCTAssertEqual((object["shared_files"] as? [Any])?.count, 0)
