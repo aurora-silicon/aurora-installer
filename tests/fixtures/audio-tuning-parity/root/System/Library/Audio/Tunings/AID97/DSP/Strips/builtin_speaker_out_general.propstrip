@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Boxes</key>
+	<array>
+		<dict>
+			<key>Name</key>
+			<string>Synthetic lsm2</string>
+			<key>Properties</key>
+			<array>
+				<dict>
+					<key>Number</key>
+					<integer>64000</integer>
+					<key>UInt32</key>
+					<integer>1</integer>
+				</dict>
+				<dict>
+					<key>Path</key>
+					<string>DSP/Strips/aid97-aufx-spp3-appl.plist</string>
+					<key>PropertyID</key>
+					<integer>64001</integer>
+					<key>Scope</key>
+					<integer>0</integer>
+				</dict>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

@@ -132,7 +132,8 @@
         manifest["device_dsp_database_source"] as? String, "AID35/DSP/DSPDatabase.plist")
       XCTAssertEqual(manifest["device_dsp_database"] as? String, "DeviceDSPDatabase.plist")
       XCTAssertEqual((manifest["shared_files"] as? [Any])?.count, 0)
-      XCTAssertNil(manifest["loudness_manager"])
+      // Null, as the Python collector writes it.
+      XCTAssertTrue(manifest["loudness_manager"] is NSNull)
       XCTAssertEqual(manifest["schema"] as? Int, 2)
       // Apple's mode names are kept exactly, trailing space included.
       let decoded = try XCTUnwrap(

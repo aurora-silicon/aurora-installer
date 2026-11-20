@@ -40,6 +40,13 @@ private func terminate(_ error: any Error) -> Never {
 
 umask(0o077)
 
+// The lsm2 parameter readback runs in a child of this helper, so that a
+// crash or hang in the system AudioUnit cannot take the helper down.
+if let status = NativeLSM2FillWorker.run() {
+  exit(status)
+}
+NativeLSM2FillWorker.useCurrentExecutable()
+
 do {
   guard geteuid() == 0 else {
     throw HelperBootstrapError.rootRequired

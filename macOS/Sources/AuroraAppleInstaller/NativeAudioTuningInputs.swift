@@ -96,6 +96,21 @@
       /// whose speaker calibration this is. Never the serial itself. Nil
       /// when unknown; Linux then does not use the calibration.
       var unitID: String? = nil
+      /// The lsm2 parameter fill for short presets (`NativeLSM2Fill`), read
+      /// back from this Mac's running lsm2 unit. Nil when no preset is short
+      /// or the readback failed; short presets then stay muted on Linux.
+      var paramFill: Data? = nil
+    }
+
+    /// What the device tree, the IORegistry and the kernel say about this
+    /// Mac, read once by `live`.
+    struct Device: Sendable, Equatable {
+      var acousticID: UInt32
+      var thieleSmall: Data?
+      var build: String
+      var speakerID: UInt32?
+      var board: String?
+      var unitID: String?
     }
 
     /// The selection data read from the Tunings root for one Mac.
@@ -121,6 +136,25 @@
         let format: String
         let entries: Int
       }
+      /// The lsm2 parameter fill record: a file record plus its identity.
+      struct Fill: Codable, Equatable {
+        let path: String
+        let bytes: Int
+        let sha256: String
+        let version: Int
+        let format: String
+        let aid: String
+        let macOSBuild: String
+        let unitID: String
+        let unitVersions: [UInt32]
+
+        enum CodingKeys: String, CodingKey {
+          case path, bytes, sha256, version, format, aid
+          case macOSBuild = "macos_build"
+          case unitID = "unit_id"
+          case unitVersions = "unit_versions"
+        }
+      }
       let schema: Int
       let kind: String
       /// Entries of the source `AID<n>` folder; equals the `AID<n>/`
@@ -137,7 +171,7 @@
       let deviceDSPDatabase: String?
       /// Bundle path of `Config/AID<n>.plist`, when present.
       let config: String?
-      /// The speaker ID (`spid`); omitted when unknown.
+      /// The speaker ID (`spid`); null when unknown.
       let speakerID: UInt32?
       /// Where the entry was read (see `Snapshot.databaseSource`).
       /// Optional for readers; missing means the shared database.
@@ -145,15 +179,17 @@
       /// Files outside `AID<n>/` the speaker modes reference. Kept apart
       /// from `files` so schema 2 readers still accept the bundle.
       let sharedFiles: [File]?
-      /// The loudness manager, only when it lists this AID; omitted
-      /// otherwise.
+      /// The loudness manager, only when it lists this AID; null otherwise.
       let loudnessManager: File?
       /// The lsm2 masker's bucket lattice: 100 little-endian u64 exclusive
       /// bucket ends (version 1). Optional for readers: bundles collected
       /// before it have none.
       let lsm2MaskLattice: Lattice?
+      /// The lsm2 parameter fill; present only when a preset is short and
+      /// the readback succeeded.
+      let lsm2ParamFill: Fill?
       /// The Mac the bundle was collected on: its board and unit ID.
-      /// Omitted when unknown.
+      /// Null when unknown.
       let board: String?
       let unitID: String?
       let files: [File]
@@ -171,6 +207,7 @@
         case sharedFiles = "shared_files"
         case loudnessManager = "loudness_manager"
         case lsm2MaskLattice = "lsm2_mask_lattice"
+        case lsm2ParamFill = "lsm2_param_fill"
         case board
         case unitID = "unit_id"
         case basedOn = "based_on"
@@ -182,17 +219,21 @@
       "Config/" + folder(acousticID) + ".plist"
     }
 
-    /// This Mac's entry of the DSP database, as a property list with that
-    /// one key. Nil when the database has no entry for it.
+    /// This Mac's entry of the DSP database, as an XML property list with
+    /// that one key, encoded as the Python collector's `plistlib` encodes it
+    /// (so both write the same bytes). Nil when the database has no entry
+    /// for it.
     static func databaseEntry(_ database: Data, acousticID: UInt32) throws -> Data? {
       guard
         let root = try PropertyListSerialization.propertyList(from: database, format: nil)
-          as? [String: Any]
+          as? NSDictionary
       else { throw NativePeripheralInputError.localInput }
       let key = folder(acousticID)
       guard let entry = root[key] else { return nil }
-      return try PropertyListSerialization.data(
-        fromPropertyList: [key: entry], format: .xml, options: 0)
+      return try NativePythonEncoding.xml(
+        .dictionary([
+          NativePythonEncoding.PlistMember(key: key, value: try NativePythonEncoding.plist(entry))
+        ]))
     }
 
     /// macOS 27 keeps each Mac's entry in its own folder, with the same
@@ -317,9 +358,11 @@
         guard own.allSatisfy({ files[$0] != nil }) else {
           throw NativePeripheralInputError.localInput
         }
-        for path in shared.sorted() {
+        for path in shared.sorted(by: NativePythonEncoding.precedes) {
+          // An empty shared file is kept, as in the folder.
           result.sharedFiles[path] = try NativeFirmwareInputFiles.read(
-            tree, path: prefix + "/" + path, maximum: maximumBytes, owner: owner)
+            tree, path: prefix + "/" + path, maximum: maximumBytes, owner: owner,
+            allowsEmpty: true)
         }
       }
       let loudness = prefix + "/" + loudnessName
@@ -418,11 +461,43 @@
       guard NativeHandoffFileTree.isReadOnly(descriptor) else {
         throw NativeFirmwareInputFailure.invalidSource
       }
+      let (board, unit) = identity()
+      let device = Device(
+        acousticID: acousticID, thieleSmall: thieleSmall, build: build(),
+        speakerID: liveSpeakerID(), board: board, unitID: unit)
+      var readback: NativeLSM2Fill.Reader = { _, _, _ in
+        throw NativeLSM2Fill.Failure("no readback worker in this process")
+      }
+      if let worker = NativeLSM2Fill.workerExecutable {
+        readback = NativeLSM2Fill.isolated(worker)
+      }
+      return try snapshot(root: root, tree: tree, owner: owner, device: device, readback: readback)
+    }
+
+    /// The snapshot for `device` from the system volume at `root`, read
+    /// through `tree`: the `AID<n>` folder under `tuningsPrefix`, the
+    /// selection data, the lsm2 masker lattice from the AudioDSP component
+    /// and, for short lsm2 presets, the parameter fill from `readback`.
+    /// Nil when the folder is absent. The same steps, in the same order, as
+    /// the Python collector's `AudioTuningFWCollection.load`.
+    static func snapshot(
+      root: URL, tree: NativeHandoffFileTree, owner: uid_t, device: Device,
+      readback: NativeLSM2Fill.Reader
+    ) throws -> Snapshot? {
+      let acousticID = device.acousticID
+      let prefix = tuningsPrefix + "/" + folder(acousticID)
+      guard try !tree.isAbsent(prefix) else { return nil }
       let snapshot = try NativeFirmwareInputFiles.snapshot(
-        root: root, prefix: prefix, tree: tree, owner: owner)
+        root: root, prefix: prefix, tree: tree, owner: owner, admit: admitted)
       let (files, count) = try admittedFiles(snapshot)
       let selected = try selection(
         tree, prefix: tuningsPrefix, acousticID: acousticID, files: files, owner: owner)
+      if device.unitID == nil, device.thieleSmall != nil {
+        InstallerLog.record(
+          .progress,
+          "This Mac's serial-number is unreadable: the speaker tuning is collected without its "
+            + "unit, and Linux will not use its speaker calibration")
+      }
       // Exactly one valid lattice, or no bundle: never a guessed table.
       let component: Data
       do {
@@ -435,28 +510,43 @@
         throw NativeLSM2Lattice.Failure.malformed("cannot read it: \(error)")
       }
       let lattice = try NativeLSM2Lattice.extract(component)
-      let (board, unit) = identity()
-      if unit == nil, thieleSmall != nil {
+      // Only this Mac's running unit can fill a short preset; a failure
+      // leaves the fill out and the short presets muted on Linux.
+      var fill: Data?
+      do {
+        var capture = [String: Data]()
+        for (name, data) in files { capture[folder(acousticID) + "/" + name] = data }
+        capture.merge(selected.sharedFiles) { first, _ in first }
+        fill = try NativeLSM2Fill.collect(
+          capture, aid: folder(acousticID), build: device.build, unit: device.unitID,
+          readback: readback)
+      } catch is CancellationError {
+        throw CancellationError()
+      } catch {
         InstallerLog.record(
           .progress,
-          "This Mac's serial-number is unreadable: the speaker tuning is collected without its "
-            + "unit, and Linux will not use its speaker calibration")
+          "lsm2 fill not collected: \(error); short presets remain muted; collect again on "
+            + "this Mac's running macOS")
       }
       return Snapshot(
-        acousticID: acousticID, thieleSmall: thieleSmall, files: files, build: build(),
-        selection: selected.selection, sourceFileCount: count, speakerID: liveSpeakerID(),
-        databaseSource: selected.databaseSource, sharedFiles: selected.sharedFiles,
-        loudnessManager: selected.loudnessManager, maskLattice: lattice, board: board,
-        unitID: unit)
+        acousticID: acousticID, thieleSmall: device.thieleSmall, files: files,
+        build: device.build, selection: selected.selection, sourceFileCount: count,
+        speakerID: device.speakerID, databaseSource: selected.databaseSource,
+        sharedFiles: selected.sharedFiles, loudnessManager: selected.loudnessManager,
+        maskLattice: lattice, board: device.board, unitID: device.unitID, paramFill: fill)
     }
 
     static let speakerServiceClass = "AppleEmbeddedAudioDevice"
 
     /// The speaker ID from registry entries' `device UID` and `speakerID`:
-    /// exactly one entry must be the `Speaker` device, and its value an
-    /// integral CFNumber that fits a UInt32. Anything else is unknown.
+    /// among the entries that carry a `speakerID` (as `ioreg -k speakerID`
+    /// lists them for the Python collector), exactly one must be the
+    /// `Speaker` device, and its value an integral CFNumber that fits a
+    /// UInt32. Anything else is unknown.
     static func speakerID(_ services: [[String: Any]]) -> UInt32? {
-      let speakers = services.filter { ($0["device UID"] as? String) == "Speaker" }
+      let speakers = services.filter {
+        $0["speakerID"] != nil && ($0["device UID"] as? String) == "Speaker"
+      }
       guard speakers.count == 1, let value = speakers[0]["speakerID"] else { return nil }
       let object = value as AnyObject
       guard CFGetTypeID(object) == CFNumberGetTypeID() else { return nil }
@@ -530,7 +620,9 @@
     }
 
     /// `acoustic-id` and `speaker-thiele-small` of the one device-tree audio
-    /// node that carries an acoustic ID. Nil when there is none.
+    /// node that carries an acoustic ID. Nil when there is none; two such
+    /// nodes leave the folder ambiguous, as for the Python collector
+    /// (`ioreg -n audio -k acoustic-id` must list exactly one).
     static func properties() throws -> (Data, Data?)? {
       func read(_ entry: io_registry_entry_t) -> (Data, Data?)? {
         guard
@@ -543,11 +635,6 @@
             entry, "speaker-thiele-small" as CFString, kCFAllocatorDefault, 0)?
           .takeRetainedValue() as? Data
         return (acoustic, spts)
-      }
-      let product = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/product/audio")
-      if product != 0 {
-        defer { IOObjectRelease(product) }
-        if let found = read(product) { return found }
       }
       var iterator: io_iterator_t = 0
       guard
@@ -607,92 +694,114 @@
         snapshot.selection[configName(snapshot.acousticID)] != nil
       else { throw NativePeripheralInputError.localInput }
       let aid = folder(snapshot.acousticID)
+      typealias JSON = NativePythonEncoding.JSON
+      func record(_ path: String, _ data: Data) -> JSON {
+        .object([
+          "path": .string(path), "bytes": .int(data.count),
+          "sha256": .string(NativeStubFileStore.hash(data)),
+        ])
+      }
       var result = [String: Data]()
-      var records = [Manifest.File]()
+      var records = [JSON]()
       var total = 0
-      for name in snapshot.files.keys.sorted() {
+      for name in snapshot.files.keys.sorted(by: NativePythonEncoding.precedes) {
         let data = snapshot.files[name]!
         guard admitted(name), data.count <= maximumBytes - total else {
           throw NativePeripheralInputError.localInput
         }
         total += data.count
         result[prefix + aid + "/" + name] = data
-        records.append(
-          Manifest.File(
-            path: aid + "/" + name, bytes: data.count, sha256: NativeStubFileStore.hash(data)))
+        records.append(record(aid + "/" + name, data))
       }
-      for name in snapshot.selection.keys.sorted() {
+      for name in snapshot.selection.keys.sorted(by: NativePythonEncoding.precedes) {
         let data = snapshot.selection[name]!
         guard name == databaseName || name == configName(snapshot.acousticID),
           !data.isEmpty, data.count <= maximumBytes - total
         else { throw NativePeripheralInputError.localInput }
         total += data.count
         result[prefix + name] = data
-        records.append(
-          Manifest.File(path: name, bytes: data.count, sha256: NativeStubFileStore.hash(data)))
+        records.append(record(name, data))
       }
       guard
         snapshot.databaseSource == databaseName
           || snapshot.databaseSource == folderDatabase(snapshot.acousticID)
       else { throw NativePeripheralInputError.localInput }
-      var shared = [Manifest.File]()
-      for name in snapshot.sharedFiles.keys.sorted() {
+      var shared = [JSON]()
+      for name in snapshot.sharedFiles.keys.sorted(by: NativePythonEncoding.precedes) {
         let data = snapshot.sharedFiles[name]!
         guard admitted(name), isShared(name), data.count <= maximumBytes - total else {
           throw NativePeripheralInputError.localInput
         }
         total += data.count
         result[prefix + name] = data
-        shared.append(
-          Manifest.File(path: name, bytes: data.count, sha256: NativeStubFileStore.hash(data)))
+        shared.append(record(name, data))
       }
-      var loudness: Manifest.File?
+      var loudness = JSON.null
       if let data = snapshot.loudnessManager {
         guard !data.isEmpty, data.count <= maximumConfigBytes, data.count <= maximumBytes - total
         else { throw NativePeripheralInputError.localInput }
         total += data.count
         result[prefix + loudnessName] = data
-        loudness = Manifest.File(
-          path: loudnessName, bytes: data.count, sha256: NativeStubFileStore.hash(data))
+        loudness = record(loudnessName, data)
       }
       guard let lattice = snapshot.maskLattice, NativeLSM2Lattice.valid(lattice) else {
         throw NativeLSM2Lattice.Failure.malformed("no valid lsm2 masker lattice")
       }
       result[prefix + NativeLSM2Lattice.bundleName] = lattice
-      let latticeRecord = Manifest.Lattice(
-        path: NativeLSM2Lattice.bundleName, bytes: lattice.count,
-        sha256: NativeStubFileStore.hash(lattice), version: NativeLSM2Lattice.version,
-        format: NativeLSM2Lattice.format, entries: NativeLSM2Lattice.entries)
+      guard case .object(var latticeRecord) = record(NativeLSM2Lattice.bundleName, lattice) else {
+        throw NativePeripheralInputError.localInput
+      }
+      latticeRecord["version"] = .int(NativeLSM2Lattice.version)
+      latticeRecord["format"] = .string(NativeLSM2Lattice.format)
+      latticeRecord["entries"] = .int(NativeLSM2Lattice.entries)
       if let board = snapshot.board, Self.board(Data(board.utf8)) != board {
         throw NativePeripheralInputError.localInput
       }
       if let unit = snapshot.unitID, !validUnitID(unit) {
         throw NativePeripheralInputError.localInput
       }
-      var thieleSmall: Manifest.File?
+      var thieleSmall = JSON.null
       if let spts = snapshot.thieleSmall {
         guard !spts.isEmpty, spts.count <= 4096 else {
           throw NativePeripheralInputError.localInput
         }
         result[prefix + thieleSmallName] = spts
-        thieleSmall = Manifest.File(
-          path: thieleSmallName, bytes: spts.count, sha256: NativeStubFileStore.hash(spts))
+        thieleSmall = record(thieleSmallName, spts)
       }
-      let manifest = Manifest(
-        schema: schema, kind: "aurora-audio-tuning", sourceFileCount: snapshot.files.count,
-        complete: true, acousticID: snapshot.acousticID, aid: aid,
-        macOSBuild: snapshot.build, speakerThieleSmall: thieleSmall,
-        deviceDSPDatabase: databaseName, config: configName(snapshot.acousticID),
-        speakerID: snapshot.speakerID,
-        deviceDSPDatabaseSource: snapshot.databaseSource, sharedFiles: shared,
-        loudnessManager: loudness,
-        lsm2MaskLattice: latticeRecord,
-        board: snapshot.board, unitID: snapshot.unitID,
-        files: records,
-        basedOn: "aurora-audio-dsp by saku (MIT)")
-      let encoder = JSONEncoder()
-      encoder.outputFormatting = [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes]
-      result[prefix + manifestName] = try encoder.encode(manifest)
+      // The same document, key for key, as the Python collector's
+      // `audio_tuning.manifest`, encoded as its `json.dumps(indent=2,
+      // sort_keys=True)`: unknown values are null.
+      var manifest: [String: JSON] = [
+        "board": .optional(snapshot.board),
+        "unit_id": .optional(snapshot.unitID),
+        "speaker_id": snapshot.speakerID.map { JSON.int($0) } ?? .null,
+        "schema": .int(schema),
+        "kind": .string("aurora-audio-tuning"),
+        "source_file_count": .int(snapshot.files.count),
+        "complete": .bool(true),
+        "acoustic_id": .int(snapshot.acousticID),
+        "aid": .string(aid),
+        "macos_build": .string(snapshot.build),
+        "speaker_thiele_small": thieleSmall,
+        "device_dsp_database": .string(databaseName),
+        "device_dsp_database_source": .string(snapshot.databaseSource),
+        "shared_files": .array(shared),
+        "loudness_manager": loudness,
+        "lsm2_mask_lattice": .object(latticeRecord),
+        "config": .string(configName(snapshot.acousticID)),
+        "files": .array(records),
+        "based_on": .string("aurora-audio-dsp by saku (MIT)"),
+      ]
+      if let fill = snapshot.paramFill {
+        // The fill is bound to the AID and Common files it was read for.
+        var sources = [String: Data]()
+        for (name, data) in snapshot.files { sources[aid + "/" + name] = data }
+        sources.merge(snapshot.sharedFiles) { first, _ in first }
+        manifest["lsm2_param_fill"] = try NativeLSM2Fill.record(
+          fill, aid: aid, build: snapshot.build, unit: snapshot.unitID, files: sources)
+        result[prefix + NativeLSM2Fill.name] = fill
+      }
+      result[prefix + manifestName] = NativePythonEncoding.json(.object(manifest), pretty: true)
       return result
     }
 

@@ -1,0 +1,39 @@
+{
+  "aid97": {
+    "AID97/ADM/config.plist": "b0bb55927b507285cf2907894a4c020afb917110c49fc774f7067136097816e2",
+    "AID97/DSP/Graphs/builtin_speaker_out.dspg": "89b9f8cb8efa3669ab8674aefe8b908ba33942f894168b9c5f0411f600d55245",
+    "AID97/DSP/Strips/aid97-aufx-spp3-appl.plist": "89f6cbab70e7f920feb3eca42312a7d53237370221aa5bbc9b91f2cad6b8c5b3",
+    "AID97/DSP/Strips/alias.plist": "89f6cbab70e7f920feb3eca42312a7d53237370221aa5bbc9b91f2cad6b8c5b3",
+    "AID97/DSP/Strips/builtin_speaker_out_general.austrip": "94d05e67d0afae2ffa3d9a362e3384855fcba8c5a12bfe983e48a2ede0040fc0",
+    "AID97/DSP/Strips/builtin_speaker_out_general.propstrip": "4961b646f72938c01eedb2f2633d273b675a52585d7dea6a3cbbae077a6d846d",
+    "AID97/DSP/empty.bin": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "Common/Strips/empty.plist": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "Common/Strips/shared_speaker.austrip": "eb81415e5d33fcf1ff9d2c4c247f6c27b3c4a6b52f64a3f778700f2b2de26c6e",
+    "Config/AID97.plist": "441b6cb60ba734f96ff08527762067978c47de07534df2111b00ccb225277597",
+    "DRC/loudness-manager.plist": "8deec328fc2e3dfb9dfe57e95b8d083b3d416755892c1db53e74ef2d225cabb0",
+    "DeviceDSPDatabase.plist": "6c07bd2c5bb19c77bfea69d9eb80f1c706775ddbc0c092effb89817cabea48ce",
+    "lsm2-mask-lattice.bin": "133fa31bb9d8e9e7c6aa4463c58a77b47528c5be47533979e19b5481abcba9b2",
+    "lsm2-param-fill.bin": "11197ae6eee44ab826af1845f4389b4c73a97769d4c1b0bdef4c833217f29cd5",
+    "manifest.json": "93fb8b16098a370d58100295dddd82478da5ab192e512cb2c27ce64246101662",
+    "speaker-thiele-small.bin": "4974246541417940f680b3a468d2c35db7c3cb9f2b27cea2f448353c06f2ccae"
+  },
+  "aid98": {
+    "AID98/ADM/config.plist": "09bf919e16b2b7881baa5b3906577eaae8c546bcb1c0418fc30f9f4b4a7226e4",
+    "AID98/DSP/DSPDatabase.plist": "732a3915978f69c73b7b5f367a3b1ef6814a2dbfe6926ec504b88f2d78b3a181",
+    "AID98/DSP/Strips/builtin_speaker_out_general.austrip": "5f538199e8a7f981f5100f65eaeedb4bddf7441cade910a0dba10630550924d5",
+    "Config/AID98.plist": "0b889539acd9241a4b222048b06bd0ce06a43eecf9dcb6b9b7e062d87185eb67",
+    "DeviceDSPDatabase.plist": "508c5c5d914e72f7724088a44c6bf4c2ccc252574c21843ea8ecb5a38e80a147",
+    "lsm2-mask-lattice.bin": "133fa31bb9d8e9e7c6aa4463c58a77b47528c5be47533979e19b5481abcba9b2",
+    "manifest.json": "19ae6402073b67317dcb548d68bd3588e10f086b4ac2fe60835e6b4eccd68d41"
+  },
+  "aid99": {
+    "AID99/DSP/DSPDatabase.plist": "eea35569ef523577c162af9ffd05a804373094790c55cf8e1f42b5ee2b2bc705",
+    "AID99/DSP/Graphs/builtin_speaker_out.dspg": "80701ff4f1a0b5224dfc04f7752cd7cae385db745ffab57b43ed39a7ee9ec82b",
+    "AID99/DSP/Strips/builtin_speaker_out_general.austrip": "cef9daf5e8e04f72275197f37d5093291c2b1b5e33eabfbc84bcb72b152571c4",
+    "Config/AID99.plist": "70e47654a2678985c33abd0aadc9b097bef9e0e8b66ca98ce8d528ab363065e2",
+    "DeviceDSPDatabase.plist": "eea35569ef523577c162af9ffd05a804373094790c55cf8e1f42b5ee2b2bc705",
+    "lsm2-mask-lattice.bin": "133fa31bb9d8e9e7c6aa4463c58a77b47528c5be47533979e19b5481abcba9b2",
+    "manifest.json": "b37b94fa8b3075ade40caf9100a75d5319ee16c8ae8bed6a07e782c82bb3e351",
+    "speaker-thiele-small.bin": "6a7dc6f4267242f01f6636a45c31da51c036da1e9879abce7e1d0aaa76aad876"
+  }
+}
