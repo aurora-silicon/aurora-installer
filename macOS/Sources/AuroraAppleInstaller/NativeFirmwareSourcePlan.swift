@@ -25,6 +25,9 @@
       let name: String
     }
     let centauri: Centauri?
+    /// Why an identity with an N1 has no `centauri`: it names more than one
+    /// image. The Mac then installs without Wi-Fi and Bluetooth.
+    let centauriProblem: String?
 
     init(manifest: Data) throws {
       guard
@@ -72,17 +75,21 @@
       }
       guard kernels.count == 1, let kernel = kernels.first,
         Set(selected.map(\.component)).count == selected.count,
-        machine != "j700" || selected.contains(where: { $0.component == "Multitouch" }),
-        wireless.count <= 1
+        machine != "j700" || selected.contains(where: { $0.component == "Multitouch" })
       else { throw NativeStubFileError.invalidPlan }
       self.kernel = kernel
       fud = selected
-      if let image = wireless.first {
+      if wireless.count == 1, let image = wireless.first {
         centauri = Centauri(
           image: image, ticket: CentauriFirmware.ticketPath(deviceClass: device),
           name: CentauriFirmware.firmwareName(machine: machine))
+        centauriProblem = nil
+      } else if wireless.isEmpty {
+        centauri = nil
+        centauriProblem = nil
       } else {
         centauri = nil
+        centauriProblem = "the build identity names \(wireless.count) different N1 images"
       }
     }
   }

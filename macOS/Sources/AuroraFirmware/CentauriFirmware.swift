@@ -19,6 +19,9 @@ public enum CentauriFirmware {
     "centauri/centauri." + deviceClass + ".im4m"
   }
 
+  // TODO: remove once a released kernel's T8152 driver requests the model's
+  // own name (or reads the device tree's `firmware-name`, as the T6050
+  // driver does).
   /// The T8152 driver's board table names the J873g's file after the J873;
   /// every other N1 board's driver requests its model's name (the T6050
   /// device trees' `firmware-name` and the T8142 board table).

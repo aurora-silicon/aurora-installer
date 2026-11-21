@@ -105,12 +105,16 @@
       XCTAssertEqual(
         try plan("j873gap", ["Wireless1,Wi-Fi": image]).centauri?.name,
         "apple/centauri/j873-ftab.bin")
+      XCTAssertNil(n1.centauriProblem)
       // A Mac whose build identity has no N1 collects none.
-      XCTAssertNil(try plan("j704ap", [:]).centauri)
-      // The driver loads one image.
-      XCTAssertThrowsError(
-        try plan(
-          "j714sap", ["Wireless1,Wi-Fi": image, "Wireless1,Bluetooth": "Firmware/other.bin"]))
+      let other = try plan("j704ap", [:])
+      XCTAssertNil(other.centauri)
+      XCTAssertNil(other.centauriProblem)
+      // The driver loads one image: with two, the Mac installs without one.
+      let two = try plan(
+        "j714sap", ["Wireless1,Wi-Fi": image, "Wireless1,Bluetooth": "Firmware/other.bin"])
+      XCTAssertNil(two.centauri)
+      XCTAssertEqual(two.centauriProblem, "the build identity names 2 different N1 images")
       XCTAssertThrowsError(try plan("j714sap", ["Wireless1,Wi-Fi": "../outside"]))
     }
 

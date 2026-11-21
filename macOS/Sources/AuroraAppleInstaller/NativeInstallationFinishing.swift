@@ -43,14 +43,6 @@
       } else if peripherals != nil {
         throw NativeFirmwareInputFailure.invalidSource
       }
-      // An N1's firmware is made from two files the stub copies to its
-      // restore directory: refuse before any disk change when one is missing.
-      if let centauri = source.centauri {
-        let copied = Set(stub.copies.filter { $0.role == "Preboot" }.map(\.path))
-        guard copied.contains(stub.restorePath + "/" + centauri.image),
-          copied.contains(stub.restorePath + "/" + centauri.ticket)
-        else { throw NativeFirmwareInputFailure.invalidSource }
-      }
       let ambientLight = try source.machine == "j700" ? nil : collectAmbientLight()
       return NativeInstallationFinishingExecution(
         package: package, approved: approved, stub: stub, peripherals: peripherals,

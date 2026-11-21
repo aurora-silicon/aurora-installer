@@ -6,6 +6,7 @@ from unittest import mock
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from asahi_firmware import centauri, update  # noqa: E402
+from asahi_firmware.core import FWFile  # noqa: E402
 
 # An FTAB-shaped header (magic at 0x20, no ticket) and a few payload bytes.
 IMAGE = bytes(0x20) + b"rkosftab" + (1).to_bytes(4, "little") + bytes(4) + b"synthetic N1 image"
@@ -94,54 +95,94 @@ class CollectionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(centauri.CentauriFWCollection(str(pathlib.Path(tmp) / "x")).files(), [])
 
-    def test_a_model_without_its_ticket_is_refused(self):
+    def collect_warning(self, root):
+        with self.assertLogs("asahi_firmware.centauri", "WARNING") as logs:
+            files = dict(centauri.CentauriFWCollection(root).files())
+        return files, logs.output
+
+    def test_a_model_without_its_ticket_is_skipped_with_a_warning(self):
         with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaises(centauri.Invalid):
-                centauri.CentauriFWCollection(self.tree(tmp, ["j714s"], ticket=False))
+            files, logs = self.collect_warning(self.tree(tmp, ["j714s"], ticket=False))
+        self.assertEqual(files, {})
+        self.assertEqual(len(logs), 1)
+        self.assertIn("centauri/j714s: N1 Wi-Fi/Bluetooth firmware could not be prepared: "
+                      "the N1 ticket is missing; skipped", logs[0])
 
     def test_another_models_ticket_is_not_used(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(self.tree(tmp, ["j714s"], ticket=False))
             (root / "j714s" / centauri.ticket_name("j716s")).write_bytes(TICKET)
-            with self.assertRaises(centauri.Invalid):
-                centauri.CentauriFWCollection(str(root))
+            files, logs = self.collect_warning(str(root))
+        self.assertEqual(files, {})
 
-    def test_a_directory_that_is_not_a_model_is_refused(self):
+    def test_a_bad_directory_leaves_the_others(self):
         with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaises(centauri.Invalid):
-                centauri.CentauriFWCollection(self.tree(tmp, ["..j714s"]))
+            root = pathlib.Path(self.tree(tmp, ["j714s", "j716s", "..j714s"]))
+            (root / "j716s" / centauri.ticket_name("j716s")).write_bytes(b"damaged")
+            files, logs = self.collect_warning(str(root))
+        self.assertEqual(sorted(files), ["apple/centauri/j714s-ftab.bin"])
+        self.assertEqual(len(logs), 2)
+        self.assertTrue(any("centauri/j716s:" in x and "not a manifest" in x for x in logs))
+        self.assertTrue(any("centauri/..j714s:" in x and "not a Mac model" in x for x in logs))
 
 
-class Empty:
-    def __init__(self, *args, **kwargs):
-        pass
+OTHERS = ("WiFiFWCollection", "BluetoothFWCollection", "MultitouchFWCollection",
+          "ISPFWCollection", "AlsFWCollection", "AudioTuningFWCollection", "KernelFWCollection")
 
-    def files(self):
-        return []
+
+def stand_in(collection):
+    """A collection that gives one synthetic file named after it."""
+    class StandIn:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def files(self):
+            name = f"synthetic/{collection}.bin"
+            return [(name, FWFile(name, collection.encode()))]
+    return StandIn
 
 
 class UpdateTest(unittest.TestCase):
-    def test_a_rebuild_from_all_firmware_keeps_the_n1_file(self):
+    def rebuild(self, members):
+        """update_firmware's manifest for an all_firmware with members, every
+        other collection standing in with one file of its own."""
         with tempfile.TemporaryDirectory() as tmp:
             source, dest = pathlib.Path(tmp) / "asahi", pathlib.Path(tmp) / "vendorfw"
             source.mkdir()
             dest.mkdir()
             with tarfile.open(source / "all_firmware.tar.gz", "w:gz") as tar:
-                for name, data in (("centauri/j714s/" + centauri.IMAGE, IMAGE),
-                                   ("centauri/j714s/" + centauri.ticket_name("j714s"), TICKET)):
+                for name, data in members:
                     ti = tarfile.TarInfo(name)
                     ti.size = len(data)
                     tar.addfile(ti, io.BytesIO(data))
-            others = ("WiFiFWCollection", "BluetoothFWCollection", "MultitouchFWCollection",
-                      "ISPFWCollection", "AlsFWCollection", "AudioTuningFWCollection",
-                      "KernelFWCollection")
             with contextlib.ExitStack() as stack:
-                for name in others:
-                    stack.enter_context(mock.patch.object(update, name, Empty))
+                for name in OTHERS:
+                    stack.enter_context(mock.patch.object(update, name, stand_in(name)))
                 update.update_firmware(source, dest)
-            manifest = (dest / "manifest.txt").read_text().splitlines()
-        self.assertEqual(manifest, [
-            f"FILE apple/centauri/j714s-ftab.bin SHA256 {PERSONALIZED_SHA256}"])
+            return (dest / "manifest.txt").read_text().splitlines()
+
+    def others(self, manifest):
+        return sorted(x.split()[1] for x in manifest if x.startswith("FILE synthetic/"))
+
+    def test_a_rebuild_from_all_firmware_keeps_the_n1_file(self):
+        manifest = self.rebuild([("centauri/j714s/" + centauri.IMAGE, IMAGE),
+                                 ("centauri/j714s/" + centauri.ticket_name("j714s"), TICKET)])
+        self.assertIn(f"FILE apple/centauri/j714s-ftab.bin SHA256 {PERSONALIZED_SHA256}",
+                      manifest)
+        self.assertEqual(self.others(manifest), sorted(f"synthetic/{x}.bin" for x in OTHERS))
+
+    def test_a_bad_n1_directory_still_rebuilds_everything_else(self):
+        with self.assertLogs("asahi_firmware.centauri", "WARNING"):
+            manifest = self.rebuild([
+                ("centauri/j714s/" + centauri.IMAGE, IMAGE),
+                ("centauri/j714s/" + centauri.ticket_name("j714s"), b"damaged"),
+                ("centauri/j716s/" + centauri.IMAGE, IMAGE),
+                ("centauri/j716s/" + centauri.ticket_name("j716s"), TICKET)])
+        self.assertFalse(any("apple/centauri/j714s-ftab.bin" in x for x in manifest))
+        self.assertTrue(any(x.startswith("FILE apple/centauri/j716s-ftab.bin ")
+                            or x.startswith("LINK apple/centauri/j716s-ftab.bin ")
+                            for x in manifest))
+        self.assertEqual(self.others(manifest), sorted(f"synthetic/{x}.bin" for x in OTHERS))
 
 
 if __name__ == "__main__":

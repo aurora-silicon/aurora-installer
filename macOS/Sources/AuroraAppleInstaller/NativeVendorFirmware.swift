@@ -156,19 +156,17 @@
         // The N1's Wi-Fi and Bluetooth firmware: the image this Mac's build
         // identity names, with its model's ticket. The fallback archive keeps
         // both inputs, so a later conversion on Linux makes the same file.
-        if let centauri = source.centauri {
-          try InstallerPerformance.measure("vendor_centauri") {
-            let image = try read(
-              "Preboot", restore + centauri.image, maximum: CentauriFirmware.maximumBytes)
-            let ticket = try read(
-              "Preboot", restore + centauri.ticket, maximum: CentauriFirmware.maximumTicketBytes)
-            try merge(
-              [centauri.name: CentauriFirmware.personalize(image: image, ticket: ticket)],
-              into: &outputs)
-            try merge(
-              CentauriFirmware.fallback(machine: source.machine, image: image, ticket: ticket),
-              into: &fallback)
+        let centauri = try InstallerPerformance.measure("vendor_centauri") {
+          try NativeCentauriFirmware.prepare(source) { path, maximum in
+            let copied = restore + path
+            guard sourceRecords.contains(where: { $0.role == "Preboot" && $0.path == copied })
+            else { return nil }
+            return try read("Preboot", copied, maximum: maximum)
           }
+        }
+        if let centauri {
+          try merge(centauri.package, into: &outputs)
+          try merge(centauri.fallback, into: &fallback)
         }
         try InstallerPerformance.measure("vendor_kernel") {
           let kernel = try read("Preboot", restore + source.kernel, maximum: 256 << 20)

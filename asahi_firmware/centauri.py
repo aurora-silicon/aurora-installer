@@ -11,9 +11,11 @@ image, and the image's header names it (its offset at 0x10 and its size at
 asahi/all_firmware.tar.gz under centauri/<model>/, so a rebuild
 (asahi-fwupdate) gives the same file.
 """
-import os, re
+import logging, os, re
 
 from .core import FWFile
+
+log = logging.getLogger("asahi_firmware.centauri")
 
 # Restore-directory paths: the image is the one file the model's build
 # identity names for the N1, the ticket is per model.
@@ -30,6 +32,8 @@ def ticket_name(model):
 # The T8152 driver's board table names the J873g's file after the J873; every
 # other N1 board's driver requests its model's name (the T6050 device trees'
 # firmware-name and the T8142 board table).
+# TODO: remove once a released kernel's T8152 driver requests the model's own
+# name (or reads the device tree's firmware-name, as the T6050 driver does).
 KERNEL_MODEL = {"j873g": "j873"}
 
 
@@ -103,9 +107,9 @@ def _read(path, budget):
 
 class CentauriFWCollection:
     """source_dir: all_firmware's centauri/, one directory per model holding
-    IMAGE and its ticket. A missing directory has nothing to collect; a model
-    directory without both files, or with files the driver would refuse,
-    raises Invalid."""
+    IMAGE and its ticket. A missing directory has nothing to collect. A model
+    directory without both files, or with files the driver would refuse, is
+    skipped with a warning, so the rest of the package is still built."""
 
     def __init__(self, source_dir):
         self.out = {}
@@ -114,14 +118,23 @@ class CentauriFWCollection:
             directory = os.path.join(source_dir, model)
             if not os.path.isdir(directory):
                 continue
-            require(MODEL.fullmatch(model) is not None, f"{model}: not a Mac model")
-            image_path = os.path.join(directory, IMAGE)
-            ticket_path = os.path.join(directory, ticket_name(model))
-            require(os.path.isfile(image_path), f"{model}: the N1 image is missing")
-            require(os.path.isfile(ticket_path), f"{model}: the N1 ticket is missing")
-            data = personalize(_read(image_path, BUDGET), _read(ticket_path, TICKET_BUDGET))
-            name = firmware_name(model)
+            try:
+                name, data = self._collect(model, directory)
+            except (Invalid, OSError) as e:
+                log.warning(f"centauri/{model}: N1 Wi-Fi/Bluetooth firmware could not be "
+                            f"prepared: {e}; skipped")
+                continue
             self.out[name] = FWFile(name, data)
+
+    @staticmethod
+    def _collect(model, directory):
+        require(MODEL.fullmatch(model) is not None, "not a Mac model")
+        image_path = os.path.join(directory, IMAGE)
+        ticket_path = os.path.join(directory, ticket_name(model))
+        require(os.path.isfile(image_path), "the N1 image is missing")
+        require(os.path.isfile(ticket_path), "the N1 ticket is missing")
+        data = personalize(_read(image_path, BUDGET), _read(ticket_path, TICKET_BUDGET))
+        return firmware_name(model), data
 
     def files(self):
         return sorted(self.out.items())
