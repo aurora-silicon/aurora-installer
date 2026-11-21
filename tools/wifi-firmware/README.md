@@ -23,7 +23,10 @@ set its installer took:
 A Mac follows the radios its ESP package carries today. The MT7932's
 calibration (`oca2`, `wcal`, `btcal`), its Bluetooth address and the
 regulatory policies are this Mac's own records; they stay as the installer
-wrote them.
+wrote them. The N1 firmware of the M5 and later Macs
+(`apple/centauri/*-ftab.bin`) is not refreshed here either: the installer
+makes it from the startup firmware's restore files, the kernel driver speaks
+that firmware's protocol, and the file stays as the installer wrote it.
 
 ```sh
 sudo aurora-wifi-firmware status    # board, ESP and running firmware, installed macOS

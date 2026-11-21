@@ -76,6 +76,44 @@
         Set(source.fud.map(\.component)), ["Multitouch", "Ap,TouchASICFW"])
     }
 
+    func testAnN1MacsSourcePlanNamesItsImageTicketAndDriverFile() throws {
+      func plan(_ deviceClass: String, _ wireless: [String: String]) throws
+        -> NativeFirmwareSourcePlan
+      {
+        var components: [String: Any] = [
+          "KernelCache": ["Info": ["Path": "kernelcache.release.synthetic"]]
+        ]
+        for (key, path) in wireless { components[key] = ["Info": ["Path": path]] }
+        let identity: [String: Any] = [
+          "ApChipID": "0x6050",
+          "Info": [
+            "DeviceClass": deviceClass, "RestoreBehavior": "Erase", "Variant": "macOS Customer",
+          ],
+          "Manifest": components,
+        ]
+        return try NativeFirmwareSourcePlan(
+          manifest: PropertyListSerialization.data(
+            fromPropertyList: ["BuildIdentities": [identity]], format: .xml, options: 0))
+      }
+      let image = "Firmware/synthetic/ftab.bin"
+      let n1 = try plan("j714sap", ["Wireless1,Wi-Fi": image, "Wireless1,Bluetooth": image])
+      XCTAssertEqual(
+        n1.centauri,
+        NativeFirmwareSourcePlan.Centauri(
+          image: image, ticket: "centauri/centauri.j714sap.im4m",
+          name: "apple/centauri/j714s-ftab.bin"))
+      XCTAssertEqual(
+        try plan("j873gap", ["Wireless1,Wi-Fi": image]).centauri?.name,
+        "apple/centauri/j873-ftab.bin")
+      // A Mac whose build identity has no N1 collects none.
+      XCTAssertNil(try plan("j704ap", [:]).centauri)
+      // The driver loads one image.
+      XCTAssertThrowsError(
+        try plan(
+          "j714sap", ["Wireless1,Wi-Fi": image, "Wireless1,Bluetooth": "Firmware/other.bin"]))
+      XCTAssertThrowsError(try plan("j714sap", ["Wireless1,Wi-Fi": "../outside"]))
+    }
+
     func testArchiveStreamingExceedsBootBudgetWithoutRelaxingBootCallers() async throws {
       let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
       try FileManager.default.createDirectory(

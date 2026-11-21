@@ -153,6 +153,23 @@
           guard let trackpad = outputs[NeoFirmwareConversions.trackpadName], !trackpad.isEmpty
           else { throw NativeFirmwareInputFailure.invalidSource }
         }
+        // The N1's Wi-Fi and Bluetooth firmware: the image this Mac's build
+        // identity names, with its model's ticket. The fallback archive keeps
+        // both inputs, so a later conversion on Linux makes the same file.
+        if let centauri = source.centauri {
+          try InstallerPerformance.measure("vendor_centauri") {
+            let image = try read(
+              "Preboot", restore + centauri.image, maximum: CentauriFirmware.maximumBytes)
+            let ticket = try read(
+              "Preboot", restore + centauri.ticket, maximum: CentauriFirmware.maximumTicketBytes)
+            try merge(
+              [centauri.name: CentauriFirmware.personalize(image: image, ticket: ticket)],
+              into: &outputs)
+            try merge(
+              CentauriFirmware.fallback(machine: source.machine, image: image, ticket: ticket),
+              into: &fallback)
+          }
+        }
         try InstallerPerformance.measure("vendor_kernel") {
           let kernel = try read("Preboot", restore + source.kernel, maximum: 256 << 20)
           let decoded = try FirmwareImage.decode(kernel)
