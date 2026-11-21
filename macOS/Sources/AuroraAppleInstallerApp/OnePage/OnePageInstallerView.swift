@@ -806,8 +806,8 @@ struct EncryptDiskToggle: View {
       .font(InstallerTheme.body)
       .tint(.blue)
       .disabled(!enabled)
-      // One help paragraph: the password, and that nothing else unlocks the disk.
-      Text(PlainLanguage.encryptLinuxDiskPassword + " " + PlainLanguage.encryptLinuxDiskNoRecovery)
+      // One help paragraph: the password, and the recovery key shown once after setup.
+      Text(PlainLanguage.encryptLinuxDiskPassword + " " + PlainLanguage.encryptLinuxDiskRecoveryKey)
         .auroraHelpText()
         .padding(.leading, 20)
     }
