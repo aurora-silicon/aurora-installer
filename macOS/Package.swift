@@ -13,6 +13,10 @@ let omarchySettings: [SwiftSetting] =
   ProcessInfo.processInfo.environment["AURORA_ENABLE_OMARCHY"] == "1"
   ? [.define("AURORA_ENABLE_OMARCHY")] : []
 
+let debianSettings: [SwiftSetting] =
+  ProcessInfo.processInfo.environment["AURORA_ENABLE_DEBIAN"] == "1"
+  ? [.define("AURORA_ENABLE_DEBIAN")] : []
+
 let package = Package(
   name: "AuroraAppleInstallerTrustCore",
   platforms: [
@@ -93,7 +97,7 @@ let package = Package(
       name: "AuroraAppleInstallerTrustCore",
       dependencies: ["AuroraInstallerSystem", "RecoveryAccountCore", "AuroraFirmware"],
       path: "Sources/AuroraAppleInstaller",
-      swiftSettings: localPayloadTestSettings + omarchySettings,
+      swiftSettings: localPayloadTestSettings + omarchySettings + debianSettings,
       plugins: ["AuroraInstallerIdentityPlugin"]
     ),
     .target(

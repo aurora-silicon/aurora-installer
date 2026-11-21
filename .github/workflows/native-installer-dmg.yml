@@ -41,6 +41,7 @@ jobs:
       XCODEBUILDMCP_SENTRY_DISABLED: 'true'
       AURORA_DEVELOPER_BUILD: ${{ inputs.test-local-payloads && '1' || '0' }}
       AURORA_ENABLE_OMARCHY: '0'
+      AURORA_ENABLE_DEBIAN: '0'
       AURORA_LOCAL_PAYLOAD_TEST_BUILD: ${{ inputs.test-local-payloads && '1' || '0' }}
       AURORA_SIGNING_KEYCHAIN_TIMEOUT: '5400'
     defaults:
@@ -93,7 +94,8 @@ jobs:
           import os,shutil,sys
           root=Path(sys.argv[1]);source=Path(os.environ['GITHUB_WORKSPACE'])/'delivery/site/installer/Profiles'
           expected={f'{d}-{s}' for d in ('fedora','arch','nixos') for s in ('kde','gnome','minimal')}
-          assert expected <= {p.name for p in source.iterdir()} <= expected | {'omarchy-hyprland'}
+          opt_in={'omarchy-hyprland'} | {f'debian-{s}' for s in ('kde','gnome','minimal')}
+          assert expected <= {p.name for p in source.iterdir()} <= expected | opt_in
           for profile in expected:
               destination=root/'Profiles'/profile
               destination.mkdir(parents=True)

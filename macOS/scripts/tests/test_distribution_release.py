@@ -20,7 +20,7 @@ VECTORS = (Path(__file__).resolve().parents[2]
 def delivery_model(profile, run="41"):
     """A model of the published development delivery lineage."""
     repository = {"fedora": "fedora-aurora", "arch": "alarm-aurora", "nixos": "nixos-aurora",
-                  "omarchy": "omarchy-aurora"}[profile.split("-")[0]]
+                  "omarchy": "omarchy-aurora", "debian": "debian-aurora"}[profile.split("-")[0]]
     name = f"{profile}-build-{run}.zip"
     return {"status": "enabled", "installationProfile": profile, "evidenceRevision": f"image-build-{run}",
             "payloadArtifact": {"sourceURL": f"https://github.com/aurora-silicon/{repository}/releases/download/"
@@ -48,7 +48,7 @@ class LegacyTestingVectorTests(unittest.TestCase):
 
 class DistributionReleaseTests(unittest.TestCase):
     def setUp(self):
-        mode = patch.dict(os.environ, {"AURORA_ENABLE_OMARCHY": "0"})
+        mode = patch.dict(os.environ, {"AURORA_ENABLE_OMARCHY": "0", "AURORA_ENABLE_DEBIAN": "0"})
         mode.start()
         self.addCleanup(mode.stop)
         self.temporary = tempfile.TemporaryDirectory()
@@ -68,7 +68,7 @@ class DistributionReleaseTests(unittest.TestCase):
         (release / "trust-root.ed25519.pub").write_bytes(self.public)
         import hashlib
         fingerprint = "sha256:" + hashlib.sha256(self.public).hexdigest()
-        for profile in module.PROFILES + (module.OMARCHY_PROFILE,):
+        for profile in module.PROFILES + (module.OMARCHY_PROFILE,) + module.DEBIAN_PROFILES:
             directory = self.profiles / profile
             directory.mkdir(parents=True)
             descriptor = {"schema_version": 3, "default_channel": "testing", "trust_root_fingerprint": fingerprint,
@@ -79,8 +79,11 @@ class DistributionReleaseTests(unittest.TestCase):
                                        for channel in ("stable", "rc", "testing", "edge")}}
             (directory / "release.json").write_text(json.dumps(descriptor))
             (directory / "trust-root.ed25519.pub").write_bytes(self.public)
-            (directory / "catalog.json").write_text(json.dumps({"schemaVersion": 5, "sequence": 1,
-                "models": [delivery_model(profile)]}))
+            catalog = {"schemaVersion": 5, "sequence": 1, "models": [delivery_model(profile)]}
+            if profile in module.DEBIAN_PROFILES:
+                # Debian has no catalogs from before the channel field.
+                catalog["channel"] = "testing"
+            (directory / "catalog.json").write_text(json.dumps(catalog))
             self.sign(directory)
         (release / "release.json").write_text(json.dumps(descriptor))
 
@@ -207,6 +210,34 @@ class DistributionReleaseTests(unittest.TestCase):
         for name in ("catalog.json", "catalog.json.sig"):
             self.assertEqual((output / "Profiles" / module.OMARCHY_PROFILE / name).read_bytes(),
                              (self.profiles / module.OMARCHY_PROFILE / name).read_bytes())
+
+    def test_debian_opt_in_requires_and_adds_its_three_signed_profiles(self):
+        import shutil
+        output = self.root / "output"
+        with patch.object(module, "ROOT", self.root), patch.dict(os.environ, {"AURORA_ENABLE_DEBIAN": "1"}):
+            module.prepare(self.profiles, output, sealed=True)
+        self.assertEqual({entry.name for entry in (output / "Profiles").iterdir()},
+                         set(module.PROFILES) | set(module.DEBIAN_PROFILES))
+        for profile in module.DEBIAN_PROFILES:
+            for name in ("catalog.json", "catalog.json.sig"):
+                self.assertEqual((output / "Profiles" / profile / name).read_bytes(),
+                                 (self.profiles / profile / name).read_bytes())
+        shutil.rmtree(output)
+        shutil.rmtree(self.profiles / "debian-gnome")
+        with patch.object(module, "ROOT", self.root), patch.dict(os.environ, {"AURORA_ENABLE_DEBIAN": "1"}):
+            with self.assertRaisesRegex(ValueError, "missing debian-gnome"):
+                module.prepare(self.profiles, output, sealed=True)
+        self.assertFalse(output.exists())
+        with patch.object(module, "ROOT", self.root):
+            module.prepare(self.profiles, output, sealed=True)
+        self.assertEqual({entry.name for entry in (output / "Profiles").iterdir()}, set(module.PROFILES))
+
+    def test_debian_opt_in_must_be_explicit(self):
+        output = self.root / "output"
+        with patch.object(module, "ROOT", self.root), patch.dict(os.environ, {"AURORA_ENABLE_DEBIAN": "yes"}):
+            with self.assertRaisesRegex(ValueError, "AURORA_ENABLE_DEBIAN must be 0 or 1"):
+                module.prepare(self.profiles, output, sealed=True)
+        self.assertFalse(output.exists())
 
     def test_engine_pinning_catalogs_emit_no_release(self):
         directory = self.profiles / "fedora-kde"

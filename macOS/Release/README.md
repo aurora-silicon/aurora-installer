@@ -18,6 +18,8 @@ This verifies all nine catalog signatures and profile bindings before emitting a
 
 Set `AURORA_ENABLE_OMARCHY=1` when preparing resources and when running `Packaging/build-app.sh` to add `omarchy-hyprland`. Opt-in requires its signed catalog alongside the nine standard profiles. Release CI sets the option to `0` and verifies the nine sealed profiles in the finished app.
 
+Set `AURORA_ENABLE_DEBIAN=1` the same way to add Aurora Debian (Debian testing) with `debian-kde`, `debian-gnome` and `debian-minimal`. Opt-in requires all three signed catalogs. Debian images use their own `debian-btrfs-v1` layout and are produced by [debian-aurora](https://github.com/aurora-silicon/debian-aurora). Release CI sets the option to `0`.
+
 Then pass that release directory to `Packaging/build-app.sh`. Developer packages use `AURORA_DEVELOPER_BUILD=1`, a sealed catalog and the dedicated local developer package builder; they do not imply Developer ID signing or notarization.
 
 Device firmware and per-machine calibration are collected on the target Mac and never included in public payloads or package feeds. Model admission is governed by the signed catalog and `scripts/supported-models.json`; models awaiting a first hardware boot carry an explicit caution.

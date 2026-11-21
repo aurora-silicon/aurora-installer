@@ -113,7 +113,7 @@
       else { return false }
       let repositories = [
         "fedora": "fedora-aurora", "arch": "alarm-aurora",
-        "nixos": "nixos-aurora", "omarchy": "omarchy-aurora",
+        "nixos": "nixos-aurora", "omarchy": "omarchy-aurora", "debian": "debian-aurora",
       ]
       guard
         AuroraInstallationSelection.allProfileIDs.contains(where: {

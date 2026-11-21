@@ -252,7 +252,7 @@ def load_inputs(path: Path, developer: bool = False) -> dict:
     profile = document.get("installation_profile")
     if profile is not None and profile not in {
         distribution + "-" + desktop
-        for distribution in ("fedora", "arch", "nixos")
+        for distribution in ("fedora", "arch", "nixos", "debian")
         for desktop in ("kde", "gnome", "minimal")
     } | {"omarchy-hyprland"}:
         raise SystemExit("inputs installation_profile is not an Aurora installer profile")

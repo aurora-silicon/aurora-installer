@@ -7,15 +7,41 @@ import XCTest
 final class InstallationSelectionTests: XCTestCase {
   func testEachLinuxDesktopHasItsOwnProfile() {
     let optedIn = ProcessInfo.processInfo.environment["AURORA_ENABLE_OMARCHY"] == "1"
+    let debian = ProcessInfo.processInfo.environment["AURORA_ENABLE_DEBIAN"] == "1"
     let distributions: [AuroraDistribution] = [.fedora, .arch, .nixos]
-    XCTAssertEqual(AuroraDistribution.installable, distributions + (optedIn ? [.omarchy] : []))
+    XCTAssertEqual(
+      AuroraDistribution.installable,
+      distributions + (optedIn ? [.omarchy] : []) + (debian ? [.debian] : []))
     var expected: Set<String> = [
       "fedora-kde", "fedora-gnome", "fedora-minimal",
       "arch-kde", "arch-gnome", "arch-minimal",
       "nixos-kde", "nixos-gnome", "nixos-minimal",
     ]
     if optedIn { expected.insert("omarchy-hyprland") }
+    if debian { expected.formUnion(["debian-kde", "debian-gnome", "debian-minimal"]) }
     XCTAssertEqual(AuroraInstallationSelection.allProfileIDs, expected)
+  }
+
+  func testDebianOffersTheStandardDesktopsOnlyInAnOptedInBuild() throws {
+    XCTAssertEqual(AuroraDistribution.debian.availableDesktops, [.kde, .gnome, .minimal])
+    let debian = ProcessInfo.processInfo.environment["AURORA_ENABLE_DEBIAN"] == "1"
+    for desktop in AuroraDistribution.debian.availableDesktops {
+      let selection = AuroraInstallationSelection(distribution: .debian, desktop: desktop)
+      XCTAssertEqual(selection.profileID, "debian-" + desktop.rawValue)
+      if debian {
+        try selection.requireMatchingProfile(selection.profileID)
+      } else {
+        XCTAssertThrowsError(try selection.requireMatchingProfile(selection.profileID))
+      }
+      XCTAssertThrowsError(try selection.requireMatchingProfile("arch-" + desktop.rawValue))
+    }
+    var selection = AuroraInstallationSelection(distribution: .omarchy)
+    selection.selectDistribution(.debian)
+    XCTAssertEqual(selection.profileID, "debian-kde")
+    let invalid = AuroraInstallationSelection(distribution: .debian, desktop: .hyprland)
+    XCTAssertThrowsError(try invalid.requireMatchingProfile(invalid.profileID))
+    let data = try JSONEncoder().encode(invalid)
+    XCTAssertThrowsError(try JSONDecoder().decode(AuroraInstallationSelection.self, from: data))
   }
 
   func testOmarchyOffersOnlyHyprlandAndSwitchingKeepsAValidSelection() throws {

@@ -82,6 +82,43 @@
       } catch NativePayloadPreflightError.invalidMetadata {}
     }
 
+    func testDebianHasItsOwnBtrfsLayoutContract() async throws {
+      let fixture = try fixture()
+      let vector = try XCTUnwrap(fixture.vectors.first { $0.name == "alarm-btrfs-v1-kde" })
+      let document = try XCTUnwrap(
+        JSONSerialization.jsonObject(with: Data(vector.metadata.utf8)) as? [String: Any])
+      let archive = try await IPSWArchive.open(
+        PayloadFixtureSource(bytes: try XCTUnwrap(fixture.archives[vector.archive])))
+      func validate(layout: String, profile: String) async throws {
+        var document = document
+        var templates = try XCTUnwrap(document["os_list"] as? [[String: Any]])
+        templates[0]["layout_kind"] = layout
+        templates[0]["installation_profile"] = profile
+        document["os_list"] = templates
+        try await NativePayloadPreflight.validate(
+          metadata: JSONSerialization.data(withJSONObject: document), payloadName: "payload.zip",
+          archive: archive)
+      }
+      let optedIn = ProcessInfo.processInfo.environment["AURORA_ENABLE_DEBIAN"] == "1"
+      for desktop in ["kde", "gnome", "minimal"] {
+        do {
+          try await validate(layout: "debian-btrfs-v1", profile: "debian-" + desktop)
+          XCTAssertTrue(optedIn, "Default builds must reject Debian")
+        } catch NativePayloadPreflightError.invalidMetadata {
+          XCTAssertFalse(optedIn, "Opt-in builds must admit the Debian Btrfs layout")
+        }
+      }
+      for (layout, profile) in [
+        ("debian-btrfs-v1", "debian-hyprland"), ("debian-btrfs-v1", "arch-kde"),
+        ("alarm-btrfs-v1", "debian-kde"), ("debian-ext4-v1", "debian-kde"),
+      ] {
+        do {
+          try await validate(layout: layout, profile: profile)
+          XCTFail("\(profile) on \(layout) must be refused")
+        } catch NativePayloadPreflightError.invalidMetadata {}
+      }
+    }
+
     func testNixOSRefusesAnEFILoaderTiedToTheSourcePartitionNumber() async throws {
       let fixture = try fixture()
       let vector = try XCTUnwrap(

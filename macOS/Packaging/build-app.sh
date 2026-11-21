@@ -34,6 +34,9 @@ export CARGO_BUILD_JOBS="$build_jobs"
 export AURORA_ENABLE_OMARCHY="${AURORA_ENABLE_OMARCHY-0}"
 [[ $AURORA_ENABLE_OMARCHY == "0" || $AURORA_ENABLE_OMARCHY == "1" ]] \
   || fail "AURORA_ENABLE_OMARCHY must be 0 or 1"
+export AURORA_ENABLE_DEBIAN="${AURORA_ENABLE_DEBIAN-0}"
+[[ $AURORA_ENABLE_DEBIAN == "0" || $AURORA_ENABLE_DEBIAN == "1" ]] \
+  || fail "AURORA_ENABLE_DEBIAN must be 0 or 1"
 
 # Local payload support is compiled only in an explicitly requested debug test
 # build. Release configuration always compiles it out.
@@ -161,6 +164,25 @@ for catalog in (release / "catalog.json", *profiles.glob("*/catalog.json")):
         if any(model.get("installationProfile") == "omarchy-hyprland"
                for model in json.loads(catalog.read_bytes())["models"]):
             raise SystemExit(f"Omarchy catalog requires AURORA_ENABLE_OMARCHY=1: {catalog}")
+PYPROFILES
+fi
+if [[ $AURORA_ENABLE_DEBIAN == "0" ]]; then
+  python3 - "$release_directory" <<'PYPROFILES'
+import json
+from pathlib import Path
+import sys
+
+release = Path(sys.argv[1])
+profiles = release / "Profiles"
+debian = {"debian-kde", "debian-gnome", "debian-minimal"}
+for profile in debian:
+    if (profiles / profile).exists() or (profiles / profile).is_symlink():
+        raise SystemExit(f"Debian profile {profile} requires AURORA_ENABLE_DEBIAN=1")
+for catalog in (release / "catalog.json", *profiles.glob("*/catalog.json")):
+    if catalog.is_file():
+        if any(model.get("installationProfile") in debian
+               for model in json.loads(catalog.read_bytes())["models"]):
+            raise SystemExit(f"Debian catalog requires AURORA_ENABLE_DEBIAN=1: {catalog}")
 PYPROFILES
 fi
 

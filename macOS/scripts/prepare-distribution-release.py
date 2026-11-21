@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PROFILES = tuple(f"{distribution}-{desktop}" for distribution in ("fedora", "arch", "nixos")
                  for desktop in ("kde", "gnome", "minimal"))
 OMARCHY_PROFILE = "omarchy-hyprland"
+DEBIAN_PROFILES = tuple(f"debian-{desktop}" for desktop in ("kde", "gnome", "minimal"))
 # The development delivery lineage the app reads as Testing when a catalog
 # declares no channel. This is ReleaseCatalogChannelPolicy.isLegacyDevelopment
 # and the undeclared Testing rule in validate(); both are pinned to the same
@@ -72,7 +73,11 @@ def prepare(source, output, sealed=False, signing_team=None):
     omarchy = os.environ.get("AURORA_ENABLE_OMARCHY", "0")
     if omarchy not in ("0", "1"):
         raise ValueError("AURORA_ENABLE_OMARCHY must be 0 or 1")
-    profiles = PROFILES + ((OMARCHY_PROFILE,) if omarchy == "1" else ())
+    debian = os.environ.get("AURORA_ENABLE_DEBIAN", "0")
+    if debian not in ("0", "1"):
+        raise ValueError("AURORA_ENABLE_DEBIAN must be 0 or 1")
+    profiles = (PROFILES + ((OMARCHY_PROFILE,) if omarchy == "1" else ())
+                + (DEBIAN_PROFILES if debian == "1" else ()))
     if signing_team is not None and not re.fullmatch(r"[A-Z0-9]{10}", signing_team):
         raise ValueError("invalid release signing team")
     identity = {}

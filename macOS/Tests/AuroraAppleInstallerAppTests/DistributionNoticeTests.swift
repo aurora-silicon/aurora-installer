@@ -27,6 +27,9 @@
       XCTAssertTrue(
         credits.contains("GNOME is a registered trademark or trademark of the GNOME Foundation"))
       XCTAssertTrue(credits.contains("KDE® is a registered trademark of KDE e.V."))
+      XCTAssertTrue(
+        credits.contains(
+          "Debian is a registered trademark owned by Software in the Public Interest, Inc."))
       XCTAssertTrue(credits.contains("not provided, supported or endorsed"))
     }
 
@@ -63,6 +66,7 @@
       XCTAssertEqual(AuroraDistribution.fedora.title, "Aurora Fedora Remix")
       XCTAssertEqual(AuroraDistribution.arch.title, "Aurora Alarm")
       XCTAssertEqual(AuroraDistribution.nixos.title, "Aurora NixOS")
+      XCTAssertEqual(AuroraDistribution.debian.title, "Aurora Debian")
       XCTAssertEqual(AuroraDistribution.legacyTitles, ["Fedora Aurora Remix", "Aurora ALARM"])
     }
   }
