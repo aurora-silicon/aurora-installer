@@ -48,8 +48,9 @@
       }
       let ambientLight = try source.machine == "j700" ? nil : collectAmbientLight()
       // Read before the first disk change, like the light sensor. A Mac whose
-      // peripheral snapshot already holds them is not read twice, and records
-      // that cannot be read leave only Touch ID out.
+      // peripheral snapshot already holds them is not read twice. Missing,
+      // ambiguous or malformed records leave only Touch ID out; a failed read
+      // stops the installation here.
       var sensor: NativeSensorInputs?
       if peripherals == nil {
         sensor = try NativeTouchIDFirmware.inputs { try collectSensor(package.storeIdentifier) }

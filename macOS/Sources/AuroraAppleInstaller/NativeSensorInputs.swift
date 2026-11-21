@@ -37,6 +37,11 @@
       } catch let error where leavesOnlyTouchIDOut(error) {
         warn("its sensor records could not be used (\(describe(error)))")
         return nil
+      } catch let error where !(error is CancellationError) {
+        InstallerLog.error(
+          "Reading this Mac’s Touch ID sensor records failed (\(describe(error))). "
+            + "The installation stopped before writing anything to disk.")
+        throw error
       }
     }
 

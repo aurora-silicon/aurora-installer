@@ -284,8 +284,8 @@
           try merge(calibration, into: &outputs)
           try merge(calibration, into: &fallback)
         }
-        // Touch ID is optional: records that are missing or do not validate
-        // leave it out with a warning, never the rest of the installation.
+        // Touch ID is optional: missing, ambiguous or malformed records leave
+        // it out with a warning, never the rest of the installation.
         if peripherals == nil {
           let records = try NativeTouchIDFirmware.inputs { try sensor(package.storeIdentifier) }
           try merge(NativeTouchIDFirmware.files(records, machine: source.machine), into: &outputs)

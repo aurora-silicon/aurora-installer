@@ -281,6 +281,12 @@
         $0.level == .error && $0.message.contains("Touch ID will not work on Linux")
       }
       XCTAssertEqual(warnings.count, 8)
+      // Each stop names the sensor read and that nothing was written;
+      // cancellation is not reported as a failed read.
+      let stops = buffer.snapshot().filter {
+        $0.level == .error && $0.message.contains("before writing anything to disk")
+      }
+      XCTAssertEqual(stops.count, 3)
     }
 
     /// A disk that is not the selected store, or whose first partition is not
