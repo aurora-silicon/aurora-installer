@@ -62,6 +62,27 @@
       XCTAssertEqual(try store.channel(for: second, storeIdentifier: "disk0"), .rc)
     }
 
+    func testATruncatedRecordFileIsReplacedByTheNextInstall() throws {
+      // A record file cut short must not block every later install's record.
+      let store = InstallationChannelRecordStore(directory: directory)
+      try store.record(.edge, storeIdentifier: "disk0", offsetBytes: 100_000, lengthBytes: 50_000)
+      let file = directory.appendingPathComponent(InstallationChannelRecordStore.fileName)
+      let whole = try Data(contentsOf: file)
+      try whole.prefix(whole.count / 2).write(to: file)
+      try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+      let installation = NativeKnownInstallation(
+        sourceIdentifier: "disk0s9", offsetBytes: 300_000, lengthBytes: 50_000)
+
+      try store.record(
+        .testing, storeIdentifier: "disk0", offsetBytes: 300_000, lengthBytes: 50_000)
+
+      XCTAssertEqual(try store.channel(for: installation, storeIdentifier: "disk0"), .testing)
+      // What the cut-short file held is gone, not guessed at.
+      let earlier = NativeKnownInstallation(
+        sourceIdentifier: "disk0s5", offsetBytes: 100_000, lengthBytes: 50_000)
+      XCTAssertNil(try store.channel(for: earlier, storeIdentifier: "disk0"))
+    }
+
     func testAnUnreadableRecordIsNotTrusted() throws {
       let file = directory.appendingPathComponent(InstallationChannelRecordStore.fileName)
       try Data("not json".utf8).write(to: file)

@@ -170,6 +170,23 @@
         "Choose Nightly from the Release channel menu, or check Edge again later.")
     }
 
+    func testTheMastheadNamesAPreservedPlansChannelWhicheverItIs() {
+      // A new installation is labelled only when it reads Nightly. A Reset or
+      // boot loader update names its channel, Edge included, because it may
+      // differ from what the installation has been following.
+      func label(_ channel: ReleaseChannel?, existing: Bool) -> String? {
+        PlainLanguage.mastheadChannelLabel(channel, existingInstallation: existing)
+      }
+      XCTAssertEqual(label(.testing, existing: false), "Nightly")
+      XCTAssertNil(label(.edge, existing: false))
+      XCTAssertNil(label(nil, existing: false))
+      XCTAssertEqual(label(.testing, existing: true), "Nightly")
+      XCTAssertEqual(label(.edge, existing: true), "Edge")
+      XCTAssertEqual(label(.stable, existing: true), "Stable")
+      XCTAssertEqual(label(.rc, existing: true), "Release candidate")
+      XCTAssertNil(label(nil, existing: true))
+    }
+
     func testAnUnreachableReleaseListPointsToTheChannelMenu() {
       // Offline, Edge stays chosen where it was the default; the failure says
       // how to reach another channel, while a failed download stays generic.
