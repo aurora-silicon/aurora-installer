@@ -21,7 +21,8 @@
 
     func testAnInstallationIsFoundByTheSpaceItWasInstalledInto() throws {
       let store = InstallationChannelRecordStore(directory: directory)
-      try store.record(.testing, storeIdentifier: "disk0", offsetBytes: 100_000, lengthBytes: 50_000)
+      try store.record(
+        .testing, storeIdentifier: "disk0", offsetBytes: 100_000, lengthBytes: 50_000)
 
       // Recognized later from the disk: its startup container onwards.
       let installed = NativeKnownInstallation(
@@ -52,7 +53,8 @@
       try store.record(.edge, storeIdentifier: "disk0", offsetBytes: 100_000, lengthBytes: 50_000)
       try store.record(.rc, storeIdentifier: "disk0", offsetBytes: 300_000, lengthBytes: 50_000)
       // A Reset of the first installation, from Nightly.
-      try store.record(.testing, storeIdentifier: "disk0", offsetBytes: 110_000, lengthBytes: 40_000)
+      try store.record(
+        .testing, storeIdentifier: "disk0", offsetBytes: 110_000, lengthBytes: 40_000)
 
       let first = NativeKnownInstallation(
         sourceIdentifier: "disk0s5", offsetBytes: 100_000, lengthBytes: 50_000)
