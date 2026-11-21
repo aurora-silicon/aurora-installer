@@ -1,4 +1,5 @@
 #if os(macOS)
+  import AuroraFirmware
   import Foundation
 
   /// Firmware collection follows the single identity admitted for the stub:
@@ -14,6 +15,19 @@
     let chipID: UInt64
     let fud: [FUD]
     let kernel: String
+    /// This Mac's N1 Wi-Fi and Bluetooth firmware, when its build identity
+    /// has an N1: the one image its `Wireless1,` components name and the
+    /// model's ticket, both read from the stub's restore directory, and the
+    /// file the driver requests.
+    struct Centauri: Equatable, Sendable {
+      let image: String
+      let ticket: String
+      let name: String
+    }
+    let centauri: Centauri?
+    /// Why an identity with an N1 has no `centauri`: it names more than one
+    /// image. The Mac then installs without Wi-Fi and Bluetooth.
+    let centauriProblem: String?
 
     init(manifest: Data) throws {
       guard
@@ -36,6 +50,7 @@
       self.chipID = chipID
       var selected = [FUD]()
       var kernels = Set<String>()
+      var wireless = Set<String>()
       for key in components.keys.sorted() {
         // Firmware is read from the stub's restore directory, which holds
         // only the components the stub copies; only their paths are used.
@@ -47,6 +62,7 @@
         else { throw NativeStubFileError.invalidPlan }
         guard copied else { continue }
         if path.hasPrefix("kernelcache.") { kernels.insert(path) }
+        if key.hasPrefix("Wireless1,") { wireless.insert(path) }
         for flag in ["IsFUDFirmware", "IsLoadedByiBoot", "IsLoadedByiBootStage1"] {
           if let value = entry[flag], !(value is Bool) { throw NativeStubFileError.invalidPlan }
         }
@@ -63,6 +79,18 @@
       else { throw NativeStubFileError.invalidPlan }
       self.kernel = kernel
       fud = selected
+      if wireless.count == 1, let image = wireless.first {
+        centauri = Centauri(
+          image: image, ticket: CentauriFirmware.ticketPath(deviceClass: device),
+          name: CentauriFirmware.firmwareName(machine: machine))
+        centauriProblem = nil
+      } else if wireless.isEmpty {
+        centauri = nil
+        centauriProblem = nil
+      } else {
+        centauri = nil
+        centauriProblem = "the build identity names \(wireless.count) different N1 images"
+      }
     }
   }
 #endif

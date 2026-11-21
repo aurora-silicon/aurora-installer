@@ -9,6 +9,7 @@ from .kernel import KernelFWCollection
 from .isp import ISPFWCollection
 from .als import AlsFWCollection
 from .audio_tuning import AudioTuningFWCollection
+from .centauri import CentauriFWCollection
 
 def update_firmware(source, dest):
     raw_fw = source.joinpath("all_firmware.tar.gz")
@@ -37,6 +38,9 @@ def update_firmware(source, dest):
         pkg.add_files(sorted(col.files()))
 
         col = AudioTuningFWCollection(str(tmpdir))
+        pkg.add_files(sorted(col.files()))
+
+        col = CentauriFWCollection(str(tmpdir.joinpath("centauri")))
         pkg.add_files(sorted(col.files()))
 
     col = KernelFWCollection(str(source))
