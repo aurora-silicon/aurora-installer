@@ -151,6 +151,10 @@
       /// Firmware collection leaves them out; a caller that must have the
       /// whole set fails on them.
       var unresolved: [String] = []
+      /// What each link in `links` itself names, as the tree ships it: a link
+      /// may name another link. An archive that keeps these holds the tree
+      /// exactly as its volume has it.
+      var shippedLinks: [String: String] = [:]
     }
 
     /// Entries whose relative path `admit` refuses (macOS sidecars, for the
@@ -198,6 +202,7 @@
       // Follow each link through at most a few other links to a regular file.
       // A link that ends nowhere is left out, like a file the image lacks.
       var links = [String: String]()
+      var shipped = [String: String]()
       var unresolved = [String]()
       for (alias, first) in named {
         var target = first
@@ -207,9 +212,15 @@
           guard hops <= 8 else { throw NativeFirmwareInputFailure.invalidSource }
           target = next
         }
-        if files[target] != nil { links[alias] = target } else { unresolved.append(alias) }
+        if files[target] != nil {
+          links[alias] = target
+          shipped[alias] = first
+        } else {
+          unresolved.append(alias)
+        }
       }
-      return Snapshot(files: files, links: links, unresolved: unresolved.sorted())
+      return Snapshot(
+        files: files, links: links, unresolved: unresolved.sorted(), shippedLinks: shipped)
     }
 
     /// A link may only name another entry in its own directory.

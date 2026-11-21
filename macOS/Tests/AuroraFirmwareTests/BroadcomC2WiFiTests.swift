@@ -9,6 +9,9 @@ import XCTest
 /// holds every board, with hostomel.trx and mriya.trx naming guam.trx.
 final class BroadcomC2WiFiTests: XCTestCase {
   static let firmware = Data("synthetic C2 firmware".utf8)
+  /// The M4 Pro and M4 Max laptops' boards (their ADT `wlan` module-instance),
+  /// whose radios are BCM4388 rev C2.
+  static let boards = ["hostomel", "mriya"]
 
   /// The 25G83 Recovery image's C2 directory once its dangling links are gone.
   static func recovery25G83() -> (files: [String: Data], links: [String: String]) {
@@ -60,28 +63,26 @@ final class BroadcomC2WiFiTests: XCTestCase {
     let recovery = Self.recovery25G83()
     let outputs = try BroadcomFirmware.wifi(recovery.files, links: recovery.links)
     XCTAssertFalse(outputs.keys.contains { $0.hasSuffix(".bin") }, outputs.keys.description)
-    for (machine, required) in BroadcomFirmware.m4ProMaxWiFi {
-      let missing = BroadcomFirmware.missingWiFi(
-        outputs, chip: required.chip, board: required.board)
-      XCTAssertTrue(
-        missing.contains("brcm/brcmfmac4388c2-pcie.apple," + required.board + ".bin"), machine)
-      XCTAssertFalse(BroadcomFirmware.carriesWiFi(outputs, board: required.board), machine)
+    for board in Self.boards {
+      let missing = BroadcomFirmware.missingWiFi(outputs, chip: "4388c2", board: board)
+      XCTAssertTrue(missing.contains("brcm/brcmfmac4388c2-pcie.apple," + board + ".bin"), board)
+      XCTAssertFalse(BroadcomFirmware.carriesWiFi(outputs, board: board), board)
+      XCTAssertEqual(BroadcomFirmware.wifiSource(board: board, system: outputs), .recovery)
+      // A package of this Recovery alone lacks the board's Wi-Fi.
       XCTAssertEqual(
-        BroadcomFirmware.wifiSource(board: required.board, system: outputs), .recovery)
+        BroadcomFirmware.missingRadios(wifi: outputs, bluetooth: [:], board: board).first,
+        "brcm/brcmfmac*-pcie.apple," + board + ".bin")
     }
   }
 
   func testInstalledSystemPackageIsCompleteForEveryM4ProAndMaxBoard() throws {
     let system = Self.installedSystem()
     let outputs = try BroadcomFirmware.wifi(system.files, links: system.links)
-    for (machine, required) in BroadcomFirmware.m4ProMaxWiFi {
-      XCTAssertEqual(
-        BroadcomFirmware.missingWiFi(outputs, chip: required.chip, board: required.board), [],
-        machine)
-      XCTAssertEqual(
-        outputs["brcm/brcmfmac4388c2-pcie.apple," + required.board + ".bin"], Self.firmware)
-      XCTAssertEqual(
-        BroadcomFirmware.wifiSource(board: required.board, system: outputs), .system)
+    for board in Self.boards {
+      XCTAssertEqual(BroadcomFirmware.missingWiFi(outputs, chip: "4388c2", board: board), [])
+      XCTAssertEqual(BroadcomFirmware.wifiChips(outputs, board: board), ["4388c2"])
+      XCTAssertEqual(outputs["brcm/brcmfmac4388c2-pcie.apple," + board + ".bin"], Self.firmware)
+      XCTAssertEqual(BroadcomFirmware.wifiSource(board: board, system: outputs), .system)
     }
     // The C2 directory is converted like any other; nothing in it is skipped.
     XCTAssertNotNil(outputs["brcm/brcmfmac4388c2-pcie.apple,hostomel.clm_blob"])

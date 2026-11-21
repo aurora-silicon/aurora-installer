@@ -28,9 +28,11 @@
       try NativeFactoryCalibrationInput.snapshot(storeIdentifier: $0)
     }
     var admitESPFilesystem: @Sendable (Int32) throws -> Void = NativeESPFileStore.requireFAT
-    var wifiBoard: @Sendable () throws -> String? = { try NativeSystemWiFiFirmware.board() }
-    var systemWiFi: @Sendable (uid_t) throws -> NativeFirmwareInputFiles.Snapshot = {
-      try NativeSystemWiFiFirmware.live(owner: $0)
+    var wifiBoard: @Sendable () throws -> String? = { try NativeSystemRadioFirmware.board() }
+    /// One radio's firmware tree (`wifi` or `bluetooth`) on the running
+    /// system's volume.
+    var systemRadio: @Sendable (uid_t, String) throws -> NativeFirmwareInputFiles.Snapshot = {
+      try NativeSystemRadioFirmware.live(owner: $0, directory: $1)
     }
     /// This Mac's own speaker tuning (`AID<n>` and `speaker-thiele-small`).
     var audioTuning: @Sendable (uid_t) throws -> NativeAudioTuningInputs.Snapshot? = {
@@ -200,48 +202,76 @@
               root: image.root, prefix: "usr/share/firmware", tree: imageTree, owner: owner)
           }
           for (name, data) in radio.files { fallback["firmware/" + name] = data }
-          // The image's radio aliases stay links in the fallback archive.
-          for (name, target) in radio.links {
+          // The image's radio aliases stay links in the fallback archive,
+          // each naming what the image's own link names.
+          for (name, target) in radio.shippedLinks {
             radioLinks["firmware/" + name] = String(target.split(separator: "/").last!)
           }
           var wifi = try BroadcomFirmware.wifi(
             subtree(radio.files, "wifi/"), links: sublinks(radio.links, "wifi/"))
-          let bluetooth = try BroadcomFirmware.bluetooth(
+          var bluetooth = try BroadcomFirmware.bluetooth(
             subtree(radio.files, "bluetooth/"), links: sublinks(radio.links, "bluetooth/"))
           if package.deviceIdentifier != "apple,j700" {
-            let board = try wifiBoard()
-            // An unreadable system volume leaves Recovery as the only source.
-            var system: NativeFirmwareInputFiles.Snapshot?
-            do {
-              system = try InstallerPerformance.measure("vendor_system_wifi") {
-                try systemWiFi(owner)
+            if let board = try wifiBoard() {
+              // Each radio's firmware is the installed macOS's when its
+              // system volume carries this board's, and Recovery's otherwise.
+              // The fallback archive keeps the tree each one came from, so a
+              // later conversion on Linux reproduces the same set.
+              func select(
+                _ directory: String, _ label: String, recovery: [String: Data],
+                convert: (NativeFirmwareInputFiles.Snapshot) throws -> [String: Data],
+                choice: (String?, [String: Data]?) -> BroadcomFirmware.RadioSource
+              ) throws -> [String: Data] {
+                // An unreadable system volume leaves Recovery as the only source.
+                var system: NativeFirmwareInputFiles.Snapshot?
+                do {
+                  system = try InstallerPerformance.measure("vendor_system_" + directory) {
+                    try systemRadio(owner, directory)
+                  }
+                } catch is CancellationError {
+                  throw CancellationError()
+                } catch {
+                  system = nil
+                }
+                let systemSet = try system.map(convert)
+                if choice(board, systemSet) == .system, let system, let systemSet {
+                  let prefix = "firmware/" + directory + "/"
+                  fallback = fallback.filter { !$0.key.hasPrefix(prefix) }
+                  radioLinks = radioLinks.filter { !$0.key.hasPrefix(prefix) }
+                  for (name, data) in system.files { fallback[prefix + name] = data }
+                  for (name, target) in system.shippedLinks {
+                    radioLinks[prefix + name] = String(target.split(separator: "/").last!)
+                  }
+                  InstallerLog.progress(
+                    "\(label) firmware: the installed macOS's, for board \(board).")
+                  return systemSet
+                }
+                InstallerLog.progress(
+                  "\(label) firmware: the stub's Recovery, as the installed macOS "
+                    + (system == nil ? "could not be read" : "has none for board \(board)") + ".")
+                return recovery
               }
-            } catch is CancellationError {
-              throw CancellationError()
-            } catch {
-              system = nil
-            }
-            let systemSet = try system.map { try BroadcomFirmware.wifi($0.files, links: $0.links) }
-            if BroadcomFirmware.wifiSource(board: board, system: systemSet) == .system,
-              let system, let systemSet
-            {
-              // The fallback archive keeps the tree the package came from, so
-              // a later conversion on Linux reproduces the same Wi-Fi set.
-              wifi = systemSet
-              fallback = fallback.filter { !$0.key.hasPrefix("firmware/wifi/") }
-              radioLinks = radioLinks.filter { !$0.key.hasPrefix("firmware/wifi/") }
-              for (name, data) in system.files { fallback["firmware/wifi/" + name] = data }
-              for (name, target) in system.links {
-                radioLinks["firmware/wifi/" + name] = String(target.split(separator: "/").last!)
+              wifi = try select(
+                "wifi", "Wi-Fi", recovery: wifi,
+                convert: { try BroadcomFirmware.wifi($0.files, links: $0.links) },
+                choice: BroadcomFirmware.wifiSource)
+              bluetooth = try select(
+                "bluetooth", "Bluetooth", recovery: bluetooth,
+                convert: { try BroadcomFirmware.bluetooth($0.files, links: $0.links) },
+                choice: BroadcomFirmware.bluetoothSource)
+              // The package must bring up this board's own radios.
+              let missing = BroadcomFirmware.missingRadios(
+                wifi: wifi, bluetooth: bluetooth, board: board)
+              guard missing.isEmpty else {
+                InstallerLog.error(
+                  "No source has this Mac's radio firmware for board \(board): "
+                    + missing.joined(separator: ", "))
+                throw NativeFirmwareInputFailure.invalidSource
               }
-            }
-            // An M4 Pro or M4 Max package must bring up its own board's radios.
-            if let required = BroadcomFirmware.m4ProMaxWiFi[source.machine] {
-              guard let board,
-                BroadcomFirmware.missingWiFi(wifi, chip: required.chip, board: board).isEmpty,
-                BroadcomFirmware.missingBluetooth(bluetooth, chip: required.chip, board: board)
-                  .isEmpty
-              else { throw NativeFirmwareInputFailure.invalidSource }
+            } else {
+              InstallerLog.progress(
+                "Wi-Fi and Bluetooth firmware: the stub's Recovery, as the device tree names no"
+                  + " radio board (the wlan node's module-instance).")
             }
           }
           guard package.deviceIdentifier == "apple,j700" || (!wifi.isEmpty && !bluetooth.isEmpty)

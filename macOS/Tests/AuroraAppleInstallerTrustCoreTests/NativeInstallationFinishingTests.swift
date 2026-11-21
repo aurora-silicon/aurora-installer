@@ -16,6 +16,8 @@
       var imageOpens = 0
       var rejectDetach = false
       var attachment: URL?
+      /// Bluetooth files the Recovery image has besides the fixture's.
+      var recoveryBluetooth = [String: Data]()
       /// The ADT Wi-Fi board, and the installed system's firmware tree with
       /// its `wifi` directory. Without a tree the system volume is unreadable.
       var wifiBoard: String?
@@ -162,6 +164,10 @@
                   attributes: [.posixPermissions: 0o700])
                 try data.write(to: path)
               }
+              for (name, data) in self.recoveryBluetooth {
+                try data.write(
+                  to: root.appendingPathComponent("usr/share/firmware/bluetooth/" + name))
+              }
             }
             return NativeFirmwareMountedImage(
               directory: directory, root: root, device: "disk99s1",
@@ -179,12 +185,12 @@
           },
           admitESPFilesystem: { _ in },
           wifiBoard: { self.wifiBoard },
-          systemWiFi: { owner in
+          systemRadio: { owner, directory in
             guard let root = self.systemFirmware else {
               throw NativeFirmwareInputFailure.invalidSource
             }
             return try NativeFirmwareInputFiles.snapshot(
-              root: root, prefix: "wifi",
+              root: root, prefix: directory,
               tree: NativeHandoffFileTree(root, protected: true, owner: owner), owner: owner)
           },
           audioTuning: { _ in
@@ -272,8 +278,11 @@
 
     /// An installed system's firmware tree shaped like 26.6.2 (25G83): the
     /// Recovery fixture's J314s Wi-Fi plus a C2 directory whose boards alias
-    /// one shared firmware file.
-    static func systemFirmware(in parent: URL, boards: [String], j314s: Bool) throws -> URL {
+    /// one shared firmware file, and the `bluetooth` files given. Without
+    /// them the tree has no `bluetooth` directory.
+    static func systemFirmware(
+      in parent: URL, boards: [String], j314s: Bool, bluetooth: [String: Data] = [:]
+    ) throws -> URL {
       let root = parent.appendingPathComponent("system-firmware-" + UUID().uuidString)
       let c2 = root.appendingPathComponent("wifi/C-4388__s-C2")
       try FileManager.default.createDirectory(
@@ -310,7 +319,27 @@
           try link(board + "-" + sku + ".clmb", board + ".clmb")
         }
       }
+      if !bluetooth.isEmpty {
+        let directory = root.appendingPathComponent("bluetooth")
+        try FileManager.default.createDirectory(
+          at: directory, withIntermediateDirectories: false,
+          attributes: [.posixPermissions: 0o755])
+        for (name, data) in bluetooth {
+          try data.write(to: directory.appendingPathComponent(name))
+        }
+      }
       return root
+    }
+
+    /// A board's Bluetooth firmware and patch table for a USI module, named as
+    /// macOS names them, with `tag` in their names and bytes. `board` is
+    /// spelled as macOS spells it (`J314s`); the package names it in lower case.
+    static func bluetooth(_ board: String, _ tag: String) -> [String: Data] {
+      let stem = "BCM4378B1_" + tag + "_PCIE_macOS_" + board + "_OS_USI_20260101"
+      return [
+        stem + ".bin": Data((tag + " Bluetooth firmware").utf8),
+        stem + ".ptb": Data((tag + " Bluetooth patch table").utf8),
+      ]
     }
 
     func vendorOutputs(_ fixture: Fixture) throws -> (manifest: String, fallback: [String]) {
@@ -333,12 +362,37 @@
       )
     }
 
-    func testInstalledSystemWiFiIsPreferredAndKeptInTheFallbackArchive() async throws {
+    /// The fallback archive, unpacked with the system's `tar`.
+    func unpackedFallback(_ fixture: Fixture) throws -> URL {
+      let directory = fixture.base.directory.appendingPathComponent(
+        "fallback-" + UUID().uuidString)
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+      let tar = Process()
+      tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+      tar.arguments = [
+        "-xzf", fixture.esp.esp.appendingPathComponent("asahi/all_firmware.tar.gz").path,
+        "-C", directory.path,
+      ]
+      try tar.run()
+      tar.waitUntilExit()
+      XCTAssertEqual(tar.terminationStatus, 0)
+      return directory
+    }
+
+    /// The package line that names `name` with these bytes.
+    static func packaged(_ name: String, _ data: Data) -> String {
+      "FILE " + name + " SHA256 " + NativeStubFileStore.hash(data) + "\n"
+    }
+
+    func testInstalledSystemRadiosArePreferredAndKeptInTheFallbackArchive() async throws {
       let fixture = try await Fixture(machine: "j314s")
       fixture.wifiBoard = "j314s"
+      fixture.recoveryBluetooth = Self.bluetooth("J314s", "recovery")
+      let system = Self.bluetooth("J314s", "system")
       fixture.systemFirmware = try Self.systemFirmware(
-        in: fixture.base.directory, boards: ["hostomel", "mriya"], j314s: true)
-      _ = try await fixture.prepareVendor()
+        in: fixture.base.directory, boards: ["hostomel", "mriya"], j314s: true, bluetooth: system)
+      let buffer = InstallerLogBuffer(capacity: 1000)
+      _ = try await InstallerLog.logging(into: buffer) { try await fixture.prepareVendor() }
       let (manifest, fallback) = try vendorOutputs(fixture)
       XCTAssertTrue(manifest.contains("brcm/brcmfmac4355c1-pcie.apple,j314s.bin"))
       for board in ["hostomel", "mriya"] {
@@ -347,27 +401,125 @@
         }
         XCTAssertTrue(manifest.contains("brcm/brcmfmac4388c2-pcie.apple," + board + "-WLMT-u.txt"))
       }
-      XCTAssertTrue(manifest.contains("brcm/brcmbt4388b0-apple,tokara-a.bin"))
-      // A later conversion on Linux reads the same system tree.
+      // Bluetooth is the installed system's too, and none of Recovery's.
+      for (name, data) in system {
+        let ext = name.hasSuffix(".bin") ? "bin" : "ptb"
+        XCTAssertTrue(
+          manifest.contains(Self.packaged("brcm/brcmbt4378b1-apple,j314s-u." + ext, data)), name)
+      }
+      XCTAssertFalse(manifest.contains("tokara"))
+      // A later conversion on Linux reads the same system trees.
       XCTAssertTrue(fallback.contains { $0.hasSuffix("firmware/wifi/C-4388__s-C2/guam.trx") })
       XCTAssertTrue(fallback.contains { $0.hasSuffix("firmware/wifi/C-4388__s-C2/hostomel.trx") })
-      XCTAssertTrue(fallback.contains { $0.contains("firmware/bluetooth/") })
+      for name in system.keys {
+        XCTAssertTrue(fallback.contains { $0.hasSuffix("firmware/bluetooth/" + name) }, name)
+      }
+      XCTAssertFalse(fallback.contains { $0.contains("firmware/bluetooth/BCM4378B1_recovery") })
+      XCTAssertFalse(fallback.contains { $0.contains("TokaraES2") })
+      // Each alias names what macOS's own link names, an alias included.
+      let unpacked = try unpackedFallback(fixture)
+      let c2 = unpacked.appendingPathComponent("firmware/wifi/C-4388__s-C2")
+      for (alias, target) in [("hostomel-X0.trx", "hostomel.trx"), ("hostomel.trx", "guam.trx")] {
+        XCTAssertEqual(
+          try FileManager.default.destinationOfSymbolicLink(
+            atPath: c2.appendingPathComponent(alias).path), target, alias)
+      }
+      XCTAssertEqual(
+        try Data(contentsOf: c2.appendingPathComponent("mriya-X3.trx")),
+        Data("synthetic C2 firmware".utf8))
+      let messages = buffer.snapshot().map(\.message)
+      XCTAssertTrue(messages.contains("Wi-Fi firmware: the installed macOS's, for board j314s."))
+      XCTAssertTrue(
+        messages.contains("Bluetooth firmware: the installed macOS's, for board j314s."))
     }
 
     func testRecoveryWiFiStaysWhenTheSystemLacksTheBoardOrIsUnreadable() async throws {
       for system in [true, false] {
         let fixture = try await Fixture(machine: "j314s")
         fixture.wifiBoard = "j314s"
+        fixture.recoveryBluetooth = Self.bluetooth("J314s", "recovery")
         if system {
           fixture.systemFirmware = try Self.systemFirmware(
             in: fixture.base.directory, boards: ["hostomel"], j314s: false)
         }
-        _ = try await fixture.prepareVendor()
+        let buffer = InstallerLogBuffer(capacity: 1000)
+        _ = try await InstallerLog.logging(into: buffer) { try await fixture.prepareVendor() }
         let (manifest, fallback) = try vendorOutputs(fixture)
         XCTAssertTrue(manifest.contains("brcm/brcmfmac4355c1-pcie.apple,j314s.bin"))
         XCTAssertFalse(manifest.contains("brcmfmac4388c2"))
         XCTAssertFalse(fallback.contains { $0.contains("C-4388__s-C2") })
+        let reason = system ? "has none for board j314s" : "could not be read"
+        XCTAssertTrue(
+          buffer.snapshot().map(\.message).contains(
+            "Wi-Fi firmware: the stub's Recovery, as the installed macOS " + reason + "."))
       }
+    }
+
+    func testRecoveryBluetoothStaysWhenTheInstalledSystemLacksTheBoard() async throws {
+      let fixture = try await Fixture(machine: "j314s")
+      fixture.wifiBoard = "j314s"
+      let recovery = Self.bluetooth("J314s", "recovery")
+      fixture.recoveryBluetooth = recovery
+      fixture.systemFirmware = try Self.systemFirmware(
+        in: fixture.base.directory, boards: ["hostomel"], j314s: true,
+        bluetooth: Self.bluetooth("Kyushu", "system"))
+      let buffer = InstallerLogBuffer(capacity: 1000)
+      _ = try await InstallerLog.logging(into: buffer) { try await fixture.prepareVendor() }
+      let (manifest, fallback) = try vendorOutputs(fixture)
+      for (name, data) in recovery {
+        let ext = name.hasSuffix(".bin") ? "bin" : "ptb"
+        XCTAssertTrue(
+          manifest.contains(Self.packaged("brcm/brcmbt4378b1-apple,j314s-u." + ext, data)), name)
+        XCTAssertTrue(fallback.contains { $0.hasSuffix("firmware/bluetooth/" + name) }, name)
+      }
+      XCTAssertTrue(manifest.contains("brcm/brcmbt4388b0-apple,tokara-a.bin"))
+      XCTAssertFalse(manifest.contains("kyushu"))
+      XCTAssertFalse(fallback.contains { $0.contains("Kyushu") })
+      // Wi-Fi still comes from the system, which has this board's.
+      XCTAssertTrue(fallback.contains { $0.hasSuffix("firmware/wifi/C-4388__s-C2/hostomel.trx") })
+      let messages = buffer.snapshot().map(\.message)
+      XCTAssertTrue(messages.contains("Wi-Fi firmware: the installed macOS's, for board j314s."))
+      XCTAssertTrue(
+        messages.contains(
+          "Bluetooth firmware: the stub's Recovery, as the installed macOS has none for board"
+            + " j314s."))
+    }
+
+    func testWithoutARadioBoardBothRadiosComeFromRecovery() async throws {
+      let fixture = try await Fixture(machine: "j314s")
+      fixture.systemFirmware = try Self.systemFirmware(
+        in: fixture.base.directory, boards: ["hostomel"], j314s: true,
+        bluetooth: Self.bluetooth("J314s", "system"))
+      let buffer = InstallerLogBuffer(capacity: 1000)
+      _ = try await InstallerLog.logging(into: buffer) { try await fixture.prepareVendor() }
+      let (manifest, fallback) = try vendorOutputs(fixture)
+      XCTAssertTrue(manifest.contains("brcm/brcmfmac4355c1-pcie.apple,j314s.bin"))
+      XCTAssertTrue(manifest.contains("brcm/brcmbt4388b0-apple,tokara-a.bin"))
+      XCTAssertFalse(manifest.contains("brcmfmac4388c2"))
+      XCTAssertFalse(manifest.contains("j314s-u."))
+      XCTAssertFalse(fallback.contains { $0.contains("C-4388__s-C2") || $0.contains("_system_") })
+      XCTAssertTrue(
+        buffer.snapshot().contains { $0.message.contains("the device tree names no radio board") })
+    }
+
+    func testAKnownBoardThatNoSourceHasIsRefused() async throws {
+      let fixture = try await Fixture(machine: "j314s")
+      fixture.wifiBoard = "j314s"
+      fixture.systemFirmware = try Self.systemFirmware(
+        in: fixture.base.directory, boards: ["hostomel"], j314s: true,
+        bluetooth: Self.bluetooth("Kyushu", "system"))
+      let buffer = InstallerLogBuffer(capacity: 1000)
+      do {
+        _ = try await InstallerLog.logging(into: buffer) { try await fixture.prepareVendor() }
+        XCTFail("A Mac was installed without its board's Bluetooth")
+      } catch NativeFirmwareInputFailure.invalidSource {
+        // Refused before anything was published.
+      }
+      XCTAssertTrue(
+        buffer.snapshot().contains {
+          $0.level == .error
+            && $0.message.hasSuffix("for board j314s: brcm/brcmbt*-apple,j314s-*.bin")
+        })
     }
 
     func testAmbientLightAbsenceAndCalibrationPublicationHaveSeparateContracts() throws {

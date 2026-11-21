@@ -135,16 +135,6 @@ public enum BroadcomFirmware {
   /// `<board>-<sku>` before `<board>` and the chip's generic name.
   public static let antennaSKUs = ["ID", "X0", "X2", "X3"]
 
-  /// M4 Pro and M4 Max laptops and the Wi-Fi board of their BCM4388 rev C2
-  /// (the ADT `wlan` node's `module-instance`, which aura copies into
-  /// `brcm,board-type`). J614s and J616s are read from their device trees; the
-  /// M4 Max boards share their M4 Pro sibling's board, as every M1 to M3
-  /// Pro/Max pair does.
-  public static let m4ProMaxWiFi: [String: (chip: String, board: String)] = [
-    "j614s": ("4388c2", "mriya"), "j614c": ("4388c2", "mriya"),
-    "j616s": ("4388c2", "hostomel"), "j616c": ("4388c2", "hostomel"),
-  ]
-
   /// The package names a board's Wi-Fi still lacks: firmware (`.bin`),
   /// regulatory data (`.clm_blob`) and NVRAM (`.txt`), for the board itself
   /// and each antenna SKU, resolved the way brcmfmac resolves them. An empty
@@ -183,24 +173,60 @@ public enum BroadcomFirmware {
     return missing
   }
 
-  /// Whether a converted Wi-Fi set carries firmware for this board.
-  public static func carriesWiFi(_ outputs: [String: Data], board: String) -> Bool {
-    outputs.contains { name, data in
-      !data.isEmpty && name.hasPrefix("brcm/brcmfmac") && name.hasSuffix(".bin")
-        && (name.contains("-pcie.apple," + board + ".")
-          || name.contains("-pcie.apple," + board + "-"))
+  /// The chip revisions (`4378b1`) a converted set has a board's firmware
+  /// for: a non-empty `.bin` named `<prefix><chip><infix><board>` and then
+  /// `.` or `-`, so a board is matched whole ("hostomel" is not "hostomelx").
+  private static func chips(
+    _ outputs: [String: Data], prefix: String, infix: String, board: String
+  ) -> [String] {
+    var chips = Set<String>()
+    for (name, data) in outputs {
+      guard !data.isEmpty, name.hasPrefix(prefix), name.hasSuffix(".bin") else { continue }
+      let rest = name.dropFirst(prefix.count)
+      for separator in [".", "-"] {
+        if let range = rest.range(of: infix + board + separator) {
+          chips.insert(String(rest[..<range.lowerBound]))
+        }
+      }
     }
+    return chips.sorted()
   }
 
-  public enum WiFiSource: String, Sendable { case system, recovery }
+  /// The chip revisions a converted Wi-Fi set has this board's firmware for.
+  public static func wifiChips(_ outputs: [String: Data], board: String) -> [String] {
+    chips(outputs, prefix: "brcm/brcmfmac", infix: "-pcie.apple,", board: board)
+  }
 
-  /// The installed macOS ships every board's Wi-Fi firmware on its sealed
-  /// system volume, while a Recovery image may carry only part of a chip's
-  /// set: 26.6.2 (25G83) Recovery holds no usable BCM4388 rev C2 firmware.
-  /// Prefer the installed system, and use Recovery only when it alone has
-  /// this board's firmware or the board is unknown.
-  public static func wifiSource(board: String?, system: [String: Data]?) -> WiFiSource {
+  /// The chip revisions a converted Bluetooth set has this board's firmware for.
+  public static func bluetoothChips(_ outputs: [String: Data], board: String) -> [String] {
+    chips(outputs, prefix: "brcm/brcmbt", infix: "-apple,", board: board)
+  }
+
+  /// Whether a converted Wi-Fi set carries firmware for this board.
+  public static func carriesWiFi(_ outputs: [String: Data], board: String) -> Bool {
+    !wifiChips(outputs, board: board).isEmpty
+  }
+
+  /// Whether a converted Bluetooth set carries firmware for this board.
+  public static func carriesBluetooth(_ outputs: [String: Data], board: String) -> Bool {
+    !bluetoothChips(outputs, board: board).isEmpty
+  }
+
+  public enum RadioSource: String, Sendable { case system, recovery }
+
+  /// The installed macOS ships every board's radio firmware on its sealed
+  /// system volume and runs it, while a Recovery image may be older (the
+  /// stub's macOS 13.5 on many installs) or carry only part of a chip's set:
+  /// 26.6.2 (25G83) Recovery holds no usable BCM4388 rev C2 Wi-Fi firmware.
+  /// Each radio prefers the installed system, and uses Recovery only when the
+  /// system lacks this board's firmware or the board is unknown.
+  public static func wifiSource(board: String?, system: [String: Data]?) -> RadioSource {
     guard let board, let system, carriesWiFi(system, board: board) else { return .recovery }
+    return .system
+  }
+
+  public static func bluetoothSource(board: String?, system: [String: Data]?) -> RadioSource {
+    guard let board, let system, carriesBluetooth(system, board: board) else { return .recovery }
     return .system
   }
 
@@ -214,6 +240,32 @@ public enum BroadcomFirmware {
       ["bin", "ptb"].allSatisfy { outputs[stem + vendor + "." + $0]?.isEmpty == false }
     }
     return complete ? [] : [stem + "-u.bin", stem + "-u.ptb"]
+  }
+
+  /// What a package still lacks to bring up a board's radios: empty when one
+  /// chip revision has the board's complete Wi-Fi (`missingWiFi`) and one has
+  /// its complete Bluetooth (`missingBluetooth`). The ADT names the board but
+  /// not the chip revision, and macOS ships revisions whose set is never
+  /// complete: BCM4388 rev B0 Bluetooth for tokara and amami has no patch
+  /// table in macOS 13.5 or 27.0. When no revision is complete, it names what
+  /// the first one lacks, or the board's firmware when no revision has any.
+  public static func missingRadios(
+    wifi: [String: Data], bluetooth: [String: Data], board: String
+  ) -> [String] {
+    let wifiMissing = wifiChips(wifi, board: board).map {
+      missingWiFi(wifi, chip: $0, board: board)
+    }
+    let bluetoothMissing = bluetoothChips(bluetooth, board: board).map {
+      missingBluetooth(bluetooth, chip: $0, board: board)
+    }
+    var missing = [String]()
+    if !wifiMissing.contains(where: \.isEmpty) {
+      missing += wifiMissing.first ?? ["brcm/brcmfmac*-pcie.apple," + board + ".bin"]
+    }
+    if !bluetoothMissing.contains(where: \.isEmpty) {
+      missing += bluetoothMissing.first ?? ["brcm/brcmbt*-apple," + board + "-*.bin"]
+    }
+    return missing
   }
 
   public static func bluetooth(
