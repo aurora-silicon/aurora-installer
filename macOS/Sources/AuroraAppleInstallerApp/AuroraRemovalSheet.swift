@@ -149,6 +149,8 @@ struct AuroraRemovalSheet: View {
             summaryRow(
               "Free space afterwards", value: PlainLanguage.bytes(ticket.freedBytes ?? 0))
             summaryRow("macOS", value: "Not resized")
+          } else if ticket.reclaimBytes == 0 {
+            summaryRow("macOS", value: "Not resized")
           } else {
             summaryRow("Space returned to macOS", value: PlainLanguage.bytes(ticket.reclaimBytes))
             summaryRow("macOS after removal", value: PlainLanguage.bytes(ticket.macOSBytesAfter))

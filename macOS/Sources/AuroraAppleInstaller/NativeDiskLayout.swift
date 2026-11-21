@@ -200,7 +200,7 @@
         }
       }
       let removable: String?
-      switch try? RemovalLayout.recognize(snapshot) {
+      switch try? RemovalLayout.recognize(snapshot, preserved: disk.preservedForeignStores) {
       case .installation(let found, _, _): removable = found.stub.uuid
       case .partialInstallation(let stub, _, _, _): removable = stub.uuid
       default: removable = nil

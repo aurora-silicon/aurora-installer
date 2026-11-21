@@ -291,6 +291,97 @@
       )
     }
 
+    func testInstallationBehindAnIOSContainerIsRemovedWithoutResizingMacOS() throws {
+      let disk = FakeRemovalDisk(F.iOSBetweenMacOSAndInstall())
+      let original = disk.state
+      let iOS = try XCTUnwrap(original.partitions.first { $0.uuid == F.iOSStore })
+      let iOSContainer = original.containers.first { $0.storeUUID == F.iOSStore }
+      let plan = try AuroraRemovalPlan(disks: disk, collect: { F.collected(original) })
+      XCTAssertEqual(plan.kind, .installation)
+      XCTAssertEqual(
+        plan.members.map(\.uuid),
+        [F.convergedInstall.stub, F.convergedInstall.esp] + F.convergedInstall.linux)
+      XCTAssertFalse(plan.members.contains { $0.uuid == F.iOSStore })
+      XCTAssertEqual(plan.targetMacOSBytes, plan.macOS.size)
+      XCTAssertEqual(plan.reclaimBytes, 0)
+      XCTAssertEqual(plan.preservedStores, [F.iOSStore])
+      XCTAssertEqual(
+        plan.summary,
+        "Found “Aurora”. Removal permanently deletes it and everything stored in it. Another operating system’s container sits between it and macOS, so its space is left unallocated and macOS isn’t resized."
+      )
+      let ticket = plan.ticket(id: UUID())
+      XCTAssertEqual(ticket.kept[0].detail, "disk0s2 · not resized")
+      XCTAssertEqual(
+        ticket.kept.last,
+        AuroraRemovalItem(
+          title: "Another operating system “iOS”", detail: iOS.identifier, bytes: iOS.size))
+      XCTAssertEqual(
+        ticket.notes,
+        [
+          "“iOS” holds another operating system (iOS) and is always kept. macOS never grows across it."
+        ])
+      var journal = [String]()
+      try AuroraRemovalExecutor(disks: disk).execute(plan) { journal.append($0) }
+      XCTAssertEqual(
+        disk.operations,
+        ["container:\(F.convergedInstall.stub)", "erase:\(F.convergedInstall.esp)"]
+          + F.convergedInstall.linux.map { "erase:\($0)" })
+      XCTAssertEqual(journal.last, "complete")
+      XCTAssertFalse(journal.contains("returning-space-to-macos"))
+      XCTAssertEqual(disk.state.partitions.map(\.uuid), [F.isc, F.mac, F.iOSStore, F.recovery])
+      XCTAssertEqual(disk.state.partitions[1], original.partitions[1])
+      XCTAssertEqual(disk.state.partitions.first { $0.uuid == F.iOSStore }, iOS)
+      XCTAssertEqual(disk.state.containers.first { $0.storeUUID == F.iOSStore }, iOSContainer)
+    }
+
+    func testIOSContainerBehindAnInstallationStopsMacOSGrowthAtIt() throws {
+      let disk = FakeRemovalDisk(F.iOSAfterInstall())
+      let original = disk.state
+      let iOS = try XCTUnwrap(original.partitions.first { $0.uuid == F.iOSStore })
+      let plan = try AuroraRemovalPlan(disks: disk, collect: { F.collected(original) })
+      XCTAssertEqual(plan.macOS.offset + plan.targetMacOSBytes, iOS.offset)
+      try AuroraRemovalExecutor(disks: disk).execute(plan) { _ in }
+      XCTAssertEqual(disk.operations.last, "grow:\(F.mac)")
+      XCTAssertEqual(disk.state.partitions.map(\.uuid), [F.isc, F.mac, F.iOSStore, F.recovery])
+      XCTAssertEqual(disk.state.partitions[1].end, iOS.offset)
+      XCTAssertEqual(disk.state.partitions.first { $0.uuid == F.iOSStore }, iOS)
+    }
+
+    func testAContainerNotProvedToBeIOSIsStillRefused() throws {
+      let snapshot = F.iOSBetweenMacOSAndInstall()
+      XCTAssertTrue(RemovalLayout.hasOtherSystem(snapshot))
+      XCTAssertThrowsError(try RemovalLayout.recognize(snapshot))
+      // No scan, a failed scan, a scan of another layout, or one that names
+      // nothing: removal refuses and changes nothing.
+      var moved = snapshot
+      moved.partitions[2].size -= 4096
+      let collections: [(() throws -> NativeCollectedDisk)?] = [
+        nil, { throw NativeInspectionError.systemVolumeUnreadable },
+        { F.collected(moved) }, { F.collected(snapshot, iOS: []) },
+      ]
+      for collect in collections {
+        let disk = FakeRemovalDisk(snapshot)
+        XCTAssertThrowsError(try AuroraRemovalPlan(disks: disk, collect: collect)) { error in
+          XCTAssertTrue(
+            (error as? RemovalFailure)?.message.contains("It looks like another macOS installation")
+              == true)
+        }
+        XCTAssertTrue(disk.operations.isEmpty)
+      }
+      // Only containers are preserved by name, never another partition.
+      XCTAssertThrowsError(
+        try RemovalLayout.recognize(F.windows(), preserved: [F.windows().partitions[2].uuid]))
+    }
+
+    func testAnIOSContainerAloneLeavesNothingToRemove() {
+      let snapshot = F.snapshot(
+        macOSSize: 400_000_000_000, [.part(F.iOSStore, "Apple_APFS", 96_000_000_000)],
+        extraContainers: [F.iOSContainer()])
+      XCTAssertThrowsError(try RemovalLayout.recognize(snapshot, preserved: [F.iOSStore])) {
+        XCTAssertEqual(($0 as? RemovalFailure)?.message, RemovalText.nothingFound(gap: 0))
+      }
+    }
+
     func testFreeSpaceBehindAnotherPartitionIsRefusedAndExplained() {
       assertRefusal(
         FakeRemovalDisk(F.nonContiguousFree(), install: nil),

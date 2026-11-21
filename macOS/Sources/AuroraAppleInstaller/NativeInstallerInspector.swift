@@ -30,6 +30,12 @@
   struct NativeCollectedDisk: Sendable {
     let snapshot: RemovalSnapshot
     let containers: [NativeContainerFacts]
+    /// Physical stores of containers that hold another operating system
+    /// (iOS), proved from that container's own System volume. They get no
+    /// facts and are always preserved: nothing erases, resizes, replaces or
+    /// removes them, and macOS never grows across them. A container with
+    /// neither facts nor this mark is unknown, and every path refuses it.
+    var preservedForeignStores: Set<String> = []
   }
 
   public struct NativeInstallerInspector: NativeInstallerInspecting, Sendable {
@@ -138,6 +144,7 @@
         throw NativeInspectionError.invalidLayout
       }
       var facts = [NativeContainerFacts]()
+      var preserved = Set<String>()
       for container in before.containers {
         try Task.checkCancellation()
         guard let part = before.partitions.first(where: { $0.uuid == container.storeUUID }) else {
@@ -158,6 +165,40 @@
           throw NativeInspectionError.invalidLayout
         }
         let systemVolumes = container.volumes.filter { $0.roles == ["System"] }
+        let belongs: ([String: Any]) -> Bool = { info in
+          guard info["APFSContainerReference"] as? String == reference,
+            let stores = info["APFSPhysicalStores"] as? [[String: Any]], stores.count == 1
+          else { return false }
+          return stores[0]["APFSPhysicalStore"] as? String == part.identifier
+        }
+        // iOS installations can have an ungrouped System/Data pair and no
+        // Recovery volume. Identify the OS from the volume, not its label.
+        // Keep its partition in the snapshot and mark it preserved, but publish
+        // no install facts: this installer never resizes, replaces, erases or
+        // removes that container.
+        if container.uuid != before.macOSContainerUUID,
+          systemVolumes.count == 1, let system = systemVolumes.first,
+          container.volumes.allSatisfy({ $0.group == nil }),
+          !container.volumes.contains(where: { $0.roles == ["Recovery"] })
+        {
+          let isIOS = try disks.withVolume(
+            system.identifier, uuid: system.uuid, belongs: belongs,
+            read: { tree in
+              guard
+                let data = try tree.read(
+                  ["System", "Library", "CoreServices", "SystemVersion.plist"], limit: 65_536),
+                let version = try PropertyListSerialization.propertyList(from: data, format: nil)
+                  as? [String: Any],
+                version["ProductName"] as? String == "iPhone OS",
+                let product = version["ProductVersion"] as? String, !product.isEmpty
+              else { return false }
+              return true
+            })
+          if isIOS {
+            preserved.insert(part.uuid)
+            continue
+          }
+        }
         if !systemVolumes.isEmpty {
           guard container.volumes.filter({ $0.roles == ["Preboot"] }).count == 1,
             container.volumes.filter({ $0.roles == ["Recovery"] }).count == 1
@@ -205,13 +246,7 @@
           } else {
             systems.append(
               try disks.withVolume(
-                system.identifier, uuid: system.uuid,
-                belongs: { info in
-                  guard info["APFSContainerReference"] as? String == reference,
-                    let stores = info["APFSPhysicalStores"] as? [[String: Any]], stores.count == 1
-                  else { return false }
-                  return stores[0]["APFSPhysicalStore"] as? String == part.identifier
-                }, read: read))
+                system.identifier, uuid: system.uuid, belongs: belongs, read: read))
           }
         }
         var minimum: UInt64 = 0
@@ -237,7 +272,8 @@
         throw NativeInspectionError.invalidLayout
       }
       try Task.checkCancellation()
-      return NativeCollectedDisk(snapshot: after, containers: facts)
+      return NativeCollectedDisk(
+        snapshot: after, containers: facts, preservedForeignStores: preserved)
     }
 
     private func plist(_ arguments: [String]) throws -> [String: Any] {
