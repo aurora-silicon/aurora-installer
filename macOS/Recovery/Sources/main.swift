@@ -68,7 +68,7 @@ final class InstallerModel {
   /// Restart or Utilities → Create Recovery Account… opens its setup.
   var accountOptional = false { didSet { changed() } }
   var previewNotice: (title: String, message: String)? { didSet { changed() } }
-  private var checkingAccount = false
+  private(set) var checkingAccount = false
   private var awaitingStartupDiskReturn = false
   private var previewChecks = 0
 
@@ -697,7 +697,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let flow = MacOSRemovalFlow()
     flow.canOpenAccountSetup = { [weak self] in
       guard let model = self?.model else { return false }
-      return model.accountOptional && model.stage == .complete
+      return model.accountOptional && model.stage == .complete && !model.checkingAccount
     }
     flow.openAccountSetup = { [weak self] in self?.model.showRecoveryAccountSetup() }
     return flow
@@ -894,7 +894,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     if item.action == #selector(removeMacOS(_:)) {
       return !macOSRemoval.running && model.stage1Update == nil && model.stage != .installing
         && !model.creatingAccount && !model.restartingCompletedSetup
-        && !model.restartingWithoutAccount
+        && !model.restartingWithoutAccount && !model.preparingTools && !model.checkingAccount
     }
     guard item.action == #selector(createRecoveryAccount(_:)) else { return true }
     return model.accountOptional && model.stage == .complete

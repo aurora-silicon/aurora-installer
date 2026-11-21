@@ -61,8 +61,28 @@ extension RecoveryActions {
 
   /// Find My keeps Activation Lock on this Mac after macOS is gone, and then
   /// only the Apple Account's password can restore it. Turn it off first.
-  static func findMyEnabled() -> Bool {
-    (try? run("/usr/sbin/nvram", ["fmm-mobileme-token-FMM"])) != nil
+  /// Fails closed: when the firmware variables can't be read, removal stops.
+  static func findMyEnabled() throws -> Bool {
+    let unknown = RecoveryFailure(
+      message:
+        "This Mac’s firmware variables couldn’t be read, so it isn’t known whether Find My is on. macOS was not removed."
+    )
+    guard let data = try? run("/usr/sbin/nvram", ["-x", "-p"]),
+      let values = try? PropertyListSerialization.propertyList(from: data, format: nil)
+        as? [String: Any], !values.isEmpty
+    else { throw unknown }
+    return MacOSRemoval.findMyOn(nvram: values)
+  }
+
+  /// The journal holds what the deletion was about to do; only root may
+  /// change it, so `protectedRead` accepts it on resume.
+  static func saveJournal(_ object: [String: Any]) throws {
+    try saveJSON(object, to: wholeDiskJournal)
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o600], ofItemAtPath: wholeDiskJournal.path)
+    try check(
+      chown(wholeDiskJournal.path, 0, 0) == 0,
+      "The macOS removal record couldn’t be protected. Nothing was changed.")
   }
 
   /// The owner that authorizes this installation's startup security from now
@@ -137,6 +157,9 @@ extension RecoveryActions {
     // Paired Recovery of this installation: after removal it is the Mac's
     // only paired Recovery, so prove it works by running in it.
     try requireEnrollmentEnvironment()
+    // The journal lives on this volume; the app may get here before its
+    // background setup made the volume writable.
+    try run("/sbin/mount", ["-u", "-w", volume.path])
     let installation = try wholeDiskInstallation()
     if let resumed = try resumeWholeDiskRemoval(installation) { return .resumed(resumed) }
     let owner = try wholeDiskOwner()
@@ -145,7 +168,7 @@ extension RecoveryActions {
       "Choose \(volumeName) as the startup disk first (Apple menu → Startup Disk), so the Mac starts Aurora without macOS. macOS was not removed."
     )
     try check(
-      !findMyEnabled(),
+      !(try findMyEnabled()),
       "Find My is on for this Mac. Turn it off in macOS (System Settings → your name → iCloud → Find My Mac) or remove this Mac at icloud.com/find first: once macOS is gone, restoring this Mac would need that Apple Account. macOS was not removed."
     )
     let plan = try MacOSRemoval.plan(try readWholeDisk(), installation: installation)
@@ -165,16 +188,20 @@ extension RecoveryActions {
     let installation = review.installation
     // The disk must still be the one reviewed, immediately before deletion.
     try MacOSRemoval.requireUnchanged(plan, now: try readWholeDisk(), installation: installation)
-    var journal = MacOSRemoval.claimRecord(plan, removedAt: Date())
-    journal["phase"] = "deleting"
-    journal["kept"] = plan.kept.map { part -> [String: Any] in
-      ["uuid": part.uuid, "offset": part.offset, "size": part.size]
-    }
-    try saveJSON(journal, to: wholeDiskJournal)
+    // Delete by the partition's UUID, not its position: resolve it once more
+    // and require it to be the reviewed partition of the reviewed disk.
+    let target = try disk(plan.partition.uuid)
+    try check(
+      target["DeviceIdentifier"] as? String == plan.partition.identifier
+        && target["ParentWholeDisk"] as? String == plan.disk,
+      "The macOS partition’s identity changed since it was reviewed. Nothing was changed; review it again."
+    )
+    let journal = MacOSRemoval.journal(plan, removedAt: Date())
+    try saveJournal(journal)
     InstallerLog.shared.append("Removing macOS: deleting container \(plan.macOS.uuid).")
     do {
       try run(
-        "/usr/sbin/diskutil", ["apfs", "deleteContainer", plan.partition.identifier],
+        "/usr/sbin/diskutil", ["apfs", "deleteContainer", plan.partition.uuid],
         timeout: 600)
     } catch {
       let now = try readWholeDisk()
@@ -224,52 +251,48 @@ extension RecoveryActions {
     throws
   {
     try MacOSRemoval.verifyRemoved(plan, after: try readWholeDisk())
-    var record = journal
-    record["phase"] = "removed"
-    record.removeValue(forKey: "kept")
-    try saveJSON(record, to: try esp().appendingPathComponent(claimRecordPath))
+    try saveJSON(
+      MacOSRemoval.linuxRecord(journal), to: try esp().appendingPathComponent(claimRecordPath))
     var done = journal
     done["phase"] = "complete"
-    try saveJSON(done, to: wholeDiskJournal)
+    try saveJournal(done)
   }
 
   /// A deletion interrupted after its journal was written: finish it only when
-  /// the disk shows exactly the planned result.
+  /// the disk shows exactly the planned result (MacOSRemoval.resume).
   private static func resumeWholeDiskRemoval(_ installation: WholeDiskInstallation) throws
     -> String?
   {
     guard FileManager.default.fileExists(atPath: wholeDiskJournal.path) else { return nil }
-    let data = try RecoveryAccountInstaller.protectedRead(wholeDiskJournal, limit: 1 << 16)
-    guard let journal = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-      journal["schema"] as? Int == 1, let phase = journal["phase"] as? String
-    else {
-      throw RecoveryFailure(message: "The macOS removal record is unreadable. Nothing was changed.")
+    let journal: [String: Any]
+    do {
+      let data = try RecoveryAccountInstaller.protectedRead(wholeDiskJournal, limit: 1 << 16)
+      guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        throw RecoveryFailure(message: "not an object")
+      }
+      journal = object
+    } catch {
+      throw RecoveryFailure(
+        message:
+          "The macOS removal record is unreadable (\(error.localizedDescription)). Nothing was changed; save Window → Installer Log and ask for help."
+      )
     }
-    if phase == "complete" { return "macOS was already removed from this Mac." }
-    let layout = try readWholeDisk()
-    let removed = journal["removedPartitionUUID"] as? String
-    guard let removed, !layout.partitions.contains(where: { $0.uuid == removed }) else {
-      // The container is still there: the deletion never happened.
+    switch try MacOSRemoval.resume(
+      journal: journal, installation: installation, now: try readWholeDisk())
+    {
+    case .complete:
+      return "macOS was already removed from this Mac."
+    case .notStarted:
       try FileManager.default.removeItem(at: wholeDiskJournal)
+      InstallerLog.shared.append("Removing macOS: the earlier attempt never started deleting.")
       return nil
+    case .finish:
+      try saveJSON(
+        MacOSRemoval.linuxRecord(journal), to: try esp().appendingPathComponent(claimRecordPath))
+      var done = journal
+      done["phase"] = "complete"
+      try saveJournal(done)
+      return "The interrupted removal of macOS is complete. Restart into Aurora."
     }
-    let kept = (journal["kept"] as? [[String: Any]] ?? []).map {
-      [
-        ($0["uuid"] as? String) ?? "", "\(($0["offset"] as? NSNumber)?.uint64Value ?? 0)",
-        "\(($0["size"] as? NSNumber)?.uint64Value ?? 0)",
-      ]
-    }
-    try check(
-      layout.partitions.map { [$0.uuid, String($0.offset), String($0.size)] } == kept,
-      "The disk doesn’t match the interrupted removal’s record. Nothing more was changed; save Window → Installer Log and ask for help."
-    )
-    var record = journal
-    record["phase"] = "removed"
-    record.removeValue(forKey: "kept")
-    try saveJSON(record, to: try esp().appendingPathComponent(claimRecordPath))
-    var done = journal
-    done["phase"] = "complete"
-    try saveJSON(done, to: wholeDiskJournal)
-    return "The interrupted removal of macOS is complete. Restart into Aurora."
   }
 }

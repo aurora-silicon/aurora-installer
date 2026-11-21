@@ -214,8 +214,8 @@ import Foundation
           systemUUID: stubSystem, groupUUID: stubGroup, espUUID: boot))
     }
     // Without group membership a System volume is not a full macOS: refused,
-    // not guessed (the container is then kept as another startup container).
-    refused("no macOS") {
+    // not guessed.
+    refused("aren’t one volume group") {
       _ = try MacOSRemoval.plan(
         try layout(groups: [
           [
@@ -284,6 +284,116 @@ import Foundation
       broken[3].1.removeValue(forKey: "PartitionMapPartitionOffset")
       _ = try layout(partitions: broken)
     }
+    // deleteContainer deletes every volume in the container: a second macOS
+    // or a volume someone added to macOS's container refuses, naming them.
+    let withExtra: [[String: Any]] =
+      macVolumes + [
+        ["APFSVolumeUUID": "CCCCCCCC-CCCC-4CCC-8CCC-CCCCCCCCCCCC", "Name": "Photos", "Roles": []]
+      ]
+    refused("“Photos” (no role) isn’t part of macOS") {
+      _ = try MacOSRemoval.plan(
+        try layout(containers: [
+          container(3, "22222222-2222-4222-8222-222222222222", "disk0s2", withExtra),
+          container(4, "33333333-3333-4333-8333-333333333333", "disk0s3", stubVolumes),
+        ]), installation: installation)
+    }
+    let secondSystem = "DDDDDDDD-DDDD-4DDD-8DDD-DDDDDDDDDDDD"
+    let secondData = "EEEEEEEE-EEEE-4EEE-8EEE-EEEEEEEEEEEE"
+    let dualMac =
+      macVolumes + [
+        vol(secondSystem, "Macintosh HD 2", "System"), vol(secondData, "Data 2", "Data"),
+      ]
+    refused("2 System volumes") {
+      _ = try MacOSRemoval.plan(
+        try layout(
+          containers: [
+            container(3, "22222222-2222-4222-8222-222222222222", "disk0s2", dualMac),
+            container(4, "33333333-3333-4333-8333-333333333333", "disk0s3", stubVolumes),
+          ],
+          groups: [
+            [
+              "APFSVolumeGroupUUID": macGroup,
+              "Volumes": [["DiskUUID": macSystem], ["DiskUUID": macGroup]],
+            ],
+            [
+              "APFSVolumeGroupUUID": secondData,
+              "Volumes": [["DiskUUID": secondSystem], ["DiskUUID": secondData]],
+            ],
+            [
+              "APFSVolumeGroupUUID": stubGroup,
+              "Volumes": [["DiskUUID": stubSystem], ["DiskUUID": stubGroup]],
+            ],
+          ]), installation: installation)
+    }
+    let twoVM = macVolumes + [vol("FFFFFFFF-FFFF-4FFF-8FFF-FFFFFFFFFFFF", "VM 2", "VM")]
+    refused("more than one VM volume") {
+      _ = try MacOSRemoval.plan(
+        try layout(containers: [
+          container(3, "22222222-2222-4222-8222-222222222222", "disk0s2", twoVM),
+          container(4, "33333333-3333-4333-8333-333333333333", "disk0s3", stubVolumes),
+        ]), installation: installation)
+    }
+    // Find My, from nvram -x -p: the token's presence, with or without the
+    // variable's GUID prefix.
+    precondition(MacOSRemoval.findMyOn(nvram: ["fmm-mobileme-token-FMM": Data([1])]))
+    precondition(
+      MacOSRemoval.findMyOn(nvram: [
+        "4D1EDE05-38C7-4A6A-9CC6-4BCCA8B38C14:fmm-mobileme-token-FMM": Data([1])
+      ]))
+    precondition(!MacOSRemoval.findMyOn(nvram: ["boot-args": "", "fmm-computer-name": "Mac"]))
+
+    // An interrupted removal resumes only on an exact match.
+    let journal = MacOSRemoval.journal(plan, removedAt: Date(timeIntervalSince1970: 0))
+    let roundTrip =
+      try JSONSerialization.jsonObject(
+        with: try JSONSerialization.data(withJSONObject: journal)) as! [String: Any]
+    let notStarted = try MacOSRemoval.resume(
+      journal: roundTrip, installation: installation, now: before)
+    precondition(notStarted == .notStarted)
+    let finish = try MacOSRemoval.resume(journal: roundTrip, installation: installation, now: after)
+    precondition(finish == .finish)
+    var complete = roundTrip
+    complete["phase"] = "complete"
+    let done = try MacOSRemoval.resume(journal: complete, installation: installation, now: after)
+    precondition(done == .complete)
+    let linux = MacOSRemoval.linuxRecord(roundTrip)
+    precondition(
+      linux["phase"] as? String == "removed" && linux["kept"] == nil && linux["disk"] == nil)
+    for (change, why) in [
+      (["phase": "deletin"], "unreadable"), (["espUUID": boot], "another installation"),
+      (["installationStoreUUID": root], "another startup container"),
+      (["disk": "disk4"], "incomplete"),
+    ] as [([String: Any], String)] {
+      refused(why) {
+        _ = try MacOSRemoval.resume(
+          journal: roundTrip.merging(change) { $1 }, installation: installation, now: after)
+      }
+    }
+    for key in ["removedPartitionUUID", "removedContainerUUID", "kept"] {
+      var missing = roundTrip
+      missing.removeValue(forKey: key)
+      refused("incomplete") {
+        _ = try MacOSRemoval.resume(journal: missing, installation: installation, now: after)
+      }
+    }
+    var noType = roundTrip
+    noType["kept"] = (roundTrip["kept"] as! [[String: Any]]).map { k in
+      k.filter { $0.key != "type" }
+    }
+    refused("incomplete") {
+      _ = try MacOSRemoval.resume(journal: noType, installation: installation, now: after)
+    }
+    refused("doesn’t match the disk") {
+      _ = try MacOSRemoval.resume(journal: roundTrip, installation: installation, now: moved)
+    }
+    // Partition gone but its container still listed, or the reverse: refused.
+    let half = WholeDiskLayout(
+      disk: "disk0", diskSize: after.diskSize, partitions: after.partitions,
+      containers: before.containers)
+    refused("half there") {
+      _ = try MacOSRemoval.resume(journal: roundTrip, installation: installation, now: half)
+    }
+
     precondition(MacOSRemoval.phrase == "remove macos and all its data")
     precondition(MacOSRemoval.confirms("remove macos and all its data"))
     precondition(MacOSRemoval.confirms("  remove macos and all its data "))
@@ -308,7 +418,7 @@ import Foundation
       MacOSRemoval.ownerGate(phase: nil)?.message.contains("macOS was not removed") == true)
     precondition(MacOSRemoval.consequences(owner: "user").contains("need user's password"))
     print(
-      "PASS macOS removal: plan keeps iSC/stub/ESP/Linux/System Recovery; freed extent; dry-run text; claim record; unchanged/changed review; post-delete verification; phrase; owner step; no-macOS, two-macOS, slot kept, unlisted container, overlap, bad first/last, foreign identity, missing field refusals"
+      "PASS macOS removal: plan keeps iSC/stub/ESP/Linux/System Recovery; freed extent; dry-run text; claim record; unchanged/changed review; post-delete verification; phrase; owner step; extra volume, dual macOS, duplicate role refusals; Find My; resume (not started, finish, complete, identity/incomplete/mismatch/half refusals); no-macOS, two-macOS, slot kept, unlisted container, overlap, bad first/last, foreign identity, missing field refusals"
     )
   }
 }
