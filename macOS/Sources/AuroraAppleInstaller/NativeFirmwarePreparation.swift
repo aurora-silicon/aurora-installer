@@ -34,7 +34,8 @@
     func prepare(deviceIdentifier: String, in workingDirectory: URL) async throws -> URL? {
       // Other boards retain their existing preparation until their native recipe
       // has its own qualification. Never apply this board's inputs to another Mac.
-      guard deviceIdentifier == "apple,j700" else { return nil }
+      guard NativePeripheralInputPath.needsPreparation(deviceIdentifier: deviceIdentifier)
+      else { return nil }
       let plan = try FirmwareExtractionPlan.bundled(for: deviceIdentifier)
       try validateDirectory(workingDirectory)
       let namespace = workingDirectory.appendingPathComponent("native-firmware", isDirectory: true)

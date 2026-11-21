@@ -51,8 +51,18 @@ public struct FirmwareExtractionPlan: Sendable {
     UInt64(recipe.files.reduce(1_048_576) { $0 + (($1.size + 4095) / 4096) * 4096 })
   }
 
+  /// The Mac the sealed recipe compiled into this build was made for
+  /// (Resources/j700-25G83-ranges.json): its restore image, pinned by size
+  /// and digest, is the only one this build extracts firmware from.
+  static let bundledDeviceIdentifier = "apple,j700"
+
+  /// Whether this build carries a sealed recipe for the Mac.
+  public static func hasBundledRecipe(for deviceIdentifier: String) -> Bool {
+    deviceIdentifier == bundledDeviceIdentifier
+  }
+
   public static func bundled(for deviceIdentifier: String) throws -> Self {
-    guard deviceIdentifier == "apple,j700" else {
+    guard hasBundledRecipe(for: deviceIdentifier) else {
       throw RestoreFailure("No native firmware recipe is qualified for this Mac.")
     }
     let bytes = EmbeddedFirmwareRecipe.bytes
