@@ -77,8 +77,8 @@
       XCTAssertFalse(FileManager.default.fileExists(atPath: prepared.directory.path))
     }
 
-    func testANonPositiveLightSensorGainLeavesOutOnlyTheALSFile() async throws {
-      // Issue #170: a MacBook Neo whose LSCI record has a gain ratio <= 0
+    func testAZeroLightSensorGainLeavesOutOnlyTheALSFile() async throws {
+      // Issue #170: a MacBook Neo whose LSCI record has a zero gain
       // must still install. The converted ALS file is left out and the raw
       // record is kept.
       let fixture = try InputFixture()
