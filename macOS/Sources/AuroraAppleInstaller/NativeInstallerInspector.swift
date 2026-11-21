@@ -158,6 +158,36 @@
           throw NativeInspectionError.invalidLayout
         }
         let systemVolumes = container.volumes.filter { $0.roles == ["System"] }
+        // iOS installations can have an ungrouped System/Data pair and no
+        // Recovery volume. Identify the OS from the volume, not its label.
+        // Keep its partition in the snapshot, but publish no install facts:
+        // this installer must never resize, replace or erase that container.
+        if container.uuid != before.macOSContainerUUID,
+          systemVolumes.count == 1, let system = systemVolumes.first,
+          container.volumes.allSatisfy({ $0.group == nil }),
+          !container.volumes.contains(where: { $0.roles == ["Recovery"] })
+        {
+          let isIOS = try disks.withVolume(
+            system.identifier, uuid: system.uuid,
+            belongs: { info in
+              guard info["APFSContainerReference"] as? String == reference,
+                let stores = info["APFSPhysicalStores"] as? [[String: Any]], stores.count == 1
+              else { return false }
+              return stores[0]["APFSPhysicalStore"] as? String == part.identifier
+            },
+            read: { tree in
+              guard
+                let data = try tree.read(
+                  ["System", "Library", "CoreServices", "SystemVersion.plist"], limit: 65_536),
+                let version = try PropertyListSerialization.propertyList(from: data, format: nil)
+                  as? [String: Any],
+                version["ProductName"] as? String == "iPhone OS",
+                let product = version["ProductVersion"] as? String, !product.isEmpty
+              else { return false }
+              return true
+            })
+          if isIOS { continue }
+        }
         if !systemVolumes.isEmpty {
           guard container.volumes.filter({ $0.roles == ["Preboot"] }).count == 1,
             container.volumes.filter({ $0.roles == ["Recovery"] }).count == 1

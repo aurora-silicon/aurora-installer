@@ -35,6 +35,11 @@
           return
             "\(part.identifier) couldn’t be listed as an APFS container, so its contents can’t be reviewed for erasure."
         }
+        if part.type == "Apple_APFS",
+          !disk.containers.contains(where: { $0.storeUUID == part.uuid })
+        {
+          return "This system container isn’t supported by Aurora and must be preserved."
+        }
       }
       // An EFI partition stays while a kept container may start from it.
       let erased = Set(members.map(\.uuid))

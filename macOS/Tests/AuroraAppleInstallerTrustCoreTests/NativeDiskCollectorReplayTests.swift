@@ -49,6 +49,65 @@
         XCTAssertEqual($0 as? NativeInspectionError, .systemVolumeUnreadable)
       }
     }
+
+    func testIOSContainerIsPreservedWithoutOfferingResizeOrErase() throws {
+      let fixture = try NativeCollectorReplay("converged-before", foreignProduct: "iPhone OS")
+      let result = try NativeDiskCollector(disks: fixture.makeOperator()).collect(
+        host: fixture.host())
+      XCTAssertEqual(result.snapshot, try fixture.makeOperator().snapshot())
+      let part = try XCTUnwrap(result.snapshot.partitions.first { $0.identifier == "disk0s3" })
+      XCTAssertFalse(result.containers.contains { $0.storeUUID == part.uuid })
+      XCTAssertFalse(
+        fixture.queried.contains(["apfs", "resizeContainer", "disk0s3", "limits", "-plist"]))
+      XCTAssertNotNil(NativePartitionErase.refusal(members: [part], disk: result))
+      let layout = try NativeDiskLayout(result)
+      let region = try XCTUnwrap(layout.regions.first { $0.uuid == part.uuid })
+      XCTAssertEqual(region.kind, .other)
+      XCTAssertFalse(region.isErasable)
+      // The captured graph fills the disk. Make a synthetic free extent next
+      // to an unrelated Linux partition, without changing the iOS container.
+      var snapshotWithFreeSpace = result.snapshot
+      let linuxIndex = try XCTUnwrap(
+        snapshotWithFreeSpace.partitions.firstIndex {
+          $0.type == "Linux Filesystem" && $0.size > 64 * 1024 * 1024 * 1024
+        })
+      let linux = snapshotWithFreeSpace.partitions[linuxIndex]
+      snapshotWithFreeSpace.partitions[linuxIndex] = RemovalPartition(
+        identifier: linux.identifier, uuid: linux.uuid, type: linux.type,
+        offset: linux.offset, size: linux.size - 64 * 1024 * 1024 * 1024, name: linux.name)
+      let metadata = try NativeInspectionPolicy.sealed().baselineMetadata
+      let transcript = try AppleInstallerTrustCore().validateEngineTranscript(
+        NativeDiskInventory.transcript(
+          device: "apple,j314s", snapshot: snapshotWithFreeSpace, containers: result.containers,
+          metadata: metadata, stubBytes: 3_000_000_000))
+      let inventory = try XCTUnwrap(transcript.inventory)
+      XCTAssertTrue(inventory.candidates.contains { $0.kind == "free" })
+      XCTAssertFalse(
+        inventory.candidates.contains {
+          $0.kind != "free" && $0.sourceIdentifier == part.identifier
+        })
+    }
+
+    func testUngroupedMacOSAndUnreadableForeignMetadataStillFail() throws {
+      for product in ["macOS", ""] {
+        let fixture = try NativeCollectorReplay("converged-before", foreignProduct: product)
+        XCTAssertThrowsError(
+          try NativeDiskCollector(disks: fixture.makeOperator()).collect(host: fixture.host())
+        ) {
+          XCTAssertEqual($0 as? NativeInspectionError, .systemVolumeUnreadable)
+        }
+      }
+    }
+
+    func testRootContainerCannotUseForeignSystemException() throws {
+      let fixture = try NativeCollectorReplay(
+        "converged-before", foreignProduct: "iPhone OS", foreignOnRoot: true)
+      XCTAssertThrowsError(
+        try NativeDiskCollector(disks: fixture.makeOperator()).collect(host: fixture.host())
+      ) {
+        XCTAssertEqual($0 as? NativeInspectionError, .systemVolumeUnreadable)
+      }
+    }
   }
 
   private final class NativeCollectorReplay: @unchecked Sendable {
@@ -59,19 +118,34 @@
     private var accesses = [[String]]()
     private let additionalSystem: Bool
     private let unreadableRoot: Bool
+    private let foreignProduct: String?
+    private let foreignOnRoot: Bool
+    private var queries = [[String]]()
+    var queried: [[String]] { lock.withLock { queries } }
     private let systemUUID = "00000000-0000-0000-0000-000000000099"
     private let dataUUID = "00000000-0000-0000-0000-000000000100"
     private let groupUUID = "00000000-0000-0000-0000-000000000199"
     var opened: [[String]] { lock.withLock { accesses } }
 
-    init(_ label: String, additionalSystem: Bool = false, unreadableRoot: Bool = false) throws {
+    init(
+      _ label: String, additionalSystem: Bool = false, unreadableRoot: Bool = false,
+      foreignProduct: String? = nil, foreignOnRoot: Bool = false
+    ) throws {
       mac = try CapturedMac(label)
       self.additionalSystem = additionalSystem
       self.unreadableRoot = unreadableRoot
+      self.foreignProduct = foreignProduct
+      self.foreignOnRoot = foreignOnRoot
       root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
       second = root.appendingPathComponent("second")
       try Self.system(root, version: "27.0", disabled: false)
       try Self.system(second, version: "26.6.2", disabled: true)
+      if let foreignProduct {
+        let file = second.appendingPathComponent("System/Library/CoreServices/SystemVersion.plist")
+        if !foreignProduct.isEmpty {
+          try Self.plist(["ProductName": foreignProduct, "ProductVersion": "27.2"]).write(to: file)
+        }
+      }
     }
     deinit { try? FileManager.default.removeItem(at: root) }
 
@@ -111,6 +185,7 @@
       let commands = disks.commands
       let tree = disks.openTree
       disks.commands = { a in
+        self.lock.withLock { self.queries.append(a) }
         if a.count == 5, a[0...1] == ["apfs", "resizeContainer"], a[3...] == ["limits", "-plist"] {
           return try Self.plist(["MinimumSizePreferred": 100_000_000_000 as UInt64])
         }
@@ -123,6 +198,28 @@
           ])
         }
         let data = try commands(a)
+        if self.foreignProduct != nil {
+          let reference = self.foreignOnRoot ? "disk4" : "disk2"
+          if a == ["apfs", "list", "-plist"] || a == ["apfs", "listVolumeGroups", "-plist"] {
+            var listing = try XCTUnwrap(
+              PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
+            var containers = try XCTUnwrap(listing["Containers"] as? [[String: Any]])
+            let index = try XCTUnwrap(
+              containers.firstIndex { $0["ContainerReference"] as? String == reference })
+            if a == ["apfs", "list", "-plist"] {
+              let volumes = try XCTUnwrap(containers[index]["Volumes"] as? [[String: Any]])
+              containers[index]["Volumes"] = volumes.filter {
+                $0["Roles"] as? [String] != ["Recovery"]
+              }
+              // Plenty of free space must not turn a foreign OS into a resize candidate.
+              containers[index]["CapacityFree"] = 2_000_000_000 as UInt64
+            } else {
+              containers[index]["VolumeGroups"] = [[String: Any]]()
+            }
+            listing["Containers"] = containers
+            return try Self.plist(listing)
+          }
+        }
         guard self.additionalSystem else { return data }
         if a == ["apfs", "list", "-plist"] {
           var listing = try XCTUnwrap(
@@ -166,6 +263,10 @@
         return data
       }
       disks.openTree = { path, identifier in
+        if self.foreignProduct != nil && identifier == "disk2s2" {
+          return try RemovalFileTree(
+            descriptor: open(self.second.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC))
+        }
         if path == "/" || (self.additionalSystem && identifier == "disk4s99") {
           self.lock.withLock { self.accesses.append([path, identifier]) }
           if self.unreadableRoot && path == "/" {
