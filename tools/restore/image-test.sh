@@ -28,7 +28,7 @@ rm -f "$img"
 truncate -s $(( 112640 + 2 ))M "$img"  # the layout below + GPT
 loop=$(losetup --find --show --sector-size 4096 --partscan "$img")
 tool=(python3 -I "$here/aurora_restore.py" --chosen "$work/chosen" --disk "$loop" --board J314sAP
-      --esp "$work/esp" --root "$work/root" --cache "$work/cache")
+      --esp "$work/esp" --root "$work/root" --cache "$work/cache" --fstab "$work/fstab")
 python3 -I - "$repo/tests" <<'PY' | sfdisk --quiet "$loop"
 import sys
 sys.path.insert(0, sys.argv[1])
@@ -53,6 +53,9 @@ mkdir -p "$work/root" "$work/esp" "$work/boot" "$work/chosen"
 mount "${loop}p6" "$work/root"
 mount "${loop}p4" "$work/esp"
 mount "${loop}p5" "$work/boot"
+# This "installation's" fstab: what --replace may take besides the root and ESP.
+printf '%s %s %s defaults 0 0\n' "${loop}p6" "$work/root" btrfs "${loop}p4" "$work/esp" vfat \
+  "${loop}p5" "$work/boot" ext4 > "$work/fstab"
 esp_uuid=$(sfdisk --part-uuid "$loop" 4)
 printf '%s\0' "${esp_uuid,,}" > "$work/chosen/asahi,efi-system-partition"
 printf '0E3F2FC4-18DE-42ED-955F-2CF407EB27E2\0' > "$work/chosen/apfs-preboot-uuid"
@@ -102,6 +105,10 @@ sh -n "$work/esp/aurora/restore/restore.sh"
   "${tool[@]}" apply "$version" --replace --yes --no-check
   echo "== request.json (replace)"
   cat "$work/esp/aurora/restore/request.json"
+  echo "== apply --replace with an outside mount (must refuse, change nothing)"
+  mkdir -p "$work/mnt"; umount "$work/boot"; mount "${loop}p5" "$work/mnt"
+  set +e; "${tool[@]}" --fstab /dev/null plan "$version" --replace --no-check; echo "rc=$?"; set -e
+  umount "$work/mnt"; mount "${loop}p5" "$work/boot"
 } > "$logs/replace.txt" 2>&1
 sfdisk -d "$loop" > "$logs/gpt-after-replace.txt"
 cp "$work/esp/aurora/restore/request.json" "$logs/request-replace.json"
@@ -119,13 +126,15 @@ part_regrow=$(blockdev --getsize64 "${loop}p6")
 dev_regrow=$(btrfs filesystem show --raw "$work/root" | awk '/devid/ {print $4}')
 result=PASS
 grep -q 'rc=1' "$logs/apply.txt" || result="FAIL wrong phrase was accepted"
+grep -q "mounted at $work/mnt but isn't in" "$logs/replace.txt" && grep -q 'rc=2' "$logs/replace.txt" \
+  || result="FAIL a partition mounted outside fstab was not refused"
 [[ $sum_before == "$sum_after" ]] || result="FAIL payload changed"
 (( dev <= part )) || result="FAIL btrfs device $dev > partition $part"
 python3 -I - "$logs" "$logs/request-replace.json" <<'PY' || result="FAIL request/partition table mismatch"
 import json, sys
 logs, req = sys.argv[1:]
 r = json.load(open(req))
-assert r["mode"] == "replace" and [d["node"][-2:] for d in r["delete"]] == ["p4", "p5", "p6"], r["delete"]
+assert r["mode"] == "replace" and [d["node"][-2:] for d in r["delete"]] == ["p5", "p6", "p4"], r["delete"]
 assert r["shrink"] is None
 PY
 cmp -s <(grep -v '^device' "$logs/gpt-after-apply.txt") <(grep -v '^device' "$logs/gpt-after-replace.txt") \

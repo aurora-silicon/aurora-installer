@@ -184,10 +184,13 @@ class DiskImage(unittest.TestCase):
                 self.byname["esp"]["node"]: ["/boot/efi"],
                 self.byname["root"]["node"]: ["/", "/home"]}.get(node, [])
 
+    FSTAB = {"/", "/home", "/boot", "/boot/efi"}
+
     def plan(self, mode, owner={"account": "aurora"}, **kw):
         kw.setdefault("min_size", 1 * GIB)
         kw.setdefault("root_devs", [self.byname["root"]["node"]])
         kw.setdefault("mounts", self.mounts)
+        kw.setdefault("fstab", self.FSTAB)
         return ar.make_plan(SMALL, "J314sAP", self.chosen, self.gpt, self.layout, mode, owner,
                             **kw)
 
@@ -248,7 +251,7 @@ class Plans(DiskImage):
         self.make()
         p = self.plan("replace")
         names = {q["uuid"]: n for n, q in self.byname.items()}
-        self.assertEqual([names[d["uuid"]] for d in p["delete"]], ["esp", "boot", "root"])
+        self.assertEqual([names[d["uuid"]] for d in p["delete"]], ["boot", "root", "esp"])
         stub = self.byname["stub"]
         self.assertEqual(p["predecessor"]["uuid"], stub["uuid"])
         self.assertEqual(p["gap"]["start"], stub["start"] + stub["size"])
@@ -270,17 +273,18 @@ class Plans(DiskImage):
         tahoe = dict(SMALL, version="26.7.3", build="25G342")
         p = ar.make_plan(tahoe, "J314sAP", self.chosen, self.gpt, self.layout, "replace",
                          {"account": "aurora"}, root_devs=[self.byname["root"]["node"]],
-                         mounts=self.mounts)
+                         mounts=self.mounts, fstab=self.FSTAB)
         text = ar.plan_text(p)
         self.assertIn("WITHOUT THE SCRIPT", text)
         self.assertIn("System Recovery (26.6.2)", text)
-        self.assertNotIn("Aurora's Recovery (13.5)", text)
+        self.assertNotIn("Aurora's Recovery (13.5): ", text)
+        self.assertIn("UNPROVEN: macOS 26.7.3 is newer than Aurora's Recovery (13.5)", text)
+        self.assertIn('/Volumes/macOS 26.7.3/.aurora-restore/restore.sh', text)
         self.assertEqual(ar.native_routes({"os_fw": None, "system_fw": "garbage"}), [])
-        self.assertNotIn("UNPROVEN", text)
         old = dict(self.chosen, os_fw="27.2")
         p = ar.make_plan(tahoe, "J314sAP", old, self.gpt, self.layout, "replace",
                          {"account": "aurora"}, root_devs=[self.byname["root"]["node"]],
-                         mounts=self.mounts)
+                         mounts=self.mounts, fstab=self.FSTAB)
         self.assertIn("UNPROVEN: macOS 26.7.3 is older than Aurora's Recovery (27.2)",
                       ar.plan_text(p))
 
@@ -296,6 +300,53 @@ class Plans(DiskImage):
         other = self.byname["other"]["uuid"]
         self.assertNotIn(other, [d["uuid"] for d in p["delete"]])
         self.assertEqual(p["gap"]["start"] + p["gap"]["size"], self.byname["other"]["start"])
+
+    def test_replace_refuses_a_linux_partition_mounted_outside_fstab(self):
+        linux = fx.LAYOUT[4][1]
+        self.make(fx.LAYOUT[:6] + [("other", linux, 512)] + fx.LAYOUT[6:])
+        other = self.byname["other"]["node"]
+
+        def at_mnt(node):
+            return ["/mnt"] if node == other else self.mounts(node)
+
+        with self.assertRaisesRegex(ar.Refusal, f"{other} .* mounted at /mnt but isn't in"):
+            self.plan("replace", mounts=at_mnt)
+        # Listed in this system's fstab (a /srv it mounts): it is this installation's.
+        p = self.plan("replace", mounts=lambda n: ["/srv"] if n == other else self.mounts(n),
+                      fstab=self.FSTAB | {"/srv"})
+        self.assertIn(self.byname["other"]["uuid"], [d["uuid"] for d in p["delete"]])
+        # Unmounted: kept, as before.
+        p = self.plan("replace")
+        self.assertNotIn(self.byname["other"]["uuid"], [d["uuid"] for d in p["delete"]])
+
+    def test_alongside_ignores_free_space_after_system_recovery_or_a_foreign_partition(self):
+        # Free space only after System Recovery: not used; the root is shrunk instead.
+        self.make(fx.LAYOUT + [("tail", None, 4096)])
+        p = self.plan("alongside")
+        self.assertIsNotNone(p["shrink"])
+        self.assertLess(p["gap"]["start"], self.byname["recovery"]["start"])
+        # Free space after another system's (unmounted, not in fstab) partition: not used.
+        linux = fx.LAYOUT[4][1]
+        self.make(fx.LAYOUT[:6] + [("other", linux, 512), ("gap", None, 3072)] + fx.LAYOUT[6:])
+        with self.assertRaisesRegex(ar.Refusal, "isn't followed by Apple's System Recovery"):
+            self.plan("alongside")
+
+    def test_replace_explains_the_startup_container_left_behind(self):
+        self.make()
+        text = ar.plan_text(self.plan("replace"))
+        self.assertIn("Aurora's startup container (its boot stub and Aurora's Recovery): it stays",
+                      text)
+        self.assertIn("deleteContainer", text)
+        text = ar.plan_text(self.plan("alongside"))
+        self.assertIn("Aurora's startup container (its boot stub and Aurora's Recovery)\n", text)
+        self.assertNotIn("deleteContainer", text)
+
+    def test_owner_not_finalized_and_no_macos_refuses(self):
+        layout = [x for x in fx.LAYOUT if x[0] != "macos"]
+        contents = {k: v for k, v in fx.CONTENTS.items() if k != "macos"}
+        self.make(layout, contents)
+        with self.assertRaisesRegex(ar.Refusal, "can't approve .* not authorized"):
+            self.plan("alongside", owner={"account": "aurora", "problem": "not authorized yet"})
 
     def test_digest_tracks_the_disk(self):
         self.make()
@@ -330,12 +381,18 @@ elif a[:2] == ["list", "-plist"]:
         {"DeviceIdentifier": "disk0", "Partitions": [{"DeviceIdentifier": p["id"]} for p in parts]}
     ]}).decode())
 elif a[:3] == ["eraseVolume", "free", "none"]:
+    st["erased"] = st.get("erased", 0) + 1
+    if st["erased"] == st.get("fail_erase"):
+        save(); sys.exit(1)
     parts.remove(find(a[3])); save()
 elif a[0] == "addPartition":
     pred, fmt, label, size = a[1:5]
+    if not size.endswith("B"):
+        sys.exit(4)
     p = find(pred)
-    parts.append({"uuid": "NEW", "id": "disk0s99", "start": p["start"] + p["size"],
-                  "size": int(size)})
+    parts.append({"uuid": "NEW", "id": "disk0s99",
+                  "start": p["start"] + p["size"] + st.get("add_shift", 0),
+                  "size": int(size[:-1])})
     os.makedirs("/Volumes/" + label); save()
 else:
     sys.exit(3)
@@ -360,6 +417,10 @@ app="$4/Applications/Install macOS Test.app/Contents/MacOS"
 mkdir -p "$app"
 printf '#!/bin/sh\necho "app-started $*" >> "$FAKE_LOG"\n' > "$app/InstallAssistant"
 chmod +x "$app/InstallAssistant"
+res="$4/Applications/Install macOS Test.app/Contents/Resources"
+mkdir -p "$res"
+printf '#!/bin/sh\necho "startosinstall $*" >> "$FAKE_LOG"\n[ "$1" = --license ] && echo LICENSE TEXT\nexit 0\n' > "$res/startosinstall"
+chmod +x "$res/startosinstall"
 '''
 
 
@@ -380,7 +441,8 @@ class RecoveryScript(DiskImage):
     """Runs restore.sh in a user+mount namespace (a private /Volumes) against
     stand-ins that record every command."""
 
-    def harness(self, plan, answer, args=(), mutate=None, twice=False):
+    def harness(self, plan, answer, args=(), mutate=None, twice=False, state_extra=None,
+                rerun=None):
         d = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, d)
         bindir = os.path.join(d, "bin")
@@ -399,17 +461,22 @@ class RecoveryScript(DiskImage):
             mutate(parts)
         state = os.path.join(d, "state.json")
         with open(state, "w") as f:
-            json.dump({"log": log, "parts": parts}, f)
+            json.dump({"log": log, "parts": parts, **(state_extra or {})}, f)
         script = os.path.join(d, "restore.sh")
         with open(script, "w") as f:
             f.write(ar.recovery_script(plan))
         env = dict(os.environ, PATH=bindir + ":/usr/bin:/bin", FAKE_STATE=state, FAKE_LOG=log,
                    FAKE_PKG_SIZE=str(plan["installer"]["size"]))
         run = 'mount -t tmpfs none /Volumes && exec sh "$0" "$@"'
-        if twice:  # first run's download fails; the second resumes in the same /Volumes
-            run = ('mount -t tmpfs none /Volumes && touch "$FAKE_LOG.fail" && '
+        if twice:  # the first run fails; the second resumes in the same /Volumes
+            fail = 'touch "$FAKE_LOG.fail" && ' if twice == "download" else ""
+            again = rerun or '"$0"'
+            run = ('mount -t tmpfs none /Volumes && ' + fail +
                    '{ sh "$0" "$@" < "$FAKE_LOG.answer"; echo "first-rc $?" >> "$FAKE_LOG"; } && '
-                   'rm "$FAKE_LOG.fail" && exec sh "$0" "$@" < "$FAKE_LOG.answer"')
+                   'rm -f "$FAKE_LOG.fail" && ' + (
+                       f'python3 -c "import json,sys; s=json.load(open(sys.argv[1])); '
+                       f's.pop(\'fail_erase\', None); json.dump(s, open(sys.argv[1], \'w\'))" '
+                       '"$FAKE_STATE" && ') + f'exec sh {again} "$@" < "$FAKE_LOG.answer"')
             with open(log + ".answer", "w") as f:
                 f.write(answer + "\n")
         cmd = ["unshare", "-rm", "sh", "-c", run, script, *args]
@@ -441,7 +508,7 @@ class RecoveryScript(DiskImage):
         root = next(i for i, q in enumerate(plan["partitions"]) if q["uuid"] == plan["predecessor"]["uuid"])
         self.assertEqual(changes, [
             f"curl -fsIL --max-time 30 {plan['installer']['url']}",
-            f"addPartition disk0s{root + 1} APFS macOS 27.2.1 {plan['containerBytes']}",
+            f"addPartition disk0s{root + 1} APFS macOS 27.2.1 {plan['containerBytes']}B",
             f"curl -fL --retry 5 -C - -o /Volumes/macOS 27.2.1/.aurora-restore/InstallAssistant.pkg "
             f"{plan['installer']['url']}",
             "installer -pkg /Volumes/macOS 27.2.1/.aurora-restore/InstallAssistant.pkg "
@@ -459,7 +526,9 @@ class RecoveryScript(DiskImage):
         self.assertEqual(erased, [f"eraseVolume free none {ids[d['uuid']]}" for d in plan["delete"]])
         add = [c for c in calls if c.startswith("addPartition")]
         self.assertEqual(add, [f"addPartition {ids[plan['predecessor']['uuid']]} APFS macOS 27.2.1 "
-                               f"{plan['containerBytes']}"])
+                               f"{plan['containerBytes']}B"])
+        # The EFI partition (where the script was) is deleted last.
+        self.assertEqual(erased[-1], f"eraseVolume free none {ids[plan['espUUID']]}")
 
     def test_check_mode_and_wrong_answer_change_nothing(self):
         self.make()
@@ -474,14 +543,85 @@ class RecoveryScript(DiskImage):
         self.make()
         for mode in ("alongside", "replace"):
             plan = self.plan(mode)
-            p, calls = self.harness(plan, ar.phrase(plan), twice=True)
+            p, calls = self.harness(plan, ar.phrase(plan), twice="download",
+                                    rerun='"/Volumes/macOS 27.2.1/.aurora-restore/restore.sh"')
             self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
             self.assertIn("first-rc 1", calls)
             self.assertEqual(len([c for c in calls if c.startswith("addPartition")]), 1)
             self.assertEqual(len([c for c in calls if c.startswith("eraseVolume")]),
                              len(plan["delete"]))
             self.assertIn("resuming", p.stdout)
+            self.assertIn('download failed; run it again: sh "/Volumes/macOS 27.2.1/.aurora-restore/'
+                          'restore.sh" to resume', p.stdout)
             self.assertEqual(calls[-1], "app-started ")
+
+    def test_rerun_after_a_stop_between_deletes_carries_on(self):
+        self.make()
+        plan = self.plan("replace")
+        ids = {q["uuid"]: f"disk0s{i + 1}" for i, q in enumerate(plan["partitions"])}
+        p, calls = self.harness(plan, ar.phrase(plan), twice="erase",
+                                state_extra={"fail_erase": 2})
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("first-rc 1", calls)
+        first = calls.index("first-rc 1")
+        # First run: deleted the first partition, failed on the second, created nothing.
+        self.assertEqual([c for c in calls[:first] if c.startswith(("eraseVolume", "addPartition"))],
+                         [f"eraseVolume free none {ids[d['uuid']]}" for d in plan["delete"][:2]])
+        # Rerun: the first is "already deleted", the rest go, then the container.
+        rest = [c for c in calls[first:] if c.startswith(("eraseVolume", "addPartition"))]
+        self.assertEqual(rest, [f"eraseVolume free none {ids[d['uuid']]}" for d in plan["delete"][1:]]
+                         + [f"addPartition {ids[plan['predecessor']['uuid']]} APFS macOS 27.2.1 "
+                            f"{plan['containerBytes']}B"])
+        self.assertIn("already deleted", p.stdout)
+        self.assertEqual(calls[-1], "app-started ")
+
+    def test_rerun_with_a_moved_doomed_partition_still_stops(self):
+        self.make()
+        plan = self.plan("replace")
+        doomed = {d["uuid"] for d in plan["delete"]}
+
+        def moved(parts):
+            next(q for q in parts if q["uuid"] in doomed)["start"] += MIB
+
+        p, calls = self.harness(plan, ar.phrase(plan), mutate=moved)
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("moved", p.stdout)
+        self.assertFalse([c for c in calls if not c.startswith(("info ", "list "))])
+
+    def test_a_partition_in_a_deleted_range_stops(self):
+        self.make()
+        plan = self.plan("replace")
+        boot = plan["delete"][0]
+
+        def replaced(parts):
+            q = next(q for q in parts if q["uuid"] == boot["uuid"])
+            q["uuid"] = "SOMEONE-ELSES"
+
+        p, calls = self.harness(plan, ar.phrase(plan), mutate=replaced)
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("partitions; the plan has", p.stdout)
+        self.assertFalse([c for c in calls if not c.startswith(("info ", "list "))])
+
+    def test_container_outside_the_gap_stops_before_the_download(self):
+        self.make()
+        plan = self.plan("alongside")
+        p, calls = self.harness(plan, ar.phrase(plan),
+                                state_extra={"add_shift": plan["gap"]["size"]})
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("isn't in the planned free space", p.stdout)
+        self.assertFalse([c for c in calls if c.startswith(("curl -fL", "installer"))])
+
+    def test_unattended_shows_the_license_and_needs_agree(self):
+        self.make()
+        plan = self.plan("alongside")
+        p, calls = self.harness(plan, ar.phrase(plan) + "\nno", ("--unattended",))
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("license not accepted", p.stdout)
+        self.assertIn("startosinstall --license", calls)
+        self.assertFalse([c for c in calls if "--agreetolicense" in c])
+        p, calls = self.harness(plan, ar.phrase(plan) + "\nagree", ("--unattended",))
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertTrue([c for c in calls if c.startswith("startosinstall --agreetolicense")])
 
     def test_unknown_argument_prints_usage(self):
         self.make()
@@ -505,6 +645,33 @@ class RecoveryScript(DiskImage):
             self.assertEqual(p.returncode, 1)
             self.assertIn(msg, p.stdout)
             self.assertFalse([c for c in calls if not c.startswith(("info ", "list "))])
+
+
+class ServerErrors(unittest.TestCase):
+    def test_bad_catalog_and_dist_are_refusals(self):
+        with self.assertRaisesRegex(ar.Refusal, "isn't a property list"):
+            ar.parse_catalog(b"<html>nope</html>", lambda u: b"")
+        data, _ = catalog(PRODUCTS[:1])
+
+        def down(url):
+            raise OSError("connection reset")
+
+        with self.assertRaisesRegex(ar.Refusal, "Couldn't read .*dist.*connection reset"):
+            ar.parse_catalog(data, down)
+
+    def test_manifest_errors_are_refusals(self):
+        import apple_remote as R
+
+        saved = R.HTTPFile
+
+        class Broken:
+            def __init__(self, url):
+                raise R.RemoteError(f"{url}: server does not offer byte ranges")
+
+        R.HTTPFile = Broken
+        self.addCleanup(setattr, R, "HTTPFile", saved)
+        with self.assertRaisesRegex(ar.Refusal, "Couldn't check the installer.*RemoteError"):
+            ar.check_manifest(SMALL, "J314sAP")
 
 
 class Cli(unittest.TestCase):

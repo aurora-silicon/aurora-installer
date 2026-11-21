@@ -118,7 +118,10 @@ def parse_dist(text):
 def parse_catalog(catalog, get=fetch):
     """Every full macOS installer in an Apple Software Update catalog (plist
     bytes), with the boards its .dist accepts."""
-    c = plistlib.loads(catalog)
+    try:
+        c = plistlib.loads(catalog)
+    except (plistlib.InvalidFileException, ValueError) as e:
+        raise Refusal(f"Apple's Software Update catalog isn't a property list: {e}") from e
     found = []
     for pid, p in c.get("Products", {}).items():
         pkg = [x for x in p.get("Packages", [])
@@ -131,7 +134,10 @@ def parse_catalog(catalog, get=fetch):
 
     def one(item):
         pid, p, pkg, dist = item
-        d = parse_dist(get(dist).decode("utf-8", "replace"))
+        try:
+            d = parse_dist(get(dist).decode("utf-8", "replace"))
+        except OSError as e:
+            raise Refusal(f"Couldn't read {dist} from Apple's server: {e}") from e
         if not d["version"] or not d["build"]:
             return None
         return {
@@ -203,18 +209,33 @@ def pick(installers, board, version):
 
 def check_manifest(installer, board):
     """Reads the installer's own BuildManifest from Apple's server with a few
-    range requests (about 12 MB) and checks it carries this board."""
+    range requests (about 12 MB) and checks it carries this board. Anything
+    unexpected from the server is a Refusal (this runs before any change)."""
     import zipfile
 
     import apple_remote as R
 
+    try:
+        return _check_manifest(installer, board, R, zipfile)
+    except Refusal:
+        raise
+    except (R.RemoteError, OSError, StopIteration, KeyError, ValueError, EOFError,
+            zipfile.BadZipFile, plistlib.InvalidFileException) as e:
+        raise Refusal(f"Couldn't check the installer on Apple's server ({installer['url']}): "
+                      f"{type(e).__name__}: {e}. Nothing was changed; try again later, or "
+                      "--no-check to skip this check.") from e
+
+
+def _check_manifest(installer, board, R, zipfile):
     f = R.HTTPFile(installer["url"])
     if f.size != installer["size"]:
         raise Refusal(f"Apple's server reports {f.size} bytes for the installer, the catalog "
                       f"{installer['size']}.")
     shared, _ = R.xar_open(f, "SharedSupport.dmg")
     disk = R.UDIFDisk(shared)
-    part = next(p for p in R.gpt_partitions(disk) if p["type"] == R.HFS_TYPE)
+    part = next((p for p in R.gpt_partitions(disk) if p["type"] == R.HFS_TYPE), None)
+    if part is None:
+        raise Refusal("The installer's SharedSupport.dmg has no HFS+ partition.")
     vol = R.HFSVolume(R.Slice(disk, part["start"], part["size"]))
     folder = "/com_apple_MobileAsset_MacSoftwareUpdate"
     archives = [n for n, kind, _ in vol.listdir(folder) if kind == "file" and n.endswith(".zip")]
@@ -258,37 +279,70 @@ def dev_id(dev, root):
 
 
 def mounts_of(node):
-    return sorted(set(run(["findmnt", "-n", "-o", "TARGET", "--source", node],
+    # -r escapes blanks in mount points (\\x20), so one target per word.
+    return sorted(set(run(["findmnt", "-rn", "-o", "TARGET", "--source", node],
                           check=False).split()))
 
 
-def linux_parts(gpt, chosen, root_devs, mounts=mounts_of):
+def fstab_targets(path="/etc/fstab"):
+    """The mount points this system's own fstab lists."""
+    return set(run(["findmnt", "--fstab", "--tab-file", path, "-rn", "-o", "TARGET"],
+                   check=False).split())
+
+
+def linux_parts(gpt, chosen, root_devs, mounts=mounts_of, fstab=None):
     """This installation's own partitions: its ESP, the root file system's
-    devices and every Linux partition mounted here. A Linux partition that
-    is none of these (another system's) is never included."""
+    devices and the Linux partitions it mounts from its own fstab. Another
+    Linux partition is never included; one that is mounted somewhere else
+    right now (another system's root on /mnt, say) is refused by name, since
+    nothing tells whose it is."""
     roots = {os.path.realpath(d) for d in root_devs}
+    ours = fstab if fstab is not None else fstab_targets()
     out = []
     for p in gpt["parts"]:
         m = mounts(p["node"])
         if p["uuid"] == chosen["esp"] or (p["type"] == wd.LINUX and (
-                m or os.path.realpath(p["node"]) in roots)):
+                os.path.realpath(p["node"]) in roots or set(m) & ours)):
             out.append(dict(p, mounts=m))
-    return out
+        elif p["type"] == wd.LINUX and m:
+            raise Refusal(f"{p['node']} ({p['uuid']}) is mounted at {', '.join(m)} but isn't in "
+                          "this system's /etc/fstab, so it may be another system's. Unmount it "
+                          "and plan again; it is then kept.")
+    # The ESP goes last: restore.sh sits on it, and a rerun after an
+    # interruption needs it until every other partition is gone.
+    return sorted(out, key=lambda p: p["uuid"] == chosen["esp"])
 
 
-def plan_alongside(gpt, chosen, layout, need, root="/", min_size=None, root_devs=None):
+def plan_alongside(gpt, chosen, layout, need, root="/", min_size=None, root_devs=None,
+                   mounts=mounts_of, fstab=None):
     """Find or make an unallocated gap of `need` bytes. Returns the plan's
-    disk part: the gap, its predecessor and the Linux changes."""
-    gaps = [(s, n) for s, n in wd.free_extents(gpt) if n >= need]
+    disk part: the gap, its predecessor and the Linux changes. Only free
+    space before System Recovery that follows an Apple container or one of
+    this installation's partitions counts (classify() has checked that
+    System Recovery is the last partition)."""
     parts = gpt["parts"]
-    if gaps:
-        start, size = gaps[0]
-        before = [p for p in parts if p["start"] + p["size"] <= start]
-        if not before:
-            raise Refusal("The free space is before every partition; that isn't an Apple layout.")
-        pred = before[-1]
-        return {"shrink": None, "gap": align_gap(start, size), "predecessor": pred}
     devs = root_devs if root_devs is not None else wd.root_devices(root)
+    recovery = parts[-1]["start"]
+    roots = {os.path.realpath(d) for d in devs}
+    ours = None
+
+    def usable(pred):
+        nonlocal ours
+        if pred["type"] in (wd.APFS, wd.ISC) or pred["uuid"] == chosen["esp"]:
+            return True
+        if pred["type"] != wd.LINUX:
+            return False
+        if os.path.realpath(pred["node"]) in roots:
+            return True
+        ours = ours if ours is not None else (fstab if fstab is not None else fstab_targets())
+        return bool(set(mounts(pred["node"])) & ours)
+
+    for start, size in wd.free_extents(gpt):
+        if size < need or start + size > recovery:
+            continue
+        before = [p for p in parts if p["start"] + p["size"] <= start]
+        if before and usable(before[-1]):
+            return {"shrink": None, "gap": align_gap(start, size), "predecessor": before[-1]}
     if len(devs) != 1:
         raise Refusal(f"The root file system spans {len(devs)} partitions ({', '.join(devs)}). "
                       "Remove the extra device first (`btrfs device remove`), or use --replace.")
@@ -317,10 +371,10 @@ def plan_alongside(gpt, chosen, layout, need, root="/", min_size=None, root_devs
             "gap": align_gap(gap_start, nxt["start"] - gap_start), "predecessor": rp}
 
 
-def plan_replace(gpt, chosen, layout, need, root_devs, mounts=mounts_of):
+def plan_replace(gpt, chosen, layout, need, root_devs, mounts=mounts_of, fstab=None):
     """Aurora's Linux partitions, deleted in Recovery, plus any free space
     next to them, give macOS one gap."""
-    lp = linux_parts(gpt, chosen, root_devs, mounts)
+    lp = linux_parts(gpt, chosen, root_devs, mounts, fstab)
     if not lp:
         raise Refusal("No Aurora Linux partitions were found.")
     gone = {p["uuid"] for p in lp}
@@ -349,13 +403,14 @@ def align_gap(start, size):
     return (s, max(0, e - s))
 
 
-def owner_of(layout, owner=None):
-    state = (owner or wd.owner_state)(layout["own"]["node"])
-    return state
+def owner_of(layout, chosen, owner=None):
+    if owner:
+        return owner(layout["own"]["node"])
+    return wd.owner_state(layout["own"]["node"], chosen["group"])
 
 
 def make_plan(installer, board, chosen, gpt, layout, mode, owner_state, size=None,
-              root="/", min_size=None, root_devs=None, mounts=mounts_of):
+              root="/", min_size=None, root_devs=None, mounts=mounts_of, fstab=None):
     need = needed_bytes(installer)
     if size:
         if size < need:
@@ -364,9 +419,14 @@ def make_plan(installer, board, chosen, gpt, layout, mode, owner_state, size=Non
         need = size
     if mode == "replace":
         devs = root_devs if root_devs is not None else wd.root_devices(root)
-        disk = plan_replace(gpt, chosen, layout, need, devs, mounts)
+        disk = plan_replace(gpt, chosen, layout, need, devs, mounts, fstab)
     else:
-        disk = plan_alongside(gpt, chosen, layout, need, root, min_size, root_devs)
+        disk = plan_alongside(gpt, chosen, layout, need, root, min_size, root_devs, mounts,
+                              fstab)
+    if owner_state.get("account") and owner_state.get("problem") and not layout["macos"]:
+        raise Refusal(
+            f"This Mac has no macOS, and this installation's recovery account can't approve a new "
+            f"macOS's startup policy yet: {owner_state['problem']}.")
     if not owner_state.get("account") and not layout["macos"]:
         raise Refusal(
             "This Mac has no macOS and this installation has no recovery account, so nobody can "
@@ -394,6 +454,7 @@ def make_plan(installer, board, chosen, gpt, layout, mode, owner_state, size=Non
         "owner": owner_state.get("account"),
         "macos": wd.system_name(layout["macos"]) if layout["macos"] else None,
         "routes": native_routes(chosen),
+        "own": layout["own"]["uuid"] if layout.get("own") else None,
         "shrink": disk.get("shrink"),
         "delete": [{k: p[k] for k in ("node", "uuid", "type", "start", "size", "mounts")}
                    for p in disk.get("delete", [])],
@@ -474,20 +535,32 @@ def plan_text(plan):
     L.append("  1. Check every partition is still as planned; otherwise stop with no change.")
     k = 2
     if plan["mode"] == "replace":
-        L.append(f"  {k}. DELETE Aurora's Linux partitions, with all their data:")
+        L.append(f"  {k}. DELETE Aurora's Linux partitions, with all their data (the EFI partition, "
+                 "which holds this script, last):")
         for p in plan["delete"]:
             what = ", ".join(p["mounts"]) or ("EFI" if p["uuid"] == plan["espUUID"] else "")
             L.append(f"       {p['node']}  {gb(p['size'])}  {what}  ({p['uuid']})")
+        L.append("       If this stops part-way, run the script again: it carries on from the "
+                 "partitions already deleted.")
         k += 1
     g = plan["gap"]
     L.append(f"  {k}. Create an APFS container “{plan['label']}” of "
              f"{gb(plan['containerBytes'])} after {plan['predecessor']['node']} (at byte {g['start']}).")
-    L.append(f"  {k + 1}. Download the installer from Apple into it, install it with Apple's "
-             "installer (signature checked) and start it.")
+    L.append(f"  {k + 1}. Check diskutil put it in that free space, copy this script into it "
+             "(to rerun from there), download the installer from Apple into it, install it with "
+             "Apple's installer (signature checked) and start it.")
     L.append(f"  {k + 2}. Apple's installer installs macOS {i['version']}; it asks for "
              + (f"the machine owner ({plan['owner']}) " if plan["owner"] else "a machine owner ")
              + "to approve the new startup disk.")
     aurora = next((r for r in plan.get("routes", []) if r["name"] == "Aurora's Recovery"), None)
+    if aurora and vkey(i["version"])[0] > vkey(aurora["version"])[0]:
+        L.append("")
+        L.append(f"UNPROVEN: macOS {i['version']} is newer than Aurora's Recovery "
+                 f"({aurora['version']}), where the script runs. Apple's installer app may need a "
+                 "newer Recovery to start; if it refuses, the container is left with the installer "
+                 "in it: use System Recovery instead (shut down, press and release the power "
+                 "button, then at once press and hold it) and in its Terminal run "
+                 f"sh \"/Volumes/{plan['label']}/.aurora-restore/restore.sh\" (it resumes).")
     if aurora and vkey(i["version"]) < vkey(aurora["version"]):
         L.append("")
         L.append(f"UNPROVEN: macOS {i['version']} is older than Aurora's Recovery "
@@ -508,6 +581,15 @@ def plan_text(plan):
     gone = {p["uuid"] for p in plan["delete"]}
     for p in plan["partitions"]:
         if p["uuid"] in gone:
+            continue
+        if p["uuid"] == plan.get("own"):
+            what = "Aurora's startup container (its boot stub and Aurora's Recovery)"
+            if plan["mode"] == "replace":
+                what += (": it stays because the script runs from its Recovery. With Linux gone "
+                         "it starts nothing; once the new macOS works, delete it in Disk Utility "
+                         "(View -> Show All Devices, select it, click -) or with `diskutil apfs "
+                         "deleteContainer diskNsM` (its identifier in `diskutil list`)")
+            L.append(f"  {p['node']}  {gb(p['size'])}  {what}")
             continue
         what = {wd.ISC: "Apple system container (iSC)", wd.RECOVERY: "Apple System Recovery",
                 wd.EFI: "EFI partition", wd.APFS: "APFS container"}.get(p["type"], p["type"])
@@ -533,11 +615,11 @@ def recovery_script(plan):
     gone = {p["uuid"] for p in plan["delete"]}
     kept = "\n".join(f"check_part {q(p['uuid'])} {p['start']} {p['size']}"
                      for p in plan["partitions"] if p["uuid"] not in gone)
-    doomed = "\n".join(f"    check_part {q(p['uuid'])} {p['start']} {p['size']}"
-                       for p in plan["partitions"] if p["uuid"] in gone)
-    deletes = "\n".join(f"    delete_part {q(p['uuid'])}" for p in plan["delete"])
-    count = len(plan["partitions"])
-    resumed = count - len(gone) + 1
+    doomed = "\n".join(f"    doomed_part {q(p['uuid'])} {p['start']} {p['size']}"
+                       for p in plan["delete"])
+    deletes = "\n".join(f"        delete_part {q(p['uuid'])}" for p in plan["delete"])
+    kept_count = len(plan["partitions"]) - len(gone)
+    pred_end = plan["predecessor"]["start"] + plan["predecessor"]["size"]
     return f"""#!/bin/sh
 # aurora-restore {plan['digest']}: install {i['title']} {i['version']} ({i['build']}).
 # Written by aurora-restore in Aurora; run in this Mac's Recovery (Terminal).
@@ -553,8 +635,9 @@ GAP_START={plan['gap']['start']}
 GAP_SIZE={plan['gap']['size']}
 CONTAINER_BYTES={plan['containerBytes']}
 OWNER={q(plan['owner'] or '')}
-COUNT={count}
-RESUMED_COUNT={resumed}
+KEPT_COUNT={kept_count}
+PRED_END={pred_end}
+ESP_UUID={q(plan['espUUID'])}
 DIGEST={q(plan['digest'])}
 CONFIRM={q(phrase(plan))}
 UNATTENDED=0
@@ -583,21 +666,46 @@ pstr() {{
     awk -v k="<key>$1</key>" '$0 ~ k {{ getline; sub(/^[^>]*>/, ""); sub(/<.*$/, ""); print; exit }}'
 }}
 DISK=
+part_ids() {{ diskutil list -plist "$DISK" | grep -o "<string>${{DISK}}s[0-9]*</string>" | sed 's/<[^>]*>//g' | sort -u; }}
+same_place() {{ # INFO START SIZE UUID
+    off=$(printf '%s' "$1" | pint PartitionMapPartitionOffset)
+    size=$(printf '%s' "$1" | pint Size)
+    whole=$(printf '%s' "$1" | pstr ParentWholeDisk)
+    [ "$off" = "$2" ] || die "partition $4 moved (offset $off, planned $2)"
+    [ "$size" = "$3" ] || die "partition $4 changed size ($size, planned $3)"
+    [ -z "$DISK" ] && DISK=$whole
+    [ "$whole" = "$DISK" ] || die "partition $4 is on $whole, not $DISK"
+}}
 check_part() {{ # UUID START SIZE: the partition is where the plan has it
     info=$(diskutil info -plist "$1" 2>/dev/null) || die "partition $1 is missing"
-    off=$(printf '%s' "$info" | pint PartitionMapPartitionOffset)
-    size=$(printf '%s' "$info" | pint Size)
-    whole=$(printf '%s' "$info" | pstr ParentWholeDisk)
-    [ "$off" = "$2" ] || die "partition $1 moved (offset $off, planned $2)"
-    [ "$size" = "$3" ] || die "partition $1 changed size ($size, planned $3)"
-    [ -z "$DISK" ] && DISK=$whole
-    [ "$whole" = "$DISK" ] || die "partition $1 is on $whole, not $DISK"
+    same_place "$info" "$2" "$3" "$1"
+}}
+PRESENT=0
+doomed_part() {{ # UUID START SIZE: still where planned, or already deleted by an
+    # earlier run of this script. Every partition on the disk is accounted for
+    # by the count below, so a deleted one's range is free space.
+    if info=$(diskutil info -plist "$1" 2>/dev/null); then
+        same_place "$info" "$2" "$3" "$1"
+        PRESENT=$((PRESENT + 1))
+    else
+        say "$1 is already deleted (an earlier run)"
+    fi
 }}
 ident() {{ diskutil info -plist "$1" | pstr DeviceIdentifier; }}
 delete_part() {{
+    diskutil info -plist "$1" >/dev/null 2>&1 || return 0
     id=$(ident "$1")
     say "deleting $id ($1)"
-    diskutil eraseVolume free none "$id" || die "couldn't delete $id"
+    diskutil eraseVolume free none "$id" || die "couldn't delete $id; $(rerun)"
+}}
+rerun() {{ # how to run this script again, from where it is now
+    if [ -f "$VOL/.aurora-restore/restore.sh" ]; then
+        printf '%s' "run it again: sh \\"$VOL/.aurora-restore/restore.sh\\""
+    elif diskutil info -plist "$ESP_UUID" >/dev/null 2>&1; then
+        printf '%s' "run the same Terminal line again"
+    else
+        printf '%s' "run it again now: sh $self (this copy is gone once the Mac restarts; then create an APFS partition in the free space with Disk Utility and use Reinstall macOS)"
+    fi
 }}
 
 command -v diskutil >/dev/null || die "run this in macOS Recovery (Terminal)"
@@ -609,17 +717,21 @@ if [ -f "$VOL/.aurora-restore/plan" ] && [ "$(cat "$VOL/.aurora-restore/plan")" 
     say "resuming: $VOL was made by this script"
 fi
 {kept or ':'}
-want=$COUNT
+want=$KEPT_COUNT
 if [ $RESUME = 0 ]; then
 {doomed or '    :'}
+    want=$((KEPT_COUNT + PRESENT))
 else
-    want=$RESUMED_COUNT
+    want=$((KEPT_COUNT + 1))
 fi
-n=$(diskutil list -plist "$DISK" | grep -o "<string>${{DISK}}s[0-9]*</string>" | sort -u | wc -l | tr -d ' ')
+n=$(part_ids | wc -l | tr -d ' ')
+if [ $RESUME = 0 ] && [ "$n" = $((want + 1)) ] && [ "$PRESENT" = 0 ] && [ -d "$VOL" ]; then
+    die "$VOL exists but this script didn't record it (an interrupted earlier run?). Check it is empty, delete it in Disk Utility, then run this again"
+fi
 [ "$n" = "$want" ] || die "$DISK has $n partitions; the plan has $want"
 [ $((GAP_START + GAP_SIZE)) -gt "$GAP_START" ] || die "bad plan"
 say "checking the network"
-curl -fsIL --max-time 30 "$URL" >/dev/null || die "Apple's server isn't reachable: join a network (Wi-Fi menu) and run this again"
+curl -fsIL --max-time 30 "$URL" >/dev/null || die "Apple's server isn't reachable: join a network (Wi-Fi menu) and $(rerun)"
 
 cat <<'PLAN'
 {plan_text(plan)}
@@ -638,26 +750,45 @@ if [ $RESUME = 0 ]; then
     fi
     pred=$(ident "$PRED_UUID")
     say "creating $LABEL after $pred"
-    diskutil addPartition "$pred" APFS "$LABEL" "$CONTAINER_BYTES" || die "couldn't create the container"
+    diskutil addPartition "$pred" APFS "$LABEL" "${{CONTAINER_BYTES}}B" || die "couldn't create the container; $(rerun)"
+    # Where diskutil put it: inside the planned free space, after the predecessor.
+    new=
+    for id in $(part_ids); do
+        info=$(diskutil info -plist "$id")
+        off=$(printf '%s' "$info" | pint PartitionMapPartitionOffset)
+        size=$(printf '%s' "$info" | pint Size)
+        if [ "$off" -ge "$PRED_END" ] && [ "$off" -lt $((GAP_START + GAP_SIZE)) ]; then
+            [ -z "$new" ] || die "more than one partition in the planned free space"
+            new=$id; new_end=$((off + size))
+        fi
+    done
+    [ -n "$new" ] || die "the new container isn't in the planned free space; check Disk Utility"
+    [ "$new_end" -le $((GAP_START + GAP_SIZE)) ] || die "$new ends past the planned free space (byte $new_end); delete it in Disk Utility"
     [ -d "$VOL" ] || die "$VOL didn't appear"
     mkdir -p "$VOL/.aurora-restore"
+    cp "$self" "$VOL/.aurora-restore/restore.sh"
     printf '%s\n' "$DIGEST" > "$VOL/.aurora-restore/plan"
 fi
 PKG="$VOL/.aurora-restore/InstallAssistant.pkg"
 say "downloading macOS $VERSION from Apple ($PKG_SIZE bytes)"
 tries=0
 until curl -fL --retry 5 -C - -o "$PKG" "$URL"; do
-    tries=$((tries + 1)); [ $tries -lt 5 ] || die "download failed; run this script again to resume"
+    tries=$((tries + 1)); [ $tries -lt 5 ] || die "download failed; $(rerun) to resume"
     sleep 5
 done
 got=$(stat -f %z "$PKG")
-[ "$got" = "$PKG_SIZE" ] || die "downloaded $got bytes, expected $PKG_SIZE"
+[ "$got" = "$PKG_SIZE" ] || die "downloaded $got bytes, expected $PKG_SIZE; delete $PKG and $(rerun)"
 say "installing the installer (Apple checks its signature)"
 installer -pkg "$PKG" -target "$VOL" || die "Apple's installer refused the package"
 rm -f "$PKG"
 APP=$(ls -d "$VOL"/Applications/Install\\ macOS*.app 2>/dev/null | head -n 1)
 [ -n "$APP" ] || die "the installer app wasn't installed"
 if [ $UNATTENDED = 1 ]; then
+    # Apple's license is the user's to accept: show it and ask.
+    "$APP/Contents/Resources/startosinstall" --license || die "couldn't show Apple's license"
+    printf '%s' 'Type "agree" to accept the license above: '
+    read -r answer
+    [ "$answer" = agree ] || die "license not accepted; nothing more was changed. $(rerun), or start $APP"
     say "starting $APP (unattended)"
     exec "$APP/Contents/Resources/startosinstall" --agreetolicense --volume "$VOL" \\
         ${{OWNER:+--user "$OWNER"}} --passprompt
@@ -717,9 +848,9 @@ def build(a):
     if not inst["current"] and not a.older:
         raise Refusal(f"{inst['version']} ({inst['build']}) is not the newest {vkey(inst['version'])[0]}.x "
                       "build; Apple usually refuses to install those. Add --older to try anyway.")
-    state = owner_of(layout, a.owner_fn)
+    state = owner_of(layout, chosen, a.owner_fn)
     plan = make_plan(inst, board, chosen, gpt, layout, "replace" if a.replace else "alongside",
-                     state, size=a.size, root=a.root)
+                     state, size=a.size, root=a.root, fstab=fstab_targets(a.fstab))
     if not a.no_check:
         info = check_manifest(inst, board)
         print(f"Checked the installer on Apple's server: BuildManifest has {board} "
@@ -894,6 +1025,7 @@ def main(argv=None, owner_fn=None):
     ap.add_argument("--disk", help=argparse.SUPPRESS)
     ap.add_argument("--esp", help=argparse.SUPPRESS)
     ap.add_argument("--root", default="/", help=argparse.SUPPRESS)
+    ap.add_argument("--fstab", default="/etc/fstab", help=argparse.SUPPRESS)
     ap.add_argument("--cache", default=CACHE, help=argparse.SUPPRESS)
     ap.add_argument("--refresh", action="store_true", help="re-read Apple's catalog now")
     sub = ap.add_subparsers(dest="cmd", required=True)
