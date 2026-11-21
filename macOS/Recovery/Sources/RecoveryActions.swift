@@ -919,10 +919,13 @@ extension RecoveryActions {
     return cleaned
   }
   static func cli(_ arguments: [String]) throws {
+    guard let command = RecoveryCommand(arguments) else {
+      throw RecoveryFailure(message: RecoveryCommand.usage)
+    }
     try recoveryOnly()
     try run("/sbin/mount", ["-u", "-w", volume.path])
-    switch arguments {
-    case ["recover"]:
+    switch command {
+    case .recover:
       let record = try installed()
       // Its Stage 2 belongs to the staged Stage 1, which isn't enrolled yet.
       try check(
@@ -952,18 +955,94 @@ extension RecoveryActions {
         try atomic($0, to: $1)
       }
       print("Stage 2 and device firmware restored.")
-    case ["debug", "on"], ["debug", "off"], ["proxy", "on"], ["proxy", "off"]:
+    case .setup, .update:
+      try setupFromCommand(command)
+    case .restart:
+      try restartFromCommand()
+    case .bootArgument(let flag, let enabled):
       let before = try readBootArguments()
-      let after = bootArguments(before, flag: "aura-" + arguments[0], enabled: arguments[1] == "on")
+      let after = bootArguments(before, flag: flag, enabled: enabled)
       try atomic(
         Data(before.utf8),
         to: state.appendingPathComponent("boot-args-" + UUID().uuidString + ".before"))
       try run("/usr/sbin/nvram", ["boot-args=" + after])
       try check(try readBootArguments() == after, "Firmware boot arguments did not verify.")
       print("Aura \(arguments[0]) \(arguments[1]) for the next boot.")
-    default:
+    }
+  }
+
+  /// `aura restart`: Restart on the last screen, without a window. Every path
+  /// checks the receipt, the startup bundle and the startup disk again.
+  static func restartFromCommand() throws {
+    try check(
+      pendingStage1Update() == nil,
+      "A startup software update is waiting. Run aura update first. Your Mac has not been restarted."
+    )
+    let required = try accountCreationRequired()
+    let record = required ? try recoveryAccount() : nil
+    if required, record == nil {
+      // No account exists yet: defer it, as "Skip, Restart Now" does.
+      try skipRecoveryAccountAndRestart()
+    } else if let record, record.phase != "finalized" {
       throw RecoveryFailure(
-        message: "Usage: aura [recover | debug on/off | proxy on/off]")
+        message:
+          "The recovery account \(record.username) waits for authorization in Startup Disk. Open Aurora Installer to finish it. Your Mac has not been restarted."
+      )
+    } else {
+      try restartCompletedSetup()
+    }
+  }
+
+  /// `aura setup` and `aura update`: what Continue and Update run, for a shell
+  /// in paired Recovery with no window, such as a remote one. The owner's
+  /// password comes from standard input. install() and reenrollStage1() repeat
+  /// every environment and owner check before their first write, as they do
+  /// for the window. The startup keys are the configured ones (Aurora-managed
+  /// by default); the recovery account is left to the window, which offers it
+  /// the next time Recovery opens it.
+  static func setupFromCommand(_ command: RecoveryCommand) throws {
+    // A terminal would echo the password: a person types it in the window.
+    guard isatty(STDIN_FILENO) == 0 else {
+      throw RecoveryFailure(message: RecoveryPasswordInput.terminalMessage)
+    }
+    guard let password = RecoveryPasswordInput.password(readLine(strippingNewline: true)) else {
+      throw RecoveryFailure(message: RecoveryPasswordInput.message)
+    }
+    if let refusal = command.refusal(updatePending: pendingStage1Update() != nil) {
+      throw RecoveryFailure(message: refusal)
+    }
+    InstallerLog.shared.beginAttempt()
+    let owner = try resolveOwner()
+    let mode = configuredBootMode
+    let keys = (try? configuration.get().secureBootKeys) ?? .aurora
+    let stage1 = hash(try asset(mode.stage1Path, manifest: manifest()))
+    // Say which change this is before anything is written.
+    let action =
+      command == .update
+      ? "Installing the staged startup software update for \(volumeName): boot mode \(mode.rawValue), Stage 1 sha256 \(stage1), authorized by \(owner.username)."
+      : "Setting up \(volumeName): boot mode \(mode.rawValue), startup keys \(keys.rawValue), Stage 1 sha256 \(stage1), authorized by \(owner.username)."
+    print(action)
+    InstallerLog.shared.append(action)
+    let report: (Double, String) -> Void = { amount, operation in
+      print("\(Int((amount * 100).rounded()))% \(operation)")
+      fflush(stdout)
+    }
+    do {
+      if command == .update {
+        let enrolled = try reenrollStage1(owner: owner, password: password, progress: report)
+        print(
+          enrolled
+            ? "The new startup software is installed. Restart the Mac to use it."
+            : "This startup software was already installed. Nothing was changed.")
+      } else {
+        try install(
+          selection: BootSelection(mode: mode), keys: keys, owner: owner, password: password,
+          progress: report)
+        print("Setup is complete. Run aura restart to start \(volumeName).")
+      }
+    } catch {
+      InstallerLog.shared.append("Setup failed: " + error.localizedDescription, level: .error)
+      throw error
     }
   }
   static func installCommand() throws {
