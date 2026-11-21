@@ -693,6 +693,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var window: NSWindow?
   private var controller: InstallerView?
   private lazy var model = InstallerModel()
+  private lazy var macOSRemoval: MacOSRemovalFlow = {
+    let flow = MacOSRemovalFlow()
+    flow.canOpenAccountSetup = { [weak self] in
+      guard let model = self?.model else { return false }
+      return model.accountOptional && model.stage == .complete
+    }
+    flow.openAccountSetup = { [weak self] in self?.model.showRecoveryAccountSetup() }
+    return flow
+  }()
 
   func applicationDidBecomeActive(_ notification: Notification) {
     model.returnedFromStartupDisk()
@@ -795,6 +804,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       withTitle: "Create Recovery Account…", action: #selector(createRecoveryAccount(_:)),
       keyEquivalent: "")
     account.target = self
+    // Only this installation's Recovery offers removing macOS.
+    if model.recoveryInterface && (RecoveryActions.inRecovery || RecoveryActions.isPreview) {
+      utilities.addItem(.separator())
+      let removal = utilities.addItem(
+        withTitle: "Remove macOS…", action: #selector(removeMacOS(_:)), keyEquivalent: "")
+      removal.target = self
+    }
 
     let windows = submenu("Window")
     windows.addItem(
@@ -872,7 +888,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   @objc private func createRecoveryAccount(_ sender: Any?) { model.showRecoveryAccountSetup() }
 
+  @objc private func removeMacOS(_ sender: Any?) { macOSRemoval.start() }
+
   @objc func validateMenuItem(_ item: NSMenuItem) -> Bool {
+    if item.action == #selector(removeMacOS(_:)) {
+      return !macOSRemoval.running && model.stage1Update == nil && model.stage != .installing
+        && !model.creatingAccount && !model.restartingCompletedSetup
+        && !model.restartingWithoutAccount
+    }
     guard item.action == #selector(createRecoveryAccount(_:)) else { return true }
     return model.accountOptional && model.stage == .complete
   }

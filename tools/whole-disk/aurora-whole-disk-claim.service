@@ -1,0 +1,18 @@
+[Unit]
+Description=Add the space macOS had to the root file system (after Recovery removed macOS)
+Documentation=https://github.com/aurora-silicon/aurora-distributions/blob/main/docs/whole-disk.md
+# Recovery's `aura remove-macos` leaves aurora/whole-disk/removed.json on the
+# EFI partition. Without it this does nothing.
+ConditionPathExists=|/boot/efi/aurora/whole-disk/removed.json
+ConditionPathExists=|/boot/aurora/whole-disk/removed.json
+ConditionPathExists=|/efi/aurora/whole-disk/removed.json
+After=local-fs.target
+Before=systemd-user-sessions.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/aurora-whole-disk claim --yes
+TimeoutStartSec=10min
+
+[Install]
+WantedBy=multi-user.target
