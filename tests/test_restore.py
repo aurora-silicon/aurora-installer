@@ -364,7 +364,7 @@ open(st["log"], "a").write(" ".join(sys.argv[1:]) + "\n")
 parts = st["parts"]
 def find(x):
     for p in parts:
-        if x in (p["uuid"], p["id"]):
+        if x in (p["uuid"], p["id"], p.get("mount")):
             return p
 def save():
     json.dump(st, open(S, "w"))
@@ -374,7 +374,8 @@ if a[:2] == ["info", "-plist"]:
     if not p:
         sys.exit(1)
     sys.stdout.write(plistlib.dumps({"DeviceIdentifier": p["id"], "ParentWholeDisk": "disk0",
-        "PartitionMapPartitionOffset": p["start"], "Size": p["size"], "TotalSize": 1}).decode())
+        "PartitionMapPartitionOffset": p["start"], "Size": p["size"], "TotalSize": 1,
+        "Internal": not p.get("external"), "MountPoint": p.get("mount", "")}).decode())
 elif a[:2] == ["list", "-plist"]:
     ids = ["disk0"] + [p["id"] for p in parts]
     sys.stdout.write(plistlib.dumps({"AllDisks": ids, "AllDisksAndPartitions": [
@@ -392,7 +393,7 @@ elif a[0] == "addPartition":
     p = find(pred)
     parts.append({"uuid": "NEW", "id": "disk0s99",
                   "start": p["start"] + p["size"] + st.get("add_shift", 0),
-                  "size": int(size[:-1])})
+                  "size": int(size[:-1]), "mount": "/Volumes/" + label})
     os.makedirs("/Volumes/" + label); save()
 else:
     sys.exit(3)
@@ -445,7 +446,7 @@ class RecoveryScript(DiskImage):
     stand-ins that record every command."""
 
     def harness(self, plan, answer, args=(), mutate=None, twice=False, state_extra=None,
-                rerun=None):
+                rerun=None, pre=""):
         d = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, d)
         bindir = os.path.join(d, "bin")
@@ -470,7 +471,7 @@ class RecoveryScript(DiskImage):
             f.write(ar.recovery_script(plan))
         env = dict(os.environ, PATH=bindir + ":/usr/bin:/bin", FAKE_STATE=state, FAKE_LOG=log,
                    FAKE_PKG_SIZE=str(plan["installer"]["size"]))
-        run = 'mount -t tmpfs none /Volumes && exec sh "$0" "$@"'
+        run = 'mount -t tmpfs none /Volumes && ' + pre + 'exec sh "$0" "$@"'
         if twice:  # the first run fails; the second resumes in the same /Volumes
             fail = 'touch "$FAKE_LOG.fail" && ' if twice == "download" else ""
             again = rerun or '"$0"'
@@ -512,7 +513,7 @@ class RecoveryScript(DiskImage):
         self.assertEqual(changes, [
             f"curl -fsIL --max-time 30 {plan['installer']['url']}",
             f"addPartition disk0s{root + 1} APFS macOS 27.2.1 {plan['containerBytes']}B",
-            f"curl -fL --retry 5 -C - -o /Volumes/macOS 27.2.1/.aurora-restore/InstallAssistant.pkg "
+            f"curl -fL --retry 5 --speed-limit 1024 --speed-time 120 -C - -o /Volumes/macOS 27.2.1/.aurora-restore/InstallAssistant.pkg "
             f"{plan['installer']['url']}",
             "installer -pkg /Volumes/macOS 27.2.1/.aurora-restore/InstallAssistant.pkg "
             "-target /Volumes/macOS 27.2.1",
@@ -636,6 +637,38 @@ class RecoveryScript(DiskImage):
         self.assertEqual(len([c for c in calls if c.startswith("installer")]), 1)
         self.assertIn("is already installed (an earlier run)", p.stdout)
         self.assertEqual(calls.count("startosinstall --license"), 2)
+
+    def test_a_volume_already_named_like_the_new_one_stops_before_any_change(self):
+        self.make()
+        for mode in ("alongside", "replace"):
+            plan = self.plan(mode)
+            p, calls = self.harness(plan, ar.phrase(plan),
+                                    pre="mkdir '/Volumes/macOS 27.2.1' && ")
+            self.assertEqual(p.returncode, 1)
+            self.assertIn("already exists (another drive or volume", p.stdout)
+            self.assertFalse([c for c in calls if c.startswith(
+                ("eraseVolume", "addPartition", "curl -fL", "installer"))])
+
+    def test_a_disk_that_is_not_internal_stops_before_any_change(self):
+        self.make()
+        plan = self.plan("replace")
+
+        def external(parts):
+            for x in parts:
+                x["external"] = True
+        p, calls = self.harness(plan, ar.phrase(plan), mutate=external)
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("isn't this Mac's internal disk", p.stdout)
+        self.assertFalse([c for c in calls if c.startswith(
+            ("eraseVolume", "addPartition", "curl -fL", "installer"))])
+
+    def test_no_answer_stops_with_a_message(self):
+        self.make()
+        plan = self.plan("alongside")
+        p, calls = self.harness(plan, "", pre="exec </dev/null && ")
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("no answer; nothing was changed", p.stdout)
+        self.assertFalse([c for c in calls if c.startswith(("addPartition", "curl -fL"))])
 
     def test_unknown_argument_prints_usage(self):
         self.make()

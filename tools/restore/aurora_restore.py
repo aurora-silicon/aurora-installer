@@ -565,8 +565,8 @@ def plan_text(plan):
         L.append("")
         L.append(f"UNPROVEN: macOS {i['version']} is older than Aurora's Recovery "
                  f"({aurora['version']}), where the script runs. Apple's installer may refuse an older macOS there; if it "
-                 "does, it stops before installing and the new container is left empty (delete it "
-                 "in Disk Utility).")
+                 "does, it stops before installing and the new container holds only the download "
+                 "(delete it in Disk Utility).")
     native = native_note(plan.get("routes", []), i)
     if native:
         L.append("")
@@ -617,7 +617,8 @@ def recovery_script(plan):
                      for p in plan["partitions"] if p["uuid"] not in gone)
     doomed = "\n".join(f"    doomed_part {q(p['uuid'])} {p['start']} {p['size']}"
                        for p in plan["delete"])
-    deletes = "\n".join(f"        delete_part {q(p['uuid'])}" for p in plan["delete"])
+    deletes = "\n".join(f"        delete_part {q(p['uuid'])} {p['start']} {p['size']}"
+                        for p in plan["delete"])
     kept_count = len(plan["partitions"]) - len(gone)
     pred_end = plan["predecessor"]["start"] + plan["predecessor"]["size"]
     return f"""#!/bin/sh
@@ -662,6 +663,9 @@ die() {{ say "$*"; say "Stopped."; exit 1; }}
 pint() {{ # pint KEY: an integer from `diskutil info -plist` on stdin
     awk -v k="<key>$1</key>" '$0 ~ k {{ getline; gsub(/[^0-9]/, ""); print; exit }}'
 }}
+pbool() {{ # pbool KEY: true, false or empty
+    awk -v k="<key>$1</key>" '$0 ~ k {{ getline; if ($0 ~ /<true\\/>/) print "true"; else if ($0 ~ /<false\\/>/) print "false"; exit }}'
+}}
 pstr() {{
     awk -v k="<key>$1</key>" '$0 ~ k {{ getline; sub(/^[^>]*>/, ""); sub(/<.*$/, ""); print; exit }}'
 }}
@@ -675,6 +679,8 @@ same_place() {{ # INFO START SIZE UUID
     [ "$size" = "$3" ] || die "partition $4 changed size ($size, planned $3)"
     [ -z "$DISK" ] && DISK=$whole
     [ "$whole" = "$DISK" ] || die "partition $4 is on $whole, not $DISK"
+    # A clone of this disk (same partition GUIDs) on an external drive is not it.
+    [ "$(printf '%s' "$1" | pbool Internal)" = true ] || die "partition $4 is on $whole, which isn't this Mac's internal disk; disconnect other drives and $(rerun)"
 }}
 check_part() {{ # UUID START SIZE: the partition is where the plan has it
     info=$(diskutil info -plist "$1" 2>/dev/null) || die "partition $1 is missing"
@@ -692,9 +698,10 @@ doomed_part() {{ # UUID START SIZE: still where planned, or already deleted by a
     fi
 }}
 ident() {{ diskutil info -plist "$1" | pstr DeviceIdentifier; }}
-delete_part() {{
-    diskutil info -plist "$1" >/dev/null 2>&1 || return 0
-    id=$(ident "$1")
+delete_part() {{ # UUID START SIZE
+    info=$(diskutil info -plist "$1" 2>/dev/null) || return 0
+    same_place "$info" "$2" "$3" "$1"
+    id=$(printf '%s' "$info" | pstr DeviceIdentifier)
     say "deleting $id ($1)"
     diskutil eraseVolume free none "$id" || die "couldn't delete $id; $(rerun)"
 }}
@@ -726,7 +733,18 @@ else
 fi
 n=$(part_ids | wc -l | tr -d ' ')
 if [ $RESUME = 0 ] && [ "$n" = $((want + 1)) ] && [ "$PRESENT" = 0 ] && [ -d "$VOL" ]; then
-    die "$VOL exists but this script didn't record it (an interrupted earlier run?). Check it is empty, delete it in Disk Utility, then run this again"
+    die "$VOL exists but this script didn't record it (stopped right after creating it?). If it is empty, delete it in Disk Utility, then $(rerun)"
+fi
+if [ $RESUME = 0 ] && [ -e "$VOL" ]; then
+    die "$VOL already exists (another drive or volume named “$LABEL”?): eject or rename it, then $(rerun)"
+fi
+mounted_here() {{ # the volume at $VOL is mounted there and is on the internal disk
+    vinfo=$(diskutil info -plist "$VOL" 2>/dev/null) || return 1
+    [ "$(printf '%s' "$vinfo" | pstr MountPoint)" = "$VOL" ] &&
+        [ "$(printf '%s' "$vinfo" | pbool Internal)" != false ]
+}}
+if [ $RESUME = 1 ]; then
+    mounted_here || die "$VOL isn't a volume on this Mac's internal disk; disconnect other drives and $(rerun)"
 fi
 [ "$n" = "$want" ] || die "$DISK has $n partitions; the plan has $want"
 [ $((GAP_START + GAP_SIZE)) -gt "$GAP_START" ] || die "bad plan"
@@ -741,7 +759,7 @@ if [ $CHECK = 1 ]; then
     exit 0
 fi
 printf 'Type "%s" to continue: ' "$CONFIRM"
-read -r answer
+read -r answer || die "no answer; nothing was changed"
 [ "$answer" = "$CONFIRM" ] || die "not confirmed; nothing was changed"
 
 if [ $RESUME = 0 ]; then
@@ -764,10 +782,10 @@ if [ $RESUME = 0 ]; then
     done
     [ -n "$new" ] || die "the new container isn't in the planned free space; check Disk Utility"
     [ "$new_end" -le $((GAP_START + GAP_SIZE)) ] || die "$new ends past the planned free space (byte $new_end); delete it in Disk Utility"
-    [ -d "$VOL" ] || die "$VOL didn't appear"
+    mounted_here || die "the new container's volume isn't mounted at $VOL; check Disk Utility"
     mkdir -p "$VOL/.aurora-restore"
+    printf '%s\\n' "$DIGEST" > "$VOL/.aurora-restore/plan"
     cp "$self" "$VOL/.aurora-restore/restore.sh"
-    printf '%s\n' "$DIGEST" > "$VOL/.aurora-restore/plan"
 fi
 installed_app() {{ # the installer app an earlier run installed, if complete
     app=$(ls -d "$VOL"/Applications/Install\\ macOS*.app 2>/dev/null | head -n 1)
@@ -782,14 +800,14 @@ else
     PKG="$VOL/.aurora-restore/InstallAssistant.pkg"
     say "downloading macOS $VERSION from Apple ($PKG_SIZE bytes)"
     tries=0
-    until curl -fL --retry 5 -C - -o "$PKG" "$URL"; do
+    until curl -fL --retry 5 --speed-limit 1024 --speed-time 120 -C - -o "$PKG" "$URL"; do
         tries=$((tries + 1)); [ $tries -lt 5 ] || die "download failed; $(rerun) to resume"
         sleep 5
     done
     got=$(stat -f %z "$PKG")
-    [ "$got" = "$PKG_SIZE" ] || die "downloaded $got bytes, expected $PKG_SIZE; delete $PKG and $(rerun)"
+    [ "$got" = "$PKG_SIZE" ] || die "downloaded $got bytes, expected $PKG_SIZE; delete “$PKG” and $(rerun)"
     say "installing the installer (Apple checks its signature)"
-    installer -pkg "$PKG" -target "$VOL" || die "Apple's installer refused the package"
+    installer -pkg "$PKG" -target "$VOL" || die "Apple's installer refused the package. Only $VOL was changed; to undo, delete “$LABEL” in Disk Utility"
     APP=$(installed_app) || die "the installer app wasn't installed completely; $(rerun)"
     rm -f "$PKG"
 fi
@@ -797,7 +815,7 @@ if [ $UNATTENDED = 1 ]; then
     # Apple's license is the user's to accept: show it and ask.
     "$APP/Contents/Resources/startosinstall" --license || die "couldn't show Apple's license"
     printf '%s' 'Type "agree" to accept the license above: '
-    read -r answer
+    read -r answer || die "no answer; nothing more was changed"
     [ "$answer" = agree ] || die "license not accepted; nothing more was changed. $(rerun), or start $APP"
     say "starting $APP (unattended)"
     exec "$APP/Contents/Resources/startosinstall" --agreetolicense --volume "$VOL" \\
