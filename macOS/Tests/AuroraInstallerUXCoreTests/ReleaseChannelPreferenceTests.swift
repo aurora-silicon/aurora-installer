@@ -392,6 +392,15 @@
       // The window shows the channel the plan on screen reads.
       XCTAssertTrue(scene.contains("liveSession?.existingInstallationChannel ?? channel"))
       XCTAssertTrue(page.contains("session.existingInstallationChannel ?? channel"))
+      // A Reset or boot loader update names its channel in the masthead.
+      XCTAssertTrue(
+        page.contains("existingInstallation: session.existingInstallationChannel != nil"))
+      let masthead = try String(
+        contentsOf: app.appendingPathComponent("InstallerMasthead.swift"), encoding: .utf8)
+      XCTAssertTrue(
+        masthead.contains(
+          "PlainLanguage.mastheadChannelLabel("
+            + "channel, existingInstallation: existingInstallation)"))
       // Check Channels Again: one read, and a stale answer is dropped.
       XCTAssertTrue(scene.contains("ReleaseChannelPreference().checkAgain("))
       XCTAssertTrue(scene.contains("selection.profileID == profileID && liveSession === session"))

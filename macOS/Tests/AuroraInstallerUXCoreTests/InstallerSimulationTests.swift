@@ -212,6 +212,11 @@
             await session.reset(row.id)
           }
           XCTAssertEqual(session.existingInstallationChannel, expected, label)
+          // The masthead names it, so a Nightly plan for an Edge install shows.
+          XCTAssertEqual(
+            PlainLanguage.mastheadChannelLabel(
+              session.existingInstallationChannel, existingInstallation: true),
+            PlainLanguage.badge(for: expected), label)
         }
       }
 
