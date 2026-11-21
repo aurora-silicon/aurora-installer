@@ -41,6 +41,47 @@
       else { throw InstallerReleaseConfigurationError.invalidEdgeQualification }
     }
 
+    /// The Macs a verified, qualified Edge catalog lists as family-qualified,
+    /// by device identifier: each Mac's chip family passed the Edge rows on a
+    /// named machine. Apply only to a payload `validate` accepted for Edge.
+    /// `edgeQualification.devices` maps each such Mac to the digest of a
+    /// detached evidence record that names it and its family's machine row; a
+    /// `devices` value that isn't well formed qualifies no Mac. The app checks
+    /// only that the map is well formed: what qualifies a family is the signed
+    /// publisher's policy. A catalog from before `devices` qualifies only the
+    /// MacBook Neo, through its `neoEvidence`. An explicit Edge pick doesn't
+    /// need this.
+    static func qualifiedDeviceIdentifiers(edgePayload payload: Data) -> Set<String> {
+      guard let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+        object["channel"] as? String == "edge",
+        let qualification = object["edgeQualification"] as? [String: Any]
+      else { return [] }
+      guard let devices = qualification["devices"] else {
+        guard let neo = qualification["neoEvidence"] as? [String: Any], !neo.isEmpty
+        else { return [] }
+        return ["apple,j700"]
+      }
+      guard let entries = devices as? [String: Any] else { return [] }
+      var proven = Set<String>()
+      for (identifier, entry) in entries {
+        guard isDeviceIdentifier(identifier),
+          let evidence = entry as? [String: Any],
+          let digest = evidence["evidenceDigest"] as? String,
+          SHA256Digest(rawValue: digest) != nil
+        else { return [] }
+        proven.insert(identifier)
+      }
+      return proven
+    }
+
+    private static func isDeviceIdentifier(_ value: String) -> Bool {
+      let prefix = "apple,"
+      guard value.hasPrefix(prefix) else { return false }
+      let board = value.utf8.dropFirst(prefix.utf8.count)
+      return !board.isEmpty
+        && board.allSatisfy { (48...57).contains($0) || (97...122).contains($0) }
+    }
+
     private static func isLegacyDevelopment(_ model: [String: Any]) -> Bool {
       if model["status"] as? String == "disabled" { return true }
       guard let profile = model["installationProfile"] as? String,

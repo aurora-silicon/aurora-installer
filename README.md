@@ -34,6 +34,6 @@ Licensed under [MIT](LICENSE); third-party notices remain with their sources.
 
 ## Release channels
 
-Testing is the default development/prerelease channel. Edge is an explicit choice and remains unavailable until a signed, qualified release from both Linux and Mesa `aurora-edge` sources is published. An empty Edge menu entry never falls back to Testing.
+A new installation opens on Edge when the selected distribution profile's signed, qualified Edge catalog (built from both Linux and Mesa `aurora-edge` sources) admits the Mac and lists it as family-qualified (its chip family passed the Edge rows on a named machine), and on Testing, shown as Nightly, otherwise. An Edge catalog that cannot be fetched or verified never falls back to Testing, Reset and Update Boot Loader keep the channel an installation came from, and a choice in the Release channel menu always wins.
 
 New Edge catalogs use a separate endpoint from the legacy development URL. Signed channel identity, packaged source revisions/trees and detached qualification evidence separate Edge from Testing. Existing development rollback state is retained for Testing; Edge uses its own rollback floor. No existing Testing set is promoted to Edge by these changes.

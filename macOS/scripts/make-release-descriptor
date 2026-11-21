@@ -51,7 +51,7 @@ done
 [[ $base_url == https://* ]] || die "--base-url must be https: $base_url"
 [[ $base_url != */ ]] || die "--base-url must not end with a slash: $base_url"
 [[ $default_channel == "stable" || $default_channel == "rc" || $default_channel == "testing" ]] ||
-  die "--default-channel must be stable, rc or testing (Edge requires an explicit opt-in)"
+  die "--default-channel must be stable, rc or testing (the app picks Edge per Mac from its signed catalog)"
 [[ ! -e $output ]] || die "refusing to overwrite $output"
 
 # shellcheck source=../Packaging/identity.conf

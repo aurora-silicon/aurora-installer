@@ -252,8 +252,11 @@ struct AuroraAppleInstallerApp: App {
       })
   }
 
-  @State private var channel = ReleaseChannelPreference().resolveFromMainBundle(
-    profileID: AuroraInstallationSelection().profileID)
+  /// The channel the selected profile reads: the Release channel menu's
+  /// choice, or this launch's default from the profile's verified Edge
+  /// catalog. `nil` while that catalog is read, or when the bundle has no
+  /// release descriptor for the profile.
+  @State private var channel: ReleaseChannel?
 
   var body: some Scene {
     WindowGroup(PlainLanguage.windowTitle) {
@@ -271,8 +274,14 @@ struct AuroraAppleInstallerApp: App {
         }
       }
       .id(generation)
-      .onChange(of: selection) { _, selection in
-        channel = ReleaseChannelPreference().resolveFromMainBundle(profileID: selection.profileID)
+      .task(id: selection.profileID) {
+        guard !isSimulation else { return }
+        // Another profile's channel says nothing about this one.
+        channel = nil
+        let decided = await LiveInstallerEnvironment.releaseChannel(for: selection)
+        // A newer selection's check replaces this one.
+        guard !Task.isCancelled else { return }
+        channel = decided
       }
       .task {
         guard !isSimulation, !checkedPendingInstallation else { return }
@@ -403,14 +412,28 @@ struct AuroraAppleInstallerApp: App {
             )
             .disabled(
               !PlainLanguage.channelMenuItemEnabled(
-                option, selected: channel, availability: availability))
+                option, selected: shownChannel, availability: availability))
           }
           .disabled(
             removalNeedsReview || showsRemoval || liveSession?.canChangeChannel != true
               || isSimulation || channel == nil)
           Divider()
           Button(PlainLanguage.channelMenuCheckAgain) {
-            Task { await liveSession?.refreshChannelAvailability() }
+            guard let session = liveSession else { return }
+            let profileID = selection.profileID
+            Task {
+              // One read refreshes the menu and decides again a default that
+              // came from a failed Edge check; an answer that arrives after
+              // another distribution or session is on screen is dropped.
+              let decided = await ReleaseChannelPreference().checkAgain(
+                profileID: profileID,
+                read: {
+                  await session.refreshChannelAvailability()
+                  return session.edgeCheck
+                },
+                isCurrent: { selection.profileID == profileID && liveSession === session })
+              if let decided { channel = decided }
+            }
           }
           .disabled(
             removalNeedsReview || showsRemoval || liveSession?.canChangeChannel != true
@@ -445,20 +468,34 @@ struct AuroraAppleInstallerApp: App {
     return nil
   }
 
+  /// The channel the plan on screen reads: an existing installation's own
+  /// for Reset and Update Boot Loader, otherwise the selected profile's.
+  private var shownChannel: ReleaseChannel? {
+    liveSession?.existingInstallationChannel ?? channel
+  }
+
   private func channelBinding(_ option: ReleaseChannel) -> Binding<Bool> {
     Binding(
-      get: { channel == option },
+      get: { shownChannel == option },
       set: { isOn in
-        guard isOn, option != channel,
+        guard isOn, option != shownChannel,
           liveSession?.canChangeChannel == true && !isSimulation,
           PlainLanguage.channelMenuItemEnabled(
-            option, selected: channel,
+            option, selected: shownChannel,
             availability: liveSession?.channelAvailability[option])
         else {
           return
         }
         ReleaseChannelPreference().select(option)
-        channel = option
+        guard option == channel else {
+          channel = option
+          return
+        }
+        // The plan on screen read an existing installation's channel; start
+        // again on the chosen one, as any other channel switch does.
+        liveSession?.cancelPrefetchOnQuit()
+        liveSession = nil
+        generation = UUID()
       }
     )
   }

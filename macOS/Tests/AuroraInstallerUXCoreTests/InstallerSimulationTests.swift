@@ -117,6 +117,120 @@
       }
     }
 
+    func testTheSimulatedMacDefaultsToEdgeOnlyWhereEdgeProvesIt() async throws {
+      // Today's simulated channels carry no Edge release, so the simulated Mac
+      // opens on Nightly, as a Mac Edge doesn't support does.
+      let today = InstallerSession(
+        environment: InstallerSimulationEnvironment(scenario: .success, delay: .zero))
+      await today.inspect()
+      await today.refreshChannelAvailability()
+      let todaysEdge = try XCTUnwrap(today.edgeCheck)
+      XCTAssertEqual(todaysEdge, EdgeCatalogCheck(availability: .notPublished))
+      XCTAssertEqual(today.channelAvailability[.edge], .notPublished)
+      XCTAssertEqual(
+        ReleaseChannelPreference.launchDefault(descriptorDefault: .testing, edge: todaysEdge),
+        .testing)
+      XCTAssertEqual(InstallerSimulationEnvironment.launchChannel, .testing)
+
+      let expected: [(EdgeCatalogCheck, ReleaseChannel, String, Bool)] = [
+        (EdgeCatalogCheck(availability: .available, qualifiesThisMac: true), .edge, "Edge", true),
+        // Listed but not family-qualified: selectable, not the default.
+        (EdgeCatalogCheck(availability: .available), .testing, "Edge", true),
+        (
+          EdgeCatalogCheck(availability: .noRelease), .testing, "Edge — No release available",
+          false
+        ),
+        (
+          EdgeCatalogCheck(
+            availability: .modelUnavailable(supportedDeviceIdentifiers: ["apple,j700"])),
+          .testing, "Edge — Not available for this Mac", false
+        ),
+        // A failed check is not "unsupported": Edge stays chosen and selectable.
+        (
+          EdgeCatalogCheck(availability: .checkFailed(.network)), .edge, "Edge — Couldn’t load",
+          true
+        ),
+        (
+          EdgeCatalogCheck(availability: .checkFailed(.verification)), .edge,
+          "Edge — Couldn’t verify", true
+        ),
+      ]
+      for (edge, channel, menuItem, edgeSelectable) in expected {
+        let session = InstallerSession(
+          environment: InstallerSimulationEnvironment(scenario: .success, edge: edge, delay: .zero))
+        await session.inspect()
+        await session.refreshChannelAvailability()
+        // The menu and the default come from the same read.
+        XCTAssertEqual(session.edgeCheck, edge, menuItem)
+        XCTAssertEqual(session.channelAvailability[.edge], edge.availability, menuItem)
+        XCTAssertEqual(session.channelAvailability[.testing], .available, menuItem)
+        let decided = ReleaseChannelPreference.launchDefault(
+          descriptorDefault: .testing, edge: try XCTUnwrap(session.edgeCheck))
+        XCTAssertEqual(decided, channel, menuItem)
+        XCTAssertEqual(
+          PlainLanguage.channelMenuItem(.edge, availability: edge.availability), menuItem)
+        XCTAssertEqual(
+          PlainLanguage.channelMenuItemEnabled(
+            .edge, selected: decided, availability: edge.availability),
+          edgeSelectable, menuItem)
+      }
+
+      // The window's channel is the one the simulated preparation reads.
+      let environment = InstallerSimulationEnvironment(
+        scenario: .success, channel: .edge,
+        edge: EdgeCatalogCheck(availability: .available, qualifiesThisMac: true), delay: .zero)
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      await session.continueToPlan()
+      session.continueToPlanReview()
+      guard case .planReview = session.phase else { return XCTFail("Expected disk review") }
+      XCTAssertEqual(environment.channel, .edge)
+    }
+
+    func testAnExistingInstallationsPlanReadsTheChannelItCameFrom() async throws {
+      // On a Mac Edge proves, a new installation opens on Edge, but Reset and
+      // Update Boot Loader read the installation's recorded channel, or
+      // Nightly when none was recorded.
+      let proven = EdgeCatalogCheck(availability: .available, qualifiesThisMac: true)
+      let cases: [(ReleaseChannel?, ReleaseChannel)] = [
+        (nil, .testing), (.testing, .testing), (.edge, .edge),
+      ]
+      for (installed, expected) in cases {
+        for updatingBootLoader in [true, false] {
+          let label = "\(String(describing: installed)) update=\(updatingBootLoader)"
+          let session = InstallerSession(
+            environment: InstallerSimulationEnvironment(
+              scenario: .partitions, edge: proven, installedChannel: installed, delay: .zero))
+          await session.inspect()
+          guard case .partitions(_, let layout) = session.phase,
+            let row = layout.rows.first(where: { $0.reset?.isAvailable == true })
+          else { return XCTFail("Expected an installation to reset: \(label)") }
+          XCTAssertNil(session.existingInstallationChannel, label)
+          if updatingBootLoader {
+            await session.updateBootLoader(row.id)
+          } else {
+            await session.reset(row.id)
+          }
+          XCTAssertEqual(session.existingInstallationChannel, expected, label)
+          // The masthead names it, so a Nightly plan for an Edge install shows.
+          XCTAssertEqual(
+            PlainLanguage.mastheadChannelLabel(
+              session.existingInstallationChannel, existingInstallation: true),
+            PlainLanguage.badge(for: expected), label)
+        }
+      }
+
+      // A new installation beside it reads the window's channel.
+      let session = InstallerSession(
+        environment: InstallerSimulationEnvironment(
+          scenario: .partitions, edge: proven, installedChannel: .testing, delay: .zero))
+      await session.inspect()
+      guard case .partitions(_, let layout) = session.phase, let option = layout.options.first
+      else { return XCTFail("Expected space for a new installation") }
+      await session.install(into: option.target)
+      XCTAssertNil(session.existingInstallationChannel)
+    }
+
     func testSyntheticJournalPassesRealDecoder() throws {
       let data = InstallerSimulationEnvironment.journalLines.reduce(into: Data()) { $0.append($1) }
       let transcript = try AppleInstallerTrustCore().validateEngineTranscript(data)

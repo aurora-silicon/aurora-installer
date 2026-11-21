@@ -67,6 +67,22 @@
       validationTime: Date,
       previouslyAcceptedCatalog: AcceptedCatalogIdentity?
     ) async throws -> [String] {
+      try await verifiedCatalog(
+        configuration: configuration,
+        channel: channel,
+        validationTime: validationTime,
+        previouslyAcceptedCatalog: previouslyAcceptedCatalog
+      ).deviceIdentifiers
+    }
+
+    /// One channel's catalog, after its signature, rollback floor and channel
+    /// policy are verified.
+    func verifiedCatalog(
+      configuration: InstallerReleaseConfiguration,
+      channel: ReleaseChannel,
+      validationTime: Date,
+      previouslyAcceptedCatalog: AcceptedCatalogIdentity?
+    ) async throws -> (payload: Data, deviceIdentifiers: [String]) {
       let documents = try await catalogFetcher.fetch(
         configuration: configuration,
         channel: channel
@@ -79,7 +95,7 @@
         previouslyAccepted: previouslyAcceptedCatalog
       )
       try ReleaseCatalogChannelPolicy.validate(payload: documents.payload, channel: channel)
-      return support.deviceIdentifiers
+      return (documents.payload, support.deviceIdentifiers)
     }
 
     public func prepareRelease(
