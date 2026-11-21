@@ -279,6 +279,7 @@
             calibration: ambientLight(), factory: factory)
           try merge(calibration, into: &outputs)
           try merge(calibration, into: &fallback)
+          try merge(NativeBluetoothCalibrationInputs.files(factory: factory), into: &outputs)
         }
         // The speaker protection's parameters: this Mac's own Apple tuning,
         // stored like the other per-machine firmware and never shipped.
