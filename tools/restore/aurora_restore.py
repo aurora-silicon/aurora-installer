@@ -485,8 +485,11 @@ def plan_text(plan):
     native = native_note(plan.get("routes", []), i)
     if native:
         L.append("")
+        room = ("the disk already has room for it" if plan["mode"] == "alongside"
+                and not plan["shrink"] else
+                "once the disk has room for it (the shrink above, or --replace in Recovery)")
         L.append(f"WITHOUT THE SCRIPT: Recovery can install macOS {vkey(i['version'])[0]} by "
-                 "itself, once the disk has room for it (step 1 above, or --replace):")
+                 f"itself; {room}:")
         L += native
     L.append("")
     L.append("KEPT, unchanged:")
