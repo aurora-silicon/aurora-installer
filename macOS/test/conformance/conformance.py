@@ -555,7 +555,10 @@ def evaluate(machine, mode, distro, dry, context):
     selection = (MACOS / 'Recovery/Sources/BootSelection.swift').read_text()
     enrollment, how = enrollment_check(selection, sample.get('uses_execute_window', False),
                                        [dry[d].get('boot_chain') or {} for d in desktops])
-    steps = [c.get('plan', {}).get('required_human_steps') for c in sample.get('candidates', [])]
+    # Every new installation pairs Stage 1 in 1TR. Repairing or reinstalling
+    # a recognized installation keeps its enrolled Stage 1 and needs no 1TR.
+    steps = [c.get('plan', {}).get('required_human_steps') for c in sample.get('candidates', [])
+             if c.get('kind') not in ('repair', 'reinstall')]
     fresh_steps = all(s is None or 'enterOneTrueRecovery' in s for s in steps)
     ok = sample['one_true_recovery_boot_policy'] == expected and enrollment and fresh_steps
     checks.append(check('1tr', ok, 'bputil %s -v <group>, %s' % (' '.join(sample['one_true_recovery_boot_policy']), how)

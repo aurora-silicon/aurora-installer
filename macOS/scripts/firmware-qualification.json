@@ -6,7 +6,22 @@
       "source_url": "https://updates.cdn-apple.com/2026FallFCS/c9671975-52db-4fb5-9af2-00217169ba8d/UniversalMac_27.2_26B123_Restore.ipsw",
       "source_bytes": 25595669503,
       "manifest_sha256": "sha256:0fbfae04175cde81ef36d273aa280d39ffe5a54eacba8494b45a59daca462510",
-      "boards": {},
+      "boards": {
+        "j615": {
+          "kernel": "7.3.0 with arm64: dts: apple: t8122 PMU RTC alarm and P-core boost states (aurora-silicon/linux#2562), on aura with the macOS 27.2 DCP and ISP admission (aurora-silicon/aura#227)",
+          "distributions": [
+            "fedora-gnome"
+          ],
+          "evidence": "https://github.com/aurora-silicon/linux/pull/2562"
+        },
+        "j713": {
+          "kernel": "7.3.0 with the M4 internal display and GPU bring-up without boot parameters (aurora-silicon/linux#2189), on aura with NVMe kept across warm reboots on the M4 MacBook Air (aurora-silicon/aura#305)",
+          "distributions": [
+            "fedora-gnome"
+          ],
+          "evidence": "https://github.com/aurora-silicon/aura/pull/305"
+        }
+      },
       "experimental_boards": {
         "j714c": {
           "device_tree": "arch/arm64/boot/dts/apple/t6050-j714c.dts",

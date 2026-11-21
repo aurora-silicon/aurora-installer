@@ -1,0 +1,234 @@
+{
+ "captured": "2026-11-21",
+ "description": "MacBook Air 15-inch M3 (J615, T8122), 256 GB, one Aurora Fedora install on the macOS 27.2 stub",
+ "device_identifier": "apple,j615",
+ "disk": {
+  "block_size": 4096,
+  "partitions": [
+   {
+    "apfs": {
+     "capacity": 524288000,
+     "free": 503824384,
+     "uuid": "00000000-0000-4000-8000-000000000002",
+     "volumes": [
+      {
+       "alloc_bytes": 6078464,
+       "files": 15,
+       "group": null,
+       "name": "iSCPreboot",
+       "role": "Preboot",
+       "uuid": "00000000-0000-4000-8000-000000000003"
+      },
+      {
+       "alloc_bytes": 6311936,
+       "files": 1,
+       "group": null,
+       "name": "xART",
+       "role": "xART",
+       "uuid": "00000000-0000-4000-8000-000000000004"
+      },
+      {
+       "alloc_bytes": 3039232,
+       "files": 64,
+       "group": null,
+       "name": "Hardware",
+       "role": "Hardware",
+       "uuid": "00000000-0000-4000-8000-000000000005"
+      },
+      {
+       "alloc_bytes": 20480,
+       "files": 0,
+       "group": null,
+       "name": "Recovery",
+       "role": "Recovery",
+       "uuid": "00000000-0000-4000-8000-000000000006"
+      }
+     ]
+    },
+    "index": 1,
+    "offset": 24576,
+    "size": 524288000,
+    "type": "69646961-6700-11aa-aa11-00306543ecac",
+    "uuid": "00000000-0000-4000-8000-000000000001"
+   },
+   {
+    "apfs": {
+     "capacity": 96107692032,
+     "free": 30549843968,
+     "uuid": "00000000-0000-4000-8000-000000000008",
+     "volumes": [
+      {
+       "alloc_bytes": 14080696320,
+       "files": 282554,
+       "group": "00000000-0000-4000-8000-00000000000a",
+       "name": "Macintosh HD",
+       "role": "System",
+       "uuid": "00000000-0000-4000-8000-000000000009"
+      },
+      {
+       "alloc_bytes": 19174572032,
+       "files": 364,
+       "group": null,
+       "name": "Preboot",
+       "role": "Preboot",
+       "uuid": "00000000-0000-4000-8000-00000000000b"
+      },
+      {
+       "alloc_bytes": 3040784384,
+       "files": 74,
+       "group": null,
+       "name": "Recovery",
+       "role": "Recovery",
+       "uuid": "00000000-0000-4000-8000-00000000000c"
+      },
+      {
+       "alloc_bytes": 1176485888,
+       "files": 275,
+       "group": null,
+       "name": "Update",
+       "role": "Update",
+       "uuid": "00000000-0000-4000-8000-00000000000d"
+      },
+      {
+       "alloc_bytes": 26887745536,
+       "files": 102203,
+       "group": "00000000-0000-4000-8000-00000000000a",
+       "name": "Data",
+       "role": "Data",
+       "uuid": "00000000-0000-4000-8000-00000000000a"
+      },
+      {
+       "alloc_bytes": 1073762304,
+       "files": 1,
+       "group": null,
+       "name": "VM",
+       "role": "VM",
+       "uuid": "00000000-0000-4000-8000-00000000000e"
+      }
+     ]
+    },
+    "index": 2,
+    "offset": 524312576,
+    "size": 96107692032,
+    "type": "7c3457ef-0000-11aa-aa11-00306543ecac",
+    "uuid": "00000000-0000-4000-8000-000000000007"
+   },
+   {
+    "apfs": {
+     "capacity": 5999951872,
+     "free": 4121776128,
+     "uuid": "00000000-0000-4000-8000-000000000010",
+     "volumes": [
+      {
+       "alloc_bytes": 1929216,
+       "files": 205,
+       "group": "00000000-0000-4000-8000-000000000011",
+       "name": "Aurora Fedora Remix - Data",
+       "role": "Data",
+       "uuid": "00000000-0000-4000-8000-000000000011"
+      },
+      {
+       "alloc_bytes": 146468864,
+       "files": 47,
+       "group": "00000000-0000-4000-8000-000000000011",
+       "name": "Aurora Fedora Remix",
+       "role": "System",
+       "uuid": "00000000-0000-4000-8000-000000000012"
+      },
+      {
+       "alloc_bytes": 209506304,
+       "files": 231,
+       "group": null,
+       "name": "Preboot",
+       "role": "Preboot",
+       "uuid": "00000000-0000-4000-8000-000000000013"
+      },
+      {
+       "alloc_bytes": 1498251264,
+       "files": 106,
+       "group": null,
+       "name": "Recovery",
+       "role": "Recovery",
+       "uuid": "00000000-0000-4000-8000-000000000014"
+      }
+     ]
+    },
+    "index": 3,
+    "offset": 96632004608,
+    "size": 5999951872,
+    "type": "7c3457ef-0000-11aa-aa11-00306543ecac",
+    "uuid": "00000000-0000-4000-8000-00000000000f"
+   },
+   {
+    "fat_label": "EFI - AUROR",
+    "index": 4,
+    "offset": 102631956480,
+    "size": 524288000,
+    "type": "c12a7328-f81f-11d2-ba4b-00a0c93ec93b",
+    "uuid": "00000000-0000-4000-8000-000000000015"
+   },
+   {
+    "index": 5,
+    "offset": 103156244480,
+    "size": 1073741824,
+    "type": "0fc63daf-8483-4772-8e79-3d69d8477de4",
+    "uuid": "00000000-0000-4000-8000-000000000016"
+   },
+   {
+    "index": 6,
+    "offset": 104229986304,
+    "size": 141401522176,
+    "type": "0fc63daf-8483-4772-8e79-3d69d8477de4",
+    "uuid": "00000000-0000-4000-8000-000000000017"
+   },
+   {
+    "apfs": {
+     "capacity": 5368664064,
+     "free": 3822026752,
+     "uuid": "00000000-0000-4000-8000-000000000019",
+     "volumes": [
+      {
+       "alloc_bytes": 1526812672,
+       "files": 25,
+       "group": null,
+       "name": "Recovery",
+       "role": "Recovery",
+       "uuid": "00000000-0000-4000-8000-00000000001a"
+      },
+      {
+       "alloc_bytes": 28672,
+       "files": 1,
+       "group": null,
+       "name": "Update",
+       "role": "Update",
+       "uuid": "00000000-0000-4000-8000-00000000001b"
+      }
+     ]
+    },
+    "index": 7,
+    "offset": 245631508480,
+    "size": 5368664064,
+    "type": "52637672-7900-11aa-aa11-00306543ecac",
+    "uuid": "00000000-0000-4000-8000-000000000018"
+   }
+  ],
+  "size": 251000193024
+ },
+ "firmware": {
+  "stub_iboot": "mBoot-20457.41.3",
+  "stub_os": "27.2",
+  "system_iboot": "mBoot-20457.41.3",
+  "system_os": "27.2"
+ },
+ "model": "Apple MacBook Air (15-inch, M3, 2024)",
+ "name": "j615",
+ "running": {
+  "kernel": "7.3.0-aurora-j615d1",
+  "stage1": "1.0.0b13-g3d517e63",
+  "stage2": "1.0.0b13-g4804e145",
+  "u_boot": "2026.07-gb9efd22a043e"
+ },
+ "schema": 1,
+ "soc": "t8122",
+ "source": "macOS/test/conformance/collect-machine-profile.py (read-only, under Linux)"
+}
