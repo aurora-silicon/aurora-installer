@@ -421,6 +421,9 @@ res="$4/Applications/Install macOS Test.app/Contents/Resources"
 mkdir -p "$res"
 printf '#!/bin/sh\necho "startosinstall $*" >> "$FAKE_LOG"\n[ "$1" = --license ] && echo LICENSE TEXT\nexit 0\n' > "$res/startosinstall"
 chmod +x "$res/startosinstall"
+# Apple's postinstall: link the package in as SharedSupport.dmg (same volume).
+mkdir -p "$4/Applications/Install macOS Test.app/Contents/SharedSupport"
+ln -f "$2" "$4/Applications/Install macOS Test.app/Contents/SharedSupport/SharedSupport.dmg"
 '''
 
 
@@ -622,6 +625,17 @@ class RecoveryScript(DiskImage):
         p, calls = self.harness(plan, ar.phrase(plan) + "\nagree", ("--unattended",))
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertTrue([c for c in calls if c.startswith("startosinstall --agreetolicense")])
+
+    def test_rerun_after_the_installer_app_is_in_does_not_download_again(self):
+        self.make()
+        plan = self.plan("alongside")
+        # First run stops at the license question; the rerun finds the app.
+        p, calls = self.harness(plan, ar.phrase(plan) + "\nno", ("--unattended",), twice=True)
+        self.assertIn("first-rc 1", calls)
+        self.assertEqual(len([c for c in calls if c.startswith("curl -fL")]), 1)
+        self.assertEqual(len([c for c in calls if c.startswith("installer")]), 1)
+        self.assertIn("is already installed (an earlier run)", p.stdout)
+        self.assertEqual(calls.count("startosinstall --license"), 2)
 
     def test_unknown_argument_prints_usage(self):
         self.make()

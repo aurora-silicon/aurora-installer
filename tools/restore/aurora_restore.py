@@ -769,20 +769,30 @@ if [ $RESUME = 0 ]; then
     cp "$self" "$VOL/.aurora-restore/restore.sh"
     printf '%s\n' "$DIGEST" > "$VOL/.aurora-restore/plan"
 fi
-PKG="$VOL/.aurora-restore/InstallAssistant.pkg"
-say "downloading macOS $VERSION from Apple ($PKG_SIZE bytes)"
-tries=0
-until curl -fL --retry 5 -C - -o "$PKG" "$URL"; do
-    tries=$((tries + 1)); [ $tries -lt 5 ] || die "download failed; $(rerun) to resume"
-    sleep 5
-done
-got=$(stat -f %z "$PKG")
-[ "$got" = "$PKG_SIZE" ] || die "downloaded $got bytes, expected $PKG_SIZE; delete $PKG and $(rerun)"
-say "installing the installer (Apple checks its signature)"
-installer -pkg "$PKG" -target "$VOL" || die "Apple's installer refused the package"
-rm -f "$PKG"
-APP=$(ls -d "$VOL"/Applications/Install\\ macOS*.app 2>/dev/null | head -n 1)
-[ -n "$APP" ] || die "the installer app wasn't installed"
+installed_app() {{ # the installer app an earlier run installed, if complete
+    app=$(ls -d "$VOL"/Applications/Install\\ macOS*.app 2>/dev/null | head -n 1)
+    # Apple's package links (or copies) itself in as SharedSupport.dmg.
+    [ -n "$app" ] && [ -f "$app/Contents/SharedSupport/SharedSupport.dmg" ] &&
+        [ "$(stat -f %z "$app/Contents/SharedSupport/SharedSupport.dmg")" = "$PKG_SIZE" ] &&
+        printf '%s' "$app"
+}}
+if APP=$(installed_app); then
+    say "$APP is already installed (an earlier run); not downloading it again"
+else
+    PKG="$VOL/.aurora-restore/InstallAssistant.pkg"
+    say "downloading macOS $VERSION from Apple ($PKG_SIZE bytes)"
+    tries=0
+    until curl -fL --retry 5 -C - -o "$PKG" "$URL"; do
+        tries=$((tries + 1)); [ $tries -lt 5 ] || die "download failed; $(rerun) to resume"
+        sleep 5
+    done
+    got=$(stat -f %z "$PKG")
+    [ "$got" = "$PKG_SIZE" ] || die "downloaded $got bytes, expected $PKG_SIZE; delete $PKG and $(rerun)"
+    say "installing the installer (Apple checks its signature)"
+    installer -pkg "$PKG" -target "$VOL" || die "Apple's installer refused the package"
+    APP=$(installed_app) || die "the installer app wasn't installed completely; $(rerun)"
+    rm -f "$PKG"
+fi
 if [ $UNATTENDED = 1 ]; then
     # Apple's license is the user's to accept: show it and ask.
     "$APP/Contents/Resources/startosinstall" --license || die "couldn't show Apple's license"
