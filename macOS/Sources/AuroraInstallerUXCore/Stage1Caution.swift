@@ -36,6 +36,9 @@
     private static let unqualifiedT6050Composition =
       "This installer and its kernel, startup code and firmware combination have not been qualified on this Mac. Its Linux device tree is present, but Aurora may not start and some hardware may not work. Continue only after acknowledging the warning and the recovery steps."
 
+    private static let m5Pro14 =
+      "Support for the 14-inch MacBook Pro with M5 is experimental. The Aurora team has installed it with this installer on the macOS 27.2 stub and runs Aurora on it, but its GPU and built-in display need Linux changes that are still under review and not yet in the Aurora kernel. Some hardware does not work yet, so Aurora may start without the built-in display."
+
     static let reasons: [String: String] = [
       "apple,j575d": untriedChip,
       "apple,j614s": untriedBoard,
@@ -50,7 +53,7 @@
       "apple,j575c": untriedM4Board,
       "apple,j813": untriedM5M6,
       "apple,j873g": untriedM5M6,
-      "apple,j704": describedOnly,
+      "apple,j704": m5Pro14,
       "apple,j815": describedOnly,
       "apple,j804": describedOnly,
       "apple,j833ct": describedOnly,

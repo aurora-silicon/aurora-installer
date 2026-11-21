@@ -18,6 +18,11 @@
         XCTAssertTrue(reason?.contains("touchscreen") ?? false, board)
         XCTAssertFalse(reason?.contains("\u{2014}") ?? true, board)
       }
+      let j704 = Stage1Caution.reason(for: "apple,j704")
+      XCTAssertTrue(j704?.contains("14-inch MacBook Pro with M5") ?? false)
+      XCTAssertTrue(j704?.contains("still under review") ?? false)
+      XCTAssertFalse(j704?.contains("nobody on the Aurora team has one") ?? true)
+      XCTAssertFalse(j704?.contains("\u{2014}") ?? true)
       let mini = Stage1Caution.reason(for: "apple,j773g")
       XCTAssertTrue(mini?.contains("Mac mini with M4") ?? false)
       XCTAssertTrue(mini?.contains("did not start Aurora") ?? false)
