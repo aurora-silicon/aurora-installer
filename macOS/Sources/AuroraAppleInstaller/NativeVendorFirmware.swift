@@ -200,8 +200,9 @@
               root: image.root, prefix: "usr/share/firmware", tree: imageTree, owner: owner)
           }
           for (name, data) in radio.files { fallback["firmware/" + name] = data }
-          // The image's radio aliases stay links in the fallback archive.
-          for (name, target) in radio.links {
+          // The image's radio aliases stay links in the fallback archive,
+          // each naming what the image's own link names.
+          for (name, target) in radio.shippedLinks {
             radioLinks["firmware/" + name] = String(target.split(separator: "/").last!)
           }
           var wifi = try BroadcomFirmware.wifi(
@@ -231,7 +232,7 @@
               fallback = fallback.filter { !$0.key.hasPrefix("firmware/wifi/") }
               radioLinks = radioLinks.filter { !$0.key.hasPrefix("firmware/wifi/") }
               for (name, data) in system.files { fallback["firmware/wifi/" + name] = data }
-              for (name, target) in system.links {
+              for (name, target) in system.shippedLinks {
                 radioLinks["firmware/wifi/" + name] = String(target.split(separator: "/").last!)
               }
             }

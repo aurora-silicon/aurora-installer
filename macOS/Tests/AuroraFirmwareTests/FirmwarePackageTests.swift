@@ -93,6 +93,44 @@ final class FirmwarePackageTests: XCTestCase {
         ], symbolicLinks: [:]))
   }
 
+  /// macOS's radio aliases may name another alias, as an antenna SKU's names
+  /// its board's, which names a shared file. The archive keeps them so.
+  func testFallbackKeepsRadioAliasesThatNameAnAlias() throws {
+    let radio = [
+      FirmwarePackageInput(name: "firmware/wifi/C-1/guam.trx", bytes: Data("trx".utf8))
+    ]
+    let archive = try FirmwarePackageBuilder.fallback(
+      radio,
+      symbolicLinks: [
+        "firmware/wifi/C-1/hostomel.trx": "guam.trx",
+        "firmware/wifi/C-1/hostomel-X0.trx": "hostomel.trx",
+      ])
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let file = root.appendingPathComponent("fallback.tar.gz")
+    try archive.write(to: file)
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+    process.arguments = ["-xzf", file.path, "-C", root.path]
+    try process.run()
+    process.waitUntilExit()
+    XCTAssertEqual(process.terminationStatus, 0)
+    let alias = root.appendingPathComponent("firmware/wifi/C-1/hostomel-X0.trx")
+    XCTAssertEqual(
+      try FileManager.default.destinationOfSymbolicLink(atPath: alias.path), "hostomel.trx")
+    XCTAssertEqual(try Data(contentsOf: alias), Data("trx".utf8))
+    // Every chain ends at a file: a loop, or a chain into nothing, is refused.
+    for target in ["a.trx", "missing.trx"] {
+      XCTAssertThrowsError(
+        try FirmwarePackageBuilder.fallback(
+          radio,
+          symbolicLinks: [
+            "firmware/wifi/C-1/a.trx": "b.trx", "firmware/wifi/C-1/b.trx": target,
+          ]), target)
+    }
+  }
+
   func testUnsafePathsAndConflictingNamesAreRefused() throws {
     for name in [
       "", "/absolute", "../escape", "a/../escape", "a//b", "a\\b", "a b", "a\nFILE", "é",
