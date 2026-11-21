@@ -212,22 +212,46 @@ public enum BroadcomFirmware {
     !bluetoothChips(outputs, board: board).isEmpty
   }
 
+  /// Whether a converted Wi-Fi set has a complete revision for this board.
+  public static func hasCompleteWiFi(_ outputs: [String: Data], board: String) -> Bool {
+    missingBoardWiFi(outputs, board: board).isEmpty
+  }
+
+  /// Whether a converted Bluetooth set has a complete revision for this board.
+  public static func hasCompleteBluetooth(_ outputs: [String: Data], board: String) -> Bool {
+    missingBoardBluetooth(outputs, board: board).isEmpty
+  }
+
   public enum RadioSource: String, Sendable { case system, recovery }
+
+  private static func radioSource(
+    _ board: String?, _ system: [String: Data]?, _ recovery: [String: Data]?,
+    complete: ([String: Data], String) -> Bool, carries: ([String: Data], String) -> Bool
+  ) -> RadioSource {
+    guard let board, let system else { return .recovery }
+    if complete(system, board) { return .system }
+    if let recovery, complete(recovery, board) { return .recovery }
+    return carries(system, board) ? .system : .recovery
+  }
 
   /// The installed macOS ships every board's radio firmware on its sealed
   /// system volume and runs it, while a Recovery image may be older (the
   /// stub's macOS 13.5 on many installs) or carry only part of a chip's set:
   /// 26.6.2 (25G83) Recovery holds no usable BCM4388 rev C2 Wi-Fi firmware.
-  /// Each radio prefers the installed system, and uses Recovery only when the
-  /// system lacks this board's firmware or the board is unknown.
-  public static func wifiSource(board: String?, system: [String: Data]?) -> RadioSource {
-    guard let board, let system, carriesWiFi(system, board: board) else { return .recovery }
-    return .system
+  /// Each radio prefers the installed system when it has a complete revision
+  /// for this board, falls back to Recovery when Recovery is complete and the
+  /// system is not, and otherwise uses the system when it carries this board's
+  /// firmware.
+  public static func wifiSource(
+    board: String?, system: [String: Data]?, recovery: [String: Data]? = nil
+  ) -> RadioSource {
+    radioSource(board, system, recovery, complete: hasCompleteWiFi, carries: carriesWiFi)
   }
 
-  public static func bluetoothSource(board: String?, system: [String: Data]?) -> RadioSource {
-    guard let board, let system, carriesBluetooth(system, board: board) else { return .recovery }
-    return .system
+  public static func bluetoothSource(
+    board: String?, system: [String: Data]?, recovery: [String: Data]? = nil
+  ) -> RadioSource {
+    radioSource(board, system, recovery, complete: hasCompleteBluetooth, carries: carriesBluetooth)
   }
 
   /// The Bluetooth names a board still lacks: firmware and its patch table
@@ -242,6 +266,30 @@ public enum BroadcomFirmware {
     return complete ? [] : [stem + "-u.bin", stem + "-u.ptb"]
   }
 
+  /// What a converted Wi-Fi set still lacks for a board: empty when at least
+  /// one chip revision has the board's complete Wi-Fi (`missingWiFi`). When no
+  /// revision is complete, names what the first one lacks, or the board's
+  /// firmware when no revision has any.
+  public static func missingBoardWiFi(_ outputs: [String: Data], board: String) -> [String] {
+    let perChip = wifiChips(outputs, board: board).map {
+      missingWiFi(outputs, chip: $0, board: board)
+    }
+    if perChip.contains(where: \.isEmpty) { return [] }
+    return perChip.first ?? ["brcm/brcmfmac*-pcie.apple," + board + ".bin"]
+  }
+
+  /// What a converted Bluetooth set still lacks for a board: empty when at
+  /// least one chip revision has the board's complete Bluetooth
+  /// (`missingBluetooth`). When no revision is complete, names what the first
+  /// one lacks, or the board's firmware when no revision has any.
+  public static func missingBoardBluetooth(_ outputs: [String: Data], board: String) -> [String] {
+    let perChip = bluetoothChips(outputs, board: board).map {
+      missingBluetooth(outputs, chip: $0, board: board)
+    }
+    if perChip.contains(where: \.isEmpty) { return [] }
+    return perChip.first ?? ["brcm/brcmbt*-apple," + board + "-*.bin"]
+  }
+
   /// What a package still lacks to bring up a board's radios: empty when one
   /// chip revision has the board's complete Wi-Fi (`missingWiFi`) and one has
   /// its complete Bluetooth (`missingBluetooth`). The ADT names the board but
@@ -252,20 +300,7 @@ public enum BroadcomFirmware {
   public static func missingRadios(
     wifi: [String: Data], bluetooth: [String: Data], board: String
   ) -> [String] {
-    let wifiMissing = wifiChips(wifi, board: board).map {
-      missingWiFi(wifi, chip: $0, board: board)
-    }
-    let bluetoothMissing = bluetoothChips(bluetooth, board: board).map {
-      missingBluetooth(bluetooth, chip: $0, board: board)
-    }
-    var missing = [String]()
-    if !wifiMissing.contains(where: \.isEmpty) {
-      missing += wifiMissing.first ?? ["brcm/brcmfmac*-pcie.apple," + board + ".bin"]
-    }
-    if !bluetoothMissing.contains(where: \.isEmpty) {
-      missing += bluetoothMissing.first ?? ["brcm/brcmbt*-apple," + board + "-*.bin"]
-    }
-    return missing
+    missingBoardWiFi(wifi, board: board) + missingBoardBluetooth(bluetooth, board: board)
   }
 
   public static func bluetooth(

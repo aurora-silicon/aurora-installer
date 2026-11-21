@@ -68,4 +68,36 @@ final class BroadcomBoardRadioTests: XCTestCase {
       BroadcomFirmware.missingRadios(wifi: wifi, bluetooth: bluetooth, board: "amami"),
       ["brcm/brcmfmac*-pcie.apple,amami.bin", "brcm/brcmbt*-apple,amami-*.bin"])
   }
+
+  /// When the installed system carries a board's `.bin` without a complete
+  /// revision while Recovery is complete, the source choice falls back to
+  /// Recovery; when neither is complete, it falls back to carrying `.bin`.
+  func testSourcePrefersCompleteRecoveryOverIncompleteSystem() {
+    let completeWiFi: [String: Data] = [
+      "brcm/brcmfmac4388c0-pcie.apple,tokara.bin": Data([1]),
+      "brcm/brcmfmac4388c0-pcie.apple,tokara.clm_blob": Data([2]),
+      "brcm/brcmfmac4388c0-pcie.apple,tokara-WLMT-u.txt": Data("boardrev=0x1\n".utf8),
+    ]
+    let incompleteWiFi = ["brcm/brcmfmac4388c0-pcie.apple,tokara.bin": Data([1])]
+    func wifi(_ s: [String: Data], _ r: [String: Data]) -> BroadcomFirmware.RadioSource {
+      BroadcomFirmware.wifiSource(board: "tokara", system: s, recovery: r)
+    }
+    XCTAssertEqual(wifi(completeWiFi, completeWiFi), .system)
+    XCTAssertEqual(wifi(incompleteWiFi, completeWiFi), .recovery)
+    XCTAssertEqual(wifi(incompleteWiFi, incompleteWiFi), .system)
+    XCTAssertEqual(wifi([:], incompleteWiFi), .recovery)
+
+    let completeBT: [String: Data] = [
+      "brcm/brcmbt4388c0-apple,tokara-u.bin": Data([1]),
+      "brcm/brcmbt4388c0-apple,tokara-u.ptb": Data([2]),
+    ]
+    let incompleteBT = ["brcm/brcmbt4388c0-apple,tokara-u.bin": Data([1])]
+    func bt(_ s: [String: Data], _ r: [String: Data]) -> BroadcomFirmware.RadioSource {
+      BroadcomFirmware.bluetoothSource(board: "tokara", system: s, recovery: r)
+    }
+    XCTAssertEqual(bt(completeBT, completeBT), .system)
+    XCTAssertEqual(bt(incompleteBT, completeBT), .recovery)
+    XCTAssertEqual(bt(incompleteBT, incompleteBT), .system)
+    XCTAssertEqual(bt([:], incompleteBT), .recovery)
+  }
 }

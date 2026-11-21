@@ -27,9 +27,10 @@
         root: root, prefix: path, tree: tree, owner: owner)
     }
 
-    /// This Mac's radio board: the ADT `wlan` node's `module-instance`, the
-    /// name aura gives Linux as `brcm,board-type` and both Broadcom drivers
-    /// name their firmware by. Nil when no such node exists.
+    /// This Mac's radio board: the ADT `wlan` node's `module-instance`, which
+    /// matches the kernel device tree's `brcm,board-type` and the board name
+    /// both Broadcom drivers load their firmware by. Nil when no such node
+    /// exists (including N1/Centauri Macs).
     static func board() throws -> String? {
       var iterator: io_iterator_t = 0
       guard

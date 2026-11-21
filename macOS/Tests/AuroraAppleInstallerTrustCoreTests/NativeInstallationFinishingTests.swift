@@ -518,8 +518,64 @@
       XCTAssertTrue(
         buffer.snapshot().contains {
           $0.level == .error
+            && $0.message.contains("Stopped: no source has complete Bluetooth firmware")
             && $0.message.hasSuffix("for board j314s: brcm/brcmbt*-apple,j314s-*.bin")
         })
+    }
+
+    func testRecoveryBluetoothStaysWhenInstalledSystemBluetoothIsIncomplete() async throws {
+      let fixture = try await Fixture(machine: "j314s")
+      fixture.wifiBoard = "j314s"
+      let recovery = Self.bluetooth("J314s", "recovery")
+      fixture.recoveryBluetooth = recovery
+      let incompleteSystem = Self.bluetooth("J314s", "system").filter { $0.key.hasSuffix(".bin") }
+      fixture.systemFirmware = try Self.systemFirmware(
+        in: fixture.base.directory, boards: ["hostomel"], j314s: true, bluetooth: incompleteSystem)
+      let buffer = InstallerLogBuffer(capacity: 1000)
+      _ = try await InstallerLog.logging(into: buffer) { try await fixture.prepareVendor() }
+      let (manifest, fallback) = try vendorOutputs(fixture)
+      for (name, data) in recovery {
+        let ext = name.hasSuffix(".bin") ? "bin" : "ptb"
+        XCTAssertTrue(
+          manifest.contains(Self.packaged("brcm/brcmbt4378b1-apple,j314s-u." + ext, data)), name)
+        XCTAssertTrue(fallback.contains { $0.hasSuffix("firmware/bluetooth/" + name) }, name)
+      }
+      XCTAssertFalse(fallback.contains { $0.contains("firmware/bluetooth/BCM4378B1_system") })
+      XCTAssertTrue(fallback.contains { $0.hasSuffix("firmware/wifi/C-4388__s-C2/hostomel.trx") })
+      let messages = buffer.snapshot().map(\.message)
+      XCTAssertTrue(messages.contains("Wi-Fi firmware: the installed macOS's, for board j314s."))
+      XCTAssertTrue(
+        messages.contains(
+          "Bluetooth firmware: the stub's Recovery, as the installed macOS does not have complete"
+            + " firmware for board j314s."))
+    }
+
+    func testRecoveryWiFiStaysWhenInstalledSystemWiFiIsIncomplete() async throws {
+      let fixture = try await Fixture(machine: "j314s")
+      fixture.wifiBoard = "j314s"
+      let systemBluetooth = Self.bluetooth("J314s", "system")
+      let systemRoot = try Self.systemFirmware(
+        in: fixture.base.directory, boards: ["hostomel"], j314s: true, bluetooth: systemBluetooth)
+      try FileManager.default.removeItem(
+        at: systemRoot.appendingPathComponent("wifi/C-4355__s-C1/j314s-2.clmb"))
+      fixture.systemFirmware = systemRoot
+      let buffer = InstallerLogBuffer(capacity: 1000)
+      _ = try await InstallerLog.logging(into: buffer) { try await fixture.prepareVendor() }
+      let (manifest, fallback) = try vendorOutputs(fixture)
+      XCTAssertTrue(manifest.contains("brcm/brcmfmac4355c1-pcie.apple,j314s.bin"))
+      XCTAssertTrue(manifest.contains("brcm/brcmfmac4355c1-pcie.apple,j314s.clm_blob"))
+      XCTAssertFalse(manifest.contains("brcmfmac4388c2"))
+      XCTAssertFalse(fallback.contains { $0.contains("C-4388__s-C2") })
+      for name in systemBluetooth.keys {
+        XCTAssertTrue(fallback.contains { $0.hasSuffix("firmware/bluetooth/" + name) }, name)
+      }
+      let messages = buffer.snapshot().map(\.message)
+      XCTAssertTrue(
+        messages.contains(
+          "Wi-Fi firmware: the stub's Recovery, as the installed macOS does not have complete"
+            + " firmware for board j314s."))
+      XCTAssertTrue(
+        messages.contains("Bluetooth firmware: the installed macOS's, for board j314s."))
     }
 
     func testAmbientLightAbsenceAndCalibrationPublicationHaveSeparateContracts() throws {

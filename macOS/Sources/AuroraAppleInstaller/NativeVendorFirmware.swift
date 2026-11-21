@@ -214,13 +214,15 @@
           if package.deviceIdentifier != "apple,j700" {
             if let board = try wifiBoard() {
               // Each radio's firmware is the installed macOS's when its
-              // system volume carries this board's, and Recovery's otherwise.
-              // The fallback archive keeps the tree each one came from, so a
-              // later conversion on Linux reproduces the same set.
+              // system volume has a complete revision for this board (or
+              // carries it when Recovery is also incomplete), and Recovery's
+              // otherwise. The fallback archive keeps the tree each one came
+              // from, so a later conversion on Linux reproduces the same set.
               func select(
                 _ directory: String, _ label: String, recovery: [String: Data],
                 convert: (NativeFirmwareInputFiles.Snapshot) throws -> [String: Data],
-                choice: (String?, [String: Data]?) -> BroadcomFirmware.RadioSource
+                choose: ([String: Data]?, [String: Data]) -> BroadcomFirmware.RadioSource,
+                carries: ([String: Data], String) -> Bool
               ) throws -> [String: Data] {
                 // An unreadable system volume leaves Recovery as the only source.
                 var system: NativeFirmwareInputFiles.Snapshot?
@@ -234,7 +236,7 @@
                   system = nil
                 }
                 let systemSet = try system.map(convert)
-                if choice(board, systemSet) == .system, let system, let systemSet {
+                if choose(systemSet, recovery) == .system, let system, let systemSet {
                   let prefix = "firmware/" + directory + "/"
                   fallback = fallback.filter { !$0.key.hasPrefix(prefix) }
                   radioLinks = radioLinks.filter { !$0.key.hasPrefix(prefix) }
@@ -246,26 +248,43 @@
                     "\(label) firmware: the installed macOS's, for board \(board).")
                   return systemSet
                 }
+                let reason: String
+                if let systemSet {
+                  if carries(systemSet, board) {
+                    reason = "does not have complete firmware for board \(board)"
+                  } else {
+                    reason = "has none for board \(board)"
+                  }
+                } else {
+                  reason = "could not be read"
+                }
                 InstallerLog.progress(
-                  "\(label) firmware: the stub's Recovery, as the installed macOS "
-                    + (system == nil ? "could not be read" : "has none for board \(board)") + ".")
+                  "\(label) firmware: the stub's Recovery, as the installed macOS \(reason).")
                 return recovery
               }
               wifi = try select(
                 "wifi", "Wi-Fi", recovery: wifi,
                 convert: { try BroadcomFirmware.wifi($0.files, links: $0.links) },
-                choice: BroadcomFirmware.wifiSource)
+                choose: { BroadcomFirmware.wifiSource(board: board, system: $0, recovery: $1) },
+                carries: BroadcomFirmware.carriesWiFi)
               bluetooth = try select(
                 "bluetooth", "Bluetooth", recovery: bluetooth,
                 convert: { try BroadcomFirmware.bluetooth($0.files, links: $0.links) },
-                choice: BroadcomFirmware.bluetoothSource)
+                choose: {
+                  BroadcomFirmware.bluetoothSource(board: board, system: $0, recovery: $1)
+                },
+                carries: BroadcomFirmware.carriesBluetooth)
               // The package must bring up this board's own radios.
-              let missing = BroadcomFirmware.missingRadios(
-                wifi: wifi, bluetooth: bluetooth, board: board)
-              guard missing.isEmpty else {
+              let missingWiFi = BroadcomFirmware.missingBoardWiFi(wifi, board: board)
+              let missingBluetooth = BroadcomFirmware.missingBoardBluetooth(bluetooth, board: board)
+              if !missingWiFi.isEmpty || !missingBluetooth.isEmpty {
+                var radios = [String]()
+                if !missingWiFi.isEmpty { radios.append("Wi-Fi") }
+                if !missingBluetooth.isEmpty { radios.append("Bluetooth") }
+                let missing = missingWiFi + missingBluetooth
                 InstallerLog.error(
-                  "No source has this Mac's radio firmware for board \(board): "
-                    + missing.joined(separator: ", "))
+                  "Stopped: no source has complete \(radios.joined(separator: " and ")) firmware"
+                    + " for board \(board): " + missing.joined(separator: ", "))
                 throw NativeFirmwareInputFailure.invalidSource
               }
             } else {
