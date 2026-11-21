@@ -75,11 +75,10 @@ extension RecoveryActions {
           "This installation’s recovery account isn’t a working owner yet: \(error.localizedDescription) macOS was not removed."
       )
     }
-    guard let record, record.phase == "finalized" else {
+    if let gate = MacOSRemoval.ownerGate(phase: record?.phase) { throw gate }
+    guard let record else {
       throw RecoveryFailure(
-        message:
-          "This installation has no recovery account of its own yet. Create it first (Aurora Installer → Utilities → Create Recovery Account…), authorize it in Startup Disk, and come back. macOS was not removed, because without that account nobody could change this Mac’s startup security afterwards."
-      )
+        message: "This installation has no recovery account. macOS was not removed.")
     }
     return record
   }
@@ -111,17 +110,35 @@ extension RecoveryActions {
     return Data(buffer[..<length].map { UInt8(bitPattern: $0) })
   }
 
-  static func removeMacOS(dryRun: Bool) throws {
+  /// What the owner reviews before removal: one reading of the disk, planned,
+  /// and the owner who stays. Nothing is written to get it.
+  struct MacOSRemovalReview {
+    let installation: WholeDiskInstallation
+    let plan: MacOSRemovalPlan
+    let owner: RecoveryAccountRecord
+    var text: String {
+      MacOSRemoval.describe(plan)
+        + "\nOwner for future startup changes: \(owner.username) (verified volume owner of \(RecoveryActions.volumeName))."
+    }
+  }
+
+  enum MacOSRemovalPreparation {
+    /// An interrupted removal was checked and finished; nothing to review.
+    case resumed(String)
+    case review(MacOSRemovalReview)
+  }
+
+  /// Every check before the confirmation, shared by `aura remove-macos` and
+  /// Utilities → Remove macOS…. Throws `MacOSRemovalNeedsOwner` when the owner
+  /// step comes first.
+  static func prepareMacOSRemoval() throws -> MacOSRemovalPreparation {
     try recoveryOnly()
     _ = try installed()
     // Paired Recovery of this installation: after removal it is the Mac's
     // only paired Recovery, so prove it works by running in it.
     try requireEnrollmentEnvironment()
     let installation = try wholeDiskInstallation()
-    if let resumed = try resumeWholeDiskRemoval(installation) {
-      print(resumed)
-      return
-    }
+    if let resumed = try resumeWholeDiskRemoval(installation) { return .resumed(resumed) }
     let owner = try wholeDiskOwner()
     try check(
       try targetIsDefaultBoot(),
@@ -131,35 +148,21 @@ extension RecoveryActions {
       !findMyEnabled(),
       "Find My is on for this Mac. Turn it off in macOS (System Settings → your name → iCloud → Find My Mac) or remove this Mac at icloud.com/find first: once macOS is gone, restoring this Mac would need that Apple Account. macOS was not removed."
     )
-    let layout = try readWholeDisk()
-    let plan = try MacOSRemoval.plan(layout, installation: installation)
-    print(MacOSRemoval.describe(plan))
-    print(
-      "Owner for future startup changes: \(owner.username) (verified volume owner of \(volumeName))."
-    )
-    if dryRun {
-      print("Dry run: nothing was changed.")
-      return
-    }
-    print(
-      """
+    let plan = try MacOSRemoval.plan(try readWholeDisk(), installation: installation)
+    return .review(MacOSRemovalReview(installation: installation, plan: plan, owner: owner))
+  }
 
-      This deletes macOS, its apps and every file in it, for good. After this:
-        - macOS and macOS apps are gone. Aurora is the only system on this Mac.
-        - Apple's macOS and firmware updates no longer arrive by themselves. The Mac's
-          system firmware stays at its current version; Aurora's startup firmware is
-          updated by Aurora Installer's startup-firmware path.
-        - Startup security changes need \(owner.username)'s password, in this Recovery.
-        - To get macOS back you erase the Mac in DFU mode (a second Mac with Finder or
-          Apple Configurator, or a Linux computer with idevicerestore) and restore it.
-      To continue, type: \(MacOSRemoval.phrase)
-      """)
-    guard readLineTrimmed() == MacOSRemoval.phrase else {
+  /// Deletes the reviewed macOS container. The phrase and the owner's password
+  /// are checked here, and the disk must still be the one reviewed.
+  static func performMacOSRemoval(_ review: MacOSRemovalReview, phrase: String, password: Data)
+    throws -> String
+  {
+    guard MacOSRemoval.confirms(phrase) else {
       throw RecoveryFailure(message: "The confirmation didn’t match. macOS was not removed.")
     }
-    var password = readSecret("Password for \(owner.username): ")
-    defer { password.resetBytes(in: 0..<password.count) }
-    try verifyOwnerPassword(owner, password)
+    try verifyOwnerPassword(review.owner, password)
+    let plan = review.plan
+    let installation = review.installation
     // The disk must still be the one reviewed, immediately before deletion.
     try MacOSRemoval.requireUnchanged(plan, now: try readWholeDisk(), installation: installation)
     var journal = MacOSRemoval.claimRecord(plan, removedAt: Date())
@@ -168,6 +171,7 @@ extension RecoveryActions {
       ["uuid": part.uuid, "offset": part.offset, "size": part.size]
     }
     try saveJSON(journal, to: wholeDiskJournal)
+    InstallerLog.shared.append("Removing macOS: deleting container \(plan.macOS.uuid).")
     do {
       try run(
         "/usr/sbin/diskutil", ["apfs", "deleteContainer", plan.partition.identifier],
@@ -186,9 +190,33 @@ extension RecoveryActions {
       )
     }
     try finishWholeDiskRemoval(plan, journal: journal)
-    print(
+    InstallerLog.shared.append("macOS was removed; every kept partition verified.")
+    return
       "macOS was removed. Restart into Aurora; it adds the freed space to Linux on its next start (or run `sudo aurora-whole-disk claim`)."
-    )
+  }
+
+  static func removeMacOS(dryRun: Bool) throws {
+    let review: MacOSRemovalReview
+    switch try prepareMacOSRemoval() {
+    case .resumed(let message):
+      print(message)
+      return
+    case .review(let value): review = value
+    }
+    print(review.text)
+    if dryRun {
+      print("Dry run: nothing was changed.")
+      return
+    }
+    print("\n" + MacOSRemoval.consequences(owner: review.owner.username))
+    print("To continue, type: \(MacOSRemoval.phrase)")
+    let typed = readLineTrimmed()
+    guard MacOSRemoval.confirms(typed) else {
+      throw RecoveryFailure(message: "The confirmation didn’t match. macOS was not removed.")
+    }
+    var password = readSecret("Password for \(review.owner.username): ")
+    defer { password.resetBytes(in: 0..<password.count) }
+    print(try performMacOSRemoval(review, phrase: typed, password: password))
   }
 
   /// The record Linux reads, written only after the deletion verified.

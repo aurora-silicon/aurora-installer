@@ -87,9 +87,65 @@ struct MacOSRemovalRefusal: Error, LocalizedError, Equatable {
   var errorDescription: String? { message }
 }
 
+/// Why this installation can't be the Mac's only owner yet. Removal stops
+/// here and offers the account step instead of deleting anything.
+struct MacOSRemovalNeedsOwner: Error, LocalizedError, Equatable {
+  /// True when no recovery account was started: Create Recovery Account… fixes it.
+  /// False when one waits for Startup Disk authorization.
+  let canCreate: Bool
+  let message: String
+  var errorDescription: String? { message }
+}
+
 enum MacOSRemoval {
   /// Typed in full to confirm. Lower case, so caps lock can't make it differ.
   static let phrase = "remove macos and all its data"
+
+  /// The typed confirmation, ignoring spaces around it and nothing else.
+  static func confirms(_ typed: String) -> Bool {
+    typed.trimmingCharacters(in: .whitespaces) == phrase
+  }
+
+  /// The owner step before removal, from the recovery account's recorded
+  /// phase (nil: never started). Only a finalized account, which Recovery has
+  /// also read back as an APFS volume owner, may stand alone after macOS.
+  static func ownerGate(phase: String?) -> MacOSRemovalNeedsOwner? {
+    switch phase {
+    case "finalized": return nil
+    case nil:
+      return MacOSRemovalNeedsOwner(
+        canCreate: true,
+        message:
+          "This installation has no recovery account of its own yet. Create it first (Aurora Installer → Utilities → Create Recovery Account…), authorize it in Startup Disk, and come back. macOS was not removed, because without that account nobody could change this Mac’s startup security afterwards."
+      )
+    case "allocating", "creating":
+      return MacOSRemovalNeedsOwner(
+        canCreate: false,
+        message:
+          "This installation’s recovery account wasn’t finished. Quit and open Aurora Installer again in this Recovery to finish it, authorize it in Startup Disk, then come back. macOS was not removed."
+      )
+    default:
+      return MacOSRemovalNeedsOwner(
+        canCreate: false,
+        message:
+          "This installation’s recovery account isn’t authorized yet. Restart, choose this installation in Startup Disk and authorize the account there, then open Recovery again. macOS was not removed."
+      )
+    }
+  }
+
+  /// What the owner is told before typing the phrase, in the CLI and the app.
+  static func consequences(owner: String) -> String {
+    """
+    This deletes macOS, its apps and every file in it, for good. After this:
+      - macOS and macOS apps are gone. Aurora is the only system on this Mac.
+      - Apple's macOS and firmware updates no longer arrive by themselves. The Mac's
+        system firmware stays at its current version; Aurora's startup firmware is
+        updated by Aurora Installer's startup-firmware path.
+      - Startup security changes need \(owner)'s password, in this Recovery.
+      - To get macOS back you erase the Mac in DFU mode (a second Mac with Finder or
+        Apple Configurator, or a Linux computer with idevicerestore) and restore it.
+    """
+  }
 
   static func plan(_ layout: WholeDiskLayout, installation: WholeDiskInstallation) throws
     -> MacOSRemovalPlan

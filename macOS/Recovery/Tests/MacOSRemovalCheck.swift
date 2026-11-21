@@ -285,8 +285,30 @@ import Foundation
       _ = try layout(partitions: broken)
     }
     precondition(MacOSRemoval.phrase == "remove macos and all its data")
+    precondition(MacOSRemoval.confirms("remove macos and all its data"))
+    precondition(MacOSRemoval.confirms("  remove macos and all its data "))
+    for wrong in [
+      "", "Remove macOS and all its data", "remove macos", "remove macos and all its data.",
+    ] {
+      precondition(!MacOSRemoval.confirms(wrong), wrong)
+    }
+    // Owner step: only a finalized account lets removal go ahead; none at all
+    // offers account creation, a started one waits for Startup Disk.
+    precondition(MacOSRemoval.ownerGate(phase: "finalized") == nil)
+    precondition(MacOSRemoval.ownerGate(phase: nil)?.canCreate == true)
+    for phase in ["creating", "allocating"] {
+      let gate = MacOSRemoval.ownerGate(phase: phase)
+      precondition(gate?.canCreate == false && gate?.message.contains("wasn’t finished") == true)
+    }
+    for phase in ["prepared", "awaiting-ownership", "unknown"] {
+      let gate = MacOSRemoval.ownerGate(phase: phase)
+      precondition(gate?.canCreate == false && gate?.message.contains("Startup Disk") == true)
+    }
+    precondition(
+      MacOSRemoval.ownerGate(phase: nil)?.message.contains("macOS was not removed") == true)
+    precondition(MacOSRemoval.consequences(owner: "user").contains("need user's password"))
     print(
-      "PASS macOS removal: plan keeps iSC/stub/ESP/Linux/System Recovery; freed extent; dry-run text; claim record; unchanged/changed review; post-delete verification; no-macOS, two-macOS, slot kept, unlisted container, overlap, bad first/last, foreign identity, missing field refusals"
+      "PASS macOS removal: plan keeps iSC/stub/ESP/Linux/System Recovery; freed extent; dry-run text; claim record; unchanged/changed review; post-delete verification; phrase; owner step; no-macOS, two-macOS, slot kept, unlisted container, overlap, bad first/last, foreign identity, missing field refusals"
     )
   }
 }
