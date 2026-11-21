@@ -24,6 +24,9 @@
     var environment: NativeHandoffEnvironment = .live
     var disks: NativeAPFSPlatform = .live
     var collectAmbientLight: @Sendable () throws -> Data? = { try NativeAmbientLightInputs.live() }
+    var collectSensor: @Sendable (String) throws -> NativeSensorInputs? = {
+      try NativeSensorInputCollector.live(storeIdentifier: $0).collect(storeIdentifier: $0)
+    }
 
     func preflight(
       package: ImportedEngineHandoffPackage, stub: NativeStubFilePlan?,
@@ -44,9 +47,17 @@
         throw NativeFirmwareInputFailure.invalidSource
       }
       let ambientLight = try source.machine == "j700" ? nil : collectAmbientLight()
+      // Read before the first disk change, like the light sensor. A Mac whose
+      // peripheral snapshot already holds them is not read twice, and records
+      // that cannot be read leave only Touch ID out.
+      var sensor: NativeSensorInputs?
+      if peripherals == nil {
+        sensor = try NativeTouchIDFirmware.inputs { try collectSensor(package.storeIdentifier) }
+      }
       return NativeInstallationFinishingExecution(
         package: package, approved: approved, stub: stub, peripherals: peripherals,
-        owner: owner, environment: environment, disks: disks, ambientLight: ambientLight)
+        owner: owner, environment: environment, disks: disks, ambientLight: ambientLight,
+        sensor: sensor)
     }
   }
 
@@ -59,6 +70,7 @@
     let environment: NativeHandoffEnvironment
     let disks: NativeAPFSPlatform
     let ambientLight: Data?
+    let sensor: NativeSensorInputs?
 
     func prepare(
       journal: URL, authorization: MachineOwnerAuthorization,
@@ -67,7 +79,8 @@
       _ = try await InstallerPerformance.measuring("vendor_firmware") {
         try await NativeVendorFirmware(
           package: package, approved: approved, plan: stub, peripherals: peripherals,
-          owner: owner, environment: environment, disks: disks, ambientLight: { self.ambientLight }
+          owner: owner, environment: environment, disks: disks, ambientLight: { self.ambientLight },
+          sensor: { _ in self.sensor }
         ).prepare(journal: journal, authorization: authorization, bootstrap: sourceBootstrap)
       }
       try await InstallerPerformance.measuring("recovery_installation") {

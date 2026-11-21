@@ -20,6 +20,9 @@
       /// its `wifi` directory. Without a tree the system volume is unreadable.
       var wifiBoard: String?
       var systemFirmware: URL?
+      /// This Mac's Touch ID records, or the error reading them gives.
+      var sensor: NativeSensorInputs?
+      var sensorFailure: NativePeripheralInputError?
       var base: NativeStubFileTests.ExecutionFixture { esp.images.base }
       init(machine: String = "j700", machO: Bool = false) async throws {
         self.machine = machine
@@ -123,6 +126,10 @@
           package: base.package, approved: base.approved, plan: plan, peripherals: peripherals,
           owner: geteuid(), environment: environment, disks: esp.images.platform.disks,
           ambientLight: { self.machine == "j314s" ? Data("synthetic generic ALS".utf8) : nil },
+          sensor: { _ in
+            if let failure = self.sensorFailure { throw failure }
+            return self.sensor
+          },
           openImage: { _, parent in
             self.imageOpens += 1
             let directory = parent.appendingPathComponent("firmware-image-" + UUID().uuidString)
@@ -268,6 +275,51 @@
           XCTAssertEqual(error as? NativeHandoffValidationError, .invalidEvidence, machine)
         }
       }
+    }
+
+    /// A Touch ID Mac other than the Neo gets its own calibration, and its root
+    /// key when it has one, under its board's names and the driver's default.
+    /// Records that cannot be read or do not validate leave only Touch ID out.
+    func testEveryTouchIDMacGetsItsOwnCalibrationAndBadRecordsOnlyLeaveTouchIDOut()
+      async throws
+    {
+      typealias Sensor = NativeSensorCalibrationTests
+      let rootKey = NativeSensorInputs(
+        calibration: Sensor.sealed(Sensor.calibrationPayload), rootKey: Sensor.rootKey())
+      let alone = NativeSensorInputs(calibration: Sensor.combinedCalibration(), rootKey: nil)
+      let invalid = NativeSensorInputs(calibration: Sensor.calibration(), rootKey: nil)
+      let unreadable = NativePeripheralInputError.sensorSealMissing
+      let names = ["apple/mesacal-j314s.bin", "apple/mesa_calibration.bin", "apple/msrk-j314s.bin"]
+      let cases: [(String, NativeSensorInputs?, NativePeripheralInputError?, [String])] = [
+        ("root key", rootKey, nil, names),
+        ("calibration only", alone, nil, Array(names.prefix(2))),
+        ("unreadable", nil, unreadable, []),
+        ("invalid", invalid, nil, []),
+      ]
+      for (label, sensor, failure, expected) in cases {
+        let fixture = try await Fixture(machine: "j314s")
+        fixture.sensor = sensor
+        fixture.sensorFailure = failure
+        let buffer = InstallerLogBuffer(capacity: 1000)
+        _ = try await InstallerLog.logging(into: buffer) { try await fixture.prepareVendor() }
+        let manifest = try vendorOutputs(fixture).manifest
+        for name in names {
+          XCTAssertEqual(manifest.contains(name), expected.contains(name), label + ": " + name)
+        }
+        XCTAssertTrue(manifest.contains("apple/aop-als-cal.bin"), label)
+        let warned = buffer.snapshot().contains {
+          $0.level == .error && $0.message.contains("Touch ID will not work on Linux")
+        }
+        XCTAssertEqual(warned, expected.isEmpty, label)
+      }
+      // A Mac without the sensor gets no Touch ID files and no warning.
+      let desktop = try await Fixture(machine: "j274")
+      let buffer = InstallerLogBuffer(capacity: 1000)
+      _ = try await InstallerLog.logging(into: buffer) { try await desktop.prepareVendor() }
+      let manifest = try vendorOutputs(desktop).manifest
+      XCTAssertFalse(manifest.contains("apple/mesa"))
+      XCTAssertFalse(manifest.contains("apple/msrk-"))
+      XCTAssertFalse(buffer.snapshot().contains { $0.message.contains("Touch ID") })
     }
 
     /// An installed system's firmware tree shaped like 26.6.2 (25G83): the

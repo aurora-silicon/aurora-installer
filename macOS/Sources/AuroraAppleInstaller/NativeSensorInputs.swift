@@ -8,7 +8,74 @@
   /// is written. Never use the model-wide IPSW cache for factory calibration.
   struct NativeSensorInputs: Sendable {
     let calibration: Data
-    let rootKey: Data
+    /// Only Macs whose enclave opens the sensor session with a signed root key
+    /// have the MSRk record; the others need the calibration alone.
+    let rootKey: Data?
+  }
+
+  /// Touch ID firmware from this Mac's own sensor records, under the names
+  /// the kernel requests. The sensor node's `firmware-name` lists
+  /// `apple/mesacal-<board>.bin` and, where the enclave needs it, the root key
+  /// `apple/msrk-<board>.bin`; a node that names no calibration makes the
+  /// driver load `apple/mesa_calibration.bin`. Touch ID is optional: a Mac
+  /// whose records are missing or invalid installs without it, with a warning.
+  enum NativeTouchIDFirmware {
+    static let defaultCalibrationName = "apple/mesa_calibration.bin"
+
+    static func calibrationName(machine: String) -> String {
+      "apple/mesacal-" + machine + ".bin"
+    }
+
+    static func rootKeyName(machine: String) -> String { "apple/msrk-" + machine + ".bin" }
+
+    /// This Mac's sensor records, or nil without a sensor. A failure to read
+    /// them leaves Touch ID out instead of stopping the installation.
+    static func inputs(_ collect: () throws -> NativeSensorInputs?) throws -> NativeSensorInputs? {
+      do {
+        return try collect()
+      } catch is CancellationError {
+        throw CancellationError()
+      } catch {
+        warn("its sensor records could not be read (\(describe(error)))")
+        return nil
+      }
+    }
+
+    /// The firmware files for `inputs`, keyed by the board this Mac reports,
+    /// or none when the records do not validate.
+    static func files(_ inputs: NativeSensorInputs?, machine: String) -> [String: Data] {
+      guard let inputs else { return [:] }
+      let usable = machine.range(of: #"\A[a-z][a-z0-9]{1,15}\z"#, options: .regularExpression)
+      guard usable != nil else {
+        warn("its board name cannot name a firmware file")
+        return [:]
+      }
+      do {
+        let calibration = inputs.calibration
+        guard try SignedSensorInputs.preparedCalibration(calibration) == calibration else {
+          throw NativePeripheralInputError.sensorCalibrationMissing
+        }
+        var files = [calibrationName(machine: machine): calibration]
+        files[defaultCalibrationName] = calibration
+        if let rootKey = inputs.rootKey {
+          files[rootKeyName(machine: machine)] = try SignedSensorInputs.rootKey(rootKey)
+        }
+        let detail = inputs.rootKey == nil ? "" : " and its signed root-key container"
+        InstallerLog.progress("Collected this Mac’s Touch ID calibration\(detail).")
+        return files
+      } catch {
+        warn("its sensor records are not valid (\(describe(error)))")
+        return [:]
+      }
+    }
+
+    private static func describe(_ error: any Error) -> String {
+      (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+    }
+
+    private static func warn(_ detail: String) {
+      InstallerLog.error("Touch ID will not work on Linux: \(detail). Installing without it.")
+    }
   }
 
   struct NativeSensorInputCollector: Sendable {
@@ -67,16 +134,33 @@
       guard names.count <= 4096, Set(names).count == names.count else {
         throw NativePeripheralInputError.unsafeSnapshot
       }
+      func admitted(_ name: String) -> Bool {
+        NativeHandoffEvidence.safeRelative(name) && !name.contains("/") && name.utf8.count <= 255
+      }
       let roots = names.filter { $0.hasPrefix("MSRk-") }
-      guard roots.count == 1, let root = roots.first,
-        NativeHandoffEvidence.safeRelative(root), !root.contains("/"), root.utf8.count <= 255,
-        root.count > 5
-      else { throw NativePeripheralInputError.sensorRootKeyMissing }
+      guard roots.count <= 1 else { throw NativePeripheralInputError.sensorRootKeyMissing }
+      let root = roots.first
+      if let root {
+        guard admitted(root), root.count > 5 else {
+          throw NativePeripheralInputError.sensorRootKeyMissing
+        }
+      }
       // The enclave refuses the factory records as stored: it loads their
       // IM4P under the FDR sealing manifest with the trust bundle as secb.
-      let sealing = try Self.sealingRecords(names, read: factoryRead)
-      let rootKey = try SignedSensorInputs.rootKey(
-        SignedSensorInputs.reseal(factoryRead(root), seal: sealing.seal, trust: sealing.trust))
+      // Only records that need resealing need these.
+      var sealingCache: (seal: Data, trust: Data)?
+      func sealing() throws -> (seal: Data, trust: Data) {
+        if let sealingCache { return sealingCache }
+        let records = try Self.sealingRecords(names, read: factoryRead)
+        sealingCache = records
+        return records
+      }
+      var rootKey: Data?
+      if let root {
+        let records = try sealing()
+        rootKey = try SignedSensorInputs.rootKey(
+          SignedSensorInputs.reseal(factoryRead(root), seal: records.seal, trust: records.trust))
+      }
       let calibrations = names.filter { $0.hasPrefix("FSC2-") || $0.hasPrefix("FSCl-") }
       let found: Data
       if calibrations.isEmpty {
@@ -84,9 +168,10 @@
         guard bytes.count == source.size else { throw NativePeripheralInputError.localInput }
         found = try SignedSensorInputs.calibration(in: bytes)
       } else {
+        // With a root key, the calibration must belong to the same sensor.
         guard calibrations.count == 1, let name = calibrations.first,
-          String(name.dropFirst(5)) == String(root.dropFirst(5)),
-          NativeHandoffEvidence.safeRelative(name), !name.contains("/"), name.utf8.count <= 255
+          root.map({ String(name.dropFirst(5)) == String($0.dropFirst(5)) }) ?? true,
+          admitted(name)
         else { throw NativePeripheralInputError.sensorCalibrationMissing }
         let bytes = try factoryRead(name)
         found = try SignedSensorInputs.calibration(in: bytes)
@@ -94,8 +179,15 @@
           throw NativePeripheralInputError.sensorCalibrationMissing
         }
       }
-      let calibration = try SignedSensorInputs.loadableCalibration(
-        found, seal: sealing.seal, trust: sealing.trust)
+      // A combined FSCl record already has the layout the enclave loads.
+      let calibration: Data
+      if try SignedSensorInputs.needsSealing(found) {
+        let records = try sealing()
+        calibration = try SignedSensorInputs.loadableCalibration(
+          found, seal: records.seal, trust: records.trust)
+      } else {
+        calibration = found
+      }
       try Task.checkCancellation()
       try verify()
       try verifyFactory()
@@ -115,21 +207,21 @@
       let seals = names.filter { $0.hasPrefix("seal-") }
       let bundles = names.filter { $0.hasPrefix("trustobject-") && $0 != "trustobject-current" }
       guard seals.count == 1, let seal = seals.first, admitted(seal) else {
-        throw NativePeripheralInputError.sensorRootKeyMissing
+        throw NativePeripheralInputError.sensorSealMissing
       }
       let trust: Data
       if names.contains("trustobject-current") {
         trust = try read("trustobject-current")
       } else {
         guard bundles.count == 1, let only = bundles.first, admitted(only) else {
-          throw NativePeripheralInputError.sensorRootKeyMissing
+          throw NativePeripheralInputError.sensorSealMissing
         }
         trust = try read(only)
       }
       let digest = SHA256Digest(hashing: trust).hexadecimal
       let named = bundles.filter { String($0.dropFirst(12)).lowercased() == digest }
       guard named.count == 1, let name = named.first, admitted(name), try read(name) == trust
-      else { throw NativePeripheralInputError.sensorRootKeyMissing }
+      else { throw NativePeripheralInputError.sensorSealMissing }
       return (try read(seal), trust)
     }
 

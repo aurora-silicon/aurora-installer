@@ -35,10 +35,18 @@ public enum SignedSensorInputs {
   /// but loads the same IM4P resealed like the root key; an FSCl record
   /// already has the combined layout and is kept as it is.
   public static func loadableCalibration(_ data: Data, seal: Data, trust: Data) throws -> Data {
+    guard try needsSealing(data) else { return data }
+    return try sealedCalibration(reseal(data, seal: seal, trust: trust))
+  }
+
+  /// Whether `loadableCalibration` reseals this record: a standalone FSC2
+  /// IMG4 does, and needs the sealing manifest and trust bundle; a combined
+  /// FSCl record does not.
+  public static func needsSealing(_ data: Data) throws -> Bool {
     let outer = try FirmwareDER.element(data, at: 0, limit: data.count)
     let first = try FirmwareDER.children(data, outer).first
-    guard let first, FirmwareDER.text(data, first, "IMG4") else { return data }
-    return try sealedCalibration(reseal(data, seal: seal, trust: trust))
+    guard let first else { return false }
+    return FirmwareDER.text(data, first, "IMG4")
   }
 
   /// comb { fdrd: IMG4 { record's IM4P, [0] seal }, secb: trust }: one of this
