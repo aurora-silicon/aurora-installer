@@ -21,11 +21,10 @@
     var environment: NativeHandoffEnvironment = .live
     var disks: NativeAPFSPlatform = .live
     var ambientLight: @Sendable () throws -> Data? = { try NativeAmbientLightInputs.live() }
-    /// This Mac's Touch ID records, read before the first disk change; a Mac
-    /// with a peripheral snapshot has them there instead.
-    var sensor: @Sendable (String) throws -> NativeSensorInputs? = {
-      try NativeSensorInputCollector.live(storeIdentifier: $0).collect(storeIdentifier: $0)
-    }
+    /// This Mac's Touch ID records, read by the finishing preflight before the
+    /// first disk change; a Mac with a peripheral snapshot has them there.
+    /// Nothing here reads the disk.
+    var sensor: @Sendable (String) throws -> NativeSensorInputs? = { _ in nil }
     var openImage: @Sendable (URL, URL) throws -> NativeFirmwareMountedImage = {
       try NativeFirmwareMountedImage.open(image: $0, parent: $1)
     }

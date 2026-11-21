@@ -20,9 +20,12 @@
       /// its `wifi` directory. Without a tree the system volume is unreadable.
       var wifiBoard: String?
       var systemFirmware: URL?
-      /// This Mac's Touch ID records, or the error reading them gives.
+      /// This Mac's Touch ID records, or the error reading them gives. With
+      /// `armIO`, the records come from a collector that detects the sensor
+      /// in that device tree and fails the test on any read past detection.
       var sensor: NativeSensorInputs?
       var sensorFailure: NativePeripheralInputError?
+      var armIO: [NativeSensorInputCollector.DeviceTreeNode]?
       var base: NativeStubFileTests.ExecutionFixture { esp.images.base }
       init(machine: String = "j700", machO: Bool = false) async throws {
         self.machine = machine
@@ -126,8 +129,12 @@
           package: base.package, approved: base.approved, plan: plan, peripherals: peripherals,
           owner: geteuid(), environment: environment, disks: esp.images.platform.disks,
           ambientLight: { self.machine == "j314s" ? Data("synthetic generic ALS".utf8) : nil },
-          sensor: { _ in
+          sensor: { store in
             if let failure = self.sensorFailure { throw failure }
+            if let armIO = self.armIO {
+              return try NativeSensorCalibrationTests.detectionOnly(armIO).collect(
+                storeIdentifier: store)
+            }
             return self.sensor
           },
           openImage: { _, parent in
@@ -312,14 +319,18 @@
         }
         XCTAssertEqual(warned, expected.isEmpty, label)
       }
-      // A Mac without the sensor gets no Touch ID files and no warning.
-      let desktop = try await Fixture(machine: "j274")
-      let buffer = InstallerLogBuffer(capacity: 1000)
-      _ = try await InstallerLog.logging(into: buffer) { try await desktop.prepareVendor() }
-      let manifest = try vendorOutputs(desktop).manifest
-      XCTAssertFalse(manifest.contains("apple/mesa"))
-      XCTAssertFalse(manifest.contains("apple/msrk-"))
-      XCTAssertFalse(buffer.snapshot().contains { $0.message.contains("Touch ID") })
+      // A Mac without the sensor, including one with an `spi2` that drives
+      // something else, gets no Touch ID files and no warning.
+      for armIO in [Sensor.mini, Sensor.studio] {
+        let desktop = try await Fixture(machine: "j274")
+        desktop.armIO = armIO
+        let buffer = InstallerLogBuffer(capacity: 1000)
+        _ = try await InstallerLog.logging(into: buffer) { try await desktop.prepareVendor() }
+        let manifest = try vendorOutputs(desktop).manifest
+        XCTAssertFalse(manifest.contains("apple/mesa"))
+        XCTAssertFalse(manifest.contains("apple/msrk-"))
+        XCTAssertFalse(buffer.snapshot().contains { $0.message.contains("Touch ID") })
+      }
     }
 
     /// An installed system's firmware tree shaped like 26.6.2 (25G83): the

@@ -246,13 +246,28 @@
       XCTAssertEqual(NativeTouchIDFirmware.files(nil, machine: "j274"), [:])
     }
 
-    func testUnreadableOrInvalidRecordsLeaveOnlyTouchIDOutWithAWarning() throws {
+    func testOnlyRecordFailuresLeaveTouchIDOutAndEverythingElseStops() throws {
       let buffer = InstallerLogBuffer(capacity: 100)
       let combined = Self.combinedCalibration()
-      InstallerLog.$taskBuffer.withValue(buffer) {
-        XCTAssertNil(
-          try NativeTouchIDFirmware.inputs { throw NativePeripheralInputError.sensorSealMissing })
+      try InstallerLog.$taskBuffer.withValue(buffer) {
+        for failure in [
+          NativePeripheralInputError.sensorCalibrationMissing, .sensorRootKeyMissing,
+          .sensorSealMissing,
+        ] {
+          XCTAssertNil(try NativeTouchIDFirmware.inputs { throw failure })
+        }
+        XCTAssertNil(try NativeTouchIDFirmware.inputs { throw RestoreFailure("Truncated input.") })
         XCTAssertNil(try NativeTouchIDFirmware.inputs { nil })
+        // A disk or factory volume that changed under the read, a failed
+        // detection or read, and cancellation stop the installation.
+        for failure in [NativePeripheralInputError.identityChanged, .unsafeSnapshot, .localInput] {
+          XCTAssertThrowsError(try NativeTouchIDFirmware.inputs { throw failure }) {
+            XCTAssertEqual($0 as? NativePeripheralInputError, failure)
+          }
+        }
+        XCTAssertThrowsError(try NativeTouchIDFirmware.inputs { throw CancellationError() }) {
+          XCTAssertTrue($0 is CancellationError)
+        }
         for (inputs, machine) in [
           (NativeSensorInputs(calibration: Data("not a record".utf8), rootKey: nil), "j313"),
           (NativeSensorInputs(calibration: Self.calibration(), rootKey: nil), "j313"),
@@ -265,9 +280,82 @@
       let warnings = buffer.snapshot().filter {
         $0.level == .error && $0.message.contains("Touch ID will not work on Linux")
       }
-      XCTAssertEqual(warnings.count, 5)
-      XCTAssertThrowsError(try NativeTouchIDFirmware.inputs { throw CancellationError() }) {
-        XCTAssertTrue($0 is CancellationError)
+      XCTAssertEqual(warnings.count, 8)
+    }
+
+    /// A disk that is not the selected store, or whose first partition is not
+    /// the system container, stops the installation instead of Touch ID.
+    func testADiskIdentityMismatchIsNotLeftToTouchID() throws {
+      for (snapshot, store) in [
+        (Self.snapshot(), "disk1"), (Self.snapshot(type: "Apple_APFS"), "disk0"),
+      ] {
+        XCTAssertThrowsError(
+          try NativeTouchIDFirmware.inputs {
+            try Self.collector(snapshot, fault: "forbid-read").collect(storeIdentifier: store)
+          }
+        ) { XCTAssertEqual($0 as? NativePeripheralInputError, .identityChanged) }
+      }
+    }
+
+    typealias Node = NativeSensorInputCollector.DeviceTreeNode
+
+    static func controller(_ name: String, _ devices: [Node]) -> Node {
+      Node(name: name, compatible: [], children: devices)
+    }
+
+    static let sensor = Node(name: "mesa", compatible: ["biosensor,mesa"])
+    static let device = Node(name: "device", compatible: ["synthetic,device"])
+
+    /// `/arm-io`'s SPI controllers as the macOS 27.2.1 (26B131) device trees
+    /// lay them out; devices other than the sensor are synthetic.
+    static let laptop = [
+      controller("spi1", [device]), controller("spi2", [sensor]), controller("spi4", [device]),
+    ]
+    /// The Mac Studio (J375c, J475c): `spi2` without the sensor.
+    static let studio = [controller("spi1", [device]), controller("spi2", [device])]
+    /// The Mac mini (J274): no `spi2`.
+    static let mini = [controller("spi1", [device])]
+
+    /// A collector that only detects: any read past detection fails the test.
+    static func detectionOnly(_ armIO: [Node]) -> NativeSensorInputCollector {
+      NativeSensorInputCollector(
+        present: { NativeSensorInputCollector.builtInSensor(in: armIO) },
+        snapshot: {
+          XCTFail("Read the disk layout of a Mac without the sensor")
+          throw NativePeripheralInputError.localInput
+        },
+        disk: { _ in
+          XCTFail("Read a disk of a Mac without the sensor")
+          return [:]
+        },
+        read: { _, _ in
+          XCTFail("Read a device of a Mac without the sensor")
+          return Data()
+        },
+        factoryNames: {
+          XCTFail("Read the factory records of a Mac without the sensor")
+          return []
+        }, factoryRead: { _ in Data() })
+    }
+
+    func testTheSensorsOwnNodeDecidesNotItsControllersName() throws {
+      typealias Collector = NativeSensorInputCollector
+      XCTAssertEqual(Collector.sensorNode(in: Self.laptop), "/arm-io/spi2/mesa")
+      XCTAssertNil(Collector.sensorNode(in: Self.studio))
+      XCTAssertNil(Collector.sensorNode(in: Self.mini))
+      // The sensor counts on any SPI controller, and only by its compatible.
+      XCTAssertEqual(
+        Collector.sensorNode(in: [Self.controller("spi5", [Self.device, Self.sensor])]),
+        "/arm-io/spi5/mesa")
+      XCTAssertNil(
+        Collector.sensorNode(in: [
+          Self.controller("spi2", [Node(name: "mesa", compatible: ["synthetic,device"])])
+        ]))
+      XCTAssertNil(Collector.sensorNode(in: [Self.controller("i2c0", [Self.sensor])]))
+      XCTAssertTrue(Collector.builtInSensor(in: Self.laptop))
+      for armIO in [Self.studio, Self.mini, []] {
+        XCTAssertFalse(Collector.builtInSensor(in: armIO))
+        XCTAssertNil(try Self.detectionOnly(armIO).collect(storeIdentifier: "disk0"))
       }
     }
 

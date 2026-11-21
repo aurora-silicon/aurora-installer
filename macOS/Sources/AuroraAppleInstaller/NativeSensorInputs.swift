@@ -28,16 +28,27 @@
 
     static func rootKeyName(machine: String) -> String { "apple/msrk-" + machine + ".bin" }
 
-    /// This Mac's sensor records, or nil without a sensor. A failure to read
-    /// them leaves Touch ID out instead of stopping the installation.
+    /// This Mac's sensor records, or nil without a sensor. Records that are
+    /// missing, ambiguous or malformed leave Touch ID out instead of stopping
+    /// the installation; every other failure is rethrown.
     static func inputs(_ collect: () throws -> NativeSensorInputs?) throws -> NativeSensorInputs? {
       do {
         return try collect()
-      } catch is CancellationError {
-        throw CancellationError()
-      } catch {
-        warn("its sensor records could not be read (\(describe(error)))")
+      } catch let error where leavesOnlyTouchIDOut(error) {
+        warn("its sensor records could not be used (\(describe(error)))")
         return nil
+      }
+    }
+
+    /// Record-level failures. A disk or factory volume that changed under the
+    /// read, a failed detection or a failed read is not one: the installation
+    /// stops there, before its first disk change.
+    static func leavesOnlyTouchIDOut(_ error: any Error) -> Bool {
+      switch error as? NativePeripheralInputError {
+      case .sensorCalibrationMissing?, .sensorRootKeyMissing?, .sensorSealMissing?: true
+      case .some: false
+      // The record parsers' structural refusals.
+      case nil: error is RestoreFailure
       }
     }
 
@@ -88,7 +99,7 @@
 
     static func live(storeIdentifier: String) -> Self {
       Self(
-        present: builtInSensor,
+        present: { try builtInSensor() },
         snapshot: { try MacRemovalDiskOperator().snapshot(maximumPartitions: 4096) },
         disk: { try NativeHandoffEnvironment.live.disk($0) }, read: readContainer,
         factoryNames: {
@@ -114,7 +125,7 @@
         let source = before.partitions.min(by: { $0.offset < $1.offset }),
         source.type == "Apple_APFS_ISC", source.identifier == before.disk + "s1",
         source.size > 0, source.size <= 1 << 30
-      else { throw NativePeripheralInputError.localInput }
+      else { throw NativePeripheralInputError.identityChanged }
       func verify() throws {
         let info = try disk(source.identifier)
         guard info["DeviceIdentifier"] as? String == source.identifier,
@@ -233,33 +244,77 @@
       else { throw NativePeripheralInputError.identityChanged }
     }
 
-    static func builtInSensor() throws -> Bool {
-      let node = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/arm-io")
-      guard node != 0 else { throw NativePeripheralInputError.localInput }
-      defer { IOObjectRelease(node) }
-      var iterator: io_iterator_t = 0
-      guard IORegistryEntryGetChildIterator(node, kIODeviceTreePlane, &iterator) == KERN_SUCCESS
-      else { throw NativePeripheralInputError.localInput }
-      defer { IOObjectRelease(iterator) }
-      var count = 0
-      var found = false
-      while true {
-        try Task.checkCancellation()
-        let child = IOIteratorNext(iterator)
-        if child == 0 { break }
-        defer { IOObjectRelease(child) }
-        count += 1
-        guard count <= 4096 else { throw NativePeripheralInputError.localInput }
-        var name = [CChar](repeating: 0, count: 128)
-        guard IORegistryEntryGetNameInPlane(child, kIODeviceTreePlane, &name) == KERN_SUCCESS
-        else { throw NativePeripheralInputError.localInput }
-        let value = String(
-          decoding: name.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-        guard !value.isEmpty else { throw NativePeripheralInputError.localInput }
-        if value.split(separator: "@").first == "spi2" { found = true }
+    /// A device-tree node as sensor detection reads it.
+    struct DeviceTreeNode: Equatable, Sendable {
+      let name: String
+      let compatible: [String]
+      var children: [DeviceTreeNode] = []
+    }
+
+    /// The sensor's own node is a device under an `/arm-io` SPI controller
+    /// with this compatible. A controller's name decides nothing: the Mac
+    /// Studio's `spi2` drives its USB hub's flash.
+    static let sensorCompatible = "biosensor,mesa"
+
+    /// The path of the node that shows the sensor is built in, or nil.
+    static func sensorNode(in armIO: [DeviceTreeNode]) -> String? {
+      for controller in armIO where controller.name.hasPrefix("spi") {
+        for device in controller.children where device.compatible.contains(sensorCompatible) {
+          return "/arm-io/" + controller.name + "/" + device.name
+        }
       }
-      guard count > 0 else { throw NativePeripheralInputError.localInput }
-      return found
+      return nil
+    }
+
+    static func builtInSensor() throws -> Bool { try builtInSensor(in: liveArmIO()) }
+
+    static func builtInSensor(in armIO: [DeviceTreeNode]) -> Bool {
+      guard let node = sensorNode(in: armIO) else { return false }
+      InstallerLog.debug("Touch ID sensor node: " + node)
+      return true
+    }
+
+    /// `/arm-io`'s children, with the devices under its SPI controllers, from
+    /// this Mac's device tree. An external keyboard is not in it.
+    static func liveArmIO() throws -> [DeviceTreeNode] {
+      let root = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/arm-io")
+      guard root != 0 else { throw NativePeripheralInputError.localInput }
+      defer { IOObjectRelease(root) }
+      var visited = 0
+      func children(of entry: io_registry_entry_t, depth: Int) throws -> [DeviceTreeNode] {
+        var iterator: io_iterator_t = 0
+        guard IORegistryEntryGetChildIterator(entry, kIODeviceTreePlane, &iterator) == KERN_SUCCESS
+        else { throw NativePeripheralInputError.localInput }
+        defer { IOObjectRelease(iterator) }
+        var nodes = [DeviceTreeNode]()
+        while true {
+          try Task.checkCancellation()
+          let child = IOIteratorNext(iterator)
+          if child == 0 { break }
+          defer { IOObjectRelease(child) }
+          visited += 1
+          guard visited <= 4096 else { throw NativePeripheralInputError.localInput }
+          var name = [CChar](repeating: 0, count: 128)
+          guard IORegistryEntryGetNameInPlane(child, kIODeviceTreePlane, &name) == KERN_SUCCESS
+          else { throw NativePeripheralInputError.localInput }
+          let value = String(
+            decoding: name.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+          guard !value.isEmpty else { throw NativePeripheralInputError.localInput }
+          var compatible = [String]()
+          if let data = IORegistryEntryCreateCFProperty(
+            child, "compatible" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? Data
+          {
+            compatible = data.split(separator: 0).map { String(decoding: $0, as: UTF8.self) }
+          }
+          var devices = [DeviceTreeNode]()
+          if depth == 0, value.hasPrefix("spi") { devices = try children(of: child, depth: 1) }
+          nodes.append(DeviceTreeNode(name: value, compatible: compatible, children: devices))
+        }
+        return nodes
+      }
+      let armIO = try children(of: root, depth: 0)
+      guard !armIO.isEmpty else { throw NativePeripheralInputError.localInput }
+      return armIO
     }
 
     static func readContainer(_ identifier: String, _ expected: UInt64) throws -> Data {
