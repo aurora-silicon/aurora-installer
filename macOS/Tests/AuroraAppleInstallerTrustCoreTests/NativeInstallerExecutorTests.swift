@@ -857,6 +857,41 @@
       }
     }
 
+    private struct PreparedFirmware: NativeFirmwarePreparing {
+      let raw: URL
+      func prepare(deviceIdentifier: String, in workingDirectory: URL) async throws -> URL? { raw }
+    }
+
+    private struct FailedPeripherals: NativePeripheralPreparing {
+      func prepare(package: ImportedEngineHandoffPackage, rawDirectory: URL) async throws
+        -> PreparedNativePeripheralInputs
+      {
+        throw NativePeripheralInputError.localInput
+      }
+    }
+
+    func testAPeripheralInputFailureIsNotReportedAsADownloadFailure() async throws {
+      // Issue #170: the peripheral step reads this Mac's own data after the
+      // downloads; its failure must not send the person to check the network.
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let executor = fixtureExecutor(
+        effectiveUserID: { 0 }, firmwarePreparer: PreparedFirmware(raw: fixture.root),
+        peripheralPreparer: FailedPeripherals())
+      await assertThrowsErrorAsync(
+        try await executor.execute(
+          fixture.package, authorization: try machineOwnerAuthorization()
+        )
+      ) {
+        guard case .engineFailed(let report) = $0 as? NativeInstallerExecutionError else {
+          return XCTFail("Expected a typed peripheral failure")
+        }
+        XCTAssertEqual(report.notice.reason, .peripheralInputs)
+        XCTAssertEqual(report.notice.summary, NativeInstallerExecutor.peripheralSummary)
+        XCTAssertTrue(report.notice.diskUnchanged)
+      }
+    }
+
     private struct LostConnectionFirmware: NativeFirmwarePreparing {
       func prepare(deviceIdentifier: String, in workingDirectory: URL) async throws -> URL? {
         throw URLError(.networkConnectionLost)

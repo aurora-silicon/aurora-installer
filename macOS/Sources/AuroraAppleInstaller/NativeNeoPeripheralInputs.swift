@@ -265,6 +265,8 @@
           ptx: read("bluetooth/" + NeoFirmwareConversions.ptxName), factory: local.factory,
           address: local.address))
       outputs.merge(radio) { _, new in new }
+      // Without a usable calibration only the light sensor stays off; the raw
+      // record is still kept below so a later release can convert it.
       outputs[NeoFirmwareConversions.alsName] = try NeoFirmwareConversions.alsCalibration(
         local.lsci)
       outputs["fallback/lsci.bin"] = local.lsci

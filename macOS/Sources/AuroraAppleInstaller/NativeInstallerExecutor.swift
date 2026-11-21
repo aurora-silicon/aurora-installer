@@ -246,6 +246,7 @@
       let hadDiskWrites = !journalProvesNoMutation(
         journal, identity: RecoveryRetryIdentity(package: package))
       var preparedPeripherals: PreparedNativePeripheralInputs?
+      var peripheralStage = false
       do {
         if let raw = try await InstallerPerformance.measuring(
           "firmware_preparation",
@@ -255,20 +256,27 @@
               in: package.packageURL.deletingLastPathComponent())
           })
         {
+          peripheralStage = true
           preparedPeripherals = try await InstallerPerformance.measuring("peripheral_inputs") {
             try await peripheralPreparer.prepare(package: package, rawDirectory: raw)
           }
         }
       } catch {
         let network = TransientTransport.isTransient(error)
+        // Reading this Mac's own inputs is not a download: name it, so the
+        // app doesn't point at the network or free space.
+        let reason: EngineFailureReason =
+          network ? .networkUnavailable : peripheralStage ? .peripheralInputs : .firmwarePreparation
         throw NativeInstallerExecutionError.engineFailed(
           EngineFailureReport(
             notice: EngineFailureNotice(
-              reason: network ? .networkUnavailable : .firmwarePreparation, exitStatus: 1,
+              reason: reason, exitStatus: 1,
               diskUnchanged: journalProvesNoMutation(
                 journal, identity: RecoveryRetryIdentity(package: package)),
               summary: network
-                ? Self.networkSummary : "Native firmware preparation did not complete."),
+                ? Self.networkSummary
+                : peripheralStage
+                  ? Self.peripheralSummary : "Native firmware preparation did not complete."),
             redactedStandardErrorTail: EngineStandardErrorRedactor.redact(
               Data(String(describing: error).utf8), truncated: false,
               secrets: [authorization.password])))
@@ -693,6 +701,9 @@
 
     static let networkSummary =
       "The connection to Apple's servers was lost while the installer was downloading."
+
+    static let peripheralSummary =
+      "This Mac's own calibration and radio data could not be prepared."
 
     static let sourceOwnerSummaryPrefix = "The current macOS volume owner could not be verified"
 
