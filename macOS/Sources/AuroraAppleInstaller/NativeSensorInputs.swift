@@ -11,6 +11,39 @@
     let rootKey: Data
   }
 
+  /// Touch ID records for Macs other than the Neo, whose peripheral preparer
+  /// writes its own. A Mac's device tree names its sensor's files
+  /// `apple/mesacal-<machine>.bin` and `apple/msrk-<machine>.bin`.
+  enum NativeTouchIDInputs {
+    /// The calibration and the sensor's signed root key, rebuilt from this
+    /// Mac's own factory records. Any Mac whose factory cache passes the
+    /// collector's admission (one `seal-*`, a matching FSC2 and MSRk pair and
+    /// an admitted trust object) gets them; a Mac without a sensor gets
+    /// nothing. The records are optional: a failure is logged, and the
+    /// installed system can still build them from the same records.
+    static func files(machine: String, collect: () throws -> NativeSensorInputs?) throws
+      -> [String: Data]
+    {
+      do {
+        guard let sensor = try collect() else { return [:] }
+        let calibration = sensor.calibration
+        guard try SignedSensorInputs.preparedCalibration(calibration) == calibration else {
+          throw NativePeripheralInputError.localInput
+        }
+        return [
+          "apple/mesacal-" + machine + ".bin": calibration,
+          "apple/msrk-" + machine + ".bin": try SignedSensorInputs.rootKey(sensor.rootKey),
+        ]
+      } catch is CancellationError {
+        throw CancellationError()
+      } catch {
+        InstallerLog.record(
+          .error, "Touch ID records not collected: \(error.localizedDescription)")
+        return [:]
+      }
+    }
+  }
+
   struct NativeSensorInputCollector: Sendable {
     let present: @Sendable () throws -> Bool
     let snapshot: @Sendable () throws -> RemovalSnapshot

@@ -201,7 +201,9 @@
                 "DeviceDSPDatabase.plist": Data("synthetic database entry".utf8),
                 "Config/AID\(self.machine == "j314s" ? 8 : 1).plist": Data("synthetic config".utf8),
               ], maskLattice: SyntheticLattice.table)
-          })
+          },
+          // The fixture Macs' factory caches hold no sensor records.
+          touchID: { _ in nil })
       }
       var recovery: NativeRecoveryInstallation {
         NativeRecoveryInstallation(
@@ -244,6 +246,8 @@
         XCTAssertTrue(manifest.contains("brcm/brcmbt4388b0-apple,tokara-a.bin"))
         XCTAssertFalse(manifest.contains("mediatek/"))
         XCTAssertFalse(manifest.contains("j700"))
+        XCTAssertFalse(manifest.contains("apple/mesacal-"))
+        XCTAssertFalse(manifest.contains("apple/msrk-"))
         XCTAssertEqual(manifest.contains("apple/tpmtfw-j314s.bin"), machine == "j314s")
         XCTAssertEqual(manifest.contains("apple/aop-als-cal.bin"), machine == "j314s")
         XCTAssertEqual(manifest.contains("apple/HmCA-synthetic"), machine == "j314s")

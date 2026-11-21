@@ -181,6 +181,46 @@
         read: { _, _ in Data() }, factoryNames: { [] }, factoryRead: { _ in Data() })
       XCTAssertThrowsError(try collector.collect(storeIdentifier: "disk0"))
     }
+
+    /// The J616C keeps an FSC2 and an MSRk record for its sensor in the
+    /// factory cache, so the container itself is never read. Any other Mac
+    /// with records that pass admission gets them under its own names.
+    func testTouchIDFilesTakeTheMachinesDeviceTreeNamesAndStayOptional() throws {
+      let collector = Self.collector(
+        Self.snapshot(), fault: "forbid-read", factory: Self.factoryNames + ["FSC2-synthetic"])
+      XCTAssertEqual(
+        try NativeTouchIDInputs.files(machine: "j616c") {
+          try collector.collect(storeIdentifier: "disk0")
+        },
+        [
+          "apple/mesacal-j616c.bin": Self.sealed(Self.calibrationPayload),
+          "apple/msrk-j616c.bin": Self.sealed(Self.rootPayload),
+        ])
+      // No machine list: another Mac whose records pass admission gets them
+      // under its own device tree names.
+      XCTAssertEqual(
+        try NativeTouchIDInputs.files(machine: "j614s") {
+          try collector.collect(storeIdentifier: "disk0")
+        },
+        [
+          "apple/mesacal-j614s.bin": Self.sealed(Self.calibrationPayload),
+          "apple/msrk-j614s.bin": Self.sealed(Self.rootPayload),
+        ])
+      // A Mac without a sensor gets nothing.
+      XCTAssertEqual(try NativeTouchIDInputs.files(machine: "j274") { nil }, [:])
+      // An unreadable or unloadable record leaves Touch ID to the installed system.
+      let sealed = Self.sealed(Self.calibrationPayload)
+      for collect in [
+        { throw NativePeripheralInputError.sensorRootKeyMissing },
+        { NativeSensorInputs(calibration: Self.calibration(), rootKey: Self.rootKey()) },
+        { NativeSensorInputs(calibration: sealed, rootKey: Self.factoryRoot()) },
+      ] as [() throws -> NativeSensorInputs?] {
+        XCTAssertEqual(try NativeTouchIDInputs.files(machine: "j616c", collect: collect), [:])
+      }
+      XCTAssertThrowsError(
+        try NativeTouchIDInputs.files(machine: "j616c") { throw CancellationError() }
+      ) { XCTAssertTrue($0 is CancellationError) }
+    }
   }
 
   final class NativePeripheralCleanupTests: XCTestCase, @unchecked Sendable {

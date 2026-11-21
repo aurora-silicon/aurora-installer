@@ -36,6 +36,10 @@
     var audioTuning: @Sendable (uid_t) throws -> NativeAudioTuningInputs.Snapshot? = {
       try NativeAudioTuningInputs.live(owner: $0)
     }
+    /// This Mac's Touch ID records, read on every Mac but the Neo.
+    var touchID: @Sendable (String) throws -> NativeSensorInputs? = {
+      try NativeSensorInputCollector.live(storeIdentifier: $0).collect(storeIdentifier: $0)
+    }
 
     func prepare(
       journal: URL, authorization: MachineOwnerAuthorization, bootstrap: NativeSourceBootstrap
@@ -279,6 +283,12 @@
             calibration: ambientLight(), factory: factory)
           try merge(calibration, into: &outputs)
           try merge(calibration, into: &fallback)
+          let sensor = try InstallerPerformance.measure("vendor_touch_id") {
+            try NativeTouchIDInputs.files(machine: source.machine) {
+              try touchID(package.storeIdentifier)
+            }
+          }
+          try merge(sensor, into: &outputs)
         }
         // The speaker protection's parameters: this Mac's own Apple tuning,
         // stored like the other per-machine firmware and never shipped.
