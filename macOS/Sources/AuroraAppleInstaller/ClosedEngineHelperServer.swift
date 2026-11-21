@@ -232,13 +232,14 @@
       jobs.removeUnusedPackages()
     }
 
-    /// Called only after a successful completion reply has been sent. A
+    /// Called only after a successful completion reply has been sent;
+    /// `delivered` fires once the connection that carried it has closed. A
     /// replacement hold refuses new work until the helper unregisters.
-    func retireAfterCompletion() {
+    func retireAfterCompletion(delivered: HelperReplyDelivery = .immediate) {
       guard selfUninstaller.shouldRetire else { return }
       guard work.beginReplacement(token: UUID().uuidString) else { return }
       retirement.set()
-      selfUninstaller.uninstallAfterRemoval()
+      selfUninstaller.uninstallAfterRemoval(delivered: delivered)
     }
 
     public func recoveryAccount(
@@ -779,6 +780,7 @@
     private let retirement: PackageInstalledAppRetirement
     private let mayRetirePackageApps: Bool
     private let initiatingUID: UInt32?
+    private let delivery: HelperReplyDelivery
 
     /// - Parameter version: the helper's build version, or empty when it
     ///   carries none.
@@ -790,13 +792,15 @@
       server: ClosedEngineHelperServer, version: String = "",
       retirement: PackageInstalledAppRetirement = PackageInstalledAppRetirement(),
       mayRetirePackageApps: Bool = ClosedEngineXPCServiceEndpoint.runsFromPrivilegedHelperTools(),
-      initiatingUID: UInt32? = nil
+      initiatingUID: UInt32? = nil,
+      delivery: HelperReplyDelivery = HelperReplyDelivery()
     ) {
       self.server = server
       self.version = version
       self.retirement = retirement
       self.mayRetirePackageApps = mayRetirePackageApps
       self.initiatingUID = initiatingUID
+      self.delivery = delivery
     }
 
     public static func runsFromPrivilegedHelperTools() -> Bool {
@@ -898,6 +902,7 @@
       password: Data, reply: @escaping @Sendable (Data?, NSError?) -> Void
     ) {
       let server = server
+      let delivery = delivery
       Task {
         do {
           guard ticket.isEmpty || UUID(uuidString: ticket) != nil,
@@ -910,7 +915,7 @@
             ticketID: UUID(uuidString: ticket), confirmation: confirmation,
             authorization: authorization, erasing: erasing)
           reply(try JSONEncoder().encode(result), nil)
-          if result.completed { await server.retireAfterCompletion() }
+          if result.completed { await server.retireAfterCompletion(delivered: delivery) }
         } catch {
           let message =
             (error as? RemovalFailure)?.message
@@ -1020,7 +1025,8 @@
         reply(try JSONEncoder().encode(snapshot), nil)
         if snapshot.endsHelperWork {
           let server = server
-          Task { await server.retireAfterCompletion() }
+          let delivery = delivery
+          Task { await server.retireAfterCompletion(delivered: delivery) }
         }
       } catch {
         reply(nil, InstallerJobXPCCodec.serviceError(error))
@@ -1225,8 +1231,13 @@
       connection.exportedInterface = NSXPCInterface(
         with: ClosedEngineXPCService.self
       )
+      // The app closes this connection once it has a reply; a retiring
+      // helper waits for that before it unregisters.
+      let delivery = HelperReplyDelivery()
+      connection.invalidationHandler = { delivery.fire() }
       connection.exportedObject = ClosedEngineXPCServiceEndpoint(
-        server: server, version: helperVersion, initiatingUID: connection.effectiveUserIdentifier)
+        server: server, version: helperVersion, initiatingUID: connection.effectiveUserIdentifier,
+        delivery: delivery)
       connection.activate()
       return true
     }
