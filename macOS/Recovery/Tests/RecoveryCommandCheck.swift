@@ -2,6 +2,7 @@
   static func main() {
     precondition(RecoveryCommand(["recover"]) == .recover)
     precondition(RecoveryCommand(["setup"]) == .setup)
+    precondition(RecoveryCommand(["update"]) == .update)
     precondition(RecoveryCommand(["restart"]) == .restart)
     precondition(
       RecoveryCommand(["debug", "on"]) == .bootArgument(flag: "aura-debug", enabled: true))
@@ -15,11 +16,26 @@
     for arguments in [
       [], ["setup", "secret"], ["setup", "--password", "secret"], ["restart", "now"], ["debug"],
       ["debug", "yes"], ["proxy", "on", "now"], ["Setup"], ["recover", "--force"], ["install"],
+      ["update", "secret"],
     ] {
       precondition(RecoveryCommand(arguments) == nil, "\(arguments)")
     }
-    for command in ["recover", "setup", "restart", "debug on/off", "proxy on/off"] {
+    for command in ["recover", "setup", "update", "restart", "debug on/off", "proxy on/off"] {
       precondition(RecoveryCommand.usage.contains(command), command)
+    }
+
+    // The command line names the change: setup never becomes an update or back.
+    precondition(RecoveryCommand.setup.refusal(updatePending: false) == nil)
+    precondition(RecoveryCommand.update.refusal(updatePending: true) == nil)
+    precondition(
+      RecoveryCommand.setup.refusal(updatePending: true)?.contains("Run aura update") == true)
+    precondition(
+      RecoveryCommand.update.refusal(updatePending: false)?.contains("Nothing was changed") == true)
+    for command in [
+      RecoveryCommand.recover, .restart, .bootArgument(flag: "aura-debug", enabled: true),
+    ] {
+      precondition(command.refusal(updatePending: true) == nil)
+      precondition(command.refusal(updatePending: false) == nil)
     }
 
     precondition(RecoveryPasswordInput.password("1111") == "1111")
