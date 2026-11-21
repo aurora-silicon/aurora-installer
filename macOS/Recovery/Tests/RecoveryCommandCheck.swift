@@ -30,6 +30,8 @@
     }
     precondition(RecoveryPasswordInput.message.contains("standard input"))
     precondition(RecoveryPasswordInput.message.contains("Nothing was changed"))
+    precondition(RecoveryPasswordInput.terminalMessage.contains("Aurora Installer window"))
+    precondition(RecoveryPasswordInput.terminalMessage.contains("Nothing was changed"))
     print("RecoveryCommandCheck: OK")
   }
 }

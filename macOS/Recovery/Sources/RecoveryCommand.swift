@@ -31,6 +31,8 @@ enum RecoveryCommand: Equatable {
 enum RecoveryPasswordInput {
   static let message =
     "aura setup reads the password of this installation's owner as one line on standard input. Nothing was changed."
+  static let terminalMessage =
+    "aura setup reads the owner's password from a pipe, not from the keyboard, which would show it. To type it, use the Aurora Installer window. Nothing was changed."
 
   /// The password in `line`, or nil when it is empty or holds a NUL, which the
   /// authorization prompt can't pass on.

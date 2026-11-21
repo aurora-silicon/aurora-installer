@@ -1001,6 +1001,10 @@ extension RecoveryActions {
   /// account is left to the window, which offers it the next time Recovery
   /// opens it.
   static func setupFromCommand() throws {
+    // A terminal would echo the password: a person types it in the window.
+    guard isatty(STDIN_FILENO) == 0 else {
+      throw RecoveryFailure(message: RecoveryPasswordInput.terminalMessage)
+    }
     guard let password = RecoveryPasswordInput.password(readLine(strippingNewline: true)) else {
       throw RecoveryFailure(message: RecoveryPasswordInput.message)
     }
