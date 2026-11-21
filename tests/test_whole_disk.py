@@ -83,6 +83,9 @@ class WholeDiskImage(unittest.TestCase):
         text = wd.plan_text(self.gpt, chosen, layout)
         self.assertIn("RECOVERY WOULD DELETE", text)
         self.assertIn("“Macintosh HD”", text)
+        self.assertIn("every volume in it:", text)
+        for vol in ("“Data” (Data)", "“Update” (Update)", "“VM” (VM)", "“Preboot” (Preboot)"):
+            self.assertIn(vol, text)
         for kept in ("Apple system container", "Aurora startup container “Aurora”",
                      "Aurora EFI partition", "Apple System Recovery", "26.6.2"):
             self.assertIn(kept, text)
@@ -94,18 +97,19 @@ class WholeDiskImage(unittest.TestCase):
         try:
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
-                rc = wd.cmd_plan(a, owner=lambda node: {"recovery": True, "account": None,
+                rc = wd.cmd_plan(a, owner=lambda node, group: {"recovery": True, "account": None,
                                                          "phase": None,
                                                          "problem": "no recovery account"})
             self.assertEqual(rc, 3)
             self.assertIn("macOS can't be removed yet: no recovery account", out.getvalue())
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
-                rc = wd.cmd_plan(a, owner=lambda node: {"recovery": True, "account": "owner",
+                rc = wd.cmd_plan(a, owner=lambda node, group: {"recovery": True, "account": "owner",
                                                          "phase": "finalized", "problem": None})
             self.assertEqual(rc, 0)
             self.assertIn("'/Volumes/Aurora/aura' remove-macos --dry-run", out.getvalue())
             self.assertIn("Owner for future startup changes: owner", out.getvalue())
+            self.assertIn("Utilities → Remove macOS…", out.getvalue())
         finally:
             wd.container_info = orig
 
@@ -135,8 +139,9 @@ class WholeDiskImage(unittest.TestCase):
         record = self.remove_macos()
         gpt = wd.read_gpt(self.img)
         self.gpt = gpt
-        layout, start, size = wd.claim_plan(gpt, wd.read_chosen(self.chosen), record,
-                                            self.inspect)
+        layout, start, size, resume = wd.claim_plan(gpt, wd.read_chosen(self.chosen), record,
+                                                    self.inspect)
+        self.assertIsNone(resume)
         self.assertIsNone(layout["macos"])
         self.assertEqual(start, self.byname["macos"]["start"])
         self.assertEqual(size, self.byname["macos"]["size"])
@@ -156,6 +161,95 @@ class WholeDiskImage(unittest.TestCase):
             with self.subTest(change=change):
                 with self.assertRaisesRegex(wd.Refusal, text):
                     wd.claim_plan(gpt, chosen, dict(record, **change), self.inspect)
+
+    def test_claim_resumes_after_partition_added(self):
+        """A claim that stopped after sfdisk --append finishes on the same
+        partition; anything else over the range refuses."""
+        chosen = wd.read_chosen(self.chosen)
+        record = self.remove_macos()
+        gpt = wd.read_gpt(self.img)
+        self.gpt = gpt
+        _, start, size, _ = wd.claim_plan(gpt, chosen, record, self.inspect)
+        spec = (f"start={start // 512}, size={size // 512}, type={wd.LINUX}, "
+                f"name=\"{wd.CLAIM_NAME}\"\n")
+        subprocess.run(["sfdisk", "--quiet", "--append", self.img], input=spec, text=True,
+                       check=True)
+        self.gpt = wd.read_gpt(self.img)
+        _, _, _, resume = wd.claim_plan(self.gpt, chosen, record, self.inspect)
+        self.assertEqual((resume["start"], resume["size"]), (start, size))
+        other = json.loads(json.dumps(self.gpt))
+        for p in other["parts"]:
+            if p["start"] == start:
+                p["name"] = "someone else's"
+        with self.assertRaisesRegex(wd.Refusal, "no longer free"):
+            wd.claim_plan(other, chosen, record, self.inspect)
+
+    def test_malformed_records_refuse(self):
+        chosen = wd.read_chosen(self.chosen)
+        record = self.remove_macos()
+        gpt = wd.read_gpt(self.img)
+        self.gpt = gpt
+        for key in ("espUUID", "freeOffset", "installationStoreUUID", "removedPartitionUUID"):
+            with self.subTest(missing=key):
+                broken = {k: v for k, v in record.items() if k != key}
+                with self.assertRaisesRegex(wd.Refusal, "incomplete"):
+                    wd.claim_plan(gpt, chosen, broken, self.inspect)
+        with self.assertRaisesRegex(wd.Refusal, "incomplete"):
+            wd.claim_plan(gpt, chosen, dict(record, freeSize="lots"), self.inspect)
+        with self.assertRaisesRegex(wd.Refusal, "not one this tool knows"):
+            wd.claim_plan(gpt, chosen, ["schema", 1], self.inspect)
+        bad = os.path.join(self.dir, "removed.json")
+        with open(bad, "w") as f:
+            f.write("{not json")
+        with self.assertRaisesRegex(wd.Refusal, "unreadable"):
+            wd.read_record(bad)
+
+    def test_macos_container_with_extra_volumes_refuses(self):
+        chosen = wd.read_chosen(self.chosen)
+        for extra, text in [([("Photos", "None", None, False)], "“Photos”.*isn't part of macOS"),
+                            ([("Macintosh HD 2", "System", "99999999-9999-4999-8999-999999999999", False)],
+                             "2 System volumes"),
+                            ([("VM 2", "VM", None, False)], "more than one VM volume")]:
+            with self.subTest(extra=extra[0][0]):
+                with open(self.img, "r+b") as f:
+                    f.seek(self.byname["macos"]["start"])
+                    f.write(fx.container(fx.MAC_VOLUMES + extra))
+                with self.assertRaisesRegex(wd.Refusal, "holds macOS together with something "
+                                            "else: .*" + text):
+                    wd.classify(self.gpt, chosen, self.inspect)
+
+    def test_duplicate_apple_containers_refuse(self):
+        chosen = wd.read_chosen(self.chosen)
+        two = json.loads(json.dumps(self.gpt))
+        for p in two["parts"]:
+            if p["name"] == "boot":
+                p["type"] = wd.RECOVERY
+        with self.assertRaisesRegex(wd.Refusal, "more than one Apple system or Recovery"):
+            wd.classify(two, chosen, self.inspect)
+        dup = json.loads(json.dumps(self.gpt))
+        dup["parts"][4]["uuid"] = dup["parts"][5]["uuid"]
+        with self.assertRaisesRegex(wd.Refusal, "share a UUID"):
+            wd.classify(dup, chosen, self.inspect)
+
+    def test_owner_needs_finalized_account_of_this_group(self):
+        group = wd.norm(fx.STUB_GROUP)
+
+        def pointer(phase, grp=fx.STUB_GROUP):
+            return json.dumps({"username": "owner", "phase": phase,
+                               "target": {"groupUUID": grp}}).encode()
+        self.assertIsNone(wd.owner_problem(True, pointer("finalized"), group)["problem"])
+        for phase, text in [("allocating", "wasn't finished"), ("creating", "wasn't finished"),
+                            ("prepared", "Startup Disk"), ("awaiting-ownership", "Startup Disk"),
+                            ("odd", "unknown state")]:
+            with self.subTest(phase=phase):
+                self.assertIn(text, wd.owner_problem(True, pointer(phase), group)["problem"])
+        other = pointer("finalized", "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA")
+        self.assertIn("another installation", wd.owner_problem(True, other, group)["problem"])
+        self.assertIn("unreadable", wd.owner_problem(True, b"{oops", group)["problem"])
+        self.assertIn("unreadable", wd.owner_problem(True, b"[1]", group)["problem"])
+        self.assertIn("no recovery account", wd.owner_problem(True, None, group)["problem"])
+        self.assertIn("no Aurora Recovery", wd.owner_problem(False, pointer("finalized"),
+                                                             group)["problem"])
 
     def test_no_macos_and_two_macos(self):
         chosen = wd.read_chosen(self.chosen)

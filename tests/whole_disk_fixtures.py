@@ -14,7 +14,7 @@ BS = 4096
 NX_MAGIC, APFS_MAGIC = b"NXSB", b"APSB"
 OBJ_PHYSICAL, OBJ_VIRTUAL = 0x40000000, 0
 T_NX, T_OMAP, T_BTREE, T_FS = 1, 0xB, 2, 0xD
-ROLE = {"System": 1, "Recovery": 4, "VM": 8, "Preboot": 0x10, "Data": 0x40, "Update": 0xC0,
+ROLE = {"None": 0, "System": 1, "Recovery": 4, "VM": 8, "Preboot": 0x10, "Data": 0x40, "Update": 0xC0,
         "xART": 0x100, "Hardware": 0x140}
 
 

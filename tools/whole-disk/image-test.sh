@@ -3,12 +3,18 @@
 # a 4096-byte-sector GPT laid out like an Apple silicon Mac with macOS and
 # Aurora (synthetic APFS containers, real FAT/ext4/btrfs), Recovery's removal
 # simulated (partition deleted, its record written), then the real `claim`.
-# Usage: sudo tools/whole-disk/image-test.sh <scratch dir> [log dir]
+# Usage: sudo tools/whole-disk/image-test.sh <scratch dir> [log dir] [fresh|interrupted]
+# interrupted: the partition is already added (a claim that stopped right
+# after `sfdisk --append`); claim must finish on it. Both modes also restore
+# removed.json after the claim (a stop between writing claimed.json and
+# removing removed.json) and check the next claim only tidies up.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../.." && pwd)
 work=${1:?scratch directory}
 logs=${2:-$work}
+mode=${3:-fresh}
+[[ $mode == fresh || $mode == interrupted ]] || { echo "mode: fresh or interrupted" >&2; exit 1; }
 [[ $(id -u) == 0 ]] || { echo 'needs root (loop devices, mkfs, mount)' >&2; exit 1; }
 mkdir -p "$work" "$logs"
 img=$work/disk.img
@@ -79,13 +85,32 @@ sfdisk --quiet --no-reread --no-tell-kernel --delete "$loop" 2
 partx -d --nr 2 "$loop" || true
 udevadm settle
 size_before=$(btrfs filesystem show --raw "$work/root" | awk '/devid/ {s += $4} END {print s}')
+cp "$work/esp/aurora/whole-disk/removed.json" "$work/removed.json.copy"
+if [[ $mode == interrupted ]]; then
+  # What the claim's own sfdisk --append writes (1 MiB aligned extent),
+  # then a stop before btrfs device add.
+  python3 -I - "$loop" "$work/esp" <<'EOF' | sfdisk --quiet --append --no-reread --no-tell-kernel "$loop"
+import json, sys
+rec = json.load(open(f"{sys.argv[2]}/aurora/whole-disk/removed.json"))
+mib, ss = 1 << 20, 4096
+start = -(-rec["freeOffset"] // mib) * mib
+end = (rec["freeOffset"] + rec["freeSize"]) // mib * mib
+print(f'start={start // ss}, size={(end - start) // ss}, '
+      'type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, name="Aurora (from macOS)"')
+EOF
+fi
 {
+  echo "== mode $mode"
   echo "== claim --dry-run"
   "${tool[@]}" --esp "$work/esp" claim --root "$work/root" --dry-run
   echo "== claim --yes"
   "${tool[@]}" --esp "$work/esp" claim --root "$work/root" --yes
   echo "== claim again (idempotent)"
   "${tool[@]}" --esp "$work/esp" claim --root "$work/root" --yes
+  echo "== removed.json back beside claimed.json (stop before its unlink): claim tidies up"
+  cp "$work/removed.json.copy" "$work/esp/aurora/whole-disk/removed.json"
+  "${tool[@]}" --esp "$work/esp" claim --root "$work/root" --yes
+  [[ ! -f $work/esp/aurora/whole-disk/removed.json ]] && echo "removed.json tidied"
   echo "== btrfs filesystem show"
   btrfs filesystem show "$work/root"
   echo "== fill past the old device (proves the new one takes data)"
@@ -108,5 +133,9 @@ result=PASS
 [[ $kept_before == "$kept_after" ]] || result="FAIL kept partitions changed"
 grep -q 'rc=3' "$logs/before.txt" || result="FAIL plan did not refuse without an owner"
 grep -q 'already added' "$logs/claim.txt" || result="FAIL second claim not idempotent"
-echo "$result: btrfs root $size_before -> $size_after bytes, $ndev devices, payload sha256 unchanged=$([[ $sum_before == "$sum_after" ]] && echo yes || echo no)" | tee "$logs/result.txt"
+grep -q 'removed.json tidied' "$logs/claim.txt" || result="FAIL leftover removed.json not tidied"
+if [[ $mode == interrupted ]]; then
+  grep -q 'Finishes an earlier claim' "$logs/claim.txt" || result="FAIL interrupted claim not resumed"
+fi
+echo "$result ($mode): btrfs root $size_before -> $size_after bytes, $ndev devices, payload sha256 unchanged=$([[ $sum_before == "$sum_after" ]] && echo yes || echo no)" | tee "$logs/result.txt"
 [[ $result == PASS ]]
