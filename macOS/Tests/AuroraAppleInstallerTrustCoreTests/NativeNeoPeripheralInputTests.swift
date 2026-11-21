@@ -163,14 +163,38 @@
       let tree = try NativeHandoffFileTree(prepared.directory, protected: true, owner: geteuid())
       XCTAssertEqual(
         try tree.read("files/apple/mesacal-j700.bin", maximum: 1 << 20), sensor.calibration)
-      XCTAssertEqual(try tree.read("files/apple/msrk-j700.bin", maximum: 1 << 20), sensor.rootKey)
+      XCTAssertEqual(
+        try tree.read("files/apple/mesa_calibration.bin", maximum: 1 << 20), sensor.calibration)
+      let rootKey = try XCTUnwrap(sensor.rootKey)
+      XCTAssertEqual(try tree.read("files/apple/msrk-j700.bin", maximum: 1 << 20), rootKey)
       let manifest = try JSONDecoder().decode(
         NativeNeoPeripheralPreparer.Manifest.self,
         from: tree.read("manifest.json", maximum: 65536))
       XCTAssertEqual(manifest.files["apple/msrk-j700.bin"]?.role, "sensor")
+      XCTAssertEqual(manifest.files["apple/mesa_calibration.bin"]?.role, "sensor")
       XCTAssertEqual(
         manifest.localInputs["sensorRootKey"],
-        String(SHA256Digest(hashing: sensor.rootKey).rawValue.dropFirst(7)))
+        String(SHA256Digest(hashing: rootKey).rawValue.dropFirst(7)))
+    }
+
+    /// Records that do not validate leave Touch ID out of the snapshot, not
+    /// the rest of the Neo's inputs.
+    func testInvalidSensorRecordsLeaveOnlyTouchIDOutOfTheSnapshot() async throws {
+      let fixture = try InputFixture()
+      defer { fixture.remove() }
+      let sensor = NativeSensorInputs(
+        calibration: NativeSensorCalibrationTests.calibration(),
+        rootKey: NativeSensorCalibrationTests.rootKey())
+      let prepared = try await fixture.preparer(sensor: sensor).prepare(
+        package: fixture.package, rawDirectory: fixture.raw)
+      defer { try? prepared.remove() }
+      let manifest = try JSONDecoder().decode(
+        NativeNeoPeripheralPreparer.Manifest.self,
+        from: Data(contentsOf: prepared.directory.appendingPathComponent("manifest.json")))
+      XCTAssertFalse(manifest.files.values.contains { $0.role == "sensor" })
+      XCTAssertNil(manifest.localInputs["sensorCalibration"])
+      XCTAssertTrue(
+        NeoFirmwareConversions.requiredRadioNames.isSubset(of: Set(manifest.files.keys)))
     }
 
     func testChangedRawInputsUnsafeLinksMissingLocalCalibrationOrPolicyNeverPublishASnapshot()

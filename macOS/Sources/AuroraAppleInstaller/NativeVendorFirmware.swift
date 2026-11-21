@@ -21,6 +21,10 @@
     var environment: NativeHandoffEnvironment = .live
     var disks: NativeAPFSPlatform = .live
     var ambientLight: @Sendable () throws -> Data? = { try NativeAmbientLightInputs.live() }
+    /// This Mac's Touch ID records, read by the finishing preflight before the
+    /// first disk change; a Mac with a peripheral snapshot has them there.
+    /// Nothing here reads the disk.
+    var sensor: @Sendable (String) throws -> NativeSensorInputs? = { _ in nil }
     var openImage: @Sendable (URL, URL) throws -> NativeFirmwareMountedImage = {
       try NativeFirmwareMountedImage.open(image: $0, parent: $1)
     }
@@ -279,6 +283,12 @@
             calibration: ambientLight(), factory: factory)
           try merge(calibration, into: &outputs)
           try merge(calibration, into: &fallback)
+        }
+        // Touch ID is optional: missing, ambiguous or malformed records leave
+        // it out with a warning, never the rest of the installation.
+        if peripherals == nil {
+          let records = try NativeTouchIDFirmware.inputs { try sensor(package.storeIdentifier) }
+          try merge(NativeTouchIDFirmware.files(records, machine: source.machine), into: &outputs)
         }
         // The speaker protection's parameters: this Mac's own Apple tuning,
         // stored like the other per-machine firmware and never shipped.

@@ -66,8 +66,10 @@
         }
       }
       guard records.count == 1 else { throw NativePeripheralInputError.localInput }
-      let sensor = try NativeSensorInputCollector.live(storeIdentifier: storeIdentifier).collect(
-        storeIdentifier: storeIdentifier)
+      let sensor = try NativeTouchIDFirmware.inputs {
+        try NativeSensorInputCollector.live(storeIdentifier: storeIdentifier).collect(
+          storeIdentifier: storeIdentifier)
+      }
       try verifyFactoryStore()
       return Self(factory: factory, lsci: records[0], address: address, sensor: sensor)
     }
@@ -75,11 +77,13 @@
 
   enum NativePeripheralInputError: Error, Equatable, LocalizedError {
     case localInput, invalidRecipe, identityChanged, invalidPolicy, unsafeSnapshot
-    case sensorCalibrationMissing, sensorRootKeyMissing
+    case sensorCalibrationMissing, sensorRootKeyMissing, sensorSealMissing
     var errorDescription: String? {
       switch self {
       case .sensorRootKeyMissing:
         "Touch ID is present, but this Mac’s signed sensor root-key record is missing or ambiguous."
+      case .sensorSealMissing:
+        "Touch ID is present, but this Mac’s sensor sealing records are missing or ambiguous."
       case .sensorCalibrationMissing:
         "Touch ID is present, but its factory calibration cannot be paired with its root-key record."
       default: "Required device firmware inputs could not be verified."
@@ -270,14 +274,10 @@
       outputs[NeoFirmwareConversions.alsName] = try NeoFirmwareConversions.alsCalibration(
         local.lsci)
       outputs["fallback/lsci.bin"] = local.lsci
-      if let sensor = local.sensor {
-        let calibration = sensor.calibration
-        guard try SignedSensorInputs.preparedCalibration(calibration) == calibration else {
-          throw NativePeripheralInputError.localInput
-        }
-        outputs["apple/mesacal-j700.bin"] = calibration
-        outputs["apple/msrk-j700.bin"] = try SignedSensorInputs.rootKey(sensor.rootKey)
-      }
+      // Records that do not validate leave only Touch ID out.
+      let sensorFiles = NativeTouchIDFirmware.files(
+        local.sensor, machine: String(package.deviceIdentifier.dropFirst(6)))
+      outputs.merge(sensorFiles) { _, new in new }
       let tables = try Dictionary(
         uniqueKeysWithValues: NeoRegulatoryPolicy.inputSHA256.keys.map {
           ($0, try read("sunrise/" + $0))
@@ -295,7 +295,7 @@
               ? "als"
               : name == "fallback/lsci.bin"
                 ? "lsci"
-                : ["apple/mesacal-j700.bin", "apple/msrk-j700.bin"].contains(name)
+                : sensorFiles[name] != nil
                   ? "sensor" : "policy"
         records[name] = Record(role: role, bytes: data.count, sha256: Self.digest(data))
       }
@@ -303,9 +303,9 @@
         "factory": Self.digest(local.factory), "lsci": Self.digest(local.lsci),
         "address": Self.digest(local.address),
       ]
-      if let sensor = local.sensor {
+      if let sensor = local.sensor, !sensorFiles.isEmpty {
         localDigests["sensorCalibration"] = Self.digest(sensor.calibration)
-        localDigests["sensorRootKey"] = Self.digest(sensor.rootKey)
+        if let rootKey = sensor.rootKey { localDigests["sensorRootKey"] = Self.digest(rootKey) }
       }
       let manifest = Manifest(
         schema: 1, converter: "neo-v1", deviceIdentifier: package.deviceIdentifier,

@@ -121,4 +121,14 @@ final class SignedSensorInputsTests: XCTestCase {
     XCTAssertEqual(
       try SignedSensorInputs.loadableCalibration(combined, seal: Data(), trust: Data()), combined)
   }
+
+  func testOnlyAStandaloneImageNeedsTheSealingRecords() throws {
+    XCTAssertTrue(try SignedSensorInputs.needsSealing(Self.record("FSC2")))
+    for combined in [Self.sealed("FSCl"), Self.sealed("FSC2"), Self.sealed("MSRk")] {
+      XCTAssertFalse(try SignedSensorInputs.needsSealing(combined))
+    }
+    XCTAssertThrowsError(
+      try SignedSensorInputs.loadableCalibration(
+        Self.record("FSC2"), seal: Data(), trust: Data()))
+  }
 }
