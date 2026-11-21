@@ -257,15 +257,22 @@ def dev_id(dev, root):
     raise Refusal(f"{dev} isn't a device of the root file system.")
 
 
-def linux_parts(gpt, chosen):
-    """Aurora's own Linux-side partitions: its ESP plus every Linux
-    filesystem partition, with what is mounted there."""
+def mounts_of(node):
+    return sorted(set(run(["findmnt", "-n", "-o", "TARGET", "--source", node],
+                          check=False).split()))
+
+
+def linux_parts(gpt, chosen, root_devs, mounts=mounts_of):
+    """This installation's own partitions: its ESP, the root file system's
+    devices and every Linux partition mounted here. A Linux partition that
+    is none of these (another system's) is never included."""
+    roots = {os.path.realpath(d) for d in root_devs}
     out = []
     for p in gpt["parts"]:
-        if p["uuid"] == chosen["esp"] or p["type"] == wd.LINUX:
-            mounts = run(["findmnt", "-n", "-o", "TARGET", "--source", p["node"]],
-                         check=False).split()
-            out.append(dict(p, mounts=sorted(set(mounts))))
+        m = mounts(p["node"])
+        if p["uuid"] == chosen["esp"] or (p["type"] == wd.LINUX and (
+                m or os.path.realpath(p["node"]) in roots)):
+            out.append(dict(p, mounts=m))
     return out
 
 
@@ -276,7 +283,10 @@ def plan_alongside(gpt, chosen, layout, need, root="/", min_size=None, root_devs
     parts = gpt["parts"]
     if gaps:
         start, size = gaps[0]
-        pred = [p for p in parts if p["start"] + p["size"] <= start][-1]
+        before = [p for p in parts if p["start"] + p["size"] <= start]
+        if not before:
+            raise Refusal("The free space is before every partition; that isn't an Apple layout.")
+        pred = before[-1]
         return {"shrink": None, "gap": align_gap(start, size), "predecessor": pred}
     devs = root_devs if root_devs is not None else wd.root_devices(root)
     if len(devs) != 1:
@@ -307,10 +317,10 @@ def plan_alongside(gpt, chosen, layout, need, root="/", min_size=None, root_devs
             "gap": align_gap(gap_start, nxt["start"] - gap_start), "predecessor": rp}
 
 
-def plan_replace(gpt, chosen, layout, need):
+def plan_replace(gpt, chosen, layout, need, root_devs, mounts=mounts_of):
     """Aurora's Linux partitions, deleted in Recovery, plus any free space
     next to them, give macOS one gap."""
-    lp = linux_parts(gpt, chosen)
+    lp = linux_parts(gpt, chosen, root_devs, mounts)
     if not lp:
         raise Refusal("No Aurora Linux partitions were found.")
     gone = {p["uuid"] for p in lp}
@@ -319,7 +329,8 @@ def plan_replace(gpt, chosen, layout, need):
     if idx != list(range(idx[0], idx[-1] + 1)):
         between = [parts[i]["node"] for i in range(idx[0], idx[-1] + 1) if i not in idx]
         raise Refusal("Aurora's Linux partitions aren't next to each other (in between: "
-                      f"{', '.join(between)}), so deleting them wouldn't give one gap.")
+                      f"{', '.join(between)}, which isn't this installation's), so deleting them "
+                      "wouldn't give one gap.")
     pred = parts[idx[0] - 1]
     nxt = parts[idx[-1] + 1] if idx[-1] + 1 < len(parts) else None
     start = pred["start"] + pred["size"]
@@ -344,7 +355,7 @@ def owner_of(layout, owner=None):
 
 
 def make_plan(installer, board, chosen, gpt, layout, mode, owner_state, size=None,
-              root="/", min_size=None, root_devs=None):
+              root="/", min_size=None, root_devs=None, mounts=mounts_of):
     need = needed_bytes(installer)
     if size:
         if size < need:
@@ -352,7 +363,8 @@ def make_plan(installer, board, chosen, gpt, layout, mode, owner_state, size=Non
                           f"({gb(need)}).")
         need = size
     if mode == "replace":
-        disk = plan_replace(gpt, chosen, layout, need)
+        devs = root_devs if root_devs is not None else wd.root_devices(root)
+        disk = plan_replace(gpt, chosen, layout, need, devs, mounts)
     else:
         disk = plan_alongside(gpt, chosen, layout, need, root, min_size, root_devs)
     if not owner_state.get("account") and not layout["macos"]:
@@ -553,6 +565,14 @@ case "${{1:-}}" in
     "") ;;
     *) printf '%s\\n' "usage: restore.sh [--check | --unattended]"; exit 2 ;;
 esac
+
+# Run from a copy in RAM: with --replace the EFI partition this file sits on
+# is deleted, and sh reads a script as it goes.
+self="/tmp/aurora-restore-$DIGEST.sh"
+if [ "$0" != "$self" ]; then
+    cp "$0" "$self" && exec sh "$self" "$@"
+    printf '%s\\n' "aurora-restore: couldn't copy myself to $self"; exit 1
+fi
 
 say() {{ printf '%s\\n' "aurora-restore: $*"; }}
 die() {{ say "$*"; say "Stopped."; exit 1; }}

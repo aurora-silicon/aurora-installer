@@ -19,6 +19,7 @@ cleanup() {
   set +e
   mountpoint -q "$work/root" && umount "$work/root"
   mountpoint -q "$work/esp" && umount "$work/esp"
+  mountpoint -q "$work/boot" && umount "$work/boot"
   [[ -n $loop ]] && losetup -d "$loop"
   rm -f "$img"
 }
@@ -48,9 +49,10 @@ PY
 mkfs.vfat -F 32 -S 4096 "${loop}p4" >/dev/null
 mkfs.ext4 -q -F "${loop}p5"
 mkfs.btrfs -q -f "${loop}p6"
-mkdir -p "$work/root" "$work/esp" "$work/chosen"
+mkdir -p "$work/root" "$work/esp" "$work/boot" "$work/chosen"
 mount "${loop}p6" "$work/root"
 mount "${loop}p4" "$work/esp"
+mount "${loop}p5" "$work/boot"
 esp_uuid=$(sfdisk --part-uuid "$loop" 4)
 printf '%s\0' "${esp_uuid,,}" > "$work/chosen/asahi,efi-system-partition"
 printf '0E3F2FC4-18DE-42ED-955F-2CF407EB27E2\0' > "$work/chosen/apfs-preboot-uuid"

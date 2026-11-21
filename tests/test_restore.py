@@ -179,9 +179,15 @@ class DiskImage(unittest.TestCase):
         self.addCleanup(lambda: setattr(ar, "MACOS_ROOM", self.saved[0]))
         self.addCleanup(lambda: setattr(ar, "LINUX_MARGIN", self.saved[1]))
 
+    def mounts(self, node):
+        return {self.byname["boot"]["node"]: ["/boot"],
+                self.byname["esp"]["node"]: ["/boot/efi"],
+                self.byname["root"]["node"]: ["/", "/home"]}.get(node, [])
+
     def plan(self, mode, owner={"account": "aurora"}, **kw):
         kw.setdefault("min_size", 1 * GIB)
         kw.setdefault("root_devs", [self.byname["root"]["node"]])
+        kw.setdefault("mounts", self.mounts)
         return ar.make_plan(SMALL, "J314sAP", self.chosen, self.gpt, self.layout, mode, owner,
                             **kw)
 
@@ -263,7 +269,8 @@ class Plans(DiskImage):
         self.assertNotIn("WITHOUT THE SCRIPT", ar.plan_text(self.plan("alongside")))
         tahoe = dict(SMALL, version="26.7.3", build="25G342")
         p = ar.make_plan(tahoe, "J314sAP", self.chosen, self.gpt, self.layout, "replace",
-                         {"account": "aurora"})
+                         {"account": "aurora"}, root_devs=[self.byname["root"]["node"]],
+                         mounts=self.mounts)
         text = ar.plan_text(p)
         self.assertIn("WITHOUT THE SCRIPT", text)
         self.assertIn("System Recovery (26.6.2)", text)
@@ -272,9 +279,23 @@ class Plans(DiskImage):
         self.assertNotIn("UNPROVEN", text)
         old = dict(self.chosen, os_fw="27.2")
         p = ar.make_plan(tahoe, "J314sAP", old, self.gpt, self.layout, "replace",
-                         {"account": "aurora"})
+                         {"account": "aurora"}, root_devs=[self.byname["root"]["node"]],
+                         mounts=self.mounts)
         self.assertIn("UNPROVEN: macOS 26.7.3 is older than Aurora's Recovery (27.2)",
                       ar.plan_text(p))
+
+    def test_replace_never_takes_another_systems_partition(self):
+        linux = fx.LAYOUT[4][1]
+        # Another system's Linux partition between Aurora's /boot and root: refused.
+        self.make(fx.LAYOUT[:5] + [("other", linux, 512)] + fx.LAYOUT[5:])
+        with self.assertRaisesRegex(ar.Refusal, "isn't this installation's"):
+            self.plan("replace")
+        # The same partition after Aurora's root: kept, and not in the delete list.
+        self.make(fx.LAYOUT[:6] + [("other", linux, 512)] + fx.LAYOUT[6:])
+        p = self.plan("replace")
+        other = self.byname["other"]["uuid"]
+        self.assertNotIn(other, [d["uuid"] for d in p["delete"]])
+        self.assertEqual(p["gap"]["start"] + p["gap"]["size"], self.byname["other"]["start"])
 
     def test_digest_tracks_the_disk(self):
         self.make()
@@ -394,6 +415,9 @@ class RecoveryScript(DiskImage):
         cmd = ["unshare", "-rm", "sh", "-c", run, script, *args]
         p = subprocess.run(cmd, input=answer + "\n", text=True, capture_output=True, env=env,
                            timeout=60)
+        for name in os.listdir("/tmp"):
+            if name == f"aurora-restore-{plan['digest']}.sh":
+                os.unlink(os.path.join("/tmp", name))
         calls = []
         if os.path.exists(log):
             with open(log) as f:
