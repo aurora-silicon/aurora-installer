@@ -395,12 +395,13 @@
       // A Reset or boot loader update names its channel in the masthead.
       XCTAssertTrue(
         page.contains("existingInstallation: session.existingInstallationChannel != nil"))
+      // swift-format wraps this call, so compare it without whitespace.
       let masthead = try String(
-        contentsOf: app.appendingPathComponent("InstallerMasthead.swift"), encoding: .utf8)
+        contentsOf: app.appendingPathComponent("InstallerMasthead.swift"), encoding: .utf8
+      ).filter { !$0.isWhitespace }
       XCTAssertTrue(
         masthead.contains(
-          "PlainLanguage.mastheadChannelLabel("
-            + "channel, existingInstallation: existingInstallation)"))
+          "PlainLanguage.mastheadChannelLabel(channel,existingInstallation:existingInstallation)"))
       // Check Channels Again: one read, and a stale answer is dropped.
       XCTAssertTrue(scene.contains("ReleaseChannelPreference().checkAgain("))
       XCTAssertTrue(scene.contains("selection.profileID == profileID && liveSession === session"))
