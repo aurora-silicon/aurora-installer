@@ -11,8 +11,11 @@ import os
 import pathlib
 import sys
 import tarfile
+import shutil
 import tempfile
+import types
 import unittest
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -213,6 +216,48 @@ class UpdateTest(Case):
         # Running again changes nothing.
         self.assertEqual(self.update(esp, self.macos(new_tree)), "identical")
 
+    def test_files_no_converter_reads_are_not_a_change(self):
+        # The installer takes its raw trees from the Recovery image, which
+        # lacks files the System volume has and no converter reads.
+        tree = wifi_tree("old")
+        esp = make_esp(self.root, tree)
+        before = awf.tree_hashes(esp)
+        system = dict(tree, **{"BCM4350-Updater.hex": b"uart updater",
+                               "C-4387__s-C2/hokkaido.msf": b"unused"})
+        self.assertEqual(self.update(esp, self.macos(system)), "identical")
+        self.assertEqual(awf.tree_hashes(esp), before)
+        self.assertFalse(self.backups.exists())
+
+    def test_raw_tree_that_converts_differently_is_rebuilt(self):
+        # vendorfw already holds the new set, but all_firmware's raw tree
+        # would rebuild the old one on Linux: that is a change.
+        new_tree = wifi_tree("new")
+        esp = make_esp(self.root / "esp-new", new_tree)
+        old = make_esp(self.root / "esp-old", wifi_tree("old"))
+        shutil.copyfile(old / "asahi" / "all_firmware.tar.gz",
+                        esp / "asahi" / "all_firmware.tar.gz")
+        self.assertEqual(self.update(esp, self.macos(new_tree)), "updated")
+        self.assertEqual(awf.raw_wifi(esp / "asahi" / "all_firmware.tar.gz"),
+                         awf.tree_digest(new_tree))
+        self.assertEqual(self.update(esp, self.macos(new_tree)), "identical")
+
+    def test_too_little_space_refuses_before_building_anything(self):
+        esp = make_esp(self.root, wifi_tree("old"))
+        before = awf.tree_hashes(esp)
+        full = types.SimpleNamespace(f_bavail=0, f_frsize=4096)
+        built = AssertionError("staged a package the ESP cannot hold")
+        with mock.patch.object(awf.os, "statvfs", return_value=full), \
+                mock.patch.object(awf, "rebuild_vendorfw", side_effect=built), \
+                mock.patch.object(awf, "rebuild_all_firmware", side_effect=built):
+            with self.assertRaises(awf.NoSpace) as refused:
+                self.update(esp, self.macos(wifi_tree("new")))
+        # The estimate is the current package plus all_firmware at least.
+        self.assertGreaterEqual(refused.exception.need,
+                                awf.tree_size(esp / "vendorfw")
+                                + (esp / "asahi" / "all_firmware.tar.gz").stat().st_size)
+        self.assertEqual(awf.tree_hashes(esp), before)
+        self.assertFalse(self.backups.exists())
+
     def test_esp_digest_follows_the_wifi_set_only(self):
         esp = make_esp(self.root, wifi_tree("old"))
         before = awf.esp_wifi_digest(esp)
@@ -312,10 +357,10 @@ class VerifyRevertTest(Case):
 
     def test_same_boot_waits(self):
         esp, _, st = self.changed()
-        st["pending"]["boot_id"] = awf.boot_id()
-        if st["pending"]["boot_id"] is None:
-            self.skipTest("no boot_id here")
-        self.assertEqual(awf.verify(st, esp, log_text="", wait=0, state_dir=self.state), "waiting")
+        st["pending"]["boot_id"] = "boot-that-changed-it"
+        with mock.patch.object(awf, "boot_id", return_value="boot-that-changed-it"):
+            self.assertEqual(awf.verify(st, esp, log_text="", wait=0, state_dir=self.state),
+                             "waiting")
 
     def test_revert_by_hand(self):
         esp, old, _ = self.changed()
@@ -376,6 +421,37 @@ class MainTest(Case):
         finally:
             awf.stage_wifi = stage
         self.assertEqual(awf.read_state()["result"], "verified")
+
+    def test_a_refusal_is_remembered_until_its_inputs_change(self):
+        full = types.SimpleNamespace(f_bavail=0, f_frsize=4096)
+        with mock.patch.object(awf.os, "statvfs", return_value=full):
+            self.assertEqual(self.run_main("boot"), 1)
+            refused = awf.read_state()["refused"]
+            self.assertEqual(refused["build"], "25C56")
+            self.assertEqual(refused["esp_wifi"], awf.esp_wifi_digest(self.esp))
+            self.assertGreater(refused["need"], 0)
+            # Nothing changed: the next boot does not read or stage again.
+            with mock.patch.object(awf, "update", side_effect=AssertionError("ran again")):
+                self.assertEqual(self.run_main("boot"), 1)
+            # A person asking for it still gets a full try.
+            self.assertEqual(self.run_main("update"), 1)
+        # Space freed on the ESP: the boot tries again and the change goes in.
+        self.assertEqual(self.run_main("boot"), 0)
+        st = awf.read_state()
+        self.assertEqual(st["result"], "updated")
+        self.assertIsNone(st.get("refused"))
+
+    def test_a_refusal_stands_only_for_the_same_build_esp_and_space(self):
+        refused = awf.refusal(awf.Refused("no"), self.mac, self.esp)
+        self.assertTrue(awf.refusal_stands(refused, self.mac, self.esp))
+        newer = awf.MacOS(self.mac.device, self.mac.volume, "25D10", "26.3")
+        self.assertFalse(awf.refusal_stands(refused, newer, self.esp))
+        self.assertFalse(awf.refusal_stands(dict(refused, esp_wifi="other"), self.mac, self.esp))
+        self.assertFalse(awf.refusal_stands(dict(refused, esp_wifi=None), self.mac, self.esp))
+        space = awf.refusal(awf.NoSpace(1 << 20), self.mac, self.esp)
+        self.assertFalse(awf.refusal_stands(space, self.mac, self.esp), "1 MiB is free here")
+        self.assertTrue(awf.refusal_stands(dict(space, need=1 << 62), self.mac, self.esp))
+        self.assertFalse(awf.refusal_stands(None, self.mac, self.esp))
 
     def test_a_hand_revert_is_not_undone_at_boot(self):
         self.assertEqual(self.run_main("update"), 0)
