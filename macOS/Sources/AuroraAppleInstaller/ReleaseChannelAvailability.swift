@@ -67,12 +67,13 @@
   }
 
   /// What one profile's Edge catalog says about this Mac when choosing the
-  /// default channel. Being listed makes Edge selectable on a Mac; only the
-  /// catalog's evidence for that Mac itself makes Edge its default.
+  /// default channel. Being listed makes Edge selectable on a Mac; being
+  /// family-qualified (the Mac's chip family passed the Edge rows on a named
+  /// machine) makes Edge its default.
   public struct EdgeCatalogCheck: Equatable, Sendable {
     public let availability: ReleaseChannelAvailability
-    /// The verified catalog admits this Mac and carries qualification
-    /// evidence for it by its device identifier.
+    /// The verified catalog admits this Mac and lists it as family-qualified
+    /// in `edgeQualification.devices`.
     public let qualifiesThisMac: Bool
 
     public init(availability: ReleaseChannelAvailability, qualifiesThisMac: Bool = false) {
@@ -83,7 +84,8 @@
 
   extension InstallerReleaseAssetCoordinator {
     /// Reads one profile's Edge catalog once and says both what it offers this
-    /// Mac and whether it proves this Mac. Read-only, like `availability`.
+    /// Mac and whether this Mac is family-qualified. Read-only, like
+    /// `availability`.
     public func edgeCheck(
       configuration: InstallerReleaseConfiguration,
       deviceIdentifier: String,

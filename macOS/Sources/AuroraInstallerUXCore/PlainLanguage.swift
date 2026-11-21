@@ -423,6 +423,19 @@
       }
     }
 
+    /// The masthead's channel label. A new installation is labelled only when
+    /// it reads Nightly. A Reset or boot loader update of an existing
+    /// installation always names its channel, Edge included: it reads the
+    /// channel recorded for that installation, or Nightly when none was, which
+    /// may differ from the channel the installed system follows.
+    public static func mastheadChannelLabel(
+      _ channel: ReleaseChannel?, existingInstallation: Bool
+    ) -> String? {
+      guard let channel else { return nil }
+      if existingInstallation { return badge(for: channel) }
+      return channel == .testing ? channelNightly : nil
+    }
+
     /// A channel menu item: the channel's name, then what its verified
     /// catalog offers this Mac when that is not simply "available".
     public static func channelMenuItem(

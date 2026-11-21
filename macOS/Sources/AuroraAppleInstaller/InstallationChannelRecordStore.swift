@@ -40,7 +40,18 @@
     ) throws {
       let space = NativeKnownInstallation(
         sourceIdentifier: storeIdentifier, offsetBytes: offsetBytes, lengthBytes: lengthBytes)
-      var records = try load().filter {
+      // A file that doesn't decode, such as one cut short, would otherwise
+      // block every later record. What it held is lost; this install's
+      // record replaces it.
+      let existing: [InstallationChannelRecord]
+      do {
+        existing = try load()
+      } catch let error as DecodingError {
+        InstallerLog.error(
+          "\(Self.fileName) couldn't be decoded and is written again: \(error)")
+        existing = []
+      }
+      var records = existing.filter {
         $0.storeIdentifier != storeIdentifier
           || !space.overlaps(offsetBytes: $0.offsetBytes, lengthBytes: $0.lengthBytes)
       }

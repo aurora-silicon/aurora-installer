@@ -106,8 +106,8 @@
     private var attempts = 0
     private var cancelled = false
     public let channel: ReleaseChannel
-    /// What Edge's catalog offers the simulated Mac and whether it proves it,
-    /// which decides whether it opens on Edge or Nightly.
+    /// What Edge's catalog offers the simulated Mac and whether it is
+    /// family-qualified, which decides whether it opens on Edge or Nightly.
     public let edge: EdgeCatalogCheck
     /// The channel recorded for the simulated installation, if any.
     public let installedChannel: ReleaseChannel?

@@ -41,12 +41,16 @@
       else { throw InstallerReleaseConfigurationError.invalidEdgeQualification }
     }
 
-    /// The Macs a verified, qualified Edge catalog proves, by device
-    /// identifier. Apply only to a payload `validate` accepted for Edge.
-    /// `edgeQualification.devices` maps each proven Mac to the digest of its
-    /// own detached evidence record; a `devices` value that isn't well formed
-    /// proves no Mac. A catalog from before `devices` proves only the MacBook
-    /// Neo, through its `neoEvidence`. An explicit Edge pick doesn't need this.
+    /// The Macs a verified, qualified Edge catalog lists as family-qualified,
+    /// by device identifier: each Mac's chip family passed the Edge rows on a
+    /// named machine. Apply only to a payload `validate` accepted for Edge.
+    /// `edgeQualification.devices` maps each such Mac to the digest of a
+    /// detached evidence record that names it and its family's machine row; a
+    /// `devices` value that isn't well formed qualifies no Mac. The app checks
+    /// only that the map is well formed: what qualifies a family is the signed
+    /// publisher's policy. A catalog from before `devices` qualifies only the
+    /// MacBook Neo, through its `neoEvidence`. An explicit Edge pick doesn't
+    /// need this.
     static func qualifiedDeviceIdentifiers(edgePayload payload: Data) -> Set<String> {
       guard let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
         object["channel"] as? String == "edge",

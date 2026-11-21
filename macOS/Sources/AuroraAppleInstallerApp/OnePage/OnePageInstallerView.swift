@@ -263,7 +263,8 @@ struct OnePageInstallerView: View {
     // A Reset or boot loader update shows the installation's own channel.
     InstallerMasthead(
       distribution: selection.distribution, device: device,
-      channel: session.existingInstallationChannel ?? channel)
+      channel: session.existingInstallationChannel ?? channel,
+      existingInstallation: session.existingInstallationChannel != nil)
   }
 
   // MARK: The middle of the page

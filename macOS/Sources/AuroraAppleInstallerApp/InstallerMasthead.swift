@@ -36,6 +36,9 @@ struct InstallerMasthead: View {
   var distribution: AuroraDistribution? = nil
   let device: MacHeaderDisplay
   var channel: ReleaseChannel? = nil
+  /// The plan on screen is a Reset or boot loader update, which names its
+  /// channel whichever it is.
+  var existingInstallation = false
   private static let markSpacing: CGFloat = 10
   private static let titleSize: CGFloat = 17
   private static let channelSpacing: CGFloat = 8
@@ -53,10 +56,12 @@ struct InstallerMasthead: View {
           Text(distribution?.title ?? "Aurora")
             .font(.system(size: Self.titleSize, weight: .semibold))
             .lineLimit(1)
-          if channel == .testing {
+          if let label = PlainLanguage.mastheadChannelLabel(
+            channel, existingInstallation: existingInstallation)
+          {
             // The title's size in the secondary colour, on its baseline. A long
             // title truncates before the channel name does.
-            Text(PlainLanguage.channelNightly)
+            Text(label)
               .font(.system(size: Self.titleSize))
               .foregroundStyle(.secondary)
               .lineLimit(1)

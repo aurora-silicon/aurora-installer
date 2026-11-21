@@ -7,12 +7,13 @@
   /// A choice from the Release channel menu wins. Otherwise each distribution
   /// profile's default for a new installation is decided once per launch from
   /// that profile's verified Edge catalog: Edge where it admits this Mac and
-  /// carries this Mac's own evidence, the bundled default (Nightly) where it
-  /// doesn't. A plan for an existing installation reads the channel it came
-  /// from instead. The choice and the decisions live in memory
-  /// only, and one app process can never change another's channel. It only
-  /// chooses between the channel URLs already baked into the signed app bundle, so
-  /// it can never introduce a source the app was not built to trust.
+  /// lists it as family-qualified (its chip family passed the Edge rows on a
+  /// named machine), the bundled default (Nightly) where it doesn't. A plan
+  /// for an existing installation reads the channel it came from instead. The
+  /// choice and the decisions live in memory only, and one app process can
+  /// never change another's channel. It only chooses between the channel URLs
+  /// already baked into the signed app bundle, so it can never introduce a
+  /// source the app was not built to trust.
   public struct ReleaseChannelPreference: Sendable {
     /// Reads one profile's Edge catalog and says what it offers this Mac.
     public typealias EdgeCheck = @Sendable (_ deviceIdentifier: String) async -> EdgeCatalogCheck
@@ -112,8 +113,8 @@
     }
 
     /// Edge wherever the profile's verified Edge catalog admits this Mac and
-    /// carries this Mac's own evidence, and the bundled default wherever it
-    /// doesn't. A listed Mac without its own evidence can still choose Edge.
+    /// lists it as family-qualified, and the bundled default wherever it
+    /// doesn't. A listed Mac that isn't family-qualified can still choose Edge.
     /// A catalog that couldn't be fetched or verified says nothing about this
     /// Mac: Edge stays the channel, and preparing it fetches the catalog again.
     public static func launchDefault(
