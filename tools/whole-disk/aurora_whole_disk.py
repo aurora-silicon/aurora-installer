@@ -42,7 +42,10 @@ MIB = 1 << 20
 MIN_CLAIM = 1 << 30
 RECORD = "aurora/whole-disk/removed.json"
 DONE = "aurora/whole-disk/claimed.json"
-ROLE_UPDATE = 0xC0
+ROLE_RECOVERY, ROLE_VM, ROLE_PREBOOT, ROLE_UPDATE = 4, 8, 0x10, 0xC0
+MACOS_ROLES = {apfs_ro.ROLE_SYSTEM: "System", apfs_ro.ROLE_DATA: "Data", ROLE_PREBOOT: "Preboot",
+               ROLE_RECOVERY: "Recovery", ROLE_VM: "VM", ROLE_UPDATE: "Update"}
+CLAIM_NAME = "Aurora (from macOS)"
 
 
 class Refusal(Exception):
@@ -99,10 +102,34 @@ def container_info(node):
             for v in c.volumes()]
 
 
+def looks_like_macos(vols):
+    """A System volume and an Update volume; installer-made startup
+    containers have no Update volume."""
+    return (any(v["role"] == apfs_ro.ROLE_SYSTEM for v in vols)
+            and any(v["role"] == ROLE_UPDATE for v in vols))
+
+
+def macos_problem(vols):
+    """Why this container is more than exactly one macOS, or None. The same
+    rule as Recovery's WholeDiskContainer.macOSProblem: deleting the container
+    deletes every volume in it."""
+    systems = [v for v in vols if v["role"] == apfs_ro.ROLE_SYSTEM]
+    if len(systems) != 1:
+        return f"it holds {len(systems)} System volumes"
+    data = [v for v in vols if v["role"] == apfs_ro.ROLE_DATA]
+    if len(data) != 1 or data[0]["group"] != systems[0]["group"]:
+        return "its System and Data volumes aren't one volume group"
+    for v in vols:
+        if v["role"] not in MACOS_ROLES:
+            return f"volume “{v['name']}” (role {v['role']:#x}) isn't part of macOS"
+    for role, name in sorted(MACOS_ROLES.items()):
+        if sum(v["role"] == role for v in vols) > 1:
+            return f"it holds more than one {name} volume"
+    return None
+
+
 def holds_macos(vols):
-    groups = {v["group"] for v in vols if v["role"] == apfs_ro.ROLE_SYSTEM}
-    data = {v["group"] for v in vols if v["role"] == apfs_ro.ROLE_DATA}
-    return any(v["role"] == ROLE_UPDATE for v in vols) and bool(groups & data)
+    return looks_like_macos(vols) and macos_problem(vols) is None
 
 
 def classify(gpt, chosen, inspect=None):
@@ -117,6 +144,10 @@ def classify(gpt, chosen, inspect=None):
     for a, b in zip(parts, parts[1:]):
         if a["start"] + a["size"] > b["start"]:
             raise Refusal(f"Partitions {a['node']} and {b['node']} overlap.")
+    if sum(p["type"] == ISC for p in parts) != 1 or sum(p["type"] == RECOVERY for p in parts) != 1:
+        raise Refusal("This disk has more than one Apple system or Recovery container.")
+    if len({p["uuid"] for p in parts}) != len(parts):
+        raise Refusal("Two partitions on this disk share a UUID.")
     if not any(p["uuid"] == chosen["esp"] and p["type"] == EFI for p in parts):
         raise Refusal("This installation's EFI partition isn't on this disk.")
     own, macos, others = None, [], []
@@ -133,7 +164,13 @@ def classify(gpt, chosen, inspect=None):
             if own:
                 raise Refusal("Two containers claim this installation's volume group.")
             own = p
-        elif holds_macos(vols):
+        elif looks_like_macos(vols):
+            problem = macos_problem(vols)
+            if problem:
+                names = ", ".join(f"“{v['name']}”" for v in vols)
+                raise Refusal(f"{p['node']} holds macOS together with something else: {problem}. "
+                              f"Deleting it would delete every volume in it ({names}); move or "
+                              "delete the extra volumes in macOS first.")
             macos.append(p)
         elif any(v["role"] == apfs_ro.ROLE_SYSTEM for v in vols):
             others.append(p)
@@ -145,11 +182,24 @@ def classify(gpt, chosen, inspect=None):
     return {"own": own, "macos": macos[0] if macos else None, "others": others}
 
 
-def owner_state(node):
+OWNER_PHASES = {
+    "allocating": "this installation's recovery account wasn't finished. Open Aurora Installer "
+                  "in its Recovery again to finish it, then authorize it in Startup Disk",
+    "creating": "this installation's recovery account wasn't finished. Open Aurora Installer "
+                "in its Recovery again to finish it, then authorize it in Startup Disk",
+    "prepared": "this installation's recovery account isn't authorized yet. Choose this "
+                "installation in Startup Disk and authorize the account there",
+    "awaiting-ownership": "this installation's recovery account isn't authorized yet. Choose "
+                          "this installation in Startup Disk and authorize the account there",
+}
+
+
+def owner_state(node, group=None):
     """What this installation's startup container says about its own owner:
     Aurora Recovery's receipt and the recovery account it records. Recovery
     checks the account itself (APFS volume owner, password) before removing
-    anything; this only tells whether that can succeed."""
+    anything; this only tells whether that can succeed. Only a finalized
+    account of this installation's own volume group passes."""
     def read(vol, path):
         try:
             ino, _ = vol.resolve(path)
@@ -159,26 +209,48 @@ def owner_state(node):
     try:
         vol = apfs_ro.Container(node).volume(role=apfs_ro.ROLE_SYSTEM)
     except (apfs_ro.ApfsError, OSError) as e:
-        return {"recovery": False, "account": None, "problem": f"unreadable ({e})"}
+        return {"recovery": False, "account": None, "phase": None, "problem": f"unreadable ({e})"}
     receipt = read(vol, "/Aurora/Recovery/State/installation.json")
     pointer = read(vol, "/Aurora/Recovery/account-target.json")
-    state = {"recovery": receipt is not None and read(vol, "/aura") is not None,
-             "account": None, "phase": None, "problem": None}
+    recovery = receipt is not None and read(vol, "/aura") is not None
+    return owner_problem(recovery, pointer, group)
+
+
+def owner_problem(recovery, pointer, group=None):
+    state = {"recovery": recovery, "account": None, "phase": None, "problem": None}
+    rec = None
     if pointer:
         try:
             rec = json.loads(pointer)
+            if not isinstance(rec, dict):
+                raise ValueError
             state["account"], state["phase"] = rec.get("username"), rec.get("phase")
         except ValueError:
+            rec = None
             state["problem"] = "the recovery account record is unreadable"
-    if not state["recovery"]:
+    if not recovery:
         state["problem"] = ("this installation has no Aurora Recovery yet (it was installed by an "
                             "older installer). Update it with Aurora Installer (Partitions → ⋯ → "
                             "Update Boot Loader, which installs Aurora Recovery) or reinstall")
+    elif state["problem"]:
+        pass
     elif not state["account"]:
         state["problem"] = ("this installation has no recovery account of its own yet. Create it in "
                             "its Recovery (Aurora Installer → Utilities → Create Recovery Account…) "
                             "and authorize it in Startup Disk")
+    elif group and not _same_group(rec, group):
+        state["problem"] = "the recovery account record names another installation"
+    elif state["phase"] != "finalized":
+        state["problem"] = OWNER_PHASES.get(
+            state["phase"], f"the recovery account is in an unknown state ({state['phase']!r})")
     return state
+
+
+def _same_group(rec, group):
+    try:
+        return norm(rec["target"]["groupUUID"]) == group
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return False
 
 
 def system_name(c):
@@ -200,8 +272,9 @@ def free_extents(gpt):
     return out
 
 
-def root_devices(root):
-    """The block devices of the btrfs file system mounted at `root`."""
+def root_devices(root, disk=None):
+    """The block devices of the btrfs file system mounted at `root`, each a
+    plain partition of `disk` when given."""
     fstype = run(["findmnt", "-n", "-o", "FSTYPE", "--mountpoint", root]).strip()
     if fstype != "btrfs":
         raise Refusal(f"The root file system is {fstype or 'unknown'}, not btrfs: Aurora can only "
@@ -219,6 +292,11 @@ def root_devices(root):
             raise Refusal(f"The root file system sits on {d} ({kind}), e.g. an encrypted volume. "
                           "Adding a plain partition would store data unencrypted, so the freed "
                           "space stays free.")
+        if disk:
+            parent = run(["lsblk", "-dn", "-o", "PKNAME", d]).strip()
+            if "/dev/" + parent != os.path.realpath(disk):
+                raise Refusal(f"The root file system's device {d} isn't on {disk}; the space "
+                              "macOS had is only added to a root on the same disk.")
     return devs
 
 
@@ -230,7 +308,10 @@ def plan_text(gpt, chosen, layout):
     else:
         lines.append("RECOVERY WOULD DELETE (with all its data):")
         lines.append(f"  {m['node']}  {gb(m['size'])}  macOS container “{system_name(m)}” "
-                     f"(partition {m['uuid']})")
+                     f"(partition {m['uuid']}), every volume in it:")
+        for v in sorted(m["volumes"], key=lambda v: v["name"]):
+            role = MACOS_ROLES.get(v["role"], f"{v['role']:#x}")
+            lines.append(f"    volume “{v['name']}” ({role})")
     lines.append("KEPT, unchanged:")
     for p in gpt["parts"]:
         if m and p["uuid"] == m["uuid"]:
@@ -260,7 +341,7 @@ def cmd_plan(a, owner=owner_state):
     gpt = read_gpt(disk)
     layout = classify(gpt, chosen)
     print(plan_text(gpt, chosen, layout))
-    state = owner(layout["own"]["node"])
+    state = owner(layout["own"]["node"], chosen["group"])
     if state["account"]:
         print(f"Owner for future startup changes: {state['account']} "
               f"(recorded {state['phase']}; Recovery verifies it and its password first).")
@@ -273,6 +354,8 @@ def cmd_plan(a, owner=owner_state):
               "(Utilities → Terminal) and run:\n"
               f"    '/Volumes/{system_name(layout['own'])}/aura' remove-macos --dry-run\n"
               f"    '/Volumes/{system_name(layout['own'])}/aura' remove-macos\n"
+              "Or open the app instead with "
+              f"'/Volumes/{system_name(layout['own'])}/aura' and choose Utilities → Remove macOS…. "
               "It refuses unless this installation's recovery account is a working owner. "
               "Then start Aurora; it adds the space to Linux "
               f"({gb(layout['macos']['size'])}).")
@@ -312,47 +395,106 @@ def write_atomic(path, obj):
 
 
 def claim_plan(gpt, chosen, record, inspect=None):
-    """Checks Recovery's record against the disk and returns the new
-    partition (byte start, size)."""
-    if record.get("schema") != 1 or record.get("phase") != "removed":
+    """Checks Recovery's record against the disk. Returns (layout, start,
+    size, resume): resume is the partition a claim interrupted after
+    `sfdisk --append` left exactly over the planned range, else None."""
+    if not isinstance(record, dict) or record.get("schema") != 1 \
+            or record.get("phase") != "removed":
         raise Refusal("The removal record on the EFI partition is not one this tool knows.")
-    if norm(record["espUUID"]) != chosen["esp"]:
+    try:
+        esp, removed = norm(record["espUUID"]), norm(record["removedPartitionUUID"])
+        store = norm(record["installationStoreUUID"])
+        lo, n = int(record["freeOffset"]), int(record["freeSize"])
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise Refusal("The removal record on the EFI partition is incomplete; nothing was changed.")
+    if lo < 0 or n <= 0:
+        raise Refusal("The removal record on the EFI partition is incomplete; nothing was changed.")
+    if esp != chosen["esp"]:
         raise Refusal("The removal record belongs to another installation.")
-    uuids = {p["uuid"] for p in gpt["parts"]}
-    if norm(record["removedPartitionUUID"]) in uuids:
+    if removed in {p["uuid"] for p in gpt["parts"]}:
         raise Refusal("macOS's partition is still on the disk; nothing to claim.")
     layout = classify(gpt, chosen, inspect)
-    if layout["own"]["uuid"] != norm(record["installationStoreUUID"]):
+    if layout["macos"] is not None:
+        raise Refusal("A macOS container is on the disk again; nothing was changed.")
+    if layout["own"]["uuid"] != store:
         raise Refusal("The removal record names another startup container.")
-    lo, n = int(record["freeOffset"]), int(record["freeSize"])
-    extent = next(((s, l) for s, l in free_extents(gpt) if s <= lo and lo + n <= s + l), None)
-    if not extent:
-        raise Refusal("The space Recovery freed is no longer free; nothing was changed.")
     start = -(-lo // MIB) * MIB
     end = (lo + n) // MIB * MIB
     if end - start < MIN_CLAIM:
         raise Refusal("Less than 1 GiB was freed; nothing to claim.")
-    return layout, start, end - start
+    if any(s <= lo and lo + n <= s + l for s, l in free_extents(gpt)):
+        return layout, start, end - start, None
+    # An earlier claim stopped after adding the partition: accept exactly one
+    # partition of ours over exactly the planned range, nothing else in it.
+    inside = [p for p in gpt["parts"] if p["start"] < lo + n and p["start"] + p["size"] > lo]
+    if len(inside) == 1 and inside[0]["start"] == start and inside[0]["size"] == end - start \
+            and inside[0]["type"] == LINUX and inside[0]["name"] == CLAIM_NAME:
+        return layout, start, end - start, inside[0]
+    raise Refusal("The space Recovery freed is no longer free; nothing was changed.")
+
+
+def read_record(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError) as e:
+        raise Refusal(f"The removal record {path} is unreadable ({e}); nothing was changed.")
+
+
+def wait_for_partition(disk, node, number, partuuid):
+    """The kernel's node for the new partition, checked by its GPT UUID."""
+    for attempt in range(2):
+        if not os.path.exists(node):
+            run(["partx", "--add" if attempt == 0 else "--update", "--nr", number, disk],
+                check=False)
+            run(["udevadm", "settle", "--timeout=10"], check=False)
+        if os.path.exists(node):
+            got = run(["blkid", "-p", "-s", "PART_ENTRY_UUID", "-o", "value", node],
+                      check=False).strip()
+            if got and norm(got) == partuuid:
+                return
+            raise Refusal(f"{node} isn't the partition just added (GPT UUID {got or 'unknown'}); "
+                          "nothing more was changed.")
+    raise Refusal(f"The kernel didn't show the new partition {node}; restart and run "
+                  "`sudo aurora-whole-disk claim` again.")
 
 
 def cmd_claim(a):
     chosen = read_chosen(a.chosen)
     esp = a.esp or esp_mount(chosen["esp"])
-    path = os.path.join(esp, RECORD)
-    if not os.path.exists(path):
-        if os.path.exists(os.path.join(esp, DONE)):
-            print("The space macOS had was already added.")
-        else:
-            print("macOS hasn't been removed by Recovery; nothing to claim.")
-        return 0
-    with open(path) as f:
-        record = json.load(f)
+    path, done_path = os.path.join(esp, RECORD), os.path.join(esp, DONE)
     disk = a.disk or disk_of(chosen["esp"])
+    done = read_record(done_path) if os.path.exists(done_path) else None
+    if done is not None and os.path.exists(path):
+        record = read_record(path)
+        same = isinstance(done, dict) and isinstance(record, dict) \
+            and done.get("removedPartitionUUID") == record.get("removedPartitionUUID")
+        if not same:
+            done = None  # a later removal: claim it like the first
+    if done is not None:
+        if os.path.exists(path):
+            # Stopped between writing claimed.json and removing removed.json.
+            node = done.get("claimedNode") if isinstance(done, dict) else None
+            if not node or node not in root_devices(a.root, disk):
+                raise Refusal(f"{DONE} and {RECORD} are both on the EFI partition but the claimed "
+                              "partition isn't in the root file system; nothing was changed.")
+            if not a.dry_run:
+                os.unlink(path)
+        print("The space macOS had was already added.")
+        return 0
+    if not os.path.exists(path):
+        print("macOS hasn't been removed by Recovery; nothing to claim.")
+        return 0
+    record = read_record(path)
     gpt = read_gpt(disk)
-    _, start, size = claim_plan(gpt, chosen, record)
-    devs = root_devices(a.root)
-    print(f"Adds a new {gb(size)} Linux partition on {disk} at byte {start} "
-          f"(the space macOS had) to the btrfs root at {a.root} (now on {', '.join(devs)}).")
+    _, start, size, resume = claim_plan(gpt, chosen, record)
+    devs = root_devices(a.root, disk)
+    if resume:
+        print(f"Finishes an earlier claim: {resume['node']} ({gb(size)}, the space macOS had) "
+              f"goes into the btrfs root at {a.root} (now on {', '.join(devs)}).")
+    else:
+        print(f"Adds a new {gb(size)} Linux partition on {disk} at byte {start} "
+              f"(the space macOS had) to the btrfs root at {a.root} (now on {', '.join(devs)}).")
     if a.dry_run:
         print("Dry run: nothing was changed.")
         return 0
@@ -360,36 +502,36 @@ def cmd_claim(a):
         if input("Type 'add' to continue: ").strip() != "add":
             print("Nothing was changed.")
             return 1
-    ss = gpt["sector"]
-    spec = f"start={start // ss}, size={size // ss}, type={LINUX}, name=\"Aurora (from macOS)\"\n"
-    run(["sfdisk", "--append", "--no-reread", "--no-tell-kernel", disk], input=spec)
-    after = read_gpt(disk)
-    new = [p for p in after["parts"] if p["uuid"] not in {q["uuid"] for q in gpt["parts"]}]
-    kept = [(p["uuid"], p["start"], p["size"]) for p in after["parts"] if p not in new]
-    if len(new) != 1 or new[0]["start"] != start or new[0]["size"] != size \
-            or kept != [(p["uuid"], p["start"], p["size"]) for p in gpt["parts"]]:
-        raise Refusal("The partition table didn't come out as planned; stop and check "
-                      f"`sfdisk -l {disk}`.")
-    node = new[0]["node"]
-    number = re.search(r"(\d+)$", node).group(1)
-    run(["partx", "--add", "--nr", number, disk], check=False)
-    run(["udevadm", "settle"], check=False)
-    for _ in range(50):
-        if os.path.exists(node):
-            break
-        time.sleep(0.1)
+    if resume:
+        new = resume
     else:
-        raise Refusal(f"The kernel didn't show the new partition {node}; restart and run "
-                      "`sudo aurora-whole-disk claim` again.")
-    # The space held macOS's APFS container; clear its old signatures so btrfs
-    # takes the partition. Only the new partition, verified above, is touched.
-    run(["wipefs", "--all", "--quiet", node])
-    run(["btrfs", "device", "add", node, a.root])
-    if node not in root_devices(a.root):
-        raise Refusal(f"btrfs didn't list {node} after adding it.")
-    done = dict(record, phase="claimed", claimedPartitionUUID=new[0]["uuid"],
+        ss = gpt["sector"]
+        spec = f"start={start // ss}, size={size // ss}, type={LINUX}, name=\"{CLAIM_NAME}\"\n"
+        run(["sfdisk", "--append", "--no-reread", "--no-tell-kernel", disk], input=spec)
+        after = read_gpt(disk)
+        added = [p for p in after["parts"] if p["uuid"] not in {q["uuid"] for q in gpt["parts"]}]
+        kept = [(p["uuid"], p["start"], p["size"]) for p in after["parts"] if p not in added]
+        if len(added) != 1 or added[0]["start"] != start or added[0]["size"] != size \
+                or kept != [(p["uuid"], p["start"], p["size"]) for p in gpt["parts"]]:
+            raise Refusal("The partition table didn't come out as planned; stop and check "
+                          f"`sfdisk -l {disk}`.")
+        new = added[0]
+    node = new["node"]
+    m = re.search(r"(\d+)$", node)
+    if not m:
+        raise Refusal(f"Couldn't tell the partition number of {node}; nothing more was changed.")
+    wait_for_partition(disk, node, m.group(1), new["uuid"])
+    if node not in devs:
+        # The space held macOS's APFS container; clear its old signatures so
+        # btrfs takes the partition. Only the new partition, verified above by
+        # its place in the table and its GPT UUID, is touched.
+        run(["wipefs", "--all", "--quiet", node])
+        run(["btrfs", "device", "add", node, a.root])
+        if node not in root_devices(a.root, disk):
+            raise Refusal(f"btrfs didn't list {node} after adding it.")
+    done = dict(record, phase="claimed", claimedPartitionUUID=new["uuid"],
                 claimedNode=node, claimedSize=size)
-    write_atomic(os.path.join(esp, DONE), done)
+    write_atomic(done_path, done)
     os.unlink(path)
     print(f"Added {gb(size)} to the root file system.")
     return 0
