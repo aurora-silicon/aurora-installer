@@ -95,6 +95,19 @@ The first-stage engine reads back the selected APFS volume group after `bless`. 
 
 The welcome screen retains a small text attribution without an Aurora logo. The Aurora banner and Kanagawa volume artwork are independent. AppKit owns the outer rounding with hidden title bar and standard window controls; Command-Q quits.
 
+## Setup from a shell
+
+The `aura` command reaches setup without the window, for Recovery Terminal or a remote shell in paired Recovery on a Mac nobody is sitting at. Opening the app once installs the command. The app's own executable with `--aura-command` works too, before that.
+
+```sh
+printf '%s\n' "$OWNER_PASSWORD" | aura setup
+aura restart
+```
+
+`aura setup` reads the password of the installation's owner as one line on standard input. It never comes from the command line, so it stays out of `ps` and shell history. An empty line, or one with a NUL or a carriage return inside it, changes nothing. Setup then resolves the owner as the window does and runs Continue's action. A fresh installation runs the full setup with the configured startup keys (Aurora-managed unless the installer set others). A staged Stage 1 update is enrolled instead. Both repeat every environment and owner check before their first write, and progress is printed one step per line. A failure keeps the same journal the window keeps, so either can resume it.
+
+`aura restart` is Restart on the last screen. A recovery account that doesn't exist yet is deferred, as "Skip, Restart Now" does, and the window offers it the next time Recovery opens the app. An account waiting for authorization in Startup Disk needs that window, so `aura restart` refuses and changes nothing. Otherwise it checks the receipt, the startup bundle and the startup disk, and restarts. While a Stage 1 update waits, it refuses too. After `aura setup` has enrolled an update, restart the Mac as usual: like the window, that doesn't compare the ESP's Stage 2 with Recovery's copy. Creating the recovery account and choosing another startup disk stay in the window.
+
 ## Per-install firmware recovery baseline
 
 The stager requires the actual finalized ESP `vendorfw/firmware.tar`, `vendorfw/firmware.cpio` and `vendorfw/manifest.txt`. It also retains `vendorfw/u-boot/asmedia/asm2214a-apple.bin` when present. These files are read from this installation’s ESP and stored in `Aurora/Recovery/InstallData/AuraPayloads` beside the signed app; they are never inserted into either app bundle. The original signature, hardened runtime and entitlements remain unchanged. All are nonempty, with 256 MiB limits for the archive files, 1 MiB for the manifest, and 16 MiB for the optional U-Boot firmware. Missing required inputs stop staging.
