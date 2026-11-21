@@ -93,7 +93,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
 
   /// The choice made in the Release channel menu, or this launch's default
   /// for a new installation: Edge where the profile's verified Edge catalog
-  /// admits this Mac and carries its own evidence, Nightly where it doesn't.
+  /// admits this Mac and lists it as family-qualified, Nightly where it doesn't.
   private static func releaseChannel(
     configuration: InstallerReleaseConfiguration, selection: AuroraInstallationSelection
   ) async -> ReleaseChannel {
@@ -122,7 +122,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     }
   }
 
-  /// Edge's catalog read once: what it offers this Mac and whether it proves it.
+  /// Edge's catalog read once: what it offers this Mac and whether this Mac is
+  /// family-qualified.
   private static func edgeCatalogCheck(
     configuration: InstallerReleaseConfiguration, stateDirectory: URL, deviceIdentifier: String
   ) async -> EdgeCatalogCheck {
@@ -399,9 +400,9 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   }
 
   /// Every channel's catalog, checked side by side for this Mac, each read
-  /// once: Edge's read also says whether it proves this Mac. A channel whose
-  /// rollback state cannot be read counts as unverifiable rather than skipping
-  /// the rollback check.
+  /// once: Edge's read also says whether this Mac is family-qualified. A
+  /// channel whose rollback state cannot be read counts as unverifiable rather
+  /// than skipping the rollback check.
   func channelReport() async -> ReleaseChannelReport {
     guard let host = lock.withLock({ hostInspection }) else {
       return ReleaseChannelReport(availability: [:])

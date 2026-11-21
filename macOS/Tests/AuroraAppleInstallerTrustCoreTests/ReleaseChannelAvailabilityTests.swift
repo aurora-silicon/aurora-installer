@@ -137,8 +137,8 @@
     // MARK: Edge's per-device proof, for the default channel
 
     func testOnlyPerDeviceEvidenceMakesEdgeTheDefaultForAMac() async throws {
-      // Listing a model makes Edge selectable on it; only that Mac's own
-      // evidence record makes Edge its default.
+      // Listing a model makes Edge selectable on it; only being listed as
+      // family-qualified makes Edge its default.
       let configuration = try configuration()
       let catalog = try qualifiedEdgeCatalog(
         devices: [thisMac, "apple,j274"],

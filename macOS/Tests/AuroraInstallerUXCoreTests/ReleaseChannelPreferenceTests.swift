@@ -60,10 +60,10 @@
       XCTAssertEqual(UserDefaults.standard.object(forKey: "ReleaseChannel") as? String, legacy)
     }
 
-    func testAnyMacWithItsOwnEdgeEvidenceDefaultsToEdge() async throws {
+    func testAnyFamilyQualifiedMacDefaultsToEdge() async throws {
       // The app names no model and no profile: a Mac gets Edge as soon as the
-      // selected profile's verified Edge catalog admits it and carries that
-      // Mac's own qualification evidence.
+      // selected profile's verified Edge catalog admits it and lists it as
+      // family-qualified.
       let configuration = try Self.bundledConfiguration()
       for deviceIdentifier in ["apple,j700", "apple,j714s", "apple,j313"] {
         let preference = ReleaseChannelPreference(
@@ -100,7 +100,7 @@
       }
     }
 
-    func testAListedMacWithoutItsOwnEvidenceDefaultsToNightly() async throws {
+    func testAListedMacThatIsNotFamilyQualifiedDefaultsToNightly() async throws {
       // Being listed makes Edge selectable on this Mac, not its default; an
       // explicit pick still gets Edge.
       let configuration = try Self.bundledConfiguration()
@@ -409,7 +409,7 @@
       XCTAssertTrue(page.contains("guard previous != nil, current != nil else { return }"))
     }
 
-    /// Edge's catalog admits this Mac and carries its own evidence.
+    /// Edge's catalog admits this Mac and lists it as family-qualified.
     private static let proven = EdgeCatalogCheck(availability: .available, qualifiesThisMac: true)
 
     private final class EdgeAnswers: @unchecked Sendable {

@@ -134,7 +134,7 @@
 
       let expected: [(EdgeCatalogCheck, ReleaseChannel, String, Bool)] = [
         (EdgeCatalogCheck(availability: .available, qualifiesThisMac: true), .edge, "Edge", true),
-        // Listed without this Mac's own evidence: selectable, not the default.
+        // Listed but not family-qualified: selectable, not the default.
         (EdgeCatalogCheck(availability: .available), .testing, "Edge", true),
         (
           EdgeCatalogCheck(availability: .noRelease), .testing, "Edge — No release available",
