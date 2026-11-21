@@ -342,7 +342,19 @@ chmod +x "$app/InstallAssistant"
 '''
 
 
-@unittest.skipUnless(shutil.which("sfdisk") and shutil.which("unshare"), "needs sfdisk, unshare")
+def private_volumes_ok():
+    """Whether this host lets an unprivileged user mount a private /Volumes
+    (user + mount namespaces). Package build sandboxes often don't."""
+    if not (shutil.which("sfdisk") and shutil.which("unshare")):
+        return False
+    try:
+        return subprocess.run(["unshare", "-rm", "sh", "-c", "mount -t tmpfs none /Volumes"],
+                              capture_output=True, timeout=10).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+@unittest.skipUnless(private_volumes_ok(), "needs sfdisk and unprivileged user+mount namespaces")
 class RecoveryScript(DiskImage):
     """Runs restore.sh in a user+mount namespace (a private /Volumes) against
     stand-ins that record every command."""
