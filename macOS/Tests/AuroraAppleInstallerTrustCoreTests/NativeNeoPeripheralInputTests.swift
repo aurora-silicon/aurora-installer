@@ -77,6 +77,36 @@
       XCTAssertFalse(FileManager.default.fileExists(atPath: prepared.directory.path))
     }
 
+    func testANonPositiveLightSensorGainLeavesOutOnlyTheALSFile() async throws {
+      // Issue #170: a MacBook Neo whose LSCI record has a gain ratio <= 0
+      // must still install. The converted ALS file is left out and the raw
+      // record is kept.
+      let fixture = try InputFixture()
+      defer { fixture.remove() }
+      var lsci = try XCTUnwrap(fixture.value.local["lsci"])
+      lsci[58] = 0
+      lsci[59] = 0
+      let prepared = try await fixture.preparer(lsci: lsci).prepare(
+        package: fixture.package, rawDirectory: fixture.raw)
+      defer { try? prepared.remove() }
+      let manifest = try JSONDecoder().decode(
+        NativeNeoPeripheralPreparer.Manifest.self,
+        from: Data(contentsOf: prepared.directory.appendingPathComponent("manifest.json")))
+      XCTAssertNil(manifest.files[NeoFirmwareConversions.alsName])
+      XCTAssertEqual(manifest.files["fallback/lsci.bin"]?.role, "lsci")
+      XCTAssertEqual(
+        manifest.files["fallback/lsci.bin"]?.sha256,
+        String(SHA256Digest(hashing: lsci).rawValue.dropFirst(7)))
+      XCTAssertEqual(
+        Set(manifest.files.keys),
+        Set(fixture.value.manifest.files.keys).subtracting([NeoFirmwareConversions.alsName]))
+      XCTAssertFalse(
+        FileManager.default.fileExists(
+          atPath: prepared.directory.appendingPathComponent(
+            "files/" + NeoFirmwareConversions.alsName
+          ).path))
+    }
+
     func testPolicyPreparationUsesAuthenticatedRawTablesWithoutPayloadPolicyMembers() async throws {
       let fixture = try InputFixture()
       defer { fixture.remove() }
@@ -225,7 +255,8 @@
         ]).write(to: package.identityURL)
       }
       func preparer(
-        address: Data? = nil, missingLocal: Bool = false, sensor: NativeSensorInputs? = nil
+        address: Data? = nil, lsci: Data? = nil, missingLocal: Bool = false,
+        sensor: NativeSensorInputs? = nil
       ) -> NativeNeoPeripheralPreparer {
         let inventory = NativeNeoInputInventory(
           recipeSHA256: value.manifest.recipeSHA256,
@@ -235,7 +266,7 @@
               sha256: String(SHA256Digest(hashing: bytes).rawValue.dropFirst(7)))
           })
         let inputs = NativeNeoLocalInputs(
-          factory: value.local["factory"]!, lsci: value.local["lsci"]!,
+          factory: value.local["factory"]!, lsci: lsci ?? value.local["lsci"]!,
           address: address ?? value.local["address"]!, sensor: sensor)
         return NativeNeoPeripheralPreparer(
           owner: geteuid(), inventory: { inventory },

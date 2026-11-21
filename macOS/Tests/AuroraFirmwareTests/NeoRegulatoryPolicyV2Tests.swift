@@ -464,6 +464,13 @@ struct NeoRegulatoryPolicyV2Tests {
     #expect(try run() == 0)
     #expect(try String(contentsOf: log, encoding: .utf8) == "aop\nmt7932-fullmac\n")
     try FileManager.default.removeItem(at: log)
+    // A Neo whose installer had no usable light sensor calibration still
+    // loads the AOP and Wi-Fi (issue #170).
+    try FileManager.default.removeItem(
+      at: firmware.appendingPathComponent(NeoFirmwareConversions.alsName))
+    #expect(try run() == 0)
+    #expect(try String(contentsOf: log, encoding: .utf8) == "aop\nmt7932-fullmac\n")
+    try FileManager.default.removeItem(at: log)
     try FileManager.default.removeItem(
       at: firmware.appendingPathComponent("mediatek/mt7932/policy/world-XZ.bin"))
     #expect(try run() != 0)

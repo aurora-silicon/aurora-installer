@@ -43,6 +43,11 @@
     /// A boot loader update stopped. The summary says why. Older apps show
     /// this as unclassified.
     case bootLoaderUpdateRefused = 12
+    /// This Mac's own peripheral inputs (its calibration and radio data)
+    /// could not be prepared, before any disk change. Downloads finished; the
+    /// network and free space are not the cause. Older apps show this as
+    /// unclassified.
+    case peripheralInputs = 13
 
     private static let macOSUpdatePrefix = "This Mac needs macOS "
     private static let macOSUpdateSuffix = " or later."

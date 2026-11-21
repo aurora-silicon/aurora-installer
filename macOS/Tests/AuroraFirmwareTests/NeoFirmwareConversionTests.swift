@@ -69,6 +69,10 @@ final class NeoFirmwareConversionTests: XCTestCase, @unchecked Sendable {
   func testConvertersMatchTheLockedReferenceBytesAndRejections() throws {
     let fixture = try fixture()
     XCTAssertEqual(fixture.vectors.count, 41)
+    // The reference refuses an LSCI record with a non-positive gain; the
+    // installer goes ahead without the ALS file instead (issue #170).
+    let uncalibrated = Set(stride(from: 58, through: 68, by: 2).map { "bad-lsci-\($0)" })
+    var leftUncalibrated = Set<String>()
     for vector in fixture.vectors {
       var accepted = false
       do {
@@ -88,7 +92,13 @@ final class NeoFirmwareConversionTests: XCTestCase, @unchecked Sendable {
           try NeoFirmwareConversions.validatePTX(vector.data)
           bytes = vector.data
         case "address": bytes = try NeoFirmwareConversions.bluetoothAddress(vector.data)
-        case "als": bytes = try NeoFirmwareConversions.alsCalibration(vector.data)
+        case "als":
+          guard let calibration = try NeoFirmwareConversions.alsCalibration(vector.data) else {
+            XCTAssertFalse(vector.success, vector.name)
+            leftUncalibrated.insert(vector.name)
+            continue
+          }
+          bytes = calibration
         case "policy":
           bytes = try NeoFirmwareConversions.policy(vector.data, country: vector.country)
         default:
@@ -101,6 +111,7 @@ final class NeoFirmwareConversionTests: XCTestCase, @unchecked Sendable {
       } catch {}
       XCTAssertEqual(accepted, vector.success, vector.name)
     }
+    XCTAssertEqual(leftUncalibrated, uncalibrated)
   }
 
   func testCompleteRadioOutputPreservesEveryRequiredCalibrationAndAddressByte() throws {
