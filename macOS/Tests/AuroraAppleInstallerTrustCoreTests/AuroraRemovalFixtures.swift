@@ -157,6 +157,53 @@
         ], installs: [convergedInstall])
     }
 
+    static let iOSStore = id(91)
+
+    /// An iOS container: an ungrouped System/Data pair and no Recovery volume.
+    static func iOSContainer() -> RemovalContainer {
+      RemovalContainer(
+        uuid: id(910), storeUUID: iOSStore,
+        volumes: [
+          RemovalVolume(uuid: id(911), name: "iOS", roles: ["System"], identifier: "disk9s1"),
+          RemovalVolume(uuid: id(912), name: "Data", roles: ["Data"], identifier: "disk9s2"),
+          RemovalVolume(
+            uuid: id(913), name: "Preboot", roles: ["Preboot"], identifier: "disk9s3"),
+        ])
+    }
+
+    /// Aurora installed into the free space after an iOS container.
+    static func iOSBetweenMacOSAndInstall() -> RemovalSnapshot {
+      snapshot(
+        macOSSize: 400_000_000_000,
+        [
+          .part(iOSStore, "Apple_APFS", 96_000_000_000),
+          .part(convergedInstall.stub, "Apple_APFS", 2_499_805_184),
+          .part(convergedInstall.esp, "EFI", 524_288_000, name: "EFI - OMARC"),
+          .part(convergedInstall.linux[0], "Linux Filesystem", 2_147_483_648),
+          .part(convergedInstall.linux[1], "Linux Filesystem", 100_000_000_000),
+        ], extraContainers: [iOSContainer()], installs: [convergedInstall])
+    }
+
+    /// Aurora directly after macOS, with an iOS container behind it.
+    static func iOSAfterInstall() -> RemovalSnapshot {
+      snapshot(
+        macOSSize: 400_000_000_000,
+        [
+          .part(convergedInstall.stub, "Apple_APFS", 2_499_805_184),
+          .part(convergedInstall.esp, "EFI", 524_288_000, name: "EFI - OMARC"),
+          .part(convergedInstall.linux[0], "Linux Filesystem", 2_147_483_648),
+          .part(convergedInstall.linux[1], "Linux Filesystem", 100_000_000_000),
+          .part(iOSStore, "Apple_APFS", 96_000_000_000),
+        ], extraContainers: [iOSContainer()], installs: [convergedInstall])
+    }
+
+    /// Inspection's scan of `snapshot`, with these stores proved to hold iOS.
+    static func collected(_ snapshot: RemovalSnapshot, iOS: Set<String> = [iOSStore])
+      -> NativeCollectedDisk
+    {
+      NativeCollectedDisk(snapshot: snapshot, containers: [], preservedForeignStores: iOS)
+    }
+
     static let alarmInstall = Install(
       name: "Asahi Alarm Minimal", stub: id(3), esp: id(4), linux: [id(5)], group: id(600))
 

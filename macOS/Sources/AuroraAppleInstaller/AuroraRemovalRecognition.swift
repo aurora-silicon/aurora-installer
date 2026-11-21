@@ -22,7 +22,11 @@
     ]
     static let maximumESP: UInt64 = 1 << 30
 
-    static func recognize(_ snapshot: RemovalSnapshot) throws -> RemovalLayout {
+    /// - Parameter preserved: stores inspection proved hold another operating
+    ///   system (iOS). They are never members, and macOS never grows across one.
+    static func recognize(_ snapshot: RemovalSnapshot, preserved: Set<String> = []) throws
+      -> RemovalLayout
+    {
       let parts = snapshot.partitions.sorted { $0.offset < $1.offset }
       guard !parts.isEmpty, parts.count <= 32,
         Set(parts.map(\.uuid)).count == parts.count,
@@ -57,29 +61,42 @@
       func refuse(_ finding: String) -> RemovalFailure {
         RemovalFailure(message: RemovalText.refusal(finding, stranded: stranded, snapshot))
       }
-      let kinds = middle.map { classify($0, snapshot) }
+      let kinds = middle.map {
+        $0.type == "Apple_APFS" && preserved.contains($0.uuid) ? .preserved : classify($0, snapshot)
+      }
       let others = zip(middle, kinds).filter { $0.1 == .otherSystem }.map(\.0)
       if !others.isEmpty { throw refuse(RemovalText.otherSystem(others, snapshot)) }
       let foreign = zip(middle, kinds).filter { $0.1 == .foreign }.map(\.0)
       if !foreign.isEmpty { throw refuse(RemovalText.foreign(foreign, snapshot)) }
-      // A standalone startup container after the installation is independent:
-      // preserve it, and never grow macOS across its physical store. A second
-      // installation with its own ESP still fails the single-installation check.
-      if kinds.allSatisfy({ $0 == .stub }),
+      // A standalone startup container, or another operating system's
+      // container, is independent: preserve it, and never grow macOS across
+      // its physical store. A second installation with its own ESP still
+      // fails the single-installation check.
+      let kept: Set<Kind> = [.stub, .preserved]
+      if kinds.allSatisfy(kept.contains),
         let first = middle.first, first.offset - macOS.end >= minimumFreeSpace
       {
         return .freeSpace(macOS: macOS, target: first.offset - macOS.offset)
       }
-      if kinds == [.stub], middle[0].offset - macOS.end < memberGap {
+      // An installation behind another operating system's container can't
+      // give its space to macOS: it is removed and its space stays unallocated.
+      let lead = kinds.prefix { $0 == .preserved }.count
+      if lead == middle.count {
+        throw RemovalFailure(message: RemovalText.nothingFound(gap: middle[0].offset - macOS.end))
+      }
+      let body = Array(middle[lead...])
+      let bodyKinds = Array(kinds[lead...])
+      if lead == 0, kinds == [.stub], middle[0].offset - macOS.end < memberGap {
         return .partialInstallation(
           stub: middle[0], macOS: macOS, target: recovery.offset - macOS.offset,
           refusal: refuse(RemovalText.shape(middle, snapshot)).message)
       }
-      let boundary = kinds.dropFirst().firstIndex(of: .stub) ?? middle.count
-      let preservedTail = boundary < middle.count && kinds[boundary...].allSatisfy { $0 == .stub }
-      let installationParts = preservedTail ? Array(middle[..<boundary]) : middle
-      let installationKinds = preservedTail ? Array(kinds[..<boundary]) : kinds
-      let growthEnd = preservedTail ? middle[boundary].offset : recovery.offset
+      let boundary = bodyKinds.dropFirst().firstIndex(where: kept.contains) ?? body.count
+      let preservedTail = boundary < body.count && bodyKinds[boundary...].allSatisfy(kept.contains)
+      let installationParts = preservedTail ? Array(body[..<boundary]) : body
+      let installationKinds = preservedTail ? Array(bodyKinds[..<boundary]) : bodyKinds
+      let growthEnd =
+        lead > 0 ? macOS.end : preservedTail ? body[boundary].offset : recovery.offset
       let stubs = zip(installationParts, installationKinds).filter { $0.1 == .stub }.map(\.0)
       if stubs.count > 1 { throw refuse(RemovalText.several(stubs, snapshot)) }
       if stubs.isEmpty { throw refuse(RemovalText.partial(middle, snapshot)) }
@@ -101,7 +118,16 @@
         macOS: macOS, target: growthEnd - macOS.offset)
     }
 
-    enum Kind: Equatable { case stub, esp, linux, otherSystem, foreign }
+    enum Kind: Equatable, Hashable { case stub, esp, linux, otherSystem, foreign, preserved }
+
+    /// Whether a container between macOS and Recovery holds a system that
+    /// isn't an installation. Only inspecting its volume can tell whether it
+    /// is another operating system to preserve.
+    static func hasOtherSystem(_ snapshot: RemovalSnapshot) -> Bool {
+      snapshot.partitions.contains {
+        $0.uuid != snapshot.macOSStoreUUID && classify($0, snapshot) == .otherSystem
+      }
+    }
 
     static func classify(_ part: RemovalPartition, _ snapshot: RemovalSnapshot) -> Kind {
       switch part.type {

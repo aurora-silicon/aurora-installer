@@ -29,6 +29,9 @@
         {
           return "Apple’s system partitions are never erased."
         }
+        if disk.preservedForeignStores.contains(part.uuid) {
+          return "This APFS container holds another operating system (iOS) and is always preserved."
+        }
         if part.type == "Apple_APFS",
           !snapshot.containers.contains(where: { $0.storeUUID == part.uuid })
         {
@@ -38,10 +41,13 @@
         if part.type == "Apple_APFS",
           !disk.containers.contains(where: { $0.storeUUID == part.uuid })
         {
-          return "This system container isn’t supported by Aurora and must be preserved."
+          return
+            "\(part.identifier)’s contents couldn’t be reviewed, so it can’t be erased."
         }
       }
       // An EFI partition stays while a kept container may start from it.
+      // iOS never starts from an EFI partition, so a container preserved as
+      // another operating system holds none of them.
       let erased = Set(members.map(\.uuid))
       guard members.contains(where: { $0.type == "EFI" }) else { return nil }
       func unknown(_ name: String) -> String {
@@ -50,6 +56,7 @@
       for part in parts
       where part.type == "Apple_APFS" && !erased.contains(part.uuid)
         && part.uuid != snapshot.macOSStoreUUID
+        && !disk.preservedForeignStores.contains(part.uuid)
       {
         guard let container = snapshot.containers.first(where: { $0.storeUUID == part.uuid })
         else { return unknown(part.identifier) }
