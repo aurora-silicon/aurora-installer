@@ -423,6 +423,19 @@
       }
     }
 
+    /// The masthead's channel label. A new installation is labelled only when
+    /// it reads Nightly. A Reset or boot loader update of an existing
+    /// installation always names its channel, Edge included: it reads the
+    /// channel recorded for that installation, or Nightly when none was, which
+    /// may differ from the channel the installed system follows.
+    public static func mastheadChannelLabel(
+      _ channel: ReleaseChannel?, existingInstallation: Bool
+    ) -> String? {
+      guard let channel else { return nil }
+      if existingInstallation { return badge(for: channel) }
+      return channel == .testing ? channelNightly : nil
+    }
+
     /// A channel menu item: the channel's name, then what its verified
     /// catalog offers this Mac when that is not simply "available".
     public static func channelMenuItem(
@@ -1162,7 +1175,7 @@
             headline: "Edge isn’t available yet",
             plainDetail: "An Edge release is not available. Installation has not started.",
             technicalDetail: technical,
-            remedy: "Choose Nightly for development releases, or check Edge again later."
+            remedy: "Choose Nightly from the Release channel menu, or check Edge again later."
           )
         case .releaseResourcesUnavailable:
           return FailureDisplay(
@@ -1185,6 +1198,15 @@
             plainDetail: "Installation has not started.",
             technicalDetail: technical,
             remedy: "Review the error details, then try again."
+          )
+        case .catalogUnreachable:
+          return FailureDisplay(
+            headline: "The release list couldn’t be downloaded",
+            plainDetail:
+              "The installer couldn’t reach the release server to check this channel. Installation has not started.",
+            technicalDetail: technical,
+            remedy:
+              "Check your internet connection and try again, or choose another channel from the Release channel menu."
           )
         case .invalidCatalogEnvelope, .invalidCatalogSignature,
           .oversizedDocument:

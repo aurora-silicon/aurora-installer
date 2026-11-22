@@ -96,6 +96,9 @@
     /// What each channel offers this Mac, for the channel menu. Empty until
     /// the first check finishes; a channel missing here was not checked.
     public private(set) var channelAvailability = [ReleaseChannel: ReleaseChannelAvailability]()
+    /// Edge's part of the same read, with its proof for this Mac, so Check
+    /// Channels Again decides the default from what the menu shows.
+    public private(set) var edgeCheck: EdgeCatalogCheck?
     private var channelAvailabilityRequest = 0
 
     /// Re-reads every channel's signed catalog. Separate from `inspect()` so
@@ -104,10 +107,16 @@
     public func refreshChannelAvailability() async {
       channelAvailabilityRequest += 1
       let request = channelAvailabilityRequest
-      let availability = await environment.channelAvailability()
+      let report = await environment.channelReport()
       guard request == channelAvailabilityRequest else { return }
-      channelAvailability = availability
+      channelAvailability = report.availability
+      edgeCheck = report.edge
     }
+
+    /// The channel the plan on screen reads when it is a Reset or boot loader
+    /// update of an existing installation: the one it came from, not this
+    /// launch's default for new installations. `nil` otherwise.
+    public private(set) var existingInstallationChannel: ReleaseChannel?
 
     public var isSimulation: Bool { environment.isSimulation }
     public var canInspect: Bool {
@@ -370,6 +379,7 @@
       planTarget = nil
       preservedSource = nil
       updatingBootLoader = false
+      existingInstallationChannel = nil
       await preparePlan(host: host)
     }
 
@@ -401,6 +411,7 @@
       planTarget = target
       preservedSource = nil
       updatingBootLoader = false
+      existingInstallationChannel = nil
       await preparePlan(host: host)
     }
 
@@ -416,6 +427,8 @@
       planTarget = nil
       preservedSource = rowID
       updatingBootLoader = false
+      existingInstallationChannel = environment.existingInstallationChannel(
+        sourceIdentifier: rowID)
       await preparePlan(host: host)
     }
 
@@ -431,6 +444,8 @@
       planTarget = nil
       preservedSource = rowID
       updatingBootLoader = true
+      existingInstallationChannel = environment.existingInstallationChannel(
+        sourceIdentifier: rowID)
       await preparePlan(host: host)
     }
 
@@ -462,6 +477,7 @@
       preservedSource = nil
       preservingStage1 = false
       updatingBootLoader = false
+      existingInstallationChannel = nil
       phase = partitions
     }
 
@@ -479,6 +495,8 @@
       else { return }
       preservingStage1 = true
       updatingBootLoader = false
+      existingInstallationChannel = environment.existingInstallationChannel(
+        sourceIdentifier: nil)
       recoveryAccount = nil
       await preparePlan(host: host)
     }
@@ -1374,6 +1392,7 @@
       planTarget = nil
       preservedSource = nil
       updatingBootLoader = false
+      existingInstallationChannel = nil
       refusedPlan = nil
       encryptLinuxDisk = allowsEncryption
       environment.setEncryptLinuxDisk(allowsEncryption)
