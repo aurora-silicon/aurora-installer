@@ -383,9 +383,15 @@
   /// only their full-copy fallback, which the resize reserve already
   /// withholds, would need more.
   public enum MacOSStagingAdmission {
+    /// `inventory`, `targetBytes` and `reservedBytes` are what planning used
+    /// for `recommendation`. They let a shortfall offer growing macOS into
+    /// the free space after it only when the plan that follows passes.
     public static func admit(
       _ recommendation: InstallerAllocationRecommendation, macOSStoreIdentifier: String,
-      macOSFreeBytes: UInt64, outstandingDownloadBytes: UInt64, stagingBytes: UInt64
+      macOSFreeBytes: UInt64, outstandingDownloadBytes: UInt64, stagingBytes: UInt64,
+      inventory: ValidatedEngineInventory? = nil,
+      targetBytes: UInt64 = InstallerAllocationRecommendation.balancedTargetBytes,
+      reservedBytes: UInt64 = 0
     ) throws -> InstallerAllocationRecommendation {
       let (needed, overflow) = outstandingDownloadBytes.addingReportingOverflow(stagingBytes)
       guard !overflow else {
@@ -399,14 +405,13 @@
         // Free space right after macOS (what Erase leaves of an earlier
         // installation) is the plan's own target, but macOS can't stage in
         // it. Say so, so the remedy can offer growing macOS into it.
-        // Offer it only when growing macOS by all of it would let the plan
-        // that follows (shrinking macOS) pass this same check with room for
-        // Aurora's smallest size.
-        let missing = needed - macOSFreeBytes
-        let (enough, overflow) = missing.addingReportingOverflow(recommendation.floorBytes)
         let grows =
           candidate.kind == "free" && candidate.sourceIdentifier == macOSStoreIdentifier
-          && !overflow && candidate.lengthBytes >= enough
+          && followUpPasses(
+            growingInto: candidate, macOSStoreIdentifier: macOSStoreIdentifier,
+            macOSFreeBytes: macOSFreeBytes, outstandingDownloadBytes: outstandingDownloadBytes,
+            stagingBytes: stagingBytes, inventory: inventory, targetBytes: targetBytes,
+            reservedBytes: reservedBytes)
         throw MacOSFreeSpaceShortfall(
           requiredBytes: needed, availableBytes: macOSFreeBytes,
           freeSpaceAfterMacOSBytes: grows ? candidate.lengthBytes : 0,
@@ -421,6 +426,54 @@
           requiredBytes: overflow ? .max : required, availableBytes: macOSFreeBytes)
       }
       return limited
+    }
+
+    /// Whether the plan after `sudo diskutil apfs resizeContainer <macOS> 0`
+    /// passes: macOS's resize candidate grown by the whole free extent goes
+    /// through the same recommendation (macOS's reserve above what it uses,
+    /// the planning reserve, the drift margin, the resize floor) and this
+    /// same admission with the extent added to macOS's free space. The
+    /// remedy is a privileged command that can't be taken back, so without
+    /// macOS's resize candidate in `inventory` nothing is offered.
+    static func followUpPasses(
+      growingInto free: ValidatedEngineCandidate, macOSStoreIdentifier: String,
+      macOSFreeBytes: UInt64, outstandingDownloadBytes: UInt64, stagingBytes: UInt64,
+      inventory: ValidatedEngineInventory?, targetBytes: UInt64, reservedBytes: UInt64
+    ) -> Bool {
+      guard let inventory,
+        let macOS = inventory.candidates.first(where: {
+          $0.kind == "resize" && $0.sourceIdentifier == macOSStoreIdentifier
+        }),
+        case let end = macOS.offsetBytes.addingReportingOverflow(macOS.lengthBytes),
+        !end.overflow, end.partialValue == free.offsetBytes
+      else { return false }
+      let (grownLength, lengthOverflow) = macOS.lengthBytes.addingReportingOverflow(
+        free.lengthBytes)
+      let (grownFree, freeOverflow) = macOSFreeBytes.addingReportingOverflow(free.lengthBytes)
+      guard !lengthOverflow, !freeOverflow else { return false }
+      // What macOS uses doesn't change when it grows, so its container
+      // floor (used + reserve, or APFS's preferred minimum) stays the same.
+      let grown = ValidatedEngineCandidate(
+        kind: "resize", sourceIdentifier: macOS.sourceIdentifier,
+        offsetBytes: macOS.offsetBytes, lengthBytes: grownLength,
+        minimumInstallBytes: macOS.minimumInstallBytes,
+        minimumContainerBytes: macOS.minimumContainerBytes,
+        identityDigest: macOS.identityDigest,
+        recommendedInstallBytes: macOS.recommendedInstallBytes,
+        recommendedContainerBytes: macOS.recommendedContainerBytes)
+      guard
+        let next = try? InstallerAllocationRecommendation(
+          inventory: ValidatedEngineInventory(
+            layoutDigest: inventory.layoutDigest,
+            systemStoreIdentifier: inventory.systemStoreIdentifier, candidates: [grown]),
+          targetBytes: targetBytes, reservedBytes: reservedBytes,
+          target: .shrink(sourceIdentifier: macOS.sourceIdentifier)),
+        (try? admit(
+          next, macOSStoreIdentifier: macOSStoreIdentifier, macOSFreeBytes: grownFree,
+          outstandingDownloadBytes: outstandingDownloadBytes, stagingBytes: stagingBytes))
+          != nil
+      else { return false }
+      return true
     }
   }
 #endif

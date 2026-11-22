@@ -821,6 +821,12 @@ enum RecoveryActions {
     try installed()["recoveryAccountRequired"] as? Bool == true
   }
 
+  /// Restart left the recovery account as it was (Skip, or Restart with an
+  /// account that isn't a startup owner yet).
+  static func accountDeferred() throws -> Bool {
+    try installed()["recoveryAccountDeferred"] as? Bool == true
+  }
+
   static func restartCompletedSetup() throws {
     try recoveryOnly()
     let record = try installed()

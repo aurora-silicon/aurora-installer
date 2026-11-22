@@ -87,20 +87,20 @@ final class InstallerModel {
       && (try? RecoveryAccountInstaller.validatePassword(Data(accountPassword.utf8))) != nil
   }
 
-  private func showAccountStep(_ record: RecoveryAccountRecord?, required: Bool = true) {
+  private func showAccountStep(
+    _ record: RecoveryAccountRecord?, required: Bool = true, deferred: Bool = false,
+    moment: RecoveryAccountStep.Moment = .finished
+  ) {
+    let step = RecoveryAccountStep.resolve(
+      required: required, phase: record?.phase, deferred: deferred, moment: moment)
     accountUsername = record?.username ?? ""
     accountAlreadyStarted = record != nil
     accountPassword = ""
     accountConfirmation = ""
-    // Not started yet: finish without it unless the person asks for it. An
-    // account that was started resumes directly.
-    accountOptional = required && record == nil
-    accountNeedsAuthorization = required && record != nil && record?.phase != "finalized"
-    // Only an account whose creation stopped part way needs its password
-    // again here. One that is created and waits only for ownership goes to
-    // the completion screen: Restart starts Aurora and defers it again.
-    let unfinished = ["allocating", "creating"].contains(record?.phase ?? "")
-    stage = accountNeedsAuthorization && unfinished ? .account : .complete
+    // Not started yet: finish without it unless the person asks for it.
+    accountOptional = step.accountOptional
+    accountNeedsAuthorization = step.accountNeedsAuthorization
+    if let next = step.stage { stage = next }
   }
 
   /// Opens the optional recovery account setup from the completion screen.
@@ -121,9 +121,13 @@ final class InstallerModel {
       do {
         let required = try RecoveryActions.accountCreationRequired()
         let record = required ? try RecoveryActions.recoveryAccount() : nil
+        let deferred = required ? try RecoveryActions.accountDeferred() : false
         DispatchQueue.main.async {
           self.checkingAccount = false
-          if required { self.showAccountStep(record) }
+          // Recovery opened again: the repair screen stays unless setup
+          // itself is still unfinished (see RecoveryAccountStep).
+          guard self.stage == .welcome || self.stage == .complete else { return }
+          self.showAccountStep(record, required: required, deferred: deferred, moment: .reopened)
         }
       } catch {
         DispatchQueue.main.async {
@@ -161,7 +165,8 @@ final class InstallerModel {
         InstallerLog.shared.append(
           record.phase == "finalized"
             ? "Recovery account ownership and metadata verified."
-            : "Recovery account prepared. Startup Disk authorization is still required.")
+            : "Recovery account prepared. It isn’t a startup owner yet; Aurora Linux starts without it."
+        )
         DispatchQueue.main.async {
           self.creatingAccount = false
           self.accountAlreadyStarted = true
@@ -917,7 +922,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     alert.informativeText =
       RecoveryActions.inRecovery
       ? "Install or restore Aurora startup software. The aura command is available in Recovery Terminal after opening this app."
-      : "This preview demonstrates the Recovery installation flow. Enter any text in the preview password field. No startup software, boot policy, or disk content is changed. Restart previews the Startup Disk handoff. Utilities → Terminal opens the real Terminal app."
+      : "This preview demonstrates the Recovery installation flow. Enter any text in the preview password field. No startup software, boot policy, or disk content is changed. Restart previews restarting into Aurora Linux. Utilities → Terminal opens the real Terminal app."
     alert.runModal()
   }
 

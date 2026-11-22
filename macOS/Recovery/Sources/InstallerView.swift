@@ -9,7 +9,15 @@ final class InstallerView: NSViewController, NSTextFieldDelegate, NSMenuItemVali
   private var titleWidthConstraint: NSLayoutConstraint?
   private let content = NSView()
   private let footer = NSView()
-  private var renderedStage: Stage?
+  /// What the current screen was built from. The completion screen's text
+  /// depends on the account too, so a change there rebuilds it.
+  private var rendered: RenderedScreen?
+  private struct RenderedScreen: Equatable {
+    let stage: Stage
+    let accountOptional: Bool
+    let accountNeedsAuthorization: Bool
+    let accountAlreadyStarted: Bool
+  }
   /// Continue or Restore, Create Account, or Restart, with its spinner slot.
   private var primaryAction: RecoveryBusyAction?
   private var shiftHeld = false
@@ -120,8 +128,12 @@ final class InstallerView: NSViewController, NSTextFieldDelegate, NSMenuItemVali
       return
     }
     guard isViewLoaded else { return }
-    if renderedStage != model.stage {
-      renderedStage = model.stage
+    let screen = RenderedScreen(
+      stage: model.stage, accountOptional: model.accountOptional,
+      accountNeedsAuthorization: model.accountNeedsAuthorization,
+      accountAlreadyStarted: model.accountAlreadyStarted)
+    if rendered != screen {
+      rendered = screen
       buildStage()
     }
     titleLabel.stringValue = stageTitle
@@ -294,8 +306,8 @@ final class InstallerView: NSViewController, NSTextFieldDelegate, NSMenuItemVali
     stack.alignment = .leading
     let message =
       model.accountAlreadyStarted
-      ? "Verify your recovery account’s password to resume authorization.\n\nYour Linux login is separate."
-      : "Create a separate recovery account for your Linux volume. Next, authorize it as a volume owner to manage Linux boot settings independently of your macOS account.\n\nYour Linux login is separate."
+      ? "Verify your recovery account’s password to finish creating it. Setup doesn’t need it: Aurora Linux starts without it.\n\nYour Linux login is separate."
+      : "Create a separate recovery account for your Linux volume, to manage Linux boot settings independently of your macOS account. Setup doesn’t need it: Aurora Linux starts without it.\n\nYour Linux login is separate."
     let explanation = label(message, size: 12, alignment: .left)
     explanation.maximumNumberOfLines = 0
     explanation.preferredMaxLayoutWidth = 380

@@ -725,7 +725,9 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
         recommendation, macOSStoreIdentifier: freshHost.storage.physicalStoreIdentifier,
         macOSFreeBytes: macOSFreeBytes(),
         outstandingDownloadBytes: payloadBytes - min(payloadBytes, downloaded),
-        stagingBytes: staging)
+        stagingBytes: staging, inventory: inventory,
+        targetBytes: auroraBytes ?? InstallerAllocationRecommendation.balancedTargetBytes,
+        reservedBytes: planningReserve)
     }
     let candidate = recommendation.candidate
     let requestedLengthBytes = recommendation.requestedLengthBytes
