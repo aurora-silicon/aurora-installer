@@ -302,7 +302,8 @@ public struct RestoreImageStubFiles {
 
     /// The private name `path` is written under before it is published.
     static func temporaryName(namespace: String, path: String) -> String {
-      ".aurora-stub-" + RecoveryDigest.sha256(Data(("restore-image-stub:" + namespace + ":" + path).utf8))
+      let key = "restore-image-stub:" + namespace + ":" + path
+      return ".aurora-stub-" + RecoveryDigest.sha256(Data(key.utf8))
     }
 
     static func write(_ descriptor: Int32, _ data: Data, at offset: Int) throws {
