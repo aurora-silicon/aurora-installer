@@ -70,6 +70,50 @@ final class GenericFirmwareConversionTests: XCTestCase {
     XCTAssertThrowsError(try FirmwarePlist.decode(Data(wrongType.utf8)))
   }
 
+  private func der(_ tag: UInt8, _ content: Data) -> Data {
+    var out = Data([tag])
+    if content.count < 128 {
+      out.append(UInt8(content.count))
+    } else {
+      let length = withUnsafeBytes(of: UInt32(content.count).bigEndian) { Array($0) }
+        .drop(while: { $0 == 0 })
+      out.append(0x80 | UInt8(length.count))
+      out.append(contentsOf: length)
+    }
+    out.append(content)
+    return out
+  }
+
+  func testTouchBarPayloadsSharedThroughReferencesStopAtTheBudget() throws {
+    // One 256 KiB payload, named once and referenced by more Config records:
+    // a small input whose output would hold a copy for every reference. The
+    // last record has no payload, so a reader that copies every reference
+    // before checking its budget reports that record instead.
+    let payload = Data(repeating: 0x7e, count: 256 << 10).base64EncodedString()
+    let record =
+      "<dict ID='r'><key>Type</key><string>Config</string><key>Config</key><dict>"
+      + "<key>SPI Config</key><dict><key>Init Payload</key><data>\(payload)</data>"
+      + "</dict></dict></dict>"
+    let incomplete = "<dict><key>Type</key><string>Config</string></dict>"
+    func image(_ references: Int) -> Data {
+      let xml =
+        "<plist><dict><key>C1FB</key><array>" + record
+        + String(repeating: "<dict IDREF='r'/>", count: references) + incomplete
+        + "</array></dict></plist>"
+      return der(
+        0x30,
+        der(0x16, Data("IM4P".utf8)) + der(0x16, Data("mtfw".utf8))
+          + der(0x16, Data("synthetic".utf8)) + der(0x04, Data(xml.utf8)))
+    }
+    XCTAssertThrowsError(try MultitouchFirmware.convert(image(1), machine: "j293")) {
+      XCTAssertEqual(
+        ($0 as? RestoreFailure)?.message, "Missing Touch Bar initialization payload.")
+    }
+    XCTAssertThrowsError(try MultitouchFirmware.convert(image(70), machine: "j293")) {
+      XCTAssertEqual(($0 as? RestoreFailure)?.message, "Touch Bar firmware exceeds its budget.")
+    }
+  }
+
   func testRadioAliasesReadTheirTargetAndCountOnce() throws {
     // Each alias reads its target, as following the image's link would.
     let firmware = Data(repeating: 0x5a, count: 60 << 20)
