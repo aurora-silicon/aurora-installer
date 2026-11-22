@@ -357,10 +357,11 @@ class UpdateTest(Case):
         self.assertEqual(self.update(esp, self.macos(tree)), "identical")
         self.assertEqual(awf.tree_hashes(esp), before)
 
-    def hard_link_esp(self, member, linkname):
+    def hard_link_esp(self, member, linkname, before=()):
         """An ESP whose all_firmware stores member as a hard link to
         linkname, as the installer stores the copies of a file; the macOS
-        tree has hokkaido-X1.trx, a second copy of hokkaido.trx."""
+        tree has hokkaido-X1.trx, a second copy of hokkaido.trx. before:
+        (name, type, linkname) members put first in the archive."""
         tree = wifi_tree("old")
         tree["C-4387__s-C2/hokkaido-X1.trx"] = tree["C-4387__s-C2/hokkaido.trx"]
         esp = make_esp(self.root, tree)
@@ -368,6 +369,11 @@ class UpdateTest(Case):
         with tarfile.open(all_fw, "r:gz") as src:
             members = [(m, src.extractfile(m).read() if m.isfile() else None) for m in src]
         with tarfile.open(all_fw, "w:gz") as dst:
+            for name, kind, target in before:
+                ti = tarfile.TarInfo(name)
+                ti.type, ti.linkname = kind, target
+                ti.mode = 0o755 if kind == tarfile.DIRTYPE else 0o644
+                dst.addfile(ti)
             for m, data in members:
                 if m.name == "firmware/wifi/C-4387__s-C2/" + member:
                     m.type, m.linkname, m.size, data = tarfile.LNKTYPE, linkname, 0, None
@@ -390,6 +396,48 @@ class UpdateTest(Case):
         self.assertEqual(self.update(esp, self.macos(tree)), "updated")
         self.assertEqual(awf.raw_wifi(esp / "asahi" / "all_firmware.tar.gz"),
                          awf.tree_digest(tree))
+
+    def assert_bad_hard_link_is_rebuilt(self, linkname, before=()):
+        esp, tree = self.hard_link_esp("maldives.clmb", linkname, before)
+        all_fw = esp / "asahi" / "all_firmware.tar.gz"
+        self.assertNotIn("C-4387__s-C2/maldives.clmb", awf.raw_wifi(all_fw))
+        self.assertEqual(self.update(esp, self.macos(tree)), "updated")
+        self.assertEqual(awf.raw_wifi(all_fw), awf.tree_digest(tree))
+
+    def test_hard_link_to_a_directory_is_rebuilt_not_a_crash(self):
+        self.assert_bad_hard_link_is_rebuilt("firmware/wifi/C-4387__s-C2")
+
+    def test_hard_link_to_a_device_is_rebuilt_not_a_crash(self):
+        self.assert_bad_hard_link_is_rebuilt(
+            "firmware/dev0", before=[("firmware/dev0", tarfile.CHRTYPE, "")])
+
+    def test_hard_link_to_a_symlink_loop_is_rebuilt_not_a_crash(self):
+        self.assert_bad_hard_link_is_rebuilt(
+            "firmware/loop1", before=[("firmware/loop1", tarfile.SYMTYPE, "loop2"),
+                                      ("firmware/loop2", tarfile.SYMTYPE, "loop1")])
+
+    def test_hard_link_loop_is_rebuilt_not_a_crash(self):
+        self.assert_bad_hard_link_is_rebuilt(
+            "firmware/hl1", before=[("firmware/hl1", tarfile.LNKTYPE, "firmware/hl2"),
+                                    ("firmware/hl2", tarfile.LNKTYPE, "firmware/hl1")])
+
+    def test_hard_link_chain_to_a_file_reads_as_the_file(self):
+        # hokkaido.trx -> hl1 -> hokkaido-X1.trx; hl1 goes in just before
+        # hokkaido.trx, after its own target.
+        esp, tree = self.hard_link_esp("hokkaido.trx", "firmware/hl1")
+        all_fw = esp / "asahi" / "all_firmware.tar.gz"
+        with tarfile.open(all_fw, "r:gz") as src:
+            members = [(m, src.extractfile(m).read() if m.isfile() else None) for m in src]
+        with tarfile.open(all_fw, "w:gz") as dst:
+            for m, data in members:
+                if m.name == "firmware/wifi/C-4387__s-C2/hokkaido.trx":
+                    ti = tarfile.TarInfo("firmware/hl1")
+                    ti.type, ti.linkname = tarfile.LNKTYPE, \
+                        "firmware/wifi/C-4387__s-C2/hokkaido-X1.trx"
+                    dst.addfile(ti)
+                dst.addfile(m, io.BytesIO(data) if data is not None else None)
+        self.assertEqual(awf.raw_wifi(all_fw), awf.tree_digest(tree))
+        self.assertEqual(self.update(esp, self.macos(tree)), "identical")
 
     def test_aliases_are_read_once(self):
         tree = wifi_tree("old")

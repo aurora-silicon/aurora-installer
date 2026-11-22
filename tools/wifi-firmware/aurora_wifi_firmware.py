@@ -673,18 +673,47 @@ def rebuild_all_firmware(old, new, trees):
                     dst.addfile(ti, fd)
 
 
+def link_target(tar, m):
+    """The regular file member a hard link member m names, or None.
+
+    The target is the last member of that name before m, as tar resolves it.
+    A chain of hard links is followed; a target that is missing, that is not
+    a regular file (a directory, a device, a symbolic link) or that loops
+    gives None."""
+    seen = set()
+    while m.islnk():
+        want = os.path.normpath(m.linkname)
+        if want in seen:
+            return None
+        seen.add(want)
+        target = None
+        for c in tar.members:
+            if c is m:
+                break
+            if os.path.normpath(c.name) == want:
+                target = c
+        if target is None:
+            return None
+        m = target
+    return m if m.isfile() else None
+
+
 def member_data(tar, m):
     """The data of a file member of tar, or None. A hard link member (the
     installer writes the copies of a file as hard links) reads as its target,
-    as tar extracts it; one whose target is not in the archive reads as None,
-    a file the archive lacks."""
-    if m.isfile():
-        return tar.extractfile(m).read()
+    as tar extracts it; one whose target is not a regular file in the archive
+    (missing, a directory or symbolic link, a loop) reads as None, a file the
+    archive lacks."""
     if m.islnk():
-        try:
-            return tar.extractfile(m).read()
-        except KeyError:
-            log.info(f"{m.name}: hard link to {m.linkname}, which is not in the archive")
+        target = link_target(tar, m)
+        if target is None:
+            log.info(f"{m.name}: hard link to {m.linkname}, which is not a file in the archive")
+            return None
+        m = target
+    if m.isfile():
+        f = tar.extractfile(m)
+        if f is not None:
+            return f.read()
     return None
 
 
@@ -708,7 +737,8 @@ def raw_tree(all_fw, prefix):
 
 def raw_extract(all_fw, prefix, dest):
     """Writes all_firmware's prefix part under dest as stage_tree lays out a
-    macOS directory: files, and links that stay inside the tree."""
+    macOS directory: files, and links that stay inside the tree. A hard link
+    member is written as a regular copy of its target (member_data)."""
     dest = pathlib.Path(dest)
     dest.mkdir(mode=0o700, parents=True, exist_ok=True)
     with tarfile.open(all_fw, mode="r:gz") as tar:
