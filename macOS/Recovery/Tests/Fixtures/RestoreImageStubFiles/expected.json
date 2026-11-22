@@ -1,0 +1,232 @@
+{
+ "aea": {
+  "pending": [
+   {
+    "aea": true,
+    "compressed": false,
+    "installer_data": null,
+    "member": "Firmware/Manifests/restore/macOS Customer/apticket.j314s.im4m",
+    "path": "Restore/apticket.j314s.im4m",
+    "position": 10,
+    "role": "Preboot"
+   },
+   {
+    "aea": true,
+    "compressed": false,
+    "installer_data": "kernelcache.release.mac14j",
+    "member": "kernelcache.release.mac14j",
+    "path": "Restore/kernelcache.release.mac14j",
+    "position": 11,
+    "role": "Preboot"
+   },
+   {
+    "aea": true,
+    "compressed": true,
+    "installer_data": null,
+    "member": "090-00001-001.dmg",
+    "path": "usr/standalone/firmware/arm64eBaseSystem.dmg",
+    "position": 14,
+    "role": "Recovery"
+   }
+  ],
+  "sha256": {
+   "090-00001-001.dmg": "0c1298f7dcaff1c0d12781c925946c74bbea7240d11849892b9536af683fa5ff",
+   "090-00002-001.dmg": "a74cdf99455436a3e3c415789d1df4adb3bcb94553151286d5bff2460ec556ff",
+   "090-00003-001.dmg": "449ec1d29bf528d5492e51a88a74bae406a3b9f37782b9d661cb6e8c1adf121d",
+   "090-00004-001.dmg": "a543022f59700838c7e3069c1a6d56acb8d9bd7da7dc5e604d56c8bcdb328c5a",
+   "BootabilityBundle/Restore/Bootability/Bootability.plist": "602b4b278c2fed1e6f24834a18d1e94314cd72791cabdeeb9dfe0cf9830e2d1e",
+   "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Versions/A/Boot": "e656552773a550c69f810f86267b3e3030446bfaacf3c12a152487cdba92cff1",
+   "BootabilityBundle/Restore/Firmware/Bootability.dmg.trustcache": "0fe47494765477aa62a17eb76bfc12ed9d97a4f36503eb73b70be5b2d52bbb5c",
+   "BuildManifest.plist": "a1731434eddb7e22e0f46eb2a846c149cc8fdf8c0379d2fdf92f34d03df32094",
+   "Firmware/Manifests/restore/macOS Customer Software Update/apticket.j314s.im4m": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+   "Firmware/Manifests/restore/macOS Customer/apticket.j314s.im4m": "865e39e0e68274eca27eb62cce172df6b01df2eb6b74b087f841f5d3e6e83232",
+   "Firmware/all_flash/DeviceTree.j314sap.im4p": "92ee2595425d83908fdca75cd7cec3217d15a0e6a418ecba85c0738ec2d69d3c",
+   "Firmware/all_flash/LLB.j314s.RELEASE.im4p": "d4f075efb1c1c0a8653a477623e4afc59470638314e606ee20038f22ec8217b6",
+   "Firmware/all_flash/iBoot.j314s.RELEASE.im4p": "370fb061042fc67b59e525b901a7b88f90ff8a08c61d9a39651ee613f8593a5a",
+   "PlatformSupport.plist": "24160ad959e710ac963e5ee7476c887d7654ffdab0a89b4330160a48b6c11751",
+   "Restore.plist": "97704a8960b4facceef54397a08fb5d0a456247c3627359215aa2a27df22656c",
+   "RestoreVersion.plist": "184371ed9626af7c55dfa0b3f9d94c844402d9cf64672a16ae411ea187b39f67",
+   "SystemVersion.plist": "47939ac623268361be331006421316495bed8bfb0c4c13ab0b2235dfdb87890e",
+   "kernelcache.release.mac14j": "d20c96531e0472d41a70ba8582dfa45872c943bf157000c8fc3fe7b02ac2d826",
+   "usr/standalone/bootcaches.plist": "c5a00a96244758160441834262f978b84fa2013d244e3c1b7572236494992084"
+  }
+ },
+ "big": {
+  "pending": [
+   {
+    "aea": false,
+    "compressed": true,
+    "installer_data": null,
+    "member": "090-00001-001.dmg",
+    "path": "usr/standalone/firmware/arm64eBaseSystem.dmg",
+    "position": 16,
+    "role": "Recovery"
+   }
+  ],
+  "sha256": {
+   "090-00001-001.dmg": "3e9dea35cfbb21e68d0b4a975e2e171e4af7034ce4a9929211f9a3cebbab1ae3",
+   "090-00002-001.dmg": "a74cdf99455436a3e3c415789d1df4adb3bcb94553151286d5bff2460ec556ff",
+   "090-00003-001.dmg": "449ec1d29bf528d5492e51a88a74bae406a3b9f37782b9d661cb6e8c1adf121d",
+   "090-00004-001.dmg": "a543022f59700838c7e3069c1a6d56acb8d9bd7da7dc5e604d56c8bcdb328c5a",
+   "BootabilityBundle/Restore/Bootability/Bootability.plist": "602b4b278c2fed1e6f24834a18d1e94314cd72791cabdeeb9dfe0cf9830e2d1e",
+   "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Versions/A/Boot": "e656552773a550c69f810f86267b3e3030446bfaacf3c12a152487cdba92cff1",
+   "BootabilityBundle/Restore/Firmware/Bootability.dmg.trustcache": "fdeab9acf3710362bd2658cdc9a29e8f9c757fcf9811603a8c447cd1d9151108",
+   "BuildManifest.plist": "a1731434eddb7e22e0f46eb2a846c149cc8fdf8c0379d2fdf92f34d03df32094",
+   "Firmware/Manifests/restore/macOS Customer Software Update/apticket.j314s.im4m": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+   "Firmware/Manifests/restore/macOS Customer/apticket.j314s.im4m": "3818a926568979797b5b69134c8416b186d3f36b7205967b565853eaae1b0fe0",
+   "Firmware/all_flash/DeviceTree.j314sap.im4p": "92ee2595425d83908fdca75cd7cec3217d15a0e6a418ecba85c0738ec2d69d3c",
+   "Firmware/all_flash/LLB.j314s.RELEASE.im4p": "71a55eda7f416b3ceed5fc79fbeb939d83b662428f7d82ef019b4ab86cef609f",
+   "Firmware/all_flash/iBoot.j314s.RELEASE.im4p": "b3f6ad77c399b65f5b84f69c7a4f7f26846811821b82f8f372dc35c663199c25",
+   "PlatformSupport.plist": "24160ad959e710ac963e5ee7476c887d7654ffdab0a89b4330160a48b6c11751",
+   "Restore.plist": "97704a8960b4facceef54397a08fb5d0a456247c3627359215aa2a27df22656c",
+   "RestoreVersion.plist": "184371ed9626af7c55dfa0b3f9d94c844402d9cf64672a16ae411ea187b39f67",
+   "SystemVersion.plist": "47939ac623268361be331006421316495bed8bfb0c4c13ab0b2235dfdb87890e",
+   "kernelcache.release.mac14j": "321d7d105d96337ccf4d9e5ffec49dde4d58fa37e584fb584e4e81afd4e356c5",
+   "usr/standalone/bootcaches.plist": "c5a00a96244758160441834262f978b84fa2013d244e3c1b7572236494992084"
+  }
+ },
+ "deflate-long": "refuse",
+ "deflate-short": "refuse",
+ "deflate-short-crc": "refuse",
+ "deflate-trailing": "refuse",
+ "deflate-truncated": "refuse",
+ "plan/boot-combining-member": {
+  "pending": [
+   {
+    "aea": false,
+    "compressed": true,
+    "installer_data": null,
+    "member": "090-00001-001.dmg",
+    "path": "usr/standalone/firmware/arm64eBaseSystem.dmg",
+    "position": 17,
+    "role": "Recovery"
+   }
+  ],
+  "sha256": {
+   "090-00001-001.dmg": "b9e1c34b0771365562f4622072ea8d97a4e59a1fe22f955f98bb7f039d7f69a7",
+   "090-00002-001.dmg": "a74cdf99455436a3e3c415789d1df4adb3bcb94553151286d5bff2460ec556ff",
+   "090-00003-001.dmg": "449ec1d29bf528d5492e51a88a74bae406a3b9f37782b9d661cb6e8c1adf121d",
+   "090-00004-001.dmg": "a543022f59700838c7e3069c1a6d56acb8d9bd7da7dc5e604d56c8bcdb328c5a",
+   "BootabilityBundle/Restore/Bootability/Bootability.plist": "602b4b278c2fed1e6f24834a18d1e94314cd72791cabdeeb9dfe0cf9830e2d1e",
+   "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Versions/A/Boot": "e656552773a550c69f810f86267b3e3030446bfaacf3c12a152487cdba92cff1",
+   "BootabilityBundle/Restore/Bootability/\u0301x": "2acb9cbbdb3b6b7c34acf499728a4a2d89b647327d8d5a25484065f8b7f57a7f",
+   "BootabilityBundle/Restore/Firmware/Bootability.dmg.trustcache": "fdeab9acf3710362bd2658cdc9a29e8f9c757fcf9811603a8c447cd1d9151108",
+   "BuildManifest.plist": "a1731434eddb7e22e0f46eb2a846c149cc8fdf8c0379d2fdf92f34d03df32094",
+   "Firmware/Manifests/restore/macOS Customer Software Update/apticket.j314s.im4m": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+   "Firmware/Manifests/restore/macOS Customer/apticket.j314s.im4m": "3818a926568979797b5b69134c8416b186d3f36b7205967b565853eaae1b0fe0",
+   "Firmware/all_flash/DeviceTree.j314sap.im4p": "92ee2595425d83908fdca75cd7cec3217d15a0e6a418ecba85c0738ec2d69d3c",
+   "Firmware/all_flash/LLB.j314s.RELEASE.im4p": "71a55eda7f416b3ceed5fc79fbeb939d83b662428f7d82ef019b4ab86cef609f",
+   "Firmware/all_flash/iBoot.j314s.RELEASE.im4p": "370fb061042fc67b59e525b901a7b88f90ff8a08c61d9a39651ee613f8593a5a",
+   "PlatformSupport.plist": "24160ad959e710ac963e5ee7476c887d7654ffdab0a89b4330160a48b6c11751",
+   "Restore.plist": "97704a8960b4facceef54397a08fb5d0a456247c3627359215aa2a27df22656c",
+   "RestoreVersion.plist": "184371ed9626af7c55dfa0b3f9d94c844402d9cf64672a16ae411ea187b39f67",
+   "SystemVersion.plist": "47939ac623268361be331006421316495bed8bfb0c4c13ab0b2235dfdb87890e",
+   "kernelcache.release.mac14j": "38ab05ff8f85d92271552ce5bd14bb4bd50aeef974fdca5ae201502afd8c4fa3",
+   "usr/standalone/bootcaches.plist": "c5a00a96244758160441834262f978b84fa2013d244e3c1b7572236494992084"
+  }
+ },
+ "plan/kernelcache-leaf": {
+  "pending": [
+   {
+    "aea": false,
+    "compressed": true,
+    "installer_data": null,
+    "member": "090-00001-001.dmg",
+    "path": "usr/standalone/firmware/arm64eBaseSystem.dmg",
+    "position": 16,
+    "role": "Recovery"
+   }
+  ],
+  "sha256": {
+   "090-00001-001.dmg": "b9e1c34b0771365562f4622072ea8d97a4e59a1fe22f955f98bb7f039d7f69a7",
+   "090-00002-001.dmg": "a74cdf99455436a3e3c415789d1df4adb3bcb94553151286d5bff2460ec556ff",
+   "090-00003-001.dmg": "449ec1d29bf528d5492e51a88a74bae406a3b9f37782b9d661cb6e8c1adf121d",
+   "090-00004-001.dmg": "a543022f59700838c7e3069c1a6d56acb8d9bd7da7dc5e604d56c8bcdb328c5a",
+   "BootabilityBundle/Restore/Bootability/Bootability.plist": "602b4b278c2fed1e6f24834a18d1e94314cd72791cabdeeb9dfe0cf9830e2d1e",
+   "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Versions/A/Boot": "e656552773a550c69f810f86267b3e3030446bfaacf3c12a152487cdba92cff1",
+   "BootabilityBundle/Restore/Firmware/Bootability.dmg.trustcache": "fdeab9acf3710362bd2658cdc9a29e8f9c757fcf9811603a8c447cd1d9151108",
+   "BuildManifest.plist": "65c835694c7816c22b0f51b76dba04eb997399d49ac0ccd1029f3976e51a2e06",
+   "Firmware/Manifests/restore/macOS Customer Software Update/apticket.j314s.im4m": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+   "Firmware/Manifests/restore/macOS Customer/apticket.j314s.im4m": "3818a926568979797b5b69134c8416b186d3f36b7205967b565853eaae1b0fe0",
+   "Firmware/all_flash/DeviceTree.j314sap.im4p": "92ee2595425d83908fdca75cd7cec3217d15a0e6a418ecba85c0738ec2d69d3c",
+   "Firmware/all_flash/LLB.j314s.RELEASE.im4p": "71a55eda7f416b3ceed5fc79fbeb939d83b662428f7d82ef019b4ab86cef609f",
+   "Firmware/all_flash/iBoot.j314s.RELEASE.im4p": "370fb061042fc67b59e525b901a7b88f90ff8a08c61d9a39651ee613f8593a5a",
+   "PlatformSupport.plist": "24160ad959e710ac963e5ee7476c887d7654ffdab0a89b4330160a48b6c11751",
+   "Restore.plist": "97704a8960b4facceef54397a08fb5d0a456247c3627359215aa2a27df22656c",
+   "RestoreVersion.plist": "184371ed9626af7c55dfa0b3f9d94c844402d9cf64672a16ae411ea187b39f67",
+   "SystemVersion.plist": "47939ac623268361be331006421316495bed8bfb0c4c13ab0b2235dfdb87890e",
+   "kernelcache.d/\u0301b": "42c0a257ac898e90f6ffa10ec19ffda2e4a9a704b39840f00656f7565a7401cb",
+   "kernelcache.release.mac14j": "38ab05ff8f85d92271552ce5bd14bb4bd50aeef974fdca5ae201502afd8c4fa3",
+   "usr/standalone/bootcaches.plist": "c5a00a96244758160441834262f978b84fa2013d244e3c1b7572236494992084"
+  }
+ },
+ "plan/ok": {
+  "pending": [
+   {
+    "aea": false,
+    "compressed": true,
+    "installer_data": null,
+    "member": "090-00001-001.dmg",
+    "path": "usr/standalone/firmware/arm64eBaseSystem.dmg",
+    "position": 16,
+    "role": "Recovery"
+   }
+  ],
+  "sha256": {
+   "090-00001-001.dmg": "b9e1c34b0771365562f4622072ea8d97a4e59a1fe22f955f98bb7f039d7f69a7",
+   "090-00002-001.dmg": "a74cdf99455436a3e3c415789d1df4adb3bcb94553151286d5bff2460ec556ff",
+   "090-00003-001.dmg": "449ec1d29bf528d5492e51a88a74bae406a3b9f37782b9d661cb6e8c1adf121d",
+   "090-00004-001.dmg": "a543022f59700838c7e3069c1a6d56acb8d9bd7da7dc5e604d56c8bcdb328c5a",
+   "BootabilityBundle/Restore/Bootability/Bootability.plist": "602b4b278c2fed1e6f24834a18d1e94314cd72791cabdeeb9dfe0cf9830e2d1e",
+   "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Versions/A/Boot": "e656552773a550c69f810f86267b3e3030446bfaacf3c12a152487cdba92cff1",
+   "BootabilityBundle/Restore/Firmware/Bootability.dmg.trustcache": "fdeab9acf3710362bd2658cdc9a29e8f9c757fcf9811603a8c447cd1d9151108",
+   "BuildManifest.plist": "a1731434eddb7e22e0f46eb2a846c149cc8fdf8c0379d2fdf92f34d03df32094",
+   "Firmware/Manifests/restore/macOS Customer Software Update/apticket.j314s.im4m": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+   "Firmware/Manifests/restore/macOS Customer/apticket.j314s.im4m": "3818a926568979797b5b69134c8416b186d3f36b7205967b565853eaae1b0fe0",
+   "Firmware/all_flash/DeviceTree.j314sap.im4p": "92ee2595425d83908fdca75cd7cec3217d15a0e6a418ecba85c0738ec2d69d3c",
+   "Firmware/all_flash/LLB.j314s.RELEASE.im4p": "71a55eda7f416b3ceed5fc79fbeb939d83b662428f7d82ef019b4ab86cef609f",
+   "Firmware/all_flash/iBoot.j314s.RELEASE.im4p": "370fb061042fc67b59e525b901a7b88f90ff8a08c61d9a39651ee613f8593a5a",
+   "PlatformSupport.plist": "24160ad959e710ac963e5ee7476c887d7654ffdab0a89b4330160a48b6c11751",
+   "Restore.plist": "97704a8960b4facceef54397a08fb5d0a456247c3627359215aa2a27df22656c",
+   "RestoreVersion.plist": "184371ed9626af7c55dfa0b3f9d94c844402d9cf64672a16ae411ea187b39f67",
+   "SystemVersion.plist": "47939ac623268361be331006421316495bed8bfb0c4c13ab0b2235dfdb87890e",
+   "kernelcache.release.mac14j": "38ab05ff8f85d92271552ce5bd14bb4bd50aeef974fdca5ae201502afd8c4fa3",
+   "usr/standalone/bootcaches.plist": "c5a00a96244758160441834262f978b84fa2013d244e3c1b7572236494992084"
+  }
+ },
+ "plan/ok-restore-path": {
+  "pending": [
+   {
+    "aea": false,
+    "compressed": true,
+    "installer_data": null,
+    "member": "090-00001-001.dmg",
+    "path": "usr/standalone/firmware/arm64eBaseSystem.dmg",
+    "position": 16,
+    "role": "Recovery"
+   }
+  ],
+  "sha256": {
+   "090-00001-001.dmg": "b9e1c34b0771365562f4622072ea8d97a4e59a1fe22f955f98bb7f039d7f69a7",
+   "090-00002-001.dmg": "a74cdf99455436a3e3c415789d1df4adb3bcb94553151286d5bff2460ec556ff",
+   "090-00003-001.dmg": "449ec1d29bf528d5492e51a88a74bae406a3b9f37782b9d661cb6e8c1adf121d",
+   "090-00004-001.dmg": "a543022f59700838c7e3069c1a6d56acb8d9bd7da7dc5e604d56c8bcdb328c5a",
+   "BootabilityBundle/Restore/Bootability/Bootability.plist": "602b4b278c2fed1e6f24834a18d1e94314cd72791cabdeeb9dfe0cf9830e2d1e",
+   "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Versions/A/Boot": "e656552773a550c69f810f86267b3e3030446bfaacf3c12a152487cdba92cff1",
+   "BootabilityBundle/Restore/Firmware/Bootability.dmg.trustcache": "fdeab9acf3710362bd2658cdc9a29e8f9c757fcf9811603a8c447cd1d9151108",
+   "BuildManifest.plist": "a1731434eddb7e22e0f46eb2a846c149cc8fdf8c0379d2fdf92f34d03df32094",
+   "Firmware/Manifests/restore/macOS Customer Software Update/apticket.j314s.im4m": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+   "Firmware/Manifests/restore/macOS Customer/apticket.j314s.im4m": "3818a926568979797b5b69134c8416b186d3f36b7205967b565853eaae1b0fe0",
+   "Firmware/all_flash/DeviceTree.j314sap.im4p": "92ee2595425d83908fdca75cd7cec3217d15a0e6a418ecba85c0738ec2d69d3c",
+   "Firmware/all_flash/LLB.j314s.RELEASE.im4p": "71a55eda7f416b3ceed5fc79fbeb939d83b662428f7d82ef019b4ab86cef609f",
+   "Firmware/all_flash/iBoot.j314s.RELEASE.im4p": "370fb061042fc67b59e525b901a7b88f90ff8a08c61d9a39651ee613f8593a5a",
+   "PlatformSupport.plist": "24160ad959e710ac963e5ee7476c887d7654ffdab0a89b4330160a48b6c11751",
+   "Restore.plist": "97704a8960b4facceef54397a08fb5d0a456247c3627359215aa2a27df22656c",
+   "RestoreVersion.plist": "184371ed9626af7c55dfa0b3f9d94c844402d9cf64672a16ae411ea187b39f67",
+   "SystemVersion.plist": "47939ac623268361be331006421316495bed8bfb0c4c13ab0b2235dfdb87890e",
+   "kernelcache.release.mac14j": "38ab05ff8f85d92271552ce5bd14bb4bd50aeef974fdca5ae201502afd8c4fa3",
+   "usr/standalone/bootcaches.plist": "722cd98713ede589a94dddb02d216a466bd2c619a5c8280da0cfe70cccfa447c"
+  }
+ },
+ "stored-crc": "refuse"
+}

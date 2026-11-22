@@ -251,6 +251,15 @@ public struct RestoreImageStubPlan {
     ].contains(key) && !key.hasPrefix("Cryptex")
   }
 
+  /// A file copied straight into the restore directory. Its member, like the
+  /// Recovery image, is decoded first when it is an Apple Encrypted Archive.
+  public func isTopLevelRestore(_ copy: Copy) -> Bool {
+    let restore = Array((restorePath + "/").utf8)
+    let path = Array(copy.path.utf8)
+    return copy.role == "Preboot" && path.starts(with: restore)
+      && !path.dropFirst(restore.count).contains(UInt8(ascii: "/"))
+  }
+
   /// Every member whose body the stub reads from the image, the Recovery
   /// image last; links were read while admitting the plan.
   public var readMembers: [RestoreImageDirectory.Entry] {
