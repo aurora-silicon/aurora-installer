@@ -945,7 +945,7 @@ def cmd_apply(a):
             print("Not confirmed; nothing was changed.")
             return 1
     # Re-read the disk: act only on the layout that was shown.
-    _, again = build(argparse.Namespace(**{**vars(a), "no_check": True}))
+    _, again = build(argparse.Namespace(**{**vars(a), "no_check": True, "refresh": False}))
     if again["digest"] != plan["digest"]:
         raise Refusal("The disk changed since the plan was shown; nothing was changed. Run it "
                       "again.")
