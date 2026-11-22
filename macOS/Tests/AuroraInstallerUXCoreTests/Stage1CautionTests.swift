@@ -31,6 +31,12 @@
       XCTAssertTrue(mini?.contains("did not start Aurora") ?? false)
       XCTAssertTrue(mini?.contains("not expected to start yet") ?? false)
       XCTAssertFalse(mini?.contains("\u{2014}") ?? true)
+      let studio = Stage1Caution.reason(for: "apple,j575c")
+      XCTAssertTrue(studio?.contains("Mac Studio with M4 Max") ?? false)
+      XCTAssertTrue(studio?.contains("restart the Mac once") ?? false)
+      XCTAssertTrue(studio?.contains("Aurora may not start") ?? false)
+      XCTAssertFalse(studio?.contains("not started Aurora on one yet") ?? true)
+      XCTAssertFalse(studio?.contains("\u{2014}") ?? true)
       let others = [
         "j274", "j413", "j616s", "j713", "j700", "j314s", "j316s", "j314c", "j316c", "j375c",
         "j375d",
