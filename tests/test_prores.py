@@ -172,6 +172,19 @@ class ProResTest(unittest.TestCase):
         with self.assertRaises(P.ProResError):
             P.extract(b"\1\2\3")
 
+    def test_section_past_the_address_space(self):
+        # The native reader has the same two cases
+        # (ProResInitFirmwareTests.swift): a function that runs to the end of
+        # a section which wraps is no selector, and code further into a
+        # section than any file offset is not read.
+        address = 32 + 72 + 32  # the __text section header: address, then size
+        data = bytearray(image(standard(), [("prores", 5, 0x6041, 1)]))
+        struct.pack_into("<Q", data, address + 8, 2**64 - 1 - 0x1000)
+        self.assertIsNone(P.extract(bytes(data)))
+        data = bytearray(image(standard(), SELECTORS))
+        struct.pack_into("<QQ", data, address, 0, 2**64 - 1)
+        self.assertIsNone(P.extract(bytes(data)))
+
     def test_failures_carry_no_row_data(self):
         tables = standard()
         tables[0][2][0] = (0x100, 0xFF, 0x12345678)
