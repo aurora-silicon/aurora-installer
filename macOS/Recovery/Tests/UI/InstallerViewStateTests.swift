@@ -377,6 +377,21 @@ final class InstallerViewStateTests: XCTestCase {
     XCTAssertEqual(model.stage, .complete)
   }
 
+  func testRepairScreenReachesAnUnfinishedAccount() throws {
+    let model = InstallerModel()
+    _ = show(model)
+    // Recovery opened again stays on the repair screen; with no account to
+    // set up, Utilities → Create Recovery Account… changes nothing.
+    model.stage = .welcome
+    model.showRecoveryAccountSetup()
+    XCTAssertEqual(model.stage, .welcome)
+    // A creation that stopped part way is set up again from there.
+    model.accountUnfinished = true
+    XCTAssertTrue(model.accountResumable)
+    model.showRecoveryAccountSetup()
+    XCTAssertEqual(model.stage, .account)
+  }
+
   func testAccountFormExplainsADisabledCreateAccount() throws {
     let model = InstallerModel()
     let (_, controller) = show(model)

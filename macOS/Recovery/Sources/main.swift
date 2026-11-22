@@ -67,6 +67,11 @@ final class InstallerModel {
   /// yet. It stays out of the way: Restart defers it, and holding Shift on
   /// Restart or Utilities → Create Recovery Account… opens its setup.
   var accountOptional = false { didSet { changed() } }
+  /// The account's creation stopped part way; Utilities → Create Recovery
+  /// Account… sets it up again.
+  var accountUnfinished = false { didSet { changed() } }
+  /// The account can be set up from here: not started, or stopped part way.
+  var accountResumable: Bool { accountOptional || accountUnfinished }
   var previewNotice: (title: String, message: String)? { didSet { changed() } }
   private var checkingAccount = false
   private var awaitingStartupDiskReturn = false
@@ -88,11 +93,11 @@ final class InstallerModel {
   }
 
   private func showAccountStep(
-    _ record: RecoveryAccountRecord?, required: Bool = true, deferred: Bool = false,
+    _ record: RecoveryAccountRecord?, required: Bool = true,
     moment: RecoveryAccountStep.Moment = .finished
   ) {
     let step = RecoveryAccountStep.resolve(
-      required: required, phase: record?.phase, deferred: deferred, moment: moment)
+      required: required, phase: record?.phase, moment: moment)
     accountUsername = record?.username ?? ""
     accountAlreadyStarted = record != nil
     accountPassword = ""
@@ -100,13 +105,15 @@ final class InstallerModel {
     // Not started yet: finish without it unless the person asks for it.
     accountOptional = step.accountOptional
     accountNeedsAuthorization = step.accountNeedsAuthorization
+    accountUnfinished = step.accountUnfinished
     if let next = step.stage { stage = next }
   }
 
-  /// Opens the optional recovery account setup from the completion screen.
+  /// Opens the recovery account setup, not started or stopped part way, from
+  /// the completion screen or the repair screen Recovery opens on.
   func showRecoveryAccountSetup() {
-    guard accountOptional, stage == .complete, !restartingWithoutAccount,
-      !restartingCompletedSetup
+    guard accountResumable, stage == .complete || stage == .welcome, !restartingWithoutAccount,
+      !restartingCompletedSetup, !creatingAccount, !checkingAccount
     else { return }
     stage = .account
   }
@@ -121,13 +128,12 @@ final class InstallerModel {
       do {
         let required = try RecoveryActions.accountCreationRequired()
         let record = required ? try RecoveryActions.recoveryAccount() : nil
-        let deferred = required ? try RecoveryActions.accountDeferred() : false
         DispatchQueue.main.async {
           self.checkingAccount = false
-          // Recovery opened again: the repair screen stays unless setup
-          // itself is still unfinished (see RecoveryAccountStep).
+          // Recovery opened again: the repair screen stays; this only reads
+          // the account's state for Utilities → Create Recovery Account….
           guard self.stage == .welcome || self.stage == .complete else { return }
-          self.showAccountStep(record, required: required, deferred: deferred, moment: .reopened)
+          self.showAccountStep(record, required: required, moment: .reopened)
         }
       } catch {
         DispatchQueue.main.async {
@@ -155,6 +161,7 @@ final class InstallerModel {
       creatingAccount = false
       accountAlreadyStarted = true
       accountOptional = false
+      accountUnfinished = false
       accountNeedsAuthorization = true
       stage = .complete
       return
@@ -171,6 +178,7 @@ final class InstallerModel {
           self.creatingAccount = false
           self.accountAlreadyStarted = true
           self.accountOptional = false
+          self.accountUnfinished = false
           self.accountNeedsAuthorization = record.phase != "finalized"
           self.stage = .complete
         }
@@ -889,7 +897,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   @objc func validateMenuItem(_ item: NSMenuItem) -> Bool {
     guard item.action == #selector(createRecoveryAccount(_:)) else { return true }
-    return model.accountOptional && model.stage == .complete
+    return model.accountResumable && (model.stage == .complete || model.stage == .welcome)
   }
 
   @objc private func openTerminal(_ sender: Any?) {
