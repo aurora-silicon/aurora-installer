@@ -8,7 +8,11 @@ Documentation=https://github.com/aurora-silicon/aurora-installer/blob/main/tools
 # with it and puts the previous files back if they did not. Nothing is
 # reloaded in the running boot.
 ConditionPathExists=/proc/device-tree/chosen/asahi,efi-system-partition
-After=local-fs.target systemd-udev-settle.service
+# The macOS partitions sit on the disk the root file system was mounted
+# from, so their block devices exist once local-fs.target is reached, and
+# lsblk reads their partition types itself. Nothing here waits for udev to
+# settle.
+After=local-fs.target
 
 [Service]
 Type=oneshot
@@ -16,6 +20,13 @@ ExecStart=/usr/bin/aurora-wifi-firmware boot
 # 1 = refused (nothing changed, the reason is in the journal), 2 = not now
 # (no readable macOS volume, the ESP busy): outcomes, not unit failures.
 SuccessExitStatus=1 2
+# The boot after a change waits up to VERIFY_WAIT (150 s) for the radios;
+# a boot that then finds newer firmware reads the macOS System volume,
+# converts and stages it (a full check took 15.6 s wall on an M4 Pro
+# MacBook Pro) at idle I/O priority, which the rest of boot can starve.
+# The default 90 s would stop the check itself; this limit only keeps a
+# wedged read from holding the job for ever. It is not a measured worst
+# case.
 TimeoutStartSec=900
 Nice=10
 IOSchedulingClass=idle
