@@ -1007,19 +1007,20 @@ extension RecoveryActions {
   /// by default); the recovery account is left to the window, which offers it
   /// the next time Recovery opens it.
   static func setupFromCommand(_ command: RecoveryCommand) throws {
-    // A terminal would echo the password: a person types it in the window.
-    guard isatty(STDIN_FILENO) == 0 else {
-      throw RecoveryFailure(message: RecoveryPasswordInput.terminalMessage)
-    }
-    guard let password = RecoveryPasswordInput.password(readLine(strippingNewline: true)) else {
-      throw RecoveryFailure(message: RecoveryPasswordInput.message)
-    }
     if let refusal = command.refusal(
       updatePending: pendingStage1Update() != nil, installed: recovering)
     {
       throw RecoveryFailure(message: refusal)
     }
+    // A terminal would echo the password: a person types it in the window.
+    guard isatty(STDIN_FILENO) == 0 else {
+      throw RecoveryFailure(message: RecoveryPasswordInput.terminalMessage)
+    }
     InstallerLog.shared.beginAttempt()
+    try requireEnrollmentEnvironment()
+    guard let password = RecoveryPasswordInput.password(readLine(strippingNewline: true)) else {
+      throw RecoveryFailure(message: RecoveryPasswordInput.message)
+    }
     let owner = try resolveOwner()
     let mode = configuredBootMode
     let keys = (try? configuration.get().secureBootKeys) ?? .aurora
@@ -1037,6 +1038,7 @@ extension RecoveryActions {
       ? "Installing the staged startup software update for \(volumeName): boot mode \(mode.rawValue), recorded startup keys kept: \(recordedKeys), manifest Stage 1 sha256 \(template) (the enrolled Stage 1, with any startup keys filled in, is logged before kmutil), authorized by \(owner.username)."
       : "Setting up \(volumeName): boot mode \(mode.rawValue), startup keys \(keys.rawValue), manifest Stage 1 sha256 \(template) (the enrolled Stage 1, with any startup keys filled in, is logged before kmutil), authorized by \(owner.username)."
     print(action)
+    fflush(stdout)
     InstallerLog.shared.append(action)
     let report: (Double, String) -> Void = { amount, operation in
       print("\(Int((amount * 100).rounded()))% \(operation)")
