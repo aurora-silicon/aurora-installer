@@ -459,8 +459,10 @@
         let container = after.containers.first(where: { $0.storeUUID == target.uuid }),
         !before.containers.contains(where: { $0.uuid == container.uuid }),
         container.volumes.filter({ $0.roles.isEmpty && $0.name == label }).count == 1,
+        // macOS 27.2 can give the new container an Update volume.
         container.volumes.allSatisfy({
-          $0.group == nil && [[], ["Preboot"], ["Recovery"], ["VM"]].contains($0.roles)
+          $0.group == nil
+            && [[], ["Preboot"], ["Recovery"], ["VM"], ["Update"]].contains($0.roles)
         })
       else { throw NativeAPFSError.changedTarget }
       var remainder = after
