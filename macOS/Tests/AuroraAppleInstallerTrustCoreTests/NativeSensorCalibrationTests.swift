@@ -48,21 +48,39 @@
           + der(0x30, text("secb") + der(4, trust)))
     }
 
-    static func snapshot(type: String = "Apple_APFS_ISC") -> RemovalSnapshot {
+    /// A combined FSCl record, which already has the layout the enclave loads,
+    /// as Macs without a sensor root key store their calibration.
+    static func combinedCalibration() -> Data {
+      let payload = der(
+        0x30, text("IM4P") + text("FSCl") + text("1.0") + der(4, Data("CALB synthetic".utf8)))
+      let image = der(
+        0x30, text("IMG4") + payload + der(0xa0, der(0x30, text("IM4M") + text("FSCl"))))
+      return der(
+        0x30,
+        text("comb") + der(0x30, text("fdrd") + der(4, image))
+          + der(0x30, text("secb") + der(4, trust)))
+    }
+
+    static func snapshot(type: String = "Apple_APFS_ISC", container: Data? = nil)
+      -> RemovalSnapshot
+    {
       let part = RemovalPartition(
         identifier: "disk0s1", uuid: "8C2F7AF7-3612-46E3-BEEF-E4B21DDB4954",
-        type: type, offset: 20480, size: UInt64(calibration().count), name: "")
+        type: type, offset: 20480, size: UInt64((container ?? calibration()).count), name: "")
       return RemovalSnapshot(
         disk: "disk0", devicePath: "synthetic", diskSize: 1 << 30,
         macOSStoreUUID: UUID().uuidString, macOSContainerUUID: UUID().uuidString,
         partitions: [part], containers: [])
     }
 
+    /// `record` replaces the standalone FSC2 image, both in the container
+    /// and as the factory calibration record.
     static func collector(
       _ snapshot: RemovalSnapshot, present: Bool = true,
-      fault: String = "", factory: [String] = factoryNames
+      fault: String = "", factory: [String] = factoryNames, record: Data? = nil
     ) -> NativeSensorInputCollector {
       let part = snapshot.partitions[0]
+      let stored = record ?? calibration()
       return NativeSensorInputCollector(
         present: { present }, snapshot: { snapshot },
         disk: { name in
@@ -82,14 +100,14 @@
         },
         read: { _, _ in
           if fault == "forbid-read" { XCTFail("Read an unadmitted device") }
-          return fault == "short" ? Data() : calibration()
+          return fault == "short" ? Data() : stored
         }, factoryNames: { factory },
         factoryRead: { name in
           if name.hasPrefix("MSRk-") { return fault == "bad-root" ? calibration() : factoryRoot() }
           if name.hasPrefix("seal-") { return seal }
           if name == "trustobject-current" { return fault == "stale-trust" ? Data([1]) : trust }
           if name.hasPrefix("trustobject-") { return trust }
-          return calibration()
+          return stored
         })
     }
 
@@ -97,7 +115,8 @@
       let inputs = try XCTUnwrap(Self.collector(Self.snapshot()).collect(storeIdentifier: "disk0"))
       XCTAssertEqual(inputs.calibration, Self.sealed(Self.calibrationPayload))
       XCTAssertEqual(inputs.rootKey, Self.sealed(Self.rootPayload))
-      XCTAssertEqual(try SignedSensorInputs.rootKey(inputs.rootKey), inputs.rootKey)
+      let rootKey = try XCTUnwrap(inputs.rootKey)
+      XCTAssertEqual(try SignedSensorInputs.rootKey(rootKey), rootKey)
       let calibration = inputs.calibration
       XCTAssertEqual(try SignedSensorInputs.sealedCalibration(calibration), calibration)
     }
@@ -165,12 +184,184 @@
         ).collect(storeIdentifier: "disk0"))
       XCTAssertEqual(pair.calibration, Self.sealed(Self.calibrationPayload))
       XCTAssertEqual(pair.rootKey, Self.sealed(Self.rootPayload))
-      for names in [[], ["MSRk-one", "MSRk-two"], ["FSC2-one", "MSRk-two"]] {
+      for names in [["MSRk-one", "MSRk-two"], ["FSC2-one", "MSRk-two"]] {
         XCTAssertThrowsError(
           try Self.collector(
             Self.snapshot(), fault: "forbid-read",
             factory: names
           ).collect(storeIdentifier: "disk0"))
+      }
+    }
+
+    /// Macs whose enclave takes no root key have no MSRk record. Their
+    /// calibration is collected alone, and a combined record needs no sealing.
+    func testACalibrationWithoutARootKeyIsCollectedAlone() throws {
+      let combined = Self.combinedCalibration()
+      let cached = try XCTUnwrap(
+        Self.collector(
+          Self.snapshot(), fault: "forbid-read", factory: ["FSCl-synthetic"], record: combined
+        ).collect(storeIdentifier: "disk0"))
+      XCTAssertEqual(cached.calibration, combined)
+      XCTAssertNil(cached.rootKey)
+      let carved = try XCTUnwrap(
+        Self.collector(Self.snapshot(container: combined), factory: [], record: combined)
+          .collect(storeIdentifier: "disk0"))
+      XCTAssertEqual(carved.calibration, combined)
+      XCTAssertNil(carved.rootKey)
+      let resealed = try XCTUnwrap(
+        Self.collector(
+          Self.snapshot(), fault: "forbid-read",
+          factory: ["FSC2-synthetic"] + Self.factoryNames.filter { !$0.hasPrefix("MSRk-") }
+        ).collect(storeIdentifier: "disk0"))
+      XCTAssertEqual(resealed.calibration, Self.sealed(Self.calibrationPayload))
+      XCTAssertNil(resealed.rootKey)
+      XCTAssertEqual(
+        try SignedSensorInputs.sealedCalibration(resealed.calibration), resealed.calibration)
+      // A standalone image without its sealing records, and two calibrations
+      // without a root key to pair one of them with, are refused.
+      XCTAssertThrowsError(
+        try Self.collector(Self.snapshot(), factory: []).collect(storeIdentifier: "disk0"))
+      XCTAssertThrowsError(
+        try Self.collector(
+          Self.snapshot(), fault: "forbid-read", factory: ["FSCl-one", "FSCl-two"],
+          record: combined
+        ).collect(storeIdentifier: "disk0"))
+    }
+
+    func testTouchIDFilesAreNamedForTheBoardTheMacReports() throws {
+      let calibration = Self.sealed(Self.calibrationPayload)
+      let rootKey = Self.rootKey()
+      XCTAssertEqual(
+        NativeTouchIDFirmware.files(
+          NativeSensorInputs(calibration: calibration, rootKey: rootKey), machine: "j714s"),
+        [
+          "apple/mesacal-j714s.bin": calibration, "apple/mesa_calibration.bin": calibration,
+          "apple/msrk-j714s.bin": rootKey,
+        ])
+      let combined = Self.combinedCalibration()
+      XCTAssertEqual(
+        NativeTouchIDFirmware.files(
+          NativeSensorInputs(calibration: combined, rootKey: nil), machine: "j313"),
+        ["apple/mesacal-j313.bin": combined, "apple/mesa_calibration.bin": combined])
+      XCTAssertEqual(NativeTouchIDFirmware.files(nil, machine: "j274"), [:])
+    }
+
+    func testOnlyRecordFailuresLeaveTouchIDOutAndEverythingElseStops() throws {
+      let buffer = InstallerLogBuffer(capacity: 100)
+      let combined = Self.combinedCalibration()
+      try InstallerLog.$taskBuffer.withValue(buffer) {
+        for failure in [
+          NativePeripheralInputError.sensorCalibrationMissing, .sensorRootKeyMissing,
+          .sensorSealMissing,
+        ] {
+          XCTAssertNil(try NativeTouchIDFirmware.inputs { throw failure })
+        }
+        XCTAssertNil(try NativeTouchIDFirmware.inputs { throw RestoreFailure("Truncated input.") })
+        XCTAssertNil(try NativeTouchIDFirmware.inputs { nil })
+        // A disk or factory volume that changed under the read, a failed
+        // detection or read, and cancellation stop the installation.
+        for failure in [NativePeripheralInputError.identityChanged, .unsafeSnapshot, .localInput] {
+          XCTAssertThrowsError(try NativeTouchIDFirmware.inputs { throw failure }) {
+            XCTAssertEqual($0 as? NativePeripheralInputError, failure)
+          }
+        }
+        XCTAssertThrowsError(try NativeTouchIDFirmware.inputs { throw CancellationError() }) {
+          XCTAssertTrue($0 is CancellationError)
+        }
+        for (inputs, machine) in [
+          (NativeSensorInputs(calibration: Data("not a record".utf8), rootKey: nil), "j313"),
+          (NativeSensorInputs(calibration: Self.calibration(), rootKey: nil), "j313"),
+          (NativeSensorInputs(calibration: combined, rootKey: Data("not a key".utf8)), "j313"),
+          (NativeSensorInputs(calibration: combined, rootKey: nil), "../j313"),
+        ] {
+          XCTAssertEqual(NativeTouchIDFirmware.files(inputs, machine: machine), [:], machine)
+        }
+      }
+      let warnings = buffer.snapshot().filter {
+        $0.level == .error && $0.message.contains("Touch ID will not work on Linux")
+      }
+      XCTAssertEqual(warnings.count, 8)
+      // Each stop names the sensor read and that nothing was written;
+      // cancellation is not reported as a failed read.
+      let stops = buffer.snapshot().filter {
+        $0.level == .error && $0.message.contains("before writing anything to disk")
+      }
+      XCTAssertEqual(stops.count, 3)
+    }
+
+    /// A disk that is not the selected store, or whose first partition is not
+    /// the system container, stops the installation instead of Touch ID.
+    func testADiskIdentityMismatchIsNotLeftToTouchID() throws {
+      for (snapshot, store) in [
+        (Self.snapshot(), "disk1"), (Self.snapshot(type: "Apple_APFS"), "disk0"),
+      ] {
+        XCTAssertThrowsError(
+          try NativeTouchIDFirmware.inputs {
+            try Self.collector(snapshot, fault: "forbid-read").collect(storeIdentifier: store)
+          }
+        ) { XCTAssertEqual($0 as? NativePeripheralInputError, .identityChanged) }
+      }
+    }
+
+    typealias Node = NativeSensorInputCollector.DeviceTreeNode
+
+    static func controller(_ name: String, _ devices: [Node]) -> Node {
+      Node(name: name, compatible: [], children: devices)
+    }
+
+    static let sensor = Node(name: "mesa", compatible: ["biosensor,mesa"])
+    static let device = Node(name: "device", compatible: ["synthetic,device"])
+
+    /// `/arm-io`'s SPI controllers as the macOS 27.2.1 (26B131) device trees
+    /// lay them out; devices other than the sensor are synthetic.
+    static let laptop = [
+      controller("spi1", [device]), controller("spi2", [sensor]), controller("spi4", [device]),
+    ]
+    /// The Mac Studio (J375c, J475c): `spi2` without the sensor.
+    static let studio = [controller("spi1", [device]), controller("spi2", [device])]
+    /// The Mac mini (J274): no `spi2`.
+    static let mini = [controller("spi1", [device])]
+
+    /// A collector that only detects: any read past detection fails the test.
+    static func detectionOnly(_ armIO: [Node]) -> NativeSensorInputCollector {
+      NativeSensorInputCollector(
+        present: { NativeSensorInputCollector.builtInSensor(in: armIO) },
+        snapshot: {
+          XCTFail("Read the disk layout of a Mac without the sensor")
+          throw NativePeripheralInputError.localInput
+        },
+        disk: { _ in
+          XCTFail("Read a disk of a Mac without the sensor")
+          return [:]
+        },
+        read: { _, _ in
+          XCTFail("Read a device of a Mac without the sensor")
+          return Data()
+        },
+        factoryNames: {
+          XCTFail("Read the factory records of a Mac without the sensor")
+          return []
+        }, factoryRead: { _ in Data() })
+    }
+
+    func testTheSensorsOwnNodeDecidesNotItsControllersName() throws {
+      typealias Collector = NativeSensorInputCollector
+      XCTAssertEqual(Collector.sensorNode(in: Self.laptop), "/arm-io/spi2/mesa")
+      XCTAssertNil(Collector.sensorNode(in: Self.studio))
+      XCTAssertNil(Collector.sensorNode(in: Self.mini))
+      // The sensor counts on any SPI controller, and only by its compatible.
+      XCTAssertEqual(
+        Collector.sensorNode(in: [Self.controller("spi5", [Self.device, Self.sensor])]),
+        "/arm-io/spi5/mesa")
+      XCTAssertNil(
+        Collector.sensorNode(in: [
+          Self.controller("spi2", [Node(name: "mesa", compatible: ["synthetic,device"])])
+        ]))
+      XCTAssertNil(Collector.sensorNode(in: [Self.controller("i2c0", [Self.sensor])]))
+      XCTAssertTrue(Collector.builtInSensor(in: Self.laptop))
+      for armIO in [Self.studio, Self.mini, []] {
+        XCTAssertFalse(Collector.builtInSensor(in: armIO))
+        XCTAssertNil(try Self.detectionOnly(armIO).collect(storeIdentifier: "disk0"))
       }
     }
 

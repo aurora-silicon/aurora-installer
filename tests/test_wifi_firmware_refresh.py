@@ -108,9 +108,11 @@ def raw_entries(tree):
     return awf.tar_entries(tree)
 
 
-def make_esp(root, tree, extra_wifi=None):
+def make_esp(root, tree, extra_wifi=None, extra=None):
     """An ESP as an install leaves it: all_firmware with firmware/wifi/ and
-    bluetooth/, vendorfw built from it plus a non-Wi-Fi file and u-boot/."""
+    bluetooth/, vendorfw built from it plus a non-Wi-Fi file and u-boot/.
+    extra: {vendorfw name: (bytes, mode)} the native installer adds, such as
+    this Mac's Touch ID files."""
     esp = pathlib.Path(root) / "esp"
     (esp / "asahi").mkdir(parents=True)
     with tarfile.open(esp / "asahi" / "all_firmware.tar.gz", "w:gz") as tar:
@@ -137,6 +139,8 @@ def make_esp(root, tree, extra_wifi=None):
     pkg.add_file("brcm/brcmbt4387c2-apple,hokkaido-u.bin", FWFile("bt", b"bluetooth"))
     pkg.add_file("asmedia/asm2214a-apple.bin", FWFile("asm", b"asmedia"))
     pkg.add_file("apple/same-as-bt.bin", FWFile("dup", b"bluetooth"))
+    for name, (data, mode) in sorted((extra or {}).items()):
+        pkg.add_file(name, FWFile(name, data), mode=mode)
     pkg.close()
     (esp / "asahi" / "stub_info.json").write_text(json.dumps({"vgid": "AAAAAAAA-0000-0000-0000-000000000000"}))
     return esp
@@ -212,6 +216,25 @@ class UpdateTest(Case):
         self.assertEqual(st["pending"]["probes"], ["brcmfmac"])
         # Running again changes nothing.
         self.assertEqual(self.update(esp, self.macos(new_tree)), "identical")
+
+    def test_touch_id_files_keep_their_bytes_and_modes(self):
+        """This Mac's Touch ID calibration and root key, which only the
+        native installer writes, stay as it wrote them; the root key stays
+        owner-only."""
+        touch_id = {
+            "apple/mesa_calibration.bin": (b"synthetic calibration", 0o644),
+            "apple/mesacal-j413.bin": (b"synthetic calibration", 0o644),
+            "apple/msrk-j413.bin": (b"synthetic root key", 0o600),
+        }
+        esp = make_esp(self.root, wifi_tree("old"), extra=touch_id)
+        self.assertEqual(self.update(esp, self.macos(wifi_tree("new"))), "updated")
+        new = self.manifest(esp)
+        modes = awf.tar_modes(esp / "vendorfw" / "firmware.tar")
+        for name, (data, mode) in touch_id.items():
+            self.assertEqual(new[name], awf.sha256(data), name)
+            self.assertEqual(modes[name], mode, name)
+        cpio = (esp / "vendorfw" / "firmware.cpio").read_bytes()
+        self.assertIn(b"synthetic root key", cpio)
 
     def test_esp_digest_follows_the_wifi_set_only(self):
         esp = make_esp(self.root, wifi_tree("old"))
