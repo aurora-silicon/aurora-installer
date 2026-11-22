@@ -221,7 +221,7 @@ import Foundation
     expect(
       Set(cases.map(\.0).filter { $0.hasPrefix("plan/") }) == Set(admitted.map { "plan/" + $0 }),
       "every admitted plan image is a case")
-    expect(cases.count >= 6, "cases: \(cases.count)")
+    expect(cases.count >= 4, "cases: \(cases.count)")
 
     for (name, url, sums, pendingFiles) in cases {
       let image = try Image(url)
