@@ -998,7 +998,12 @@ def cmd_cancel(a):
         print("Removed the request." if gone else "There is no request.")
     disk = a.disk or wd.disk_of(chosen["esp"])
     gpt = wd.read_gpt(disk)
-    rp, free = regrow_plan(gpt, a.root)
+    try:
+        rp, free = regrow_plan(gpt, a.root)
+    except Refusal:
+        if a.regrow:
+            raise
+        return 0  # the request is gone; the grow hint just doesn't apply here
     if free < GIB:
         return 0
     if not a.regrow:

@@ -748,6 +748,40 @@ class Unaligned(unittest.TestCase):
                     self.assertLessEqual(p["gap"][0] + p["gap"][1], g["parts"][2]["start"])
 
 
+class Cancel(unittest.TestCase):
+    def setUp(self):
+        self.esp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.esp)
+        self.d = os.path.join(self.esp, ar.REQUEST_DIR)
+        os.makedirs(self.d)
+        for n in ("request.json", "restore.sh"):
+            open(os.path.join(self.d, n), "w").close()
+        gpt = {"disk": "/dev/x", "parts": [], "first": 0, "last": 0, "sector": 512}
+        for name, fn in (("read_chosen", lambda _: {"esp": "E"}),
+                         ("read_gpt", lambda _: gpt),
+                         ("root_devices", lambda _root: ["/dev/x2", "/dev/x3"])):
+            orig = getattr(wd, name)
+            setattr(wd, name, fn)
+            self.addCleanup(setattr, wd, name, orig)
+
+    def args(self, regrow):
+        import argparse
+        return argparse.Namespace(chosen=None, esp=self.esp, disk="/dev/x", root="/",
+                                  dry_run=False, regrow=regrow)
+
+    def test_cancel_on_a_multi_device_root_still_succeeds(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(ar.cmd_cancel(self.args(False)), 0)
+        self.assertEqual(os.listdir(self.d), [])
+        self.assertIn("Removed the request.", out.getvalue())
+
+    def test_regrow_on_a_multi_device_root_refuses(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(ar.Refusal, "spans several partitions"):
+                ar.cmd_cancel(self.args(True))
+
+
 class ServerErrors(unittest.TestCase):
     def test_bad_catalog_and_dist_are_refusals(self):
         with self.assertRaisesRegex(ar.Refusal, "isn't a property list"):
