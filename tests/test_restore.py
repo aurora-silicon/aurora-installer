@@ -694,6 +694,60 @@ class RecoveryScript(DiskImage):
             self.assertFalse([c for c in calls if not c.startswith(("info ", "list "))])
 
 
+class Unaligned(unittest.TestCase):
+    """GPT boundaries on 4 KiB, not MiB: the gap diskutil can use is smaller
+    than the free extent, and the plan must still hold `need`."""
+    K4 = 4096
+
+    def setUp(self):
+        saved = ar.LINUX_MARGIN
+        ar.LINUX_MARGIN = 256 * MIB
+        self.addCleanup(setattr, ar, "LINUX_MARGIN", saved)
+
+    def gpt(self, root_end_pad, free_after_root):
+        k = self.K4
+        apfs = {"node": "/dev/x1", "uuid": "A", "type": wd.APFS, "start": MIB,
+                "size": 100 * MIB, "name": "c"}
+        root = {"node": "/dev/x2", "uuid": "R", "type": wd.LINUX, "start": 101 * MIB + k,
+                "size": 4 * GIB + root_end_pad, "name": "root"}
+        rec_start = root["start"] + root["size"] + free_after_root
+        rec = {"node": "/dev/x3", "uuid": "S", "type": wd.RECOVERY, "start": rec_start,
+               "size": 5 * MIB, "name": "rec"}
+        return {"disk": "/dev/x", "first": 34 * 512, "last": rec_start + 6 * MIB,
+                "sector": 512, "parts": [apfs, root, rec]}
+
+    def plan(self, gpt, need):
+        return ar.plan_alongside(gpt, {"esp": "E"}, None, need, min_size=0,
+                                 root_devs=["/dev/x2"], mounts=lambda n: [], fstab=set())
+
+    def test_existing_free_space_counts_only_after_alignment(self):
+        need = 2 * GIB
+        # Exactly `need` free, but starting 4 KiB past a MiB: aligned it is short.
+        g = self.gpt(3 * self.K4, need)
+        p = self.plan(g, need)
+        self.assertIsNotNone(p["shrink"], "a short gap was taken as-is")
+        self.assertGreaterEqual(p["gap"][1], need)
+        self.assertEqual(p["gap"][0] % MIB, 0)
+        # With an aligned gap of `need` to spare, nothing is shrunk.
+        g = self.gpt(3 * self.K4, need + 2 * MIB)
+        p = self.plan(g, need)
+        self.assertIsNone(p["shrink"])
+        self.assertGreaterEqual(p["gap"][1], need)
+
+    def test_shrink_leaves_an_aligned_gap_of_need(self):
+        for pad in (0, self.K4, 5 * self.K4):
+            for after in (0, self.K4, 3 * MIB + self.K4):
+                for need in (GIB, GIB + 3 * self.K4, 2 * GIB - self.K4):
+                    g = self.gpt(pad, after)
+                    p = self.plan(g, need)
+                    self.assertIsNotNone(p["shrink"])
+                    self.assertGreaterEqual(p["gap"][1], need, (pad, after, need))
+                    self.assertEqual((p["shrink"]["from"] - p["shrink"]["to"]) % MIB, 0)
+                    root = g["parts"][1]
+                    self.assertGreaterEqual(p["gap"][0], root["start"] + p["shrink"]["to"])
+                    self.assertLessEqual(p["gap"][0] + p["gap"][1], g["parts"][2]["start"])
+
+
 class ServerErrors(unittest.TestCase):
     def test_bad_catalog_and_dist_are_refusals(self):
         with self.assertRaisesRegex(ar.Refusal, "isn't a property list"):

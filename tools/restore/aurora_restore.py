@@ -338,11 +338,13 @@ def plan_alongside(gpt, chosen, layout, need, root="/", min_size=None, root_devs
         return bool(set(mounts(pred["node"])) & ours)
 
     for start, size in wd.free_extents(gpt):
-        if size < need or start + size > recovery:
+        # Measure the gap as diskutil will use it: MiB-aligned at both ends.
+        gap = align_gap(start, size)
+        if gap[1] < need or start + size > recovery:
             continue
         before = [p for p in parts if p["start"] + p["size"] <= start]
         if before and usable(before[-1]):
-            return {"shrink": None, "gap": align_gap(start, size), "predecessor": before[-1]}
+            return {"shrink": None, "gap": gap, "predecessor": before[-1]}
     if len(devs) != 1:
         raise Refusal(f"The root file system spans {len(devs)} partitions ({', '.join(devs)}). "
                       "Remove the extra device first (`btrfs device remove`), or use --replace.")
@@ -356,8 +358,10 @@ def plan_alongside(gpt, chosen, layout, need, root="/", min_size=None, root_devs
     if nxt is None or nxt["type"] != wd.RECOVERY:
         raise Refusal("The root partition isn't followed by Apple's System Recovery, so shrinking "
                       "it wouldn't leave one free gap. Use --replace, or free space by hand.")
-    after = nxt["start"] - end
-    shrink_by = -(-(need - after) // MIB) * MIB
+    # The new end of the root partition: low enough that the MiB-aligned gap
+    # before System Recovery holds `need`, and a whole number of MiB shorter.
+    gap_end = nxt["start"] // MIB * MIB
+    shrink_by = -(-(end - (gap_end - need) // MIB * MIB) // MIB) * MIB
     new_size = rp["size"] - shrink_by
     floor = (min_size if min_size is not None else btrfs_min_size(node, root)) + LINUX_MARGIN
     if new_size < floor:
@@ -366,9 +370,13 @@ def plan_alongside(gpt, chosen, layout, need, root="/", min_size=None, root_devs
                       f"{gb(max(new_size, 0))}. Free space in Linux, pick a smaller --size, or use "
                       "--replace.")
     gap_start = rp["start"] + new_size
+    gap = align_gap(gap_start, nxt["start"] - gap_start)
+    if gap[1] < need:  # not reachable with the sizes above; never plan a short container
+        raise Refusal(f"Shrinking {rp['node']} would leave {gb(gap[1])}; macOS {gb(need)} needs "
+                      "more.")
     return {"shrink": {"node": rp["node"], "uuid": rp["uuid"], "from": rp["size"],
                        "to": new_size},
-            "gap": align_gap(gap_start, nxt["start"] - gap_start), "predecessor": rp}
+            "gap": gap, "predecessor": rp}
 
 
 def plan_replace(gpt, chosen, layout, need, root_devs, mounts=mounts_of, fstab=None):
