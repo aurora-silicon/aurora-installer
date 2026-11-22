@@ -7,8 +7,9 @@
     case unavailableVersion
     case noCompatibleFirmware
     /// The release allows OS firmware for this Mac, but its boot firmware,
-    /// macOS or recovery version is older than every such entry needs.
-    /// Updating macOS to `version` makes the lowest of them installable.
+    /// macOS or recovery version is older than every such entry needs, or
+    /// than the pinned build this Mac's board is admitted to. Updating macOS
+    /// to `version` makes that firmware installable.
     case macOSUpdateRequired(version: String)
     case invalidSource
     /// The selected firmware comes only as an OTA update archive whose
@@ -76,27 +77,40 @@
       let minimum =
         try NativeInspectionPolicy.Version.atLeast(chip, device.minimum)
         ? chip : device.minimum
-      var selected: NativeInspectionPolicy.Firmware?
+      let board = String(deviceIdentifier.dropFirst(6))
+      var selected: (index: Int, entry: NativeInspectionPolicy.Firmware)?
       var lowest: NativeInspectionPolicy.Firmware?
+      var pinned: (index: Int, entry: NativeInspectionPolicy.Firmware)?
       // Preserve source order: the backend chooses the last compatible entry,
       // not the entry with the numerically highest version.
-      for entry in policy.firmware {
+      for (index, entry) in policy.firmware.enumerated() {
         guard try NativeInspectionPolicy.Version.atLeast(entry.version, minimum),
           target.supportedFirmware?.contains(entry.version) ?? true,
-          entry.models?.contains(String(deviceIdentifier.dropFirst(6))) ?? true,
+          entry.models?.contains(board) ?? true,
           !entry.expert
         else { continue }
         // The lowest version this Mac and release may use at all names the
         // macOS update that makes one installable, as the backend's message does.
         if try lowest.map({ try entry.isOlder(than: $0) }) ?? true { lowest = entry }
+        // A pinned build that names this board is the startup firmware the
+        // board is admitted to.
+        if entry.pin != nil, entry.models?.contains(board) == true { pinned = (index, entry) }
         if try NativeInspectionPolicy.Version.atLeast(boot, entry.minimumBoot),
           try NativeInspectionPolicy.Version.atLeast(macOS, entry.minimumMacOS),
           try NativeInspectionPolicy.Version.atLeast(recovery, entry.minimumRecovery)
         {
-          selected = entry
+          selected = (index, entry)
         }
       }
-      guard let selected else {
+      // A board admitted to a pinned build doesn't fall back to an older
+      // entry because this Mac's macOS or system firmware is below the build's
+      // floor: the owner updates macOS first. A release that leaves the build
+      // out of `supported_fw`, and every board the build doesn't name, keeps
+      // its older entry.
+      if let pinned, (selected?.index ?? -1) < pinned.index {
+        throw NativeFirmwareSelectionError.macOSUpdateRequired(version: pinned.entry.version)
+      }
+      guard let selected = selected?.entry else {
         guard let lowest else { throw NativeFirmwareSelectionError.noCompatibleFirmware }
         throw NativeFirmwareSelectionError.macOSUpdateRequired(version: lowest.version)
       }

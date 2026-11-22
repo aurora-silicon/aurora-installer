@@ -14,11 +14,13 @@ macOS 27.2 (26B123) and 27.2.1 (26B131) report the same iBoot version, `mBoot-20
 
 `NativeFirmwareSelection` carries the pin to `NativeStubFilePlan`, which refuses a mismatch as `pinnedSourceMismatch` before any disk change ("Apple's server returned a different macOS restore image than build 26B123. Nothing on the disk changed."). Entries without a pin behave as before.
 
-The 26B123 entry (`UniversalMac_27.2_26B123_Restore.ipsw`, 25,595,669,503 bytes) is last in the list. Selection keeps the last compatible entry, so a board listed in it takes 26B123 whenever its macOS is 27.2 or later (`minimumBoot` `mBoot-20457.41.3`, `minimumRecovery` `26.2.123.0.0,0`). A Mac below macOS 27.2 keeps its older entry rather than being told to update.
+The 26B123 entry (`UniversalMac_27.2_26B123_Restore.ipsw`, 25,595,669,503 bytes) is last in the list. Selection keeps the last compatible entry, so a board listed in it takes 26B123 whenever its macOS is 27.2 or later (`minimumBoot` `mBoot-20457.41.3`, `minimumRecovery` `26.2.123.0.0,0`). A listed board whose macOS, system firmware or Recovery is below those floors doesn't fall back to an older entry: selection stops with `macOSUpdateRequired(version: "27.2")` before any disk change, and the app says "Update macOS to install Aurora" and points to Software Update. 27.2.1 meets the floors and still gets the 26B123 stub. Boards the entry doesn't list, and releases whose `supported_fw` leaves 27.2 out, keep their older entry as before.
 
 ### Which boards
 
 `scripts/firmware-qualification.json` separates hardware-qualified `boards` from `experimental_boards`. A qualified board records the kernel release, distributions and hardware result. An experimental board records its kernel device tree and matching restore-image identity, remains explicitly not hardware-qualified, and must have an installer caution with recovery guidance. The entry's `models` is exactly the union of these two lists; a null list is refused. Both paths retain the same source-size, manifest and build checks.
+
+The qualified 26B123 boards are J615 (15-inch M3 MacBook Air) and J713 (13-inch M4 MacBook Air), which boot Linux on the 26B123 stub, and J473 (Mac mini M2), admitted with its T8112 sibling J413, which also runs on the 26B123 stub. The other T8112 boards (J413, J415, J493) and the M1, M2 Pro/Max, M4 Pro and A18 Pro Macs aren't listed yet: they keep their older entry until they have a recorded boot on the 26B123 stub.
 
 The experimental 26B123 admissions are J714c, J714s, J716c, J716s, J775c, J775d and J873s. Their Customer identities in the pinned BuildManifest all use T6050, with board IDs recorded separately. These Macs use this universal image rather than the OLED-only 26B8125 image. The existing system-firmware, macOS and Recovery floors still apply: admitting a board does not equate an older `iBoot` version with the required `mBoot` version or prove an installation on that board.
 
@@ -26,7 +28,7 @@ Release templates don't set `supported_fw`, so the model list is the only gate. 
 
 ### Checks
 
-- `NativeStartupFirmwareTests` covers the sealed entry, selection for a listed and an unlisted board, the macOS floor, a renamed source, and the 26B131 size, manifest and build refusals.
+- `NativeStartupFirmwareTests` covers the sealed entry, selection for a listed and an unlisted board, the qualified boards on 27.2 and 27.2.1, the update-macOS stop for a listed board below the floors (macOS 26.6.2, and macOS 27.2 with older system firmware), the older entry for unlisted boards and for a release that holds 27.2 back, a renamed source, and the 26B131 size, manifest and build refusals.
 - `AURORA_LIVE_FIRMWARE_PIN=1 swift test --filter testOptInLivePinnedImagePlansEveryLabBoard` reads Apple's image (size, directory, manifest; about 35 MB) and plans the stub for the M1 Pro, M2, M4 Pro and MacBook Neo identities with the pin in force. It writes nothing.
 
 ## Slots
