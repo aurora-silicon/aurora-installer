@@ -14,8 +14,17 @@
       ] {
         XCTAssertFalse(NativeHandoffEvidence.safeRelative(path), path.debugDescription)
       }
-      XCTAssertTrue(NativeHandoffEvidence.safeRelative("esp/\u{301}b"))
+      XCTAssertTrue(NativeHandoffEvidence.safeRelative("esp\u{301}/b"))
       XCTAssertTrue(NativeHandoffEvidence.safeRelative("esp/m1n1/boot.bin"))
+    }
+
+    /// Handoff files walk admitted paths one Character component at a time
+    /// with O_NOFOLLOW; a separator absorbed into a grapheme would reach
+    /// openat() inside one "leaf" and let it follow an intermediate symlink.
+    func testSeparatorsAbsorbedIntoAGraphemeAreRefused() {
+      for path in ["esp/\u{301}b", "a/\u{200D}b", "a/\u{FE0F}b", "a\u{600}/b", "a/b/\u{20DD}c"] {
+        XCTAssertFalse(NativeHandoffEvidence.safeRelative(path), path.debugDescription)
+      }
     }
 
     func testAbsoluteEmptyAndDotPathsStayRefused() {

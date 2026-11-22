@@ -340,7 +340,8 @@
         try await InstallerPerformance.measuring("vendor_installer_data") {
           for record in sourceRecords where record.installerDataName != nil {
             let name = record.installerDataName!
-            guard NativeHandoffEvidence.safeRelative(name), !name.contains("/") else {
+            guard NativeHandoffEvidence.safeRelative(name), !name.utf8.contains(UInt8(ascii: "/"))
+            else {
               throw NativeFirmwareInputFailure.invalidSource
             }
             let inputTree = try target.tree(record.role)

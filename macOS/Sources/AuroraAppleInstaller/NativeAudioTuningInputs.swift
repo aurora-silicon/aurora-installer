@@ -277,7 +277,7 @@
       guard let first = path.split(separator: "/", omittingEmptySubsequences: false).first,
         sharedRoots.contains(String(first))
       else { return false }
-      return path.contains("/")
+      return path.utf8.contains(UInt8(ascii: "/"))
     }
 
     /// The paths below `AID<n>/` (relative to it) and the shared paths

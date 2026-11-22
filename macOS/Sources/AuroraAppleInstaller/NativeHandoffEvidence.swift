@@ -186,10 +186,13 @@
     static func safeRelative(_ path: String) -> Bool {
       let bytes = Array(path.utf8)
       let dot = UInt8(ascii: ".")
+      let parts = bytes.split(separator: UInt8(ascii: "/"), omittingEmptySubsequences: false)
+      // Callers walk admitted paths by Character ("a/b".split(separator: "/")),
+      // so a grapheme cluster must not absorb a separator ("a/\u{301}b").
       return !bytes.isEmpty && bytes.count <= 4096 && !bytes.contains(0)
         && !bytes.contains(UInt8(ascii: "\\"))
-        && bytes.split(separator: UInt8(ascii: "/"), omittingEmptySubsequences: false)
-          .allSatisfy { !$0.isEmpty && $0 != [dot] && $0 != [dot, dot] }
+        && parts.count == path.split(separator: "/", omittingEmptySubsequences: false).count
+        && parts.allSatisfy { !$0.isEmpty && $0 != [dot] && $0 != [dot, dot] }
     }
     private static func board(_ device: String) -> String { String(device.dropFirst(6)) + "ap" }
     private static func partition(_ value: String) -> Bool {
