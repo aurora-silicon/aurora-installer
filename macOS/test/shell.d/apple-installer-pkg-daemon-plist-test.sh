@@ -76,7 +76,8 @@ pass "derivation fails closed on missing, escaping, or absolute helper paths"
 ! grep -Eq 'launchctl bootstrap system "\$PLIST" 2>/dev/null \|\|' "$pkg_dir/scripts/postinstall" ||
   fail "postinstall no longer hides launchctl bootstrap failures"
 grep -Fq 'exit 1' "$pkg_dir/scripts/postinstall" || fail "postinstall fails the package when the daemon cannot load"
-for builder in "$pkg_dir/build-pkg.sh" "$ROOT/Packaging/build-developer-pkg.sh"; do
+for builder in "$pkg_dir/build-pkg.sh" "$ROOT/Packaging/build-developer-pkg.sh" \
+  "$ROOT/Packaging/private-test/build-review-pkg.sh"; do
   grep -Fq 'derive-daemon-plist' "$builder" || fail "$(basename "$builder") derives the daemon plist"
   grep -Fq 'Library/PrivilegedHelperTools/$INSTALLER_HELPER_IDENTIFIER' "$builder" ||
     fail "$(basename "$builder") installs the helper into /Library/PrivilegedHelperTools"
@@ -86,3 +87,13 @@ done
 grep -Fq 'daemon Program must be $helper_program' "$pkg_dir/build-pkg.sh" || fail "build-pkg.sh fails on any other daemon Program"
 pass "the package builder and postinstall fail closed on an unloadable daemon"
 [[ ! -e $test_tmp/helper-rejected ]] || fail "a rejected derivation copies no helper"
+make_app "$test_tmp/dir-target.app" Contents/Library/LaunchServices/$helper_id
+"$derive" "$test_tmp/dir-target.app" "$test_tmp/ok.plist" "$test_tmp/ok-helper" >/dev/null || fail "the same app derives with a file helper output"
+mkdir -p "$test_tmp/a-directory"
+if "$derive" "$test_tmp/dir-target.app" "$test_tmp/dir.plist" "$test_tmp/a-directory" >/dev/null 2>&1; then
+  fail "derivation rejects a directory as the helper output"
+fi
+if "$derive" "$test_tmp/dir-target.app" "$test_tmp/rel.plist" relative/helper >/dev/null 2>&1; then
+  fail "derivation rejects a relative helper output"
+fi
+pass "derivation refuses a directory or relative helper output (the old install-location form)"

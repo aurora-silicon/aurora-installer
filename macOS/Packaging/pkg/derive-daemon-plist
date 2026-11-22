@@ -22,6 +22,10 @@ helper_output=${3:-}
   echo "usage: derive-daemon-plist <app bundle> <output plist> [helper output]" >&2
   exit 64
 }
+[[ -z $helper_output || ( $helper_output == /* && ! -d $helper_output ) ]] || {
+  echo "derive-daemon-plist: helper output must be an absolute file path: $helper_output" >&2
+  exit 65
+}
 
 # shellcheck source=../identity.conf
 source "$(cd "$(dirname "$0")/.." && pwd)/identity.conf"

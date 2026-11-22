@@ -14,10 +14,12 @@ app_build=$(/usr/bin/plutil -extract CFBundleVersion raw -o - "$APP/Contents/Inf
 /usr/bin/codesign --verify --deep --strict "$APP"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-mkdir -p "$work/root/Applications" "$work/root/Library/LaunchDaemons" "$work/scripts"
+mkdir -p "$work/root/Applications" "$work/root/Library/LaunchDaemons" "$work/root/Library/PrivilegedHelperTools" "$work/scripts"
+chmod 755 "$work/root/Library/PrivilegedHelperTools"
 /usr/bin/ditto "$APP" "$work/root/Applications/$INSTALLER_APP_NAME.app"
 staged_app="$work/root/Applications/$INSTALLER_APP_NAME.app"
-/bin/bash "$ROOT/Packaging/pkg/derive-daemon-plist" "$staged_app" "$work/root/Library/LaunchDaemons/$INSTALLER_HELPER_IDENTIFIER.plist" /Applications
+/bin/bash "$ROOT/Packaging/pkg/derive-daemon-plist" "$staged_app" "$work/root/Library/LaunchDaemons/$INSTALLER_HELPER_IDENTIFIER.plist" \
+  "$work/root/Library/PrivilegedHelperTools/$INSTALLER_HELPER_IDENTIFIER" >/dev/null
 app_requirement=$(private_code_requirement "$staged_app" "$INSTALLER_APP_IDENTIFIER")
 /usr/bin/plutil -replace EnvironmentVariables.OMARCHY_CLIENT_CODE_SIGNING_REQUIREMENT \
   -string "$app_requirement" "$work/root/Library/LaunchDaemons/$INSTALLER_HELPER_IDENTIFIER.plist"
