@@ -62,26 +62,23 @@
       XCTAssertEqual(
         entry.models,
         [
-          "j473", "j615", "j713", "j714c", "j714s", "j716c", "j716s", "j775c", "j775d",
-          "j873s",
+          "j615", "j713", "j714c", "j714s", "j716c", "j716s", "j775c", "j775d", "j873s",
         ])
       // It is last, so it wins wherever a board qualifies for it.
       XCTAssertEqual(sealed.firmware.last?.pin?.build, Self.build)
-      // Admitting the Mac mini M2 does not change the M2 MacBook Air's choice.
+      // Admitting the Airs does not change the M2 MacBook Air's choice.
       XCTAssertEqual(try choose("apple,j413", air272, policy: sealed).version, "13.5")
     }
 
-    /// The Mac mini (M2, 2023) on macOS 26.6.2, as it ships today.
-    private let mini2662 = NativeInspectionHardware(
-      chipID: 0x8112, bootVersion: "mBoot-18000.161.10", macOSVersion: "26.6.2",
+    /// A 15-inch M3 MacBook Air on macOS 26.6.2.
+    private let j615On2662 = NativeInspectionHardware(
+      chipID: 0x8122, bootVersion: "mBoot-18000.161.10", macOSVersion: "26.6.2",
       recoveryVersion: "25.7.83.0.0,0")
 
     func testAdmittedBoardsOnMacOS272TakeTheSealedPin() throws {
       let sealed = try NativeInspectionPolicy.sealed()
-      // Mac mini M2 (j473ap, board 0x24), 15-inch M3 Air, 13-inch M4 Air.
-      for (board, chip): (String, UInt64) in [
-        ("apple,j473", 0x8112), ("apple,j615", 0x8122), ("apple,j713", 0x8132),
-      ] {
+      // 15-inch M3 Air and 13-inch M4 Air, which boot on the 26B123 stub.
+      for (board, chip): (String, UInt64) in [("apple,j615", 0x8122), ("apple,j713", 0x8132)] {
         for (macOS, recovery) in [("27.2", "26.2.123.0.0,0"), ("27.2.1", "26.2.131.0.0,0")] {
           let mac = NativeInspectionHardware(
             chipID: chip, bootVersion: "mBoot-20457.41.3", macOSVersion: macOS,
@@ -110,22 +107,16 @@
             board, line: line)
         }
       }
-      // The Mac mini on macOS 26.6.2 used to get 13.5 (22G74) silently.
-      assertUpdate("apple,j473", mini2662)
+      // On macOS 26.6.2 the J615 used to get the 26.6.2 (25G83) stub silently.
+      assertUpdate("apple,j615", j615On2662)
       // A release that lists 27.2 among others still stops it.
-      assertUpdate("apple,j473", mini2662, supported: ["13.5", "27.2"])
+      assertUpdate("apple,j615", j615On2662, supported: ["14.8.3", "26.6.2", "27.2"])
       // macOS 27.2 without the 27.2 system firmware is still below the floor.
-      assertUpdate(
-        "apple,j473",
-        NativeInspectionHardware(
-          chipID: 0x8112, bootVersion: "mBoot-18000.161.10", macOSVersion: "27.2",
-          recoveryVersion: "26.2.123.0.0,0"))
-      // The 26.6.2 entry also names the Airs; below 27.2 they update too.
       assertUpdate(
         "apple,j615",
         NativeInspectionHardware(
-          chipID: 0x8122, bootVersion: "mBoot-18000.161.10", macOSVersion: "26.6.2",
-          recoveryVersion: "25.7.83.0.0,0"))
+          chipID: 0x8122, bootVersion: "mBoot-18000.161.10", macOSVersion: "27.2",
+          recoveryVersion: "26.2.123.0.0,0"))
       assertUpdate(
         "apple,j713",
         NativeInspectionHardware(
@@ -140,14 +131,23 @@
 
     func testBoardsTheBuildDoesNotNameKeepTheirOlderFirmware() throws {
       let sealed = try NativeInspectionPolicy.sealed()
-      // A release that holds 27.2 back keeps the mini on its older entry.
+      // A release that holds 27.2 back keeps the J615 on its older entry.
       XCTAssertEqual(
-        try choose("apple,j473", mini2662, policy: sealed, supported: ["13.5"]).version, "13.5")
-      // The other M2 boards and the M1 Pro are not admitted and keep 13.5.
+        try choose("apple,j615", j615On2662, policy: sealed, supported: ["26.6.2"]).version,
+        "26.6.2")
+      // The Mac mini M2 isn't admitted: on macOS 27.2.1 it keeps 13.5 (22G74).
+      let mini2721 = NativeInspectionHardware(
+        chipID: 0x8112, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2.1",
+        recoveryVersion: "26.2.131.0.0,0")
+      let mini = try choose("apple,j473", mini2721, policy: sealed)
+      XCTAssertEqual(mini.version, "13.5")
+      XCTAssertNil(mini.pin)
+      XCTAssertEqual(mini.sourceURL.lastPathComponent, "UniversalMac_13.5_22G74_Restore.ipsw")
+      // No M2 board and not the M1 Pro is admitted: they keep 13.5.
       let air2662 = NativeInspectionHardware(
         chipID: 0x8112, bootVersion: "mBoot-18000.161.10", macOSVersion: "26.6.2",
         recoveryVersion: "25.7.83.0.0,0")
-      for board in ["apple,j413", "apple,j415", "apple,j493"] {
+      for board in ["apple,j413", "apple,j415", "apple,j473", "apple,j493"] {
         XCTAssertEqual(try choose(board, air2662, policy: sealed).version, "13.5", board)
         XCTAssertEqual(try choose(board, air272, policy: sealed).version, "13.5", board)
       }
