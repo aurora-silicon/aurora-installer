@@ -436,7 +436,7 @@ enum RecoveryActions {
           ["prepared", "awaiting-ownership"].contains(selected.phase),
           "The recovery account is not ready for initial enrollment.")
         InstallerLog.shared.append(
-          "Initial enrollment uses the recorded macOS owner. Authorize the new recovery account in Startup Disk after setup."
+          "Initial enrollment uses the recorded macOS owner. The new recovery account isn’t a startup owner yet; setup doesn’t need it."
         )
       }
     }
@@ -862,7 +862,7 @@ enum RecoveryActions {
           to: receipt)
       },
       restart: {
-        InstallerLog.shared.append("Recovery account deferred by request. Restarting now.")
+        InstallerLog.shared.append("Recovery account deferred. Restarting now.")
         _ = try run("/sbin/shutdown", ["-r", "now"])
       })
   }

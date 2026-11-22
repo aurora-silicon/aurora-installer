@@ -312,6 +312,54 @@
         recommendation)
     }
 
+    func testFreeSpaceRightAfterMacOSIsNamedInTheShortfall() throws {
+      // What Erase leaves: unallocated space whose predecessor is macOS.
+      let free = candidate(kind: "free", source: "disk0s2", length: 145 * gib)
+      let recommendation = try InstallerAllocationRecommendation(inventory: inventory([free]))
+      XCTAssertThrowsError(
+        try MacOSStagingAdmission.admit(
+          recommendation, macOSStoreIdentifier: "disk0s2", macOSFreeBytes: 14 * gib,
+          outstandingDownloadBytes: 0, stagingBytes: 28 * gib)
+      ) {
+        let shortfall = $0 as? MacOSFreeSpaceShortfall
+        XCTAssertEqual(
+          shortfall,
+          MacOSFreeSpaceShortfall(
+            requiredBytes: 28 * gib, availableBytes: 14 * gib,
+            freeSpaceAfterMacOSBytes: 145 * gib, macOSStoreIdentifier: "disk0s2"))
+        XCTAssertEqual(shortfall?.growingMacOSIsEnough, true)
+      }
+      // Aurora's floor here is 32 GiB (the candidates' minimum install size).
+      // Growing macOS by the whole extent must cover the 14 GiB macOS lacks
+      // and still leave that floor once macOS is shrunk again: 46 GiB is
+      // enough, a MiB less is not.
+      for (length, offered) in [(46 * gib, true), (46 * gib - (1 << 20), false)] {
+        let near = candidate(kind: "free", source: "disk0s2", length: length)
+        XCTAssertThrowsError(
+          try MacOSStagingAdmission.admit(
+            try InstallerAllocationRecommendation(inventory: inventory([near])),
+            macOSStoreIdentifier: "disk0s2", macOSFreeBytes: 14 * gib,
+            outstandingDownloadBytes: 0, stagingBytes: 28 * gib)
+        ) {
+          let shortfall = $0 as? MacOSFreeSpaceShortfall
+          XCTAssertEqual(shortfall?.growingMacOSIsEnough, offered, "\(length)")
+          XCTAssertEqual(shortfall?.freeSpaceAfterMacOSBytes, offered ? length : 0)
+        }
+      }
+      // Free space after another partition isn't macOS's to grow into.
+      let other = candidate(kind: "free", source: "disk0s6", length: 145 * gib)
+      XCTAssertThrowsError(
+        try MacOSStagingAdmission.admit(
+          try InstallerAllocationRecommendation(inventory: inventory([other])),
+          macOSStoreIdentifier: "disk0s2", macOSFreeBytes: 14 * gib,
+          outstandingDownloadBytes: 0, stagingBytes: 28 * gib)
+      ) {
+        let shortfall = $0 as? MacOSFreeSpaceShortfall
+        XCTAssertEqual(shortfall?.freeSpaceAfterMacOSBytes, 0)
+        XCTAssertEqual(shortfall?.growingMacOSIsEnough, false)
+      }
+    }
+
     func testShrinkingMacOSKeepsWhatTheStubStageNeedsOrRefuses() throws {
       let resize = candidate(
         kind: "resize", source: "disk0s2", length: 400 * gib, minimumContainer: 200 * gib)

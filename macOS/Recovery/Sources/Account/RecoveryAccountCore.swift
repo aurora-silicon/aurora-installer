@@ -923,7 +923,7 @@ public enum RecoveryAccountInstaller {
       })
     else {
       throw AccountSetupFailure(
-        "Authorize \(record.username) in Startup Disk first. Select \(record.target.volumeName), click Restart, and choose Authorize Users."
+        "\(record.username) isn’t an owner of \(record.target.volumeName)’s startup security, so it can’t be used for this."
       )
     }
   }

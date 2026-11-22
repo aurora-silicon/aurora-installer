@@ -10,11 +10,27 @@
   public struct MacOSFreeSpaceShortfall: Error, Equatable, Sendable {
     public let requiredBytes: UInt64
     public let availableBytes: UInt64
+    /// Unallocated space directly after the macOS container, which the plan
+    /// would install into (for example what Erase left of an earlier
+    /// installation), and that container's partition. macOS can grow into
+    /// it, which frees the space the installation stages on macOS. Zero and
+    /// nil when there is none.
+    public let freeSpaceAfterMacOSBytes: UInt64
+    public let macOSStoreIdentifier: String?
 
-    public init(requiredBytes: UInt64, availableBytes: UInt64) {
+    public init(
+      requiredBytes: UInt64, availableBytes: UInt64, freeSpaceAfterMacOSBytes: UInt64 = 0,
+      macOSStoreIdentifier: String? = nil
+    ) {
       self.requiredBytes = requiredBytes
       self.availableBytes = availableBytes
+      self.freeSpaceAfterMacOSBytes = freeSpaceAfterMacOSBytes
+      self.macOSStoreIdentifier = freeSpaceAfterMacOSBytes > 0 ? macOSStoreIdentifier : nil
     }
+
+    /// Planning found that macOS grown into the free space after it would
+    /// still leave Aurora its smallest size (`admit` checks).
+    public var growingMacOSIsEnough: Bool { macOSStoreIdentifier != nil }
 
     static let summaryPrefix = "macOS needs "
 
@@ -26,9 +42,14 @@
       let required = Self.tenths(requiredBytes, roundingUp: true)
       let available = Self.tenths(availableBytes, roundingUp: false)
       let missing = max(required - min(required, available), 1)
-      return "\(Self.summaryPrefix)\(Self.gigabytes(required)) free to prepare the installation "
-        + "and has \(Self.gigabytes(available)). Free up \(Self.gigabytes(missing)), "
-        + "then try again."
+      return "\(need) Free up \(Self.gigabytes(missing)), then try again."
+    }
+
+    /// The first sentence of `summary`: what macOS needs and has.
+    public var need: String {
+      "\(Self.summaryPrefix)\(Self.gigabytes(Self.tenths(requiredBytes, roundingUp: true))) free "
+        + "to prepare the installation and has "
+        + "\(Self.gigabytes(Self.tenths(availableBytes, roundingUp: false)))."
     }
 
     /// Whether a notice summary has the shape `summary` produces.
@@ -375,7 +396,21 @@
         guard ["free", "resize", "replace"].contains(candidate.kind), macOSFreeBytes < needed else {
           return recommendation
         }
-        throw MacOSFreeSpaceShortfall(requiredBytes: needed, availableBytes: macOSFreeBytes)
+        // Free space right after macOS (what Erase leaves of an earlier
+        // installation) is the plan's own target, but macOS can't stage in
+        // it. Say so, so the remedy can offer growing macOS into it.
+        // Offer it only when growing macOS by all of it would let the plan
+        // that follows (shrinking macOS) pass this same check with room for
+        // Aurora's smallest size.
+        let missing = needed - macOSFreeBytes
+        let (enough, overflow) = missing.addingReportingOverflow(recommendation.floorBytes)
+        let grows =
+          candidate.kind == "free" && candidate.sourceIdentifier == macOSStoreIdentifier
+          && !overflow && candidate.lengthBytes >= enough
+        throw MacOSFreeSpaceShortfall(
+          requiredBytes: needed, availableBytes: macOSFreeBytes,
+          freeSpaceAfterMacOSBytes: grows ? candidate.lengthBytes : 0,
+          macOSStoreIdentifier: macOSStoreIdentifier)
       }
       // Shrinking macOS hands Aurora free space macOS had, before the stub
       // stage runs: the largest size must still leave macOS what it needs.

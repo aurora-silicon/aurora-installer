@@ -96,7 +96,11 @@ final class InstallerModel {
     // account that was started resumes directly.
     accountOptional = required && record == nil
     accountNeedsAuthorization = required && record != nil && record?.phase != "finalized"
-    stage = accountNeedsAuthorization ? .account : .complete
+    // Only an account whose creation stopped part way needs its password
+    // again here. One that is created and waits only for ownership goes to
+    // the completion screen: Restart starts Aurora and defers it again.
+    let unfinished = ["allocating", "creating"].contains(record?.phase ?? "")
+    stage = accountNeedsAuthorization && unfinished ? .account : .complete
   }
 
   /// Opens the optional recovery account setup from the completion screen.
@@ -182,6 +186,12 @@ final class InstallerModel {
     else {
       return
     }
+    restartDeferringAccount()
+  }
+
+  /// Restarts into this installation and leaves the recovery account as it
+  /// is, recorded as deferred. Aurora starts without the account.
+  private func restartDeferringAccount() {
     accountPassword = ""
     accountConfirmation = ""
     if RecoveryActions.isPreview {
@@ -533,50 +543,50 @@ final class InstallerModel {
       skipRecoveryAccountAndRestart()
       return
     }
-    if !accountNeedsAuthorization {
-      if RecoveryActions.isPreview {
-        previewNotice = ("Restart simulated", "This preview does not restart your Mac.")
-        return
-      }
-      guard !restartingCompletedSetup else { return }
-      restartingCompletedSetup = true
-      let updated = stage1Updated
-      DispatchQueue.global(qos: .userInitiated).async {
-        do {
-          // Another default volume is not an error: let the person choose
-          // this installation in Startup Disk, which restarts from there.
-          guard try RecoveryActions.targetIsDefaultBoot() else {
-            InstallerLog.shared.append(
-              "This installation is not the startup disk. Opening Startup Disk.")
-            DispatchQueue.main.async {
-              self.restartingCompletedSetup = false
-              self.openStartupDisk()
-            }
-            return
-          }
-          if updated {
-            try RecoveryActions.restartAfterStage1Update()
-          } else {
-            try RecoveryActions.restartCompletedSetup()
-          }
-        } catch {
-          InstallerLog.shared.append("Restart failed: " + error.localizedDescription, level: .error)
-          DispatchQueue.main.async {
-            self.restartingCompletedSetup = false
-            self.failure = error.localizedDescription
-          }
-        }
-      }
+    // An account that isn't a volume owner yet is deferred the same way.
+    // Setup never sends the person to Startup Disk to authorize it: there,
+    // Authorize Users asks for the macOS owner and then the new account over
+    // and over, and nothing else here needs the account. This installation
+    // is already the startup disk after setup, so Restart starts Aurora.
+    if accountNeedsAuthorization {
+      guard stage == .complete, !creatingAccount, !checkingAccount, !restartingWithoutAccount
+      else { return }
+      restartDeferringAccount()
       return
     }
     if RecoveryActions.isPreview {
-      previewNotice = (
-        "Choose your startup disk",
-        "In Recovery, this opens Startup Disk. Select \(DestinationVolume.name), click Restart, and authorize your recovery account when asked."
-      )
+      previewNotice = ("Restart simulated", "This preview does not restart your Mac.")
       return
     }
-    openStartupDisk()
+    guard !restartingCompletedSetup else { return }
+    restartingCompletedSetup = true
+    let updated = stage1Updated
+    DispatchQueue.global(qos: .userInitiated).async {
+      do {
+        // Another default volume is not an error: let the person choose
+        // this installation in Startup Disk, which restarts from there.
+        guard try RecoveryActions.targetIsDefaultBoot() else {
+          InstallerLog.shared.append(
+            "This installation is not the startup disk. Opening Startup Disk.")
+          DispatchQueue.main.async {
+            self.restartingCompletedSetup = false
+            self.openStartupDisk()
+          }
+          return
+        }
+        if updated {
+          try RecoveryActions.restartAfterStage1Update()
+        } else {
+          try RecoveryActions.restartCompletedSetup()
+        }
+      } catch {
+        InstallerLog.shared.append("Restart failed: " + error.localizedDescription, level: .error)
+        DispatchQueue.main.async {
+          self.restartingCompletedSetup = false
+          self.failure = error.localizedDescription
+        }
+      }
+    }
   }
 
   private func openStartupDisk() {

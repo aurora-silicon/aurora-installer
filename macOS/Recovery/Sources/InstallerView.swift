@@ -186,7 +186,6 @@ final class InstallerView: NSViewController, NSTextFieldDelegate, NSMenuItemVali
     case .account:
       return model.accountAlreadyStarted ? "Resume recovery setup" : "Create a recovery account"
     case .complete:
-      if model.accountNeedsAuthorization { return "Authorize recovery account" }
       if updating { return "Update complete" }
       return model.recoveryInterface ? "Recovery complete" : "Installation complete"
     }
@@ -347,21 +346,16 @@ final class InstallerView: NSViewController, NSTextFieldDelegate, NSMenuItemVali
     let subject = "Aurora Linux"
     stack.addArrangedSubview(
       label(
-        model.accountNeedsAuthorization
-          ? subject + " is ready for authorization."
-          : subject + " is ready to start.", size: 15))
+        subject + " is ready to start.", size: 15))
     stack.setCustomSpacing(39, after: stack.arrangedSubviews[0])
     let icon = volumeIcon()
     stack.addArrangedSubview(icon)
     stack.setCustomSpacing(28, after: icon)
     if model.accountNeedsAuthorization {
+      stack.addArrangedSubview(label("Restart to start using Aurora Linux.", size: 12))
       stack.addArrangedSubview(
         label(
-          "Select “" + DestinationVolume.name + "”, click “Restart…”, then “Authorize Users…”.",
-          size: 12))
-      stack.addArrangedSubview(
-        label(
-          "Enter the credentials for your macOS account and the recovery account you just created.",
+          "Your recovery account is saved. Aurora Linux starts without it; it isn’t a startup owner yet.",
           size: 12))
     } else {
       stack.addArrangedSubview(label("Restart to start using Aurora Linux.", size: 12))
