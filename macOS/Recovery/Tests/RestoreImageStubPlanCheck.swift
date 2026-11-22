@@ -217,6 +217,14 @@ import Foundation
       (try? climbing.linkTarget(
         climbing.entries.first { $0.name.hasSuffix("Boot.framework/Boot") }!, read: climbs.read))
         == nil, "link target climbs")
+    // Names and link targets must be valid UTF-8: a stray byte, an overlong
+    // form, a surrogate or a cut sequence is refused, not replaced.
+    for bad: [UInt8] in [[0x61, 0xff], [0xc0, 0x80], [0xed, 0xa0, 0x80], [0x61, 0xe2, 0x82]] {
+      expect(RestoreImageDirectory.utf8(bad) == nil, "invalid UTF-8 \(bad) admitted")
+    }
+    for good in ["Restore.plist", "a/\u{301}b", "\u{1F600}"] {
+      expect(RestoreImageDirectory.utf8(Array(good.utf8)) == good, "UTF-8 \(good) refused")
+    }
 
     // A central directory over the main installer's 8 MiB (129 entries with
     // 65535-byte comments) is refused; the same entries with short comments

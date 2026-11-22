@@ -62,7 +62,7 @@ public struct RestoreImageDirectory {
       let next = at + 46 + nameLength + extraLength + commentLength
       guard next <= directory.count else { throw Failure.invalidArchive }
       let rawName = Array(directory[(at + 46)..<(at + 46 + nameLength)])
-      guard let name = String(validating: rawName, as: UTF8.self) else {
+      guard let name = utf8(rawName) else {
         throw Failure.invalidArchive
       }
       let isDirectory = rawName.last == UInt8(ascii: "/")
@@ -92,6 +92,14 @@ public struct RestoreImageDirectory {
       records: Dictionary(uniqueKeysWithValues: entries.map { ($0.localHeader, $0) }),
       recordEnds: Dictionary(
         uniqueKeysWithValues: zip(starts, Array(starts.dropFirst()) + [directoryOffset])))
+  }
+
+  /// `bytes` as a String if they are valid UTF-8: decoding replaces an
+  /// invalid sequence, so only valid UTF-8 comes back byte for byte.
+  /// (String(validating:as:) needs macOS 15; recoveryOS may be 13.)
+  static func utf8(_ bytes: [UInt8]) -> String? {
+    let string = String(decoding: bytes, as: UTF8.self)
+    return Array(string.utf8) == bytes ? string : nil
   }
 
   /// A member name or link target as the file system sees it: judged on its
@@ -209,7 +217,7 @@ public struct RestoreImageDirectory {
       throw Failure.invalidArchive
     }
     let bytes = try contents(entry, maximumBytes: 4096, symbolicLink: true, read: read)
-    guard let target = String(validating: bytes, as: UTF8.self), Self.safeRelative(Array(bytes))
+    guard let target = Self.utf8(Array(bytes)), Self.safeRelative(Array(bytes))
     else {
       throw Failure.invalidArchive
     }
