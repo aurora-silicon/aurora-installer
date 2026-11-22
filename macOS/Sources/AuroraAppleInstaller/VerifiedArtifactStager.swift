@@ -134,8 +134,8 @@ public struct PinnedInstallerArtifact: Equatable, Sendable {
       && value != ".."
       && value.utf8.count <= 255
       && !value.utf8.contains(0)
-      && !value.contains("/")
-      && !value.contains("\\")
+      && !value.utf8.contains(UInt8(ascii: "/"))
+      && !value.utf8.contains(UInt8(ascii: "\\"))
       && (value as NSString).lastPathComponent == value
   }
 

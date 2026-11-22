@@ -37,8 +37,8 @@ back when they did not.
 Exit codes: 0 done or nothing to do, 1 refused (nothing changed), 2 not now,
 3 internal error.
 """
-import argparse, contextlib, ctypes, errno, fcntl, hashlib, io, json, logging, os, pathlib, \
-    plistlib, re, shutil, socket, struct, subprocess, sys, tarfile, tempfile, time
+import argparse, contextlib, ctypes, errno, fcntl, gzip, hashlib, io, json, logging, os, pathlib, \
+    plistlib, re, shutil, socket, struct, subprocess, sys, tarfile, tempfile, time, zlib
 
 HERE = pathlib.Path(__file__).resolve().parent
 for cand in (HERE, HERE.parents[1]):
@@ -75,6 +75,11 @@ BACKUP_PREFIX = "wifi-firmware-"
 KEEP_BACKUPS = 2
 MOUNTPOINT = "/run/aurora-wifi-firmware-esp"
 STAGE_BUDGET = 512 << 20
+# How long the boot after a change waits for each required radio probe.
+# The wait ends as soon as every required probe is up or a driver reports
+# a failure; the limit only decides when a radio that never reported
+# counts as down. Wi-Fi association (link:) can depend on NetworkManager
+# reaching a known network, which is the slowest of the probes.
 VERIFY_WAIT = 150
 # brcmfmac's own words for a firmware that did not come up.
 FAILED = ("Dongle setup failed", "brcmf_fw_crashed", "firmware: failed to load brcm/brcmfmac",
@@ -84,6 +89,20 @@ UP = re.compile(r"brcmf_c_preinit_dcmds: Firmware: (\S+) wl0: (.*?) version (\S+
 
 class Refused(Exception):
     """A check failed; nothing was changed."""
+
+
+class NoSpace(Refused):
+    """The ESP lacks the free space a change needs; nothing was changed."""
+
+    def __init__(self, need):
+        super().__init__(f"not enough free space on the ESP: {need >> 20} MiB needed")
+        self.need = need
+
+
+class Transient(Refused):
+    """A copy or the swap failed in a way the next try need not repeat (an
+    I/O error, a copy that read back wrong, a .old in the way). A boot does
+    not remember these: the next boot tries again."""
 
 
 class NotNow(Exception):
@@ -654,6 +673,50 @@ def rebuild_all_firmware(old, new, trees):
                     dst.addfile(ti, fd)
 
 
+def link_target(tar, m):
+    """The regular file member a hard link member m names, or None.
+
+    The target is the last member of that name before m, as tar resolves it.
+    A chain of hard links is followed; a target that is missing, that is not
+    a regular file (a directory, a device, a symbolic link) or that loops
+    gives None."""
+    seen = set()
+    while m.islnk():
+        want = os.path.normpath(m.linkname)
+        if want in seen:
+            return None
+        seen.add(want)
+        target = None
+        for c in tar.members:
+            if c is m:
+                break
+            if os.path.normpath(c.name) == want:
+                target = c
+        if target is None:
+            return None
+        m = target
+    return m if m.isfile() else None
+
+
+def member_data(tar, m):
+    """The data of a file member of tar, or None. A hard link member (the
+    installer writes the copies of a file as hard links) reads as its target,
+    as tar extracts it; one whose target is not a regular file in the archive
+    (missing, a directory or symbolic link, a loop) reads as None, a file the
+    archive lacks."""
+    if m.islnk():
+        target = link_target(tar, m)
+        if target is None:
+            log.info(f"{m.name}: hard link to {m.linkname}, which is not a file in the archive")
+            return None
+        m = target
+    if m.isfile():
+        f = tar.extractfile(m)
+        if f is not None:
+            return f.read()
+    return None
+
+
 def raw_tree(all_fw, prefix):
     """{rel: sha256 | 'link:'+target} of all_firmware's prefix part."""
     out = {}
@@ -665,9 +728,106 @@ def raw_tree(all_fw, prefix):
             rel = name[len(prefix):]
             if m.issym():
                 out[rel] = "link:" + m.linkname
-            elif m.isfile():
-                out[rel] = sha256(tar.extractfile(m).read())
+                continue
+            data = member_data(tar, m)
+            if data is not None:
+                out[rel] = sha256(data)
     return out
+
+
+def raw_extract(all_fw, prefix, dest):
+    """Writes all_firmware's prefix part under dest as stage_tree lays out a
+    macOS directory: files, and links that stay inside the tree. A hard link
+    member is written as a regular copy of its target (member_data)."""
+    dest = pathlib.Path(dest)
+    dest.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with tarfile.open(all_fw, mode="r:gz") as tar:
+        for m in tar:
+            name = m.name[2:] if m.name.startswith("./") else m.name
+            if not name.startswith(prefix) or m.isdir():
+                continue
+            rel = name[len(prefix):].split("/")
+            if any(c in ("", ".", "..") or "\0" in c for c in rel):
+                continue
+            path = dest.joinpath(*rel)
+            if m.issym() and (m.linkname.startswith("/") or ".." in m.linkname.split("/")):
+                continue
+            data = None if m.issym() else member_data(tar, m)
+            if not m.issym() and data is None:
+                continue
+            path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            # A later member of the same name wins, as tar extracts it.
+            if path.is_symlink() or path.is_file():
+                path.unlink()
+            if m.issym():
+                os.symlink(m.linkname, path)
+            else:
+                with open(path, "xb") as f:
+                    f.write(data)
+
+
+def raw_converts_to(all_fw, part, new, tmp):
+    """Whether all_firmware's raw trees for part convert to new ({name: sha}).
+
+    all_firmware holds the raw trees a later conversion on Linux rebuilds
+    vendorfw from, so this is the property that matters, not byte equality
+    with the macOS directory: the installer took its trees from the Recovery
+    image, which leaves out files no converter reads (the UART and USB
+    Bluetooth .hex/.dfu/.msf images, for one).
+
+    A raw tree that does not read or convert (a damaged archive, a member
+    the converter chokes on) does not give new either: False, and the
+    update rebuilds all_firmware from the macOS tree, which did convert."""
+    if not part.sources or not all(prefix for _, prefix, _ in part.sources):
+        return True
+    staged = {}
+    try:
+        for n, (src, prefix, _) in enumerate(part.sources):
+            staged[src] = pathlib.Path(tmp) / f"raw-{part.key}-{n}"
+            raw_extract(all_fw, prefix, staged[src])
+    except (OSError, EOFError, tarfile.TarError, zlib.error) as e:
+        log.info(f"all_firmware's raw {part.label} trees do not read: {e}")
+        return False
+    try:
+        got = part.convert(staged)
+    except Exception as e:
+        # The converter took the macOS tree a moment ago, so whatever it
+        # raises here is about all_firmware's copy.
+        log.info(f"all_firmware's raw {part.label} trees do not convert: {e!r}")
+        return False
+    return {k: v.sha for k, v in got.items()} == new
+
+
+def owned_bytes(vendorfw, owns):
+    """Bytes of the owned files' data in vendorfw's firmware.tar (links are free)."""
+    with tarfile.open(pathlib.Path(vendorfw) / "firmware.tar") as tar:
+        return sum(m.size for m in tar.getmembers() if m.isreg() and owns(m.name))
+
+
+def files_bytes(files):
+    """Bytes of files' data as FWPackage stores it (one copy per content)."""
+    return sum(len(f.data) for f in {f.sha: f for f in files.values()}.values())
+
+
+def leftovers(esp):
+    """The <path>.new copies an interrupted commit (or a cleanup that failed
+    after the swap) left on the ESP. Only commit writes them, and the next
+    commit replaces them, so their space is free for the next change."""
+    esp = pathlib.Path(esp)
+    return [p for p in (esp / "vendorfw.new", esp / "asahi" / "all_firmware.tar.gz.new")
+            if os.path.lexists(p)]
+
+
+def free_space(esp):
+    """Free bytes on the ESP, counting the space leftovers hold."""
+    st = os.statvfs(esp)
+    return st.f_bavail * st.f_frsize + sum(
+        tree_size(p) for p in leftovers(esp) if not p.is_symlink())
+
+
+def require_space(esp, need):
+    if free_space(esp) < need:
+        raise NoSpace(need)
 
 
 def raw_wifi(all_fw):
@@ -784,7 +944,7 @@ def swap_in(new, cur, swap=exchange):
         return lambda: swap(new, cur) or (_ for _ in ()).throw(OSError("could not swap back"))
     old = pathlib.Path(str(cur) + ".old")
     if os.path.lexists(old):
-        raise Refused(f"{old} is in the way; move it aside first")
+        raise Transient(f"{old} is in the way; move it aside first")
     os.rename(cur, old)
     try:
         os.rename(new, cur)
@@ -833,7 +993,7 @@ def copy_verified(src, dst):
         shutil.copyfile(src, dst)
     fsync_tree(dst)
     if tree_hashes(src) != tree_hashes(dst):
-        raise Refused(f"the copy at {dst} does not match {src}")
+        raise Transient(f"the copy at {dst} does not match {src}")
 
 
 def remove(path):
@@ -871,12 +1031,12 @@ def commit(esp, pairs, backup, swap=exchange):
             except Exception as ue:
                 failed.append(ue)
         if failed:
-            raise Refused(f"the swap failed ({e}) and could not be undone ({failed[0]}); "
-                          f"restore from {backup}") from e
+            raise Transient(f"the swap failed ({e}) and could not be undone ({failed[0]}); "
+                            f"restore from {backup}") from e
         for _, new, _ in staging:
             with contextlib.suppress(OSError):
                 remove(new)
-        raise Refused(f"the swap failed and was undone, the ESP is unchanged: {e}") from e
+        raise Transient(f"the swap failed and was undone, the ESP is unchanged: {e}") from e
     for _, new, _ in staging:
         try:
             remove(new)
@@ -953,6 +1113,7 @@ def update(esp, macos=None, board=None, dry_run=False, backup_root=None,
     with tempfile.TemporaryDirectory(prefix="aurora-wifi-firmware-") as tmp:
         tmp = pathlib.Path(tmp)
         parts, files, trees, raw_same = [], {}, {}, True
+        has_raw = all_fw.is_file()
         for part in p["parts"]:
             gone = [src for src, _, _ in part.sources if not has_dir(macos.volume, src)]
             if gone:
@@ -963,9 +1124,8 @@ def update(esp, macos=None, board=None, dry_run=False, backup_root=None,
             for n, (src, prefix, want) in enumerate(part.sources):
                 staged[src] = tmp / f"{part.key}-{n}"
                 tree = stage_tree(macos.volume, src, staged[src], want)
-                if prefix and all_fw.is_file():
+                if prefix and has_raw:
                     trees[prefix] = tree
-                    raw_same = raw_same and raw_tree(all_fw, prefix) == tree_digest(tree)
             new = part.convert(staged)
             missing = part.missing(new, p["current"])
             if missing:
@@ -977,6 +1137,9 @@ def update(esp, macos=None, board=None, dry_run=False, backup_root=None,
                 + (" (the same)" if same else ""))
             for name, fw in sorted(part.expect(new).items()):
                 out(f"  {name}: ESP {p['current'].get(name, 'none')[:16]}  macOS {fw[:16]}")
+            if has_raw and any(prefix for _, prefix, _ in part.sources):
+                raw_same = raw_same and raw_converts_to(
+                    all_fw, part, {k: v.sha for k, v in new.items()}, tmp)
             parts.append(part)
             files.update(sorted(new.items()))
         if not parts:
@@ -988,13 +1151,36 @@ def update(esp, macos=None, board=None, dry_run=False, backup_root=None,
             out(f"The ESP already holds macOS {macos.build}'s radio firmware. Nothing to do.")
             return "identical"
 
+        # A copy an earlier run left behind holds space this change needs;
+        # commit would replace it anyway. (A dry run leaves it and counts it
+        # as free.)
+        if not dry_run:
+            for stale in leftovers(esp):
+                out(f"Removing {stale}, left by an earlier run that did not finish")
+                remove(stale)
+
+        # The ESP must take a second vendorfw (and all_firmware, when its raw
+        # trees change) beside the current one before the swap. Refuse before
+        # building anything when even the new vendorfw cannot fit: the current
+        # package plus the converted set's growth in both firmware.tar and
+        # firmware.cpio. all_firmware is left to the exact check below, as
+        # its new size is only known once it is built (a newer macOS can ship
+        # fewer files). This floor stays under that check's need: tar and cpio
+        # headers move it by kilobytes, the check adds 4 MiB.
+        growth = files_bytes(files) - owned_bytes(vendorfw, owns)
+        require_space(esp, max(0, tree_size(vendorfw) + 2 * growth))
+
         staged = tmp / "vendorfw"
         staged.mkdir()
         rebuild_vendorfw(vendorfw, staged, files, owns)
         check_package(vendorfw, staged, files, owns)
         new_fw = tmp / "all_firmware.tar.gz"
         if not raw_same:
-            rebuild_all_firmware(all_fw, new_fw, trees)
+            try:
+                rebuild_all_firmware(all_fw, new_fw, trees)
+            except (EOFError, gzip.BadGzipFile, tarfile.TarError, zlib.error) as e:
+                # Its other members (fud_firmware, ...) cannot be carried over.
+                raise Refused(f"{all_fw} does not read ({e}); the ESP's files stay") from e
             for prefix, tree in trees.items():
                 if raw_tree(new_fw, prefix) != tree_digest(tree):
                     raise Refused("the rebuilt all_firmware does not hold exactly the macOS tree")
@@ -1012,10 +1198,8 @@ def update(esp, macos=None, board=None, dry_run=False, backup_root=None,
         text = (log_text if log_text is not None else kernel_log()) if optional else ""
         required = sorted({x for part in parts for x in part.always}
                           | {x for x in optional if probe(x, text)})
-        need = tree_size(staged) + (0 if raw_same else new_fw.stat().st_size) + (4 << 20)
-        st = os.statvfs(esp)
-        if st.f_bavail * st.f_frsize < need:
-            raise Refused(f"not enough free space on the ESP: {need >> 20} MiB needed")
+        require_space(esp, tree_size(staged) + (0 if raw_same else new_fw.stat().st_size)
+                      + (4 << 20))
         os.makedirs(backup_root, mode=0o700, exist_ok=True)
         backup = pathlib.Path(tempfile.mkdtemp(
             prefix=time.strftime(BACKUP_PREFIX + "%Y%m%d-%H%M%S-"), dir=backup_root))
@@ -1029,7 +1213,7 @@ def update(esp, macos=None, board=None, dry_run=False, backup_root=None,
         for part in parts:
             expect.update(part.expect(files))
         write_state({"build": macos.build, "version": macos.version, "device": macos.device,
-                     "volume": macos.volume.name, "result": "updated",
+                     "volume": macos.volume.name, "result": "updated", "tool": tool_digest(),
                      "parts": [part.key for part in parts],
                      "pending": {"backup": str(backup), "expect": expect, "probes": required,
                                  "parts": [part.key for part in parts], "boot_id": boot_id()}},
@@ -1228,6 +1412,58 @@ def status(esp, board, out=print):
         out("Last run: " + json.dumps(st, sort_keys=True))
 
 
+_TOOL = None
+
+
+def tool_digest():
+    """sha256 of the code that decides a refusal or a match: this file,
+    apfs_ro and the asahi_firmware modules loaded, so a fixed or newer tool
+    checks again."""
+    global _TOOL
+    if _TOOL is None:
+        files = {"aurora_wifi_firmware": __file__}
+        files.update((n, m.__file__) for n, m in list(sys.modules.items())
+                     if (n == "apfs_ro" or n == "asahi_firmware" or n.startswith("asahi_firmware."))
+                     and getattr(m, "__file__", None))
+        h = hashlib.sha256()
+        for name in sorted(files):
+            h.update(f"{name} {file_sha256(files[name])}\n".encode())
+        _TOOL = h.hexdigest()
+    return _TOOL
+
+
+def remembered(error):
+    """Whether a boot remembers this refusal: only what the same inputs and
+    the same tool give again. A copy or swap that failed (Transient) is
+    tried again at the next boot."""
+    return isinstance(error, Refused) and not isinstance(error, Transient)
+
+
+def refusal(error, macos, esp):
+    """What a refused boot remembers: the reason, and the inputs that decide
+    it (the macOS build, the ESP's radio set and this tool's code) so an
+    unchanged Mac does not read, convert and stage the same trees at every
+    boot."""
+    return {"build": macos.build, "device": macos.device, "esp_wifi": esp_wifi_digest(esp),
+            "tool": tool_digest(), "reason": str(error), "need": getattr(error, "need", None)}
+
+
+def refusal_stands(refused, macos, esp):
+    """True while nothing a remembered refusal depended on has changed: the
+    same macOS build and device, the same ESP radio set, the same tool and,
+    for a lack of space, still too little free space on the ESP (counting
+    what an earlier run's leftovers hold, which the next try removes)."""
+    if not refused or refused.get("build") != macos.build \
+            or refused.get("device") != macos.device \
+            or not refused.get("esp_wifi") or refused["esp_wifi"] != esp_wifi_digest(esp) \
+            or refused.get("tool") != tool_digest():
+        return False
+    need = refused.get("need")
+    if need is None:
+        return True
+    return free_space(esp) < need
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="aurora-wifi-firmware", description=__doc__.split("\n\n")[0])
     ap.add_argument("cmd", nargs="?", default="update",
@@ -1277,28 +1513,44 @@ def main(argv=None):
             if not found:
                 raise NotNow("no installed macOS System volume with radio firmware was readable")
             # At boot, a macOS build already checked against this ESP package
-            # needs no second read of its tree.
+            # by this tool needs no second read of its tree. A newer tool (one
+            # that follows more radios, or converts differently) reads it once.
             if a.cmd == "boot" and found[0].build == state.get("build") \
                     and found[0].device == state.get("device", found[0].device) \
                     and state.get("result") in ("verified", "identical") \
                     and not state.get("pending") \
-                    and state.get("esp_wifi") and state.get("esp_wifi") == esp_wifi_digest(esp):
+                    and state.get("esp_wifi") and state.get("esp_wifi") == esp_wifi_digest(esp) \
+                    and state.get("tool") == tool_digest():
                 print(f"The ESP holds macOS {found[0].build}'s radio firmware (checked before). "
                       f"Nothing to do.")
                 return 0
+            if a.cmd == "boot" and refusal_stands(state.get("refused"), found[0], esp):
+                why = state["refused"].get("reason", "")
+                print(f"macOS {found[0].build}'s radio firmware was refused for this ESP before "
+                      f"({why}); nothing changed since (run 'aurora-wifi-firmware update' to "
+                      f"try again).")
+                return 1
             if a.cmd == "boot" and found[0].build == state.get("refused_build"):
                 why = "was put back by hand" if state.get("result") == "reverted by hand" \
                     else "did not come up here before"
                 print(f"macOS {found[0].build}'s radio firmware {why}; keeping the current files "
                       f"(run 'aurora-wifi-firmware update' to use it).")
                 return 0
-            r = update(esp, found[0], board, dry_run=a.cmd == "check")
+            try:
+                r = update(esp, found[0], board, dry_run=a.cmd == "check")
+            except Refused as e:
+                # Only the installed macOS's refusals concern the boot; a
+                # person's `update --macos DIR` leaves them alone.
+                if remembered(e) and (a.cmd == "boot" or (a.cmd == "update" and not a.macos)):
+                    write_state(dict(state, refused=refusal(e, found[0], esp)))
+                raise
             if r == "identical" and a.cmd != "check":
                 write_state(dict(state, build=found[0].build, version=found[0].version,
                                  device=found[0].device, volume=found[0].volume.name,
                                  result="verified" if state.get("result") == "verified"
                                  and state.get("build") == found[0].build else "identical",
-                                 esp_wifi=esp_wifi_digest(esp), refused_build=None))
+                                 esp_wifi=esp_wifi_digest(esp), tool=tool_digest(),
+                                 refused_build=None, refused=None))
             return 0
     except Refused as e:
         print(f"Refused: {e}", file=sys.stderr)

@@ -284,7 +284,8 @@
         // A changed or partially written disk intent cannot match this header.
         let before = facts.disk.snapshot
         let label = try metadata.target().name
-        guard (1...80).contains(label.unicodeScalars.count), !label.contains("/"),
+        guard (1...80).contains(label.unicodeScalars.count),
+          !label.utf8.contains(UInt8(ascii: "/")),
           !label.unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 })
         else { throw NativeAPFSError.invalidLabel }
         var source: RemovalPartition?

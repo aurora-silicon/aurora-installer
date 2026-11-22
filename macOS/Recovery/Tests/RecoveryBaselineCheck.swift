@@ -34,6 +34,15 @@ import Foundation
     ]
     let firmware = try RecoveryBaseline.firmware(manifest: manifest, root: baseline)
     precondition(firmware.count == 3)
+    // Paths are judged on UTF-8 bytes; a grapheme cluster cannot hide a
+    // separator, a dot or NUL, and cannot absorb a separator.
+    for name in [
+      "", "..", "a//b", "a\u{0}b", "../\u{301}x", "a/../\u{301}b", "/\u{301}a",
+      "a\u{0}\u{301}", "a/\u{301}b", "a\u{600}/b",
+    ] {
+      refused { _ = try RecoveryBaseline.path(name, beneath: baseline) }
+    }
+    _ = try RecoveryBaseline.path("vendorfw/a\u{301}b", beneath: baseline)
     try write(
       Data("changed".utf8), baseline.appendingPathComponent(RecoveryBaseline.vendorPaths[0]))
     refused { _ = try RecoveryBaseline.firmware(manifest: manifest, root: baseline) }

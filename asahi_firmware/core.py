@@ -8,10 +8,11 @@ UBOOT_FILES = set([
 ])
 
 class FWFile(object):
-    def __init__(self, name, data):
+    def __init__(self, name, data, sha=None):
+        # sha: data's known SHA-256 (an alias of a file already read).
         self.name = name
         self.data = data
-        self.sha = sha256(data).hexdigest()
+        self.sha = sha or sha256(data).hexdigest()
 
     def __repr__(self):
         return f"FWFile({self.name!r}, <{self.sha[:16]}>)"

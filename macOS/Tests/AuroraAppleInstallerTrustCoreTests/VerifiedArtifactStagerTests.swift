@@ -24,6 +24,18 @@ final class VerifiedArtifactStagerTests: XCTestCase {
     }
   }
 
+  /// File names are judged on UTF-8 bytes: a combining mark cannot hide a
+  /// backslash or a separator inside one Character.
+  func testFileNamesAreJudgedOnBytes() {
+    for name in ["a\\\u{301}b", "a\\b", "a/\u{301}b", "a\u{600}/b"] {
+      XCTAssertFalse(PinnedInstallerArtifact.isSafeFileName(name), name.debugDescription)
+      XCTAssertThrowsError(try descriptor(fileName: name), name.debugDescription) {
+        XCTAssertEqual($0 as? ArtifactStageError, .invalidFileName)
+      }
+    }
+    XCTAssertTrue(PinnedInstallerArtifact.isSafeFileName("installer\u{301}.tar.gz"))
+  }
+
   func testValidDownloadIsVerifiedAndAcceptedAtomically() async throws {
     let data = Data("pinned installer payload".utf8)
     let downloader = FixtureArtifactDownloader(data: data)

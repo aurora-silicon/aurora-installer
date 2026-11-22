@@ -23,10 +23,15 @@ enum RecoveryBaseline {
   }
 
   static func path(_ name: String, beneath root: URL) throws -> URL {
-    guard !name.isEmpty, !name.contains("\0"),
-      name.split(separator: "/", omittingEmptySubsequences: false).allSatisfy({
-        !$0.isEmpty && $0 != "." && $0 != ".."
-      })
+    // Judge the UTF-8 bytes the file system sees: a grapheme cluster can hide
+    // a separator or a dot ("../\u{301}x"). The symlink walk below splits on
+    // Characters, so every '/' byte must also be a Character of its own.
+    let bytes = Array(name.utf8)
+    let dot = UInt8(ascii: ".")
+    let parts = bytes.split(separator: UInt8(ascii: "/"), omittingEmptySubsequences: false)
+    guard !bytes.isEmpty, !bytes.contains(0),
+      parts.count == name.split(separator: "/", omittingEmptySubsequences: false).count,
+      parts.allSatisfy({ !$0.isEmpty && $0 != [dot] && $0 != [dot, dot] })
     else { throw RecoveryBaselineFailure(message: "Invalid recovery file path.") }
     let base = root.standardizedFileURL
     var info = stat()
