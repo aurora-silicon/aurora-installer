@@ -36,6 +36,9 @@
     private static let unqualifiedT6050Composition =
       "This installer and its kernel, startup code and firmware combination have not been qualified on this Mac. Its Linux device tree is present, but Aurora may not start and some hardware may not work. Continue only after acknowledging the warning and the recovery steps."
 
+    private static let m5Air15 =
+      "Support for the 15-inch MacBook Air with M5 is experimental, and it needs macOS 27.2 or later: on an older macOS the installer asks you to update first. The Aurora team has installed it with a test build of this installer on the macOS 27.2 stub, finished the installation and started Linux on it, but only with a separately built kernel. The kernel in the published downloads does not support most of its hardware yet, and the installer does not collect its Wi-Fi and Bluetooth firmware yet, so a standard install has no GPU acceleration, display driver, Wi-Fi or Bluetooth, and Aurora may not start."
+
     static let reasons: [String: String] = [
       "apple,j575d": untriedChip,
       "apple,j614s": untriedBoard,
@@ -51,7 +54,7 @@
       "apple,j813": untriedM5M6,
       "apple,j873g": untriedM5M6,
       "apple,j704": describedOnly,
-      "apple,j815": describedOnly,
+      "apple,j815": m5Air15,
       "apple,j804": describedOnly,
       "apple,j833ct": describedOnly,
       "apple,j714c": unqualifiedT6050Composition,

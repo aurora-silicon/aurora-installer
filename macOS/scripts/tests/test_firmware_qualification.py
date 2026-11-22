@@ -76,18 +76,19 @@ class FirmwareQualificationTests(unittest.TestCase):
                 self.assertIn('apple,' + board, caution, build + ' ' + board)
                 self.assertEqual(self.policy['devices'][board], {'expert': False, 'minimum': '27.2'})
                 self.assertEqual(proof['qualification'], 'not_hardware_qualified')
+                chip = proof['manifest_identity']['chip_id']
+                self.assertIn(chip, ('0x6050', '0x8142'), board)
                 self.assertEqual(proof['device_tree'],
-                                 'arch/arm64/boot/dts/apple/t6050-' + board + '.dts')
+                                 'arch/arm64/boot/dts/apple/t' + chip[2:] + '-' + board + '.dts')
                 self.assertTrue(proof['evidence'].endswith('/' + proof['device_tree']))
                 self.assertTrue(proof['evidence'].startswith(
                     'https://github.com/aurora-silicon/linux/blob/'))
                 self.assertEqual(proof['manifest_identity']['device_class'], board + 'ap')
-                self.assertEqual(proof['manifest_identity']['chip_id'], '0x6050')
                 self.assertRegex(proof['manifest_identity']['board_id'], r'^0x[0-9a-f]{2}$')
 
-    def test_t6050_experimental_admission_keeps_the_verified_source_pin(self):
+    def test_experimental_admission_keeps_the_verified_source_pin(self):
         expected = {'j714c': '0x0a', 'j714s': '0x08', 'j716c': '0x0e', 'j716s': '0x0c',
-                    'j775c': '0x10', 'j775d': '0x12', 'j873s': '0x02'}
+                    'j775c': '0x10', 'j775d': '0x12', 'j815': '0x26', 'j873s': '0x02'}
         record = self.record['pins']['26B123']
         self.assertEqual(set(record['boards']), {'j615', 'j713'})
         self.assertEqual({board: proof['manifest_identity']['board_id']

@@ -36,7 +36,12 @@ struct InstallerMasthead: View {
   var distribution: AuroraDistribution? = nil
   let device: MacHeaderDisplay
   var channel: ReleaseChannel? = nil
+  /// The plan on screen is a Reset or boot loader update, which names its
+  /// channel whichever it is.
+  var existingInstallation = false
   private static let markSpacing: CGFloat = 10
+  private static let titleSize: CGFloat = 17
+  private static let channelSpacing: CGFloat = 8
   private static let deviceSymbolSpacing: CGFloat = 14
   private static let markSize: CGFloat = 32
   /// AuroraLogo.png's artwork starts 164 of 1024 pixels in; pulling the mark
@@ -47,12 +52,21 @@ struct InstallerMasthead: View {
     HStack(spacing: 16) {
       HStack(spacing: Self.markSpacing) {
         AuroraMark().frame(width: Self.markSize, height: Self.markSize)
-        Text(distribution?.title ?? "Aurora").font(.system(size: 17, weight: .semibold))
-          .lineLimit(1)
-        if channel == .testing {
-          Text(PlainLanguage.channelNightly)
-            .font(.caption)
-            .foregroundStyle(.secondary)
+        HStack(alignment: .firstTextBaseline, spacing: Self.channelSpacing) {
+          Text(distribution?.title ?? "Aurora")
+            .font(.system(size: Self.titleSize, weight: .semibold))
+            .lineLimit(1)
+          if let label = PlainLanguage.mastheadChannelLabel(
+            channel, existingInstallation: existingInstallation)
+          {
+            // The title's size in the secondary colour, on its baseline. A long
+            // title truncates before the channel name does.
+            Text(label)
+              .font(.system(size: Self.titleSize))
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+              .fixedSize(horizontal: true, vertical: false)
+          }
         }
       }
       .padding(.leading, -Self.markInset)

@@ -97,7 +97,7 @@ def prepare(source, output, sealed=False, signing_team=None):
             if descriptor.get("default_channel") == "edge":
                 descriptor["default_channel"] = "testing"
         if set(channels) != {"stable", "rc", "testing", "edge"} or descriptor.get("default_channel") == "edge":
-            raise ValueError("Edge is opt-in; all four channel endpoints are required")
+            raise ValueError("Edge is never the bundled default; all four channel endpoints are required")
         if signing_team is None:
             return (json.dumps(descriptor, indent=2) + "\n").encode()
         helper = identity["INSTALLER_HELPER_IDENTIFIER"]

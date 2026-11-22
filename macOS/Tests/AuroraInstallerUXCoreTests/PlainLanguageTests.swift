@@ -159,6 +159,49 @@
         PlainLanguage.channelMenuItemEnabled(.edge, selected: .testing, availability: .available))
     }
 
+    func testUnavailableEdgePointsToNightlyInTheChannelMenu() {
+      // Edge is the default wherever its catalog admits this Mac, so the
+      // remedy names the menu rather than calling Nightly the development pick.
+      let failure = PlainLanguage.failure(
+        for: InstallerReleaseConfigurationError.edgeAlphaUnavailable)
+      XCTAssertEqual(failure.headline, "Edge isn’t available yet")
+      XCTAssertEqual(
+        failure.remedy,
+        "Choose Nightly from the Release channel menu, or check Edge again later.")
+    }
+
+    func testTheMastheadNamesAPreservedPlansChannelWhicheverItIs() {
+      // A new installation is labelled only when it reads Nightly. A Reset or
+      // boot loader update names its channel, Edge included, because it may
+      // differ from what the installation has been following.
+      func label(_ channel: ReleaseChannel?, existing: Bool) -> String? {
+        PlainLanguage.mastheadChannelLabel(channel, existingInstallation: existing)
+      }
+      XCTAssertEqual(label(.testing, existing: false), "Nightly")
+      XCTAssertNil(label(.edge, existing: false))
+      XCTAssertNil(label(nil, existing: false))
+      XCTAssertEqual(label(.testing, existing: true), "Nightly")
+      XCTAssertEqual(label(.edge, existing: true), "Edge")
+      XCTAssertEqual(label(.stable, existing: true), "Stable")
+      XCTAssertEqual(label(.rc, existing: true), "Release candidate")
+      XCTAssertNil(label(nil, existing: true))
+    }
+
+    func testAnUnreachableReleaseListPointsToTheChannelMenu() {
+      // Offline, Edge stays chosen where it was the default; the failure says
+      // how to reach another channel, while a failed download stays generic.
+      let failure = PlainLanguage.failure(
+        for: InstallerReleaseConfigurationError.catalogUnreachable(
+          URLError.notConnectedToInternet.rawValue))
+      XCTAssertEqual(failure.headline, "The release list couldn’t be downloaded")
+      XCTAssertEqual(
+        failure.remedy,
+        "Check your internet connection and try again, or choose another channel from the "
+          + "Release channel menu.")
+      let download = PlainLanguage.failure(for: URLError(.networkConnectionLost))
+      XCTAssertEqual(download.headline, "The network request didn’t finish")
+    }
+
     func testOnlyChannelsWithNothingForThisMacAreDisabled() {
       func enabled(_ channel: ReleaseChannel, _ availability: ReleaseChannelAvailability?) -> Bool {
         PlainLanguage.channelMenuItemEnabled(

@@ -45,7 +45,7 @@
 
     // MARK: Policy
 
-    func testTheSealedPinNamesTheUniversal26B123ImageAndExperimentalT6050Boards() throws {
+    func testTheSealedPinNamesTheUniversal26B123ImageAndItsExperimentalBoards() throws {
       let sealed = try NativeInspectionPolicy.sealed()
       let pinned = sealed.firmware.filter { $0.pin != nil }
       XCTAssertEqual(pinned.count, 1)
@@ -62,12 +62,48 @@
       XCTAssertEqual(
         entry.models,
         [
-          "j615", "j713", "j714c", "j714s", "j716c", "j716s", "j775c", "j775d", "j873s",
+          "j615", "j713", "j714c", "j714s", "j716c", "j716s", "j775c", "j775d", "j815", "j873s",
         ])
       // It is last, so it wins wherever a board qualifies for it.
       XCTAssertEqual(sealed.firmware.last?.pin?.build, Self.build)
-      // Admitting the Airs does not change the M2 MacBook Air's choice.
+      // Admitting the Airs, the J815 and the T6050 boards does not change the M2
+      // MacBook Air's choice.
       XCTAssertEqual(try choose("apple,j413", air272, policy: sealed).version, "13.5")
+    }
+
+    func testJ815TakesTheSealedPinAndIsAskedToUpdateBelow272() throws {
+      let sealed = try NativeInspectionPolicy.sealed()
+      let j815 = NativeInspectionHardware(
+        chipID: 0x8142, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2",
+        recoveryVersion: "26.2.123.0.0,0")
+      XCTAssertTrue(sealed.supports("apple,j815", hardware: j815))
+      let selection = try choose("apple,j815", j815, policy: sealed)
+      XCTAssertEqual(selection.version, "27.2")
+      XCTAssertEqual(selection.pin?.build, Self.build)
+      let point = NativeInspectionHardware(
+        chipID: 0x8142, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2.1",
+        recoveryVersion: "26.2.123.0.0,0")
+      XCTAssertEqual(try choose("apple,j815", point, policy: sealed).pin?.build, Self.build)
+      // The macOS floor holds by itself: 27.1 is refused even on 27.2-level
+      // system firmware and Recovery.
+      let newFirmware = NativeInspectionHardware(
+        chipID: 0x8142, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.1",
+        recoveryVersion: "26.2.123.0.0,0")
+      XCTAssertThrowsError(try choose("apple,j815", newFirmware, policy: sealed)) { error in
+        XCTAssertEqual(
+          error as? NativeFirmwareSelectionError, .macOSUpdateRequired(version: "27.2"))
+      }
+      // On 26.6.2 through 27.1 it no longer gets the 26.6.2 stub: everything the
+      // J815 runs (the 27.2 ANE, AVE, GPU and display firmware) is 27.2's.
+      for macOS in ["26.6.2", "27.0", "27.1"] {
+        let older = NativeInspectionHardware(
+          chipID: 0x8142, bootVersion: "mBoot-18000.161.10", macOSVersion: macOS,
+          recoveryVersion: "25.7.83.0.0,0")
+        XCTAssertThrowsError(try choose("apple,j815", older, policy: sealed), macOS) { error in
+          XCTAssertEqual(
+            error as? NativeFirmwareSelectionError, .macOSUpdateRequired(version: "27.2"), macOS)
+        }
+      }
     }
 
     /// A 15-inch M3 MacBook Air on macOS 26.6.2.
