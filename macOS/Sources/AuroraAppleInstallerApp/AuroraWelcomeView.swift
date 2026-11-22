@@ -85,8 +85,8 @@ struct AuroraWelcomeView: View {
       "Omarchy Aurora combines Omarchy with Aurora's Arch Linux ARM hardware stack and is not "
         + "provided or endorsed by the Omarchy project."
     case .debian:
-      "Aurora Debian is based on Debian testing and is not provided or endorsed by the Debian "
-        + "project. Debian is a registered trademark owned by Software in the Public Interest, Inc."
+      "Aurora, based on Debian testing, is not provided or endorsed by the Debian project. "
+        + "Debian is a registered trademark owned by Software in the Public Interest, Inc."
     }
   }
 

@@ -63,10 +63,12 @@
     func testTheChooserNamesUpstreamsOnlyAsTheirTermsAllow() {
       // Fedora's Remix mark follows the brand ("<name> Fedora Remix"); Arch is
       // named as Asahi Alarm is, with no Arch mark; the notices say "based on".
+      // Debian's marks may not be part of a product name, so its entry is Aurora
+      // with a factual description.
       XCTAssertEqual(AuroraDistribution.fedora.title, "Aurora Fedora Remix")
       XCTAssertEqual(AuroraDistribution.arch.title, "Aurora Alarm")
       XCTAssertEqual(AuroraDistribution.nixos.title, "Aurora NixOS")
-      XCTAssertEqual(AuroraDistribution.debian.title, "Aurora Debian")
+      XCTAssertEqual(AuroraDistribution.debian.title, "Aurora, based on Debian testing")
       XCTAssertEqual(AuroraDistribution.legacyTitles, ["Fedora Aurora Remix", "Aurora ALARM"])
     }
   }

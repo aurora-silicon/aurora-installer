@@ -459,8 +459,8 @@ class DistributionPayloadTests(unittest.TestCase):
         output = self.root / 'debian-gnome'
         payload.assemble(self.bundle, self.app, output, release_id='fixture')
         metadata = json.loads((output / 'installer-data-debian-gnome.json').read_text())['os_list'][0]
-        self.assertEqual(metadata['default_os_name'], 'Aurora Debian')
-        self.assertEqual(metadata['name'], 'Aurora Debian (gnome)')
+        self.assertEqual(metadata['default_os_name'], 'Aurora, based on Debian testing')
+        self.assertEqual(metadata['name'], 'Aurora, based on Debian testing (gnome)')
         self.assertEqual(metadata['layout_kind'], 'debian-btrfs-v1')
 
     def test_resume_rejects_an_icon_from_another_distribution(self):

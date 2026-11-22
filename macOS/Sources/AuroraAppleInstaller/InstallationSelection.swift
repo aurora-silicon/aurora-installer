@@ -20,7 +20,7 @@ public enum AuroraDistribution: String, CaseIterable, Codable, Identifiable, Sen
     case .arch: "Aurora Alarm"
     case .nixos: "Aurora NixOS"
     case .omarchy: "Omarchy Aurora"
-    case .debian: "Aurora Debian"
+    case .debian: "Aurora, based on Debian testing"
     }
   }
   /// Names earlier installers gave these installations. Erase Linux and

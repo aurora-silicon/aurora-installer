@@ -49,4 +49,4 @@ Catalogs bind the selected profile and exact artifact hashes. Firmware and calib
 
 See [DMG release builds](docs/native-dmg-release.md) and [local payload testing](docs/private-local-payload-install.md). Current downloads and hardware qualification belong in the distribution repository.
 
-Omarchy Aurora offers Hyprland only and reuses the signed ALARM Btrfs/GRUB/first-boot contract. Aurora Debian follows Debian testing, offers KDE, GNOME and minimal, and has its own `debian-btrfs-v1` layout; it is a build opt-in (`AURORA_ENABLE_DEBIAN=1`, see [release inputs](Release/README.md)). Other distributions keep their existing KDE, GNOME and minimal profiles.
+Omarchy Aurora offers Hyprland only and reuses the signed ALARM Btrfs/GRUB/first-boot contract. "Aurora, based on Debian testing" follows Debian testing (Debian's marks may not be part of a product name), offers KDE, GNOME and minimal, and has its own `debian-btrfs-v1` layout; it is a build opt-in (`AURORA_ENABLE_DEBIAN=1`, see [release inputs](Release/README.md)). Other distributions keep their existing KDE, GNOME and minimal profiles.

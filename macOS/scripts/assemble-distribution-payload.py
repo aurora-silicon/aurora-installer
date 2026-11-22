@@ -400,7 +400,7 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
     with zipfile.ZipFile(payload) as archive:
         aurora_recovery.validate_payload(archive)
     title = {'fedora': 'Aurora Fedora Remix', 'arch': 'Aurora Alarm', 'nixos': 'Aurora NixOS', 'omarchy': 'Omarchy Aurora',
-             'debian': 'Aurora Debian'}[profile.split('-')[0]]
+             'debian': 'Aurora, based on Debian testing'}[profile.split('-')[0]]
     # omarchy_target and omarchy-native-v1 are the published metadata contract
     # every released installer reads; they predate the Aurora name.
     template = {
