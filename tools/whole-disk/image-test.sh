@@ -22,6 +22,9 @@
 #     unaligned starts, the J473 sizes: 6.0 GB stub, 141 GB freed, 96 GB
 #     root; 251 GB sparse image, about 8 GB written).
 #   v2-j473-stop:<point>  v2-stop on the J473 shape.
+#   gpt-cut  the J473 table; one partition-table edit cut after each of its
+#     writes in turn; a fresh `losetup -P` must still show every partition
+#     (Linux reads only the primary GPT).
 #   v2-remove-fails  btrfs device remove fails twice: the first claim stops
 #     with an error, the next ends with the root on two devices.
 # Every mode sets attribute bits sfdisk can't print (3-47) on Apple's and
@@ -37,6 +40,7 @@ stop=
 layout=fixture
 case $mode in
   fresh | interrupted | v2 | v2-refuse | v2-interrupted | v2-remove-fails) ;;
+  gpt-cut) layout=j473 ;;
   v2-j473) layout=j473 ;;
   v2-stop:*) stop=${mode#v2-stop:} ;;
   v2-j473-stop:*) stop=${mode#v2-j473-stop:}; layout=j473 ;;
@@ -153,6 +157,45 @@ elif cmd == "compare":
 EOF
 }
 gptraw set-attrs "$loop"
+if [[ $mode == gpt-cut ]]; then
+  cp_tab() { dd if="$loop" of="$1" bs=4096 count=6 status=none; dd if="$loop" of="$1.b" bs=4096 skip=61279339 count=5 status=none; }
+  put_tab() { dd if="$1" of="$loop" bs=4096 conv=notrunc,fsync status=none; dd if="$1.b" of="$loop" bs=4096 seek=61279339 conv=notrunc,fsync status=none; }
+  cp_tab "$work/tab"
+  want=$(ls /sys/class/block/"$(basename "$loop")" | grep -c "^$(basename "$loop")p")
+  result=PASS; : > "$logs/gpt-cut.txt"
+  for after in 0 1 2 3; do
+    put_tab "$work/tab"
+    python3 -I - "$here" "$loop" "$after" >> "$logs/gpt-cut.txt" 2>&1 <<'EOF2' || true
+import os, sys
+sys.path[:0] = [sys.argv[1], os.path.join(sys.argv[1], "..", "wifi-firmware")]
+import aurora_whole_disk as wd
+after, n = int(sys.argv[3]), [0]
+real = wd.Direct.write
+def cut(self, off, data):
+    if n[0] == after:
+        raise SystemExit(f"cut after {after} writes")
+    n[0] += 1
+    real(self, off, data)
+wd.Direct.write = cut
+g = wd.read_gpt(sys.argv[2])
+stub = next(p for p in g["parts"] if p["node"].endswith("p3"))
+try:
+    wd.gpt_edit(sys.argv[2], g, [("move", stub["uuid"], 524288000)])
+    print(f"cut point {after}: store finished after {n[0]} writes")
+except SystemExit as e:
+    print(f"cut point {after}: {e}")
+EOF2
+    losetup -d "$loop"; loop=$(losetup --find --show --sector-size 4096 --partscan "$img"); udevadm settle
+    seen=$(ls /sys/class/block/"$(basename "$loop")" | grep -c "^$(basename "$loop")p")
+    stub_start=$(cat /sys/class/block/"$(basename "$loop")"p3/start)
+    echo "cut point $after: fresh attach sees $seen partitions, stub at 512-byte sector $stub_start" >> "$logs/gpt-cut.txt"
+    [[ $seen == "$want" ]] || result="FAIL cut point $after: $seen of $want partitions"
+  done
+  cat "$logs/gpt-cut.txt"
+  echo "$result (gpt-cut): every cut of a table write leaves a primary GPT Linux reads ($want of $want partitions each time; old table before the primary write, new after)" | tee "$logs/result.txt"
+  [[ $result == PASS ]]
+  exit
+fi
 partx -u "$loop" || true
 udevadm settle
 python3 -I - "$loop" "$repo/tests" <<'EOF'

@@ -765,9 +765,16 @@ def _header_bytes(h, ss, my, alt, ent_lba, ent_crc):
 
 def gpt_store(io, t, entries):
     """Writes `entries` into both copies: backup first, then primary, each
-    synced, so a stop inside leaves at least one valid copy (the primary,
-    old or new, is what everything reads first). Header fields other than
-    the entry CRC (and LBAs, when a copy was invalid) are kept."""
+    synced. Each copy's header and entries go out in ONE write where they
+    are contiguous (entries at LBA 2 after the primary header at LBA 1, the
+    backup's entries just before its header; always so on Apple's and
+    sfdisk's tables), with SIGTERM, SIGINT and SIGHUP held off, so the
+    process can't stop between a copy's entries and its header. That
+    matters: Linux reads only the primary (it uses the backup only with the
+    `gpt` kernel parameter), and a primary whose entries don't match its
+    header shows no partitions at all. A stop before the primary's write
+    leaves the old primary, valid; after it, the new one. Header fields
+    other than the entry CRC (and LBAs, when a copy was invalid) are kept."""
     ss = t["ss"]
     arr = b"".join(entries)
     crc = _crc(arr)
@@ -781,12 +788,25 @@ def gpt_store(io, t, entries):
         b_my = p["alt"]
         b_ent = b_my - n_sectors
     p_ent = p["entries"] if p else 2
-    io.write(b_ent * ss, pad)
-    io.write(b_my * ss, _header_bytes(b or live, ss, b_my, 1, b_ent, crc))
-    io.sync()
-    io.write(p_ent * ss, pad)
-    io.write(1 * ss, _header_bytes(p or live, ss, 1, b_my, p_ent, crc))
-    io.sync()
+    b_hdr = _header_bytes(b or live, ss, b_my, 1, b_ent, crc)
+    p_hdr = _header_bytes(p or live, ss, 1, b_my, p_ent, crc)
+    held = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
+    old = signal.pthread_sigmask(signal.SIG_BLOCK, held)
+    try:
+        if b_ent + n_sectors == b_my:
+            io.write(b_ent * ss, pad + b_hdr)
+        else:
+            io.write(b_ent * ss, pad)
+            io.write(b_my * ss, b_hdr)
+        io.sync()
+        if p_ent == 2:
+            io.write(1 * ss, p_hdr + pad)
+        else:
+            io.write(p_ent * ss, pad)
+            io.write(1 * ss, p_hdr)
+        io.sync()
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, old)
 
 
 class FileIO:
@@ -825,6 +845,11 @@ def gpt_edit(disk, gpt, ops, check_kernel=True):
         size = os.lseek(io.fd, 0, os.SEEK_END)
         before = gpt_load(io, ss, size)
         live = before["primary"] or before["backup"]
+        other = before["backup"] if before["primary"] else None
+        if other and (other["guid"], other["first"], other["last"], other["n"]) != \
+                (live["guid"], live["first"], live["last"], live["n"]):
+            raise Refusal("The two copies of the partition table disagree about the disk; "
+                          "nothing was changed.")
         want = gpt_apply(before["entries"], ss, ops, live["first"], live["last"])
         gpt_store(io, before, want)
         after = gpt_load(io, ss, size)
@@ -953,20 +978,43 @@ def kernel_sync(disk, gpt, locked=False):
     """Brings the kernel's partitions in line with the GPT where they differ
     (a stop between a table write and partx leaves them stale). Partitions
     in use can only change size; those that can't change are left as they
-    are and checked by the caller. With the disk locked (disk_locked) udev
+    are and checked by the caller. A partition the GPT no longer has stays
+    while systemd units still need it (bound_to); returns those, by node. With the disk locked (disk_locked) udev
     leaves its partitions alone, so there is nothing to wait for."""
     want = {partnum(p["node"]): (p["start"], p["size"]) for p in gpt["parts"]}
+    held = {}
     for _ in range(5):
         have = kernel_parts(disk)
-        todo = [["--delete", nr] for nr in have if nr not in want] + \
+        gone = [nr for nr in have if nr not in want]
+        for nr in gone:
+            node = kernel_node(disk, nr)
+            units = bound_to(node) if node else []
+            if units:
+                # Taking it away would stop these units (unmount /home, /var).
+                held[node] = units
+        todo = [["--delete", nr] for nr in gone if kernel_node(disk, nr) not in held] + \
                [["--add" if nr not in have else "--update", nr]
                 for nr, g in want.items() if have.get(nr) != g]
         if not todo:
-            return
+            return held
         for op, nr in todo:
             run(["partx", op, "--nr", nr, disk], check=False)
         if not locked:
             run(["udevadm", "settle", "--timeout=30"], check=False)
+    return held
+
+
+def kernel_node(disk, nr):
+    """/dev node of the kernel's partition number `nr` of `disk`, or None."""
+    base = f"/sys/class/block/{os.path.basename(os.path.realpath(disk))}"
+    for e in os.listdir(base):
+        try:
+            with open(os.path.join(base, e, "partition")) as f:
+                if f.read().strip() == str(nr):
+                    return f"/dev/{e}"
+        except OSError:
+            pass
+    return None
 
 
 @contextlib.contextmanager
@@ -1432,7 +1480,14 @@ def claim_root(a, disk, chosen, record, v2, st, done_path, path):
             print("Nothing was changed.")
             return 1
     gpt = read_gpt(disk)
-    kernel_sync(disk, gpt)
+    held = kernel_sync(disk, gpt)
+    if held:
+        # An earlier run this boot merged the table but left the old root in
+        # the kernel because systemd still tied mounts to it.
+        for node, units in held.items():
+            print(f"systemd still ties {', '.join(units)} to {node}; the root file system "
+                  "grows into the space at the next start.", flush=True)
+        return 0
     for k in MOVED:
         # /boot or the ESP mounted from a place the GPT no longer has: the
         # root must not move over it. A restart mounts them from the GPT.

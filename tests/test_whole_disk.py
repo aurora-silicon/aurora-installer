@@ -8,6 +8,7 @@ import io
 import json
 import os
 import shutil
+import signal
 import struct
 import subprocess
 import sys
@@ -635,6 +636,85 @@ class RawGpt(unittest.TestCase):
             io.close()
         self.assertEqual(t["primary"]["array"], t["backup"]["array"])
 
+    def primary_array(self, sector):
+        """The primary as Linux reads it: header and entry CRCs must hold."""
+        with open(self.img, "rb") as f:
+            f.seek(sector)
+            h = wd.gpt_header(f.read(sector))
+            if h is None:
+                return None
+            f.seek(h["entries"] * sector)
+            arr = f.read(h["n"] * wd.ENTRY)
+        return arr if wd._crc(arr) == h["crc"] else None
+
+    def test_store_cut_after_any_write_keeps_a_valid_primary(self):
+        """A power cut or kill after any write of gpt_store: the primary is
+        always valid, the old table or the new one (Linux uses no backup)."""
+        self.make(4096)
+        old = self.primary_array(4096)
+        io = wd.FileIO(self.img)
+        t = wd.gpt_load(io, 4096, 15 << 30)
+        live = t["primary"]
+        new = wd.gpt_apply(t["entries"], 4096, [("move", self.by["stub"]["uuid"], 513 * MIB)],
+                           live["first"], live["last"])
+        io.close()
+        writes = []
+
+        class Cut(Exception):
+            pass
+
+        class CutIO(wd.FileIO):
+            def __init__(self, path, after):
+                super().__init__(path)
+                self.after = after
+
+            def write(self, off, data):
+                if len(writes) == self.after:
+                    raise Cut
+                writes.append((off, len(data)))
+                super().write(off, data)
+
+        n = None
+        for after in range(0, 10):
+            self.make(4096)  # the old table again, both copies
+            old = self.primary_array(4096)
+            writes.clear()
+            io = CutIO(self.img, after)
+            t = wd.gpt_load(io, 4096, 15 << 30)
+            try:
+                wd.gpt_store(io, t, new)
+                n = len(writes)
+            except Cut:
+                pass
+            finally:
+                io.close()
+            got = self.primary_array(4096)
+            with self.subTest(after=after):
+                self.assertIn(got, (old, b"".join(new)))
+            if n is not None:
+                break
+        self.assertEqual(n, 2)  # one write per copy, header and entries together
+
+    def test_store_holds_off_sigterm(self):
+        self.make(512)
+        got = []
+        prev = signal.signal(signal.SIGTERM, lambda *_: got.append(self.primary_array(512)))
+        try:
+            class KillIO(wd.FileIO):
+                def write(self, off, data):
+                    os.kill(os.getpid(), signal.SIGTERM)
+                    super().write(off, data)
+            io = KillIO(self.img)
+            t = wd.gpt_load(io, 512, 15 << 30)
+            new = wd.gpt_apply(t["entries"], 512, [("move", self.by["stub"]["uuid"], 513 * MIB)],
+                               t["primary"]["first"], t["primary"]["last"])
+            wd.gpt_store(io, t, new)
+            io.close()
+        finally:
+            signal.signal(signal.SIGTERM, prev)
+        # The handler ran once, after both copies were written.
+        self.assertEqual(got, [b"".join(new)])
+
     def test_apply_refusals(self):
         self.make(4096)
         io = wd.FileIO(self.img)
@@ -678,6 +758,27 @@ class SmallChecks(unittest.TestCase):
         self.assertEqual(seen, ["/var/swap/swap file"])
         self.assertIsNone(wd.swap_problem(swaps, lambda p: "/dev/sda1", {"/dev/nvme0n1p6"}))
         self.assertIsNone(wd.swap_problem(swaps.splitlines()[0], where, {"/dev/nvme0n1p6"}))
+
+    def test_kernel_sync_keeps_partitions_systemd_needs(self):
+        """After a merge that left the old root in the kernel (systemd still
+        tied /home to it), a rerun in the same boot must not delete it."""
+        gpt = {"parts": [{"node": "/dev/vda2", "start": 100, "size": 900}]}
+        calls = []
+        saved = {k: getattr(wd, k) for k in ("kernel_parts", "kernel_node", "bound_to", "run")}
+        wd.kernel_parts = lambda disk: {"2": (100, 400), "6": (500, 500)}
+        wd.kernel_node = lambda disk, nr: f"/dev/vda{nr}"
+        wd.run = lambda argv, input=None, check=True: calls.append(argv) or ""
+        try:
+            for bound, deleted in (([u"home.mount", "var.mount"], False), ([], True)):
+                with self.subTest(bound=bound):
+                    calls.clear()
+                    wd.bound_to = lambda node: bound if node == "/dev/vda6" else []
+                    held = wd.kernel_sync("/dev/vda", gpt, locked=True)
+                    self.assertEqual(any(c[:2] == ["partx", "--delete"] for c in calls), deleted)
+                    self.assertEqual(held, {} if deleted else {"/dev/vda6": bound})
+        finally:
+            for k, v in saved.items():
+                setattr(wd, k, v)
 
     def test_root_devices_resolves_links(self):
         d = tempfile.mkdtemp()
