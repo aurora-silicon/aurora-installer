@@ -19,7 +19,9 @@
 #   v2-refuse  the root partition is named by PARTUUID in fstab: `move`
 #     refuses and changes nothing, then the fresh-mode claim runs.
 #   v2-j473  v2 on the real J473 table shape (first-lba 6, unnamed entries,
-#     unaligned starts, the J473 sizes; 251 GB sparse image).
+#     unaligned starts, the J473 sizes: 6.0 GB stub, 141 GB freed, 96 GB
+#     root; 251 GB sparse image, about 8 GB written).
+#   v2-j473-stop:<point>  v2-stop on the J473 shape.
 #   v2-remove-fails  btrfs device remove fails twice: the first claim stops
 #     with an error, the next ends with the root on two devices.
 # Every mode sets attribute bits sfdisk can't print (3-47) on Apple's and
@@ -37,7 +39,8 @@ case $mode in
   fresh | interrupted | v2 | v2-refuse | v2-interrupted | v2-remove-fails) ;;
   v2-j473) layout=j473 ;;
   v2-stop:*) stop=${mode#v2-stop:} ;;
-  *) echo "mode: fresh, interrupted, v2, v2-stop:<point>, v2-interrupted, v2-refuse, v2-j473 or v2-remove-fails" >&2; exit 1 ;;
+  v2-j473-stop:*) stop=${mode#v2-j473-stop:}; layout=j473 ;;
+  *) echo "mode: fresh, interrupted, v2, v2-stop:<point>, v2-interrupted, v2-refuse, v2-j473, v2-j473-stop:<point> or v2-remove-fails" >&2; exit 1 ;;
 esac
 # SIGKILL points, then fail-sync-*: the kernel doesn't follow a table write
 # (move exits 3 and asks for a restart).
@@ -68,8 +71,9 @@ cleanup() {
 trap cleanup EXIT
 rm -f "$img"
 if [[ $layout == j473 ]]; then
-  # The J473's table (rows/1440-gpt-lba1-5.bin, sfdisk -d): 4096-byte
-  # sectors, first-lba 6, last-lba 61279338, unnamed entries but Apple's.
+  # The J473's table after its reinstall with a 27.2 stub (rows/1508-gpt-
+  # lba1-5.bin): 4096-byte sectors, first-lba 6, last-lba 61279338, odd
+  # starts, unnamed entries but Apple's, all attributes 0 (set below).
   truncate -s $(( (61279338 + 6) * 4096 )) "$img"
 else
   truncate -s 15G "$img"
@@ -82,11 +86,11 @@ label: gpt
 first-lba: 6
 last-lba: 61279338
 start=6, size=128000, type=69646961-6700-11AA-AA11-00306543ECAC, name="iBootSystemContainer"
-start=128006, size=47759472, type=7C3457EF-0000-11AA-AA11-00306543ECAC, name="Container"
-start=47887478, size=610304, type=7C3457EF-0000-11AA-AA11-00306543ECAC
-start=48497782, size=128000, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B
-start=48625782, size=262144, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4
-start=48887926, size=11080704, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4
+start=128006, size=34459760, type=7C3457EF-0000-11AA-AA11-00306543ECAC, name="Container"
+start=34587766, size=1464832, type=7C3457EF-0000-11AA-AA11-00306543ECAC
+start=36052598, size=128000, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B
+start=36180598, size=262144, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4
+start=36442742, size=23525888, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4
 start=59968630, size=1310709, type=52637672-7900-11AA-AA11-00306543ECAC, name="RecoveryOSContainer"
 J473
 else
