@@ -58,7 +58,8 @@ enum RecoveryOwnerResolver {
       })
     let candidates = admins.compactMap { name, value -> RecoveryOwner? in
       guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-        !name.contains("\0"), !name.contains("\n"), !name.contains("\r"),
+        !name.utf8.contains(0), !name.utf8.contains(UInt8(ascii: "\n")),
+        !name.utf8.contains(UInt8(ascii: "\r")),
         let entry = value as? [String: Any],
         let raw = entry["GeneratedUID"] as? String,
         let uuid = UUID(uuidString: raw), owners.contains(uuid)

@@ -26,7 +26,7 @@ public struct RecoveryAccountTarget: Codable, Equatable, Sendable {
       else { throw AccountSetupFailure("The recovery account target is invalid.") }
     }
     guard Set([systemUUID, dataUUID, prebootUUID]).count == 3,
-      !volumeName.isEmpty, volumeName.count <= 80, !volumeName.contains("/")
+      !volumeName.isEmpty, volumeName.count <= 80, !volumeName.utf8.contains(UInt8(ascii: "/"))
     else { throw AccountSetupFailure("The recovery account target is invalid.") }
   }
 }

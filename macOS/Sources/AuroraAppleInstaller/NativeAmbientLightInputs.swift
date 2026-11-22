@@ -57,7 +57,7 @@
       var result = ["apple/aop-als-cal.bin": calibration]
       var total = calibration.count
       for (name, data) in factory where name.hasPrefix("HmCA") {
-        guard NativeHandoffEvidence.safeRelative(name), !name.contains("/"),
+        guard NativeHandoffEvidence.safeRelative(name), !name.utf8.contains(UInt8(ascii: "/")),
           !data.isEmpty, data.count <= 32 << 20, data.count <= (64 << 20) - total,
           result.count < 64
         else { throw NativePeripheralInputError.localInput }
