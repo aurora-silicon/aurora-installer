@@ -71,8 +71,11 @@ follows its macOS as macOS does.
    files no converter reads. A radio whose files this macOS does not ship
    keeps its files.
 4. **Space.** The ESP must hold the new `vendorfw/` (and `all_firmware`)
-   beside the current one until the swap. Too little free space is refused
-   before anything is built.
+   beside the current one until the swap. `vendorfw.new` and
+   `all_firmware.tar.gz.new` left by a run that did not finish are removed
+   first. Too little free space for the new `vendorfw/` is refused before
+   anything is built; the exact need, with the rebuilt `all_firmware`, is
+   checked once both are built.
 5. **Rebuild.** `vendorfw/` is rebuilt with the new files and every other
    file kept, by path, hash and mode (checked before anything is written).
    On Broadcom Macs `asahi/all_firmware.tar.gz` gets the macOS trees under
@@ -102,10 +105,12 @@ Requirements: python3, liblzfse (LZFSE-compressed files on the macOS volume;
 set `AURORA_LZFSE_LIB` where the library is not on the search path),
 util-linux (`lsblk`, `blkid`, `findmnt`, `mount`), systemd.
 
-At boot, a refusal is remembered with the macOS build and the ESP's radio
-set it was made for; later boots skip the work until the build or the
-ESP's set changes or, for a lack of space, the ESP has the space.
-`aurora-wifi-firmware update` always tries again.
+At boot, a refusal is remembered with the macOS build, the ESP's radio
+set and the tool (a digest of its code and the converters) it was made
+for; later boots skip the work until one of them changes or, for a lack of
+space, the ESP has the space. A copy or swap that failed is not
+remembered: the next boot tries again. `aurora-wifi-firmware update`
+always tries again; `update --macos DIR` leaves the boot's record alone.
 
 Exit codes: 0 done or nothing to do, 1 refused (nothing changed), 2 not now
 (no readable macOS volume, the ESP mounted read only), 3 internal error.
