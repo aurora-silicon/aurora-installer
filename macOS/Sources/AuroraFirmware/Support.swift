@@ -51,9 +51,16 @@ func unhex(_ value: String) throws -> Data {
     stride(from: 0, to: bytes.count, by: 2).map { digit(bytes[$0]) * 16 + digit(bytes[$0 + 1]) })
 }
 func safeRelative(_ name: String) -> Bool {
-  !name.isEmpty && !name.contains(where: { "\\\0\r\n".contains($0) })
-    && name.split(separator: "/", omittingEmptySubsequences: false).allSatisfy {
-      !$0.isEmpty && $0 != "." && $0 != ".."
+  // Judge the UTF-8 bytes the file system sees, not Characters: a grapheme
+  // cluster can hide a separator, a dot, NUL or a line break ("/\u{301}",
+  // "\0\u{301}"), and "\r\n" is one Character, so a lone "\r" or "\n"
+  // never matched it.
+  let refused: [UInt8] = [UInt8(ascii: "\\"), 0, UInt8(ascii: "\r"), UInt8(ascii: "\n")]
+  let bytes = Array(name.utf8)
+  let dot = UInt8(ascii: ".")
+  return !bytes.isEmpty && !bytes.contains(where: { refused.contains($0) })
+    && bytes.split(separator: UInt8(ascii: "/"), omittingEmptySubsequences: false).allSatisfy {
+      !$0.isEmpty && $0 != [dot] && $0 != [dot, dot]
     }
 }
 
