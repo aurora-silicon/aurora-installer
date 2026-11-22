@@ -86,7 +86,9 @@ final class FirmwareDERTests: XCTestCase {
     let data = Data([0x04, 0x02, 0x01, 0x02])
     XCTAssertEqual(try FirmwareDER.element(data, at: 0, limit: 4).whole, 0..<4)
     assertFailure(escape) { _ = try FirmwareDER.element(data, at: 0, limit: 3) }
-    assertFailure(escape) { _ = try FirmwareDER.element(Data([0x04, 0x03, 0x01, 0x02]), at: 0, limit: 4) }
+    assertFailure(escape) {
+      _ = try FirmwareDER.element(Data([0x04, 0x03, 0x01, 0x02]), at: 0, limit: 4)
+    }
     let huge = Data([0x04, 0x84, 0xFF, 0xFF, 0xFF, 0xFF])
     assertFailure(escape) { _ = try FirmwareDER.element(huge, at: 0, limit: huge.count) }
   }
@@ -100,7 +102,8 @@ final class FirmwareDERTests: XCTestCase {
     XCTAssertEqual(children.map(\.content), [4..<6, 8..<8, 10..<11])
 
     let empty = Data([0x30, 0x00])
-    XCTAssertEqual(try FirmwareDER.children(empty, FirmwareDER.element(empty, at: 0, limit: 2)).count, 0)
+    XCTAssertEqual(
+      try FirmwareDER.children(empty, FirmwareDER.element(empty, at: 0, limit: 2)).count, 0)
   }
 
   func testAChildCannotReadPastItsParentEvenWhenTheInputContinues() throws {
