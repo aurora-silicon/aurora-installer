@@ -38,7 +38,8 @@ compile_run directory-swap Sources/Account/RecoveryDigest.swift Sources/Account/
 compile_run baseline Sources/Account/RecoveryDigest.swift Sources/RecoveryBaseline.swift Tests/RecoveryBaselineCheck.swift
 compile_run restore-image-key -parse-as-library Sources/RestoreImageKey.swift Sources/RestoreImageKeyAgreement.swift Tests/RestoreImageKeyCheck.swift
 compile_run restore-image-key-cryptokit -parse-as-library Sources/RestoreImageKey.swift Sources/RestoreImageKeyAgreement.swift Tests/RestoreImageKeyCryptoKitCheck.swift
+compile_run restore-image-member -parse-as-library Sources/RestoreImageMember.swift Tests/RestoreImageMemberCheck.swift
 # Built for the app's oldest recoveryOS (Package.swift: macOS 13) so the same
 # binary can be run there by hand; CI keeps it with the Recovery evidence.
-xcrun swiftc -target "$(uname -m)-apple-macos13.0" -parse-as-library Sources/RestoreImageKey.swift Sources/RestoreImageKeyAgreement.swift Tools/RestoreImageKeyTool.swift -o "$out/aurora-restore-key"
+xcrun swiftc -target "$(uname -m)-apple-macos13.0" -parse-as-library Sources/RestoreImageKey.swift Sources/RestoreImageKeyAgreement.swift Sources/RestoreImageMember.swift Tools/RestoreImageKeyTool.swift -o "$out/aurora-restore-key"
 Tests/RestoreImageKeyTool.sh "$out/aurora-restore-key"

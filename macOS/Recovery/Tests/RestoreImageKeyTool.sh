@@ -2,7 +2,9 @@
 # aurora-restore-key's command line on Fixtures/RestoreImageKey/cli-archive.bin
 # (cli.py): key-url, unwrap to a new 0600 file holding exactly the archive key,
 # and no file at all when the output exists, is a symlink, or the archive or
-# release key is refused. Usage: Tests/RestoreImageKeyTool.sh PATH_TO_TOOL
+# release key is refused; and member on Fixtures/RestoreImageMember (local
+# files only; a URL must be Apple's update CDN).
+# Usage: Tests/RestoreImageKeyTool.sh PATH_TO_TOOL
 set -uo pipefail
 tool=$1
 fixtures="$(cd "$(dirname "$0")" && pwd)/Fixtures/RestoreImageKey"
@@ -85,6 +87,24 @@ awk 'NR == 2 { c = substr($0, 56, 1); $0 = substr($0, 1, 55) (c == "A" ? "B" : "
   "$pem" >"$scratch/bent.pem"
 check "damaged release key" 1 invalidPrivateKey "$tool" unwrap "$archive" "$scratch/bent.pem" "$scratch/out-pem"
 absent "$scratch/out-pem" "damaged release key"
+
+# member: Python zipfile's ZIP64-local fixture (Fixtures/RestoreImageMember).
+zips="$(cd "$(dirname "$0")" && pwd)/Fixtures/RestoreImageMember"
+check "member" 0 "" "$tool" member "$zips/zip64-local.zip" 141-12144-174.dmg.aea
+[[ $(cat "$scratch/out") == "71 1028 e21b6e06" ]] ||
+  { echo "FAIL: member printed $(cat "$scratch/out")"; failures=$((failures + 1)); }
+check "member, nested name" 0 "" "$tool" member "$zips/classic.zip" Firmware/all_flash/LLB.im4p
+[[ $(cat "$scratch/out") == "1213 102 17d99c07" ]] ||
+  { echo "FAIL: nested member printed $(cat "$scratch/out")"; failures=$((failures + 1)); }
+check "member, deflated" 1 notStored "$tool" member "$zips/classic.zip" BuildManifest.plist
+check "member, missing" 1 missing "$tool" member "$zips/classic.zip" none
+check "member, not a ZIP" 1 invalidArchive "$tool" member "$archive" 141-12144-174.dmg.aea
+check "member, missing image" 1 "can.t read" "$tool" member "$scratch/none" x
+for url in http://updates.cdn-apple.com/x.ipsw https://example.com/x.ipsw \
+  https://updates.cdn-apple.com:8443/x.ipsw "https://updates.cdn-apple.com/x.ipsw?a=1" \
+  https://user@updates.cdn-apple.com/x.ipsw; do
+  check "member, $url" 1 "updates.cdn-apple.com" "$tool" member "$url" x
+done
 
 if ((failures > 0)); then exit 1; fi
 echo "aurora-restore-key: all command line checks passed"
