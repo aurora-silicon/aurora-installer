@@ -673,6 +673,21 @@ def rebuild_all_firmware(old, new, trees):
                     dst.addfile(ti, fd)
 
 
+def member_data(tar, m):
+    """The data of a file member of tar, or None. A hard link member (the
+    installer writes the copies of a file as hard links) reads as its target,
+    as tar extracts it; one whose target is not in the archive reads as None,
+    a file the archive lacks."""
+    if m.isfile():
+        return tar.extractfile(m).read()
+    if m.islnk():
+        try:
+            return tar.extractfile(m).read()
+        except KeyError:
+            log.info(f"{m.name}: hard link to {m.linkname}, which is not in the archive")
+    return None
+
+
 def raw_tree(all_fw, prefix):
     """{rel: sha256 | 'link:'+target} of all_firmware's prefix part."""
     out = {}
@@ -684,8 +699,10 @@ def raw_tree(all_fw, prefix):
             rel = name[len(prefix):]
             if m.issym():
                 out[rel] = "link:" + m.linkname
-            elif m.isfile():
-                out[rel] = sha256(tar.extractfile(m).read())
+                continue
+            data = member_data(tar, m)
+            if data is not None:
+                out[rel] = sha256(data)
     return out
 
 
@@ -705,7 +722,8 @@ def raw_extract(all_fw, prefix, dest):
             path = dest.joinpath(*rel)
             if m.issym() and (m.linkname.startswith("/") or ".." in m.linkname.split("/")):
                 continue
-            if not (m.issym() or m.isfile()):
+            data = None if m.issym() else member_data(tar, m)
+            if not m.issym() and data is None:
                 continue
             path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             # A later member of the same name wins, as tar extracts it.
@@ -715,7 +733,7 @@ def raw_extract(all_fw, prefix, dest):
                 os.symlink(m.linkname, path)
             else:
                 with open(path, "xb") as f:
-                    f.write(tar.extractfile(m).read())
+                    f.write(data)
 
 
 def raw_converts_to(all_fw, part, new, tmp):

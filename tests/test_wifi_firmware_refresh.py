@@ -357,6 +357,66 @@ class UpdateTest(Case):
         self.assertEqual(self.update(esp, self.macos(tree)), "identical")
         self.assertEqual(awf.tree_hashes(esp), before)
 
+    def hard_link_esp(self, member, linkname):
+        """An ESP whose all_firmware stores member as a hard link to
+        linkname, as the installer stores the copies of a file; the macOS
+        tree has hokkaido-X1.trx, a second copy of hokkaido.trx."""
+        tree = wifi_tree("old")
+        tree["C-4387__s-C2/hokkaido-X1.trx"] = tree["C-4387__s-C2/hokkaido.trx"]
+        esp = make_esp(self.root, tree)
+        all_fw = esp / "asahi" / "all_firmware.tar.gz"
+        with tarfile.open(all_fw, "r:gz") as src:
+            members = [(m, src.extractfile(m).read() if m.isfile() else None) for m in src]
+        with tarfile.open(all_fw, "w:gz") as dst:
+            for m, data in members:
+                if m.name == "firmware/wifi/C-4387__s-C2/" + member:
+                    m.type, m.linkname, m.size, data = tarfile.LNKTYPE, linkname, 0, None
+                dst.addfile(m, io.BytesIO(data) if data is not None else None)
+        return esp, tree
+
+    def test_raw_tree_with_a_hard_link_reads_as_tar_extracts_it(self):
+        esp, tree = self.hard_link_esp("hokkaido.trx",
+                                       "firmware/wifi/C-4387__s-C2/hokkaido-X1.trx")
+        all_fw = esp / "asahi" / "all_firmware.tar.gz"
+        self.assertEqual(awf.raw_wifi(all_fw), awf.tree_digest(tree))
+        before = awf.tree_hashes(esp)
+        self.assertEqual(self.update(esp, self.macos(tree)), "identical")
+        self.assertEqual(awf.tree_hashes(esp), before)
+
+    def test_raw_tree_with_a_hard_link_to_nothing_is_rebuilt_not_a_crash(self):
+        esp, tree = self.hard_link_esp("maldives.clmb", "firmware/wifi/C-4387__s-C2/gone.clmb")
+        self.assertNotIn("C-4387__s-C2/maldives.clmb",
+                         awf.raw_wifi(esp / "asahi" / "all_firmware.tar.gz"))
+        self.assertEqual(self.update(esp, self.macos(tree)), "updated")
+        self.assertEqual(awf.raw_wifi(esp / "asahi" / "all_firmware.tar.gz"),
+                         awf.tree_digest(tree))
+
+    def test_aliases_are_read_once(self):
+        tree = wifi_tree("old")
+        raw = self.root / "raw"
+        for rel, v in tree.items():
+            path = raw / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if isinstance(v, tuple):
+                os.symlink(v[1], path)
+            else:
+                path.write_bytes(v)
+        real_open, opened = open, []
+
+        def counting_open(path, *a, **kw):
+            opened.append(os.path.realpath(path))
+            return real_open(path, *a, **kw)
+        with mock.patch("builtins.open", side_effect=counting_open):
+            files = awf.converted(raw)
+        self.assertEqual(len(opened), len(set(opened)))
+        # A file and its aliases share one data object.
+        by_file = {}
+        for f in files.values():
+            by_file.setdefault(os.path.realpath(raw / f.name), set()).add(id(f.data))
+        self.assertEqual([len(ids) for ids in by_file.values()], [1] * len(by_file))
+        self.assertEqual({k: f.sha for k, f in files.items()},
+                         {k: f.sha for k, f in awf.converted(raw).items()})
+
     def test_raw_tree_that_does_not_convert_is_rebuilt_not_a_crash(self):
         tree = wifi_tree("old")
         esp = make_esp(self.root, tree)
