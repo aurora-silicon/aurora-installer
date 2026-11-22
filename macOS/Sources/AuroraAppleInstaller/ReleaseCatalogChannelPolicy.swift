@@ -48,9 +48,11 @@
     /// detached evidence record that names it and its family's machine row; a
     /// `devices` value that isn't well formed qualifies no Mac. The app checks
     /// only that the map is well formed: what qualifies a family is the signed
-    /// publisher's policy. A catalog from before `devices` qualifies only the
-    /// MacBook Neo, through its `neoEvidence`. An explicit Edge pick doesn't
-    /// need this.
+    /// publisher's policy. The `apple,j700` `neoEvidence` fallback exists only
+    /// for alpha.1 and alpha.2 Edge catalogs that predate the `devices` map
+    /// and will be removed in a follow-up PR once the `fedora-kde` Edge
+    /// catalog is re-published with `devices: {"apple,j700": ...}`. An
+    /// explicit Edge pick doesn't need this.
     static func qualifiedDeviceIdentifiers(edgePayload payload: Data) -> Set<String> {
       guard let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
         object["channel"] as? String == "edge",
