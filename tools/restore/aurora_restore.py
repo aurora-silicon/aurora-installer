@@ -748,8 +748,19 @@ if [ $RESUME = 0 ] && [ -e "$VOL" ]; then
 fi
 mounted_here() {{ # the volume at $VOL is mounted there and is on the internal disk
     vinfo=$(diskutil info -plist "$VOL" 2>/dev/null) || return 1
-    [ "$(printf '%s' "$vinfo" | pstr MountPoint)" = "$VOL" ] &&
-        [ "$(printf '%s' "$vinfo" | pbool Internal)" != false ]
+    [ "$(printf '%s' "$vinfo" | pstr MountPoint)" = "$VOL" ] || return 1
+    # Its APFS container's partition, when diskutil names it, must be on $DISK.
+    store=$(printf '%s' "$vinfo" | pstr APFSPhysicalStore)
+    if [ -n "$store" ]; then
+        part_ids | grep -qx "$store" || return 1
+    fi
+    case "$(printf '%s' "$vinfo" | pbool Internal)" in
+    true) return 0 ;;
+    false) return 1 ;;
+    esac
+    # No Internal key on the volume: decide by its partition, never by default.
+    [ -n "$store" ] || return 1
+    [ "$(diskutil info -plist "$store" 2>/dev/null | pbool Internal)" = true ]
 }}
 if [ $RESUME = 1 ]; then
     mounted_here || die "$VOL isn't a volume on this Mac's internal disk; disconnect other drives and $(rerun)"

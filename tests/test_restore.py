@@ -373,9 +373,16 @@ if a[:2] == ["info", "-plist"]:
     p = find(a[2])
     if not p:
         sys.exit(1)
-    sys.stdout.write(plistlib.dumps({"DeviceIdentifier": p["id"], "ParentWholeDisk": "disk0",
-        "PartitionMapPartitionOffset": p["start"], "Size": p["size"], "TotalSize": 1,
-        "Internal": not p.get("external"), "MountPoint": p.get("mount", "")}).decode())
+    d = {"DeviceIdentifier": p["id"], "ParentWholeDisk": "disk0",
+         "PartitionMapPartitionOffset": p["start"], "Size": p["size"], "TotalSize": 1,
+         "Internal": not p.get("external"), "MountPoint": p.get("mount", "")}
+    if a[2].startswith("/Volumes/"):  # asked by mount point: the APFS volume
+        vol = st.get("volume", {})
+        if vol.get("no_internal"):
+            del d["Internal"]
+        if "store" in vol:
+            d["APFSPhysicalStores"] = [{"APFSPhysicalStore": vol["store"] or p["id"]}]
+    sys.stdout.write(plistlib.dumps(d).decode())
 elif a[:2] == ["list", "-plist"]:
     ids = ["disk0"] + [p["id"] for p in parts]
     sys.stdout.write(plistlib.dumps({"AllDisks": ids, "AllDisksAndPartitions": [
@@ -661,6 +668,20 @@ class RecoveryScript(DiskImage):
         self.assertIn("isn't this Mac's internal disk", p.stdout)
         self.assertFalse([c for c in calls if c.startswith(
             ("eraseVolume", "addPartition", "curl -fL", "installer"))])
+
+    def test_the_new_volume_must_be_proven_internal(self):
+        self.make()
+        plan = self.plan("alongside")
+        for volume, ok in (({"no_internal": True, "store": None}, True),  # by its partition
+                           ({"no_internal": True}, False),  # no Internal key, no store
+                           ({"store": "disk5s2"}, False)):  # container on another disk
+            p, calls = self.harness(plan, ar.phrase(plan), state_extra={"volume": volume})
+            if ok:
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                continue
+            self.assertEqual(p.returncode, 1, volume)
+            self.assertIn("isn't mounted at", p.stdout)
+            self.assertFalse([c for c in calls if c.startswith(("curl -fL", "installer"))])
 
     def test_no_answer_stops_with_a_message(self):
         self.make()
