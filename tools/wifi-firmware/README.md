@@ -105,7 +105,10 @@ Requirements: python3, liblzfse (LZFSE-compressed files on the macOS volume;
 set `AURORA_LZFSE_LIB` where the library is not on the search path),
 util-linux (`lsblk`, `blkid`, `findmnt`, `mount`), systemd.
 
-At boot, a refusal is remembered with the macOS build, the ESP's radio
+At boot, a macOS build that was checked against the ESP's radio set is not
+read again while the build, that set and the tool stay the same; a newer
+tool (one that follows more radios or converts differently) checks it once.
+A refusal is remembered with the macOS build, the ESP's radio
 set and the tool (a digest of its code and the converters) it was made
 for; later boots skip the work until one of them changes or, for a lack of
 space, the ESP has the space. A copy or swap that failed is not
