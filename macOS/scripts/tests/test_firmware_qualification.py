@@ -88,8 +88,8 @@ class FirmwareQualificationTests(unittest.TestCase):
 
     def test_experimental_admission_keeps_the_verified_source_pin(self):
         expected = {'j704': '0x22', 'j714c': '0x0a', 'j714s': '0x08', 'j716c': '0x0e',
-                    'j716s': '0x0c', 'j775c': '0x10', 'j775d': '0x12', 'j815': '0x26',
-                    'j873s': '0x02'}
+                    'j716s': '0x0c', 'j775c': '0x10', 'j775d': '0x12', 'j813': '0x24',
+                    'j815': '0x26', 'j873s': '0x02'}
         record = self.record['pins']['26B123']
         self.assertEqual(record['boards'], {})
         self.assertEqual({board: proof['manifest_identity']['board_id']

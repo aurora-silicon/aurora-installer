@@ -18,6 +18,13 @@
         XCTAssertTrue(reason?.contains("touchscreen") ?? false, board)
         XCTAssertFalse(reason?.contains("\u{2014}") ?? true, board)
       }
+      let j813 = Stage1Caution.reason(for: "apple,j813")
+      XCTAssertTrue(j813?.contains("13-inch MacBook Air with M5") ?? false)
+      XCTAssertTrue(j813?.contains("needs macOS 27.2 or later") ?? false)
+      XCTAssertTrue(j813?.contains("stops at the U-Boot prompt") ?? false)
+      XCTAssertTrue(j813?.contains("Wi-Fi and Bluetooth firmware") ?? false)
+      XCTAssertFalse(j813?.contains("has not used this installer on one") ?? true)
+      XCTAssertFalse(j813?.contains("\u{2014}") ?? true)
       let j815 = Stage1Caution.reason(for: "apple,j815")
       XCTAssertTrue(j815?.contains("15-inch MacBook Air with M5") ?? false)
       XCTAssertTrue(j815?.contains("needs macOS 27.2 or later") ?? false)

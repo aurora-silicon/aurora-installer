@@ -39,6 +39,9 @@
     private static let unqualifiedT6050Composition =
       "This installer and its kernel, startup code and firmware combination have not been qualified on this Mac. Its Linux device tree is present, but Aurora may not start and some hardware may not work. Continue only after acknowledging the warning and the recovery steps."
 
+    private static let m5Air13 =
+      "Support for the 13-inch MacBook Air with M5 is experimental, and it needs macOS 27.2 or later: on an older macOS the installer asks you to update first. The Aurora team has installed it with a test build of this installer and started Linux from its internal disk, but only with a newer U-Boot than the published downloads carry: with theirs, the Mac stops at the U-Boot prompt, and macOS stays available from Startup Options. The installer does not collect its Wi-Fi and Bluetooth firmware yet, and graphics acceleration has not worked on it yet, so a standard install has no Wi-Fi, Bluetooth or GPU acceleration, and Aurora may not start."
+
     private static let m5Air15 =
       "Support for the 15-inch MacBook Air with M5 is experimental, and it needs macOS 27.2 or later: on an older macOS the installer asks you to update first. The Aurora team has installed it with a test build of this installer on the macOS 27.2 stub, finished the installation and started Linux on it, but only with a separately built kernel. The kernel in the published downloads does not support most of its hardware yet, and the installer does not collect its Wi-Fi and Bluetooth firmware yet, so a standard install has no GPU acceleration, display driver, Wi-Fi or Bluetooth, and Aurora may not start."
 
@@ -57,7 +60,7 @@
       "apple,j614c": untriedM4Board,
       "apple,j773s": untriedM4Board,
       "apple,j575c": m4MaxMacStudio,
-      "apple,j813": untriedM5M6,
+      "apple,j813": m5Air13,
       "apple,j873g": untriedM5M6,
       "apple,j704": m5Pro14,
       "apple,j815": m5Air15,
