@@ -89,7 +89,11 @@ import sys
 release = Path(sys.argv[1])
 profiles = {distribution + "-" + desktop for distribution in ("fedora", "arch", "nixos")
             for desktop in ("kde", "gnome", "minimal")} | {"omarchy-hyprland"}
-assert {path.name for path in (release / "Profiles").iterdir()} == profiles
+# A developer build made with AURORA_ENABLE_DEBIAN=1 carries all three Debian profiles too.
+debian = {"debian-" + desktop for desktop in ("kde", "gnome", "minimal")}
+found = {path.name for path in (release / "Profiles").iterdir()}
+assert found in (profiles, profiles | debian), sorted(found)
+profiles = found
 for path in [release, *release.rglob("*")]:
     mode = path.stat().st_mode
     assert mode & 0o004, (path, "not readable by the installed desktop user")
@@ -97,7 +101,7 @@ for path in [release, *release.rglob("*")]:
         assert mode & 0o001, (path, "not searchable by the installed desktop user")
 for descriptor in [release / "release.json", *[release / "Profiles" / profile / "release.json" for profile in sorted(profiles)]]:
     assert json.loads(descriptor.read_text())["helper_code_signing_requirement"] == sys.argv[2], descriptor
-print("Root and all nine profile descriptors pin the exact signed helper")
+print(f"Root and all {len(profiles)} profile descriptors pin the exact signed helper")
 PY
 /usr/sbin/pkgutil --expand-full "$package" "$work/expanded"
 plist=$(python3 - "$work/expanded" "$INSTALLER_HELPER_IDENTIFIER" <<'PY'
