@@ -108,10 +108,15 @@ public struct RestoreImageDirectory {
   static func safeRelative(_ bytes: [UInt8]) -> Bool {
     let refused: [UInt8] = [UInt8(ascii: "\\"), 0, UInt8(ascii: "\r"), UInt8(ascii: "\n")]
     let dot = UInt8(ascii: ".")
+    let parts = bytes.split(separator: UInt8(ascii: "/"), omittingEmptySubsequences: false)
+    // As the main installer's safeRelative (#203): every '/' byte must also be
+    // a Character of its own, so a Character split of an admitted path
+    // matches the file system's ("a/\u{301}b" is one Character component).
+    let characters = String(decoding: bytes, as: UTF8.self).split(
+      separator: "/", omittingEmptySubsequences: false)
     return !bytes.isEmpty && !bytes.contains(where: refused.contains)
-      && bytes.split(separator: UInt8(ascii: "/"), omittingEmptySubsequences: false).allSatisfy {
-        !$0.isEmpty && $0 != [dot] && $0 != [dot, dot]
-      }
+      && parts.count == characters.count
+      && parts.allSatisfy { !$0.isEmpty && $0 != [dot] && $0 != [dot, dot] }
   }
 
   /// Where `entry`'s body starts, once its local record is admitted: a

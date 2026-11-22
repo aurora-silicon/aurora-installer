@@ -308,6 +308,17 @@ import Foundation
     }
     expect(seen >= 2, "main vectors: \(seen)")
 
+    // Names and paths, as the main installer's safeRelative judges them (#203).
+    for (path, safe) in [
+      ("a/b", true), ("a/b\u{301}", true), ("a\u{301}/b", true), ("a/\u{301}b", false),
+      ("a\u{600}/b", false), ("a/../b", false), ("a//b", false), ("./a", false), ("a\\b", false),
+      ("a/b\r", false), ("", false),
+    ] {
+      expect(
+        RestoreImageDirectory.safeRelative(Array(path.utf8)) == safe,
+        "safeRelative(\(path.unicodeScalars.map { String($0.value, radix: 16) })) != \(safe)")
+    }
+
     if failures > 0 {
       print("\(failures) failure(s)")
       exit(1)
