@@ -23,14 +23,74 @@ import Foundation
     exit(status)
   }
 
-  static func head(_ path: String) -> Data {
-    guard let handle = FileHandle(forReadingAtPath: path) else { fail("can't read \(path)") }
-    defer { try? handle.close() }
-    // Header, metadata (at most 1 MiB), salt and root header.
+  /// At most `limit` bytes from the start of `path`; a read error is
+  /// reported, not taken for a short file.
+  static func read(_ path: String, limit: Int) -> Data {
     do {
-      return try handle.read(upToCount: 12 + 1024 * 1024 + 32 + 112) ?? Data()
+      let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: path))
+      defer { try? handle.close() }
+      return try handle.read(upToCount: limit) ?? Data()
     } catch {
       fail("can't read \(path): \(error.localizedDescription)")
+    }
+  }
+
+  /// Header, metadata (at most 1 MiB), salt and root header.
+  static func head(_ path: String) -> Data { read(path, limit: 12 + 1024 * 1024 + 32 + 112) }
+
+  /// The release key PEM: a P-256 PKCS#8 key is a few hundred bytes; the
+  /// restore image helper caps the same download at 16 KiB.
+  static func releaseKey(_ path: String) -> Data {
+    let pem = read(path, limit: 16384 + 1)
+    guard pem.count <= 16384 else { fail("\(path) is larger than a release key (16 KiB)") }
+    return pem
+  }
+
+  /// Writes all of `bytes` to a new file at `path` (mode 0600; an existing
+  /// file or symlink there is refused) and syncs it; on any failure the
+  /// file is removed if it is still the one created here.
+  static func create(_ path: String, _ bytes: Data) {
+    let descriptor = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
+    guard descriptor >= 0 else { fail("can't create \(path): \(String(cString: strerror(errno)))") }
+    var created = stat()
+    guard fstat(descriptor, &created) == 0 else {
+      let reason = String(cString: strerror(errno))
+      close(descriptor)
+      fail("can't create \(path): \(reason) (an empty file may be left)")
+    }
+    /// Removes `path` only while it is still the file this created.
+    func remove() {
+      var now = stat()
+      if lstat(path, &now) == 0, now.st_dev == created.st_dev, now.st_ino == created.st_ino {
+        unlink(path)
+      }
+    }
+    func abandon(_ what: String) -> Never {
+      let reason = String(cString: strerror(errno))
+      close(descriptor)
+      remove()
+      fail("can't \(what) \(path): \(reason)")
+    }
+    var done = 0
+    while done < bytes.count {
+      let written = bytes.withUnsafeBytes {
+        write(descriptor, $0.baseAddress! + done, bytes.count - done)
+      }
+      if written < 0 {
+        if errno == EINTR { continue }
+        abandon("write")
+      }
+      if written == 0 {
+        errno = EIO
+        abandon("write")
+      }
+      done += written
+    }
+    guard fsync(descriptor) == 0 else { abandon("sync") }
+    guard close(descriptor) == 0 else {
+      let reason = String(cString: strerror(errno))
+      remove()
+      fail("can't close \(path): \(reason)")
     }
   }
 
@@ -44,21 +104,10 @@ import Foundation
       case "unwrap" where arguments.count == 4:
         let archive = head(arguments[1])
         let metadata = try RestoreImageKey.metadata(archive)
-        guard let pem = FileManager.default.contents(atPath: arguments[2]) else {
-          fail("can't read \(arguments[2])")
-        }
-        let key = try RestoreImageKey.unwrap(metadata, releaseKey: pem)
+        let key = try RestoreImageKey.unwrap(metadata, releaseKey: releaseKey(arguments[2]))
         // The key must open this archive, not only unwrap.
         try RestoreImageKey.authenticateRoot(archive, archiveKey: key)
-        let descriptor = open(arguments[3], O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
-        guard descriptor >= 0 else {
-          fail("can't create \(arguments[3]): \(String(cString: strerror(errno)))")
-        }
-        let written = key.withUnsafeBytes { write(descriptor, $0.baseAddress, key.count) }
-        guard written == key.count, fsync(descriptor) == 0, close(descriptor) == 0 else {
-          unlink(arguments[3])
-          fail("can't write \(arguments[3])")
-        }
+        create(arguments[3], key)
       default:
         fail(
           "usage: aurora-restore-key key-url ARCHIVE | unwrap ARCHIVE RELEASE_KEY_PEM OUTPUT", 64)

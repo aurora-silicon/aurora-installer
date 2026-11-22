@@ -160,6 +160,19 @@ public enum RestoreImageKey {
       0x68, 0x37, 0xbf, 0x51, 0xf5,
     ]
 
+    /// The field prime p of P-256, big-endian.
+    static let prime: [UInt8] =
+      [0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x01] + [UInt8](repeating: 0, count: 12)
+      + [UInt8](repeating: 0xff, count: 12)
+
+    /// An uncompressed SEC 1 point whose coordinates are field elements
+    /// (each below p), checked here rather than left to Security's import.
+    static func canonical(_ point: [UInt8]) -> Bool {
+      point.count == 65 && point[0] == 0x04
+        && point[1..<33].lexicographicallyPrecedes(prime)
+        && point[33..<65].lexicographicallyPrecedes(prime)
+    }
+
     /// A scalar in [1, n-1] and its uncompressed public point, which must be
     /// on the curve (Security imports it as an ECDH peer) and have the
     /// x-coordinate of scalar*G (ECDH of the scalar with G). ECDH yields x
@@ -167,7 +180,7 @@ public enum RestoreImageKey {
     /// point into its key schedule, so `open` then fails to authenticate.
     init(scalar: [UInt8], publicKey: [UInt8]) throws {
       guard scalar.count == 32, scalar.contains(where: { $0 != 0 }),
-        scalar.lexicographicallyPrecedes(Self.order), publicKey.count == 65, publicKey[0] == 0x04
+        scalar.lexicographicallyPrecedes(Self.order), Self.canonical(publicKey)
       else { throw Failure.invalidPrivateKey }
       self.scalar = scalar
       self.publicKey = publicKey
@@ -210,7 +223,7 @@ public enum RestoreImageKey {
     aad: [UInt8] = []
   ) throws -> [UInt8] {
     guard ciphertext.count >= 16 else { throw Failure.authentication }
-    guard enc.count == 65, enc[0] == 0x04 else { throw Failure.invalidPoint }
+    guard PrivateKey.canonical(enc) else { throw Failure.invalidPoint }
     let dh = try agree(key, peer: enc)
 
     let kemSuite = Array("KEM".utf8) + [0x00, 0x10]

@@ -41,4 +41,4 @@ compile_run restore-image-key-cryptokit -parse-as-library Sources/RestoreImageKe
 # Built for the app's oldest recoveryOS (Package.swift: macOS 13) so the same
 # binary can be run there by hand; CI keeps it with the Recovery evidence.
 xcrun swiftc -target "$(uname -m)-apple-macos13.0" -parse-as-library Sources/RestoreImageKey.swift Sources/RestoreImageKeyAgreement.swift Tools/RestoreImageKeyTool.swift -o "$out/aurora-restore-key"
-rc=0; "$out/aurora-restore-key" 2>/dev/null || rc=$?; [[ $rc == 64 ]]
+Tests/RestoreImageKeyTool.sh "$out/aurora-restore-key"

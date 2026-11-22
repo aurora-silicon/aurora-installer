@@ -1,5 +1,6 @@
 #!/bin/bash
-# Tests/RestoreImageKeyCheck.swift on Linux, where neither CommonCrypto nor
+# Tests/RestoreImageKeyCheck.swift and the aurora-restore-key command line
+# (Tests/RestoreImageKeyTool.sh) on Linux, where neither CommonCrypto nor
 # Security.framework exists: this directory's shim puts the CommonCrypto calls
 # and the ECDH on libcrypto 3, and RestoreImageKeyAgreement.swift here stands in
 # for Sources/RestoreImageKeyAgreement.swift. Everything else is the shipped source.
@@ -21,3 +22,7 @@ swiftc -parse-as-library -I Tests/Linux Sources/RestoreImageKey.swift \
   Tests/Linux/RestoreImageKeyAgreement.swift Tests/RestoreImageKeyCheck.swift "$build/shim.o" \
   -Xlinker -l:libcrypto.so.3 -o "$build/restore-image-key"
 "$build/restore-image-key"
+swiftc -parse-as-library -I Tests/Linux Sources/RestoreImageKey.swift \
+  Tests/Linux/RestoreImageKeyAgreement.swift Tools/RestoreImageKeyTool.swift "$build/shim.o" \
+  -Xlinker -l:libcrypto.so.3 -o "$build/aurora-restore-key"
+Tests/RestoreImageKeyTool.sh "$build/aurora-restore-key"

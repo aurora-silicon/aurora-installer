@@ -209,6 +209,50 @@ import Foundation
         data(g["key"]), salt: Data("salt".utf8), info: Data("AEA_RHEK".utf8), size: 80))
         == data(g["hkdf"]),
       "Go HKDF")
+    // A changed ciphertext byte (the wrapped key's first and last, not the tag).
+    for index in [0, 31] {
+      var bent = [UInt8](data(g["wrapped"]))
+      bent[index] ^= 1
+      expectThrows("Go ciphertext byte \(index)", .authentication) {
+        _ = try RestoreImageKey.unwrap(
+          fcsResponse: response(g["enc"]!, Data(bent).base64EncodedString()), releaseKey: goPEM)
+      }
+    }
+    // Encapsulated keys that aren't an uncompressed point of the curve with
+    // coordinates below p: hybrid (0x06/0x07), the point at infinity, (0, 0),
+    // x = p for the curve point (0, y0), y = 2^256 - 1. (0, y0) itself is a
+    // curve point, so it is admitted and only fails to authenticate.
+    let goKey = try RestoreImageKey.PrivateKey(pem: goPEM)
+    let goEnc = [UInt8](data(g["enc"]))
+    let goSealed = [UInt8](data(g["wrapped"]))
+    let y0 = hex("66485c780e2f83d72433bd5d84a06bb6541c2af31dae871728bf856a174f93f4")
+    let zeroX = [UInt8](repeating: 0, count: 32)
+    let p = RestoreImageKey.PrivateKey.prime
+    let tail = Array(goEnc.dropFirst())
+    let ones = [UInt8](repeating: 0xff, count: 32)
+    var badPoints: [(String, [UInt8])] = []
+    badPoints.append(("hybrid 0x06", [0x06] + tail))
+    badPoints.append(("hybrid 0x07", [0x07] + tail))
+    badPoints.append(("infinity", [0x00]))
+    badPoints.append(("(0, 0)", [0x04] + zeroX + zeroX))
+    badPoints.append(("x = p", [0x04] + p + y0))
+    badPoints.append(("y = 2^256 - 1", [0x04] + zeroX + ones))
+    badPoints.append(("y = p", [0x04] + Array(goEnc[1..<33]) + p))
+    // The coordinate range is checked here, not left to the ECDH backend.
+    let pMinus1 = Array(p.dropLast()) + [p[31] - 1]
+    expect(
+      RestoreImageKey.PrivateKey.canonical([0x04] + pMinus1 + pMinus1), "x, y = p - 1 admitted")
+    expect(!RestoreImageKey.PrivateKey.canonical([0x04] + p + y0), "x = p refused before ECDH")
+    expect(!RestoreImageKey.PrivateKey.canonical([0x04] + y0 + p), "y = p refused before ECDH")
+    for (what, enc) in badPoints {
+      expectThrows("enc \(what)", .invalidPoint) {
+        _ = try RestoreImageKey.open(goKey, encapsulated: enc, ciphertext: goSealed, info: [])
+      }
+    }
+    expectThrows("enc (0, y0) is a curve point", .authentication) {
+      _ = try RestoreImageKey.open(
+        goKey, encapsulated: [0x04] + zeroX + y0, ciphertext: goSealed, info: [])
+    }
 
     // pyca HPKE. Even entries are PKCS#8 with the embedded public key and
     // open from the PEM; odd ones omit it, so the PEM is refused and the
@@ -359,6 +403,71 @@ import Foundation
           "-----BEGIN PRIVATE KEY-----\n\(Data(der).base64EncodedString())\n-----END PRIVATE KEY-----"
             .utf8))
     }
+    // PKCS#8 built here from hpke[0]'s scalar and public key: the canonical
+    // shape is admitted; each malformed shape is refused.
+    func der(_ tag: UInt8, _ body: [UInt8], long: Int = 0) -> [UInt8] {
+      let n = body.count
+      var head: [UInt8]
+      if n < 0x80 && long == 0 {
+        head = [UInt8(n)]
+      } else if n < 0x100 && long <= 1 {
+        head = [0x81, UInt8(n)]
+      } else {
+        head = [0x82, UInt8(n >> 8), UInt8(n & 0xff)]
+      }
+      return [tag] + head + body
+    }
+    func pkcs8(
+      version: [UInt8] = [0], algorithmOID: [UInt8] = RestoreImageKey.DER.ecPublicKey,
+      curve: [UInt8] = RestoreImageKey.DER.prime256v1, scalarLong: Int = 0,
+      unused: UInt8 = 0, keyTail: [UInt8] = [], tail: [UInt8] = [], outerLong: Int = 0
+    ) -> Data {
+      let scalar = [UInt8](data(v["hpke"]![0]["scalar"] as? String))
+      let point = [UInt8](data(v["hpke"]![0]["public"] as? String))
+      let key = der(
+        0x30,
+        der(0x02, [1]) + der(0x04, scalar, long: scalarLong)
+          + der(0xa1, der(0x03, [unused] + point)) + keyTail)
+      let info =
+        der(
+          0x30,
+          der(0x02, version) + der(0x30, der(0x06, algorithmOID) + der(0x06, curve))
+            + der(0x04, key), long: outerLong) + tail
+      return Data(
+        "-----BEGIN PRIVATE KEY-----\n\(Data(info).base64EncodedString())\n-----END PRIVATE KEY-----"
+          .utf8)
+    }
+    expect(
+      (try? RestoreImageKey.PrivateKey(pem: pkcs8()))?.publicKeyRepresentation
+        == data(v["hpke"]![0]["public"] as? String), "DER built here")
+    let secp384r1: [UInt8] = [0x2b, 0x81, 0x04, 0x00, 0x22]
+    for (what, pem) in [
+      ("version 1", pkcs8(version: [1])), ("version 00 00", pkcs8(version: [0, 0])),
+      ("not ecPublicKey", pkcs8(algorithmOID: [0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x02])),
+      ("secp384r1", pkcs8(curve: secp384r1)),
+      ("non-minimal length 81 20", pkcs8(scalarLong: 1)),
+      ("non-minimal length 82 00 xx", pkcs8(outerLong: 2)),
+      ("BIT STRING unused bits", pkcs8(unused: 1)),
+      ("byte after the key", pkcs8(tail: [0])),
+      ("element after the public key", pkcs8(keyTail: der(0x05, []))),
+    ] {
+      expectThrows("DER \(what)", .invalidPrivateKey) {
+        _ = try RestoreImageKey.PrivateKey(pem: pem)
+      }
+    }
+    expectThrows("DER indefinite length", .invalidPrivateKey) {
+      var bytes = [UInt8](
+        Data(
+          base64Encoded: String(
+            String(decoding: pkcs8(), as: UTF8.self)
+              .split(separator: "\n")[1]))!)
+      bytes[1] = 0x80
+      _ = try RestoreImageKey.PrivateKey(
+        pem: Data(
+          "-----BEGIN PRIVATE KEY-----\n\(Data(bytes).base64EncodedString())\n-----END PRIVATE KEY-----"
+            .utf8))
+    }
+
     let item = v["hpke"]![0]
     let enc = item["enc"] as! String
     let wrapped = item["wrapped"] as! String
@@ -411,6 +520,36 @@ import Foundation
     expectThrows("truncated metadata", .invalidArchive) {
       _ = try RestoreImageKey.metadata(archive([("a", "1")]).prefix(15))
     }
+    // Declared metadata lengths around the bounds, each a single entry that
+    // fills the declared length exactly, followed by a salt and root header,
+    // so only the length check itself can refuse: zero and 1 MiB + 1 are
+    // refused; 1 MiB parses and its root (zeros) fails only to authenticate.
+    func sized(_ length: Int) -> Data {
+      var out = Data("AEA1".utf8)
+      withUnsafeBytes(of: UInt32(1).littleEndian) { out += $0 }
+      withUnsafeBytes(of: UInt32(length).littleEndian) { out += $0 }
+      if length > 0 {
+        withUnsafeBytes(of: UInt32(length).littleEndian) { out += $0 }
+        out += Data("k".utf8) + [0] + Data(repeating: 0x76, count: length - 6)
+      }
+      return out + Data(repeating: 0, count: 32 + 112)
+    }
+    for (what, length) in [("zero", 0), ("1 MiB + 1", 1024 * 1024 + 1)] {
+      expectThrows("metadata length \(what)", .invalidArchive) {
+        _ = try RestoreImageKey.metadata(sized(length))
+      }
+      expectThrows("root, metadata length \(what)", .invalidArchive) {
+        try RestoreImageKey.authenticateRoot(
+          sized(length), archiveKey: Data(repeating: 42, count: 32))
+      }
+    }
+    expect(
+      (try? RestoreImageKey.metadata(sized(1024 * 1024)))?["k"]?.count == 1024 * 1024 - 6,
+      "metadata length 1 MiB")
+    expectThrows("root, metadata length 1 MiB", .authentication) {
+      try RestoreImageKey.authenticateRoot(
+        sized(1024 * 1024), archiveKey: Data(repeating: 42, count: 32))
+    }
     expectThrows("wrong profile", .invalidArchive) {
       var bad = archive([("a", "1")])
       bad[4] = 2
@@ -436,10 +575,17 @@ import Foundation
     expectThrows("Go AEA root, other key", .authentication) {
       try RestoreImageKey.authenticateRoot(head, archiveKey: Data(otherKey))
     }
-    for index in [12, head.count - 1] {
+    // Metadata, salt, root header MAC, encrypted root header, cluster 0
+    // header MAC (each region's first byte) and the last byte.
+    let length = Int(head[8]) | Int(head[9]) << 8 | Int(head[10]) << 16 | Int(head[11]) << 24
+    for (what, index) in [
+      ("metadata", 12), ("salt", 12 + length), ("root MAC", 44 + length),
+      ("encrypted root header", 76 + length), ("header MAC", 124 + length),
+      ("last", head.count - 1),
+    ] {
       var changed = head
       changed[index] ^= 1
-      expectThrows("Go AEA root, byte \(index) changed", .authentication) {
+      expectThrows("Go AEA root, \(what) byte \(index) changed", .authentication) {
         try RestoreImageKey.authenticateRoot(changed, archiveKey: archiveKey)
       }
     }
