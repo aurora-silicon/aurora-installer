@@ -1,0 +1,25 @@
+[Unit]
+Description=Move Aurora's partitions into the space macOS had (after Recovery removed macOS)
+Documentation=https://github.com/aurora-silicon/aurora-distributions/blob/main/docs/whole-disk.md
+# Runs before any local file system is mounted, so the EFI partition and
+# /boot are unmounted while they are copied. Recovery's record
+# (aurora/whole-disk/removed.json) is on the EFI partition itself, so no
+# ConditionPathExists can see it: the tool reads the GPT first and mounts
+# the EFI partition (read-only, at a private directory) only when a free
+# extent of 1 GiB or more lies before /boot. Otherwise it does nothing.
+DefaultDependencies=no
+ConditionPathExists=/proc/device-tree/chosen/asahi,efi-system-partition
+Wants=local-fs-pre.target
+After=systemd-udev-trigger.service systemd-remount-fs.service
+Before=local-fs-pre.target shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/aurora-whole-disk move --yes
+PrivateMounts=yes
+TimeoutStartSec=30min
+StandardOutput=journal+console
+
+[Install]
+WantedBy=sysinit.target
