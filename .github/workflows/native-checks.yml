@@ -192,7 +192,7 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug \
-            --filter 'InstallationSelectionTests|NativePayloadPreflightTests.testDebian' \
+            --filter 'InstallationSelectionTests|NativePayloadPreflightTests.testDebian|DistributionNoticeTests|ReleaseChannelAvailabilityTests' \
             2>&1 | tee "$RUNNER_TEMP/installer-ci/swift-debian.log"
       - name: Build the native preview
         run: bash Packaging/build-aurora-preview.sh "$RUNNER_TEMP/aurora-preview"
