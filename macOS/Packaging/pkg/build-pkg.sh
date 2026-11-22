@@ -1,7 +1,8 @@
 #!/bin/bash
 # Build a signed + notarized macOS installer package for the Aurora Apple
 # Silicon installer. The package installs the notarized app to /Applications and
-# a system LaunchDaemon to /Library/LaunchDaemons, then loads the daemon in its
+# its privileged helper to /Library/PrivilegedHelperTools and a system
+# LaunchDaemon to /Library/LaunchDaemons, then loads the daemon in its
 # postinstall — so the recipient enters one admin password (the macOS installer
 # prompt) and never touches Login Items.
 #
@@ -10,8 +11,10 @@
 #
 # The system daemon plist is derived from the plist the app embeds
 # (Contents/Library/LaunchDaemons), rewriting its bundle-relative BundleProgram
-# into an absolute Program under /Applications. Pass --plist only to supply a
-# daemon plist that already carries an absolute Program; it is validated the
+# into the absolute Program /Library/PrivilegedHelperTools/<helper identifier>,
+# where the package installs a copy of the app's helper. The daemon runs as
+# root, so it never starts a program from /Applications. Pass --plist only to
+# supply a daemon plist that already carries that Program; it is validated the
 # same way.
 set -euo pipefail
 
@@ -43,28 +46,29 @@ done
 work="$(mktemp -d /tmp/aurora-pkg.XXXXXX)"
 trap 'rm -rf "$work"' EXIT
 root="$work/root"
-mkdir -p "$root/Applications" "$root/Library/LaunchDaemons"
+mkdir -p "$root/Applications" "$root/Library/LaunchDaemons" "$root/Library/PrivilegedHelperTools"
+chmod 755 "$root/Library/PrivilegedHelperTools"
 
-# Payload: the notarized app and the system daemon plist.
+# Payload: the notarized app, its helper and the system daemon plist.
 /usr/bin/ditto "$APP" "$root/Applications/$(basename "$APP")"
 
-# Derive the daemon plist from the app's embedded copy (absolute Program under
-# /Applications), or validate a supplied one the same way. A daemon whose
-# Program is missing, relative, or points at nothing inside the staged app
-# cannot be loaded by launchd, so that is a build failure, not a warning.
+# Derive the daemon plist from the app's embedded copy (absolute Program in
+# /Library/PrivilegedHelperTools) and stage the helper there, or validate a
+# supplied plist the same way. A daemon whose Program is anything else, or
+# points at nothing in the payload, is a build failure, not a warning.
 daemon_plist="$work/$DAEMON_PLIST_NAME"
+helper_program="/Library/PrivilegedHelperTools/$INSTALLER_HELPER_IDENTIFIER"
+"$PKG_DIR/derive-daemon-plist" "$APP" "$daemon_plist" "$root$helper_program" >/dev/null
 if [[ -n "$PLIST" ]]; then
   /bin/cp "$PLIST" "$daemon_plist"
-else
-  "$PKG_DIR/derive-daemon-plist" "$APP" "$daemon_plist" /Applications >/dev/null
 fi
 prog="$(/usr/bin/plutil -extract Program raw -o - "$daemon_plist" 2>/dev/null || true)"
-[[ $prog == /Applications/* ]] || {
-  echo "build-pkg.sh: daemon Program must be an absolute path under /Applications (got '${prog:-<missing>}')" >&2
+[[ $prog == "$helper_program" ]] || {
+  echo "build-pkg.sh: daemon Program must be $helper_program (got '${prog:-<missing>}')" >&2
   exit 65
 }
-[[ -f "$root$prog" ]] || {
-  echo "build-pkg.sh: daemon Program does not exist inside the staged app: $prog" >&2
+[[ -f "$root$prog" && ! -L "$root$prog" ]] || {
+  echo "build-pkg.sh: daemon Program is not in the payload: $prog" >&2
   exit 65
 }
 # The helper compiles this requirement at launch and exits EX_CONFIG when it

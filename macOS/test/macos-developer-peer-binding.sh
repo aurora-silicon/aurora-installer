@@ -111,8 +111,11 @@ print(matches[0])
 PY
 )
 installed_requirement=$(/usr/bin/plutil -extract EnvironmentVariables.OMARCHY_CLIENT_CODE_SIGNING_REQUIREMENT raw -o - "$plist")
-[[ $(/usr/bin/plutil -extract Program raw -o - "$plist") == "/Applications/$INSTALLER_APP_NAME.app/Contents/Library/LaunchServices/$INSTALLER_HELPER_IDENTIFIER" ]] \
-  || fail 'developer daemon path differs from its installed app'
+[[ $(/usr/bin/plutil -extract Program raw -o - "$plist") == "/Library/PrivilegedHelperTools/$INSTALLER_HELPER_IDENTIFIER" ]] \
+  || fail 'developer daemon does not run the helper from /Library/PrivilegedHelperTools'
+packaged_helper="$(dirname "$(dirname "$plist")")/PrivilegedHelperTools/$INSTALLER_HELPER_IDENTIFIER"
+/usr/bin/cmp -s "$packaged_helper" "$helper" || fail 'package helper differs from the app helper'
+/usr/bin/codesign --verify --strict -R="$helper_requirement" "$packaged_helper"
 [[ $installed_requirement == "$app_requirement" ]] || fail 'package does not pin the final app cdhash'
 /usr/bin/codesign --verify --strict -R="$installed_requirement" "$app"
 if /usr/bin/codesign --verify --strict -R="$installed_requirement" "$work/OtherClient" >/dev/null 2>&1; then

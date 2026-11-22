@@ -36,33 +36,39 @@ read_plist() {
 app="$test_tmp/$INSTALLER_APP_NAME.app"
 make_app "$app" Contents/Library/LaunchServices/$helper_id
 out=$test_tmp/daemon.plist
-program=$("$derive" "$app" "$out" /Applications)
-[[ $program == "/Applications/$INSTALLER_APP_NAME.app/Contents/Library/LaunchServices/$helper_id" ]] ||
-  fail "the derived daemon Program is the helper's absolute path under /Applications"
+helper_copy=$test_tmp/helper-copy
+program=$("$derive" "$app" "$out" "$helper_copy")
+[[ $program == "/Library/PrivilegedHelperTools/$helper_id" ]] ||
+  fail "the derived daemon Program is the helper's copy in /Library/PrivilegedHelperTools" "$program"
 derived=$(read_plist "$out")
-grep -Fq "\"Program\": \"/Applications/$INSTALLER_APP_NAME.app/Contents/Library/LaunchServices/$helper_id\"" <<<"$derived" ||
-  fail "the derived plist records the absolute Program"
+grep -Fq "\"Program\": \"/Library/PrivilegedHelperTools/$helper_id\"" <<<"$derived" ||
+  fail "the derived plist records the absolute Program in /Library/PrivilegedHelperTools"
+! grep -Fq '/Applications' <<<"$derived" || fail "the derived plist names nothing under /Applications"
 ! grep -Fq '"BundleProgram"' <<<"$derived" || fail "the derived plist drops the bundle-relative BundleProgram"
 grep -Fq "\"Label\": \"$helper_id\"" <<<"$derived" || fail "the derived plist keeps the Label"
 grep -Fq "\"$helper_id\": true" <<<"$derived" || fail "the derived plist keeps the Mach service"
 grep -Fq '"UserName": "root"' <<<"$derived" || fail "the derived plist keeps the root UserName"
 grep -Fq 'OMARCHY_CLIENT_CODE_SIGNING_REQUIREMENT' <<<"$derived" || fail "the derived plist keeps the client requirement"
-pass "the system daemon plist is derived with an absolute Program inside the installed app"
+cmp -s "$helper_copy" "$app/Contents/Library/LaunchServices/$helper_id" ||
+  fail "the app's helper is copied to the helper output"
+[[ $(stat -c %a "$helper_copy" 2>/dev/null || stat -f %Lp "$helper_copy") == 755 ]] ||
+  fail "the helper copy is mode 0755"
+pass "the system daemon plist runs the helper's copy in /Library/PrivilegedHelperTools"
 
 app_missing="$test_tmp/Missing.app"
 make_app "$app_missing" Contents/Library/LaunchServices/$helper_id
 rm "$app_missing/Contents/Library/LaunchServices/$helper_id"
-if "$derive" "$app_missing" "$test_tmp/missing.plist" /Applications >/dev/null 2>&1; then
+if "$derive" "$app_missing" "$test_tmp/missing.plist" "$test_tmp/helper-rejected" >/dev/null 2>&1; then
   fail "derivation rejects a helper that is missing inside the app"
 fi
 app_escape="$test_tmp/Escape.app"
 make_app "$app_escape" ../../../usr/bin/true
-if "$derive" "$app_escape" "$test_tmp/escape.plist" /Applications >/dev/null 2>&1; then
+if "$derive" "$app_escape" "$test_tmp/escape.plist" "$test_tmp/helper-rejected" >/dev/null 2>&1; then
   fail "derivation rejects a BundleProgram that escapes the bundle"
 fi
 app_absolute="$test_tmp/Absolute.app"
 make_app "$app_absolute" /usr/bin/true
-if "$derive" "$app_absolute" "$test_tmp/absolute.plist" /Applications >/dev/null 2>&1; then
+if "$derive" "$app_absolute" "$test_tmp/absolute.plist" "$test_tmp/helper-rejected" >/dev/null 2>&1; then
   fail "derivation rejects an absolute BundleProgram"
 fi
 pass "derivation fails closed on missing, escaping, or absolute helper paths"
@@ -70,6 +76,13 @@ pass "derivation fails closed on missing, escaping, or absolute helper paths"
 ! grep -Eq 'launchctl bootstrap system "\$PLIST" 2>/dev/null \|\|' "$pkg_dir/scripts/postinstall" ||
   fail "postinstall no longer hides launchctl bootstrap failures"
 grep -Fq 'exit 1' "$pkg_dir/scripts/postinstall" || fail "postinstall fails the package when the daemon cannot load"
-grep -Fq 'derive-daemon-plist' "$pkg_dir/build-pkg.sh" || fail "build-pkg.sh derives the daemon plist"
-grep -Fq 'daemon Program must be an absolute path' "$pkg_dir/build-pkg.sh" || fail "build-pkg.sh fails on a non-absolute daemon Program"
+for builder in "$pkg_dir/build-pkg.sh" "$ROOT/Packaging/build-developer-pkg.sh"; do
+  grep -Fq 'derive-daemon-plist' "$builder" || fail "$(basename "$builder") derives the daemon plist"
+  grep -Fq 'Library/PrivilegedHelperTools/$INSTALLER_HELPER_IDENTIFIER' "$builder" ||
+    fail "$(basename "$builder") installs the helper into /Library/PrivilegedHelperTools"
+  ! grep -Eq 'derive-daemon-plist.*/Applications' "$builder" ||
+    fail "$(basename "$builder") does not point the daemon at /Applications"
+done
+grep -Fq 'daemon Program must be $helper_program' "$pkg_dir/build-pkg.sh" || fail "build-pkg.sh fails on any other daemon Program"
 pass "the package builder and postinstall fail closed on an unloadable daemon"
+[[ ! -e $test_tmp/helper-rejected ]] || fail "a rejected derivation copies no helper"
