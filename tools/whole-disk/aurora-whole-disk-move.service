@@ -7,6 +7,11 @@ Documentation=https://github.com/aurora-silicon/aurora-distributions/blob/main/d
 # ConditionPathExists can see it: the tool reads the GPT first and mounts
 # the EFI partition (read-only, at a private directory) only when a free
 # extent of 1 GiB or more lies before /boot. Otherwise it does nothing.
+# If a partition's table entry was switched but the kernel couldn't follow,
+# the tool restarts the Mac (--reboot-on-stale) instead of letting /boot or
+# the EFI partition be mounted from the old place; starting reboot.target
+# cancels the pending mounts and the next start reads the table afresh.
+# Any other failure leaves the disk consistent and the boot goes on.
 DefaultDependencies=no
 ConditionPathExists=/proc/device-tree/chosen/asahi,efi-system-partition
 Wants=local-fs-pre.target
@@ -16,7 +21,7 @@ Conflicts=shutdown.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/aurora-whole-disk move --yes
+ExecStart=/usr/bin/aurora-whole-disk move --yes --reboot-on-stale
 PrivateMounts=yes
 TimeoutStartSec=30min
 StandardOutput=journal+console

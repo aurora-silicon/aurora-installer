@@ -36,10 +36,13 @@ import mmap
 import os
 import re
 import signal
+import stat
+import struct
 import subprocess
 import sys
 import time
 import uuid
+import zlib
 
 _here = os.path.dirname(os.path.abspath(__file__))
 # Installed: apfs_ro.py sits beside this file. In the repository it is
@@ -69,7 +72,9 @@ MOVE_NAMES = {"stub": "startup container", "esp": "EFI partition", "boot": "/boo
 CHUNK = 4 * MIB
 RUN_DIR = "/run/aurora-whole-disk"
 # Test-only fault injection (tools/whole-disk/image-test.sh): when this names a
-# point, the tool kills itself there with SIGKILL. Unset (always, outside that
+# point, the tool kills itself there with SIGKILL; "fail-sync-<stub|esp|boot>"
+# skips the kernel update after that partition's table write and
+# "fail-remove" makes `btrfs device remove` fail. Unset (always, outside that
 # test) it does nothing.
 TEST_STOP = "AURORA_WHOLE_DISK_TEST_STOP"
 
@@ -110,7 +115,15 @@ def read_gpt(disk):
     t = json.loads(run(["sfdisk", "--json", disk]))["partitiontable"]
     if t.get("label") != "gpt":
         raise Refusal(f"{disk} has no GUID partition table.")
-    ss = t.get("sectorsize", 512)
+    ss = t.get("sectorsize")
+    if not isinstance(ss, int) or ss not in (512, 4096):
+        # Guessing 512 on a 4096-byte-sector disk would put every offset 8x off.
+        raise Refusal(f"sfdisk didn't report {disk}'s sector size; nothing was changed.")
+    if stat.S_ISBLK(os.stat(disk).st_mode):
+        got = run(["blockdev", "--getss", disk]).strip()
+        if got != str(ss):
+            raise Refusal(f"{disk}'s logical sector size is {got}, sfdisk says {ss}; nothing "
+                          "was changed.")
     parts = []
     for p in t.get("partitions", []):
         parts.append({"node": p["node"], "start": p["start"] * ss, "size": p["size"] * ss,
@@ -316,7 +329,8 @@ def root_devices(root, disk=None):
     for line in run(["btrfs", "filesystem", "show", root]).splitlines():
         line = line.strip()
         if line.startswith("devid") and " path " in line:
-            devs.append(line.split(" path ", 1)[1].strip())
+            # btrfs keeps the path it was given, e.g. /dev/disk/by-uuid/...
+            devs.append(os.path.realpath(line.split(" path ", 1)[1].strip()))
     if not devs:
         raise Refusal("Couldn't list the root file system's devices.")
     for d in devs:
@@ -616,47 +630,243 @@ def v2_stage(gpt, chosen, record, v2, devs, inspect=None):
     return {"stage": stage, "plan": plan, "new": first, "old": prev}
 
 
-def gpt_script(dump, sector, changes):
-    """`sfdisk -d` output with some entries changed, as an sfdisk script for
-    one write of the whole table (primary and backup). `changes` maps a GPT
-    UUID to None (delete the entry) or to new fields: start and size in
-    bytes, uuid, name, attrs. Everything else is kept as dumped."""
-    out, seen = [], set()
-    for line in dump.splitlines():
-        if " : " not in line or "start=" not in line:
-            out.append(line)
-            continue
-        node, spec = line.split(" : ", 1)
-        fields = [(m.group(1), m.group(2).strip()) for m in
-                  re.finditer(r'([a-z-]+)=\s*("(?:[^"\\]|\\.)*"|[^,]*)', spec)]
-        uid = norm(dict(fields)["uuid"])
-        if uid not in changes:
-            out.append(line)
-            continue
-        seen.add(uid)
-        ch = changes[uid]
-        if ch is None:
-            continue
-        new = dict(fields)
-        for k in ("start", "size"):
-            if k in ch:
-                if ch[k] % sector:
-                    raise Refusal("A partition boundary isn't on a sector boundary.")
-                new[k] = str(ch[k] // sector)
-        for k in ("uuid", "name", "attrs"):
-            if k in ch:
-                v = ch[k]
-                if k != "uuid" and ('"' in v or "\\" in v or "\n" in v):
-                    raise Refusal(f"Can't write the GPT {k} {v!r}.")
-                if v:
-                    new[k] = v if k == "uuid" else f'"{v}"'
-                else:
-                    new.pop(k, None)
-        keys = [k for k, _ in fields] + [k for k in new if k not in dict(fields)]
-        out.append(f"{node} : " + ", ".join(f"{k}={new[k]}" for k in keys if k in new))
-    if seen != set(changes):
-        raise Refusal("The partition table changed while it was being edited.")
-    return "\n".join(out) + "\n"
+# The GPT is edited here, raw, not through an sfdisk dump: a dump round trip
+# rewrites every entry and drops the attribute bits it can't print (3-47).
+# Only the planned fields of the planned entries change; everything else in
+# the 128-byte entries and the headers is kept byte for byte, and both copies
+# are read back and compared with what was meant.
+GPT_SIG = b"EFI PART"
+ENTRY = 128
+ZERO_GUID = bytes(16)
+
+
+def _crc(b):
+    return zlib.crc32(b) & 0xFFFFFFFF
+
+
+def gpt_header(blk):
+    """A GPT header sector, parsed and CRC-checked, or None."""
+    if blk[:8] != GPT_SIG:
+        return None
+    hsize, crc = struct.unpack_from("<II", blk, 12)
+    if hsize < 92 or hsize > len(blk):
+        return None
+    h = bytearray(blk[:hsize])
+    h[16:20] = bytes(4)
+    if _crc(h) != crc:
+        return None
+    my, alt, first, last = struct.unpack_from("<QQQQ", blk, 24)
+    ent_lba, n, esz, ent_crc = struct.unpack_from("<QIII", blk, 72)
+    if esz != ENTRY or not 0 < n <= 1024:
+        return None
+    return {"raw": bytes(blk), "size": hsize, "my": my, "alt": alt, "first": first,
+            "last": last, "guid": bytes(blk[56:72]), "entries": ent_lba, "n": n,
+            "crc": ent_crc}
+
+
+def gpt_load(io, ss, disk_bytes):
+    """Both copies of the table: {"primary", "backup"} headers (None when
+    invalid) and "entries", the live entry array (the primary's when valid,
+    else the backup's) as a list of 128-byte bytes."""
+    out = {"ss": ss}
+    for which, lba in (("primary", 1), ("backup", None)):
+        if lba is None:
+            p = out["primary"]
+            lba = p["alt"] if p else disk_bytes // ss - 1
+        h = gpt_header(io.read(lba * ss, ss))
+        if h:
+            n = h["n"] * ENTRY
+            raw = io.read(h["entries"] * ss, -(-n // ss) * ss)[:n]
+            if _crc(raw) != h["crc"] or h["my"] != lba:
+                h = None
+            else:
+                h["array"] = raw
+        out[which] = h
+    live = out["primary"] or out["backup"]
+    if live is None:
+        raise Refusal("This disk's GUID partition table is unreadable (both copies).")
+    arr = live["array"]
+    out["entries"] = [arr[i:i + ENTRY] for i in range(0, len(arr), ENTRY)]
+    return out
+
+
+def entry_info(e):
+    first, last, attrs = struct.unpack_from("<QQQ", e, 32)
+    return {"type": str(uuid.UUID(bytes_le=bytes(e[0:16]))).upper(),
+            "uuid": str(uuid.UUID(bytes_le=bytes(e[16:32]))).upper(),
+            "first": first, "last": last, "attrs": attrs,
+            "name": bytes(e[56:128]).decode("utf-16-le", "replace").split("\0", 1)[0]}
+
+
+def _slot(entries, uid):
+    hits = [i for i, e in enumerate(entries)
+            if e[0:16] != ZERO_GUID and entry_info(e)["uuid"] == norm(uid)]
+    if len(hits) != 1:
+        raise Refusal(f"The partition table has {len(hits)} entries with GPT UUID {uid}.")
+    return hits[0]
+
+
+def gpt_apply(entries, ss, ops, first_usable, last_usable):
+    """The entry array after `ops`, each one of:
+      ("move", uuid, start)   the entry's first and last LBA shifted to start
+      ("add", start, size, type, name, uuid)   a new entry in the first free slot
+      ("merge", new, old)     new's slot gets old's whole entry with new's first
+                              LBA (old's GPT UUID, type, name, attributes, end);
+                              old's slot is emptied
+    Byte offsets and sizes. Nothing else changes."""
+    out = [bytearray(e) for e in entries]
+    for op in ops:
+        if op[0] == "move":
+            i = _slot(out, op[1])
+            info = entry_info(out[i])
+            if op[2] % ss:
+                raise Refusal("A partition boundary isn't on a sector boundary.")
+            first = op[2] // ss
+            struct.pack_into("<QQ", out[i], 32, first, first + info["last"] - info["first"])
+        elif op[0] == "add":
+            _, start, size, ptype, name, uid = op
+            if start % ss or size % ss or size <= 0:
+                raise Refusal("A partition boundary isn't on a sector boundary.")
+            free = [i for i, e in enumerate(out) if e[0:16] == ZERO_GUID]
+            if not free:
+                raise Refusal("The partition table has no free entry.")
+            e = bytearray(ENTRY)
+            e[0:16] = uuid.UUID(ptype).bytes_le
+            e[16:32] = uuid.UUID(uid).bytes_le
+            struct.pack_into("<QQQ", e, 32, start // ss, (start + size) // ss - 1, 0)
+            enc = name.encode("utf-16-le")[:72]
+            e[56:56 + len(enc)] = enc
+            out[free[0]] = e
+        elif op[0] == "merge":
+            i, j = _slot(out, op[1]), _slot(out, op[2])
+            first = entry_info(out[i])["first"]
+            e = bytearray(out[j])
+            struct.pack_into("<Q", e, 32, first)
+            out[i], out[j] = e, bytearray(ENTRY)
+        else:
+            raise ValueError(op)
+    for e in out:
+        if e[0:16] != ZERO_GUID:
+            info = entry_info(e)
+            if not first_usable <= info["first"] <= info["last"] <= last_usable:
+                raise Refusal("A partition would lie outside the disk's usable range.")
+    return [bytes(e) for e in out]
+
+
+def _header_bytes(h, ss, my, alt, ent_lba, ent_crc):
+    b = bytearray(h["raw"][:ss].ljust(ss, b"\0"))
+    struct.pack_into("<QQ", b, 24, my, alt)
+    struct.pack_into("<Q", b, 72, ent_lba)
+    struct.pack_into("<I", b, 88, ent_crc)
+    struct.pack_into("<I", b, 16, 0)
+    struct.pack_into("<I", b, 16, _crc(bytes(b[:h["size"]])))
+    return bytes(b)
+
+
+def gpt_store(io, t, entries):
+    """Writes `entries` into both copies: backup first, then primary, each
+    synced, so a stop inside leaves at least one valid copy (the primary,
+    old or new, is what everything reads first). Header fields other than
+    the entry CRC (and LBAs, when a copy was invalid) are kept."""
+    ss = t["ss"]
+    arr = b"".join(entries)
+    crc = _crc(arr)
+    p, b = t["primary"], t["backup"]
+    live = p or b
+    n_sectors = -(-len(arr) // ss)
+    pad = arr.ljust(n_sectors * ss, b"\0")
+    if b:
+        b_my, b_ent = b["my"], b["entries"]
+    else:
+        b_my = p["alt"]
+        b_ent = b_my - n_sectors
+    p_ent = p["entries"] if p else 2
+    io.write(b_ent * ss, pad)
+    io.write(b_my * ss, _header_bytes(b or live, ss, b_my, 1, b_ent, crc))
+    io.sync()
+    io.write(p_ent * ss, pad)
+    io.write(1 * ss, _header_bytes(p or live, ss, 1, b_my, p_ent, crc))
+    io.sync()
+
+
+class FileIO:
+    """A disk image in a regular file (tests)."""
+
+    def __init__(self, path):
+        self.fd = os.open(path, os.O_RDWR | os.O_CLOEXEC)
+
+    def read(self, off, n):
+        return os.pread(self.fd, n, off)
+
+    def write(self, off, data):
+        if os.pwrite(self.fd, data, off) != len(data):
+            raise Refusal(f"Short write at byte {off}.")
+
+    def sync(self):
+        os.fsync(self.fd)
+
+    def close(self):
+        os.close(self.fd)
+
+
+def disk_io(disk):
+    if stat.S_ISBLK(os.stat(disk).st_mode):
+        return Direct(disk, write=True)
+    return FileIO(disk)
+
+
+def gpt_edit(disk, gpt, ops, check_kernel=True):
+    """One edit of the table (gpt_apply), written to both copies, read back
+    and compared: both copies must hold exactly the planned entry array and
+    keep the header fields. Returns the new table as read_gpt sees it."""
+    ss = gpt["sector"]
+    io = disk_io(disk)
+    try:
+        size = os.lseek(io.fd, 0, os.SEEK_END)
+        before = gpt_load(io, ss, size)
+        live = before["primary"] or before["backup"]
+        want = gpt_apply(before["entries"], ss, ops, live["first"], live["last"])
+        gpt_store(io, before, want)
+        after = gpt_load(io, ss, size)
+    finally:
+        io.close()
+    for which in ("primary", "backup"):
+        h = after[which]
+        if not h or h["array"] != b"".join(want):
+            raise Refusal(f"The {which} partition table didn't come out as planned; stop and "
+                          f"check `sfdisk -l {disk}`.")
+        if (h["guid"], h["first"], h["last"], h["n"]) != \
+                (live["guid"], live["first"], live["last"], live["n"]):
+            raise Refusal(f"The {which} partition table header changed; stop and check.")
+    if stat.S_ISBLK(os.stat(disk).st_mode):
+        run(["blockdev", "--flushbufs", disk], check=False)
+    new = read_gpt(disk)
+    got = sorted((p["uuid"], p["start"], p["size"], p["type"]) for p in new["parts"])
+    meant = sorted((i["uuid"], i["first"] * ss, (i["last"] - i["first"] + 1) * ss, i["type"])
+                   for i in map(entry_info, want) if i["type"] != str(uuid.UUID(int=0)).upper())
+    if got != meant:
+        raise Refusal(f"sfdisk reads the new partition table differently; stop and check "
+                      f"`sfdisk -l {disk}`.")
+    return new
+
+
+def gpt_raw_entries(disk, ss):
+    """Every used entry of both copies, raw (hex), by GPT UUID: for tests and
+    evidence."""
+    io = disk_io(disk)
+    try:
+        t = gpt_load(io, ss, os.lseek(io.fd, 0, os.SEEK_END))
+    finally:
+        io.close()
+    out = {}
+    for which in ("primary", "backup"):
+        h = t[which]
+        arr = h["array"] if h else b""
+        for i in range(0, len(arr), ENTRY):
+            e = arr[i:i + ENTRY]
+            if e[0:16] != ZERO_GUID:
+                out.setdefault(entry_info(e)["uuid"], {})[which] = (i // ENTRY + 1, e.hex())
+    return out
 
 
 def root_references(texts, part):
@@ -819,6 +1029,23 @@ class Direct:
                 yield done, mv
             done += k
 
+    def read(self, off, n):
+        out = bytearray()
+        for _, mv in self.chunks(off, n):
+            out += mv
+        return bytes(out)
+
+    def write(self, off, data):
+        if len(data) > CHUNK:
+            raise ValueError("write too big")
+        self.buf[:len(data)] = data
+        with memoryview(self.buf)[:len(data)] as mv:
+            if os.pwritev(self.fd, [mv], off) != len(data):
+                raise Refusal(f"Short write at byte {off}.")
+
+    def sync(self):
+        os.fsync(self.fd)
+
     def sha256(self, off, n):
         h = hashlib.sha256()
         for _, mv in self.chunks(off, n):
@@ -837,27 +1064,6 @@ class Direct:
         return h.hexdigest()
 
 
-def gpt_rewrite(disk, gpt, changes):
-    """One write of the whole table with `changes` (see gpt_script), then
-    checks that exactly those entries changed. Returns the new table."""
-    script = gpt_script(run(["sfdisk", "--dump", disk]), gpt["sector"], changes)
-    run(["sfdisk", "--quiet", "--no-reread", "--no-tell-kernel", disk], input=script)
-    after = read_gpt(disk)
-    want = {}
-    for p in gpt["parts"]:
-        ch = changes.get(p["uuid"], {})
-        if ch is None:
-            continue
-        q = dict(p, **ch)
-        want[partnum(p["node"])] = (q["uuid"].upper(), q["type"], q["start"], q["size"], q["name"])
-    got = {partnum(p["node"]): (p["uuid"], p["type"], p["start"], p["size"], p["name"])
-           for p in after["parts"]}
-    if got != want:
-        raise Refusal(f"The partition table didn't come out as planned; stop and check "
-                      f"`sfdisk -l {disk}`.")
-    return after
-
-
 @contextlib.contextmanager
 def esp_mounted(node, run_dir, write=False):
     """The (otherwise unmounted) ESP mounted at a private directory."""
@@ -871,6 +1077,69 @@ def esp_mounted(node, run_dir, write=False):
         yield where
     finally:
         run(["umount", where])
+
+
+def root_fsid(root):
+    m = re.search(r"uuid:\s*([0-9a-f-]{36})", run(["btrfs", "filesystem", "show", "--raw", root]))
+    return m.group(1) if m else None
+
+
+def udev_follow(root, nodes, want=None):
+    """Has udev probe `nodes` again (a partition btrfs just took or let go of
+    gets no event of its own) and, with `want`, checks that the file
+    system's /dev/disk/by-uuid link names it. systemd binds every mount by
+    UUID (/home, /var subvolumes) to the device behind that link: if it
+    still named the old partition when that partition goes, systemd would
+    unmount them."""
+    run(["udevadm", "trigger", "--action=change"] + list(nodes), check=False)
+    run(["udevadm", "settle", "--timeout=30"], check=False)
+    if want is None:
+        return
+    fsid = root_fsid(root)
+    link = f"/dev/disk/by-uuid/{fsid}"
+    for _ in range(10):
+        if os.path.realpath(link) == os.path.realpath(want):
+            return
+        time.sleep(1)
+        run(["udevadm", "settle", "--timeout=30"], check=False)
+    raise Refusal(f"{link} doesn't name {want} yet; the old partition stays until it does "
+                  "(run the claim again, or restart).")
+
+
+def bound_to(node):
+    """systemd units that need (BindsTo or Requires) any device unit of
+    partition `node` (its node, its /dev/disk/by-* aliases). Removing the
+    partition from the kernel stops them: systemd ties a mount to the device
+    /proc/self/mountinfo names, and btrfs keeps naming the device a file
+    system was mounted from, so /home and /var would be unmounted."""
+    sysfs = os.path.realpath(f"/sys/class/block/{os.path.basename(node)}")
+    lines = run(["systemctl", "list-units", "--type=device", "--all", "--plain", "--no-legend",
+                 "--no-pager"], check=False).splitlines()
+    units = [line.split()[0] for line in lines if line.strip()]
+    if not units:
+        return []
+    out, cur = [], {}
+    shown = run(["systemctl", "show", "-p", "Id", "-p", "SysFSPath", "-p", "BoundBy",
+                 "-p", "RequiredBy"] + units, check=False)
+    for line in shown.splitlines() + [""]:
+        if not line.strip():
+            if cur.get("SysFSPath") and os.path.realpath(cur["SysFSPath"]) == sysfs:
+                out += cur.get("BoundBy", "").split() + cur.get("RequiredBy", "").split()
+            cur = {}
+        elif "=" in line:
+            k, v = line.split("=", 1)
+            cur[k] = v
+    return sorted(set(out))
+
+
+def kick_mountinfo(run_dir):
+    """A mount and unmount, so systemd re-reads /proc/self/mountinfo (btrfs
+    names its new device there without a mount event of its own)."""
+    d = os.path.join(run_dir, "kick")
+    os.makedirs(d, mode=0o700, exist_ok=True)
+    if run(["mount", "-t", "tmpfs", "-o", "size=4k,mode=0700", "aurora-whole-disk", d],
+           check=False) is not None:
+        run(["umount", d], check=False)
 
 
 def btrfs_devs(root):
@@ -907,11 +1176,39 @@ def reference_texts(root, disk, gpt):
     return texts
 
 
+def swap_problem(swaps, where, devs):
+    """A swap file or partition on the root's devices (btrfs can't move an
+    active swap file off a device), from /proc/swaps; `where(path)` gives the
+    block device a file lives on."""
+    for line in swaps.splitlines()[1:]:
+        f = line.split()
+        if len(f) < 2:
+            continue
+        path = f[0].replace("\\040", " ")
+        dev = os.path.realpath(path) if f[1] == "partition" else where(path)
+        if dev and dev in devs:
+            return f"{path} is swap on the root file system; turn it off (swapoff) first"
+    return None
+
+
+def file_device(path):
+    src = run(["findmnt", "-n", "-o", "SOURCE", "--target", path], check=False).strip()
+    return os.path.realpath(src.split("[", 1)[0]) if src.startswith("/dev/") else None
+
+
 def migrate_problem(root, disk, gpt, old, new_size):
     """Why the root can't be moved onto the new partition, or None."""
     devs = btrfs_devs(root)
     if len(devs) != 1:
         return f"the btrfs root has {len(devs)} devices"
+    try:
+        with open("/proc/swaps") as f:
+            swaps = f.read()
+    except OSError:
+        swaps = ""
+    problem = swap_problem(swaps, file_device, {d["path"] for d in devs})
+    if problem:
+        return problem
     if not root_fits(devs[0]["used"], new_size):
         return (f"the root holds {gb(devs[0]['used'])} and the space macOS had is "
                 f"{gb(new_size)}, too little to move it there")
@@ -955,9 +1252,10 @@ def _move_one(disk, gpt, part, dst, key):
     if not src_sum == dst_sum == again:
         raise Refusal(f"The copy of the {what} doesn't match it (sha256 {src_sum} / {dst_sum} / "
                       f"{again}); nothing was switched.")
-    after = gpt_rewrite(disk, gpt, {part["uuid"]: {"start": dst}})
+    after = gpt_edit(disk, gpt, [("move", part["uuid"], dst)])
     test_stop(f"table-{key}")
-    kernel_sync(disk, after, locked=True)
+    if os.environ.get(TEST_STOP) != f"fail-sync-{key}":
+        kernel_sync(disk, after, locked=True)
     moved = next(p for p in after["parts"] if p["uuid"] == part["uuid"])
     require_geometry(disk, moved)
     with exclusive(moved["node"], what):
@@ -970,6 +1268,13 @@ def _move_one(disk, gpt, part, dst, key):
         raise Refusal(f"{moved['node']} doesn't read as the copy after the switch; stop and check.")
     print(f"Moved the {what} to byte {dst} (sha256 {dst_sum}).", flush=True)
     return after, dst_sum
+
+
+def stale_parts(disk, gpt, uuids):
+    """Those of `uuids` the kernel has somewhere else than the GPT."""
+    have = kernel_parts(disk)
+    return [p["node"] for p in gpt["parts"] if p["uuid"] in uuids
+            and have.get(partnum(p["node"])) != (p["start"], p["size"])]
 
 
 def move_gate(gpt, chosen):
@@ -995,6 +1300,11 @@ def cmd_move(a):
     if not move_gate(gpt, chosen):
         print("Nothing to move.")
         return 0
+    stale = stale_parts(disk, gpt, {p["uuid"] for p in gpt["parts"]
+                                    if p["type"] in (APFS, EFI) or p["type"] in BOOT_TYPES})
+    if stale:
+        raise Refusal(f"The kernel has {', '.join(stale)} elsewhere than the partition table; "
+                      "nothing was changed.")
     esp_node = next(p["node"] for p in gpt["parts"] if p["uuid"] == chosen["esp"])
     try:
         with exclusive(esp_node, "EFI partition"):
@@ -1072,8 +1382,25 @@ def cmd_move(a):
             rec.setdefault("sha256", {})[k] = digest
             note(f"moved-{k}")
             test_stop(f"moved-{k}")
-    except Refusal as e:
+    except Exception as e:
         now = read_gpt(disk)
+        stale = stale_parts(disk, now, {m["uuid"] for m in plan["moves"].values()})
+        if stale:
+            # This run switched a table entry and the kernel didn't follow:
+            # /boot or the ESP would be mounted from the old place, and what is
+            # written there would be lost. A restart reads the table afresh
+            # (and starting reboot.target cancels the pending mounts), so this
+            # can happen at most once per moved partition.
+            print(f"aurora-whole-disk: {e}\nThe kernel still has {', '.join(stale)} at the old "
+                  "place; the partition table is already switched.", file=sys.stderr)
+            if a.reboot_on_stale:
+                print("Restarting so nothing is mounted from the old place.", flush=True)
+                run(["systemctl", "--no-block", "reboot"], check=False)
+            else:
+                print("Restart now, before mounting /boot or the EFI partition.", flush=True)
+            return 3
+        if not isinstance(e, Refusal):
+            raise
         if any(p["uuid"] == plan["moves"][k]["uuid"] and p["start"] == plan["moves"][k]["to"]
                for k in MOVED for p in now["parts"]):
             raise
@@ -1118,11 +1445,9 @@ def claim_root(a, disk, chosen, record, v2, st, done_path, path):
             if problem:
                 print(f"The root stays on two partitions: {problem}.", flush=True)
             note("root-adding", migrate=problem is None, migrateProblem=problem)
-            ss = gpt["sector"]
-            spec = (f"start={st['start'] // ss}, size={st['size'] // ss}, type={LINUX}, "
-                    f"name=\"{CLAIM_NAME}\"\n")
-            run(["sfdisk", "--append", "--no-reread", "--no-tell-kernel", disk], input=spec)
-            after = read_gpt(disk)
+            with disk_locked(disk):
+                after = gpt_edit(disk, gpt, [("add", st["start"], st["size"], LINUX, CLAIM_NAME,
+                                              str(uuid.uuid4()))])
             added = [p for p in after["parts"] if p["uuid"] not in {q["uuid"] for q in gpt["parts"]}]
             kept = [(p["uuid"], p["start"], p["size"]) for p in after["parts"] if p not in added]
             if len(added) != 1 or (added[0]["start"], added[0]["size"]) != (st["start"], st["size"]) \
@@ -1135,34 +1460,65 @@ def claim_root(a, disk, chosen, record, v2, st, done_path, path):
             wait_for_partition(disk, new["node"], partnum(new["node"]), new["uuid"])
             run(["wipefs", "--all", "--quiet", new["node"]])
             run(["btrfs", "device", "add", new["node"], a.root])
+            udev_follow(a.root, [new["node"]])
             note("root-added")
             test_stop("root-added")
         elif stage == "root-remove":
             print(f"Moving the root file system from {st['old']['node']} to {st['new']['node']} "
                   "(btrfs device remove; this takes a while, and continues after a restart).",
                   flush=True)
-            run(["btrfs", "device", "remove", st["old"]["node"], a.root])
-            note("root-removed")
-            test_stop("root-removed")
+            argv = ["btrfs", "device", "remove", st["old"]["node"], a.root]
+            if os.environ.get(TEST_STOP) == "fail-remove":
+                argv = ["sh", "-c", "echo 'test: device remove fails' >&2; exit 1"]
+            p = subprocess.run(argv, capture_output=True, text=True)
+            if p.returncode:
+                err = (p.stderr or p.stdout).strip()[-300:]
+                n = int(rec.get("removeFailures", 0)) + 1
+                if n < 2:
+                    note("root-added", removeFailures=n, removeError=err)
+                    raise Refusal(f"btrfs device remove failed ({err}). The root keeps working on "
+                                  "both partitions; the next start tries once more, then keeps "
+                                  "it on two devices.")
+                print(f"btrfs device remove failed again ({err}); the root stays on two "
+                      "partitions.", flush=True)
+                note("root-added", removeFailures=n, removeError=err, migrate=False,
+                     migrateProblem=f"btrfs device remove failed {n} times")
+            else:
+                udev_follow(a.root, [st["old"]["node"], st["new"]["node"]])
+                note("root-removed")
+                test_stop("root-removed")
         elif stage == "root-merge":
             old, new = st["old"], st["new"]
-            m = re.search(r"uuid:\s*([0-9a-f-]{36})",
-                          run(["btrfs", "filesystem", "show", "--raw", a.root]))
-            fsid = m.group(1) if m else None
+            fsid = root_fsid(a.root)
             sig = run(["blkid", "-p", "-o", "value", "-s", "UUID", old["node"]],
                       check=False).strip().lower()
             if not fsid or sig == fsid:
                 raise Refusal(f"{old['node']} still carries the root file system; nothing more "
                               "was changed.")
+            udev_follow(a.root, [old["node"], new["node"]], want=new["node"])
+            bound = bound_to(old["node"])
+            if bound:
+                print(f"Waiting for systemd to tie {', '.join(bound)} to {new['node']} instead "
+                      f"of {old['node']}.", flush=True)
+            for _ in range(10):
+                if not bound:
+                    break
+                kick_mountinfo(a.run_dir)
+                time.sleep(1)
+                bound = bound_to(old["node"])
             with disk_locked(disk):
-                gpt = gpt_rewrite(disk, gpt, {
-                    old["uuid"]: None,
-                    new["uuid"]: {"uuid": old["uuid"], "name": old["name"], "attrs": old["attrs"],
-                                  "size": old["start"] + old["size"] - new["start"]}})
+                gpt = gpt_edit(disk, gpt, [("merge", new["uuid"], old["uuid"])])
                 test_stop("root-merged")
-                kernel_sync(disk, gpt, locked=True)
+                if not bound:
+                    kernel_sync(disk, gpt, locked=True)
             note("grown")
             test_stop("grown")
+            if bound:
+                # The table is final; only the kernel still has the old
+                # partition. Taking it away now would stop these units.
+                print(f"systemd still ties {', '.join(bound)} to {old['node']}; the root file "
+                      "system grows into the space at the next start.", flush=True)
+                return 0
         elif stage == "root-resize":
             root = st["root"]
             require_geometry(disk, root)
@@ -1266,10 +1622,9 @@ def cmd_claim(a):
     if resume:
         new = resume
     else:
-        ss = gpt["sector"]
-        spec = f"start={start // ss}, size={size // ss}, type={LINUX}, name=\"{CLAIM_NAME}\"\n"
-        run(["sfdisk", "--append", "--no-reread", "--no-tell-kernel", disk], input=spec)
-        after = read_gpt(disk)
+        with disk_locked(disk):
+            after = gpt_edit(disk, gpt, [("add", start, size, LINUX, CLAIM_NAME,
+                                          str(uuid.uuid4()))])
         added = [p for p in after["parts"] if p["uuid"] not in {q["uuid"] for q in gpt["parts"]}]
         kept = [(p["uuid"], p["start"], p["size"]) for p in after["parts"] if p not in added]
         if len(added) != 1 or added[0]["start"] != start or added[0]["size"] != size \
@@ -1311,6 +1666,8 @@ def main(argv=None):
     m.add_argument("--dry-run", action="store_true")
     m.add_argument("--yes", action="store_true", help="don't ask (the boot-time service)")
     m.add_argument("--root", default="/", help=argparse.SUPPRESS)
+    m.add_argument("--reboot-on-stale", action="store_true",
+                   help="restart when the kernel can't follow a moved partition (the boot unit)")
     c = sub.add_parser("claim", help="add the space Recovery freed to the root file system")
     c.add_argument("--dry-run", action="store_true")
     c.add_argument("--yes", action="store_true", help="don't ask (the boot-time service)")

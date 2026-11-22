@@ -8,6 +8,7 @@ import io
 import json
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -462,31 +463,6 @@ class V2Planner(unittest.TestCase):
         self.assertEqual(st["plan"]["newRoot"]["start"],
                          wd.align_up(moves["boot"]["to"] + 262144 * s))
 
-    def test_gpt_script_changes_only_named_entries(self):
-        dump = ("label: gpt\nlabel-id: 3865F65C-AB41-466F-895F-491BB3AD52EF\ndevice: /dev/d\n"
-                "unit: sectors\nfirst-lba: 256\nlast-lba: 262138\nsector-size: 4096\n\n"
-                f"/dev/d2 : start=        3000, size=        1000, type={wd.LINUX}, "
-                f"uuid={U['new']}, name=\"{wd.CLAIM_NAME}\"\n"
-                f"/dev/d5 : start=         256, size=        2560, type={wd.LINUX}, "
-                f"uuid={U['boot']}, name=\"boot, the one\", attrs=\"GUID:63\"\n"
-                f"/dev/d6 : start=        4000, size=        2560, type={wd.LINUX}, "
-                f"uuid={U['root']}, name=\"root\"\n")
-        out = wd.gpt_script(dump, 4096, {
-            wd.norm(U["root"]): None,
-            wd.norm(U["new"]): {"uuid": wd.norm(U["root"]), "name": "root", "attrs": "",
-                                "size": 3560 * 4096}})
-        lines = out.splitlines()
-        self.assertIn("first-lba: 256", lines)
-        self.assertIn(f"/dev/d5 : start=         256, size=        2560, type={wd.LINUX}, "
-                      f"uuid={U['boot']}, name=\"boot, the one\", attrs=\"GUID:63\"", lines)
-        self.assertIn(f"/dev/d2 : start=3000, size=3560, type={wd.LINUX}, "
-                      f"uuid={wd.norm(U['root'])}, name=\"root\"", lines)
-        self.assertFalse(any(line.startswith("/dev/d6") for line in lines))
-        with self.assertRaisesRegex(wd.Refusal, "changed while"):
-            wd.gpt_script(dump, 4096, {wd.norm(U["esp"]): None})
-        with self.assertRaisesRegex(wd.Refusal, "sector boundary"):
-            wd.gpt_script(dump, 4096, {wd.norm(U["new"]): {"start": 4097}})
-
     def test_root_references(self):
         part = {"uuid": wd.norm(U["root"]), "name": "root", "node": "/dev/nvme0n1p6"}
         fs = "UUID=45d65ea5-9879-4d4a-9724-32ad24eed778 / btrfs subvol=root 0 0\n"
@@ -512,6 +488,211 @@ class V2Planner(unittest.TestCase):
         self.assertFalse(wd.move_gate(self.gpt(states[2][0]), self.chosen))
         with_macos = dict(self.rows, macos=(513, 6144))
         self.assertFalse(wd.move_gate(self.gpt(with_macos), self.chosen))
+
+
+ATTRS = {"isc": 0x1000000000000021, "stub": 0x20, "recovery": 0x8000000000000004,
+         "esp": 0x0000400000000000, "root": 0x0001000000000008}
+
+
+@unittest.skipUnless(shutil.which("sfdisk"), "needs sfdisk")
+class RawGpt(unittest.TestCase):
+    """The tool's own GPT editor on an image file (both sector sizes): only
+    the planned fields change, every other byte of every entry (attribute
+    bits 3-47 too) stays, in both copies."""
+
+    def make(self, sector):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir)
+        self.img = os.path.join(self.dir, "disk.img")
+        with open(self.img, "wb") as f:
+            f.truncate(15 << 30)
+        subprocess.run(["sfdisk", "--quiet", "--sector-size", str(sector), self.img],
+                       input=fx.sfdisk_script(sector), text=True, check=True)
+        self.ss = sector
+        t = json.loads(subprocess.run(["sfdisk", "--json", "--sector-size", str(sector), self.img],
+                                      capture_output=True, text=True, check=True).stdout)
+        self.by = {p["name"]: {"uuid": p["uuid"].upper(), "start": p["start"] * sector,
+                               "size": p["size"] * sector, "node": p["node"]}
+                   for p in t["partitiontable"]["partitions"]}
+        if sector == 512:
+            self.gpt = wd.read_gpt(self.img)
+        # Attribute bits sfdisk can't print, set raw.
+        io = wd.FileIO(self.img)
+        try:
+            t = wd.gpt_load(io, sector, 15 << 30)
+            ents = []
+            for e in t["entries"]:
+                e = bytearray(e)
+                if e[0:16] != wd.ZERO_GUID:
+                    name = wd.entry_info(e)["name"]
+                    struct.pack_into("<Q", e, 48, ATTRS.get(name, 0))
+                ents.append(bytes(e))
+            wd.gpt_store(io, t, ents)
+        finally:
+            io.close()
+        return wd.gpt_raw_entries(self.img, sector)
+
+    def check_only(self, before, after, changed):
+        """Every entry byte-equal in both copies except the fields named."""
+        for uid, copies in before.items():
+            if uid in changed:
+                continue
+            self.assertEqual(after.get(uid), copies, uid)
+        for uid in after:
+            self.assertEqual(after[uid]["primary"], after[uid]["backup"])
+
+    def edit_raw(self, sector, ops):
+        """gpt_edit's write path without its sfdisk read-back (sfdisk takes
+        files as 512-byte-sector disks)."""
+        io = wd.FileIO(self.img)
+        try:
+            t = wd.gpt_load(io, sector, 15 << 30)
+            live = t["primary"] or t["backup"]
+            ents = wd.gpt_apply(t["entries"], sector, [o for o in ops if o[0] != "delete"],
+                                live["first"], live["last"])
+            for o in ops:
+                if o[0] == "delete":  # what Recovery's deleteContainer leaves
+                    i = wd._slot(ents, o[1])
+                    ents[i] = bytes(wd.ENTRY)
+            wd.gpt_store(io, t, ents)
+        finally:
+            io.close()
+
+    def test_move_keeps_every_other_byte(self):
+        for sector in (512, 4096):
+            with self.subTest(sector=sector):
+                before = self.make(sector)
+                stub = self.by["stub"]
+                self.assertEqual(wd.entry_info(bytes.fromhex(before[stub["uuid"]]["primary"][1]))
+                                 ["attrs"], 0x20)
+                if sector == 512:
+                    new = wd.gpt_edit(self.img, self.gpt, [("move", stub["uuid"], 513 * MIB)])
+                    moved = next(p for p in new["parts"] if p["uuid"] == stub["uuid"])
+                    self.assertEqual((moved["start"], moved["size"]), (513 * MIB, stub["size"]))
+                else:
+                    self.edit_raw(sector, [("move", stub["uuid"], 513 * MIB)])
+                after = wd.gpt_raw_entries(self.img, sector)
+                self.check_only(before, after, {stub["uuid"]})
+                b = bytes.fromhex(before[stub["uuid"]]["primary"][1])
+                a = bytes.fromhex(after[stub["uuid"]]["primary"][1])
+                self.assertEqual(a[:32] + a[48:], b[:32] + b[48:])  # all but first/last LBA
+                self.assertEqual(wd.entry_info(a)["first"] * sector, 513 * MIB)
+                self.assertEqual(wd.entry_info(a)["last"] - wd.entry_info(a)["first"],
+                                 wd.entry_info(b)["last"] - wd.entry_info(b)["first"])
+                isc = self.by["isc"]["uuid"]
+                self.assertEqual(wd.entry_info(bytes.fromhex(after[isc]["backup"][1]))["attrs"],
+                                 0x1000000000000021)
+                v = subprocess.run(["sfdisk", "--verify", "--sector-size", str(sector),
+                                    self.img], capture_output=True, text=True)
+                self.assertEqual(v.returncode, 0, v.stdout + v.stderr)
+
+    def test_add_and_merge(self):
+        self.make(512)
+        root, macos = self.by["root"], self.by["macos"]
+        # macOS gone (its entry emptied, raw), a new partition in its place,
+        # then folded into root's entry.
+        self.edit_raw(512, [("delete", macos["uuid"])])
+        gpt = wd.read_gpt(self.img)
+        self.assertNotIn(macos["uuid"], {p["uuid"] for p in gpt["parts"]})
+        before = wd.gpt_raw_entries(self.img, 512)
+        uid = "22222222-3333-4444-8555-666666666666"
+        gpt = wd.gpt_edit(self.img, gpt, [("add", macos["start"], 1 << 30, wd.LINUX,
+                                           wd.CLAIM_NAME, uid)])
+        added = next(p for p in gpt["parts"] if p["uuid"] == wd.norm(uid))
+        self.assertEqual((added["start"], added["size"], added["name"]),
+                         (macos["start"], 1 << 30, wd.CLAIM_NAME))
+        self.check_only(before, wd.gpt_raw_entries(self.img, 512), {wd.norm(uid)})
+        new_slot = wd.gpt_raw_entries(self.img, 512)[wd.norm(uid)]["primary"][0]
+        gpt = wd.gpt_edit(self.img, gpt, [("merge", uid, root["uuid"])])
+        after = wd.gpt_raw_entries(self.img, 512)
+        self.assertNotIn(wd.norm(uid), after)
+        slot, raw = after[root["uuid"]]["primary"]
+        self.assertEqual(slot, new_slot)
+        b, a = bytes.fromhex(before[root["uuid"]]["primary"][1]), bytes.fromhex(raw)
+        self.assertEqual(a[:32] + a[40:], b[:32] + b[40:])  # old entry, new first LBA
+        self.assertEqual(wd.entry_info(a)["attrs"], ATTRS["root"])
+        self.assertEqual(wd.entry_info(a)["first"] * 512, macos["start"])
+        self.check_only(before, after, {root["uuid"], wd.norm(uid)})
+
+    def test_torn_primary_falls_back_to_backup(self):
+        self.make(512)
+        with open(self.img, "r+b") as f:
+            f.seek(512 + 60)
+            f.write(b"\xff")  # inside the disk GUID: the header CRC is now wrong
+        io = wd.FileIO(self.img)
+        try:
+            t = wd.gpt_load(io, 512, 15 << 30)
+        finally:
+            io.close()
+        self.assertIsNone(t["primary"])
+        self.assertIsNotNone(t["backup"])
+        stub = self.by["stub"]
+        self.edit_raw(512, [("move", stub["uuid"], 513 * MIB)])
+        io = wd.FileIO(self.img)
+        try:
+            t = wd.gpt_load(io, 512, 15 << 30)
+        finally:
+            io.close()
+        self.assertEqual(t["primary"]["array"], t["backup"]["array"])
+
+    def test_apply_refusals(self):
+        self.make(4096)
+        io = wd.FileIO(self.img)
+        try:
+            t = wd.gpt_load(io, 4096, 15 << 30)
+        finally:
+            io.close()
+        live = t["primary"]
+        with self.assertRaisesRegex(wd.Refusal, "sector boundary"):
+            wd.gpt_apply(t["entries"], 4096, [("move", self.by["stub"]["uuid"], 4097)],
+                         live["first"], live["last"])
+        with self.assertRaisesRegex(wd.Refusal, "usable range"):
+            wd.gpt_apply(t["entries"], 4096, [("move", self.by["stub"]["uuid"], 0)],
+                         live["first"], live["last"])
+        with self.assertRaisesRegex(wd.Refusal, "0 entries"):
+            wd.gpt_apply(t["entries"], 4096, [("move", U["new"], 4096)], live["first"],
+                         live["last"])
+
+
+class SmallChecks(unittest.TestCase):
+    def test_read_gpt_needs_sector_size(self):
+        orig = wd.run
+        wd.run = lambda argv, input=None, check=True: json.dumps(
+            {"partitiontable": {"label": "gpt", "firstlba": 6, "lastlba": 100, "partitions": []}})
+        try:
+            with self.assertRaisesRegex(wd.Refusal, "sector size"):
+                wd.read_gpt(os.devnull)
+        finally:
+            wd.run = orig
+
+    def test_swap_on_root(self):
+        swaps = ("Filename\t\t\t\tType\t\tSize\t\tUsed\t\tPriority\n"
+                 "/dev/zram0                              partition\t8388604\t\t0\t\t100\n"
+                 "/var/swap/swap\\040file                    file\t\t4194300\t\t0\t\t-2\n")
+        seen = []
+
+        def where(path):
+            seen.append(path)
+            return "/dev/nvme0n1p6"
+        self.assertIn("swap on the root", wd.swap_problem(swaps, where, {"/dev/nvme0n1p6"}))
+        self.assertEqual(seen, ["/var/swap/swap file"])
+        self.assertIsNone(wd.swap_problem(swaps, lambda p: "/dev/sda1", {"/dev/nvme0n1p6"}))
+        self.assertIsNone(wd.swap_problem(swaps.splitlines()[0], where, {"/dev/nvme0n1p6"}))
+
+    def test_root_devices_resolves_links(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        link = os.path.join(d, "by-uuid-link")
+        os.symlink("/dev/null", link)
+        out = {"findmnt": "btrfs\n",
+               "btrfs": f"Label: none  uuid: x\n\tdevid    1 size 1 used 1 path {link}\n",
+               "lsblk": "part\n"}
+        orig = wd.run
+        wd.run = lambda argv, input=None, check=True: out[argv[0]]
+        try:
+            self.assertEqual(wd.root_devices("/"), ["/dev/null"])
+        finally:
+            wd.run = orig
 
 
 if __name__ == "__main__":

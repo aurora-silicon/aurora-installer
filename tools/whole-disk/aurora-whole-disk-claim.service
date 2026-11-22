@@ -12,11 +12,13 @@ ConditionPathExists=|/efi/aurora/whole-disk/removed.json
 After=local-fs.target aurora-whole-disk-move.service
 
 [Service]
-Type=oneshot
+# Type=exec: the boot doesn't wait for it. Moving the root takes as long as
+# copying its data; it is online and continues after a restart. A failure
+# marks this unit failed and the boot goes on; when btrfs device remove
+# fails twice the root stays on two devices and the claim ends.
+Type=exec
 ExecStart=/usr/bin/aurora-whole-disk claim --yes
-# Moving the root takes as long as copying its data; it is online and
-# continues after a restart.
-TimeoutStartSec=infinity
+StandardOutput=journal+console
 
 [Install]
 WantedBy=multi-user.target
