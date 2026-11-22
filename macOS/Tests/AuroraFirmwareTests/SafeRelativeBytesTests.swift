@@ -25,9 +25,23 @@ final class SafeRelativeBytesTests: XCTestCase {
     ] {
       XCTAssertFalse(safeRelative(name), name.debugDescription)
     }
-    // A combining mark after a dot or separator is part of a component name.
-    XCTAssertTrue(safeRelative("a/\u{301}b"))
+    // A combining mark after a dot is part of a component name.
     XCTAssertTrue(safeRelative(".\u{301}/b"))
+    XCTAssertTrue(safeRelative("a\u{301}/b"))
+  }
+
+  /// Callers split admitted paths on Characters, so a separator that a
+  /// grapheme cluster absorbs would be one component to them and two to the
+  /// file system.
+  func testSeparatorsAbsorbedIntoAGraphemeAreRefused() {
+    for name in [
+      "a/\u{301}b", "a/\u{20DD}b", "a/\u{200D}b", "a/\u{FE0F}b", "a\u{600}/b",
+      "C-4388__s-C2/\u{301}aruba.trx",
+    ] {
+      XCTAssertFalse(safeRelative(name), name.debugDescription)
+      XCTAssertNotEqual(
+        name.split(separator: "/").count, name.utf8.split(separator: UInt8(ascii: "/")).count)
+    }
   }
 
   func testEmptyDotAndSeparatorTricksStayRefused() {

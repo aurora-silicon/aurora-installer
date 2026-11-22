@@ -132,7 +132,9 @@ private actor MeasuredIPSWReader: FirmwareRangeReading {
           guard lstat(path, &info) == 0 else { throw RestoreFailure("Cannot stat \(relative).") }
           if info.st_mode & S_IFMT == S_IFLNK {
             let target = try FileManager.default.destinationOfSymbolicLink(atPath: path)
-            guard !target.contains("/") else { throw RestoreFailure("Link leaves \(relative).") }
+            guard !target.utf8.contains(UInt8(ascii: "/")) else {
+              throw RestoreFailure("Link leaves \(relative).")
+            }
             let directory = relative.split(separator: "/").dropLast().joined(separator: "/")
             named[relative] = directory.isEmpty ? target : directory + "/" + target
           } else if info.st_mode & S_IFMT == S_IFREG {
