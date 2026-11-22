@@ -27,7 +27,11 @@ import Foundation
     guard let handle = FileHandle(forReadingAtPath: path) else { fail("can't read \(path)") }
     defer { try? handle.close() }
     // Header, metadata (at most 1 MiB), salt and root header.
-    return (try? handle.read(upToCount: 12 + 1024 * 1024 + 32 + 112)) ?? Data()
+    do {
+      return try handle.read(upToCount: 12 + 1024 * 1024 + 32 + 112) ?? Data()
+    } catch {
+      fail("can't read \(path): \(error.localizedDescription)")
+    }
   }
 
   static func main() {

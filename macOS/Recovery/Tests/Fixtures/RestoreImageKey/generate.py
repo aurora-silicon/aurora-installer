@@ -54,7 +54,8 @@ for index in range(8):
     sealed = suite.encrypt(key, private.public_key())
     out["hpke"].append({
         "pem": pem if index % 2 == 0 else pkcs8_without_public(scalar),
-        "public": b64(public), "enc": b64(sealed[:65]), "wrapped": b64(sealed[65:]),
+        "scalar": b64(scalar), "public": b64(public), "enc": b64(sealed[:65]),
+        "wrapped": b64(sealed[65:]),
         "key": b64(key)})
 # Scalars near the edges of [1, n-1] plus random ones: public point = d*G.
 order = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551

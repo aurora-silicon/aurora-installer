@@ -1,9 +1,11 @@
 import Foundation
 
-// RestoreImageKey against two independent references: the restore image
-// helper's Go-generated vectors (RestoreImage/Tests/.../go-vectors.json, the
-// same ones its CryptoKit unwrap passes) and pyca/cryptography vectors
-// (Fixtures/RestoreImageKey, generate.py). Every key in both is disposable.
+// RestoreImageKey against published known answers (RFC 5869 A.1-A.3, the
+// CFRG HPKE test vector for this suite, NIST CAVP gcmDecrypt256) and two
+// independent implementations: the restore image helper's Go-generated vectors
+// (RestoreImage/Tests/.../go-vectors.json, the same ones its CryptoKit unwrap
+// passes) and pyca/cryptography vectors (Fixtures/RestoreImageKey,
+// generate.py). Every key in them is disposable.
 @main struct Check {
   nonisolated(unsafe) static var failures = 0
   static func expect(_ condition: Bool, _ what: String) {
@@ -25,11 +27,164 @@ import Foundation
     }
   }
   static func data(_ text: String?) -> Data { Data(base64Encoded: text ?? "") ?? Data([0xff]) }
+  static func hex(_ text: String) -> [UInt8] {
+    var out: [UInt8] = []
+    var index = text.startIndex
+    while index < text.endIndex {
+      let next = text.index(index, offsetBy: 2)
+      out.append(UInt8(text[index..<next], radix: 16)!)
+      index = next
+    }
+    return out
+  }
+
+  /// RFC 5869 Appendix A.1-A.3 (HKDF-SHA256).
+  static func rfc5869() {
+    let cases: [(ikm: [UInt8], salt: [UInt8], info: [UInt8], okm: String)] = [
+      (
+        [UInt8](repeating: 0x0b, count: 22), Array(0x00...0x0c), Array(0xf0...0xf9),
+        "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865"
+      ),
+      (
+        Array(0x00...0x4f), Array(0x60...0xaf), Array(0xb0...0xff),
+        "b11e398dc80327a1c8e7f78c596a49344f012eda2d4efad8a050cc4c19afa97c"
+          + "59045a99cac7827271cb41c65e590e09da3275600c2f09b8367793a9aca3db71"
+          + "cc30c58179ec3e87c14c01d5c1f3434f1d87"
+      ),
+      (
+        [UInt8](repeating: 0x0b, count: 22), [], [],
+        "8da4e775a563c18f715f802a063c5a31b8a11f5c5ee1879ec3454e5f3c738d2d9d201395faa4b61a96c8"
+      ),
+    ]
+    for (index, item) in cases.enumerated() {
+      let okm = hex(item.okm)
+      expect(
+        (try? RestoreImageKey.derive(
+          Data(item.ikm), salt: Data(item.salt), info: Data(item.info), size: okm.count))
+          == Data(okm), "RFC 5869 A.\(index + 1)")
+    }
+  }
+
+  /// The CFRG HPKE test vector for mode 0, DHKEM(P-256, HKDF-SHA256),
+  /// HKDF-SHA256, AES-256-GCM (draft-irtf-cfrg-hpke test-vectors.json; this
+  /// suite isn't in RFC 9180's appendix), sequence 0.
+  static func cfrgHPKE() {
+    let skRm = hex("317f915db7bc629c48fe765587897e01e282d3e8445f79f27f65d031a88082b2")
+    let pkRm = hex(
+      "04abc7e49a4c6b3566d77d0304addc6ed0e98512ffccf505e6a8e3eb25c685136f"
+        + "853148544876de76c0f2ef99cdc3a05ccf5ded7860c7c021238f9e2073d2356c")
+    let enc = hex(
+      "04c06b4f6bebc7bb495cb797ab753f911aff80aefb86fd8b6fcc35525f3ab5f03e"
+        + "0b21bd31a86c6048af3cb2d98e0d3bf01da5cc4c39ff5370d331a4f1f7d5a4e0")
+    let info = hex("4f6465206f6e2061204772656369616e2055726e")
+    let ct0 = hex(
+      "58c61a45059d0c5704560e9d88b564a8b63f1364b8d1fcb3c4c6ddc1d291742465e902cd216f8908da49f8f96f")
+    let ct1 = hex(
+      "b4e7c90d1dd62cb563694956eb517ab55d5e7d1f6366a0066c04ababaa444dbaf60a30d7bb7d3e91b969762dee")
+    let pt = hex("4265617574792069732074727574682c20747275746820626561757479")
+    guard let key = try? RestoreImageKey.PrivateKey(scalar: skRm, publicKey: pkRm) else {
+      return expect(false, "CFRG HPKE key pair")
+    }
+    expect(
+      (try? RestoreImageKey.open(
+        key, encapsulated: enc, ciphertext: ct0, info: info, aad: Array("Count-0".utf8))) == pt,
+      "CFRG HPKE open")
+    // Sequence 1's ciphertext under sequence 0's nonce, and a changed info.
+    expectThrows("CFRG HPKE seq 1 at seq 0", .authentication) {
+      _ = try RestoreImageKey.open(
+        key, encapsulated: enc, ciphertext: ct1, info: info, aad: Array("Count-1".utf8))
+    }
+    expectThrows("CFRG HPKE other info", .authentication) {
+      _ = try RestoreImageKey.open(
+        key, encapsulated: enc, ciphertext: ct0, info: [], aad: Array("Count-0".utf8))
+    }
+  }
+
+  /// NIST CAVP gcmDecrypt256.rsp (gcmtestvectors.zip), 96-bit IV, 128-bit
+  /// tag: no AAD with PTlen 0/128/408, then PTlen 128 with AADlen 160 and 384
+  /// (partial and whole AAD blocks); `nil` plaintext is a case marked FAIL.
+  static func nistGCM() {
+    let cases: [(key: String, iv: String, ct: String, tag: String, pt: String?, aad: String)] = [
+      (
+        "f5a2b27c74355872eb3ef6c5feafaa740e6ae990d9d48c3bd9bb8235e589f010",
+        "58d2240f580a31c1d24948e9", "", "15e051a5e4a5f5da6cea92e2ebee5bac", "", ""
+      ),
+      (
+        "e5a8123f2e2e007d4e379ba114a2fb66e6613f57c72d4e4f024964053028a831",
+        "51e43385bf533e168427e1ad", "", "38fe845c66e66bdd884c2aecafd280e6", nil, ""
+      ),
+      (
+        "4c8ebfe1444ec1b2d503c6986659af2c94fafe945f72c1e8486a5acfedb8a0f8",
+        "473360e0ad24889959858995", "d2c78110ac7e8f107c0df0570bd7c90c",
+        "c26a379b6d98ef2852ead8ce83a833a7", "7789b41cb3ee548814ca0b388c10b343", ""
+      ),
+      (
+        "c997768e2d14e3d38259667a6649079de77beb4543589771e5068e6cd7cd0b14",
+        "835090aed9552dbdd45277e2", "9f6607d68e22ccf21928db0986be126e",
+        "f32617f67c574fd9f44ef76ff880ab9f", nil, ""
+      ),
+      (
+        "4433db5fe066960bdd4e1d4d418b641c14bfcef9d574e29dcd0995352850f1eb",
+        "0e396446655582838f27f72f",
+        "b0d254abe43bdb563ead669192c1e57e9a85c51dba0f1c8501d1ce92273f1ce7e140dcfac94757fabb128caad16912cead0607",
+        "ffd0b02c92dbfcfbe9d58f7ff9e6f506",
+        "d602c06b947abe06cf6aa2c5c1562e29062ad6220da9bc9c25d66a60bd85a80d4fbcc1fb4919b6566be35af9819aba836b8b47",
+        ""
+      ),
+      (
+        "28ae911ee685872d906de12d7696351df8ef2234a74a95efa4ea15b327338fe0",
+        "2fe6a815d4865181fade5fac",
+        "1168442ef64656ef6577fb42c1919c84aae856388e4db9945bb8c9b8412bbe6458bc400444d5d2bf2630f83468f66f9e46e790",
+        "b75f616fd1a3d6563b62b899e5a7e522", nil, ""
+      ),
+      (
+        "aef220035cbb9e47ce605698aa28e3b0ba50b4ffcd473bb8da2017889b38055f",
+        "cde7af095360ea827778761d", "bb1cdf25717445e5a77444d488387aee",
+        "e72340deabc1589125e9e4a2755512c7", "9775db638e5d964fc9c70b5fe456ec14",
+        "f269837306abbcee2da1722f28be35163e3d8567"
+      ),
+      (
+        "041ef9cd359ac65b7937dcee46778d19dc32a312c81edc15dbc8918df75081f0",
+        "4bf5a7c50201a6586b1dcdb5", "2c24ef09b6a01b5f200c59284316fa56",
+        "36c2da827d58cdc8cd3faf0a335b1846", nil, "10980f54fdbd18e49a48cf74ecbbb7e9d22083a3"
+      ),
+      (
+        "16ac8e71760c1fd4eba37422bcbcaaf67513fe6822d00a14e3ab62a6ca559931",
+        "7021d16596de09585b50673a", "073988485ae13dddb025f7f07059ca70",
+        "241a2bc57f4ee159a79bc57cf48e023c", "5ddecdab11e715d0b5996d46cb18715a",
+        "ecdca487c04e574ff11acec743c66e052e80bbc7fe67273246e218e8c82de0e6"
+          + "91dcf4945572a2195b57c2257d2c8f41"
+      ),
+      (
+        "0fc8ae600fd3396716c3e88327545b5e4308eda1c25e076d1098fabb74a9f0a0",
+        "c529787b4c756a2343f36280", "7dc464c2735f446f9a3f92873688e6c3",
+        "fd6d32ff9a090bb880371a678f37ecaa", nil,
+        "2c6ac22d787b70bf516f4bf72deb8f9514a588e5e53cb26980becd0d500bb234"
+          + "53d8ed874ec2514b813aa45d2dc36e6a"
+      ),
+    ]
+    for (index, item) in cases.enumerated() {
+      let opened = { () throws -> [UInt8] in
+        try RestoreImageKey.GCM.open(
+          key: hex(item.key), nonce: hex(item.iv), sealed: hex(item.ct) + hex(item.tag),
+          aad: hex(item.aad))
+      }
+      if let pt = item.pt {
+        expect((try? opened()) == hex(pt), "NIST GCM \(index)")
+      } else {
+        expectThrows("NIST GCM \(index) (FAIL)", .authentication) { _ = try opened() }
+      }
+    }
+  }
   static func response(_ enc: String, _ wrapped: String) -> Data {
     try! JSONSerialization.data(withJSONObject: ["enc-request": enc, "wrapped-key": wrapped])
   }
 
   static func main() throws {
+    rfc5869()
+    cfrgHPKE()
+    nistGCM()
+
     let here = URL(fileURLWithPath: "Tests/Fixtures/RestoreImageKey/vectors.json")
     let go = URL(
       fileURLWithPath: "../RestoreImage/Tests/RestoreImageCoreTests/Fixtures/go-vectors.json")
@@ -55,24 +210,44 @@ import Foundation
         == data(g["hkdf"]),
       "Go HKDF")
 
-    // pyca HPKE: PKCS#8 with and without the embedded public key.
-    for (index, item) in v["hpke"]!.enumerated() {
+    // pyca HPKE. Even entries are PKCS#8 with the embedded public key and
+    // open from the PEM; odd ones omit it, so the PEM is refused and the
+    // pair is built from the vector's public key instead.
+    let hpke = v["hpke"]!
+    for (index, item) in hpke.enumerated() {
       let pem = Data((item["pem"] as! String).utf8)
       let enc = item["enc"] as! String
       let wrapped = item["wrapped"] as! String
+      let expected = data(item["key"] as? String)
+      let scalar = [UInt8](data(item["scalar"] as? String))
+      let pair = try? RestoreImageKey.PrivateKey(
+        scalar: scalar, publicKey: [UInt8](data(item["public"] as? String)))
+      expect(pair != nil, "hpke \(index) key pair")
+      if let pair {
+        expect(
+          (try? RestoreImageKey.open(
+            pair, encapsulated: [UInt8](data(enc)), ciphertext: [UInt8](data(wrapped)), info: []))
+            == [UInt8](expected), "hpke \(index) open")
+      }
+      guard index % 2 == 0 else {
+        expectThrows("hpke \(index) PEM without public key", .invalidPrivateKey) {
+          _ = try RestoreImageKey.PrivateKey(pem: pem)
+        }
+        continue
+      }
       let key = try? RestoreImageKey.PrivateKey(pem: pem)
       expect(
         key?.publicKeyRepresentation == data(item["public"] as? String), "hpke \(index) public")
       expect(
         (try? RestoreImageKey.unwrap(fcsResponse: response(enc, wrapped), releaseKey: pem))
-          == data(item["key"] as? String),
+          == expected,
         "hpke \(index) unwrap")
       let metadata = ["com.apple.wkms.fcs-response": response(enc, wrapped)]
       expect(
-        (try? RestoreImageKey.unwrap(metadata, releaseKey: pem)) == data(item["key"] as? String),
+        (try? RestoreImageKey.unwrap(metadata, releaseKey: pem)) == expected,
         "hpke \(index) metadata unwrap")
-      // Another recipient's key, a changed encapsulation, a point off the curve.
-      let other = Data((v["hpke"]![(index + 1) % v["hpke"]!.count]["pem"] as! String).utf8)
+      // Another recipient's key, a point off the curve, a compressed point.
+      let other = Data((hpke[(index + 2) % hpke.count]["pem"] as! String).utf8)
       expectThrows("hpke \(index) wrong key", .authentication) {
         _ = try RestoreImageKey.unwrap(fcsResponse: response(enc, wrapped), releaseKey: other)
       }
@@ -82,23 +257,59 @@ import Foundation
         _ = try RestoreImageKey.unwrap(
           fcsResponse: response(Data(bent).base64EncodedString(), wrapped), releaseKey: pem)
       }
+      var compressed = [UInt8](data(enc))
+      compressed[0] = 0x02
+      expectThrows("hpke \(index) non-uncompressed enc", .invalidPoint) {
+        _ = try RestoreImageKey.unwrap(
+          fcsResponse: response(Data(compressed).base64EncodedString(), wrapped), releaseKey: pem)
+      }
     }
 
-    // pyca P-256: d*G for edge and random scalars.
-    for (index, item) in v["points"]!.enumerated() {
+    // pyca P-256: a scalar admits its own public point (d*G) and no other.
+    let points = v["points"]!
+    for (index, item) in points.enumerated() {
       let scalar = [UInt8](data(item["scalar"] as? String))
+      let mine = [UInt8](data(item["public"] as? String))
       expect(
-        (try? RestoreImageKey.PrivateKey(scalar: scalar))?.publicKeyRepresentation
-          == data(item["public"] as? String),
-        "point \(index)")
+        (try? RestoreImageKey.PrivateKey(scalar: scalar, publicKey: mine)) != nil, "point \(index)")
+      let theirs = [UInt8](data(points[(index + 1) % points.count]["public"] as? String))
+      expectThrows("point \(index), another public key", .invalidPrivateKey) {
+        _ = try RestoreImageKey.PrivateKey(scalar: scalar, publicKey: theirs)
+      }
     }
-    let order = [UInt8](
-      Data(base64Encoded: "/////wAAAAD//////////7zm+q2nF56E87nKwvxjJVE=")!)
-    expectThrows("scalar zero", .invalidPrivateKey) {
-      _ = try RestoreImageKey.PrivateKey(scalar: [UInt8](repeating: 0, count: 32))
+    let order = RestoreImageKey.PrivateKey.order
+    let generator = RestoreImageKey.PrivateKey.generator
+    for (what, scalar) in [
+      ("scalar zero", [UInt8](repeating: 0, count: 32)), ("scalar n", order),
+      ("scalar n+1", Array(order.dropLast()) + [order[31] + 1]),
+      ("scalar 2^256-1", [UInt8](repeating: 0xff, count: 32)), ("short scalar", [1]),
+    ] {
+      expectThrows(what, .invalidPrivateKey) {
+        _ = try RestoreImageKey.PrivateKey(scalar: scalar, publicKey: generator)
+      }
     }
-    expectThrows("scalar n", .invalidPrivateKey) {
-      _ = try RestoreImageKey.PrivateKey(scalar: order)
+
+    // d = 1 with -G: same x as G, on the curve, so the pair is admitted, and
+    // HPKE (which binds the whole point) doesn't open with it. Off the curve
+    // with G's x is refused.
+    let minusG =
+      Array(generator[0..<33])
+      + hex("b01cbd1c01e58065711814b583f061e9d431cca994cea1313449bf97c840ae0a")
+    let one = [UInt8](repeating: 0, count: 31) + [1]
+    if let pair = try? RestoreImageKey.PrivateKey(scalar: one, publicKey: minusG) {
+      let sender = [UInt8](data(hpke[0]["enc"] as? String))
+      expectThrows("d = 1 with -G opens nothing", .authentication) {
+        _ = try RestoreImageKey.open(
+          pair, encapsulated: sender, ciphertext: [UInt8](data(hpke[0]["wrapped"] as? String)),
+          info: [])
+      }
+    } else {
+      expect(false, "d = 1 with -G: refused")
+    }
+    var offCurve = generator
+    offCurve[64] ^= 1
+    expectThrows("d = 1 with G's x off the curve", .invalidPrivateKey) {
+      _ = try RestoreImageKey.PrivateKey(scalar: one, publicKey: offCurve)
     }
 
     // pyca AES-256-GCM and HKDF-SHA256.
@@ -229,6 +440,13 @@ import Foundation
       var changed = head
       changed[index] ^= 1
       expectThrows("Go AEA root, byte \(index) changed", .authentication) {
+        try RestoreImageKey.authenticateRoot(changed, archiveKey: archiveKey)
+      }
+    }
+    for (index, value) in [(0, UInt8(ascii: "X")), (4, UInt8(2))] {
+      var changed = head
+      changed[index] = value
+      expectThrows("Go AEA root, header byte \(index)", .invalidArchive) {
         try RestoreImageKey.authenticateRoot(changed, archiveKey: archiveKey)
       }
     }

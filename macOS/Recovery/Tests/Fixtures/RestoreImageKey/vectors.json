@@ -2,6 +2,7 @@
  "hpke": [
   {
    "pem": "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg4u5+4D9TmyTtZf0y\n83U3mIaLe4S6bsmuEUQM63iGgNqhRANCAAQayzf2sUA8LOPWQgBhXu0RWr+Akj2u\njugrVef6C4Jp5WppEj4U37BcTYCvyLjfOJpbqq9cSMcVwanPSQzRTyvo\n-----END PRIVATE KEY-----\n",
+   "scalar": "4u5+4D9TmyTtZf0y83U3mIaLe4S6bsmuEUQM63iGgNo=",
    "public": "BBrLN/axQDws49ZCAGFe7RFav4CSPa6O6CtV5/oLgmnlamkSPhTfsFxNgK/IuN84mluqr1xIxxXBqc9JDNFPK+g=",
    "enc": "BO2xWS40DtRHSUXajrNa8g5AyeI3pmkVOvT5ckvBych1C84d8FJPMe12VfOvFfiPCUnJLROh5yOwAoyxppn6InY=",
    "wrapped": "zY9chCCilR123omn5YkjiABGP1pWUnt9DGqmaN09PE9uRVRs6PCZXs1lTKPki/QL",
@@ -9,6 +10,7 @@
   },
   {
    "pem": "-----BEGIN PRIVATE KEY-----\nMEECAQAwEwYHKoZIzj0CAQYIKoZIzj0DAQcEJzAlAgEBBCBIifcCezJ67Q/nbNls\n8iLpanV2WcjpzA8mu0esjzvXuw==\n-----END PRIVATE KEY-----\n",
+   "scalar": "SIn3Ansyeu0P52zZbPIi6Wp1dlnI6cwPJrtHrI8717s=",
    "public": "BEA9NeXyKQcVOsreSV3IDz0yzrHB4XHTsMSRb/S2AClUSNHOP/fyDBObtzANPRVg4jTMbVPi/0tWElJ5ycYQklo=",
    "enc": "BJB+T4wRABhBPQo0oYpSruCNx7pCrwYVuT2bf6cKjOf0g9DFTMCo1K3BzEMBmOGmujBi6icFBJ/NHhNJTTRYfP8=",
    "wrapped": "k2OA1yh7Eo1DlLULiYgLgfZU5REA6P4TG+yK8oWpPRocEQmfPL1PCLl5y2PHuoOU",
@@ -16,6 +18,7 @@
   },
   {
    "pem": "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgwu5+gTus8YA0MD6E\nvWpSVhUKpz37menijSL2gt8xP+KhRANCAASaDiPSjZJ7irMNl2TnuUsclrVUyEo4\nOGJ+K5WcyRYT9q4Z4DoZa8ipGEhJXM6BDUixRdHzVsDmw+/UlENHJ3h7\n-----END PRIVATE KEY-----\n",
+   "scalar": "wu5+gTus8YA0MD6EvWpSVhUKpz37menijSL2gt8xP+I=",
    "public": "BJoOI9KNknuKsw2XZOe5SxyWtVTISjg4Yn4rlZzJFhP2rhngOhlryKkYSElczoENSLFF0fNWwObD79SUQ0cneHs=",
    "enc": "BOZmSrl1sg6O0/LncVHv9jIlxqHw6sZyrVkVpm6IArDILQp3q6as+ii52ijIVUh8K6mXUr0r0xIY5m5mrgkgvvE=",
    "wrapped": "wKuwOHOO1FkPsyO0VmwQGHJQflHM0CmGgcCwO8cUKZry4azMdteNtgWky//dxjHY",
@@ -23,6 +26,7 @@
   },
   {
    "pem": "-----BEGIN PRIVATE KEY-----\nMEECAQAwEwYHKoZIzj0CAQYIKoZIzj0DAQcEJzAlAgEBBCAU/tDSdsy1pgyyHB0c\njLQBJnHv2GGfqUrQ57iX+oQ2HA==\n-----END PRIVATE KEY-----\n",
+   "scalar": "FP7Q0nbMtaYMshwdHIy0ASZx79hhn6lK0Oe4l/qENhw=",
    "public": "BN5LjZlDoqdtARthULoiv4Cpd5KKAQEZCTNesX80QUnS1ZtDgrNQTPWyyieRoRyR/ft59m/Ja7Ll031JLI8xc54=",
    "enc": "BM7PiHTgoQ+DpBrTMhY3mynTC+9Cs09hkLwuBZqxuasIg7jOr6p2AzPhI7UFmPLsdlvlX7SnInQpiMWcZPtmwUc=",
    "wrapped": "zLTs84TCHsAckRa0vQzJTBhyv/Z/1x+5KAZPFOuLHzkYMdapWuayH0Q8DA5u16pi",
@@ -30,6 +34,7 @@
   },
   {
    "pem": "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgjP+C6c9MWSDoosc2\nNWoieM1nQxRi9SR+a2vAzmCj/h6hRANCAAQ1Oa/tK/pT7yxWh8zq+XgKctddRlya\nwkee6eH19BJfzl6wZGUZ82QUfSLqegY08IG9EFxJc5Lz28ESnE/H8jCD\n-----END PRIVATE KEY-----\n",
+   "scalar": "jP+C6c9MWSDoosc2NWoieM1nQxRi9SR+a2vAzmCj/h4=",
    "public": "BDU5r+0r+lPvLFaHzOr5eApy111GXJrCR57p4fX0El/OXrBkZRnzZBR9Iup6BjTwgb0QXElzkvPbwRKcT8fyMIM=",
    "enc": "BNB5cEh4TVGXCJWjJF3woqXUypuSfkHLGpdys4lbxPe5etUMd3vVM/LRm9sLYr7TlccVLWCi986U+4nTKJfzL6k=",
    "wrapped": "G8uam9fAErHseKfdEmiNWTGzlPoLttYIP+0fYI6hmxGbodJzmX164Eu/kVuMKcB0",
@@ -37,6 +42,7 @@
   },
   {
    "pem": "-----BEGIN PRIVATE KEY-----\nMEECAQAwEwYHKoZIzj0CAQYIKoZIzj0DAQcEJzAlAgEBBCB/+Gj0pI0pNQTxtwBQ\nlIGI13qXkbOuZG/84dpRIhHWTA==\n-----END PRIVATE KEY-----\n",
+   "scalar": "f/ho9KSNKTUE8bcAUJSBiNd6l5GzrmRv/OHaUSIR1kw=",
    "public": "BJU5xjAuZXX6PEHfY4IIM400s1syZoABjdVDT7v5kexPbgQD6p+n590C4wQOKw9Y1bmbuSYl6Nyfs6sdjfny+ME=",
    "enc": "BHeqYaNaS40b4GIUUaFwcrb7wcBsdazCsxJfbx+LdYA+82HNXMBkh9q2biuh6PGB8oS4t3rWMrPczlCr7lIqqx8=",
    "wrapped": "JD+2wkgZx/5nXI37B2prmFAqrp6E+QD0MBPv1svTOE+qWbM2uaT2SddI7oWZUIP0",
@@ -44,6 +50,7 @@
   },
   {
    "pem": "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQglvX+iyS91g6NXM01\n5NnY7pJ6gdtlc9t+PnniYiOolrShRANCAATANnsEH8UGiZHgilU1V1No+FimtLrn\n3DwC5tJfxLIDGoIrMsXaVAjuVH1SuYd0nET2KfL9hn2KqQIk1M+3zx0L\n-----END PRIVATE KEY-----\n",
+   "scalar": "lvX+iyS91g6NXM015NnY7pJ6gdtlc9t+PnniYiOolrQ=",
    "public": "BMA2ewQfxQaJkeCKVTVXU2j4WKa0uufcPALm0l/EsgMagisyxdpUCO5UfVK5h3ScRPYp8v2GfYqpAiTUz7fPHQs=",
    "enc": "BPlQKE3Brhx0T38G/j38ezjqPOozp/bjaclMicXIzB2oVbgad1JbPctfCsXbdPVy0V4cdat1B/6e7OXR96VKd6M=",
    "wrapped": "AWGbr9LCAzhwWui+hRSptzL3yS/o+TzSshNdPjKARu3Kg9YlOEN8l39Jmja2wBSo",
@@ -51,6 +58,7 @@
   },
   {
    "pem": "-----BEGIN PRIVATE KEY-----\nMEECAQAwEwYHKoZIzj0CAQYIKoZIzj0DAQcEJzAlAgEBBCBycPRnc7lpCY1OiEHo\nqVQz4cTeBKIcnjF3dEOulbO2zw==\n-----END PRIVATE KEY-----\n",
+   "scalar": "cnD0Z3O5aQmNTohB6KlUM+HE3gSiHJ4xd3RDrpWzts8=",
    "public": "BJrjUoN5ESnw2VZsja2JW3vmNIPZCrb3pPdL1MGsKl/co16u5OWlTA/I6P+ObPf7V7N1alqnHoIwuWV9P7krRSI=",
    "enc": "BNv8o048ZCE0R2NvYqR3N8mJw19w9Z5sI3vB5KPnALHWk6t+w9gN/0aseCUaDpQawMpnpQz/u0nNhDYQ7HvdBpI=",
    "wrapped": "j9lcf/dt4GtObgihGamK9QoV5P55JSatGuIU2DUS+DIQDrugLEj68DInnvLRzuqj",
