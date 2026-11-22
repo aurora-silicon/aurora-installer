@@ -48,6 +48,8 @@
       guard source.machine == String(package.deviceIdentifier.dropFirst(6)) else {
         throw NativeFirmwareInputFailure.invalidSource
       }
+      let usesPreparedPeripherals = NativePeripheralInputPath.needsPreparation(
+        deviceIdentifier: package.deviceIdentifier)
       let binding = try file.readEvidence("native-stub-file-binding")
       let espStore = try NativeESPFileStore(
         root: target.espRoot(), volumeDevice: target.esp.identifier,
@@ -74,7 +76,7 @@
       }
       var outputs = [String: Data]()
       var lsci: Data?
-      if package.deviceIdentifier == "apple,j700" {
+      if usesPreparedPeripherals {
         guard let peripherals else { throw NativeFirmwareInputFailure.invalidSource }
         let tree = try NativeHandoffFileTree(peripherals.directory, protected: true, owner: owner)
         let peripheralManifest = try JSONDecoder().decode(
@@ -149,7 +151,7 @@
             try merge(["apple/kiwi/" + source.machine + ".im4p": data], into: &outputs)
           }
         }
-        if source.machine == "j700" {
+        if NativePeripheralInputPath.needsPreparation(machine: source.machine) {
           guard let trackpad = outputs[NeoFirmwareConversions.trackpadName], !trackpad.isEmpty
           else { throw NativeFirmwareInputFailure.invalidSource }
         }
@@ -208,7 +210,7 @@
             subtree(radio.files, "wifi/"), links: sublinks(radio.links, "wifi/"))
           let bluetooth = try BroadcomFirmware.bluetooth(
             subtree(radio.files, "bluetooth/"), links: sublinks(radio.links, "bluetooth/"))
-          if package.deviceIdentifier != "apple,j700" {
+          if !usesPreparedPeripherals {
             let board = try wifiBoard()
             // An unreadable system volume leaves Recovery as the only source.
             var system: NativeFirmwareInputFiles.Snapshot?
@@ -244,7 +246,7 @@
               else { throw NativeFirmwareInputFailure.invalidSource }
             }
           }
-          guard package.deviceIdentifier == "apple,j700" || (!wifi.isEmpty && !bluetooth.isEmpty)
+          guard usesPreparedPeripherals || (!wifi.isEmpty && !bluetooth.isEmpty)
           else { throw NativeFirmwareInputFailure.invalidSource }
           try merge(wifi, into: &outputs)
           try merge(bluetooth, into: &outputs)
@@ -257,7 +259,7 @@
                 let data = try imageTree.read(path, maximum: 16 << 20)
                 let name = String(path.split(separator: "/").last!)
                 try merge([name: data], into: &fallback)
-                if package.deviceIdentifier != "apple,j700" {
+                if !usesPreparedPeripherals {
                   try merge(
                     NeoFirmwareConversions.camera(data, requireNeoSet: false), into: &outputs)
                 }
@@ -271,7 +273,7 @@
         for (name, data) in factory {
           fallback["com.apple.factorydata/" + name] = data
         }
-        if package.deviceIdentifier == "apple,j700" {
+        if usesPreparedPeripherals {
           fallback[NeoFirmwareConversions.alsName] = outputs[NeoFirmwareConversions.alsName]
           fallback["j700-exbright-LSCI.bin"] = lsci
         } else {
