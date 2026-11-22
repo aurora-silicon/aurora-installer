@@ -36,3 +36,7 @@ compile_run installation-journal Sources/RecoveryInstallationJournal.swift Tests
 compile_run account-restart Sources/RecoveryAccountRestart.swift Tests/RecoveryAccountRestartCheck.swift
 compile_run directory-swap Sources/Account/RecoveryDigest.swift Sources/Account/RecoveryFileTransaction.swift Sources/RecoveryDirectorySwap.swift Tests/RecoveryDirectorySwapCheck.swift
 compile_run baseline Sources/Account/RecoveryDigest.swift Sources/RecoveryBaseline.swift Tests/RecoveryBaselineCheck.swift
+compile_run restore-image-key -parse-as-library Sources/RestoreImageKey.swift Tests/RestoreImageKeyCheck.swift
+compile_run restore-image-key-cryptokit -parse-as-library Sources/RestoreImageKey.swift Tests/RestoreImageKeyCryptoKitCheck.swift
+xcrun swiftc -parse-as-library Sources/RestoreImageKey.swift Tools/RestoreImageKeyTool.swift -o "$out/aurora-restore-key"
+rc=0; "$out/aurora-restore-key" 2>/dev/null || rc=$?; [[ $rc == 64 ]]
