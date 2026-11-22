@@ -40,6 +40,11 @@ class WiFiFWCollection(object):
         self.prune()
 
     def load(self, source_path):
+        # macOS names most firmware through aliases (symbolic links, about
+        # three per file). Read each file once and let its aliases share the
+        # data, or the collection holds every alias's own copy (660 MiB for
+        # a 33 MB tree).
+        read = {}
         for dirpath, dirnames, filenames in os.walk(source_path):
             if "perf" in dirnames:
                 dirnames.remove("perf")
@@ -87,13 +92,18 @@ class WiFiFWCollection(object):
                 node = self.root
                 for k in ident:
                     node = node.leaves.setdefault(k, FWNode())
-                with open(path, "rb") as fd:
-                    data = fd.read()
+                st = os.stat(path)
+                key = (st.st_dev, st.st_ino, name.endswith(".txt"))
+                if key not in read:
+                    with open(path, "rb") as fd:
+                        data = fd.read()
 
-                if name.endswith(".txt"):
-                    data = self.process_nvram(data)
+                    if name.endswith(".txt"):
+                        data = self.process_nvram(data)
 
-                node.this = FWFile(relpath, data)
+                    read[key] = FWFile(relpath, data)
+                first = read[key]
+                node.this = FWFile(relpath, first.data, first.sha)
 
     def prune(self, node=None, depth=0):
         if node is None:
