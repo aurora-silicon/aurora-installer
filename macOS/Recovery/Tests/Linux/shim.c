@@ -26,6 +26,13 @@ void BN_free(BIGNUM *);
 int BN_cmp(const BIGNUM *, const BIGNUM *);
 int BN_is_zero(const BIGNUM *);
 int BN_bn2binpad(const BIGNUM *, unsigned char *, int);
+int SHA256_Init(void *);
+int SHA256_Update(void *, const void *, size_t);
+int SHA256_Final(unsigned char *, void *);
+
+int CC_SHA256_Init(CC_SHA256_CTX *c) { return SHA256_Init(c); }
+int CC_SHA256_Update(CC_SHA256_CTX *c, const void *d, CC_LONG n) { return SHA256_Update(c, d, n); }
+int CC_SHA256_Final(unsigned char *md, CC_SHA256_CTX *c) { return SHA256_Final(md, c); }
 
 void CCHmac(CCHmacAlgorithm alg, const void *key, size_t kl, const void *d, size_t dl, void *out) {
   unsigned int n = 0;

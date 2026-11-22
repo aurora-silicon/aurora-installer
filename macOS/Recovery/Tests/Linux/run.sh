@@ -31,3 +31,8 @@ Tests/RestoreImageKeyTool.sh "$build/aurora-restore-key"
 swiftc -parse-as-library Sources/RestoreImageMember.swift Tests/RestoreImageMemberCheck.swift \
   -o "$build/restore-image-member"
 "$build/restore-image-member"
+swiftc -parse-as-library -I Tests/Linux Sources/Account/RecoveryDigest.swift \
+  Sources/RestoreImageMember.swift Sources/RestoreImageDirectory.swift \
+  Sources/RestoreImageStubPlan.swift Tests/RestoreImageStubPlanCheck.swift "$build/shim.o" \
+  -Xlinker -l:libcrypto.so.3 -o "$build/restore-image-stub-plan"
+"$build/restore-image-stub-plan"

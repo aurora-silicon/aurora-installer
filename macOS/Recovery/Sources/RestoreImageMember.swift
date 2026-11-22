@@ -36,15 +36,24 @@ public struct RestoreImageMember: Equatable {
 
   static let maximumDirectory = 16 * 1024 * 1024
 
-  public static func locate(_ name: String, archiveSize: Int, read: Read) throws -> Self {
-    guard archiveSize >= 22, !name.isEmpty else { throw Failure.invalidArchive }
+  /// Exactly `count` bytes at `offset`, which must lie in the archive.
+  static func exact(_ offset: Int, _ count: Int, archiveSize: Int, read: Read) throws -> [UInt8] {
+    guard offset >= 0, count >= 0, offset <= archiveSize - count else {
+      throw Failure.invalidArchive
+    }
+    let bytes = try read(offset, count)
+    guard bytes.count == count else { throw Failure.shortRead }
+    return [UInt8](bytes)
+  }
+
+  /// The central directory's bytes, its offset in the archive and its entry
+  /// count, from the end records.
+  static func centralDirectory(archiveSize: Int, read: Read) throws -> (
+    bytes: [UInt8], offset: Int, entries: Int
+  ) {
+    guard archiveSize >= 22 else { throw Failure.invalidArchive }
     func exact(_ offset: Int, _ count: Int) throws -> [UInt8] {
-      guard offset >= 0, count >= 0, offset <= archiveSize - count else {
-        throw Failure.invalidArchive
-      }
-      let bytes = try read(offset, count)
-      guard bytes.count == count else { throw Failure.shortRead }
-      return [UInt8](bytes)
+      try Self.exact(offset, count, archiveSize: archiveSize, read: read)
     }
 
     // End of central directory: the last 22 bytes plus a comment of at most
@@ -94,7 +103,16 @@ public struct RestoreImageMember: Equatable {
     guard entries >= 0, directorySize >= 0, directorySize <= maximumDirectory, directoryOffset >= 0,
       directoryOffset <= directoryLimit - directorySize, entries <= directorySize / 46
     else { throw Failure.invalidArchive }
-    let directory = try exact(directoryOffset, directorySize)
+    return (try exact(directoryOffset, directorySize), directoryOffset, entries)
+  }
+
+  public static func locate(_ name: String, archiveSize: Int, read: Read) throws -> Self {
+    guard archiveSize >= 22, !name.isEmpty else { throw Failure.invalidArchive }
+    func exact(_ offset: Int, _ count: Int) throws -> [UInt8] {
+      try Self.exact(offset, count, archiveSize: archiveSize, read: read)
+    }
+    let (directory, directoryOffset, entries) = try centralDirectory(
+      archiveSize: archiveSize, read: read)
 
     let wanted = [UInt8](name.utf8)
     var found: (flags: Int, method: Int, crc: UInt32, compressed: Int, size: Int, header: Int)?
@@ -114,38 +132,8 @@ public struct RestoreImageMember: Equatable {
         var size = Field.u32(directory, at + 24)
         var header = Field.u32(directory, at + 42)
         guard Field.u16(directory, at + 34) == 0 else { throw Failure.invalidArchive }
-        // The ZIP64 extra field holds, in this order, each of the three that
-        // is 0xffffffff in the entry.
         let extra = Array(directory[(at + 46 + nameLength)..<(at + 46 + nameLength + extraLength)])
-        // Each 0xffffffff must be replaced from the ZIP64 field, whose own
-        // values may be anything, 0xffffffff included.
-        var placeholders = [size, compressed, header].filter { $0 == 0xffff_ffff }.count
-        var field = 0
-        var sawZIP64 = false
-        while field + 4 <= extra.count {
-          let id = Field.u16(extra, field)
-          let body = field + 4
-          let end = body + Field.u16(extra, field + 2)
-          guard end <= extra.count else { throw Failure.invalidArchive }
-          if id == 0x0001 {
-            guard !sawZIP64 else { throw Failure.invalidArchive }
-            sawZIP64 = true
-            var cursor = body
-            func widen(_ value: inout Int) throws {
-              guard value == 0xffff_ffff else { return }
-              guard cursor + 8 <= end else { throw Failure.invalidArchive }
-              value = Field.u64(extra, cursor)
-              cursor += 8
-              placeholders -= 1
-            }
-            try widen(&size)
-            try widen(&compressed)
-            try widen(&header)
-          }
-          field = end
-        }
-        guard field == extra.count, placeholders == 0, size >= 0, compressed >= 0, header >= 0
-        else { throw Failure.invalidArchive }
+        try widen(extra, &size, &compressed, &header)
         found = (
           Field.u16(directory, at + 8), Field.u16(directory, at + 10),
           UInt32(Field.u32(directory, at + 16)), compressed, size, header
@@ -176,6 +164,44 @@ public struct RestoreImageMember: Equatable {
     let offset = found.header + 30 + wanted.count + Field.u16(local, 28)
     guard offset <= directoryOffset - found.size else { throw Failure.invalidArchive }
     return Self(name: name, offset: offset, size: found.size, crc32: found.crc)
+  }
+
+  /// Replaces each of `size`, `compressed` and `header` that is 0xffffffff
+  /// from the ZIP64 extra field, which holds them in this order; the field's
+  /// own values may be anything, 0xffffffff included. A local header has no
+  /// offset: pass 0 for `header`.
+  static func widen(
+    _ extra: [UInt8], _ size: inout Int, _ compressed: inout Int, _ header: inout Int
+  )
+    throws
+  {
+    var placeholders = [size, compressed, header].filter { $0 == 0xffff_ffff }.count
+    var field = 0
+    var sawZIP64 = false
+    while field + 4 <= extra.count {
+      let id = Field.u16(extra, field)
+      let body = field + 4
+      let end = body + Field.u16(extra, field + 2)
+      guard end <= extra.count else { throw Failure.invalidArchive }
+      if id == 0x0001 {
+        guard !sawZIP64 else { throw Failure.invalidArchive }
+        sawZIP64 = true
+        var cursor = body
+        func widen(_ value: inout Int) throws {
+          guard value == 0xffff_ffff else { return }
+          guard cursor + 8 <= end else { throw Failure.invalidArchive }
+          value = Field.u64(extra, cursor)
+          cursor += 8
+          placeholders -= 1
+        }
+        try widen(&size)
+        try widen(&compressed)
+        try widen(&header)
+      }
+      field = end
+    }
+    guard field == extra.count, placeholders == 0, size >= 0, compressed >= 0, header >= 0
+    else { throw Failure.invalidArchive }
   }
 
   enum Field {

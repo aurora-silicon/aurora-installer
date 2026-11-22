@@ -1,0 +1,439 @@
+{
+ "board": 34,
+ "build": "25G100",
+ "cases": {
+  "behavior-only-differs": "refuse",
+  "board-combining": "refuse",
+  "component-climbs": "refuse",
+  "duplicate-name": "refuse",
+  "empty-bootability": "refuse",
+  "empty-component": "refuse",
+  "kernelcache-leaf": {
+   "copies": [
+    {
+     "installerDataName": null,
+     "member": "usr/standalone/bootcaches.plist",
+     "path": "usr/standalone/bootcaches.plist",
+     "role": "System"
+    },
+    {
+     "installerDataName": null,
+     "member": "PlatformSupport.plist",
+     "path": "System/Library/CoreServices/PlatformSupport.plist",
+     "role": "System"
+    },
+    {
+     "installerDataName": null,
+     "member": "SystemVersion.plist",
+     "path": "Restore/SystemVersion.plist",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": "RestoreVersion.plist",
+     "member": "RestoreVersion.plist",
+     "path": "Restore/RestoreVersion.plist",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "usr/standalone/bootcaches.plist",
+     "path": "Restore/usr/standalone/bootcaches.plist",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "BootabilityBundle/Restore/Bootability/Bootability.plist",
+     "path": "Restore/Bootability/Bootability.plist",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Boot",
+     "path": "Restore/Bootability/Frameworks/Boot.framework/Boot",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Versions/A/Boot",
+     "path": "Restore/Bootability/Frameworks/Boot.framework/Versions/A/Boot",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Versions/Current",
+     "path": "Restore/Bootability/Frameworks/Boot.framework/Versions/Current",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "BootabilityBundle/Restore/Firmware/Bootability.dmg.trustcache",
+     "path": "Restore/Bootability/Bootability.trustcache",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "Firmware/Manifests/restore/macOS Customer/apticket.j314s.im4m",
+     "path": "Restore/apticket.j314s.im4m",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "Firmware/all_flash/DeviceTree.j314sap.im4p",
+     "path": "Restore/Firmware/all_flash/DeviceTree.j314sap.im4p",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": "\u0301b",
+     "member": "kernelcache.d/\u0301b",
+     "path": "Restore/kernelcache.d/\u0301b",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "Firmware/all_flash/LLB.j314s.RELEASE.im4p",
+     "path": "Restore/Firmware/all_flash/LLB.j314s.RELEASE.im4p",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "Firmware/all_flash/iBoot.j314s.RELEASE.im4p",
+     "path": "Restore/Firmware/all_flash/iBoot.j314s.RELEASE.im4p",
+     "role": "Preboot"
+    }
+   ],
+   "links": {
+    "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Boot": "Versions/Current/Boot",
+    "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Versions/Current": "A"
+   },
+   "recovery": "090-00001-001.dmg",
+   "restorePath": "Restore"
+  },
+  "link-big-compressed": "refuse",
+  "link-climbs": "refuse",
+  "link-loop": "refuse",
+  "link-outside-tree": "refuse",
+  "link-to-unselected": "refuse",
+  "link-with-children": "refuse",
+  "missing-component": "refuse",
+  "no-recovery-image": "refuse",
+  "no-trust-cache": "refuse",
+  "ok": {
+   "copies": [
+    {
+     "installerDataName": null,
+     "member": "usr/standalone/bootcaches.plist",
+     "path": "usr/standalone/bootcaches.plist",
+     "role": "System"
+    },
+    {
+     "installerDataName": null,
+     "member": "PlatformSupport.plist",
+     "path": "System/Library/CoreServices/PlatformSupport.plist",
+     "role": "System"
+    },
+    {
+     "installerDataName": null,
+     "member": "SystemVersion.plist",
+     "path": "Restore/SystemVersion.plist",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": "RestoreVersion.plist",
+     "member": "RestoreVersion.plist",
+     "path": "Restore/RestoreVersion.plist",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "usr/standalone/bootcaches.plist",
+     "path": "Restore/usr/standalone/bootcaches.plist",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "BootabilityBundle/Restore/Bootability/Bootability.plist",
+     "path": "Restore/Bootability/Bootability.plist",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Boot",
+     "path": "Restore/Bootability/Frameworks/Boot.framework/Boot",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Versions/A/Boot",
+     "path": "Restore/Bootability/Frameworks/Boot.framework/Versions/A/Boot",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Versions/Current",
+     "path": "Restore/Bootability/Frameworks/Boot.framework/Versions/Current",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "BootabilityBundle/Restore/Firmware/Bootability.dmg.trustcache",
+     "path": "Restore/Bootability/Bootability.trustcache",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "Firmware/Manifests/restore/macOS Customer/apticket.j314s.im4m",
+     "path": "Restore/apticket.j314s.im4m",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "Firmware/all_flash/DeviceTree.j314sap.im4p",
+     "path": "Restore/Firmware/all_flash/DeviceTree.j314sap.im4p",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": "kernelcache.release.mac14j",
+     "member": "kernelcache.release.mac14j",
+     "path": "Restore/kernelcache.release.mac14j",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "Firmware/all_flash/LLB.j314s.RELEASE.im4p",
+     "path": "Restore/Firmware/all_flash/LLB.j314s.RELEASE.im4p",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "Firmware/all_flash/iBoot.j314s.RELEASE.im4p",
+     "path": "Restore/Firmware/all_flash/iBoot.j314s.RELEASE.im4p",
+     "role": "Preboot"
+    }
+   ],
+   "links": {
+    "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Boot": "Versions/Current/Boot",
+    "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Versions/Current": "A"
+   },
+   "recovery": "090-00001-001.dmg",
+   "restorePath": "Restore"
+  },
+  "ok-restore-path": {
+   "copies": [
+    {
+     "installerDataName": null,
+     "member": "usr/standalone/bootcaches.plist",
+     "path": "usr/standalone/bootcaches.plist",
+     "role": "System"
+    },
+    {
+     "installerDataName": null,
+     "member": "PlatformSupport.plist",
+     "path": "System/Library/CoreServices/PlatformSupport.plist",
+     "role": "System"
+    },
+    {
+     "installerDataName": null,
+     "member": "SystemVersion.plist",
+     "path": "System/Restore/SystemVersion.plist",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": "RestoreVersion.plist",
+     "member": "RestoreVersion.plist",
+     "path": "System/Restore/RestoreVersion.plist",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "usr/standalone/bootcaches.plist",
+     "path": "System/Restore/usr/standalone/bootcaches.plist",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "BootabilityBundle/Restore/Bootability/Bootability.plist",
+     "path": "System/Restore/Bootability/Bootability.plist",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Boot",
+     "path": "System/Restore/Bootability/Frameworks/Boot.framework/Boot",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Versions/A/Boot",
+     "path": "System/Restore/Bootability/Frameworks/Boot.framework/Versions/A/Boot",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Versions/Current",
+     "path": "System/Restore/Bootability/Frameworks/Boot.framework/Versions/Current",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "BootabilityBundle/Restore/Firmware/Bootability.dmg.trustcache",
+     "path": "System/Restore/Bootability/Bootability.trustcache",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "Firmware/Manifests/restore/macOS Customer/apticket.j314s.im4m",
+     "path": "System/Restore/apticket.j314s.im4m",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "Firmware/all_flash/DeviceTree.j314sap.im4p",
+     "path": "System/Restore/Firmware/all_flash/DeviceTree.j314sap.im4p",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": "kernelcache.release.mac14j",
+     "member": "kernelcache.release.mac14j",
+     "path": "System/Restore/kernelcache.release.mac14j",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "Firmware/all_flash/LLB.j314s.RELEASE.im4p",
+     "path": "System/Restore/Firmware/all_flash/LLB.j314s.RELEASE.im4p",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "Firmware/all_flash/iBoot.j314s.RELEASE.im4p",
+     "path": "System/Restore/Firmware/all_flash/iBoot.j314s.RELEASE.im4p",
+     "role": "Preboot"
+    }
+   ],
+   "links": {
+    "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Boot": "Versions/Current/Boot",
+    "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Versions/Current": "A"
+   },
+   "recovery": "090-00001-001.dmg",
+   "restorePath": "System/Restore"
+  },
+  "other-board": "refuse",
+  "other-version": "refuse",
+  "path-taken": "refuse",
+  "restore-path-climbs": "refuse",
+  "update-archive": "refuse",
+  "update-identity-only": "refuse",
+  "variant-only-differs": "refuse"
+ },
+ "chip": 24576,
+ "device_class": "j314sap",
+ "recovery_only": {
+  "boot-combining-member": {
+   "copies": [
+    {
+     "installerDataName": null,
+     "member": "usr/standalone/bootcaches.plist",
+     "path": "usr/standalone/bootcaches.plist",
+     "role": "System"
+    },
+    {
+     "installerDataName": null,
+     "member": "PlatformSupport.plist",
+     "path": "System/Library/CoreServices/PlatformSupport.plist",
+     "role": "System"
+    },
+    {
+     "installerDataName": null,
+     "member": "SystemVersion.plist",
+     "path": "Restore/SystemVersion.plist",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": "RestoreVersion.plist",
+     "member": "RestoreVersion.plist",
+     "path": "Restore/RestoreVersion.plist",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "usr/standalone/bootcaches.plist",
+     "path": "Restore/usr/standalone/bootcaches.plist",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "BootabilityBundle/Restore/Bootability/Bootability.plist",
+     "path": "Restore/Bootability/Bootability.plist",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Boot",
+     "path": "Restore/Bootability/Frameworks/Boot.framework/Boot",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Versions/A/Boot",
+     "path": "Restore/Bootability/Frameworks/Boot.framework/Versions/A/Boot",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Versions/Current",
+     "path": "Restore/Bootability/Frameworks/Boot.framework/Versions/Current",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "BootabilityBundle/Restore/Bootability/\u0301x",
+     "path": "Restore/Bootability/\u0301x",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "BootabilityBundle/Restore/Firmware/Bootability.dmg.trustcache",
+     "path": "Restore/Bootability/Bootability.trustcache",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "Firmware/Manifests/restore/macOS Customer/apticket.j314s.im4m",
+     "path": "Restore/apticket.j314s.im4m",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "Firmware/all_flash/DeviceTree.j314sap.im4p",
+     "path": "Restore/Firmware/all_flash/DeviceTree.j314sap.im4p",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": "kernelcache.release.mac14j",
+     "member": "kernelcache.release.mac14j",
+     "path": "Restore/kernelcache.release.mac14j",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "Firmware/all_flash/LLB.j314s.RELEASE.im4p",
+     "path": "Restore/Firmware/all_flash/LLB.j314s.RELEASE.im4p",
+     "role": "Preboot"
+    },
+    {
+     "installerDataName": null,
+     "member": "Firmware/all_flash/iBoot.j314s.RELEASE.im4p",
+     "path": "Restore/Firmware/all_flash/iBoot.j314s.RELEASE.im4p",
+     "role": "Preboot"
+    }
+   ],
+   "links": {
+    "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Boot": "Versions/Current/Boot",
+    "BootabilityBundle/Restore/Bootability/Frameworks/Boot.framework/Versions/Current": "A"
+   },
+   "recovery": "090-00001-001.dmg",
+   "restorePath": "Restore"
+  }
+ },
+ "version": "26.6.2"
+}
