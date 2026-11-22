@@ -1,3 +1,0 @@
-# Paths that may carry their own assistant instruction file.
-# The macOS installer app keeps its Swift-specific agent notes here.
-macOS/AGENTS.md

@@ -61,6 +61,12 @@ Each item is a hard rule unless it says "default". If your change fails one, fix
 - Code keeps the identifiers it has today. Until the rename in [aurora-silicon/mesa#591](https://github.com/aurora-silicon/mesa/pull/591) is merged, Borealis lives in `src/asahi/vulkan/` with `hk_`/`HK_` symbols; after it lands, new code uses its `brl_` prefix.
 - Names shared with upstream or fixed by an interface stay as they are: the Gallium `asahi` driver, `src/asahi/`, the DRM UAPI (`asahi_drm.h`, `DRM_ASAHI_*`) and Asahi or m1n1 names in upstream code. New paths and names of our own use Aurora, not Asahi or m1n1.
 
-## To be expanded
+## Building and testing this repository
 
-Build, test and review conventions for this repository will go here.
+- The installer app and helper (`macOS/`) are Swift only. Never add an interpreter, script engine or engine archive to the app or its execution path. Build- and CI-only Python stays outside the app; format it with four-space indentation and check it with `py_compile` and its focused tests.
+- Format Swift with Xcode's bundled `swift-format`; the package must pass strict lint (`xcrun swift-format lint --strict --recursive ...`, as the macOS checks job runs it).
+- Shell scripts use two-space indentation, Bash 5 conditionals (`[[ ]]` and `(( ))`) and `#!/bin/bash` shebangs. Build workers come from `AURORA_BUILD_JOBS` (default 10). In an exact `[[ == ]]` or `[[ != ]]` string comparison, quote a variable on the right-hand side so Bash treats metacharacters as literal text.
+- Keep Markdown lines unwrapped except at structural boundaries.
+- Run the native package checks from `macOS/`. There, `./test/all` runs the portable source, script and packaging-fixture checks. It stays unprivileged and never runs live disk changes, helper registration, signing, publication or deployment. See `macOS/docs/extraction.md` for provenance and `macOS/docs/validation.md` for the test boundary.
+- For an installer change, run the focused script tests, the Swift tests in debug and release, and check the packaging structure, code-signing requirements and unsupported-host rejection as they apply. A source build is not proof of a physical install, and Linux checks do not replace the macOS checks.
+- The release trust configuration, catalog verification and host restrictions are contracts: a change to them needs its own review and validation.
