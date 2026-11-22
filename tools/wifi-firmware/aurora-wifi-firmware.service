@@ -5,8 +5,8 @@ Documentation=https://github.com/aurora-silicon/aurora-installer/blob/main/tools
 # every boot this checks the installed macOS's firmware against the ESP's
 # and, when macOS has newer firmware, puts it on the ESP for the next boot
 # (backed up first). The boot after a change checks that the drivers came up
-# with it and puts the previous files back if they did not. Nothing is
-# reloaded in the running boot.
+# with it and puts the previous files back if they did not; MT7932 radios
+# are then restarted with the previous files in the running boot.
 ConditionPathExists=/proc/device-tree/chosen/asahi,efi-system-partition
 After=local-fs.target systemd-udev-settle.service
 

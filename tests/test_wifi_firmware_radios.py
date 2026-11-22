@@ -11,6 +11,7 @@ import json
 import os
 import pathlib
 import tarfile
+import time
 import unittest
 
 from test_wifi_firmware_refresh import BOARD, Case, FakeVol, make_esp, wifi_tree, awf
@@ -209,13 +210,19 @@ class MT7932VerifyTest(Case):
         return esp, st
 
     def verify(self, esp, st, text="", probe=lambda n, t: True):
+        self.reloads = []
+
+        def reload(vendorfw, probes, out):
+            self.reloads.append((vendorfw, probes))
+            return "reloaded"
         return awf.verify(st, esp, out=self.out.append, log_text=text, wait=0,
                           unpacked_sha=lambda n: st["pending"]["expect"][n], probe=probe,
-                          state_dir=self.state, swap=lambda a, b: False)
+                          state_dir=self.state, swap=lambda a, b: False, reload=reload)
 
     def test_up_is_verified(self):
         esp, st = self.changed()
         self.assertEqual(self.verify(esp, st), "ok")
+        self.assertEqual(self.reloads, [])
         st = awf.read_state(self.state)
         self.assertEqual(st["result"], "verified")
         self.assertEqual(st["esp_wifi"], awf.esp_wifi_digest(esp))
@@ -234,6 +241,15 @@ class MT7932VerifyTest(Case):
         self.assertEqual(r, "reverted")
         self.assertIn("link:mt7932-fullmac did not come up", self.out[-2])
 
+    def test_rollback_restarts_the_radios_with_the_previous_files(self):
+        esp, st = self.changed()
+        backup = pathlib.Path(st["pending"]["backup"])
+        required = st["pending"]["probes"]
+        self.assertEqual(self.verify(esp, st, probe=lambda n, t: not n.startswith("link:")),
+                         "reverted")
+        self.assertEqual(self.reloads, [(backup / "vendorfw", required)])
+        self.assertEqual(awf.read_state(self.state)["reload"], "reloaded")
+
     def test_firmware_gate_failure_reverts(self):
         esp, st = self.changed()
         text = "mt7932-fullmac 0000:01:00.0: FIRMWARE_GATE_FAILED: phase=x error=-22\n"
@@ -244,6 +260,179 @@ class MT7932VerifyTest(Case):
         esp, st = self.changed()
         text = "some-driver 0000:02:00.0: Direct firmware load for mediatek/x failed\n"
         self.assertEqual(self.verify(esp, st, text), "ok")
+
+
+class FakeEvents:
+    waits = []
+
+    def __init__(self):
+        type(self).waits = []
+
+    def wait(self, timeout):
+        self.waits.append(timeout)
+        return False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        pass
+
+
+class ReloadTest(Case):
+    """Restarting the MT7932 functions with the previous files after a rollback."""
+    def setUp(self):
+        super().setUp()
+        self.backup = neo_esp(self.root / "backup") / "vendorfw"
+        self.run_dir = self.root / "run"
+        live = self.run_dir / mt7932.OUT_RAM
+        live.parent.mkdir(parents=True)
+        live.write_bytes(b"new RAM image")
+        os.chmod(live, 0o644)
+        cal = self.run_dir / "mediatek/mt7932/wcal.bin"
+        cal.write_bytes(PRIVATE["mediatek/mt7932/wcal.bin"])
+        os.chmod(cal, 0o600)
+        (self.run_dir / "apple").mkdir()
+        (self.run_dir / "apple/isp_1921_01XX.dat").write_bytes(b"camera here")
+        self.sys = self.root / "sys"
+        bridge = self.sys / "devices/pci0000:00/0000:00:00.0"
+        for fn, dev in (("0000:01:00.0", "0x7932"), ("0000:01:00.1", "0x793b")):
+            d = bridge / fn
+            d.mkdir(parents=True)
+            (d / "vendor").write_text("0x14c3\n")
+            (d / "device").write_text(dev + "\n")
+            links = self.sys / "bus/pci/devices"
+            links.mkdir(parents=True, exist_ok=True)
+            os.symlink(d, links / fn)
+        other = self.sys / "devices/pci0000:00/0000:00:01.0"
+        other.mkdir(parents=True)
+        (other / "vendor").write_text("0x106b\n")
+        (other / "device").write_text("0x1234\n")
+        os.symlink(other, self.sys / "bus/pci/devices/0000:00:01.0")
+        self.bridge = bridge
+        self.writes = []
+
+    def write(self, path, fail=None):
+        self.writes.append(pathlib.Path(path).resolve())
+        return fail if fail and fail in str(path) else None
+
+    def reload(self, probe=lambda n, t: True, write=None, wait=0, events=None):
+        return awf.reload_mt7932(self.backup, ["net:mt7932-fullmac", "hci:mt7932_bt_pcie"],
+                                 out=self.out.append, sys_root=self.sys, roots=(self.run_dir,),
+                                 write=write or self.write, probe=probe, wait=wait,
+                                 events=events or FakeEvents)
+
+    def test_restores_unpacked_copies_and_restarts_bluetooth_first(self):
+        self.assertEqual(self.reload(), "reloaded")
+        live = self.run_dir / mt7932.OUT_RAM
+        self.assertEqual(live.read_bytes(), RAW["sunrise/" + mt7932.RAM])
+        self.assertEqual(live.stat().st_mode & 0o777, 0o644)
+        cal = self.run_dir / "mediatek/mt7932/wcal.bin"
+        self.assertEqual(cal.stat().st_mode & 0o777, 0o600)
+        # Only the files this boot unpacked, and only the radio's.
+        self.assertFalse((self.run_dir / mt7932.OUT_PATCH).exists())
+        self.assertEqual((self.run_dir / "apple/isp_1921_01XX.dat").read_bytes(), b"camera here")
+        b = self.bridge.resolve()
+        self.assertEqual(self.writes, [b / "0000:01:00.1/remove", b / "0000:01:00.0/remove",
+                                       b / "rescan"])
+        self.assertIn("1 unpacked file(s) restored", self.out[-1])
+
+    def test_a_radio_not_back_is_reported(self):
+        r = self.reload(probe=lambda n, t: not n.startswith("hci:"))
+        self.assertEqual(r, "partly")
+        self.assertIn("hci:mt7932_bt_pcie not up", self.out[-1])
+
+    def test_a_removal_that_fails_stops_before_the_rescan(self):
+        r = self.reload(write=lambda p: self.write(p, fail="01:00.0"))
+        self.assertEqual(r, "failed")
+        self.assertNotIn(self.bridge.resolve() / "rescan", self.writes)
+        self.assertIn("next boot", self.out[-1])
+
+    def test_no_functions_is_left_to_the_next_boot(self):
+        import shutil
+        shutil.rmtree(self.sys)
+        self.assertEqual(self.reload(), "failed")
+        self.assertEqual(self.writes, [])
+
+    def test_an_event_ends_the_wait_at_once(self):
+        state = {"up": False}
+
+        class Event(FakeEvents):
+            def wait(self, timeout):
+                super().wait(timeout)
+                state["up"] = True      # the HCI device came up
+                return True
+        t = time.monotonic()
+        r = self.reload(probe=lambda n, t: state["up"], wait=90, events=Event)
+        self.assertEqual(r, "reloaded")
+        self.assertLess(time.monotonic() - t, 5)
+        self.assertEqual(len(Event.waits), 1)
+        self.assertLessEqual(Event.waits[0], 90)
+        self.assertIn("up again", self.out[-1])
+
+    def test_no_event_ends_at_the_timeout(self):
+        t = time.monotonic()
+        r = self.reload(probe=lambda n, t: not n.startswith("net:"), wait=0.5,
+                        events=awf.RadioEvents)
+        took = time.monotonic() - t
+        self.assertEqual(r, "partly")
+        self.assertGreaterEqual(took, 0.5)
+        self.assertLess(took, 5)
+        self.assertIn("net:mt7932-fullmac not up within 0.5 s", self.out[-1])
+
+    def test_events_wait_is_bounded(self):
+        with awf.RadioEvents() as ev:
+            t = time.monotonic()
+            while time.monotonic() - t < 0.3:   # other uevents may wake it early
+                ev.wait(0.3 - (time.monotonic() - t))
+            self.assertLess(time.monotonic() - t, 3)
+        self.assertEqual(ev.socks, [])
+
+    def test_sysfs_write_timeout_kills_the_child(self):
+        fifo = self.root / "remove"
+        os.mkfifo(fifo)                 # nobody reads: the write blocks
+        t = time.monotonic()
+        err = awf.sysfs_write(fifo, timeout=0.5)
+        self.assertLess(time.monotonic() - t, 5)
+        self.assertEqual(err, f"{fifo} did not return within 0.5 s")
+
+    def test_sysfs_write_errors_and_success(self):
+        self.assertIsNone(awf.sysfs_write(self.root / "ok"))
+        self.assertIn(str(self.root / "no/such"), awf.sysfs_write(self.root / "no/such"))
+
+    def test_a_removal_stuck_in_the_kernel_fails_within_the_bound(self):
+        stuck = []
+
+        class Stuck:
+            """A child in uninterruptible sleep: SIGKILL never lands."""
+            returncode = None
+
+            def __init__(self, argv, **kw):
+                self.kw = kw
+                self.killed = False
+                stuck.append(self)
+
+            def communicate(self, timeout=None):
+                time.sleep(timeout)
+                raise awf.subprocess.TimeoutExpired("sh", timeout)
+
+            def kill(self):
+                self.killed = True
+
+        def write(path):
+            return awf.sysfs_write(path, timeout=0.3, reap=0.1, spawn=Stuck)
+        t = time.monotonic()
+        r = self.reload(write=write)
+        self.assertLess(time.monotonic() - t, 3)
+        self.assertEqual(r, "failed")
+        self.assertEqual(len(stuck), 1)
+        self.assertTrue(stuck[0].killed)
+        self.assertTrue(stuck[0].kw["start_new_session"])
+        self.assertIn(stuck[0], awf.ABANDONED)
+        awf.ABANDONED.remove(stuck[0])
+        self.assertIn("0000:01:00.1/remove did not return within 0.3 s and is stuck",
+                      self.out[-1])
+        self.assertIn("next boot", self.out[-1])
 
 
 class BroadcomBluetoothTest(Case):
