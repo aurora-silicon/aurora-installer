@@ -552,6 +552,56 @@ class MainTest(Case):
             awf.stage_wifi = stage
         self.assertEqual(awf.read_state()["result"], "verified")
 
+    def checked(self):
+        """A boot that changed the ESP, and the next boot that verified it."""
+        self.assertEqual(self.run_main("boot"), 0)
+        awf.verify = lambda state, esp, **kw: self.saved["verify"](
+            dict(state, pending=dict(state["pending"], boot_id="earlier")), esp,
+            log_text=VerifyRevertTest.UP_LINE, wait=0,
+            unpacked_sha=lambda n: state["pending"]["expect"][n], swap=lambda a, b: False)
+        try:
+            self.assertEqual(self.run_main("boot"), 0)
+        finally:
+            awf.verify = self.saved["verify"]
+        self.assertEqual(awf.read_state()["result"], "verified")
+
+    def test_a_newer_tool_checks_a_checked_build_once(self):
+        self.checked()
+        reads = []
+        stage = awf.stage_tree
+
+        def counted(*a, **k):
+            reads.append(a[1])
+            return stage(*a, **k)
+        with mock.patch.object(awf, "stage_tree", side_effect=counted), \
+                mock.patch.object(awf, "tool_digest", return_value="newer"):
+            self.assertEqual(self.run_main("boot"), 0)
+            self.assertTrue(reads, "the newer tool did not read the macOS tree")
+            st = awf.read_state()
+            self.assertEqual(st["result"], "verified")
+            self.assertEqual(st.get("tool"), "newer")
+            # Checked by this tool now: the boot after does not read again.
+            reads.clear()
+            self.assertEqual(self.run_main("boot"), 0)
+            self.assertEqual(reads, [])
+
+    def test_a_change_made_by_an_earlier_version_is_checked_again(self):
+        # The state an earlier version left: one Wi-Fi file, no tool digest.
+        self.checked()
+        st = awf.read_state()
+        st.pop("tool", None)
+        awf.write_state(st)
+        reads = []
+        stage = awf.stage_tree
+
+        def counted(*a, **k):
+            reads.append(a[1])
+            return stage(*a, **k)
+        with mock.patch.object(awf, "stage_tree", side_effect=counted):
+            self.assertEqual(self.run_main("boot"), 0)
+        self.assertTrue(reads, "a state without a tool digest skipped the check")
+        self.assertEqual(awf.read_state().get("tool"), awf.tool_digest())
+
     def test_a_refusal_is_remembered_until_its_inputs_change(self):
         full = types.SimpleNamespace(f_bavail=0, f_frsize=4096)
         with mock.patch.object(awf.os, "statvfs", return_value=full):

@@ -1165,7 +1165,7 @@ def update(esp, macos=None, board=None, dry_run=False, backup_root=None,
         for part in parts:
             expect.update(part.expect(files))
         write_state({"build": macos.build, "version": macos.version, "device": macos.device,
-                     "volume": macos.volume.name, "result": "updated",
+                     "volume": macos.volume.name, "result": "updated", "tool": tool_digest(),
                      "parts": [part.key for part in parts],
                      "pending": {"backup": str(backup), "expect": expect, "probes": required,
                                  "parts": [part.key for part in parts], "boot_id": boot_id()}},
@@ -1368,8 +1368,9 @@ _TOOL = None
 
 
 def tool_digest():
-    """sha256 of the code that decides a refusal: this file, apfs_ro and the
-    asahi_firmware modules loaded, so a fixed tool tries again."""
+    """sha256 of the code that decides a refusal or a match: this file,
+    apfs_ro and the asahi_firmware modules loaded, so a fixed or newer tool
+    checks again."""
     global _TOOL
     if _TOOL is None:
         files = {"aurora_wifi_firmware": __file__}
@@ -1464,12 +1465,14 @@ def main(argv=None):
             if not found:
                 raise NotNow("no installed macOS System volume with radio firmware was readable")
             # At boot, a macOS build already checked against this ESP package
-            # needs no second read of its tree.
+            # by this tool needs no second read of its tree. A newer tool (one
+            # that follows more radios, or converts differently) reads it once.
             if a.cmd == "boot" and found[0].build == state.get("build") \
                     and found[0].device == state.get("device", found[0].device) \
                     and state.get("result") in ("verified", "identical") \
                     and not state.get("pending") \
-                    and state.get("esp_wifi") and state.get("esp_wifi") == esp_wifi_digest(esp):
+                    and state.get("esp_wifi") and state.get("esp_wifi") == esp_wifi_digest(esp) \
+                    and state.get("tool") == tool_digest():
                 print(f"The ESP holds macOS {found[0].build}'s radio firmware (checked before). "
                       f"Nothing to do.")
                 return 0
@@ -1498,8 +1501,8 @@ def main(argv=None):
                                  device=found[0].device, volume=found[0].volume.name,
                                  result="verified" if state.get("result") == "verified"
                                  and state.get("build") == found[0].build else "identical",
-                                 esp_wifi=esp_wifi_digest(esp), refused_build=None,
-                                 refused=None))
+                                 esp_wifi=esp_wifi_digest(esp), tool=tool_digest(),
+                                 refused_build=None, refused=None))
             return 0
     except Refused as e:
         print(f"Refused: {e}", file=sys.stderr)
