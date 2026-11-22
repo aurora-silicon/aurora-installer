@@ -161,8 +161,11 @@ assert len(matches) == 1, matches
 print(matches[0])
 PY
 )
-[[ $(/usr/bin/plutil -extract Program raw -o - "$private_plist") == "/Applications/$INSTALLER_APP_NAME.app/Contents/Library/LaunchServices/$INSTALLER_HELPER_IDENTIFIER" ]] \
-  || fail 'private daemon path differs from its installed app'
+[[ $(/usr/bin/plutil -extract Program raw -o - "$private_plist") == "/Library/PrivilegedHelperTools/$INSTALLER_HELPER_IDENTIFIER" ]] \
+  || fail 'private daemon does not run the helper from /Library/PrivilegedHelperTools'
+private_helper="$(dirname "$(dirname "$private_plist")")/PrivilegedHelperTools/$INSTALLER_HELPER_IDENTIFIER"
+/usr/bin/cmp -s "$private_helper" "$work/Private.app/Contents/Library/LaunchServices/$INSTALLER_HELPER_IDENTIFIER" \
+  || fail 'private package helper differs from the app helper'
 [[ $(/usr/bin/plutil -extract EnvironmentVariables.OMARCHY_CLIENT_CODE_SIGNING_REQUIREMENT raw -o - "$private_plist") == "$(installer_code_requirement "$work/Private.app" "$INSTALLER_APP_IDENTIFIER")" ]] \
   || fail 'private review package does not pin the final app cdhash'
 printf 'Developer peer binding: exact app/helper accepted; same-identifier impostors rejected; package-only behavior preserved\n'
