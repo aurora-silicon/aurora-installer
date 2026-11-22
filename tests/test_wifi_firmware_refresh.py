@@ -868,5 +868,96 @@ class SelectionTest(Case):
         self.assertLess(awf.build_key("25G83"), awf.build_key("26A428"))
 
 
+ESP_GUID = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
+
+
+def blockdev(path, pkname=None, parttype=None, tran=None, rm=False, hotplug=False):
+    return {"path": path, "pkname": pkname, "parttype": parttype, "rm": rm,
+            "hotplug": hotplug, "tran": tran, "type": "part" if pkname else "disk"}
+
+
+def fake_run(devices, esp_source="/dev/nvme0n1p4"):
+    """subprocess.run for findmnt (the ESP's mount source) and lsblk -J."""
+    def run(cmd, **kw):
+        if cmd[0] == "findmnt":
+            ok = esp_source is not None
+            return types.SimpleNamespace(returncode=0 if ok else 1, stderr="",
+                                         stdout=f"{esp_source}\n" if ok else "")
+        assert cmd[0] == "lsblk", cmd
+        return types.SimpleNamespace(returncode=0, stderr="",
+                                     stdout=json.dumps({"blockdevices": devices}))
+    return run
+
+
+def internal(tran="nvme", rm=False, hotplug=False):
+    return [blockdev("/dev/nvme0n1", tran=tran, rm=rm, hotplug=hotplug),
+            blockdev("/dev/nvme0n1p2", "/dev/nvme0n1", awf.APFS_GUID),
+            blockdev("/dev/nvme0n1p3", "/dev/nvme0n1", awf.APFS_GUID),
+            blockdev("/dev/nvme0n1p4", "/dev/nvme0n1", ESP_GUID)]
+
+
+def usb_disk(name="/dev/sda", tran="usb", rm=True, hotplug=True):
+    return [blockdev(name, tran=tran, rm=rm, hotplug=hotplug),
+            blockdev(name + "1", name, awf.APFS_GUID)]
+
+
+class SourceDiskTest(Case):
+    """Only APFS containers on the disk that holds the system ESP are read."""
+
+    def setUp(self):
+        super().setUp()
+        self.esp = make_esp(self.root, wifi_tree("old"))
+        self.read = []
+
+    def opener(self, dev):
+        self.read.append(dev)
+        if dev == "/dev/nvme0n1p2":
+            return FakeContainer([FakeVol(wifi_tree("internal"), build="25C56")])
+        if dev == "/dev/nvme0n1p3":
+            return FakeContainer([])
+        return FakeContainer([FakeVol(wifi_tree("other"), name="Other", build="99Z999",
+                                      group="99999999-0000-0000-0000-000000000000")])
+
+    def found(self, devices, **kw):
+        return awf.installed_macos(self.esp, opener=self.opener, run=fake_run(devices, **kw))
+
+    def test_another_disk_with_a_newer_claimed_build_is_not_read(self):
+        for other in (usb_disk(), usb_disk(tran="nvme", rm=False),
+                      usb_disk("/dev/nvme1n1", tran="nvme", rm=False, hotplug=False)):
+            self.read.clear()
+            found = self.found(internal() + other)
+            self.assertEqual([m.build for m in found], ["25C56"])
+            self.assertEqual(sorted(self.read), ["/dev/nvme0n1p2", "/dev/nvme0n1p3"])
+
+    def test_tree_output_is_followed_too(self):
+        disk, *parts = internal()
+        disk = dict(disk, children=[dict(p, pkname=None) for p in parts])
+        found = self.found([disk] + usb_disk())
+        self.assertEqual([m.build for m in found], ["25C56"])
+        self.assertNotIn("/dev/sda1", self.read)
+
+    def test_esp_on_a_removable_or_external_disk_is_refused(self):
+        for kw in ({"tran": "usb"}, {"rm": True}, {"hotplug": True}, {"rm": "1"}):
+            with self.subTest(kw=kw), self.assertRaises(awf.Refused):
+                self.found(internal(**kw))
+        self.assertEqual(self.read, [])
+
+    def test_esp_disk_not_known_is_refused(self):
+        for devices, source in ((internal(), None),              # the ESP is not a mount
+                                (internal(), "/dev/sdz9"),        # not in lsblk
+                                (internal()[1:], "/dev/nvme0n1p4"),  # no parent disk
+                                (usb_disk(), "/dev/sda")):         # a whole disk
+            with self.subTest(source=source), self.assertRaises(awf.Refused):
+                self.found(devices, esp_source=source)
+        self.assertEqual(self.read, [])
+
+    def test_plan_keeps_the_esp_when_its_disk_is_not_known(self):
+        # The test ESP is a plain directory, not a mount: no disk to read.
+        before = awf.tree_hashes(self.esp)
+        with self.assertRaises(awf.Refused):
+            awf.plan(self.esp, None, BOARD, out=self.out.append)
+        self.assertEqual(awf.tree_hashes(self.esp), before)
+
+
 if __name__ == "__main__":
     unittest.main()

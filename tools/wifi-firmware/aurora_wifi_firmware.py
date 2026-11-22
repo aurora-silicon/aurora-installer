@@ -153,19 +153,59 @@ def wifi_board(dt=DT):
 
 # ---------------------------------------------------------------- the macOS side
 
-def apfs_partitions(run=subprocess.run):
-    p = run(["lsblk", "-J", "-p", "-o", "PATH,PARTTYPE"], capture_output=True, text=True)
-    if p.returncode != 0:
-        return []
-    out = []
+# Transports of disks that can be plugged in; lsblk's RM and HOTPLUG cover
+# removable media and devices behind a hot-plug port (Thunderbolt).
+EXTERNAL_TRAN = ("usb", "mmc", "ieee1394")
 
-    def walk(devs):
-        for d in devs:
-            if (d.get("parttype") or "").lower() == APFS_GUID:
-                out.append(d["path"])
-            walk(d.get("children") or [])
+
+def _flag(v):
+    return v is True or str(v).strip().lower() in ("1", "true")
+
+
+def esp_device(esp, run=subprocess.run):
+    """The block device mounted at the ESP path, or None."""
+    p = run(["findmnt", "-n", "-v", "-o", "SOURCE", "--mountpoint", str(esp)],
+            capture_output=True, text=True)
+    if p.returncode != 0:
+        return None
+    devs = {os.path.realpath(ln.strip()) for ln in p.stdout.splitlines()
+            if ln.strip().startswith("/dev/")}
+    return devs.pop() if len(devs) == 1 else None
+
+
+def apfs_partitions(esp_dev, run=subprocess.run):
+    """The APFS partitions on the disk holding the system ESP. Refused when
+    that disk is not known or is removable or external: no other disk is
+    read in its place."""
+    if not esp_dev:
+        raise Refused("the disk holding the system ESP is not known; the ESP's files stay")
+    p = run(["lsblk", "-J", "-p", "-o", "PATH,PKNAME,PARTTYPE,RM,HOTPLUG,TRAN,TYPE"],
+            capture_output=True, text=True)
+    if p.returncode != 0:
+        raise Refused(f"lsblk failed ({p.stderr.strip()}); the ESP's files stay")
+    devs = []
+
+    def walk(items, parent=None):
+        for d in items:
+            d = dict(d)
+            if not d.get("pkname") and parent:
+                d["pkname"] = parent
+            devs.append(d)
+            walk(d.get("children") or [], d.get("path"))
     walk(json.loads(p.stdout).get("blockdevices", []))
-    return out
+    by_path = {d.get("path"): d for d in devs}
+    esp = by_path.get(os.path.realpath(esp_dev))
+    disk = by_path.get(esp.get("pkname")) if esp else None
+    if not esp or not disk or esp.get("type") != "part" or disk.get("type") != "disk":
+        raise Refused(f"the disk holding the system ESP {esp_dev} was not found; "
+                      f"the ESP's files stay")
+    for d in (esp, disk):
+        if _flag(d.get("rm")) or _flag(d.get("hotplug")) or \
+                (d.get("tran") or "").lower() in EXTERNAL_TRAN:
+            raise Refused(f"the system ESP {esp_dev} is on a removable or external disk "
+                          f"({disk['path']}); the ESP's files stay")
+    return [d["path"] for d in devs if d.get("pkname") == disk["path"]
+            and d.get("type") == "part" and (d.get("parttype") or "").lower() == APFS_GUID]
 
 
 def stub_groups(esp):
@@ -191,12 +231,14 @@ class MacOS:
         return f"macOS {self.version} ({self.build}), '{self.volume.name}' on {self.device}"
 
 
-def installed_macos(esp, devices=None, opener=apfs_ro.Container):
-    """Every readable macOS System volume that ships radio firmware, the
-    stub's left out, newest build first."""
+def installed_macos(esp, devices=None, opener=apfs_ro.Container, run=subprocess.run):
+    """Every readable macOS System volume on the ESP's disk that ships radio
+    firmware, the stub's left out, newest build first."""
     skip = stub_groups(esp)
     found = []
-    for dev in devices if devices is not None else apfs_partitions():
+    if devices is None:
+        devices = apfs_partitions(esp_device(esp, run), run)
+    for dev in devices:
         try:
             vols = [v for v in opener(dev).volumes()
                     if v.role == apfs_ro.ROLE_SYSTEM and not v.encrypted]

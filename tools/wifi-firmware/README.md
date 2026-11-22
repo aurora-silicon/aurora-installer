@@ -45,8 +45,11 @@ follows its macOS as macOS does.
 
 ## What it does
 
-1. **Which macOS.** Every APFS container on the Mac is read with `apfs_ro`, a
-   small read-only APFS reader (no mount, no kernel module, no FUSE). The
+1. **Which macOS.** Every APFS container on the disk that holds the system
+   ESP is read with `apfs_ro`, a small read-only APFS reader (no mount, no
+   kernel module, no FUSE). Other disks are not read. When the ESP's disk is
+   not known, or is removable or external (USB, SD, a hot-plug port such as
+   Thunderbolt), the tool refuses and the ESP's files stay. The
    System volume is not encrypted, with or without FileVault, so no password
    is needed. The boot stub's volume group (`asahi/stub_info.json`) is left
    out. With more than one macOS installed, the newest build is used.
