@@ -91,9 +91,11 @@ public enum FirmwarePackageBuilder {
       total += input.bytes.count
       try require(total <= 256 << 20, "Fallback inputs exceed their budget.")
     }
+    var aliasTargets = [String: String]()
     for (name, target) in symbolicLinks {
       // An alias names a file in its parent directory ("../name") or, as the
-      // Recovery image's radio links do, in its own directory ("name").
+      // radio links of macOS do, in its own directory ("name"), where it may
+      // name another alias.
       let parent = target.hasPrefix("../")
       let leaf = parent ? String(target.dropFirst(3)) : target
       try require(
@@ -102,8 +104,19 @@ public enum FirmwarePackageBuilder {
           && safeRelative(leaf) && (parent || !leaf.contains("/"))
           && target.utf8.count <= 100, "Invalid fallback alias.")
       let components = name.split(separator: "/").dropLast(parent ? 2 : 1).map(String.init)
-      let resolved = (components + [leaf]).joined(separator: "/")
-      try require(inputs.contains(where: { $0.name == resolved }), "Missing fallback alias target.")
+      aliasTargets[name] = (components + [leaf]).joined(separator: "/")
+    }
+    // Every alias ends at a file. A chain longer than the aliases is a loop.
+    let inputNames = Set(inputs.map(\.name))
+    for first in aliasTargets.values {
+      var resolved = first
+      var hops = 1
+      while let next = aliasTargets[resolved] {
+        hops += 1
+        try require(hops <= aliasTargets.count, "Looping fallback alias.")
+        resolved = next
+      }
+      try require(inputNames.contains(resolved), "Missing fallback alias target.")
     }
     let sorted = names.sorted()
     for name in sorted {

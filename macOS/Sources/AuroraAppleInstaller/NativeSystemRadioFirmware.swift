@@ -3,29 +3,34 @@
   import Foundation
   import IOKit
 
-  /// Wi-Fi firmware from the macOS this Mac runs. Its sealed system volume
-  /// ships every board's firmware, while a Recovery image may not: 26.6.2
-  /// (25G83) Recovery has no usable BCM4388 rev C2 firmware for any M4 Pro or
-  /// M4 Max board.
-  enum NativeSystemWiFiFirmware {
-    static let prefix = "usr/share/firmware/wifi"
+  /// Wi-Fi and Bluetooth firmware from the macOS this Mac runs. Its sealed
+  /// system volume ships every board's firmware, and macOS runs it, while the
+  /// stub's Recovery image may be older (macOS 13.5 on many installs) or lack
+  /// a board: 26.6.2 (25G83) Recovery has no usable BCM4388 rev C2 Wi-Fi
+  /// firmware for any M4 Pro or M4 Max board.
+  enum NativeSystemRadioFirmware {
+    static let prefix = "usr/share/firmware"
 
-    /// The running system's Wi-Fi tree, read only from a read-only volume.
-    static func live(owner: uid_t) throws -> NativeFirmwareInputFiles.Snapshot {
+    /// One radio's tree of the running system (`wifi` or `bluetooth`), read
+    /// only from a read-only volume.
+    static func live(owner: uid_t, directory: String) throws -> NativeFirmwareInputFiles.Snapshot {
       let root = URL(fileURLWithPath: "/", isDirectory: true)
+      let path = prefix + "/" + directory
       let tree = try NativeHandoffFileTree(
         root, protected: true, owner: owner, readOnlyVolume: true)
-      let descriptor = try tree.fileDescriptor(prefix)
+      let descriptor = try tree.fileDescriptor(path)
       defer { close(descriptor) }
       guard NativeHandoffFileTree.isReadOnly(descriptor) else {
         throw NativeFirmwareInputFailure.invalidSource
       }
       return try NativeFirmwareInputFiles.snapshot(
-        root: root, prefix: prefix, tree: tree, owner: owner)
+        root: root, prefix: path, tree: tree, owner: owner)
     }
 
-    /// This Mac's Wi-Fi board: the ADT `wlan` node's `module-instance`, the
-    /// name aura gives Linux as `brcm,board-type`. Nil when no such node exists.
+    /// This Mac's radio board: the ADT `wlan` node's `module-instance`, which
+    /// matches the kernel device tree's `brcm,board-type` and the board name
+    /// both Broadcom drivers load their firmware by. Nil when no such node
+    /// exists (including N1/Centauri Macs).
     static func board() throws -> String? {
       var iterator: io_iterator_t = 0
       guard

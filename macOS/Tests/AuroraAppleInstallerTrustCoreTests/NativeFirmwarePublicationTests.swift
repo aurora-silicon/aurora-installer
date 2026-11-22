@@ -176,6 +176,13 @@
           "wifi/C-4378__s-B3/kyushu-X0.trx": "wifi/C-4378__s-B3/kyushu.trx",
           "wifi/C-4378__s-B3/kyushu-X1.trx": "wifi/C-4378__s-B3/kyushu.trx",
         ])
+      // What each link itself names, as the tree ships it.
+      XCTAssertEqual(
+        snapshot.shippedLinks,
+        [
+          "wifi/C-4378__s-B3/kyushu-X0.trx": "wifi/C-4378__s-B3/kyushu.trx",
+          "wifi/C-4378__s-B3/kyushu-X1.trx": "wifi/C-4378__s-B3/kyushu-X0.trx",
+        ])
       // A link that leaves its directory is refused, not followed.
       try fm.createSymbolicLink(
         atPath: wifi.appendingPathComponent("outside.trx").path,

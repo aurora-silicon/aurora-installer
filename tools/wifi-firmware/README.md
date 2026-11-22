@@ -7,9 +7,14 @@ set its installer took:
 - the Asahi installer takes it from its stub's Recovery image, macOS 13.5
   (22G74) for most installs. A MacBook Pro M1 Pro installed that way runs
   BCM4387 firmware 20.96.31 (May 2023) while its macOS 26.2 runs 20.131.4;
-- the Aurora installer takes it from the macOS it runs on (the installed
-  system volume, or for the MacBook Neo's MediaTek MT7932 the IPSW of the
-  same build), so an install matches that macOS until macOS updates.
+- the Aurora installer takes it from the macOS it runs on, so an install
+  matches that macOS until macOS updates. Broadcom Wi-Fi and Bluetooth each
+  come from the installed system volume when it has a complete revision for
+  this Mac's board (the ADT `wlan` node's `module-instance`, matching the
+  kernel device tree's `brcm,board-type`), and from the stub's Recovery image
+  only when it does not or cannot be read; the Installer Log names each
+  radio's source. The MacBook Neo's MediaTek MT7932 comes from the IPSW of
+  the same build.
 
 `aurora-wifi-firmware` brings the installed macOS's firmware over from Linux:
 
@@ -59,8 +64,8 @@ follows its macOS as macOS does.
    `mediatek/mt7932/bt-b0.bin`, `bt-b1.bin` and `bt-ptb.ptx`, which do not
    change with macOS.
 3. **Check.** The new set must carry what this Mac loads today. Broadcom:
-   this Mac's board (the device tree's `brcm,board-type`, which aura takes
-   from the Apple device tree) for every chip revision the ESP has today:
+   this Mac's board (the kernel device tree's `brcm,board-type`) for every
+   chip revision the ESP has today:
    Wi-Fi firmware, regulatory data (`.clm_blob`) and NVRAM, and every
    Bluetooth firmware and PTB name the ESP has for the board. MT7932: every
    Wi-Fi file and a Bluetooth image of each kind, each with the layout its
