@@ -127,6 +127,20 @@
         verify: { try verify($0, requirement: requirement) })
     }
 
+    /// A template member must be a relative path under `Contents/`. It is
+    /// judged on the UTF-8 bytes the file system sees, not on Characters: a
+    /// combining mark after "/" or a prepended mark before it ("/\u{301}",
+    /// "\u{600}/") forms one Character with it, so a Character split misses
+    /// that "/" and hides the "..", "." or empty part next to it.
+    static func isSafeMemberName(_ name: String) -> Bool {
+      let bytes = Array(name.utf8)
+      let dot = UInt8(ascii: ".")
+      let components = bytes.split(separator: UInt8(ascii: "/"), omittingEmptySubsequences: false)
+      return bytes.count <= 1024 && !bytes.contains(0) && components.count > 1
+        && components.first.map { Array($0) } == Array("Contents".utf8)
+        && components.allSatisfy { !$0.isEmpty && $0 != [dot] && $0 != [dot, dot] }
+    }
+
     static func prepare(
       data: Data, in parent: URL, owner: uid_t, requirement: String,
       verify: (URL) throws -> Void
@@ -141,10 +155,7 @@
       }
       var total = 0
       for (name, data) in files {
-        let components = name.split(separator: "/", omittingEmptySubsequences: false)
-        guard name.utf8.count <= 1024, components.first == "Contents",
-          components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." && !$0.contains("\0") }),
-          data.count <= 64 << 20
+        guard isSafeMemberName(name), data.count <= 64 << 20
         else { throw NativeRecoveryTemplateError.unsafeTemplate }
         total += data.count
         guard total <= 128 << 20 else { throw NativeRecoveryTemplateError.unsafeTemplate }
