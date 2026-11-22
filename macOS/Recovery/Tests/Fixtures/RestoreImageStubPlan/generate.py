@@ -12,6 +12,7 @@ Deterministic. Usage (from this directory): python3 generate.py
 import json
 import plistlib
 import struct
+import unicodedata
 import warnings
 import zipfile
 import zlib
@@ -116,10 +117,32 @@ def write_raw(path, members, raw):
     open(path, "wb").write(out)
 
 
+# Characters that join the character before them (grapheme extenders) or after them
+# (prepend): either way a '/' next to one is not a Character of its own. This covers the
+# marks these fixtures use; the Swift side asks String itself.
+PREPEND = set("\u0600\u0601\u0602\u0603\u0604\u0605\u06dd\u070f\u0890\u0891\u08e2")
+
+
+def separators_alone(path):
+    for i, ch in enumerate(path):
+        if ch != "/":
+            continue
+        after = path[i + 1] if i + 1 < len(path) else ""
+        before = path[i - 1] if i else ""
+        if after and (unicodedata.category(after) in ("Mn", "Mc", "Me")
+                      or after == "\u200d" or "\ufe00" <= after <= "\ufe0f"):
+            return False
+        if before in PREPEND:
+            return False
+    return True
+
+
 def safe(path):
+    """The main installer's safeRelative: UTF-8 bytes, and every '/' a Character of its own."""
     b = path.encode()
     return (b != b"" and not any(c in b for c in b"\\\0\r\n")
-            and all(p not in (b"", b".", b"..") for p in b.split(b"/")))
+            and all(p not in (b"", b".", b"..") for p in b.split(b"/"))
+            and separators_alone(path))
 
 
 def hexid(value):
@@ -247,8 +270,9 @@ cases = [
     case("board-combining", lambda m: m.update({"BuildManifest.plist": (plistlib.dumps(
         {"BuildIdentities": [dict(identity(BOARD, components=COMPONENTS),
                                   ApBoardID="0x\u0301" + hex(BOARD)[2:])]}), "file", True)})),
-    # The kernel's installer data name is its last component by bytes ("\u0301b"), as
-    # URL.lastPathComponent gives it, even where a Character split keeps "/\u0301" whole.
+    # A component that starts with a combining mark hides its '/' from Character code
+    # ("kernelcache.d/\u0301b" is one Character component): refused, as the main
+    # installer's safeRelative refuses it (#203).
     case("kernelcache-leaf", lambda m: m.update({
         "BuildManifest.plist": (manifest_with(KernelCache="kernelcache.d/\u0301b"), "file", True),
         "kernelcache.d/\u0301b": (b"kernel" * 10, "file", False)})),
@@ -299,13 +323,15 @@ assert zlib.decompress(padded, -15) == b"Versions/Current/Boot"
 write_raw("link-big-compressed.zip", base(), (link, padded))
 expected["link-big-compressed"] = "refuse"
 
-# Recovery only: path prefixes are judged on bytes, so a Bootability member whose name
-# starts with a combining mark is copied; the main installer's Character prefix skips it.
+# A Bootability member whose name starts with a combining mark: refused by both installers
+# since #203 (it was Recovery-only while Recovery judged prefixes on bytes and the main
+# installer on Characters). recovery_only stays for cases where they may differ.
 recovery_only = {}
 for name, members in [case("boot-combining-member", lambda m: m.update(
         {BOOT + "/\u0301x": (b"combining", "file", False)}))]:
     write(name + ".zip", members)
-    recovery_only[name] = plan(members)
+    expected[name] = plan(members) or "refuse"
+    assert expected[name] == "refuse"
 json.dump({"board": BOARD, "chip": CHIP, "device_class": CLASS, "version": VERSION,
            "build": BUILD, "cases": expected, "recovery_only": recovery_only},
           open("expected.json", "w"), indent=1,
