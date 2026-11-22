@@ -31,14 +31,19 @@ enum RecoveryCommand: Equatable {
     }
   }
 
-  /// Why this command can't run when a staged Stage 1 update is or isn't
-  /// waiting, or nil. The command line names the change, so setup never turns
-  /// into an update or the other way round.
-  func refusal(updatePending: Bool) -> String? {
+  /// Why this command can't run, or nil. `updatePending`: a staged Stage 1
+  /// update is waiting. `installed`: setup finished (a receipt and no pending
+  /// journal), so the window offers only Restore; an interrupted setup isn't
+  /// installed and may run again. The command line names the change, so setup
+  /// never turns into an update or the other way round.
+  func refusal(updatePending: Bool, installed: Bool) -> String? {
     switch self {
     case .setup where updatePending:
       return
         "A startup software update is waiting. Run aura update to install it. Nothing was changed."
+    case .setup where installed:
+      return
+        "This installation is already set up. To restore its startup software, run aura recover. Nothing was changed."
     case .update where !updatePending:
       return "No startup software update is waiting. Nothing was changed."
     default:

@@ -25,17 +25,30 @@
     }
 
     // The command line names the change: setup never becomes an update or back.
-    precondition(RecoveryCommand.setup.refusal(updatePending: false) == nil)
-    precondition(RecoveryCommand.update.refusal(updatePending: true) == nil)
+    precondition(RecoveryCommand.setup.refusal(updatePending: false, installed: false) == nil)
+    precondition(RecoveryCommand.update.refusal(updatePending: true, installed: true) == nil)
     precondition(
-      RecoveryCommand.setup.refusal(updatePending: true)?.contains("Run aura update") == true)
-    precondition(
-      RecoveryCommand.update.refusal(updatePending: false)?.contains("Nothing was changed") == true)
+      RecoveryCommand.setup.refusal(updatePending: true, installed: true)?.contains(
+        "Run aura update") == true)
+    for installed in [false, true] {
+      precondition(
+        RecoveryCommand.update.refusal(updatePending: false, installed: installed)?.contains(
+          "Nothing was changed") == true)
+    }
+    // Setup finished: setup again is refused, as the window offers only Restore.
+    // An interrupted setup (pending journal) isn't installed and resumes.
+    let again = RecoveryCommand.setup.refusal(updatePending: false, installed: true)
+    precondition(again?.contains("already set up") == true)
+    precondition(again?.contains("aura recover") == true)
+    precondition(again?.contains("Nothing was changed") == true)
     for command in [
       RecoveryCommand.recover, .restart, .bootArgument(flag: "aura-debug", enabled: true),
     ] {
-      precondition(command.refusal(updatePending: true) == nil)
-      precondition(command.refusal(updatePending: false) == nil)
+      for updatePending in [false, true] {
+        for installed in [false, true] {
+          precondition(command.refusal(updatePending: updatePending, installed: installed) == nil)
+        }
+      }
     }
 
     precondition(RecoveryPasswordInput.password("1111") == "1111")

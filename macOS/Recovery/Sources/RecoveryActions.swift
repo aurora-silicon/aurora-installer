@@ -618,6 +618,9 @@ enum RecoveryActions {
         enroll: {
           progress(
             0.55, selection.mode == .macho ? slowEnrollment : "Installing the startup software")
+          InstallerLog.shared.append(
+            enrolledStageLine(
+              enrolledStage1, keysFilled: enrolledStage1 != stage1, mode: selection.mode))
           try authorized(
             "/usr/bin/kmutil",
             selection.mode.enrollmentArguments(stage1: stage1Path.path, volume: volume.path),
@@ -923,7 +926,8 @@ extension RecoveryActions {
       throw RecoveryFailure(message: RecoveryCommand.usage)
     }
     try recoveryOnly()
-    try run("/sbin/mount", ["-u", "-w", volume.path])
+    // Only after every check: a refusal says nothing was changed. setup,
+    // update and restart remount in the actions they run, before writing.
     switch command {
     case .recover:
       let record = try installed()
@@ -948,6 +952,7 @@ extension RecoveryActions {
         manifest: m, root: payloadRoot())
       files[path] = bytes
       let destination = try esp()
+      try run("/sbin/mount", ["-u", "-w", volume.path])
       let backup = state.appendingPathComponent("recover-" + UUID().uuidString + ".before")
       try RecoveryBaseline.restore(
         files: files, root: destination, backup: backup, stage2Path: path
@@ -962,6 +967,7 @@ extension RecoveryActions {
     case .bootArgument(let flag, let enabled):
       let before = try readBootArguments()
       let after = bootArguments(before, flag: flag, enabled: enabled)
+      try run("/sbin/mount", ["-u", "-w", volume.path])
       try atomic(
         Data(before.utf8),
         to: state.appendingPathComponent("boot-args-" + UUID().uuidString + ".before"))
@@ -1008,19 +1014,28 @@ extension RecoveryActions {
     guard let password = RecoveryPasswordInput.password(readLine(strippingNewline: true)) else {
       throw RecoveryFailure(message: RecoveryPasswordInput.message)
     }
-    if let refusal = command.refusal(updatePending: pendingStage1Update() != nil) {
+    if let refusal = command.refusal(
+      updatePending: pendingStage1Update() != nil, installed: recovering)
+    {
       throw RecoveryFailure(message: refusal)
     }
     InstallerLog.shared.beginAttempt()
     let owner = try resolveOwner()
     let mode = configuredBootMode
     let keys = (try? configuration.get().secureBootKeys) ?? .aurora
-    let stage1 = hash(try asset(mode.stage1Path, manifest: manifest()))
+    // The payload's Stage 1 as the manifest lists it. When it holds a key
+    // block, the startup keys are filled in before enrollment, so the enrolled
+    // Stage 1 differs: install() and reenrollStage1() log its sha256 before kmutil.
+    let template = hash(try asset(mode.stage1Path, manifest: manifest()))
+    // The keys setup recorded, which an update fills in again.
+    let recordedKeys =
+      (try? installed())?["startupKeys"] as? String
+      ?? "none recorded (Stage 1 keeps its built-in key)"
     // Say which change this is before anything is written.
     let action =
       command == .update
-      ? "Installing the staged startup software update for \(volumeName): boot mode \(mode.rawValue), Stage 1 sha256 \(stage1), authorized by \(owner.username)."
-      : "Setting up \(volumeName): boot mode \(mode.rawValue), startup keys \(keys.rawValue), Stage 1 sha256 \(stage1), authorized by \(owner.username)."
+      ? "Installing the staged startup software update for \(volumeName): boot mode \(mode.rawValue), recorded startup keys kept: \(recordedKeys), manifest Stage 1 sha256 \(template) (the enrolled Stage 1, with any startup keys filled in, is logged before kmutil), authorized by \(owner.username)."
+      : "Setting up \(volumeName): boot mode \(mode.rawValue), startup keys \(keys.rawValue), manifest Stage 1 sha256 \(template) (the enrolled Stage 1, with any startup keys filled in, is logged before kmutil), authorized by \(owner.username)."
     print(action)
     InstallerLog.shared.append(action)
     let report: (Double, String) -> Void = { amount, operation in
@@ -1096,6 +1111,14 @@ extension RecoveryActions {
   /// The stub files that name the enrolled Stage 1, which a later Reset reads.
   static let stubStage1Path = "Finish Installation.app/Contents/Resources/boot.bin"
   static let stubStage1MachOPath = "Finish Installation.app/Contents/Resources/boot.macho"
+
+  /// The log line naming the Stage 1 kmutil enrolls next: the manifest's
+  /// Stage 1 with the startup keys filled in, when it holds a key block.
+  static func enrolledStageLine(_ stage1: Data, keysFilled: Bool, mode: AuraBootMode) -> String {
+    "Enrolling Stage 1 sha256 \(hash(stage1))"
+      + (keysFilled ? " (startup keys filled in)" : " (as the manifest lists it)")
+      + (mode.executeWindowSize != nil ? ", padded for its execute window as staged." : ".")
+  }
 
   /// A Stage 1 the macOS installer staged that isn't enrolled yet.
   static func pendingStage1Update() -> Stage1Reenrollment? {
@@ -1188,6 +1211,8 @@ extension RecoveryActions {
       },
       enroll: {
         progress(0.55, mode == .macho ? slowEnrollment : "Installing the startup software")
+        InstallerLog.shared.append(
+          enrolledStageLine(enrolledStage1, keysFilled: enrolledStage1 != stage1, mode: mode))
         try authorized(
           "/usr/bin/kmutil", mode.enrollmentArguments(stage1: stage1Path.path, volume: volume.path),
           owner: owner, password: password)
