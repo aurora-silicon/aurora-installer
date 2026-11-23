@@ -9,7 +9,14 @@ mounts and needs no kernel module or FUSE. Written from Apple's public
 "Apple File System Reference".
 
 Vendored from speakerguardd (packaging/upgrade/aurora_speaker_upgrade,
-v2 26b88eac); the only addition is Volume.group (apfs_volume_group_id).
+v2 26b88eac); the additions are Volume.group (apfs_volume_group_id) and
+the bounds on what a malformed container can make the reader do.
+
+A container is untrusted input: every size, count and block address in it
+is checked or capped before it is used (block size, checkpoint area,
+b-tree levels and nodes read per lookup, extents, decmpfs chunk tables and
+inflated sizes), and whatever a damaged structure still trips over is
+reported as ApfsError, the one error callers have to expect.
 
 Scope, on purpose small: the newest checkpoint, the container object map,
 volumes that are not encrypted (APFS_FS_UNENCRYPTED: the System, Preboot,
@@ -28,6 +35,7 @@ decoded here; LZFSE frames go through liblzfse.
 import argparse
 import ctypes
 import ctypes.util
+import functools
 import os
 import stat
 import struct
@@ -49,10 +57,64 @@ XATTR_DATA_STREAM, XATTR_DATA_EMBEDDED = 1, 2
 ROOT_DIR_INO = 2
 DECMPFS_MAGIC = 0x636D7066  # 'fpmc'
 MAX_FILE = 256 << 20
+# nx_block_size: the reference's NX_MINIMUM_BLOCK_SIZE..NX_MAXIMUM_BLOCK_SIZE.
+MIN_BLOCK_SIZE, MAX_BLOCK_SIZE = 4096, 65536
+# The checkpoint descriptor area is scanned block by block for the newest
+# superblock; it is a small area, and no more than this many bytes of it
+# are read.
+MAX_DESC_BYTES = 64 << 20
+# B-tree nodes one lookup may read. A lookup reads one path of at most 16
+# levels plus the leaves its records span (a directory's entries, a file's
+# extents), so this is far above any real lookup; it stops a tree whose
+# index nodes repeat one key from multiplying the work at every level.
+MAX_LOOKUP_NODES = 4096
+MAX_TREE_DEPTH = 16
+DECMPFS_CHUNK = 0x10000
 
 
 class ApfsError(Exception):
     pass
+
+
+# What parsing a damaged structure raises: a field that points outside its
+# block (struct.error, IndexError), a broken deflate stream, an address too
+# large for an offset, a structure nested deeper than the interpreter allows.
+_MALFORMED = (struct.error, IndexError, zlib.error, OverflowError, RecursionError)
+
+
+def _checked(fn):
+    """A public entry point: a malformed structure is an ApfsError."""
+    @functools.wraps(fn)
+    def call(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except _MALFORMED as e:
+            raise ApfsError(f"malformed APFS structure ({type(e).__name__}: {e})") from e
+    return call
+
+
+def inflate(data, limit):
+    """A zlib stream to at most `limit` bytes; more than that is refused
+    without being inflated."""
+    d = zlib.decompressobj()
+    out = d.decompress(data, limit + 1)
+    if len(out) > limit:
+        raise ApfsError(f"zlib: output over the expected {limit} bytes")
+    if not d.eof:
+        raise ApfsError("zlib: truncated stream")
+    return out
+
+
+class _Budget:
+    """The b-tree nodes one lookup may still read."""
+
+    def __init__(self, what):
+        self.what, self.left = what, MAX_LOOKUP_NODES
+
+    def take(self):
+        if self.left <= 0:
+            raise ApfsError(f"{self.what}: over {MAX_LOOKUP_NODES} nodes in one lookup")
+        self.left -= 1
 
 
 def fletcher64(block):
@@ -232,6 +294,7 @@ class Omap:
         self.dev = dev
         self.tree = struct.unpack_from("<Q", om, 48)[0]
 
+    @_checked
     def lookup(self, oid, xid):
         paddr = self.tree
         for _ in range(16):
@@ -300,6 +363,7 @@ class Volume:
             raise ApfsError(f"node at block {paddr:#x}: bad checksum")
         return b
 
+    @_checked
     def records(self, oid, typ):
         """Every fs-tree record (key, value) of object `oid`, type `typ`."""
         if self.encrypted:
@@ -309,8 +373,10 @@ class Volume:
         want = (oid, typ)
         out = []
 
+        budget = _Budget("fs tree")
+
         def walk(n, depth):
-            if depth > 16:
+            if depth > MAX_TREE_DEPTH:
                 raise ApfsError("fs tree too deep")
             keys = [jkey(k) for k, _ in n.kv]
             for i, (k, v) in enumerate(n.kv):
@@ -323,7 +389,10 @@ class Volume:
                     child = struct.unpack_from("<Q", v)[0]
                     if relative:
                         child += self.root_oid
+                    budget.take()
                     cn = self.node(child, physical)
+                    if cn.level != n.level - 1:
+                        raise ApfsError(f"fs tree child {child:#x} is not one level below its parent")
                     if cn.kv and jkey(cn.kv[0][0]) < keys[i]:
                         raise ApfsError(f"fs tree child {child:#x} does not follow its index key")
                     walk(cn, depth + 1)
@@ -337,6 +406,7 @@ class Volume:
 
     # --------------------------------------------------------- objects
 
+    @_checked
     def children(self, ino):
         out = {}
         for k, v in self.records(ino, T_DREC):
@@ -354,6 +424,7 @@ class Volume:
     def hashed_names(self):
         return bool(self.incompat & (0x1 | 0x8))  # case- or normalization-insensitive
 
+    @_checked
     def inode(self, ino):
         recs = self.records(ino, T_INODE)
         if not recs:
@@ -366,6 +437,8 @@ class Volume:
         if len(v) > 92:
             nx, used = struct.unpack_from("<HH", v, 92)
             off = 96 + 4 * nx
+            if off > len(v):
+                raise ApfsError(f"inode {ino}: {nx} extended fields do not fit the record")
             for i in range(nx):
                 t, f, s = struct.unpack_from("<BBH", v, 96 + 4 * i)
                 if t == INO_EXT_TYPE_DSTREAM:
@@ -374,6 +447,7 @@ class Volume:
         return {"private_id": private_id, "mode": mode, "size": size or 0,
                 "compressed": bool(bsd_flags & 0x20)}
 
+    @_checked
     def xattrs(self, ino):
         out = {}
         for k, v in self.records(ino, T_XATTR):
@@ -383,13 +457,21 @@ class Volume:
             out[name] = (flags, v[4:4 + dl])
         return out
 
+    @_checked
     def extents(self, private_id):
         """[(logical, length, physical block)] of a data stream."""
         exts = []
         if self.fext_oid:
             # Sealed volume: a physical, fixed-size file-extent tree.
-            def walk(paddr, depth):
+            budget = _Budget("file-extent tree")
+
+            def walk(paddr, depth, level):
+                if depth > MAX_TREE_DEPTH:
+                    raise ApfsError("file-extent tree too deep")
+                budget.take()
                 n = Node(self._read_phys(paddr), self.dev.bs)
+                if level is not None and n.level != level:
+                    raise ApfsError(f"file-extent tree node {paddr:#x} is not one level below its parent")
                 keys = [struct.unpack_from("<Q", k)[0] for k, _ in n.kv]
                 for i, (k, v) in enumerate(n.kv):
                     if n.level == 0:
@@ -400,8 +482,8 @@ class Volume:
                         continue
                     nxt = keys[i + 1] if i + 1 < len(keys) else None
                     if keys[i] <= private_id and (nxt is None or nxt >= private_id):
-                        walk(struct.unpack_from("<Q", v)[0], depth + 1)
-            walk(self.fext_oid, 0)
+                        walk(struct.unpack_from("<Q", v)[0], depth + 1, n.level - 1)
+            walk(self.fext_oid, 0, None)
         else:
             for k, v in self.records(private_id, T_EXTENT):
                 la = struct.unpack_from("<Q", k, 8)[0]
@@ -409,20 +491,28 @@ class Volume:
                 exts.append((la, lf & 0x00FFFFFFFFFFFFFF, pb))
         return sorted(exts)
 
+    @_checked
     def stream(self, private_id, size):
         if size > MAX_FILE:
             raise ApfsError(f"stream of {size} bytes is over the limit")
         buf = bytearray(size)
+        end = 0
         for la, ln, pb in self.extents(private_id):
             if la >= size:
                 continue
+            # Extents do not overlap: a stream is read once, however many
+            # extent records name it.
+            if la < end:
+                raise ApfsError(f"stream {private_id}: overlapping extents at {la:#x}")
             n = min(ln, size - la)
+            end = la + n
             if pb == 0:
                 continue  # sparse
             blocks = (n + self.dev.bs - 1) // self.dev.bs
             buf[la:la + n] = self.dev.read(pb, blocks)[:n]
         return bytes(buf)
 
+    @_checked
     def read_file(self, ino):
         info = self.inode(ino)
         if not stat.S_ISREG(info["mode"]):
@@ -449,7 +539,7 @@ class Volume:
         if ctype in (1, 9):
             return body[:usize]
         if ctype == 3:
-            return body[1:1 + usize] if body[:1] == b"\xff" else zlib.decompress(body)[:usize]
+            return body[1:1 + usize] if body[:1] == b"\xff" else inflate(body, usize)
         if ctype == 7:
             return body[1:1 + usize] if body[:1] == b"\x06" else lzvn_decode(body, usize)
         if ctype == 11:
@@ -460,17 +550,25 @@ class Volume:
             raise ApfsError(f"inode {ino}: compressed data in a missing resource fork")
         rsrc = self._xattr_data(*xa["com.apple.ResourceFork"])
         out = bytearray()
-        chunk = 0x10000
+        chunk = DECMPFS_CHUNK
+        # The file is stored in 64 KiB chunks, so its size says how many
+        # the chunk table can hold (one spare: a table may end with an
+        # empty chunk).
+        max_chunks = usize // chunk + 2
         if ctype == 4:
             base = struct.unpack_from(">I", rsrc, 0)[0] + 4
             count = struct.unpack_from("<I", rsrc, base)[0]
+            if count > max_chunks:
+                raise ApfsError(f"inode {ino}: {count} chunks for {usize} bytes")
             for i in range(count):
                 off, ln = struct.unpack_from("<II", rsrc, base + 4 + 8 * i)
                 c = rsrc[base + off:base + off + ln]
                 want = min(chunk, usize - len(out))
-                out += c[1:1 + want] if c[:1] == b"\xff" else zlib.decompress(c)
+                out += c[1:1 + want] if c[:1] == b"\xff" else inflate(c, usize - len(out))
         else:
             first = struct.unpack_from("<I", rsrc, 0)[0]
+            if first // 4 > max_chunks + 1:
+                raise ApfsError(f"inode {ino}: {first // 4 - 1} chunks for {usize} bytes")
             offs = [struct.unpack_from("<I", rsrc, 4 * i)[0] for i in range(first // 4)]
             for a, b in zip(offs, offs[1:]):
                 c = rsrc[a:b]
@@ -486,6 +584,7 @@ class Volume:
             raise ApfsError(f"inode {ino}: {len(out)} bytes decompressed, {usize} expected")
         return bytes(out)
 
+    @_checked
     def readlink(self, ino):
         """A symbolic link's target (the com.apple.fs.symlink attribute)."""
         xa = self.xattrs(ino)
@@ -493,6 +592,7 @@ class Volume:
             raise ApfsError(f"inode {ino}: not a symbolic link")
         return self._xattr_data(*xa["com.apple.fs.symlink"]).split(b"\0", 1)[0].decode("utf-8", "surrogateescape")
 
+    @_checked
     def resolve(self, path):
         ino, kind = ROOT_DIR_INO, 4
         for part in [p for p in path.split("/") if p]:
@@ -508,18 +608,28 @@ class Volume:
 
 
 class Container:
+    @_checked
     def __init__(self, path):
         self.dev = Device(path)
         b0 = self.dev.read(0)
         if b0[32:36] != b"NXSB":
             raise ApfsError("not an APFS container")
-        self.dev.bs = struct.unpack_from("<I", b0, 36)[0]
+        bs = struct.unpack_from("<I", b0, 36)[0]
+        if not MIN_BLOCK_SIZE <= bs <= MAX_BLOCK_SIZE or bs & (bs - 1):
+            raise ApfsError(f"block size {bs} is not an APFS block size")
+        self.dev.bs = bs
         b0 = self.dev.obj(0)
         best, bx = b0, struct.unpack_from("<Q", b0, 16)[0]
+        blocks = struct.unpack_from("<Q", b0, 40)[0]
         desc_blocks = struct.unpack_from("<I", b0, 104)[0]
         desc_base = struct.unpack_from("<Q", b0, 112)[0]
         if not desc_blocks & 0x80000000:
-            for i in range(desc_blocks & 0x7FFFFFFF):
+            # The area lies inside the container (nx_block_count) and is
+            # small; a count that says otherwise is not scanned.
+            if desc_blocks and (desc_base + desc_blocks > blocks or desc_blocks * bs > MAX_DESC_BYTES):
+                raise ApfsError(f"checkpoint descriptor area of {desc_blocks} blocks at {desc_base:#x} "
+                                f"does not fit the container")
+            for i in range(desc_blocks):
                 try:
                     b = self.dev.obj(desc_base + i)
                 except ApfsError:
@@ -530,6 +640,7 @@ class Container:
         self.nx, self.xid = best, bx
         self.omap = Omap(self.dev, struct.unpack_from("<Q", best, 160)[0])
 
+    @_checked
     def volumes(self):
         out = []
         maxfs = min(struct.unpack_from("<I", self.nx, 180)[0], 100)
@@ -544,6 +655,7 @@ class Container:
             out.append(Volume(self, i, sb, p))
         return out
 
+    @_checked
     def volume(self, name=None, role=None):
         for v in self.volumes():
             if (name and v.name == name) or (role is not None and v.role == role):
@@ -551,6 +663,7 @@ class Container:
         raise ApfsError(f"no volume {name or ROLES.get(role, role)}")
 
 
+@_checked
 def copy_tree(vol, path, dest, limit=MAX_FILE):
     """Copies a file or a directory tree out of the volume. Returns the
     number of files. Symlinks and special files are skipped."""
