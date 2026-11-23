@@ -482,6 +482,7 @@
         try put(files.espBootObject, esp, "m1n1/boot.bin")
         try put(files.stubInfo, esp, "asahi/stub_info.json")
         try put(files.installerLog, esp, "asahi/installer.log")
+        try put(files.replacedRoot, esp, "aurora/replaced-root.json")
       }
       if let stub {
         try put(

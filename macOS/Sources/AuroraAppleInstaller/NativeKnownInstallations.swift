@@ -62,7 +62,14 @@
           if let partial = partial(rows, at: index, disk: disk) { result.append(partial) }
           continue
         }
-        let end = try NativeInspectionMath.add(members[3].offset, members[3].size)
+        var end = try NativeInspectionMath.add(members[3].offset, members[3].size)
+        // Partitions an installed system made in Root's place, as SteamOS's
+        // A/B layout does, directly follow it and belong to the installation.
+        for row in rows.dropFirst(index + 4).prefix(RemovalLayout.maximumMembers - 4) {
+          guard let part = row.partition, part.type == "Linux Filesystem", part.offset == end
+          else { break }
+          end = try NativeInspectionMath.add(part.offset, part.size)
+        }
         result.append(
           NativeKnownInstallation(
             sourceIdentifier: stub.identifier,

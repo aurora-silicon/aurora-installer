@@ -333,7 +333,7 @@
       try complete.write(to: fixture.journal)
       func proves(
         _ installation: RemovalInstallation, transcript: Data? = nil,
-        replaced: (String, Data)? = nil
+        replaced: (String, Data)? = nil, replacedRoot: RemovalReplacedRoot? = nil
       ) -> Bool {
         NativeRemovalInstallJournals.installed(
           installation, transcript: transcript ?? complete, snapshot: fixture.snapshot,
@@ -342,7 +342,7 @@
             return try Data(
               contentsOf: URL(
                 fileURLWithPath: fixture.journal.path + "." + identifier + ".evidence"))
-          })
+          }, replacedRoot: replacedRoot)
       }
       XCTAssertTrue(proves(installation))
       // Stopping before the ESP and images were installed proves nothing.
@@ -378,6 +378,40 @@
         changing(linux: [boot]), changing(group: UUID().uuidString),
       ] {
         XCTAssertFalse(proves(changed))
+      }
+
+      // SteamOS's first boot replaces Root with its own A/B partitions. Only
+      // its ESP record proves them, and only inside the space Root had.
+      let sizes: [UInt64] = [
+        512 << 20, 10 << 30, 256 << 20, 512 << 20, 10 << 30, 256 << 20,
+      ]
+      var split = [RemovalPartition]()
+      for (index, size) in sizes.enumerated() {
+        split.append(part(7 + index, "Linux Filesystem", split.last?.end ?? boot.end, size))
+      }
+      split.append(part(13, "Linux Filesystem", split[5].end, root.end - split[5].end))
+      func record(_ root: String, _ parts: [RemovalPartition]) throws -> RemovalReplacedRoot {
+        try XCTUnwrap(
+          RemovalReplacedRoot(
+            json: JSONSerialization.data(
+              withJSONObject: ["schema": 1, "root": root, "partitions": parts.map(\.uuid)]
+                as [String: Any])))
+      }
+      let recorded = try record(root.uuid, split)
+      XCTAssertTrue(proves(changing(linux: [boot] + split), replacedRoot: recorded))
+      XCTAssertTrue(proves(installation, replacedRoot: recorded))
+      // Seven partitions that reach past Root's end.
+      let shifted = Array(split.dropFirst()) + [part(14, "Linux Filesystem", root.end, 1 << 30)]
+      let refused: [([RemovalPartition], RemovalReplacedRoot?)] = [
+        ([boot] + split, nil),
+        ([boot] + split, try record(other.uuid, split)),
+        ([boot] + split, try record(root.uuid, Array(split.dropLast()))),
+        ([boot] + Array(split.dropLast()), recorded),
+        ([boot] + shifted, try record(root.uuid, shifted)),
+        ([boot, other], try record(root.uuid, split)),
+      ]
+      for (linux, replacedRoot) in refused {
+        XCTAssertFalse(proves(changing(linux: linux), replacedRoot: replacedRoot))
       }
 
       // Read from the installer's working directory; a held journal proves nothing.

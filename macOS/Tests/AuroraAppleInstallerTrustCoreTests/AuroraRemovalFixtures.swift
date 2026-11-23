@@ -189,6 +189,26 @@
         ], installs: [fedoraInstall])
     }
 
+    static let steamOSInstall = Install(
+      name: "SteamOS (unofficial, Aurora)", stub: id(33), esp: id(34), linux: (35...42).map(id),
+      group: id(630))
+
+    /// SteamOS after its first boot replaced Root with its own A/B partitions:
+    /// efi, rootfs and var for each slot, and home. `extra` follows them.
+    static func steamOS(extra: [String] = []) -> RemovalSnapshot {
+      let sizes: [UInt64] = [
+        2_147_483_648, 536_870_912, 10_737_418_240, 268_435_456, 536_870_912, 10_737_418_240,
+        268_435_456, 60_000_000_000,
+      ]
+      let rows: [Row] =
+        [
+          .part(steamOSInstall.stub, "Apple_APFS", 2_499_805_184),
+          .part(steamOSInstall.esp, "EFI", 524_288_000, name: "EFI - STEAM"),
+        ] + zip(steamOSInstall.linux, sizes).map { Row.part($0, "Linux Filesystem", $1) }
+        + extra.map { Row.part($0, "Linux Filesystem", 1_073_741_824) }
+      return snapshot(macOSSize: 400_000_000_000, rows, installs: [steamOSInstall])
+    }
+
     static let uefiInstall = Install(
       name: "UEFI boot", stub: id(23), esp: id(24), linux: [], group: id(620))
 

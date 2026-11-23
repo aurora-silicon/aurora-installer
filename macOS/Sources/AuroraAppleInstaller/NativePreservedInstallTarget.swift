@@ -47,6 +47,13 @@
         ordered[index + 2].type == "Linux Filesystem",
         ordered[index + 3].type == "Linux Filesystem"
       else { throw NativePreservedInstallError.unavailable }
+      // Root was replaced by the installed system's own partitions (SteamOS's
+      // A/B layout): rewriting the Boot and Root images can't reset that.
+      if index + 4 < ordered.count, ordered[index + 4].type == "Linux Filesystem",
+        ordered[index + 4].offset == ordered[index + 3].end
+      {
+        throw NativePreservedInstallError.unavailable
+      }
       let parts = Array(ordered[index...index + 3])
       guard
         zip(parts, parts.dropFirst()).allSatisfy({ pair in

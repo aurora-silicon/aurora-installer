@@ -21,14 +21,18 @@
     /// startup container, EFI partition and Linux partitions and installed
     /// them; nil when none did. The native installer keeps this record instead
     /// of the asahi installer's `asahi/installer.log` and m1n1 step-2 object.
-    func installer(of installation: RemovalInstallation, in snapshot: RemovalSnapshot) throws
-      -> String?
+    /// `replacedRoot` is the ESP's record of partitions that replaced Root.
+    func installer(
+      of installation: RemovalInstallation, in snapshot: RemovalSnapshot,
+      replacedRoot: RemovalReplacedRoot?
+    ) throws -> String?
   }
 
   extension RemovalInstallJournals {
-    func installer(of installation: RemovalInstallation, in snapshot: RemovalSnapshot) throws
-      -> String?
-    { nil }
+    func installer(
+      of installation: RemovalInstallation, in snapshot: RemovalSnapshot,
+      replacedRoot: RemovalReplacedRoot?
+    ) throws -> String? { nil }
   }
 
   struct NativeRemovalInstallJournals: RemovalInstallJournals {
@@ -41,12 +45,14 @@
       }
     }
 
-    func installer(of installation: RemovalInstallation, in snapshot: RemovalSnapshot) throws
-      -> String?
-    {
+    func installer(
+      of installation: RemovalInstallation, in snapshot: RemovalSnapshot,
+      replacedRoot: RemovalReplacedRoot? = nil
+    ) throws -> String? {
       try journal(naming: installation.stub.identifier) { transcript, evidence in
         Self.installed(
-          installation, transcript: transcript, snapshot: snapshot, evidence: evidence)
+          installation, transcript: transcript, snapshot: snapshot, evidence: evidence,
+          replacedRoot: replacedRoot)
       }
     }
 
@@ -115,7 +121,7 @@
     /// place, leave every one of these identities unchanged.
     static func installed(
       _ installation: RemovalInstallation, transcript: Data, snapshot: RemovalSnapshot,
-      evidence: (String) throws -> Data
+      evidence: (String) throws -> Data, replacedRoot: RemovalReplacedRoot? = nil
     ) -> Bool {
       func checked(_ identifier: String, in checkpoints: [ValidatedEngineCheckpoint]) -> Data? {
         guard let checkpoint = checkpoints.first(where: { $0.identifier == identifier }),
@@ -139,12 +145,27 @@
         record.planDigest == plan.planDigest, let group = installation.system.group,
         record.group.uppercased() == group.uppercased(),
         record.efiPartition.uppercased() == installation.esp.uuid.uppercased(),
-        linux.count == 2, record.parts.map(\.name) == ["EFI", "Boot", "Root"]
+        linux.count >= 2, record.parts.map(\.name) == ["EFI", "Boot", "Root"]
       else { return false }
-      return zip(record.parts, [installation.esp] + linux).allSatisfy { recorded, live in
+      func same(_ recorded: InstalledRecord.Part, _ live: RemovalPartition) -> Bool {
         recorded.partitionUUID.uppercased() == live.uuid.uppercased()
           && recorded.partitionSizeBytes == live.size
       }
+      let root = record.parts[2]
+      let rest = Array(linux.dropFirst())
+      guard same(record.parts[0], installation.esp), same(record.parts[1], linux[0]) else {
+        return false
+      }
+      if rest.count == 1, same(root, rest[0]) { return true }
+      // The installed system's first boot may replace Root with partitions of
+      // its own, as SteamOS's A/B layout does. Its ESP record must name exactly
+      // those partitions, and together they must fit in the space Root had.
+      guard let replacedRoot, replacedRoot.root == root.partitionUUID.uppercased(),
+        replacedRoot.partitions.count == rest.count,
+        Set(replacedRoot.partitions) == Set(rest.map { $0.uuid.uppercased() }),
+        let last = rest.last, last.end - rest[0].offset <= root.partitionSizeBytes
+      else { return false }
+      return true
     }
 
     /// The journal is a fresh install whose only checkpoint prepared exactly
