@@ -46,8 +46,11 @@
       password: Data, reply: @escaping @Sendable (Data?, NSError?) -> Void
     )
 
+    /// `bindingDigest` is the digest of the plan the app approved; the
+    /// imported package must carry exactly it.
     func submit(
       packageDirectory: FileHandle,
+      bindingDigest: String,
       operation: String,
       machineOwner: String,
       password: Data,
@@ -545,6 +548,7 @@
 
         proxy.submit(
           packageDirectory: directoryHandle,
+          bindingDigest: handoff.bindingDigest,
           operation: operation.rawValue,
           machineOwner: authorization.username,
           password: authorization.password

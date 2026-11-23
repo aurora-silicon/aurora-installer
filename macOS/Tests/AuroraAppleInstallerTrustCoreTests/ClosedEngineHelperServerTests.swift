@@ -209,6 +209,33 @@
       XCTAssertFalse(FileManager.default.fileExists(atPath: contents.path))
     }
 
+    func testDirectSubmissionRunsOnlyThePackageWithTheApprovedBindingDigest() async throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let source = try openDirectory(fixture.source)
+      defer { try? source.close() }
+      let executor = RecordingHandoffExecutor(result: fixture.transcript)
+      let server = ClosedEngineHelperServer(
+        workingDirectory: fixture.destination,
+        executor: executor,
+        credentialValidator: AcceptingMachineOwnerCredentialValidator()
+      )
+
+      // A valid package, but not the one whose digest came with the call.
+      await assertThrowsErrorAsync(
+        try await server.submit(
+          packageDirectory: source,
+          bindingDigest: digest(Data("another approved plan".utf8)),
+          authorization: try machineOwnerAuthorization()
+        )
+      ) {
+        XCTAssertEqual($0 as? EngineHandoffImportError, .bindingMismatch)
+      }
+      let executionCount = await executor.executionCount
+      XCTAssertEqual(executionCount, 0)
+      XCTAssertTrue(try importedEntries(in: fixture.destination).isEmpty)
+    }
+
     func testValidPackageExecutesAndImportedCopyIsRemoved() async throws {
       let fixture = try makeFixture()
       defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -222,7 +249,7 @@
       )
 
       let result = try await server.submit(
-        packageDirectory: source,
+        packageDirectory: source, bindingDigest: fixture.bindingDigest,
         authorization: try machineOwnerAuthorization()
       )
       let executionCount = await executor.executionCount
@@ -244,7 +271,8 @@
           credentialValidator: AcceptingMachineOwnerCredentialValidator())
         do {
           _ = try await server.submit(
-            packageDirectory: source, authorization: try machineOwnerAuthorization())
+            packageDirectory: source, bindingDigest: fixture.bindingDigest,
+            authorization: try machineOwnerAuthorization())
           XCTAssertFalse(fails)
         } catch {
           XCTAssertTrue(fails)
@@ -287,7 +315,7 @@
 
       do {
         _ = try await server.submit(
-          packageDirectory: source,
+          packageDirectory: source, bindingDigest: fixture.bindingDigest,
           authorization: try machineOwnerAuthorization()
         )
         XCTFail("Expected the engine failure")
@@ -320,7 +348,7 @@
       )
 
       _ = try await server.submit(
-        packageDirectory: source,
+        packageDirectory: source, bindingDigest: fixture.bindingDigest,
         authorization: try machineOwnerAuthorization()
       )
       let executions = await executor.executionCount
@@ -343,7 +371,7 @@
 
       await assertThrowsErrorAsync(
         try await server.submit(
-          packageDirectory: source,
+          packageDirectory: source, bindingDigest: fixture.bindingDigest,
           authorization: try machineOwnerAuthorization()
         )
       ) {
@@ -369,7 +397,7 @@
 
       await assertThrowsErrorAsync(
         try await server.submit(
-          packageDirectory: source,
+          packageDirectory: source, bindingDigest: fixture.bindingDigest,
           authorization: try machineOwnerAuthorization()
         )
       ) {
@@ -395,7 +423,7 @@
 
       await assertThrowsErrorAsync(
         try await server.submit(
-          packageDirectory: source,
+          packageDirectory: source, bindingDigest: fixture.bindingDigest,
           authorization: try machineOwnerAuthorization()
         )
       ) {
@@ -454,7 +482,7 @@
         espDisks: disks
       )
       _ = try await server.submit(
-        packageDirectory: source,
+        packageDirectory: source, bindingDigest: fixture.bindingDigest,
         authorization: try machineOwnerAuthorization()
       )
       await assertThrowsErrorAsync(
@@ -513,7 +541,7 @@
         espDisks: disks
       )
       _ = try await server.submit(
-        packageDirectory: source,
+        packageDirectory: source, bindingDigest: fixture.bindingDigest,
         authorization: try machineOwnerAuthorization()
       )
       await assertThrowsErrorAsync(
@@ -556,7 +584,7 @@
         credentialValidator: AcceptingMachineOwnerCredentialValidator(),
         removalDisks: UnusedRemovalDisks(), removalAdminValidator: { _ in }, espDisks: disks)
       let endpoint = ClosedEngineXPCServiceEndpoint(server: server, initiatingUID: 501)
-      let binding = digest(Data("binding".utf8))
+      let binding = fixture.bindingDigest
       let ticket = try InstallerJobTicket(
         bindingDigest: binding, selection: AuroraInstallationSelection())
       let request = try JSONEncoder().encode(
@@ -602,7 +630,7 @@
       defer { server.work.endJob() }
       let endpoint = ClosedEngineXPCServiceEndpoint(server: server, initiatingUID: 501)
       let ticket = try InstallerJobTicket(
-        bindingDigest: digest(Data("binding".utf8)), selection: AuroraInstallationSelection())
+        bindingDigest: fixture.bindingDigest, selection: AuroraInstallationSelection())
       let request = try JSONEncoder().encode(
         InstallerJobStartRequest(
           ticket: ticket, operation: "install",
@@ -637,7 +665,7 @@
           removalDisks: UnusedRemovalDisks(), removalAdminValidator: { _ in },
           retryEligibility: { _ in true })
         let ticket = try InstallerJobTicket(
-          bindingDigest: digest(Data("binding".utf8)), selection: AuroraInstallationSelection())
+          bindingDigest: fixture.bindingDigest, selection: AuroraInstallationSelection())
         let request = InstallerJobStartRequest(
           ticket: ticket, operation: "install",
           installConf: try InstallConf(encrypt: false, lane: "rc").serializedData)
@@ -781,7 +809,16 @@
         ],
         prefix: ""
       )
-      let bindingDigest = digest(Data("binding".utf8))
+      // The digest the app computes for this plan; the helper recomputes it.
+      let bindingDigest = lengthPrefixedDigest(
+        [
+          "omarchy.apple.candidate-bound-plan", "1", digest(Data("root".utf8)), "40",
+          digest(Data("catalog".utf8)), requestPlanDigest, deviceIdentifier, "disk0",
+          layoutDigest, "free", "disk0s3", "447750000000", "107374182400", engineDigest,
+          metadataDigest, payloadDigest,
+        ],
+        prefix: "sha256:"
+      )
       let decoder = Data("decoder".utf8)
       try writePrivate(decoder, to: source.appendingPathComponent(RestoreImageHelper.fileName))
       let manifest = Data(
@@ -827,7 +864,8 @@
         root: root,
         source: source,
         destination: destination,
-        transcript: transcript
+        transcript: transcript,
+        bindingDigest: bindingDigest
       )
     }
 
@@ -972,6 +1010,7 @@
     let source: URL
     let destination: URL
     let transcript: Data
+    let bindingDigest: String
   }
 
   private struct UnusedRemovalDisks: RemovalDiskOperating {

@@ -752,7 +752,25 @@
         : manifest.format == 2 && manifest.engine == nil
           && identity.engineDigest == NativeExecutionIdentity.digest
           && request.engineVersion == NativeExecutionIdentity.version
+      // The binding digest is recomputed, not only compared between the files:
+      // the value the app approved then fixes every field it covers.
+      let bindingDigest = CandidateBoundPlanIdentity.makeBindingDigest(
+        trustRootFingerprint: identity.trustRootFingerprint,
+        catalogSequence: identity.catalogSequence,
+        catalogPayloadDigest: identity.catalogPayloadDigest,
+        planDigest: request.planDigest,
+        deviceIdentifier: request.deviceIdentifier,
+        storeIdentifier: request.storeIdentifier,
+        layoutDigest: request.layoutDigest,
+        candidateKind: request.candidateKind,
+        sourceIdentifier: request.sourceIdentifier,
+        offsetBytes: request.offsetBytes,
+        lengthBytes: request.lengthBytes,
+        engineDigest: identity.engineDigest,
+        metadataDigest: identity.metadataDigest,
+        payloadDigest: identity.payloadDigest)
       guard manifest.bindingDigest == identity.bindingDigest,
+        identity.bindingDigest == bindingDigest,
         request.planDigest == identity.planDigest,
         request.planDigest == lengthPrefixedDigest(planFields),
         engineBound,

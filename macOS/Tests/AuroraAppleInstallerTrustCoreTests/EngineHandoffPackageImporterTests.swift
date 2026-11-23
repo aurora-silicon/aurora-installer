@@ -552,6 +552,97 @@
       XCTAssertTrue(try importedEntries(in: fixture.destination).isEmpty)
     }
 
+    func testImportedBindingDigestIsTheOneTheAppComputesForThePlan() throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let source = try openDirectory(fixture.source)
+      defer { try? source.close() }
+      let importer = EngineHandoffPackageImporter()
+      let imported = try importer.prepare(from: source, in: fixture.destination)
+      XCTAssertEqual(imported.bindingDigest, fixture.bindingDigest)
+
+      let identity = CandidateBoundPlanIdentity(
+        plan: try importer.executionPlan(imported, owner: geteuid()),
+        catalogIdentity: try AcceptedCatalogIdentity(
+          sequence: 40, payloadDigest: digest(Data("catalog".utf8))),
+        trustRootFingerprint: digest(Data("root".utf8)))
+      XCTAssertEqual(identity.bindingDigest, fixture.bindingDigest)
+    }
+
+    func testPackageCarryingTheBindingDigestOfOtherFieldsIsRejected() throws {
+      let approved = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: approved.root) }
+      // Each package agrees with itself in all three control files and its
+      // artifacts match its manifest; only the binding digest it carries
+      // belongs to the approved package.
+      let changes: [(Data, UInt64)] = [
+        (Data("payload-b".utf8), 2000), (approved.payload, 3000),
+      ]
+      for (payload, offsetBytes) in changes {
+        let fixture = try makeFixture(
+          payload: payload, offsetBytes: offsetBytes,
+          carriedBindingDigest: approved.bindingDigest)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        XCTAssertNotEqual(fixture.bindingDigest, approved.bindingDigest)
+        let source = try openDirectory(fixture.source)
+        defer { try? source.close() }
+
+        XCTAssertThrowsError(
+          try EngineHandoffPackageImporter().prepare(from: source, in: fixture.destination)
+        ) {
+          XCTAssertEqual($0 as? EngineHandoffImportError, .bindingMismatch)
+        }
+        XCTAssertTrue(try importedEntries(in: fixture.destination).isEmpty)
+      }
+    }
+
+    func testChangedIdentityFieldIsRejectedBeforeImport() throws {
+      let changes: [(String, String)] = [
+        (#""catalog_sequence":40"#, #""catalog_sequence":41"#),
+        (
+          #""trust_root_fingerprint":""# + digest(Data("root".utf8)),
+          #""trust_root_fingerprint":""# + digest(Data("another root".utf8))
+        ),
+        (
+          #""catalog_payload_digest":""# + digest(Data("catalog".utf8)),
+          #""catalog_payload_digest":""# + digest(Data("another catalog".utf8))
+        ),
+      ]
+      for (original, replacement) in changes {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let identity = try String(contentsOf: fixture.identityURL, encoding: .utf8)
+        let changed = identity.replacingOccurrences(of: original, with: replacement)
+        XCTAssertNotEqual(changed, identity)
+        try FileManager.default.removeItem(at: fixture.identityURL)
+        try writePrivate(Data(changed.utf8), to: fixture.identityURL)
+        let source = try openDirectory(fixture.source)
+        defer { try? source.close() }
+
+        XCTAssertThrowsError(
+          try EngineHandoffPackageImporter().prepare(from: source, in: fixture.destination)
+        ) {
+          XCTAssertEqual($0 as? EngineHandoffImportError, .bindingMismatch)
+        }
+        XCTAssertTrue(try importedEntries(in: fixture.destination).isEmpty)
+      }
+    }
+
+    func testRetainedPackageWithAnotherBindingDigestIsRefused() throws {
+      let approved = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: approved.root) }
+      let fixture = try makeFixture(
+        offsetBytes: 3000, carriedBindingDigest: approved.bindingDigest)
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let name = try retainAsOlderHelperWould(fixture)
+
+      XCTAssertThrowsError(
+        try EngineHandoffPackageImporter().reopenRetained(named: name, in: fixture.destination)
+      ) {
+        XCTAssertEqual($0 as? EngineHandoffImportError, .bindingMismatch)
+      }
+    }
+
     private func makeFixture(
       extraManifestField: Bool = false,
       corruptPayload: Bool = false,
@@ -561,7 +652,10 @@
       repair: Bool = false,
       replace: Bool = false,
       reinstall: Bool = false,
-      strayRepairManifest: Bool = false
+      strayRepairManifest: Bool = false,
+      payload: Data = Data("payload-a".utf8),
+      offsetBytes: UInt64 = 2000,
+      carriedBindingDigest: String? = nil
     ) throws -> ImportFixture {
       // New packages are format 2 and name the built-in native engine. A
       // `legacyEngine` package is the format-1 shape older helpers retained.
@@ -588,7 +682,6 @@
 
       let engine = Data("engine-a".utf8)
       let metadata = Data("metadata".utf8)
-      let payload = Data("payload-a".utf8)
       let repairManifest = Data("{\"operation\":\"repair-installed-system\"}".utf8)
       let engineURL = source.appendingPathComponent("engine.tar.gz")
       let metadataURL = source.appendingPathComponent("installer-data.json")
@@ -616,7 +709,6 @@
         try writePrivate(repairManifest, to: repairURL)
       }
 
-      let bindingDigest = digest(Data("binding".utf8))
       let engineDigest = native ? NativeExecutionIdentity.digest : digest(engine)
       let metadataDigest = digest(metadata)
       let payloadDigest = digest(payload)
@@ -626,7 +718,7 @@
       let candidateKind = repair ? "repair" : reinstall ? "reinstall" : replace ? "replace" : "free"
       var planFields = [
         "apple,j314s", "disk0", layoutDigest, "free", "disk0s3",
-        "2000", "1000", engineVersion, engineDigest, metadataDigest,
+        String(offsetBytes), "1000", engineVersion, engineDigest, metadataDigest,
         payloadDigest,
       ]
       planFields[3] = candidateKind
@@ -637,6 +729,17 @@
         reinstall ? "authenticateMachineOwner" : "enterOneTrueRecovery,authenticateMachineOwner"
       planFields.append(humanSteps)
       let planDigest = lengthPrefixedDigest(planFields)
+      // Written out here, not taken from the code under test: this is the
+      // digest the app computes for the plan it approves.
+      let ownBindingDigest =
+        "sha256:"
+        + lengthPrefixedDigest([
+          "omarchy.apple.candidate-bound-plan", "1", digest(Data("root".utf8)), "40",
+          digest(Data("catalog".utf8)), planDigest, "apple,j314s", "disk0", layoutDigest,
+          candidateKind, "disk0s3", String(offsetBytes), "1000", engineDigest, metadataDigest,
+          payloadDigest,
+        ])
+      let bindingDigest = carriedBindingDigest ?? ownBindingDigest
       let extraField = extraManifestField ? #","unexpected":true"# : ""
       let metadataFileName =
         nulMetadataFileName
@@ -671,7 +774,7 @@
         : "[\"enterOneTrueRecovery\",\"authenticateMachineOwner\"]"
       let request = Data(
         """
-        {"format":1,"operation":"\(operation)","plan_digest":"\(planDigest)","device_identifier":"apple,j314s","store_identifier":"disk0","layout_digest":"\(layoutDigest)","candidate_kind":"\(candidateKind)","source_identifier":"disk0s3","offset_bytes":2000,"length_bytes":1000,"engine_version":"\(engineVersion)","required_human_steps":\(humanStepsJSON)}
+        {"format":1,"operation":"\(operation)","plan_digest":"\(planDigest)","device_identifier":"apple,j314s","store_identifier":"disk0","layout_digest":"\(layoutDigest)","candidate_kind":"\(candidateKind)","source_identifier":"disk0s3","offset_bytes":\(offsetBytes),"length_bytes":1000,"engine_version":"\(engineVersion)","required_human_steps":\(humanStepsJSON)}
         """.utf8
       )
       let identity = Data(
@@ -698,8 +801,10 @@
         destination: destination,
         metadataURL: metadataURL,
         requestURL: source.appendingPathComponent("request.json"),
+        identityURL: source.appendingPathComponent("identity.json"),
         metadata: metadata,
-        payload: payload
+        payload: payload,
+        bindingDigest: ownBindingDigest
       )
     }
 
@@ -780,7 +885,10 @@
     let destination: URL
     let metadataURL: URL
     let requestURL: URL
+    let identityURL: URL
     let metadata: Data
     let payload: Data
+    /// The binding digest of the fields this package was written with.
+    let bindingDigest: String
   }
 #endif

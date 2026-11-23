@@ -11,6 +11,9 @@
     public let metadataURL: URL
     public let payloadURL: URL
     public let restoreImageURL: URL
+    /// The binding digest of the plan this package was written for. It
+    /// travels to the helper beside the package, never from its files.
+    public let bindingDigest: String
   }
 
   public protocol EngineHandoffSubmitting: Sendable {
@@ -192,7 +195,8 @@
         payloadURL: package.appendingPathComponent(
           assets.payload.artifact.fileName
         ),
-        restoreImageURL: package.appendingPathComponent(RestoreImageHelper.fileName)
+        restoreImageURL: package.appendingPathComponent(RestoreImageHelper.fileName),
+        bindingDigest: invocation.candidateIdentity.bindingDigest
       )
     }
 
