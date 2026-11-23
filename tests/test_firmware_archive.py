@@ -227,5 +227,117 @@ class ExtractArchive(Workdir):
         self.assertEqual(self.tree(), {"firmware/ok.bin": b"ok"})
 
 
+class Limits(ExtractArchive):
+    """An archive larger than a firmware archive is refused (ArchiveError,
+    a ValueError); a member the filesystem refuses is skipped."""
+
+    def extract(self, fill):
+        # Each call starts from an empty destination.
+        import shutil
+        shutil.rmtree(self.tmp / "extracted", ignore_errors=True)
+        return super().extract(fill)
+
+    def limit(self, name, value):
+        from asahi_firmware import archive
+        patch = mock.patch.object(archive, name, value, create=True)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def files(self, n, size=1):
+        def fill(tar):
+            for i in range(n):
+                member(tar, f"firmware/f{i}.bin", b"x" * size)
+        return fill
+
+    def test_limits_are_far_above_a_real_archive(self):
+        # J616s (macOS 26): 3567 members, largest 4.6 MB, 87 MB in all.
+        from asahi_firmware import archive
+        self.assertGreaterEqual(archive.MAX_MEMBERS, 10 * 3567)
+        self.assertGreaterEqual(archive.MAX_MEMBER_SIZE, 10 * 4625152)
+        self.assertGreaterEqual(archive.MAX_TOTAL_SIZE, 10 * 87028545)
+        self.assertTrue(issubclass(archive.ArchiveError, ValueError))
+
+    def test_too_many_members(self):
+        self.limit("MAX_MEMBERS", 5)
+        self.assertEqual(self.extract(self.files(5)), [])
+        with self.assertRaisesRegex(ValueError, "more than 5 members"):
+            self.extract(self.files(6))
+
+    def test_members_count_whatever_their_kind(self):
+        self.limit("MAX_MEMBERS", 5)
+        def fill(tar):
+            for i in range(6):
+                member(tar, f"firmware/l{i}", link="absent")
+        with self.assertRaises(ValueError):
+            self.extract(fill)
+
+    def test_member_too_large(self):
+        self.limit("MAX_MEMBER_SIZE", 100)
+        self.assertEqual(self.extract(self.files(1, 100)), [])
+        with self.assertRaisesRegex(ValueError, "101 bytes"):
+            self.extract(self.files(1, 101))
+        self.assertFalse((self.dest / "firmware/f0.bin").exists())
+
+    def test_too_many_bytes_in_all(self):
+        self.limit("MAX_TOTAL_SIZE", 1000)
+        self.assertEqual(self.extract(self.files(10, 100)), [])
+        with self.assertRaisesRegex(ValueError, "more than 1000 bytes"):
+            self.extract(self.files(11, 100))
+
+    def test_refused_archive_publishes_nothing(self):
+        self.limit("MAX_MEMBERS", 2)
+        self.build(self.files(3))
+        dest = self.tmp / "vendorfw"
+        dest.mkdir()
+        (dest / "manifest.txt").write_bytes(b"old\n")
+        with self.assertRaises(ValueError):
+            update.update_firmware(self.source, dest)
+        self.assertEqual(sorted(p.name for p in dest.iterdir() if not p.name.startswith(".")),
+                         ["manifest.txt"])
+        self.assertEqual((dest / "manifest.txt").read_bytes(), b"old\n")
+
+    def test_name_too_long_is_skipped(self):
+        long = "firmware/" + "n" * 300 + ".bin"
+        def fill(tar):
+            member(tar, long, b"x")
+            member(tar, "firmware/" + "d" * 300 + "/a.bin", b"x")
+            member(tar, "firmware/longlink.bin", link="t" * 6000)
+            member(tar, "firmware/ok.bin", b"ok")
+        skipped = self.extract(fill)
+        self.assertEqual(len(skipped), 3, skipped)
+        self.assertIn(long, skipped)
+        self.assertEqual(self.tree(), {"firmware/ok.bin": b"ok"})
+
+    def test_write_error_skips_the_member_and_leaves_no_part(self):
+        import errno, shutil
+        from asahi_firmware import archive
+        real = shutil.copyfileobj
+        calls = []
+        def copy(src, out):
+            calls.append(src)
+            if len(calls) == 1:
+                out.write(b"part")
+                raise OSError(errno.EIO, "Input/output error")
+            return real(src, out)
+        def fill(tar):
+            member(tar, "firmware/bad.bin", b"bad data")
+            member(tar, "firmware/ok.bin", b"ok")
+        with mock.patch.object(archive.shutil, "copyfileobj", copy):
+            skipped = self.extract(fill)
+        self.assertEqual(skipped, ["firmware/bad.bin"])
+        self.assertEqual(self.tree(), {"firmware/ok.bin": b"ok"})
+
+    def test_full_filesystem_stops_the_extraction(self):
+        import errno, shutil
+        from asahi_firmware import archive
+        def copy(src, out):
+            out.write(b"part")
+            raise OSError(errno.ENOSPC, "No space left on device")
+        with mock.patch.object(archive.shutil, "copyfileobj", copy):
+            with self.assertRaises(OSError):
+                self.extract(self.files(2))
+        self.assertEqual(self.tree(), {})
+
+
 if __name__ == "__main__":
     unittest.main()
