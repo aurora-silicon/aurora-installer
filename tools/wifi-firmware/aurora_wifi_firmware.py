@@ -74,6 +74,9 @@ BACKUP_ROOT = pathlib.Path("/var/lib/aurora-rollback")
 BACKUP_PREFIX = "wifi-firmware-"
 KEEP_BACKUPS = 2
 MOUNTPOINT = "/run/aurora-wifi-firmware-esp"
+# The ESP this tool mounts itself is readable by root only while mounted
+# (vfat has no permissions of its own: they come from these options).
+ESP_MOUNT_OPTIONS = "umask=0077,nodev,nosuid,noexec"
 STAGE_BUDGET = 512 << 20
 # How long the boot after a change waits for each required radio probe.
 # The wait ends as soon as every required probe is up or a driver reports
@@ -587,7 +590,8 @@ def find_esp(run=subprocess.run, dt=DT, root="/"):
         if mounts:
             raise NotNow(f"the system ESP {device} is mounted read only at {mounts[0][0]}")
         os.makedirs(MOUNTPOINT, mode=0o700, exist_ok=True)
-        p = run(["mount", "-t", "vfat", device, MOUNTPOINT], capture_output=True)
+        p = run(["mount", "-t", "vfat", "-o", ESP_MOUNT_OPTIONS, device, MOUNTPOINT],
+                capture_output=True)
         if p.returncode != 0:
             raise NotNow(f"could not mount the system ESP {device}: {p.stderr.decode().strip()}")
         return pathlib.Path(MOUNTPOINT), MOUNTPOINT

@@ -37,6 +37,9 @@ RUNNING_BUNDLES = ("/lib/firmware/vendor/apple", "/run/aurora-firmware/vendorfw/
 BACKUP_ROOT = "/var/lib/aurora-rollback"
 LOCK = "/run/aurora-speaker-tuning.lock"
 MOUNTPOINT = "/run/aurora-speaker-tuning-esp"
+# The ESP this tool mounts itself is readable by root only while mounted
+# (vfat has no permissions of its own: they come from these options).
+ESP_MOUNT_OPTIONS = "umask=0077,nodev,nosuid,noexec"
 
 
 class Refused(Exception):
@@ -344,7 +347,8 @@ def find_esp(run=subprocess.run, dt_esp=DT_ESP, root="/"):
         if mounts:
             raise Refused(f"the system ESP {device} is mounted read only at {mounts[0][0]}")
         os.makedirs(MOUNTPOINT, mode=0o700, exist_ok=True)
-        p = run(["mount", "-t", "vfat", device, MOUNTPOINT], capture_output=True)
+        p = run(["mount", "-t", "vfat", "-o", ESP_MOUNT_OPTIONS, device, MOUNTPOINT],
+                capture_output=True)
         if p.returncode != 0:
             raise Refused(f"could not mount the system ESP {device}: "
                           f"{p.stderr.decode().strip()}")
