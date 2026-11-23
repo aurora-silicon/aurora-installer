@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Extraction of all_firmware.tar.gz: only what stays inside the extracted
 tree reaches the collectors. Synthetic archives only."""
-import io, os, pathlib, sys, tarfile, tempfile, unittest
+import errno, io, os, pathlib, sys, tarfile, tempfile, unittest
 from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -308,27 +308,34 @@ class Limits(ExtractArchive):
         self.assertIn(long, skipped)
         self.assertEqual(self.tree(), {"firmware/ok.bin": b"ok"})
 
-    def test_write_error_skips_the_member_and_leaves_no_part(self):
-        import errno, shutil
+    def test_archive_read_error_leaves_the_previous_package_untouched(self):
+        self.build(self.files(2))
+        dest = self.tmp / "vendorfw"
+        dest.mkdir()
+        manifest = dest / "manifest.txt"
+        manifest.write_bytes(b"previous package\n")
+        for error in (OSError(errno.EIO, "Input/output error"), OSError("Read failed")):
+            with self.subTest(error=error):
+                source = mock.Mock()
+                source.read.side_effect = error
+                with mock.patch.object(tarfile.TarFile, "extractfile", return_value=source):
+                    with self.assertRaises(OSError) as raised:
+                        update.update_firmware(self.source, dest)
+                self.assertIs(raised.exception, error)
+                self.assertEqual(list(dest.iterdir()), [manifest])
+                self.assertEqual(manifest.read_bytes(), b"previous package\n")
+
+    def test_write_error_stops_the_extraction_and_leaves_no_part(self):
         from asahi_firmware import archive
-        real = shutil.copyfileobj
-        calls = []
         def copy(src, out):
-            calls.append(src)
-            if len(calls) == 1:
-                out.write(b"part")
-                raise OSError(errno.EIO, "Input/output error")
-            return real(src, out)
-        def fill(tar):
-            member(tar, "firmware/bad.bin", b"bad data")
-            member(tar, "firmware/ok.bin", b"ok")
+            out.write(b"part")
+            raise OSError(errno.EIO, "Input/output error")
         with mock.patch.object(archive.shutil, "copyfileobj", copy):
-            skipped = self.extract(fill)
-        self.assertEqual(skipped, ["firmware/bad.bin"])
-        self.assertEqual(self.tree(), {"firmware/ok.bin": b"ok"})
+            with self.assertRaises(OSError):
+                self.extract(self.files(2))
+        self.assertEqual(self.tree(), {})
 
     def test_full_filesystem_stops_the_extraction(self):
-        import errno, shutil
         from asahi_firmware import archive
         def copy(src, out):
             out.write(b"part")

@@ -36,9 +36,9 @@ class FWPackage(object):
     # close() renames the files one at a time, manifest.txt last. When a
     # rename fails, the files already renamed are put back from the copies
     # kept of the previous ones, so the directory holds the old package or
-    # the new one, not a mix. Only a crash or power loss in the middle of
-    # close() can leave a mix (each file is still whole); the old manifest
-    # then still describes it, as manifest.txt is the last file replaced.
+    # the new one, not a mix. A crash or power loss during close() can leave
+    # a mix, or a missing file on filesystems where the backup is renamed
+    # aside. A new manifest is installed only after the package files.
     #
     # The directory is locked (flock) from the start to the end of the
     # package: a second run on the same directory fails with FWPackageBusy

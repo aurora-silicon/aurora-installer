@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: MIT
-import pathlib, sys, tempfile, os.path
+import pathlib, sys, tarfile, tempfile, os.path
 
-from .archive import extract_archive
+from .archive import ArchiveError, extract_archive
 
 from .core import FWPackage, FWPackageBusy
+from .img4 import IM4PError
 from .wifi import WiFiFWCollection
 from .bluetooth import BluetoothFWCollection
 from .multitouch import MultitouchFWCollection
@@ -64,7 +65,7 @@ def main():
 
     try:
         update_firmware(args.source, args.dest)
-    except (FileNotFoundError, FWPackageBusy) as e:
+    except (OSError, tarfile.TarError, ArchiveError, IM4PError, FWPackageBusy) as e:
         print(f"asahi-fwextract: {e}", file=sys.stderr)
         sys.exit(1)
 

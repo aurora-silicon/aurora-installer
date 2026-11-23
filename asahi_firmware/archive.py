@@ -15,8 +15,8 @@ inside the destination are extracted:
  - devices, FIFOs and anything else are skipped.
 
 A member that is skipped is logged; the rest of the archive is extracted.
-That includes a member the filesystem refuses (a name or link target too
-long, for one); only a full filesystem stops the extraction.
+That includes a name or link target too long for the destination. Archive
+read failures and other filesystem errors stop extraction.
 
 The archive is extracted into a temporary directory, often in RAM, so its
 size is bounded: an archive with more members, a larger member or more
@@ -36,9 +36,6 @@ MAX_MEMBERS = 65536
 MAX_MEMBER_SIZE = 256 << 20
 MAX_TOTAL_SIZE = 1 << 30
 
-# Out of space is not a problem with one member: stop.
-_FATAL_ERRNOS = (errno.ENOSPC, errno.EDQUOT)
-
 class ArchiveError(ValueError):
     """The archive is larger than a firmware archive can be."""
 
@@ -55,13 +52,13 @@ def _parts(name):
 def _is_dir(path):
     try:
         return stat.S_ISDIR(os.lstat(path).st_mode)
-    except OSError:
+    except (FileNotFoundError, NotADirectoryError):
         return False
 
 def _is_file(path):
     try:
         return stat.S_ISREG(os.lstat(path).st_mode)
-    except OSError:
+    except (FileNotFoundError, NotADirectoryError):
         return False
 
 def _make_dirs(dest, parts):
@@ -183,7 +180,9 @@ def extract_archive(archive, dest):
             try:
                 _extract_member(tar, m, dest, skip, links)
             except OSError as e:
-                if e.errno in _FATAL_ERRNOS:
+                # For link calls, filename2 is the name being created.
+                path = e.filename2 or e.filename
+                if e.errno != errno.ENAMETOOLONG or path is None or not _inside(dest, path):
                     raise
                 skip(m, f"{e.strerror or e}")
 
