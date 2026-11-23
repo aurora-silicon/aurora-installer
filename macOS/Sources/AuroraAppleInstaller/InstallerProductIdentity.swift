@@ -26,4 +26,9 @@ public enum InstallerProductIdentity {
   /// the helper such a job launches must still find it, so it stays as is.
   public static let clientRequirementEnvironmentVariable =
     "OMARCHY_CLIENT_CODE_SIGNING_REQUIREMENT"
+  /// Set only in the launchd job linked into the helper for SMJobBless, so a
+  /// helper can tell an SMJobBless install from a package install: both put
+  /// the same helper at the same path in /Library/PrivilegedHelperTools.
+  public static let helperInstallKindEnvironmentVariable = "AURORA_HELPER_INSTALLED_BY"
+  public static let smJobBlessInstallKind = "SMJobBless"
 }

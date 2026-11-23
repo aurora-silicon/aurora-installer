@@ -96,6 +96,36 @@
       XCTAssertEqual(summary, "not installed by SMJobBless; nothing changed")
     }
 
+    func testOnlyAnSMJobBlessInstallRetiresThePackageApp() {
+      let helper = "/Library/PrivilegedHelperTools/" + InstallerProductIdentity.helperIdentifier
+      let marker = [
+        InstallerProductIdentity.helperInstallKindEnvironmentVariable:
+          InstallerProductIdentity.smJobBlessInstallKind
+      ]
+      // SMJobBless registers the job linked into the helper, which carries
+      // the marker.
+      XCTAssertTrue(
+        ClosedEngineXPCServiceEndpoint.installedBySMJobBless(
+          environment: marker, executablePath: helper))
+      // A package installs the same helper at the same path, with a job of
+      // its own that carries no marker.
+      XCTAssertTrue(
+        ClosedEngineXPCServiceEndpoint.runsFromPrivilegedHelperTools(executablePath: helper))
+      XCTAssertFalse(
+        ClosedEngineXPCServiceEndpoint.installedBySMJobBless(
+          environment: [:], executablePath: helper))
+      XCTAssertFalse(
+        ClosedEngineXPCServiceEndpoint.installedBySMJobBless(
+          environment: [InstallerProductIdentity.helperInstallKindEnvironmentVariable: "package"],
+          executablePath: helper))
+      // A helper run from anywhere else never retires, marker or not.
+      XCTAssertFalse(
+        ClosedEngineXPCServiceEndpoint.installedBySMJobBless(
+          environment: marker,
+          executablePath: "/Applications/Aurora Installer.app/Contents/Library/LaunchServices/"
+            + InstallerProductIdentity.helperIdentifier))
+    }
+
     func testWorkAndReplacementNeverBothGoAhead() throws {
       let work = HelperWorkState()
       try work.beginJob()

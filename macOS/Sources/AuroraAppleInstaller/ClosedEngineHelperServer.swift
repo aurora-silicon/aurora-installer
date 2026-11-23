@@ -782,14 +782,16 @@
 
     /// - Parameter version: the helper's build version, or empty when it
     ///   carries none.
-    /// - Parameter mayRetirePackageApps: only a helper SMJobBless installed,
-    ///   running from PrivilegedHelperTools, removes the package's app. An
-    ///   ad hoc build's helper runs from inside that app and accepts any
-    ///   client with the app's identifier, so it leaves it alone.
+    /// - Parameter mayRetirePackageApps: only a helper SMJobBless installed
+    ///   removes the package's app, which that install makes redundant. A
+    ///   package installs the same helper at the same path, but its app in
+    ///   /Applications is the one that drives that helper, so a package's
+    ///   helper leaves it alone. The install kind comes from the helper's
+    ///   launchd job, not from where the helper runs.
     public init(
       server: ClosedEngineHelperServer, version: String = "",
       retirement: PackageInstalledAppRetirement = PackageInstalledAppRetirement(),
-      mayRetirePackageApps: Bool = ClosedEngineXPCServiceEndpoint.runsFromPrivilegedHelperTools(),
+      mayRetirePackageApps: Bool = ClosedEngineXPCServiceEndpoint.installedBySMJobBless(),
       initiatingUID: UInt32? = nil
     ) {
       self.server = server
@@ -799,9 +801,24 @@
       self.initiatingUID = initiatingUID
     }
 
-    public static func runsFromPrivilegedHelperTools() -> Bool {
-      let executable = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+    public static func runsFromPrivilegedHelperTools(
+      executablePath: String = CommandLine.arguments[0]
+    ) -> Bool {
+      let executable = URL(fileURLWithPath: executablePath).resolvingSymlinksInPath()
       return executable.path.hasPrefix("/Library/PrivilegedHelperTools/")
+    }
+
+    /// True only for a helper running from PrivilegedHelperTools under the
+    /// launchd job SMJobBless registered from the helper itself. That job
+    /// is the only one carrying the install-kind marker; a package's job,
+    /// root-owned in /Library/LaunchDaemons, never does.
+    public static func installedBySMJobBless(
+      environment: [String: String] = ProcessInfo.processInfo.environment,
+      executablePath: String = CommandLine.arguments[0]
+    ) -> Bool {
+      environment[InstallerProductIdentity.helperInstallKindEnvironmentVariable]
+        == InstallerProductIdentity.smJobBlessInstallKind
+        && runsFromPrivilegedHelperTools(executablePath: executablePath)
     }
 
     /// A retiring helper answers no, so the app treats it as gone and sets up

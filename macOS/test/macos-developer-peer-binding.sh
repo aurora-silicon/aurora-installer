@@ -116,6 +116,8 @@ installed_requirement=$(/usr/bin/plutil -extract EnvironmentVariables.OMARCHY_CL
 packaged_helper="$(dirname "$(dirname "$plist")")/PrivilegedHelperTools/$INSTALLER_HELPER_IDENTIFIER"
 /usr/bin/cmp -s "$packaged_helper" "$helper" || fail 'package helper differs from the app helper'
 /usr/bin/codesign --verify --strict -R="$helper_requirement" "$packaged_helper"
+! /usr/bin/plutil -extract EnvironmentVariables.AURORA_HELPER_INSTALLED_BY raw -o - "$plist" >/dev/null 2>&1 \
+  || fail 'developer daemon claims an SMJobBless install'
 [[ $installed_requirement == "$app_requirement" ]] || fail 'package does not pin the final app cdhash'
 /usr/bin/codesign --verify --strict -R="$installed_requirement" "$app"
 if /usr/bin/codesign --verify --strict -R="$installed_requirement" "$work/OtherClient" >/dev/null 2>&1; then
@@ -166,6 +168,8 @@ PY
 private_helper="$(dirname "$(dirname "$private_plist")")/PrivilegedHelperTools/$INSTALLER_HELPER_IDENTIFIER"
 /usr/bin/cmp -s "$private_helper" "$work/Private.app/Contents/Library/LaunchServices/$INSTALLER_HELPER_IDENTIFIER" \
   || fail 'private package helper differs from the app helper'
+! /usr/bin/plutil -extract EnvironmentVariables.AURORA_HELPER_INSTALLED_BY raw -o - "$private_plist" >/dev/null 2>&1 \
+  || fail 'private review daemon claims an SMJobBless install'
 [[ $(/usr/bin/plutil -extract EnvironmentVariables.OMARCHY_CLIENT_CODE_SIGNING_REQUIREMENT raw -o - "$private_plist") == "$(installer_code_requirement "$work/Private.app" "$INSTALLER_APP_IDENTIFIER")" ]] \
   || fail 'private review package does not pin the final app cdhash'
 printf 'Developer peer binding: exact app/helper accepted; same-identifier impostors rejected; package-only behavior preserved\n'

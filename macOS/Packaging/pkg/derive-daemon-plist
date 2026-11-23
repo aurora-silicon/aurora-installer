@@ -49,6 +49,11 @@ helper = os.path.join(app, relative)
 if os.path.islink(helper) or not os.path.isfile(helper):
     sys.exit("derive-daemon-plist: helper is missing inside the app: %s" % relative)
 plist["Program"] = program
+# A package's job never claims an SMJobBless install; that marker lets the
+# helper remove the package's own app.
+environment = plist.get("EnvironmentVariables")
+if isinstance(environment, dict):
+    environment.pop("AURORA_HELPER_INSTALLED_BY", None)
 for key in ("Label", "MachServices", "UserName"):
     if key not in plist:
         sys.exit("derive-daemon-plist: embedded plist lacks %s" % key)
