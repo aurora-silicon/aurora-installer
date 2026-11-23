@@ -85,7 +85,11 @@ It needs `python3` (on NixOS without one it runs itself under
 `nix shell nixpkgs#python3`). It finds the system ESP the same way
 asahi-fwupdate does (the device tree's ESP PARTUUID, or `/boot/efi` or
 `/boot` holding m1n1), mounting it only if it is not mounted. `--esp DIR`
-overrides that. Then it
+overrides that. An ESP it mounts itself is mounted for root only
+(`dmask=0077,fmask=0177,nodev,nosuid,noexec`: directories 0700, files
+0600); an ESP that is already mounted is used with its own options, and a
+warning is logged when those let every user read its files (for example
+`fmask=0022`). Then it
 
 1. re-verifies the bundle against its `manifest.json` with
    `AudioTuningFWCollection(path=...)`, and checks that it came from this

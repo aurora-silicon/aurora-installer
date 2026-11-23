@@ -1,0 +1,594 @@
+{
+  "comment": "Undeclared catalogs and whether the app reads them as Testing. Pins ReleaseCatalogChannelPolicy (Swift) and scripts/prepare-distribution-release.py (Python) to the same cases.",
+  "cases": [
+    {
+      "name": "a delivery model",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-41",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-kde-41/fedora-kde-build-41.zip",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": true
+    },
+    {
+      "name": "an arch delivery from a models58 release",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "arch-gnome",
+          "evidenceRevision": "image-build-44886731192",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/alarm-aurora/releases/download/payload-arch-gnome-44886731192-models58/arch-gnome-build-44886731192.zip",
+            "fileName": "arch-gnome-build-44886731192.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": true
+    },
+    {
+      "name": "a nixos delivery from a models65 release",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "nixos-minimal",
+          "evidenceRevision": "image-build-7",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/nixos-aurora/releases/download/payload-nixos-minimal-7-models65/nixos-minimal-build-7.zip",
+            "fileName": "nixos-minimal-build-7.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": true
+    },
+    {
+      "name": "a delivery model beside a disabled one",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-41",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-kde-41/fedora-kde-build-41.zip",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        },
+        {
+          "deviceIdentifier": "apple,j274",
+          "status": "disabled"
+        }
+      ],
+      "acceptedAsTesting": true
+    },
+    {
+      "name": "no models",
+      "models": [],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "only disabled models",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j274",
+          "status": "disabled"
+        },
+        {
+          "deviceIdentifier": "apple,j313",
+          "status": "disabled"
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "a model without a status is not disabled",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-41",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-kde-41/fedora-kde-build-41.zip",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": true
+    },
+    {
+      "name": "an http source",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-41",
+          "payloadArtifact": {
+            "sourceURL": "http://github.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-kde-41/fedora-kde-build-41.zip",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "another host",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-41",
+          "payloadArtifact": {
+            "sourceURL": "https://api.github.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-kde-41/fedora-kde-build-41.zip",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "an explicit port",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-41",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com:443/aurora-silicon/fedora-aurora/releases/download/payload-fedora-kde-41/fedora-kde-build-41.zip",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "a user in the source",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-41",
+          "payloadArtifact": {
+            "sourceURL": "https://x@github.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-kde-41/fedora-kde-build-41.zip",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "a query",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-41",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-kde-41/fedora-kde-build-41.zip?x=1",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "a fragment",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-41",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-kde-41/fedora-kde-build-41.zip#x",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "a percent-encoded file name",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-41",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-kde-41/fedora-kde-build-41%2Ezip",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "a doubled slash",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-41",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/fedora-aurora/releases/download//payload-fedora-kde-41/fedora-kde-build-41.zip",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "an uppercase host",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-41",
+          "payloadArtifact": {
+            "sourceURL": "https://GitHub.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-kde-41/fedora-kde-build-41.zip",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "another organisation",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-41",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon-fork/fedora-aurora/releases/download/payload-fedora-kde-41/fedora-kde-build-41.zip",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "another distribution's repository",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-41",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/alarm-aurora/releases/download/payload-fedora-kde-41/fedora-kde-build-41.zip",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "a release of another run",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-41",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-kde-42/fedora-kde-build-41.zip",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "a release of another profile",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-41",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-gnome-41/fedora-kde-build-41.zip",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "an unknown release suffix",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-41",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-kde-41-models99/fedora-kde-build-41.zip",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "an extra path component",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-41",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-kde-41/x/fedora-kde-build-41.zip",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "a source naming another file",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-41",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-kde-41/other.zip",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "a file name with a slash",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-41",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-kde-41/x/fedora-kde-build-41.zip",
+            "fileName": "x/fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "a dot-dot file name",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-41",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-kde-41/..",
+            "fileName": "..",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "an empty file name",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-41",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-kde-41/",
+            "fileName": "",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "a run with a leading zero",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-041",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-kde-041/fedora-kde-build-41.zip",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "a run that is not decimal",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-4a",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-kde-4a/fedora-kde-build-41.zip",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "a run of non-ASCII digits",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-\u0664\u0661",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-kde-\u0664\u0661/fedora-kde-build-41.zip",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "an empty run",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-kde-/fedora-kde-build-41.zip",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "evidence of another kind",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "evidence-s4",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-kde-41/fedora-kde-build-41.zip",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "an unknown profile",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-xfce",
+          "evidenceRevision": "image-build-41",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-xfce-41/f.zip",
+            "fileName": "f.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "evidence that is not a string",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": 41,
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-kde-41/fedora-kde-build-41.zip",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "no payload artifact",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-41"
+        }
+      ],
+      "acceptedAsTesting": false
+    },
+    {
+      "name": "one delivery model and one foreign",
+      "models": [
+        {
+          "deviceIdentifier": "apple,j314s",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-41",
+          "payloadArtifact": {
+            "sourceURL": "https://github.com/aurora-silicon/fedora-aurora/releases/download/payload-fedora-kde-41/fedora-kde-build-41.zip",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        },
+        {
+          "deviceIdentifier": "apple,j274",
+          "status": "enabled",
+          "installationProfile": "fedora-kde",
+          "evidenceRevision": "image-build-41",
+          "payloadArtifact": {
+            "sourceURL": "https://downloads.example.com/payload.zip",
+            "fileName": "fedora-kde-build-41.zip",
+            "sizeBytes": 1
+          }
+        }
+      ],
+      "acceptedAsTesting": false
+    }
+  ]
+}

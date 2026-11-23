@@ -255,7 +255,7 @@
           },
           "j704": {
             "expert": false,
-            "minimum": "26.6.2"
+            "minimum": "27.2"
           },
           "j713": {
             "expert": false,
@@ -368,7 +368,6 @@
               "j623",
               "j624",
               "j700",
-              "j704",
               "j713",
               "j715",
               "j773g",
@@ -469,6 +468,7 @@
             "minimumMacOS": "27.2",
             "minimumRecovery": "26.2.123.0.0,0",
             "models": [
+              "j704",
               "j714c",
               "j714s",
               "j716c",

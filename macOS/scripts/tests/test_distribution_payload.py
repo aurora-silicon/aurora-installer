@@ -367,8 +367,9 @@ class DistributionPayloadTests(unittest.TestCase):
         # The M6 MacBook Pro and iMac shipped with macOS 27.2 (26B7124), their only firmware.
         self.assertIn('27.2', qualified['j804ap'])
         self.assertIn('27.2', qualified['j833ctap'])
-        self.assertIn('26.6.2', qualified['j704ap'])
-        # The 15-inch M5 MacBook Air's stub is the pinned macOS 27.2 (26B123), its device minimum.
+        # The 14-inch M5 MacBook Pro's and 15-inch M5 MacBook Air's stub is the pinned
+        # macOS 27.2 (26B123), their device minimum.
+        self.assertIn('27.2', qualified['j704ap'])
         self.assertIn('27.2', qualified['j815ap'])
         # Every admitted T6050 board selects only the matching 27.2 firmware.
         for identifier in t6050:
