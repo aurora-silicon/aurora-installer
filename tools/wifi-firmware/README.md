@@ -105,6 +105,11 @@ Requirements: python3, liblzfse (LZFSE-compressed files on the macOS volume;
 set `AURORA_LZFSE_LIB` where the library is not on the search path),
 util-linux (`lsblk`, `blkid`, `findmnt`, `mount`), systemd.
 
+When the system ESP is not mounted, the tool mounts it for root only
+(`umask=0077,nodev,nosuid,noexec`) and unmounts it afterwards. An ESP that is
+already mounted is used with its own options; a warning is logged when those
+let every user read its files (for example `fmask=0022`).
+
 At boot, a macOS build that was checked against the ESP's radio set is not
 read again while the build, that set and the tool stay the same; a newer
 tool (one that follows more radios or converts differently) checks it once.

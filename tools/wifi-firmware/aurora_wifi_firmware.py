@@ -564,6 +564,20 @@ def owned_in(manifest, parts):
     return {k: v for k, v in manifest.items() if any(p.owns(k) for p in parts)}
 
 
+
+def others_can_read(options):
+    """Whether a vfat mount's options (findmnt OPTIONS) let users other than
+    root read its files: vfat takes file permissions from fmask (or umask)."""
+    for opt in options.split(","):
+        name, _, value = opt.partition("=")
+        if name in ("fmask", "umask") and value:
+            try:
+                return not int(value, 8) & 0o004
+            except ValueError:
+                return False
+    return False
+
+
 def find_esp(run=subprocess.run, dt=DT, root="/"):
     """(path of the system ESP, the mountpoint when this tool mounted it).
     The device tree's ESP PARTUUID unless a .builder marker says otherwise,
@@ -584,9 +598,12 @@ def find_esp(run=subprocess.run, dt=DT, root="/"):
                 capture_output=True)
         lines = p.stdout.decode().splitlines() if p.returncode == 0 else []
         mounts = [ln.split(" ", 1) for ln in lines if ln.strip()]
-        rw = [m[0] for m in mounts if len(m) == 2 and "rw" in m[1].split(",")]
+        rw = [m for m in mounts if len(m) == 2 and "rw" in m[1].split(",")]
         if rw:
-            return pathlib.Path(rw[0]), None
+            if others_can_read(rw[0][1]):
+                log.warning(f"The system ESP is mounted at {rw[0][0]} with files every user "
+                            "can read; the firmware package written there is readable too")
+            return pathlib.Path(rw[0][0]), None
         if mounts:
             raise NotNow(f"the system ESP {device} is mounted read only at {mounts[0][0]}")
         os.makedirs(MOUNTPOINT, mode=0o700, exist_ok=True)
@@ -613,7 +630,10 @@ def system_esp(esp=None):
         yield path
     finally:
         if mounted:
-            subprocess.run(["umount", mounted], capture_output=True)
+            p = subprocess.run(["umount", mounted], capture_output=True)
+            if p.returncode != 0:
+                log.warning(f"could not unmount the system ESP at {mounted}: "
+                            f"{p.stderr.decode().strip()}")
 
 
 # ---------------------------------------------------------------- rebuild
