@@ -2,7 +2,13 @@
   import Foundation
 
   /// Applied only after the catalog signature and rollback floor are verified.
-  /// Legacy development catalogs belong to Testing; they can never become Edge.
+  /// The signed `channel` is what binds a catalog to the channel it is served
+  /// on: every channel's catalog, an empty one included, must declare that
+  /// channel, or the same signed bytes could be served on any of them. The one
+  /// exception is Testing, whose published development deliveries predate the
+  /// field: an undeclared catalog is accepted there only when it lists models
+  /// and each of them is of that delivery lineage. Those catalogs belong to
+  /// Testing; they can never become Stable, RC or Edge.
   enum ReleaseCatalogChannelPolicy {
     static func validate(payload: Data, channel: ReleaseChannel) throws {
       guard let object = try JSONSerialization.jsonObject(with: payload) as? [String: Any],
@@ -13,15 +19,13 @@
         throw InstallerReleaseConfigurationError.invalidCatalogChannel
       }
       guard channel == .edge else {
-        if let declared, declared != channel.rawValue {
-          throw InstallerReleaseConfigurationError.invalidCatalogChannel
-        }
-        if channel == .testing && declared == nil && !models.allSatisfy(isLegacyDevelopment) {
-          throw InstallerReleaseConfigurationError.invalidCatalogChannel
-        }
+        if declared == channel.rawValue { return }
+        guard channel == .testing, declared == nil, !models.isEmpty,
+          models.allSatisfy(isLegacyDevelopment)
+        else { throw InstallerReleaseConfigurationError.invalidCatalogChannel }
         return
       }
-      if models.isEmpty && (declared == nil || declared == "edge") { return }
+      if models.isEmpty && declared == "edge" { return }
       guard declared == "edge" else {
         throw InstallerReleaseConfigurationError.edgeAlphaUnavailable
       }
