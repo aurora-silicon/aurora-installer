@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-import tarfile, io, logging, os, os.path, tempfile
+import errno, fcntl, io, logging, os, os.path, secrets, tarfile
 from hashlib import sha256
 from . import cpio
 
@@ -25,10 +25,24 @@ class FWFile(object):
     def __hash__(self):
         return hash(self.sha)
 
+class FWPackageBusy(RuntimeError):
+    """Another run is writing a package into the same directory."""
+
 class FWPackage(object):
     # The package is built under temporary names beside the final ones and
     # renamed into place by close(), so a run that fails (or never reaches
     # close()) leaves the previous package as it was.
+    #
+    # close() renames the files one at a time, manifest.txt last. When a
+    # rename fails, the files already renamed are put back from the copies
+    # kept of the previous ones, so the directory holds the old package or
+    # the new one, not a mix. Only a crash or power loss in the middle of
+    # close() can leave a mix (each file is still whole); the old manifest
+    # then still describes it, as manifest.txt is the last file replaced.
+    #
+    # The directory is locked (flock) from the start to the end of the
+    # package: a second run on the same directory fails with FWPackageBusy
+    # instead of deleting this one's temporary files.
     def __init__(self, path):
         self.closed = True
         self.path = path
@@ -37,7 +51,9 @@ class FWPackage(object):
         self.manifest_path = os.path.join(path, "manifest.txt")
         self._staged = {}
         self._uboot = []
+        self._lock = None
         try:
+            self._take_lock()
             self.tarfile = tarfile.open(self._stage(self.tar_path), mode="w")
             self.cpiofile = cpio.CPIO(self._stage(self.cpio_path))
         except BaseException:
@@ -47,46 +63,126 @@ class FWPackage(object):
         self.hashes = {}
         self.manifest = []
 
-    def _stage(self, final):
-        """A new empty file beside final, to be renamed to it on close()."""
-        dirname, base = os.path.split(final)
+    def _take_lock(self):
+        fd = os.open(self.path or ".", os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(fd)
+            raise FWPackageBusy(f"Another firmware update is writing to {self.path}; "
+                                "try again when it is done") from None
+        except BaseException:
+            os.close(fd)
+            raise
+        self._lock = fd
+
+    def _release_lock(self):
+        if self._lock is not None:
+            os.close(self._lock) # drops the flock
+            self._lock = None
+
+    @staticmethod
+    def _remove_stale(dirname, base):
+        # A run that was killed leaves its temporary files: drop them, so
+        # they do not add up on a small partition. The lock is held, so no
+        # other run is using them.
         prefix = f".{base}."
-        # A run that was killed leaves its temporary file: drop it, so they
-        # do not add up on a small partition.
         for name in os.listdir(dirname or "."):
-            if name.startswith(prefix) and name.endswith(".tmp"):
+            if name.startswith(prefix) and name.endswith((".tmp", ".old")):
                 try:
                     os.unlink(os.path.join(dirname, name))
                 except OSError:
                     pass
-        fd, tmp = tempfile.mkstemp(prefix=prefix, suffix=".tmp", dir=dirname or ".")
+
+    @staticmethod
+    def _create(dirname, base, suffix):
+        """Create a new empty file .base.XXXXXXXX.suffix in dirname. Its
+        mode is the one a plain open() gives (0666 less the umask)."""
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        while True:
+            path = os.path.join(dirname, f".{base}.{secrets.token_hex(4)}.{suffix}")
+            try:
+                return path, os.open(path, flags, 0o666)
+            except FileExistsError:
+                continue
+
+    def _stage(self, final):
+        """A new empty file beside final, to be renamed to it on close()."""
+        dirname, base = os.path.split(final)
+        self._remove_stale(dirname, base)
+        tmp, fd = self._create(dirname or ".", base, "tmp")
+        os.close(fd)
         self._staged[final] = tmp
-        # mkstemp's 0600 is for the name; the package keeps the mode a plain
-        # open() would have given it.
-        umask = os.umask(0)
-        os.umask(umask)
-        try:
-            os.fchmod(fd, 0o666 & ~umask)
-        except OSError:
-            pass # FAT (the EFI system partition) has no modes to set
-        finally:
-            os.close(fd)
         return tmp
 
     def _write_staged(self, final, data):
         with open(self._stage(final), "wb") as fd:
             fd.write(data)
 
+    @staticmethod
+    def _fsync(path, directory=False):
+        fd = os.open(path, os.O_RDONLY | (getattr(os, "O_DIRECTORY", 0) if directory else 0))
+        try:
+            os.fsync(fd)
+        except OSError as e:
+            # Some filesystems cannot sync a directory; the renames are
+            # then as durable as they make them.
+            if not directory or e.errno not in (errno.EINVAL, errno.ENOTSUP, errno.EBADF):
+                raise
+        finally:
+            os.close(fd)
+
+    def _backup(self, final):
+        """Keep the previous final under a temporary name; None if there is
+        none. A hard link keeps final in place until it is replaced; where
+        there are none (FAT), final is renamed aside."""
+        if not os.path.lexists(final):
+            return None
+        dirname, base = os.path.split(final)
+        old, fd = self._create(dirname or ".", base, "old")
+        os.close(fd)
+        os.unlink(old)
+        try:
+            os.link(final, old, follow_symlinks=False)
+        except OSError:
+            os.replace(final, old)
+        return old
+
     def _commit(self):
         for tmp in self._staged.values():
-            fd = os.open(tmp, os.O_RDONLY)
-            try:
-                os.fsync(fd)
-            finally:
-                os.close(fd)
-        for final, tmp in list(self._staged.items()):
-            os.replace(tmp, final)
-            del self._staged[final]
+            self._fsync(tmp)
+        order = sorted(self._staged, key=lambda f: f == self.manifest_path)
+        done = []
+        try:
+            for final in order:
+                old = self._backup(final)
+                done.append((final, old))
+                os.replace(self._staged[final], final)
+                del self._staged[final]
+        except BaseException:
+            for final, old in reversed(done):
+                try:
+                    if old is None:
+                        if final not in self._staged:
+                            os.unlink(final)
+                    elif os.path.lexists(final) and os.path.samestat(
+                            os.lstat(old), os.lstat(final)):
+                        # final was not replaced and old is a link to it
+                        # (rename() between two links does nothing).
+                        os.unlink(old)
+                    else:
+                        os.replace(old, final)
+                except OSError:
+                    pass
+            raise
+        for d in sorted(set(os.path.dirname(f) or "." for f, _ in done)):
+            self._fsync(d, directory=True)
+        for _, old in done:
+            if old is not None:
+                try:
+                    os.unlink(old)
+                except OSError:
+                    pass
 
     def abort(self):
         """Drop what was built; the files of an earlier package stay."""
@@ -97,12 +193,13 @@ class FWPackage(object):
                     f.close()
             except Exception:
                 pass
-        for tmp in self._staged.values():
+        for tmp in getattr(self, "_staged", {}).values():
             try:
                 os.unlink(tmp)
             except OSError:
                 pass
         self._staged = {}
+        self._release_lock()
 
     def close(self):
         if self.closed:
@@ -131,6 +228,7 @@ class FWPackage(object):
             self.abort()
             raise
         self.closed = True
+        self._release_lock()
 
     def __enter__(self):
         return self
