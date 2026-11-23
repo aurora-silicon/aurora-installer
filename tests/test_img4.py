@@ -236,19 +236,14 @@ class RealLiblzfse(unittest.TestCase):
         self.data = bytes(range(256)) * 20 + b"abcdefgh" * 2500
         self.cdata = self.encode(self.data)
 
-    def test_exact_size(self):
+    def test_only_the_stated_size_is_accepted(self):
         self.assertEqual(img4.decode_lzfse_liblzfse(self.cdata, len(self.data)), self.data)
         self.assertEqual(img4.img4p_extract(im4p(payload=self.cdata, raw_size=len(self.data))),
                          ("krnl", self.data))
-
-    def test_stream_longer_than_the_header_says(self):
-        for size in (1, 10000, len(self.data) - 1):
-            with self.assertRaises(ValueError):
+        # Shorter or longer than the stream decodes to.
+        for size in (1, 10000, len(self.data) - 1, len(self.data) + 1):
+            with self.assertRaises(ValueError, msg=size):
                 img4.img4p_extract(im4p(payload=self.cdata, raw_size=size))
-
-    def test_stream_shorter_than_the_header_says(self):
-        with self.assertRaises(ValueError):
-            img4.img4p_extract(im4p(payload=self.cdata, raw_size=len(self.data) + 1))
 
     def test_size_zero_with_any_data(self):
         for payload in (self.cdata, b"garbage!"):

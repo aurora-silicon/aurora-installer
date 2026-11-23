@@ -206,11 +206,7 @@ class Commit(Workdir):
         renamed = self.close_failing_on(None)
         self.assertEqual(len(renamed), 4, renamed)
         self.assertEqual(renamed[-1], "manifest.txt")
-        self.assertEqual(self.leftovers(), [])
-
-    def test_previous_files_are_not_left_behind(self):
-        with FWPackage(str(self.dest)) as pkg:
-            self.fill(pkg)
+        # No temporary or previous file is left beside the new package.
         self.assertEqual(self.leftovers(), [])
         self.assertEqual(sorted(self.state()), sorted(PREVIOUS))
 
