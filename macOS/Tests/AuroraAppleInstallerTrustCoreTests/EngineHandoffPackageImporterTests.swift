@@ -596,6 +596,26 @@
       }
     }
 
+    func testAnExpectedBindingDigestIsCheckedBeforeAnyArtifactIsCopied() throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let source = try openDirectory(fixture.source)
+      defer { try? source.close() }
+
+      XCTAssertThrowsError(
+        try EngineHandoffPackageImporter().prepare(
+          from: source, in: fixture.destination,
+          expectedBindingDigest: digest(Data("another plan".utf8)))
+      ) {
+        XCTAssertEqual($0 as? EngineHandoffImportError, .bindingMismatch)
+      }
+      XCTAssertTrue(try importedEntries(in: fixture.destination).isEmpty)
+
+      let imported = try EngineHandoffPackageImporter().prepare(
+        from: source, in: fixture.destination, expectedBindingDigest: fixture.bindingDigest)
+      XCTAssertEqual(imported.bindingDigest, fixture.bindingDigest)
+    }
+
     func testChangedIdentityFieldIsRejectedBeforeImport() throws {
       let changes: [(String, String)] = [
         (#""catalog_sequence":40"#, #""catalog_sequence":41"#),

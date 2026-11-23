@@ -161,9 +161,13 @@
         repairManifestDigest: nil, requiredHumanSteps: request.requiredHumanSteps)
     }
 
+    /// `expectedBindingDigest`, when given, is the digest the caller approved
+    /// outside the package; a package carrying another one is refused right
+    /// after its control files are read, before any artifact is copied.
     public func prepare(
       from packageDirectory: FileHandle,
-      in destinationDirectory: URL
+      in destinationDirectory: URL,
+      expectedBindingDigest: String? = nil
     ) throws -> ImportedEngineHandoffPackage {
       let sourceDescriptor = packageDirectory.fileDescriptor
       try validateSourceDirectory(sourceDescriptor)
@@ -189,6 +193,9 @@
         request: request,
         identity: identity
       )
+      if let expectedBindingDigest, identity.bindingDigest != expectedBindingDigest {
+        throw EngineHandoffImportError.bindingMismatch
+      }
       // Older packages carried an engine archive or a repair manifest for the
       // retired engine. A new submission must name only native execution.
       guard manifest.format == 2, manifest.engine == nil, manifest.repairManifest == nil,

@@ -464,7 +464,12 @@
     /// journal callback, the helper tails the run's journal and forwards whole
     /// lines. Passing nil reproduces the previous behavior exactly.
     /// `bindingDigest` is the digest the caller approved; a package that
-    /// carries another one is refused before anything runs.
+    /// carries another one is refused before any artifact is copied. The
+    /// digest and the package directory come from the same caller in one
+    /// call, so this binds the package to what that caller approved and
+    /// stops the directory's contents from changing after approval; it does
+    /// not stop the caller itself from submitting an older self-consistent
+    /// package with that package's own digest.
     public func submit(
       packageDirectory: FileHandle,
       bindingDigest: String,
@@ -528,8 +533,15 @@
         throw ClosedEngineHelperError.invalidMachineOwnerCredentials
       }
 
+      let expectedBindingDigest: String? =
+        switch admission {
+        case .job: nil
+        case .bindingDigest(let approved): approved
+        }
       let package = try InstallerPerformance.measure("helper_import") {
-        try importer.prepare(from: packageDirectory, in: workingDirectory)
+        try importer.prepare(
+          from: packageDirectory, in: workingDirectory,
+          expectedBindingDigest: expectedBindingDigest)
       }
       var registeredPackage = false
       defer {
