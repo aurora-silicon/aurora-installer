@@ -76,7 +76,7 @@ KEEP_BACKUPS = 2
 MOUNTPOINT = "/run/aurora-wifi-firmware-esp"
 # The ESP this tool mounts itself is readable by root only while mounted
 # (vfat has no permissions of its own: they come from these options).
-ESP_MOUNT_OPTIONS = "umask=0077,nodev,nosuid,noexec"
+ESP_MOUNT_OPTIONS = "dmask=0077,fmask=0177,nodev,nosuid,noexec"
 STAGE_BUDGET = 512 << 20
 # How long the boot after a change waits for each required radio probe.
 # The wait ends as soon as every required probe is up or a driver reports

@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT / "tools" / "speaker-tuning"))
 import aurora_wifi_firmware as awf  # noqa: E402
 import speaker_tuning as st  # noqa: E402
 
-PRIVATE = {"umask=0077", "nodev", "nosuid", "noexec"}
+PRIVATE = {"dmask=0077", "fmask=0177", "nodev", "nosuid", "noexec"}
 
 
 def unmounted_esp(tmp):

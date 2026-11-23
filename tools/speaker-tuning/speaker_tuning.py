@@ -39,7 +39,7 @@ LOCK = "/run/aurora-speaker-tuning.lock"
 MOUNTPOINT = "/run/aurora-speaker-tuning-esp"
 # The ESP this tool mounts itself is readable by root only while mounted
 # (vfat has no permissions of its own: they come from these options).
-ESP_MOUNT_OPTIONS = "umask=0077,nodev,nosuid,noexec"
+ESP_MOUNT_OPTIONS = "dmask=0077,fmask=0177,nodev,nosuid,noexec"
 
 
 class Refused(Exception):
