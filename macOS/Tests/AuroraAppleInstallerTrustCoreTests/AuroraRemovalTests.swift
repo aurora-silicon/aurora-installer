@@ -577,6 +577,27 @@
         FakeRemovalDisk(snapshot, install: F.alarmInstall), "Found another system:")
     }
 
+    /// macOS 27.2 can give a new startup container an Update volume.
+    func testAStubWithTheUpdateVolumeMacOS27AddsIsStillTheInstallations() throws {
+      func update(_ number: Int, group: String? = nil) -> RemovalVolume {
+        RemovalVolume(uuid: F.id(number), name: "Update", roles: ["Update"], group: group)
+      }
+      var snapshot = F.alarm()
+      let index = snapshot.containers.firstIndex { $0.storeUUID == F.alarmInstall.stub }!
+      let stub = snapshot.containers[index]
+      snapshot.containers[index] = RemovalContainer(
+        uuid: stub.uuid, storeUUID: stub.storeUUID, volumes: stub.volumes + [update(997)])
+      let plan = try AuroraRemovalPlan(disks: FakeRemovalDisk(snapshot, install: F.alarmInstall))
+      XCTAssertEqual(plan.installation?.name, "Asahi Alarm Minimal")
+      XCTAssertEqual(plan.members.map(\.identifier), ["disk0s3", "disk0s4", "disk0s5"])
+      for extra in [[update(997), update(996)], [update(997, group: F.id(999))]] {
+        snapshot.containers[index] = RemovalContainer(
+          uuid: stub.uuid, storeUUID: stub.storeUUID, volumes: stub.volumes + extra)
+        assertRefusalPrefix(
+          FakeRemovalDisk(snapshot, install: F.alarmInstall), "Found another system:")
+      }
+    }
+
     func testFrameMustBeISCThenBootedMacOSThenRecovery() {
       for index in [0, 1, 6] {
         var snapshot = F.converged()
