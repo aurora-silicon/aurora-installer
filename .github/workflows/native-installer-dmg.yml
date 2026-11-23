@@ -98,6 +98,16 @@ jobs:
                   original=source/profile/name
                   assert original.is_file() and not original.is_symlink() and original.stat().st_size<=1<<20
                   shutil.copyfile(original,destination/name)
+              # Each fetched channel's signed catalog, for its build floor (see
+              # prepare-distribution-release.py); an absent one gets no floor.
+              for channel in ('stable','rc','edge-alpha'):
+                  original=source/profile/'channels'/channel/'catalog.signed.json'
+                  if not original.exists() and not original.is_symlink():
+                      continue
+                  assert not any(p.is_symlink() for p in (original,original.parent,original.parent.parent))
+                  assert original.is_file() and original.stat().st_size<=1572864
+                  (destination/'channels'/channel).mkdir(parents=True)
+                  shutil.copyfile(original,destination/'channels'/channel/'catalog.signed.json')
           PYCATALOGS
       - name: Require catalogs paired with this execution contract
         env:
@@ -215,6 +225,10 @@ jobs:
               catalog=json.loads(data)
               assert catalog['sequence']==record['sequence'],profile
               assert all(model.get('installationProfile') in (None,profile) for model in catalog['models']),profile
+              # The sealed default sits at its own floor, so it is never refused.
+              floor=json.loads((profiles/profile/'catalog-floor.json').read_text())['minimum_sequence']
+              assert floor['testing']==record['sequence'],profile
+              print(profile,json.dumps(floor,sort_keys=True))
           assert (profiles.parent/'catalog.json').read_bytes()==(profiles/'fedora-kde/catalog.json').read_bytes()
           PYPROFILES
           expected=disabled

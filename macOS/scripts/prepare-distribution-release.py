@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify distribution deliveries and assemble native packaging resources."""
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -37,6 +38,7 @@ def prepare(source, output, sealed=False, signing_team=None):
     if len(trusted) != 32 or output.exists():
         raise ValueError("expected a 32-byte app trust root and a new output directory")
     documents = {}
+    floors = {}
     schema_versions = set()
     with tempfile.TemporaryDirectory(prefix="aurora-delivery-verify-") as temporary:
         key = Path(temporary) / "public.der"
@@ -84,6 +86,12 @@ def prepare(source, output, sealed=False, signing_team=None):
                 if descriptor["channels"][channel]["catalog_url"] != base + "/channels/" + ("edge-alpha" if channel == "edge" and "testing" in descriptor["channels"] else channel) + "/catalog.signed.json":
                     raise ValueError(f"descriptor channel mismatch: {profile}")
             documents[profile] = data
+            floors[profile] = {"testing": sequence}
+            for channel, name in FETCHED_CHANNEL_DIRECTORIES.items():
+                envelope = directory / "channels" / name / "catalog.signed.json"
+                if not envelope.exists() and not envelope.is_symlink():
+                    continue  # Absent: that channel gets no floor.
+                floors[profile][channel] = channel_floor(envelope, channel, profile, key, temporary)
     if len(schema_versions) != 1:
         raise ValueError("mixed catalog schemas")
     def release_descriptor(content):
@@ -126,11 +134,12 @@ def prepare(source, output, sealed=False, signing_team=None):
             if sealed or name not in ("catalog.json", "catalog.json.sig"):
                 (directory / name).write_bytes(descriptors[profile] if name == "release.json" else content)
         # The app refuses a catalog older than the one it was built with, on
-        # a first run too, when no accepted catalog is stored yet. Only the
-        # verified Testing delivery is at hand, so only Testing gets a floor.
+        # a first run too, when no accepted catalog is stored yet: Testing from
+        # the verified bundled delivery, every other channel from its verified
+        # signed envelope in the same checkout.
         (directory / "catalog-floor.json").write_text(json.dumps({
             "schema_version": 1,
-            "minimum_sequence": {"testing": json.loads(data["catalog.json"])["sequence"]},
+            "minimum_sequence": floors[profile],
         }, indent=2) + "\n")
     (output / "release.json").write_bytes(root_descriptor)
     shutil.copyfile(ROOT / "Release/trust-root.ed25519.pub", output / "trust-root.ed25519.pub")
@@ -143,6 +152,57 @@ def prepare(source, output, sealed=False, signing_team=None):
                       "sequence": json.loads(data["catalog.json"])["sequence"]}
             for profile, data in documents.items()
         }}, indent=2) + "\n")
+
+
+# The directory under Profiles/<profile>/channels/ each fetched channel's
+# signed envelope lives in, as the shipped descriptor names it. Testing's floor
+# comes from the verified bundled catalog.json (the sealed default), and the
+# legacy channels/edge alias is read by no shipped descriptor.
+FETCHED_CHANNEL_DIRECTORIES = {"stable": "stable", "rc": "rc", "edge": "edge-alpha"}
+
+
+def channel_floor(path, channel, profile, key, temporary):
+    """The sequence of one verified channel envelope.
+
+    The envelope is what the app fetches for `channel`: its catalog must verify
+    with the app's trust root, declare no other channel, list only `profile`
+    and carry a positive 64-bit sequence.
+    """
+    # The app's own envelope limit (InstallerReleaseCatalogFetcher).
+    if (any(part.is_symlink() for part in (path, path.parent, path.parent.parent))
+            or not path.is_file() or path.stat().st_size > 1572864):
+        raise ValueError(f"unsafe {profile}/{channel} channel catalog")
+    try:
+        envelope = json.loads(path.read_bytes())
+        if (type(envelope) is not dict or set(envelope) != {"schema_version", "catalog", "signature"}
+                or type(envelope["schema_version"]) is not int or envelope["schema_version"] != 1):
+            raise ValueError
+        payload = base64.b64decode(envelope["catalog"], validate=True)
+        signature = base64.b64decode(envelope["signature"], validate=True)
+    except (ValueError, TypeError):
+        raise ValueError(f"malformed {profile}/{channel} channel catalog envelope") from None
+    if not payload or len(payload) > 1048576 or len(signature) != 64:
+        raise ValueError(f"malformed {profile}/{channel} channel catalog envelope")
+    payload_path = Path(temporary) / "channel-catalog.json"
+    signature_path = Path(temporary) / "channel-catalog.json.sig"
+    payload_path.write_bytes(payload)
+    signature_path.write_bytes(signature)
+    subprocess.run(["openssl", "pkeyutl", "-verify", "-pubin", "-keyform", "DER", "-inkey", str(key),
+                    "-rawin", "-in", str(payload_path), "-sigfile", str(signature_path)], check=True)
+    catalog = json.loads(payload)
+    models = catalog.get("models") if type(catalog) is dict else None
+    if (type(catalog) is not dict or catalog.get("schemaVersion") != 5 or type(models) is not list
+            or not all(type(model) is dict for model in models)):
+        raise ValueError(f"channel catalog is not a native-only schema 5 catalog: {profile}/{channel}")
+    if catalog.get("channel", channel) != channel:
+        raise ValueError(f"channel catalog declares another channel: {profile}/{channel}")
+    if any(model.get("installationProfile") != profile for model in models
+           if model.get("status") == "enabled" or model.get("installationProfile") is not None):
+        raise ValueError(f"channel catalog profile mismatch: {profile}/{channel}")
+    sequence = catalog.get("sequence")
+    if type(sequence) is not int or not 0 < sequence < 1 << 64:
+        raise ValueError(f"channel catalog sequence is not a positive 64-bit integer: {profile}/{channel}")
+    return sequence
 
 
 if __name__ == "__main__":

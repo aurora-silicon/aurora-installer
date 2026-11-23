@@ -236,5 +236,155 @@ class DistributionReleaseTests(unittest.TestCase):
                 self.assertFalse(output.exists())
 
 
+    def envelope(self, profile, directory_name, catalog, key=None, signature=None):
+        """Writes Profiles/<profile>/channels/<directory_name>/catalog.signed.json."""
+        import base64
+        directory = self.profiles / profile / "channels" / directory_name
+        directory.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(catalog).encode()
+        (directory / "payload.json").write_bytes(payload)
+        subprocess.run(["openssl", "pkeyutl", "-sign", "-inkey", str(key or self.key), "-rawin", "-in",
+                        str(directory / "payload.json"), "-out", str(directory / "payload.sig")], check=True)
+        if signature is None:
+            signature = (directory / "payload.sig").read_bytes()
+        for name in ("payload.json", "payload.sig"):
+            (directory / name).unlink()
+        (directory / "catalog.signed.json").write_text(json.dumps({
+            "schema_version": 1, "catalog": base64.b64encode(payload).decode(),
+            "signature": base64.b64encode(signature).decode()}))
+        return directory / "catalog.signed.json"
+
+    @staticmethod
+    def channel_catalog(sequence, channel=None, profile=None):
+        catalog = {"schemaVersion": 5, "sequence": sequence,
+                   "models": [] if profile is None else [{"status": "enabled", "installationProfile": profile}]}
+        if channel is not None:
+            catalog["channel"] = channel
+        return catalog
+
+    def publish_all_channels(self):
+        """The delivery layout at aurora-distributions main: every profile has
+        stable, rc, edge-alpha, testing and the legacy edge alias."""
+        expected = {}
+        for index, profile in enumerate(module.PROFILES + (module.OMARCHY_PROFILE,)):
+            self.envelope(profile, "stable", self.channel_catalog(1600000000 + index, "stable"))
+            self.envelope(profile, "rc", self.channel_catalog(1610000000 + index, "rc"))
+            self.envelope(profile, "edge-alpha", self.channel_catalog(1620000000 + index, "edge", profile))
+            # Neither is read for a floor: Testing's comes from catalog.json,
+            # and channels/edge is the legacy Testing alias no build fetches.
+            self.envelope(profile, "testing", self.channel_catalog(1630000000 + index))
+            self.envelope(profile, "edge", self.channel_catalog(1640000000 + index))
+            expected[profile] = {"testing": 1, "stable": 1600000000 + index,
+                                 "rc": 1610000000 + index, "edge": 1620000000 + index}
+        return expected
+
+    def test_every_fetched_channel_gets_the_floor_of_its_verified_signed_catalog(self):
+        expected = self.publish_all_channels()
+        for sealed in (True, False):
+            with self.subTest(sealed=sealed):
+                output = self.root / f"output-{sealed}"
+                with patch.object(module, "ROOT", self.root):
+                    module.prepare(self.profiles, output, sealed=sealed)
+                for profile in module.PROFILES:
+                    directory = output / "Profiles" / profile
+                    self.assertEqual(json.loads((directory / "catalog-floor.json").read_text()), {
+                        "schema_version": 1, "minimum_sequence": expected[profile]})
+                    # Only the floor is emitted; the channel envelopes stay
+                    # on the delivery and are fetched at runtime.
+                    self.assertFalse((directory / "channels").exists())
+                    self.assertEqual(
+                        {entry.name for entry in directory.iterdir()},
+                        ({"catalog.json", "catalog.json.sig"} if sealed else set())
+                        | {"release.json", "trust-root.ed25519.pub", "catalog-floor.json"})
+                # The sealed default is unchanged: Testing's floor is the
+                # sealed catalog's own sequence.
+                if sealed:
+                    self.assertEqual(json.loads((output / "catalog.json").read_text())["sequence"],
+                                     expected["fedora-kde"]["testing"])
+
+    def test_a_channel_without_a_signed_catalog_in_the_delivery_gets_no_floor(self):
+        self.envelope("arch-kde", "rc", self.channel_catalog(1700000005, "rc"))
+        self.envelope("arch-kde", "edge-alpha", self.channel_catalog(1700000006))
+        output = self.root / "output"
+        with patch.object(module, "ROOT", self.root):
+            module.prepare(self.profiles, output, sealed=True)
+        floor = lambda profile: json.loads(
+            (output / "Profiles" / profile / "catalog-floor.json").read_text())["minimum_sequence"]
+        # An empty Edge catalog that declares no channel is what the app
+        # accepts for Edge, so it is floored too.
+        self.assertEqual(floor("arch-kde"), {"testing": 1, "rc": 1700000005, "edge": 1700000006})
+        self.assertEqual(floor("fedora-kde"), {"testing": 1})
+
+    def test_an_unverified_channel_catalog_emits_no_release(self):
+        import base64
+        import shutil
+        other = self.root / "other.pem"
+        subprocess.run(["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(other)], check=True)
+
+        def foreign_key():
+            self.envelope("nixos-kde", "stable", self.channel_catalog(9, "stable"), key=other)
+
+        def tampered():
+            path = self.envelope("nixos-kde", "rc", self.channel_catalog(9, "rc"))
+            envelope = json.loads(path.read_text())
+            envelope["catalog"] = base64.b64encode(json.dumps(self.channel_catalog(99, "rc")).encode()).decode()
+            path.write_text(json.dumps(envelope))
+
+        def short_signature():
+            self.envelope("nixos-kde", "rc", self.channel_catalog(9, "rc"), signature=b"x" * 63)
+
+        def another_channel():
+            # A validly signed Testing catalog can't stand in for Stable.
+            self.envelope("nixos-kde", "stable", self.channel_catalog(9, "testing"))
+
+        def stable_as_edge():
+            self.envelope("nixos-kde", "edge-alpha", self.channel_catalog(9, "stable"))
+
+        def another_profile():
+            self.envelope("nixos-kde", "edge-alpha", self.channel_catalog(9, "edge", "fedora-kde"))
+
+        def unusable_sequence():
+            self.envelope("nixos-kde", "rc", self.channel_catalog(1 << 64, "rc"))
+
+        def old_schema():
+            catalog = self.channel_catalog(9, "rc")
+            catalog["schemaVersion"] = 4
+            self.envelope("nixos-kde", "rc", catalog)
+
+        def extra_key():
+            path = self.envelope("nixos-kde", "rc", self.channel_catalog(9, "rc"))
+            envelope = json.loads(path.read_text())
+            envelope["note"] = "x"
+            path.write_text(json.dumps(envelope))
+
+        def not_base64():
+            path = self.envelope("nixos-kde", "rc", self.channel_catalog(9, "rc"))
+            envelope = json.loads(path.read_text())
+            envelope["catalog"] = "not base64!"
+            path.write_text(json.dumps(envelope))
+
+        def symlinked():
+            path = self.envelope("nixos-kde", "testing", self.channel_catalog(9, "rc"))
+            (self.profiles / "nixos-kde/channels/rc").mkdir(parents=True)
+            (self.profiles / "nixos-kde/channels/rc/catalog.signed.json").symlink_to(path)
+
+        def directory_in_place():
+            (self.profiles / "nixos-kde/channels/rc/catalog.signed.json").mkdir(parents=True)
+
+        cases = [(foreign_key, subprocess.CalledProcessError), (tampered, subprocess.CalledProcessError),
+                 (short_signature, ValueError), (another_channel, ValueError), (stable_as_edge, ValueError),
+                 (another_profile, ValueError), (unusable_sequence, ValueError), (old_schema, ValueError),
+                 (extra_key, ValueError), (not_base64, ValueError), (symlinked, ValueError),
+                 (directory_in_place, ValueError)]
+        for arrange, error in cases:
+            with self.subTest(arrange.__name__):
+                shutil.rmtree(self.profiles / "nixos-kde/channels", ignore_errors=True)
+                arrange()
+                output = self.root / "output"
+                with patch.object(module, "ROOT", self.root), self.assertRaises(error):
+                    module.prepare(self.profiles, output, sealed=True)
+                self.assertFalse(output.exists())
+
+
 if __name__ == "__main__":
     unittest.main()
