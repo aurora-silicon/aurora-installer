@@ -350,12 +350,23 @@ os_promote() {
   # A set offered on more than one channel stages one signed catalog per
   # channel, catalog.<channel>.signed.json; a set for a single channel may
   # stage just catalog.signed.json. Either must declare the channel it goes to.
-  local candidate_key="releases/$tag/catalog.$channel.signed.json"
-  if ! fetch_public "$candidate_key" "$work/candidate.json"; then
-    candidate_key="releases/$tag/catalog.signed.json"
-    fetch_public "$candidate_key" "$work/candidate.json" ||
-      die "neither releases/$tag/catalog.$channel.signed.json nor $candidate_key is published"
-  fi
+  # Only a 404 for the channel's own catalog falls back to the single one; any
+  # other failure stops, so a transient error can't promote the other file.
+  local candidate_key="releases/$tag/catalog.$channel.signed.json" candidate_status
+  candidate_status=$(fetch_status "$candidate_key" "$work/candidate.json")
+  case $candidate_status in
+    200) ;;
+    404)
+      candidate_key="releases/$tag/catalog.signed.json"
+      candidate_status=$(fetch_status "$candidate_key" "$work/candidate.json")
+      case $candidate_status in
+        200) ;;
+        404) die "neither releases/$tag/catalog.$channel.signed.json nor $candidate_key is published" ;;
+        *) die "could not read $candidate_key ($candidate_status)" ;;
+      esac
+      ;;
+    *) die "could not read $candidate_key ($candidate_status); not falling back to releases/$tag/catalog.signed.json" ;;
+  esac
   echo "Reading $candidate_key"
   decode_envelope "$work/candidate.json" "$work/catalog" "$work/signature"
   verify_catalog "$work/catalog" "$work/signature"

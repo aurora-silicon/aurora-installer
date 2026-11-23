@@ -869,6 +869,38 @@ after=$(find "$STREAM_DIR/channels" -type f | sort | xargs shasum | shasum | cut
 rm -rf "$STREAM_DIR/releases/os-v4.0.2-mac.1.20260914"
 pass "a catalog that declares no channel is refused on stable, rc and testing"
 
+# --- only a 404 for catalog.<channel>.signed.json falls back -----------------
+# A set staging both files, where the single catalog.signed.json also declares
+# the channel: an error reading the channel's own file must stop the promotion,
+# not quietly promote the other one.
+fallback_tag=os-v4.0.2-mac.1.20260915
+stage_payload "$fallback_tag" 128
+publish_candidate "$fallback_tag" 960 "$BASE/releases/$fallback_tag/payload.zip" 128 testing
+publish_candidate "$fallback_tag" 960 "$BASE/releases/$fallback_tag/payload.zip" 128 testing catalog.signed.json
+before=$(find "$STREAM_DIR/channels" -type f | sort | xargs shasum | shasum | cut -d" " -f1)
+for failure in CURL_UNAVAILABLE CURL_TRUNCATED; do
+  if env "$failure=releases/$fallback_tag/catalog.testing.signed.json" \
+    AURORA_PUBLISH_ASSUME_YES=$fallback_tag "$PUBLISHER" os-promote \
+    --tag "$fallback_tag" --to testing --no-prune >"$WORK/fallback-$failure.log" 2>&1; then
+    fail "a $failure read of the channel's catalog stops the promotion" "$(cat "$WORK/fallback-$failure.log")"
+  fi
+  grep -q "could not read releases/$fallback_tag/catalog.testing.signed.json" "$WORK/fallback-$failure.log" ||
+    fail "the $failure refusal names the channel's catalog" "$(cat "$WORK/fallback-$failure.log")"
+  grep -q "Reading releases/$fallback_tag/catalog.signed.json" "$WORK/fallback-$failure.log" &&
+    fail "a $failure read never falls back to catalog.signed.json" "$(cat "$WORK/fallback-$failure.log")"
+done
+after=$(find "$STREAM_DIR/channels" -type f | sort | xargs shasum | shasum | cut -d" " -f1)
+[[ $before == "$after" ]] || fail "a failed read of the channel's catalog changes no channel"
+rm "$STREAM_DIR/releases/$fallback_tag/catalog.testing.signed.json"
+AURORA_PUBLISH_ASSUME_YES=$fallback_tag "$PUBLISHER" os-promote \
+  --tag "$fallback_tag" --to testing --no-prune >"$WORK/fallback-404.log" 2>&1 ||
+  fail "a 404 for the channel's catalog falls back to catalog.signed.json" "$(cat "$WORK/fallback-404.log")"
+grep -q "Reading releases/$fallback_tag/catalog.signed.json" "$WORK/fallback-404.log" ||
+  fail "the 404 fallback reads catalog.signed.json" "$(cat "$WORK/fallback-404.log")"
+cmp -s "$STREAM_DIR/channels/testing/catalog.signed.json" "$STREAM_DIR/releases/$fallback_tag/catalog.signed.json" ||
+  fail "testing serves the fallback catalog"
+pass "only a 404 for the channel's own catalog falls back to catalog.signed.json"
+
 # --- a set bound for two channels stages one signed catalog for each ----------
 # The stable and rc catalogs of …20260907 are different signed bytes; neither
 # channel was ever handed the other's.
