@@ -13,6 +13,39 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 
+VECTORS = (Path(__file__).resolve().parents[2]
+           / "Tests/AuroraAppleInstallerTrustCoreTests/Fixtures/legacy-testing-catalog-vectors.json")
+
+
+def delivery_model(profile, run="41"):
+    """A model of the published development delivery lineage."""
+    repository = {"fedora": "fedora-aurora", "arch": "alarm-aurora", "nixos": "nixos-aurora",
+                  "omarchy": "omarchy-aurora"}[profile.split("-")[0]]
+    name = f"{profile}-build-{run}.zip"
+    return {"status": "enabled", "installationProfile": profile, "evidenceRevision": f"image-build-{run}",
+            "payloadArtifact": {"sourceURL": f"https://github.com/aurora-silicon/{repository}/releases/download/"
+                                             f"payload-{profile}-{run}/{name}",
+                                "fileName": name, "sizeBytes": 1}}
+
+
+class LegacyTestingVectorTests(unittest.TestCase):
+    def test_undeclared_testing_vectors_match_the_app(self):
+        # ReleaseChannelAvailabilityTests runs the same vectors through
+        # ReleaseCatalogChannelPolicy.validate, so both accept the same catalogs.
+        cases = json.loads(VECTORS.read_text())["cases"]
+        self.assertTrue(cases)
+        for case in cases:
+            with self.subTest(case=case["name"]):
+                catalog = {"schemaVersion": 5, "sequence": 1, "models": case["models"]}
+                self.assertEqual(module.is_legacy_testing_catalog(catalog, set(module.PROFILES)),
+                                 case["acceptedAsTesting"])
+                if case["acceptedAsTesting"]:
+                    module.check_bundled_default(catalog, "testing", set(module.PROFILES), "vector")
+                else:
+                    with self.assertRaises(ValueError):
+                        module.check_bundled_default(catalog, "testing", set(module.PROFILES), "vector")
+
+
 class DistributionReleaseTests(unittest.TestCase):
     def setUp(self):
         mode = patch.dict(os.environ, {"AURORA_ENABLE_OMARCHY": "0"})
@@ -38,7 +71,7 @@ class DistributionReleaseTests(unittest.TestCase):
         for profile in module.PROFILES + (module.OMARCHY_PROFILE,):
             directory = self.profiles / profile
             directory.mkdir(parents=True)
-            descriptor = {"schema_version": 3, "trust_root_fingerprint": fingerprint,
+            descriptor = {"schema_version": 3, "default_channel": "testing", "trust_root_fingerprint": fingerprint,
                           "helper_mach_service_name": "invalid.example.installer.helper",
                           "helper_code_signing_requirement": 'identifier "invalid.example.installer.helper"',
                           "channels": {channel: {"catalog_url": "https://delivery.invalid/native/Profiles/"
@@ -47,7 +80,7 @@ class DistributionReleaseTests(unittest.TestCase):
             (directory / "release.json").write_text(json.dumps(descriptor))
             (directory / "trust-root.ed25519.pub").write_bytes(self.public)
             (directory / "catalog.json").write_text(json.dumps({"schemaVersion": 5, "sequence": 1,
-                "models": [{"status": "enabled", "installationProfile": profile}]}))
+                "models": [delivery_model(profile)]}))
             self.sign(directory)
         (release / "release.json").write_text(json.dumps(descriptor))
 
@@ -101,6 +134,56 @@ class DistributionReleaseTests(unittest.TestCase):
                 with patch.object(module, "ROOT", self.root), self.assertRaises(ValueError):
                     module.prepare(self.profiles, output, sealed=True)
                 self.assertFalse(output.exists())
+
+    def rewrite(self, profile, edit):
+        directory = self.profiles / profile
+        catalog = json.loads((directory / "catalog.json").read_text())
+        edit(catalog)
+        (directory / "catalog.json").write_text(json.dumps(catalog))
+        self.sign(directory)
+
+    def set_default(self, channel):
+        for path in [self.root / "Release/release.json"] + [self.profiles / p / "release.json"
+                                                            for p in module.PROFILES]:
+            descriptor = json.loads(path.read_text())
+            descriptor["default_channel"] = channel
+            path.write_text(json.dumps(descriptor))
+
+    def assert_refused_undeclared(self, profile, edit):
+        self.rewrite(profile, edit)
+        output = self.root / "output"
+        with patch.object(module, "ROOT", self.root), self.assertRaisesRegex(
+                ValueError, f"undeclared bundled catalog must be a Testing development delivery: {profile}"):
+            module.prepare(self.profiles, output, sealed=True)
+        self.assertFalse(output.exists())
+
+    def test_an_undeclared_bundled_default_must_be_of_the_delivery_lineage(self):
+        # The app reads an undeclared catalog as Testing only when every model
+        # is of the published development delivery lineage.
+        def foreign(catalog):
+            catalog["models"][0]["payloadArtifact"]["sourceURL"] = "https://downloads.example.com/payload.zip"
+        self.assert_refused_undeclared("nixos-gnome", foreign)
+
+    def test_an_undeclared_bundled_default_of_only_disabled_macs_is_refused(self):
+        def disabled(catalog):
+            catalog["models"] = [{"deviceIdentifier": "apple,j274", "status": "disabled"}]
+        self.assert_refused_undeclared("arch-kde", disabled)
+
+    def test_the_bundled_default_must_be_the_default_channel(self):
+        self.set_default("stable")
+        output = self.root / "output"
+        with patch.object(module, "ROOT", self.root), self.assertRaisesRegex(
+                ValueError, "undeclared bundled catalog"):
+            module.prepare(self.profiles, output, sealed=True)
+        self.declare("testing")
+        with patch.object(module, "ROOT", self.root), self.assertRaisesRegex(
+                ValueError, "must declare stable"):
+            module.prepare(self.profiles, output, sealed=True)
+        self.assertFalse(output.exists())
+        self.declare("stable")
+        with patch.object(module, "ROOT", self.root):
+            module.prepare(self.profiles, output, sealed=True)
+        self.assertEqual(json.loads((output / "catalog.json").read_text())["channel"], "stable")
 
     def test_default_accepts_nine_profiles_and_opt_in_requires_omarchy(self):
         import shutil

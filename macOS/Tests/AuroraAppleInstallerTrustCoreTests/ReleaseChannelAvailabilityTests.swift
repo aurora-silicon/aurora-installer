@@ -412,6 +412,35 @@
       XCTAssertEqual(accepted, .available)
     }
 
+    func testUndeclaredTestingCatalogsMatchTheReleasePreparationVectors() throws {
+      // scripts/tests/test_distribution_release.py runs the same vectors
+      // through prepare-distribution-release.py, so a bundled default that the
+      // release preparation accepts is one this policy accepts, and back.
+      let fixtures = try XCTUnwrap(Bundle.module.url(forResource: "Fixtures", withExtension: nil))
+      let data = try Data(
+        contentsOf: fixtures.appendingPathComponent("legacy-testing-catalog-vectors.json"))
+      let vectors = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+      let cases = try XCTUnwrap(vectors["cases"] as? [[String: Any]])
+      XCTAssertFalse(cases.isEmpty)
+      for vector in cases {
+        let name = try XCTUnwrap(vector["name"] as? String)
+        let accepted = try XCTUnwrap(vector["acceptedAsTesting"] as? Bool)
+        let catalog: [String: Any] = [
+          "schemaVersion": 5, "sequence": 1, "issuedAt": "2026-09-01T00:00:00Z",
+          "models": try XCTUnwrap(vector["models"] as? [Any]),
+        ]
+        let payload = try JSONSerialization.data(withJSONObject: catalog)
+        do {
+          try ReleaseCatalogChannelPolicy.validate(payload: payload, channel: .testing)
+          XCTAssertTrue(accepted, name)
+        } catch {
+          XCTAssertFalse(accepted, name)
+          XCTAssertEqual(
+            error as? InstallerReleaseConfigurationError, .invalidCatalogChannel, name)
+        }
+      }
+    }
+
     func testEachChannelReportsItsOwnStateFromItsSignedCatalog() async throws {
       let configuration = try configuration()
       let coordinator = coordinator(serving: [
