@@ -1447,8 +1447,13 @@ def status(esp, board, out=print):
     for x in ("hci:hci_bcm4377", "net:mt7932-fullmac", "hci:mt7932_bt_pcie"):
         if radio_probe(x, text):
             out(f"Up: {x}")
-    for m in installed_macos(esp):
-        out(f"Installed: {m.describe()}")
+    try:
+        for m in installed_macos(esp):
+            out(f"Installed: {m.describe()}")
+    except Refused as e:
+        out(f"Installed: not read, refused: {e}")
+    except NotNow as e:
+        out(f"Installed: not read now: {e}")
     st = read_state()
     if st:
         out("Last run: " + json.dumps(st, sort_keys=True))

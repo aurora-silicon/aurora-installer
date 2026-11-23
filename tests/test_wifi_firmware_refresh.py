@@ -959,5 +959,48 @@ class SourceDiskTest(Case):
         self.assertEqual(awf.tree_hashes(self.esp), before)
 
 
+
+class StatusTest(Case):
+    """status prints every line, a refused or unreadable source included."""
+
+    def setUp(self):
+        super().setUp()
+        self.esp = make_esp(self.root, wifi_tree("old"))
+        self.saved = {k: getattr(awf, k) for k in ("STATE_DIR", "installed_macos", "kernel_log")}
+        awf.STATE_DIR = self.state
+        awf.kernel_log = lambda run=None: ""
+        awf.write_state({"result": "identical", "build": "25C56"}, self.state)
+
+    def tearDown(self):
+        for k, v in self.saved.items():
+            setattr(awf, k, v)
+        super().tearDown()
+
+    def status_with(self, error):
+        def installed(esp, **kw):
+            raise error
+        awf.installed_macos = installed
+        awf.status(self.esp, BOARD, out=self.out.append)
+        return self.out
+
+    def test_a_refused_esp_disk_is_a_line_and_status_goes_on(self):
+        out = self.status_with(awf.Refused("the system ESP /dev/sda2 is on a removable disk"))
+        self.assertIn("Installed: not read, refused: the system ESP /dev/sda2 is on a "
+                      "removable disk", out)
+        self.assertTrue(any(x.startswith("Last run: ") for x in out), out)
+
+    def test_an_esp_disk_not_known_now_is_a_line_and_status_goes_on(self):
+        out = self.status_with(awf.NotNow("lsblk failed"))
+        self.assertIn("Installed: not read now: lsblk failed", out)
+        self.assertTrue(any(x.startswith("Last run: ") for x in out), out)
+
+    def test_found_macos_is_listed(self):
+        awf.installed_macos = lambda esp, **kw: [self.macos(wifi_tree("new"))]
+        awf.status(self.esp, BOARD, out=self.out.append)
+        self.assertTrue(any(x.startswith("Installed: macOS 26.2 (25C56)") for x in self.out),
+                        self.out)
+        self.assertTrue(any(x.startswith("Last run: ") for x in self.out), self.out)
+
+
 if __name__ == "__main__":
     unittest.main()
