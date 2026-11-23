@@ -37,6 +37,9 @@ RUNNING_BUNDLES = ("/lib/firmware/vendor/apple", "/run/aurora-firmware/vendorfw/
 BACKUP_ROOT = "/var/lib/aurora-rollback"
 LOCK = "/run/aurora-speaker-tuning.lock"
 MOUNTPOINT = "/run/aurora-speaker-tuning-esp"
+# The ESP this tool mounts itself is readable by root only while mounted
+# (vfat has no permissions of its own: they come from these options).
+ESP_MOUNT_OPTIONS = "dmask=0077,fmask=0177,nodev,nosuid,noexec"
 
 
 class Refused(Exception):
@@ -316,6 +319,20 @@ def opened_bundle(source):
 
 # ---------------------------------------------------------------- ESP
 
+
+def others_can_read(options):
+    """Whether a vfat mount's options (findmnt OPTIONS) let users other than
+    root read its files: vfat takes file permissions from fmask (or umask)."""
+    for opt in options.split(","):
+        name, _, value = opt.partition("=")
+        if name in ("fmask", "umask") and value:
+            try:
+                return not int(value, 8) & 0o004
+            except ValueError:
+                return False
+    return False
+
+
 def find_esp(run=subprocess.run, dt_esp=DT_ESP, root="/"):
     """(path of the system ESP, whether we mounted it). Follows
     mount_sys_esp in asahi-scripts: the device tree's ESP PARTUUID unless a
@@ -338,13 +355,17 @@ def find_esp(run=subprocess.run, dt_esp=DT_ESP, root="/"):
                 capture_output=True)
         lines = p.stdout.decode().splitlines() if p.returncode == 0 else []
         mounts = [ln.split(" ", 1) for ln in lines if ln.strip()]
-        rw = [m[0] for m in mounts if len(m) == 2 and "rw" in m[1].split(",")]
+        rw = [m for m in mounts if len(m) == 2 and "rw" in m[1].split(",")]
         if rw:
-            return pathlib.Path(rw[0]), None
+            if others_can_read(rw[0][1]):
+                log.warning(f"The system ESP is mounted at {rw[0][0]} with files every user "
+                            "can read; the firmware package written there is readable too")
+            return pathlib.Path(rw[0][0]), None
         if mounts:
             raise Refused(f"the system ESP {device} is mounted read only at {mounts[0][0]}")
         os.makedirs(MOUNTPOINT, mode=0o700, exist_ok=True)
-        p = run(["mount", "-t", "vfat", device, MOUNTPOINT], capture_output=True)
+        p = run(["mount", "-t", "vfat", "-o", ESP_MOUNT_OPTIONS, device, MOUNTPOINT],
+                capture_output=True)
         if p.returncode != 0:
             raise Refused(f"could not mount the system ESP {device}: "
                           f"{p.stderr.decode().strip()}")
@@ -905,7 +926,10 @@ def system_esp(given):
         yield path
     finally:
         if mounted:
-            subprocess.run(["umount", mounted])
+            p = subprocess.run(["umount", mounted], capture_output=True)
+            if p.returncode != 0:
+                log.warning(f"could not unmount the system ESP at {mounted}: "
+                            f"{p.stderr.decode().strip()}")
 
 
 def main(argv=None):
