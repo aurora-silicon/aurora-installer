@@ -15,8 +15,9 @@ the bounds on what a malformed container can make the reader do.
 A container is untrusted input: every size, count and block address in it
 is checked or capped before it is used (block size, checkpoint area,
 b-tree levels and nodes read per lookup, extents, decmpfs chunk tables and
-inflated sizes), and whatever a damaged structure still trips over is
-reported as ApfsError, the one error callers have to expect.
+inflated sizes, object-map paths, directory walks), device read errors
+included, and whatever a damaged structure still trips over is reported
+as ApfsError, the one error callers have to expect.
 
 Scope, on purpose small: the newest checkpoint, the container object map,
 volumes that are not encrypted (APFS_FS_UNENCRYPTED: the System, Preboot,
@@ -70,6 +71,21 @@ MAX_DESC_BYTES = 64 << 20
 MAX_LOOKUP_NODES = 4096
 MAX_TREE_DEPTH = 16
 DECMPFS_CHUNK = 0x10000
+# The most one chunk of the resource fork may hold. A stored chunk is a
+# marker byte and 64 KiB, and a chunk that does not compress is stored;
+# the headroom covers the few bytes per KiB zlib, LZVN and LZFSE add to
+# data they cannot shrink.
+MAX_CHUNK_IN = DECMPFS_CHUNK + 0x1000
+# LZVN no-op opcodes a stream may hold beyond one per output byte (they
+# produce nothing, so they would otherwise cost time bounded only by the
+# input's length).
+LZVN_NOP_SLACK = 16
+# A directory walk (walk, copy_tree): how deep, how many entries and how
+# many file bytes, all far above a System volume's /usr/share/firmware
+# (about a thousand files, a few levels).
+MAX_WALK_DEPTH = 64
+MAX_WALK_ENTRIES = 1 << 16
+MAX_WALK_BYTES = 1 << 30
 
 
 class ApfsError(Exception):
@@ -79,7 +95,10 @@ class ApfsError(Exception):
 # What parsing a damaged structure raises: a field that points outside its
 # block (struct.error, IndexError), a broken deflate stream, an address too
 # large for an offset, a structure nested deeper than the interpreter allows.
-_MALFORMED = (struct.error, IndexError, zlib.error, OverflowError, RecursionError)
+# MemoryError: the reader holds at most one file (MAX_FILE) and what it is
+# decoded from at a time; a host that cannot spare that much gets the
+# container refused rather than an exception its callers do not expect.
+_MALFORMED = (struct.error, IndexError, zlib.error, OverflowError, RecursionError, MemoryError)
 
 
 def _checked(fn):
@@ -88,6 +107,8 @@ def _checked(fn):
     def call(*args, **kwargs):
         try:
             return fn(*args, **kwargs)
+        except MemoryError as e:
+            raise ApfsError("out of memory reading the APFS structure") from e
         except _MALFORMED as e:
             raise ApfsError(f"malformed APFS structure ({type(e).__name__}: {e})") from e
     return call
@@ -151,6 +172,7 @@ def lzfse():
 
 
 def lzfse_decode(data, size):
+    data = bytes(data)  # ctypes takes bytes, not a bytearray or memoryview
     if sys.platform == "darwin":  # development hosts: the system's libcompression
         lib = ctypes.CDLL("/usr/lib/libcompression.dylib")
         lib.compression_decode_buffer.restype = ctypes.c_size_t
@@ -170,9 +192,12 @@ def lzfse_decode(data, size):
 
 
 def lzvn_decode(src, size):
-    """A raw LZVN stream (decmpfs types 7 and 8) to `size` bytes."""
+    """A raw LZVN stream (decmpfs types 7 and 8) to `size` bytes, as a
+    bytearray. Every opcode but a no-op makes output, so with no-ops capped
+    by the output the work is bounded by `size`."""
     out = bytearray()
     i, d, n = 0, 0, len(src)
+    nops = 0
 
     def need(k):
         if i + k > n:
@@ -185,6 +210,9 @@ def lzvn_decode(src, size):
         if op == 0x06:
             break
         if op in (0x0E, 0x16):
+            nops += 1
+            if nops > len(out) + LZVN_NOP_SLACK:
+                raise ApfsError("lzvn: no-op opcodes beyond the output they pad")
             i += 1
             continue
         if op >= 0xF0:  # match with the previous distance
@@ -236,7 +264,7 @@ def lzvn_decode(src, size):
             raise ApfsError("lzvn: output over the expected size")
     if len(out) != size:
         raise ApfsError(f"lzvn: {len(out)} bytes decoded, {size} expected")
-    return bytes(out)
+    return out
 
 
 class Device:
@@ -252,7 +280,12 @@ class Device:
         self.bs = 4096
 
     def read(self, paddr, n=1):
-        b = self.src.pread(self.bs * n, paddr * self.bs)
+        try:
+            b = self.src.pread(self.bs * n, paddr * self.bs)
+        except OSError as e:
+            # A damaged disk (EIO) is one more unreadable container.
+            raise ApfsError(f"read error at block {paddr:#x}: "
+                            f"{e.strerror or e} (errno {e.errno})") from e
         if len(b) != self.bs * n:
             raise ApfsError(f"short read at block {paddr:#x}")
         return b
@@ -295,10 +328,19 @@ class Omap:
         self.tree = struct.unpack_from("<Q", om, 48)[0]
 
     @_checked
-    def lookup(self, oid, xid):
+    def lookup(self, oid, xid, budget=None):
+        """The (physical address, flags) of virtual object oid at xid. The
+        nodes read are charged to budget, the caller's lookup when it has
+        one."""
+        budget = budget or _Budget("object map")
         paddr = self.tree
+        level = None
         for _ in range(16):
+            budget.take()
             n = Node(self.dev.obj(paddr), self.dev.bs)
+            if level is not None and n.level != level - 1:
+                raise ApfsError(f"object map node {paddr:#x} is not one level below its parent")
+            level = n.level
             best = None
             for k, v in n.kv:
                 ko, kx = struct.unpack_from("<QQ", k)
@@ -349,10 +391,10 @@ class Volume:
             self._omap = Omap(self.dev, self.omap_oid)
         return self._omap
 
-    def node(self, oid, physical):
+    def node(self, oid, physical, budget=None):
         if physical:
             return Node(self._read_phys(oid), self.dev.bs)
-        p, flags = self.omap().lookup(oid, self.xid)
+        p, flags = self.omap().lookup(oid, self.xid, budget)
         if flags & OMAP_VAL_ENCRYPTED:
             raise ApfsError(f"volume '{self.name}' is encrypted (Secure Enclave key); not readable here")
         return Node(self.dev.obj(p, noheader=bool(flags & OMAP_VAL_NOHEADER)), self.dev.bs)
@@ -368,12 +410,12 @@ class Volume:
         """Every fs-tree record (key, value) of object `oid`, type `typ`."""
         if self.encrypted:
             raise ApfsError(f"volume '{self.name}' is encrypted (Secure Enclave key); not readable here")
-        root = self.node(self.root_oid, False)
+        # Every node of this lookup, object-map nodes included, counts.
+        budget = _Budget("fs tree")
+        root = self.node(self.root_oid, False, budget)
         physical = bool(struct.unpack_from("<I", root.info, 0)[0] & BTREE_PHYSICAL) if root.info else False
         want = (oid, typ)
         out = []
-
-        budget = _Budget("fs tree")
 
         def walk(n, depth):
             if depth > MAX_TREE_DEPTH:
@@ -390,7 +432,7 @@ class Volume:
                     if relative:
                         child += self.root_oid
                     budget.take()
-                    cn = self.node(child, physical)
+                    cn = self.node(child, physical, budget)
                     if cn.level != n.level - 1:
                         raise ApfsError(f"fs tree child {child:#x} is not one level below its parent")
                     if cn.kv and jkey(cn.kv[0][0]) < keys[i]:
@@ -493,6 +535,8 @@ class Volume:
 
     @_checked
     def stream(self, private_id, size):
+        """A data stream's first `size` bytes, as a bytearray (held once:
+        not copied into bytes)."""
         if size > MAX_FILE:
             raise ApfsError(f"stream of {size} bytes is over the limit")
         buf = bytearray(size)
@@ -509,11 +553,12 @@ class Volume:
             if pb == 0:
                 continue  # sparse
             blocks = (n + self.dev.bs - 1) // self.dev.bs
-            buf[la:la + n] = self.dev.read(pb, blocks)[:n]
-        return bytes(buf)
+            buf[la:la + n] = memoryview(self.dev.read(pb, blocks))[:n]
+        return buf
 
     @_checked
     def read_file(self, ino):
+        """A regular file's data, bytes-like (bytes or bytearray)."""
         info = self.inode(ino)
         if not stat.S_ISREG(info["mode"]):
             raise ApfsError(f"inode {ino} is not a regular file")
@@ -555,21 +600,35 @@ class Volume:
         # the chunk table can hold (one spare: a table may end with an
         # empty chunk).
         max_chunks = usize // chunk + 2
+        # Each chunk is read once, from inside the resource fork, is at
+        # most MAX_CHUNK_IN bytes and inflates to at most 64 KiB.
         if ctype == 4:
             base = struct.unpack_from(">I", rsrc, 0)[0] + 4
             count = struct.unpack_from("<I", rsrc, base)[0]
             if count > max_chunks:
                 raise ApfsError(f"inode {ino}: {count} chunks for {usize} bytes")
-            for i in range(count):
-                off, ln = struct.unpack_from("<II", rsrc, base + 4 + 8 * i)
-                c = rsrc[base + off:base + off + ln]
+            spans = [struct.unpack_from("<II", rsrc, base + 4 + 8 * i) for i in range(count)]
+            end = 0
+            for off, ln in sorted(spans):
+                if ln > MAX_CHUNK_IN or base + off + ln > len(rsrc):
+                    raise ApfsError(f"inode {ino}: chunk of {ln} bytes at {off:#x} outside the resource fork "
+                                    f"or over {MAX_CHUNK_IN} bytes")
+                if off < end:
+                    raise ApfsError(f"inode {ino}: overlapping chunks at {off:#x}")
+                end = off + ln
+            for off, ln in spans:
+                c = memoryview(rsrc)[base + off:base + off + ln]
                 want = min(chunk, usize - len(out))
-                out += c[1:1 + want] if c[:1] == b"\xff" else inflate(c, usize - len(out))
+                out += c[1:1 + want] if c[:1] == b"\xff" else inflate(c, want)
         else:
             first = struct.unpack_from("<I", rsrc, 0)[0]
             if first // 4 > max_chunks + 1:
                 raise ApfsError(f"inode {ino}: {first // 4 - 1} chunks for {usize} bytes")
             offs = [struct.unpack_from("<I", rsrc, 4 * i)[0] for i in range(first // 4)]
+            for a, b in zip(offs, offs[1:]):
+                if not a < b <= len(rsrc) or b - a > MAX_CHUNK_IN:
+                    raise ApfsError(f"inode {ino}: chunk offsets {a:#x}..{b:#x} not increasing, "
+                                    f"outside the resource fork or over {MAX_CHUNK_IN} bytes")
             for a, b in zip(offs, offs[1:]):
                 c = rsrc[a:b]
                 want = min(chunk, usize - len(out))
@@ -582,7 +641,7 @@ class Volume:
                     out += lzfse_decode(c, want)
         if len(out) != usize:
             raise ApfsError(f"inode {ino}: {len(out)} bytes decompressed, {usize} expected")
-        return bytes(out)
+        return out
 
     @_checked
     def readlink(self, ino):
@@ -663,29 +722,63 @@ class Container:
         raise ApfsError(f"no volume {name or ROLES.get(role, role)}")
 
 
-@_checked
-def copy_tree(vol, path, dest, limit=MAX_FILE):
-    """Copies a file or a directory tree out of the volume. Returns the
-    number of files. Symlinks and special files are skipped."""
-    ino, kind = vol.resolve(path)
-    count = 0
+def walk(vol, path, want=None, max_depth=MAX_WALK_DEPTH, max_entries=MAX_WALK_ENTRIES,
+         max_bytes=MAX_WALK_BYTES):
+    """The tree at path, depth first in name order: (rel, ino, kind, data)
+    for it and everything under it, rel "" for path itself. data is a
+    regular file's contents, None for anything else; with want, only the
+    entries want(rel) accepts are given (directories are always walked).
 
-    def rec(ino, kind, dst):
-        nonlocal count
+    Iterative and bounded: a directory reached twice (APFS has no directory
+    hard links, so the tree is damaged), a path more than max_depth below
+    path, more than max_entries entries or more than max_bytes of file data
+    is an ApfsError. Names with "/" or NUL, "." and ".." are skipped."""
+    ino, kind = vol.resolve(path)
+    seen = set()
+    entries = total = 0
+    stack = [("", ino, kind, 0)]
+    while stack:
+        rel, ino, kind, depth = stack.pop()
+        entries += 1
+        if entries > max_entries:
+            raise ApfsError(f"{path}: over {max_entries} entries")
         if kind == 4:  # DT_DIR
-            os.makedirs(dst, mode=0o700, exist_ok=True)
-            for name, (cino, ck) in sorted(vol.children(ino).items()):
-                if "/" in name or name in (".", ".."):
-                    continue
-                rec(cino, ck, os.path.join(dst, name))
-        elif kind == 8:  # DT_REG
+            if ino in seen:
+                raise ApfsError(f"{path}: directory {ino} reached twice")
+            seen.add(ino)
+            yield rel, ino, kind, None
+            kids = [(n, k) for n, k in sorted(vol.children(ino).items())
+                    if "/" not in n and "\0" not in n and n not in (".", "..")]
+            if kids and depth >= max_depth:
+                raise ApfsError(f"{path}: more than {max_depth} levels deep")
+            for name, (cino, ck) in reversed(kids):
+                stack.append((f"{rel}/{name}" if rel else name, cino, ck, depth + 1))
+            continue
+        if want is not None and not want(rel):
+            continue
+        data = None
+        if kind == 8:  # DT_REG
             data = vol.read_file(ino)
+            total += len(data)
+            if total > max_bytes:
+                raise ApfsError(f"{path}: over {max_bytes} bytes of files")
+        yield rel, ino, kind, data
+
+
+@_checked
+def copy_tree(vol, path, dest, max_bytes=MAX_WALK_BYTES):
+    """Copies a file or a directory tree out of the volume (walk's bounds).
+    Returns the number of files. Symlinks and special files are skipped."""
+    count = 0
+    for rel, ino, kind, data in walk(vol, path, max_bytes=max_bytes):
+        dst = os.path.join(dest, rel) if rel else dest
+        if kind == 4:
+            os.makedirs(dst, mode=0o700, exist_ok=True)
+        elif kind == 8:
             fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
             with os.fdopen(fd, "wb") as f:
                 f.write(data)
             count += 1
-
-    rec(ino, kind, dest)
     return count
 
 

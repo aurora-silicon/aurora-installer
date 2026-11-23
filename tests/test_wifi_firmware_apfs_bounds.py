@@ -31,10 +31,13 @@ DECMPFS = 0x636D7066
 SYSTEM_VERSION = "/System/Library/CoreServices/SystemVersion.plist"
 PLIST = plistlib.dumps({"ProductBuildVersion": "99Z999", "ProductVersion": "99.0"})
 
-# The child: open the container, take its System volume, then read one file
-# or list one directory. One JSON line: how it ended, block reads, peak RSS.
+# The child: open the container, take its System volume, then read one file,
+# list one directory, copy a tree (copy_tree) or walk one (walk). One JSON
+# line: how it ended, block reads, peak RSS. The last argument is JSON:
+# walk's keyword arguments, copy's destination, or the byte offset at which
+# the device fails with EIO.
 CHILD = r"""
-import hashlib, json, resource, sys
+import errno, hashlib, json, os, resource, sys
 sys.path.insert(0, sys.argv[1])
 import apfs_ro
 reads = [0]
@@ -43,15 +46,36 @@ def read(self, paddr, n=1):
     reads[0] += 1
     return plain_read(self, paddr, n)
 apfs_ro.Device.read = read
+op, path, kw = sys.argv[3], sys.argv[4], json.loads(sys.argv[5])
+dev = sys.argv[2]
+eio = kw.pop("eio_at", None)
+if eio is not None:
+    class Failing:
+        fd = os.open(dev, os.O_RDONLY)
+        @classmethod
+        def pread(cls, n, off):
+            if off <= eio < off + n:
+                raise OSError(errno.EIO, os.strerror(errno.EIO))
+            return os.pread(cls.fd, n, off)
+    dev = Failing
 res = {}
 try:
-    vol = apfs_ro.Container(sys.argv[2]).volume(role=apfs_ro.ROLE_SYSTEM)
-    ino, kind = vol.resolve(sys.argv[4])
-    if sys.argv[3] == "read":
-        data = vol.read_file(ino)
+    vol = apfs_ro.Container(dev).volume(role=apfs_ro.ROLE_SYSTEM)
+    if op == "read":
+        data = vol.read_file(vol.resolve(path)[0])
         res.update(end="ok", size=len(data), sha256=hashlib.sha256(data).hexdigest())
+    elif op == "ls":
+        res.update(end="ok", names=sorted(vol.children(vol.resolve(path)[0])))
+    elif op == "walk":
+        res.update(end="ok", entries=[[rel, kind, None if data is None else hashlib.sha256(data).hexdigest()]
+                                      for rel, ino, kind, data in apfs_ro.walk(vol, path, **kw)])
     else:
-        res.update(end="ok", names=sorted(vol.children(ino)))
+        dest = kw.pop("dest")
+        try:
+            res.update(end="ok", count=apfs_ro.copy_tree(vol, path, dest, **kw))
+        finally:
+            res["copied"] = sorted(os.path.relpath(os.path.join(d, n), dest) for d, ds, fs in os.walk(dest)
+                                   for n in ds + fs)
 except apfs_ro.ApfsError as e:
     res.update(end="ApfsError", message=str(e))
 except BaseException as e:
@@ -173,6 +197,7 @@ class Image:
         self.fext = 0
         self.next = 7
         self.root_node = None
+        self.vol_omap = None  # the volume object map's tree root (block 5)
         self.records = [drec(2, "System", 16, 4), drec(16, "Library", 17, 4),
                         drec(17, "CoreServices", 18, 4),
                         drec(18, "SystemVersion.plist", self.FILE, 8)]
@@ -231,7 +256,7 @@ class Image:
         struct.pack_into("<Q", sb, 1032, self.fext)
         self.blocks[3] = seal(bytes(sb))
         self.blocks[4] = omap_obj(5)
-        self.blocks[5] = omap_tree([(self.ROOT_OID, self.xid, 6)])
+        self.blocks[5] = self.vol_omap or omap_tree([(self.ROOT_OID, self.xid, 6)])
         self.blocks[6] = self.root_node or node(3, 0, sorted(self.records, key=lambda r: struct.unpack_from(
             "<Q", r[0])[0] & 0x0FFFFFFFFFFFFFFF))
         self.blocks[0] = self.superblock(self.xid)
@@ -272,13 +297,13 @@ class ReaderCase(unittest.TestCase):
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
-    def run_reader(self, image, op="read", path=SYSTEM_VERSION):
+    def run_reader(self, image, op="read", path=SYSTEM_VERSION, **kw):
         if isinstance(image, Image):
             image = image.build()
         img = pathlib.Path(self.tmp.name) / f"{self.id().rsplit('.', 1)[-1]}.img"
         img.write_bytes(image)
         try:
-            p = subprocess.run([sys.executable, "-I", "-c", CHILD, str(TOOL), str(img), op, path],
+            p = subprocess.run([sys.executable, "-I", "-c", CHILD, str(TOOL), str(img), op, path, json.dumps(kw)],
                                capture_output=True, text=True, timeout=TIME_LIMIT, preexec_fn=_limit_memory)
         except subprocess.TimeoutExpired:
             return {"end": f"still running after {TIME_LIMIT} s"}
@@ -291,6 +316,11 @@ class ReaderCase(unittest.TestCase):
         res = self.run_reader(image, **kw)
         self.assertEqual(res["end"], "ApfsError", res)
         return res
+
+    def copied(self, image, path, **kw):
+        """copy_tree of path into a fresh directory."""
+        dest = tempfile.mkdtemp(dir=self.tmp.name)
+        return self.run_reader(image, op="copy", path=path, dest=f"{dest}/out", **kw)
 
     def reads_back(self, image, data):
         res = self.run_reader(image)
@@ -435,6 +465,178 @@ class Malformed(ReaderCase):
         im.compressed_file(decmpfs(8, 4096), struct.pack("<I", size - 4), rsrc_size=size)
         self.assertLess(self.refused(im)["rss_mib"], 336)
 
+    # ------------------------------------------------ review of the bounds
+
+    def test_sparse_file_held_once(self):
+        # An inode of 256 MiB with no extents reads back as zeros, within
+        # the child's 512 MiB address space.
+        im = Image()
+        im.records.append(inode(im.FILE, size=256 * MIB))
+        self.reads_back(im, bytes(256 * MIB))
+
+    def test_device_read_error(self):
+        im = Image()
+        p = im.plain_file()
+        res = self.refused(im, eio_at=p * BS)
+        self.assertIn("errno 5", res["message"])
+
+    def rsrc4(self, chunks, spans=None):
+        """A type 4 resource fork of chunks; spans [(offset, length)]
+        replace the table the chunks give."""
+        if spans is None:
+            spans, off = [], 4 + 8 * len(chunks)
+            for c in chunks:
+                spans.append((off, len(c)))
+                off += len(c)
+        table = b"".join(struct.pack("<II", o, n) for o, n in spans)
+        return struct.pack(">I", 0) + struct.pack("<I", len(spans)) + table + b"".join(chunks)
+
+    def test_decmpfs_chunk_spans(self):
+        data = pattern(0x10000)
+        z = zlib.compress(data)
+        start = 4 + 16
+        cases = {
+            # Both entries name the same chunk.
+            "overlapping": (2 * len(data), [z], [(start, len(z)), (start, len(z))]),
+            # A stored chunk over 64 KiB and the reader's 4 KiB headroom.
+            "over": (len(data), [b"\xff" + data + bytes(0x1000)], None),
+            # A chunk that runs past the end of the fork.
+            "outside": (len(data), [b"\xff" + data], [(start, len(data) + 1 + 4096)]),
+        }
+        for want, (usize, chunks, spans) in cases.items():
+            with self.subTest(want):
+                im = Image()
+                im.compressed_file(decmpfs(4, usize), self.rsrc4(chunks, spans if spans else None))
+                self.assertIn(want, self.refused(im)["message"])
+
+    def test_decmpfs_chunk_inflates_past_chunk_size(self):
+        # One zlib chunk of 128 KiB for a file of 128 KiB: a chunk is 64 KiB.
+        data = pattern(0x20000)
+        im = Image()
+        im.compressed_file(decmpfs(4, len(data)), self.rsrc4([zlib.compress(data)]))
+        self.assertIn("zlib", self.refused(im)["message"])
+
+    def rsrc8(self, chunks, offs=None):
+        if offs is None:
+            offs, off = [], 4 * (len(chunks) + 1)
+            for c in chunks:
+                offs.append(off)
+                off += len(c)
+            offs.append(off)
+        return b"".join(struct.pack("<I", o) for o in offs) + b"".join(chunks)
+
+    def test_decmpfs_chunk_offsets(self):
+        data = pattern(0x10000)
+        a, b = b"\x06" + data[:0x8000], b"\x06" + data[0x8000:]
+        cases = {
+            "decreasing": (len(data), [a, b], [12, 12 + len(a), 12]),
+            "past the fork": (len(data), [a, b], [12, 12 + len(a), 12 + len(a) + len(b) + 4096]),
+            "over 68 KiB": (len(data), [b"\x06" + data + bytes(0x1000)], None),
+        }
+        for name, (usize, chunks, offs) in cases.items():
+            with self.subTest(name):
+                im = Image()
+                im.compressed_file(decmpfs(8, usize), self.rsrc8(chunks, offs))
+                self.assertIn("chunk offsets", self.refused(im)["message"])
+
+    def test_lzvn_nop_flood(self):
+        # No-op opcodes, then one literal byte.
+        flood = b"\x0e" * (4 * MIB) + b"\xe1A\x06"
+        with self.subTest("attribute stream (type 7)"):
+            im = Image()
+            hdr = decmpfs(7, 1, flood)
+            p = im.add_data(hdr)
+            im.records += [inode(im.FILE, bsd_flags=0x20),
+                           xattr(im.FILE, "com.apple.decmpfs", 1, struct.pack("<QQ", im.RSRC, len(hdr))),
+                           extent(im.RSRC, 0, (len(hdr) + BS - 1) // BS * BS, p)]
+            self.assertIn("no-op", self.refused(im)["message"])
+        with self.subTest("resource fork chunk (type 8)"):
+            im = Image()
+            im.compressed_file(decmpfs(8, 1), self.rsrc8([b"\x16" * 0x8000 + b"\xe1A\x06"]))
+            self.assertIn("no-op", self.refused(im)["message"])
+
+    def virtual_fanout(self, k, levels, omap_levels):
+        """fanout() with virtual children, each behind an object-map path of
+        omap_levels nodes."""
+        im = Image()
+        key = jk(2, 9)
+        oid = [0x500 + level for level in range(levels)]
+        at = {}
+        for level in range(levels - 1, 0, -1):
+            at[oid[level]] = im.add(node(0, level, [(key, struct.pack("<Q", oid[level - 1]))] * k))
+        at[oid[0]] = im.add(node(2, 0, [drec(2, "x", 99, 8)]))
+        im.root_node = node(1, levels, [(key, struct.pack("<Q", oid[levels - 1]))] * k)
+        entries = sorted([(Image.ROOT_OID, im.xid, 6)] + [(o, im.xid, p) for o, p in at.items()])
+        okey = struct.pack("<QQ", 0, 0)
+        child = im.add(node(2, 0, [(struct.pack("<QQ", o, x), struct.pack("<IIQ", 0, BS, p))
+                                   for o, x, p in entries], fixed=True))
+        for level in range(1, omap_levels - 1):
+            child = im.add(node(0, level, [(okey, struct.pack("<Q", child))], fixed=True))
+        im.vol_omap = node(1, omap_levels - 1, [(okey, struct.pack("<Q", child))], fixed=True)
+        return im
+
+    def test_object_map_reads_in_lookup_budget(self):
+        res = self.refused(self.virtual_fanout(8, 16, 16), op="ls", path="/")
+        self.assertLess(res["reads"], 10000)
+
+    def test_object_map_child_level(self):
+        # An object-map root of level 2 whose child is its leaf.
+        im = Image()
+        im.plain_file()
+        leaf = im.add(node(2, 0, [(struct.pack("<QQ", Image.ROOT_OID, im.xid), struct.pack("<IIQ", 0, BS, 6))],
+                           fixed=True))
+        im.vol_omap = node(1, 2, [(struct.pack("<QQ", 0, 0), struct.pack("<Q", leaf))], fixed=True)
+        self.assertIn("object map", self.refused(im)["message"])
+
+    # ---------------------------------------------- directory walks
+
+    def tree(self, recs):
+        """An image whose /fw (inode 30) holds recs."""
+        im = Image()
+        im.plain_file()
+        im.records += [drec(2, "fw", 30, 4)] + recs
+        return im
+
+    def test_directory_lists_itself(self):
+        res = self.copied(self.tree([drec(30, "self", 30, 4)]), "/fw")
+        self.assertEqual(res["end"], "ApfsError", res)
+        self.assertIn("twice", res["message"])
+        self.assertEqual(res["copied"], [])
+        self.assertLess(res["reads"], 200)
+
+    def test_directory_dag(self):
+        # Each level names the next directory twice: 2^20 paths, 21 inodes.
+        recs = []
+        for i in range(20):
+            recs += [drec(30 + i, "a", 31 + i, 4), drec(30 + i, "b", 31 + i, 4)]
+        for op in ("walk", "copy"):
+            with self.subTest(op):
+                im = self.tree(recs)
+                res = self.run_reader(im, op="walk", path="/fw") if op == "walk" else self.copied(im, "/fw")
+                self.assertEqual(res["end"], "ApfsError", res)
+                self.assertIn("twice", res["message"])
+                self.assertLess(res["reads"], 1000)
+
+    def test_directory_depth(self):
+        recs = [drec(30 + i, "d", 31 + i, 4) for i in range(80)]
+        for op in ("walk", "copy"):
+            with self.subTest(op):
+                im = self.tree(recs)
+                res = self.run_reader(im, op="walk", path="/fw") if op == "walk" else self.copied(im, "/fw")
+                self.assertEqual(res["end"], "ApfsError", res)
+                self.assertIn("levels deep", res["message"])
+
+    def test_walk_budgets(self):
+        # 20 names for one file.
+        recs = [drec(30, f"f{i:02d}", Image.FILE, 8) for i in range(20)]
+        for kw, want in (({"max_entries": 10}, "entries"), ({"max_bytes": 5 * len(PLIST)}, "bytes")):
+            with self.subTest(**kw):
+                self.assertIn(want, self.refused(self.tree(recs), op="walk", path="/fw", **kw)["message"])
+        with self.subTest("copy_tree max_bytes"):
+            res = self.copied(self.tree(recs), "/fw", max_bytes=5 * len(PLIST))
+            self.assertEqual(res["end"], "ApfsError", res)
+            self.assertEqual(len(res["copied"]), 5)
+
 
 class WellFormed(ReaderCase):
     """What the bounds must leave alone."""
@@ -507,6 +709,30 @@ class WellFormed(ReaderCase):
         im = Image()
         im.compressed_file(decmpfs(8, len(data)),
                            b"".join(struct.pack("<I", o) for o in offs + [off]) + b"".join(chunks))
+        self.reads_back(im, data)
+
+    def test_copy_and_walk_tree(self):
+        # /fw: a file, a subdirectory with a second name for it, a link and
+        # an empty directory.
+        im = Image()
+        im.plain_file()
+        im.records += [drec(2, "fw", 30, 4), drec(30, "a.plist", Image.FILE, 8), drec(30, "sub", 31, 4),
+                       drec(31, "b.plist", Image.FILE, 8), drec(30, "link", 32, 10), drec(30, "empty", 33, 4)]
+        sha = hashlib.sha256(PLIST).hexdigest()
+        res = self.run_reader(im, op="walk", path="/fw")
+        self.assertEqual((res["end"], res.get("entries")),
+                         ("ok", [["", 4, None], ["a.plist", 8, sha], ["empty", 4, None], ["link", 10, None],
+                                 ["sub", 4, None], ["sub/b.plist", 8, sha]]), res)
+        res = self.copied(im, "/fw")
+        self.assertEqual((res["end"], res.get("count"), res["copied"]),
+                         ("ok", 2, ["a.plist", "empty", "sub", "sub/b.plist"]), res)
+
+    def test_lzvn_nop_padding(self):
+        # A few no-ops between commands decode as before.
+        data = pattern(300)
+        stream = b"\x0e\x16" + lzvn_literals(data[:150])[:-1] + b"\x0e" * 3 + lzvn_literals(data[150:])
+        im = Image()
+        im.compressed_file(decmpfs(8, len(data)), struct.pack("<II", 8, 8 + len(stream)) + stream)
         self.reads_back(im, data)
 
 
