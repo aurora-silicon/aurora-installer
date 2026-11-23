@@ -78,6 +78,30 @@ class DistributionReleaseTests(unittest.TestCase):
                          set(module.PROFILES))
         self.assertEqual(json.loads((output / "catalog.json").read_text())["schemaVersion"], 5)
 
+    def declare(self, channel):
+        for profile in module.PROFILES:
+            directory = self.profiles / profile
+            catalog = json.loads((directory / "catalog.json").read_text())
+            catalog["channel"] = channel
+            (directory / "catalog.json").write_text(json.dumps(catalog))
+            self.sign(directory)
+
+    def test_a_delivery_declaring_testing_is_the_bundled_default(self):
+        self.declare("testing")
+        output = self.root / "output"
+        with patch.object(module, "ROOT", self.root):
+            module.prepare(self.profiles, output, sealed=True)
+        self.assertEqual(json.loads((output / "catalog.json").read_text())["channel"], "testing")
+
+    def test_a_delivery_signed_for_another_channel_emits_no_release(self):
+        for channel in ("stable", "rc", "edge", "", 5):
+            with self.subTest(channel=channel):
+                self.declare(channel)
+                output = self.root / f"output-{channel}"
+                with patch.object(module, "ROOT", self.root), self.assertRaises(ValueError):
+                    module.prepare(self.profiles, output, sealed=True)
+                self.assertFalse(output.exists())
+
     def test_default_accepts_nine_profiles_and_opt_in_requires_omarchy(self):
         import shutil
         shutil.rmtree(self.profiles / module.OMARCHY_PROFILE)

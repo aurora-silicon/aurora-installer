@@ -69,6 +69,8 @@ def prepare(source, output, sealed=False, signing_team=None):
                 for model in catalog["models"]
             ):
                 raise ValueError(f"native-only catalog includes an execution archive: {profile}")
+            # Published development deliveries predate the channel field, so an
+            # undeclared one is still read as Testing, as the app reads it.
             if catalog.get("channel") not in (None, "testing"):
                 raise ValueError("the bundled default must be a testing delivery")
             schema_versions.add(catalog["schemaVersion"])

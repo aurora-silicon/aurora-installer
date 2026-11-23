@@ -132,6 +132,13 @@ class CatalogGeneratorTests(unittest.TestCase):
         self.assertEqual(catalog["sequence"], 1788480000)
         self.assertEqual(len(catalog["models"]), len(self.inputs["device_identifiers"]))
 
+    def test_every_catalog_declares_the_testing_channel(self) -> None:
+        # The signature covers the channel only when the catalog declares it.
+        result = self.generate()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        catalog = json.loads((self.directory / "catalog.json").read_text())
+        self.assertEqual(catalog["channel"], "testing")
+
     def test_schema_five_binds_only_native_delivery_assets(self) -> None:
         document = self.with_neo()
         document["schema_version"] = 5

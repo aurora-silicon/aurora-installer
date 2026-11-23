@@ -437,6 +437,14 @@ publish_r2_release() {
       require_file "$catalog_dir/$catalog_asset"
       catalog_assets="$catalog_assets $catalog_asset"
     done
+    # A set bound for more than one channel also carries one signed catalog
+    # per channel, which publish-channels os-promote reads for that channel.
+    for catalog_asset in catalog.stable.signed.json catalog.rc.signed.json \
+      catalog.testing.signed.json catalog.edge.signed.json; do
+      [[ -e $catalog_dir/$catalog_asset ]] || continue
+      require_file "$catalog_dir/$catalog_asset"
+      catalog_assets="$catalog_assets $catalog_asset"
+    done
     catalog_assets=${catalog_assets# }
   fi
   r2_credentials
