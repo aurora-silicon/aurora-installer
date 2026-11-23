@@ -19,9 +19,22 @@ class IM4PError(ValueError):
     """Not an IM4P this reader understands."""
 
 def check_raw_size(raw_size):
+    # A compressed payload holds at least one byte: nothing compresses an
+    # empty one (the reference lzfse encoder cannot even produce it), and a
+    # size of 0 would accept any compressed data without decoding a byte.
     if not isinstance(raw_size, int) or isinstance(raw_size, bool) \
-            or not 0 <= raw_size <= MAX_RAW_SIZE:
-        raise IM4PError(f"IM4P uncompressed size {raw_size!r} is not in 0..{MAX_RAW_SIZE}")
+            or not 1 <= raw_size <= MAX_RAW_SIZE:
+        raise IM4PError(f"IM4P uncompressed size {raw_size!r} is not in 1..{MAX_RAW_SIZE}")
+
+def check_decoded(dest, decoded, raw_size):
+    """lzfse_decode_buffer and compression_decode_buffer stop at dst_size
+    and return it, also when the stream holds more. The buffer is one byte
+    larger than raw_size, so a stream that decodes to more than raw_size
+    fills it and is refused rather than cut to the expected size."""
+    if decoded != raw_size:
+        more = " or more" if decoded > raw_size else ""
+        raise IM4PError(f"IM4P payload decompressed to {decoded}{more} bytes, not {raw_size}")
+    return dest.raw[:raw_size]
 
 def decode_lzfse_liblzfse(cdata, raw_size):
     check_raw_size(raw_size)
@@ -37,12 +50,9 @@ def decode_lzfse_liblzfse(cdata, raw_size):
     decode.restype = c_size_t
 
     cdata = bytes(cdata)
-    dest = create_string_buffer(raw_size)
-    decoded = decode(dest, raw_size, cdata, len(cdata), None)
-
-    if decoded != raw_size:
-        raise IM4PError(f"IM4P payload decompressed to {decoded} bytes, not {raw_size}")
-    return dest.raw
+    dest = create_string_buffer(raw_size + 1)
+    decoded = decode(dest, raw_size + 1, cdata, len(cdata), None)
+    return check_decoded(dest, decoded, raw_size)
 
 def decode_lzfse_darwin(cdata, raw_size):
     check_raw_size(raw_size)
@@ -55,13 +65,10 @@ def decode_lzfse_darwin(cdata, raw_size):
     decode.restype = c_size_t
 
     cdata = bytes(cdata)
-    dest = create_string_buffer(raw_size)
+    dest = create_string_buffer(raw_size + 1)
     COMPRESSION_LZFSE = 0x801
-    decoded = decode(dest, raw_size, cdata, len(cdata), None, COMPRESSION_LZFSE)
-
-    if decoded != raw_size:
-        raise IM4PError(f"IM4P payload decompressed to {decoded} bytes, not {raw_size}")
-    return dest.raw
+    decoded = decode(dest, raw_size + 1, cdata, len(cdata), None, COMPRESSION_LZFSE)
+    return check_decoded(dest, decoded, raw_size)
 
 if sys.platform == 'darwin':
     decode_lzfse = decode_lzfse_darwin

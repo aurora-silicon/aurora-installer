@@ -113,8 +113,9 @@ class Header(unittest.TestCase):
 class FakeLibrary:
     """Stands in for liblzfse / libcompression: records how it is called."""
 
-    def __init__(self, result=None):
+    def __init__(self, result=None, produced=None):
         self.calls = []
+        self.produced = produced
         function = mock.Mock(side_effect=self.call)
         function.argtypes = None
         function.restype = ctypes.c_int
@@ -125,14 +126,21 @@ class FakeLibrary:
 
     def call(self, dest, size, *rest):
         self.calls.append((dest, size) + rest)
-        return size if self.result is None else self.result
+        if self.result is not None:
+            return self.result
+        # As the libraries do: write at most size bytes, return how many.
+        n = min(self.produced, size)
+        ctypes.memset(dest, 0x5a, n)
+        return n
 
 
 class Decode(unittest.TestCase):
     DECODERS = ("decode_lzfse_liblzfse", "decode_lzfse_darwin")
 
-    def run_decoder(self, name, raw_size, result=None):
-        library = FakeLibrary(result)
+    def run_decoder(self, name, raw_size, result=None, produced=None):
+        if produced is None:
+            produced = raw_size if isinstance(raw_size, int) and raw_size > 0 else 0
+        library = FakeLibrary(result, produced)
         with mock.patch.object(img4, "CDLL", return_value=library), \
                 mock.patch.object(img4, "create_string_buffer",
                                   side_effect=ctypes.create_string_buffer) as alloc:
@@ -144,18 +152,20 @@ class Decode(unittest.TestCase):
     def test_sizes_are_passed_as_size_t(self):
         for name in self.DECODERS:
             out, library, _ = self.run_decoder(name, 32)
-            self.assertEqual(out, bytes(32))
+            self.assertEqual(out, b"\x5a" * 32)
             self.assertEqual(library.function.restype, ctypes.c_size_t, name)
             argtypes = library.function.argtypes
             self.assertIsNotNone(argtypes, name)
             self.assertEqual(argtypes[1], ctypes.c_size_t, name)
             self.assertEqual(argtypes[3], ctypes.c_size_t, name)
-            self.assertEqual(library.calls[0][1], 32)
+            # One byte of room past the expected size shows an overlong
+            # stream (see test_overlong_output_is_an_error).
+            self.assertEqual(library.calls[0][1], 33)
             self.assertEqual(library.calls[0][3], len(b"compressed"))
 
     def test_bad_sizes_allocate_nothing(self):
         for name in self.DECODERS:
-            for size in (-1, -5, MAX_RAW_SIZE + 1, 1 << 46):
+            for size in (-1, -5, 0, MAX_RAW_SIZE + 1, 1 << 46):
                 out, library, alloc = self.run_decoder(name, size)
                 self.assertIsInstance(out, ValueError, (name, size))
                 alloc.assert_not_called()
@@ -167,6 +177,83 @@ class Decode(unittest.TestCase):
             self.assertIsInstance(out, ValueError, name)
             out, _, _ = self.run_decoder(name, 32, result=0)
             self.assertIsInstance(out, ValueError, name)
+
+    def test_overlong_output_is_an_error(self):
+        # The stream holds more than the header says: the library stops at
+        # dst_size and returns it, which must not pass as raw_size.
+        for name in self.DECODERS:
+            for extra in (1, 100):
+                out, _, _ = self.run_decoder(name, 32, produced=32 + extra)
+                self.assertIsInstance(out, ValueError, (name, extra))
+
+    def test_exact_output_is_raw_size_bytes(self):
+        for name in self.DECODERS:
+            out, _, alloc = self.run_decoder(name, 32, produced=32)
+            self.assertEqual(out, b"\x5a" * 32, name)
+            alloc.assert_called_once_with(33)
+
+    def test_size_zero_is_refused(self):
+        for name in self.DECODERS:
+            out, library, alloc = self.run_decoder(name, 0, result=0)
+            self.assertIsInstance(out, ValueError, name)
+            alloc.assert_not_called()
+            self.assertEqual(library.calls, [])
+        decode = mock.Mock(return_value=b"")
+        with mock.patch.object(img4, "decode_lzfse", decode):
+            for payload in (b"", b"garbage!", b"bvx2" + bytes(32)):
+                with self.assertRaises(ValueError):
+                    img4.img4p_extract(im4p(payload=payload, raw_size=0))
+        decode.assert_not_called()
+
+
+def load_liblzfse():
+    for soname in ("liblzfse.so.1", "liblzfse.so"):
+        try:
+            return ctypes.CDLL(soname)
+        except OSError:
+            pass
+    return None
+
+
+@unittest.skipIf(sys.platform == "darwin" or load_liblzfse() is None,
+                 "liblzfse is not installed")
+class RealLiblzfse(unittest.TestCase):
+    """The same checks against liblzfse itself (set LD_LIBRARY_PATH to a
+    build of github.com/lzfse/lzfse when it is not installed)."""
+
+    def encode(self, data):
+        lib = load_liblzfse()
+        enc = lib.lzfse_encode_buffer
+        enc.argtypes = [ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p,
+                        ctypes.c_size_t, ctypes.c_void_p]
+        enc.restype = ctypes.c_size_t
+        out = ctypes.create_string_buffer(len(data) + 4096)
+        n = enc(out, len(out), data, len(data), None)
+        self.assertGreater(n, 0)
+        return out.raw[:n]
+
+    def setUp(self):
+        self.data = bytes(range(256)) * 20 + b"abcdefgh" * 2500
+        self.cdata = self.encode(self.data)
+
+    def test_exact_size(self):
+        self.assertEqual(img4.decode_lzfse_liblzfse(self.cdata, len(self.data)), self.data)
+        self.assertEqual(img4.img4p_extract(im4p(payload=self.cdata, raw_size=len(self.data))),
+                         ("krnl", self.data))
+
+    def test_stream_longer_than_the_header_says(self):
+        for size in (1, 10000, len(self.data) - 1):
+            with self.assertRaises(ValueError):
+                img4.img4p_extract(im4p(payload=self.cdata, raw_size=size))
+
+    def test_stream_shorter_than_the_header_says(self):
+        with self.assertRaises(ValueError):
+            img4.img4p_extract(im4p(payload=self.cdata, raw_size=len(self.data) + 1))
+
+    def test_size_zero_with_any_data(self):
+        for payload in (self.cdata, b"garbage!"):
+            with self.assertRaises(ValueError):
+                img4.img4p_extract(im4p(payload=payload, raw_size=0))
 
 
 if __name__ == "__main__":
