@@ -108,6 +108,18 @@
     /// Whether an opened file's own filesystem is mounted read-only
     /// (`isReadOnly`). A parameter only so tests need no read-only mount.
     private let mountedReadOnly: @Sendable (Int32) -> Bool
+    /// The `statfs` mount flags of an opened file's filesystem, nil when they
+    /// can't be read (`mountFlags`). A parameter only so tests can present a
+    /// mount that ignores ownership.
+    private let mountFlags: @Sendable (Int32) -> UInt32?
+    /// Makes the volume at `/dev/<device>` honour its owners
+    /// (`enableOwnership`). Run only for an owned volume root whose mount
+    /// ignores ownership.
+    private let enableOwnership: @Sendable (String) throws -> Void
+    /// Whether an opened folder carries an access-control entry that allows
+    /// someone to write it (`hasWriteACL`). A parameter only so tests need
+    /// not set one.
+    private let writableACL: @Sendable (Int32) -> Bool
 
     init(
       _ url: URL, protected: Bool, owner: uid_t = 0, volumeRoot: Bool = false,
@@ -115,12 +127,19 @@
       volumeDevice: String? = nil, readOnlyVolume: Bool = false,
       verifyMount: @Sendable (Int32, URL, String) throws -> Void = NativeHandoffFileTree
         .verifyVolumeRoot,
-      mountedReadOnly: @escaping @Sendable (Int32) -> Bool = NativeHandoffFileTree.isReadOnly
+      mountedReadOnly: @escaping @Sendable (Int32) -> Bool = NativeHandoffFileTree.isReadOnly,
+      mountFlags: @escaping @Sendable (Int32) -> UInt32? = NativeHandoffFileTree.mountFlags,
+      enableOwnership: @escaping @Sendable (String) throws -> Void = NativeHandoffFileTree
+        .enableOwnership,
+      writableACL: @escaping @Sendable (Int32) -> Bool = NativeHandoffFileTree.hasWriteACL
     ) throws {
       self.protected = protected
       self.owner = owner
       self.readOnlyVolume = readOnlyVolume
       self.mountedReadOnly = mountedReadOnly
+      self.mountFlags = mountFlags
+      self.enableOwnership = enableOwnership
+      self.writableACL = writableACL
       verifiedVolumeRoot = volumeRoot
       self.ownedVolumeRoot = ownedVolumeRoot
       guard !ownedVolumeRoot || (protected && volumeRoot) else {
@@ -128,10 +147,13 @@
       }
       let descriptor = open(url.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
       guard descriptor >= 0 else { throw NativeHandoffValidationError.unsafePath }
-      var info = stat()
-      guard fstat(descriptor, &info) == 0,
-        !protected || (info.st_uid == owner && info.st_mode & (volumeRoot ? 0o002 : 0o022) == 0)
-      else {
+      func admitted() -> Bool {
+        var info = stat()
+        return fstat(descriptor, &info) == 0
+          && (!protected
+            || (info.st_uid == owner && info.st_mode & (volumeRoot ? 0o002 : 0o022) == 0))
+      }
+      guard admitted() else {
         close(descriptor)
         throw NativeHandoffValidationError.unsafePath
       }
@@ -139,6 +161,21 @@
         if volumeRoot {
           guard let volumeDevice else { throw NativeHandoffValidationError.invalidTarget }
           try verifyMount(descriptor, url, volumeDevice)
+          if ownedVolumeRoot {
+            // Where a mount ignores ownership, every owner reads as the
+            // caller and fchown is dropped: no owner check below would
+            // prove anything. Make the volume honour its owners, then read
+            // the root's owner and mode again.
+            if Self.ignoresOwnership(mountFlags(descriptor)) {
+              try enableOwnership(volumeDevice)
+              guard !Self.ignoresOwnership(mountFlags(descriptor)), admitted() else {
+                throw NativeHandoffValidationError.unsafePath
+              }
+            }
+            // A mode says nothing of an access-control entry that lets
+            // another account write; such a root is refused, not repaired.
+            guard !writableACL(descriptor) else { throw NativeHandoffValidationError.unsafePath }
+          }
         }
         if ownedVolumeRoot {
           // A read-only mount can't be changed, and nothing can be renamed
@@ -158,6 +195,54 @@
     static func isReadOnly(_ fd: Int32) -> Bool {
       var filesystem = statfs()
       return fstatfs(fd, &filesystem) == 0 && filesystem.f_flags & UInt32(MNT_RDONLY) != 0
+    }
+
+    static func mountFlags(_ fd: Int32) -> UInt32? {
+      var filesystem = statfs()
+      return fstatfs(fd, &filesystem) == 0 ? filesystem.f_flags : nil
+    }
+
+    /// Whether these mount flags (nil: unreadable) leave ownership unproven.
+    static func ignoresOwnership(_ flags: UInt32?) -> Bool {
+      guard let flags else { return true }
+      return flags & UInt32(MNT_IGNORE_OWNERSHIP) != 0
+    }
+
+    static func enableOwnership(_ device: String) throws {
+      guard device.range(of: #"\Adisk[0-9]+s[0-9]+\z"#, options: .regularExpression) != nil else {
+        throw NativeHandoffValidationError.invalidTarget
+      }
+      _ = try InstallerLoggedCommand.checked("/usr/sbin/diskutil", ["enableOwnership", device])
+    }
+
+    /// Whether the opened file `fd` has an extended access-control entry that
+    /// allows anyone to add, remove, rename or write entries, or to change
+    /// its mode, owner or access-control list. Deny entries take nothing
+    /// away from the mode check and are ignored. An unreadable list counts
+    /// as one that allows writing.
+    static func hasWriteACL(_ fd: Int32) -> Bool {
+      guard let acl = acl_get_fd_np(fd, ACL_TYPE_EXTENDED) else { return errno != ENOENT }
+      defer { acl_free(UnsafeMutableRawPointer(acl)) }
+      let writes: [acl_perm_t] = [
+        ACL_WRITE_DATA, ACL_APPEND_DATA, ACL_DELETE, ACL_DELETE_CHILD, ACL_WRITE_ATTRIBUTES,
+        ACL_WRITE_EXTATTRIBUTES, ACL_WRITE_SECURITY, ACL_CHANGE_OWNER,
+      ]
+      var entry: acl_entry_t?
+      var id = ACL_FIRST_ENTRY.rawValue
+      while acl_get_entry(acl, id, &entry) == 0, let current = entry {
+        id = ACL_NEXT_ENTRY.rawValue
+        var tag = ACL_UNDEFINED_TAG
+        var permissions: acl_permset_t?
+        guard acl_get_tag_type(current, &tag) == 0, acl_get_permset(current, &permissions) == 0,
+          let permissions
+        else { return true }
+        if tag == ACL_EXTENDED_ALLOW,
+          writes.contains(where: { acl_get_perm_np(permissions, $0) != 0 })
+        {
+          return true
+        }
+      }
+      return false
     }
 
     /// Whether the opened file `fd` may have more than one name. Only in a
@@ -193,7 +278,45 @@
     /// volume: its root must not be writable by others. A root first opened
     /// on a read-only mount is made safe here, once it is writable.
     private func protectRootForWriting() throws {
-      if ownedVolumeRoot { try Self.protectVolumeRoot(root, owner: owner) }
+      guard ownedVolumeRoot else { return }
+      guard !Self.ignoresOwnership(mountFlags(root)), !writableACL(root) else {
+        throw NativeHandoffValidationError.unsafePath
+      }
+      try Self.protectVolumeRoot(root, owner: owner)
+    }
+
+    /// Refuses unless every entry at `paths` that exists, and every folder on
+    /// the way to it, is owned by `owner`, writable by no one else (mode, and
+    /// in an owned volume, access-control entries), and no symbolic link.
+    /// Each entry must be a folder, or a regular file with one name, as
+    /// `folders` says. Missing entries pass: whoever creates them later
+    /// creates them in a folder that passed here.
+    ///
+    /// Callers that then work by path under a protected owned volume root
+    /// rely on this: once its root is protected, nothing on a path that
+    /// passed can be renamed or replaced by anyone but `owner`, whatever was
+    /// left there while the root was writable by its group.
+    func requireProtected(_ paths: [String], folders: Set<String>) throws {
+      guard protected else { throw NativeHandoffValidationError.unsafePath }
+      for path in paths {
+        try withParent(path, missingParent: true) { parent, leaf in
+          if parent < 0 { return }
+          let fd = openat(
+            parent, leaf,
+            O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK
+              | (folders.contains(path) ? O_DIRECTORY : 0))
+          if fd < 0, errno == ENOENT { return }
+          guard fd >= 0 else { throw NativeHandoffValidationError.unsafePath }
+          defer { close(fd) }
+          var info = stat()
+          guard fstat(fd, &info) == 0, info.st_uid == owner, info.st_mode & 0o022 == 0,
+            folders.contains(path)
+              ? info.st_mode & S_IFMT == S_IFDIR
+              : info.st_mode & S_IFMT == S_IFREG && info.st_nlink == 1,
+            !ownedVolumeRoot || !writableACL(fd)
+          else { throw NativeHandoffValidationError.unsafePath }
+        }
+      }
     }
 
     static func verifyVolumeRoot(_ fd: Int32, url: URL, device: String) throws {
@@ -542,7 +665,8 @@
         guard next >= 0 else { throw NativeHandoffValidationError.unsafePath }
         var info = stat()
         guard fstat(next, &info) == 0,
-          !protected || (info.st_uid == owner && info.st_mode & 0o022 == 0)
+          !protected || (info.st_uid == owner && info.st_mode & 0o022 == 0),
+          !ownedVolumeRoot || !writableACL(next)
         else {
           close(next)
           throw NativeHandoffValidationError.unsafePath
