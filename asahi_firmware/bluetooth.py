@@ -98,8 +98,11 @@ class BluetoothFWCollection(object):
 
         board_type = fname[bt_offset]
 
+        # Remove the suffix as a whole. (str.rstrip() takes a set of
+        # characters: it also ate the end of names like MALDIVES.)
         for i in self.STRIP_SUFFIXES:
-            board_type = board_type.rstrip(i)
+            if board_type.endswith(i) and len(board_type) > len(i):
+                board_type = board_type[:-len(i)]
         board_type = "apple," + board_type.lower()
 
         # make sure we can identify exactly one vendor

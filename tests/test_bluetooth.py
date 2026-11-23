@@ -64,5 +64,33 @@ class BluetoothNamesTest(unittest.TestCase):
         self.assertTrue(any("FIJI" in line for line in logs), logs)
 
 
+class BluetoothBoardSuffixTest(unittest.TestCase):
+    """The ES2 suffix of a board name is dropped; its letters are not."""
+
+    def board(self, word):
+        name = f"BCM4387C2_19.3.395.4044_PCIE_macOS_{word}_CLPC_3ANT_OS_USI_20211013"
+        chip = BluetoothFWCollection.__new__(BluetoothFWCollection).parse_fname(name)
+        return chip.board_type
+
+    def test_suffix_is_removed(self):
+        self.assertEqual(self.board("MaldivesES2"), "apple,maldives")
+        self.assertEqual(self.board("MALDIVESES2"), "apple,maldives")
+        self.assertEqual(self.board("TokaraES2"), "apple,tokara")
+
+    def test_names_ending_in_the_suffix_letters_are_kept(self):
+        self.assertEqual(self.board("Maldives"), "apple,maldives")
+        self.assertEqual(self.board("MALDIVES"), "apple,maldives")
+        self.assertEqual(self.board("MADAGASCAR2"), "apple,madagascar2")
+        self.assertEqual(self.board("FOOS"), "apple,foos")
+        self.assertEqual(self.board("ES2"), "apple,es2")
+
+    def test_collected_file_is_named_by_the_whole_board(self):
+        name = "BCM4387C2_19.3.395.4044_PCIE_macOS_MALDIVES_CLPC_3ANT_OS_USI_20211013.bin"
+        with tempfile.TemporaryDirectory() as tmp:
+            (pathlib.Path(tmp) / name).write_bytes(b"synthetic")
+            files = dict(BluetoothFWCollection(tmp).files())
+        self.assertEqual(sorted(files), ["brcm/brcmbt4387c2-apple,maldives-u.bin"])
+
+
 if __name__ == "__main__":
     unittest.main()
