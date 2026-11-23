@@ -23,6 +23,7 @@
       XCTAssertTrue(j813?.contains("needs macOS 27.2 or later") ?? false)
       XCTAssertTrue(j813?.contains("stops at the U-Boot prompt") ?? false)
       XCTAssertTrue(j813?.contains("Wi-Fi and Bluetooth firmware") ?? false)
+      XCTAssertTrue(j813?.contains("display driver") ?? false)
       XCTAssertFalse(j813?.contains("has not used this installer on one") ?? true)
       XCTAssertFalse(j813?.contains("\u{2014}") ?? true)
       let j815 = Stage1Caution.reason(for: "apple,j815")
