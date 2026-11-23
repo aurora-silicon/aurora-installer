@@ -60,10 +60,11 @@
       XCTAssertEqual(entry.minimumBoot, "mBoot-20457.41.3")
       XCTAssertEqual(entry.minimumMacOS, "27.2")
       XCTAssertEqual(
-        entry.models, ["j714c", "j714s", "j716c", "j716s", "j775c", "j775d", "j815", "j873s"])
+        entry.models,
+        ["j704", "j714c", "j714s", "j716c", "j716s", "j775c", "j775d", "j815", "j873s"])
       // It is last, so it wins wherever a board qualifies for it.
       XCTAssertEqual(sealed.firmware.last?.pin?.build, Self.build)
-      // Experimental J815 and T6050 admission does not change the M2 firmware choice.
+      // Experimental J704, J815 and T6050 admission does not change the M2 firmware choice.
       XCTAssertEqual(try choose("apple,j413", air272, policy: sealed).version, "13.5")
     }
 
@@ -96,6 +97,41 @@
           chipID: 0x8142, bootVersion: "mBoot-18000.161.10", macOSVersion: macOS,
           recoveryVersion: "25.7.83.0.0,0")
         XCTAssertThrowsError(try choose("apple,j815", older, policy: sealed), macOS) { error in
+          XCTAssertEqual(
+            error as? NativeFirmwareSelectionError, .macOSUpdateRequired(version: "27.2"), macOS)
+        }
+      }
+    }
+
+    func testJ704TakesTheSealedPinAndIsAskedToUpdateBelow272() throws {
+      let sealed = try NativeInspectionPolicy.sealed()
+      let j704 = NativeInspectionHardware(
+        chipID: 0x8142, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2",
+        recoveryVersion: "26.2.123.0.0,0")
+      XCTAssertTrue(sealed.supports("apple,j704", hardware: j704))
+      let selection = try choose("apple,j704", j704, policy: sealed)
+      XCTAssertEqual(selection.version, "27.2")
+      XCTAssertEqual(selection.pin?.build, Self.build)
+      let point = NativeInspectionHardware(
+        chipID: 0x8142, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2.1",
+        recoveryVersion: "26.2.123.0.0,0")
+      XCTAssertEqual(try choose("apple,j704", point, policy: sealed).pin?.build, Self.build)
+      // The macOS floor holds by itself: 27.1 is refused even on 27.2-level
+      // system firmware and Recovery.
+      let newFirmware = NativeInspectionHardware(
+        chipID: 0x8142, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.1",
+        recoveryVersion: "26.2.123.0.0,0")
+      XCTAssertThrowsError(try choose("apple,j704", newFirmware, policy: sealed)) { error in
+        XCTAssertEqual(
+          error as? NativeFirmwareSelectionError, .macOSUpdateRequired(version: "27.2"))
+      }
+      // On 26.6.2 through 27.1 it no longer gets the 26.6.2 stub: the J704 has
+      // been installed only on the 27.2 stub.
+      for macOS in ["26.6.2", "27.0", "27.1"] {
+        let older = NativeInspectionHardware(
+          chipID: 0x8142, bootVersion: "mBoot-18000.161.10", macOSVersion: macOS,
+          recoveryVersion: "25.7.83.0.0,0")
+        XCTAssertThrowsError(try choose("apple,j704", older, policy: sealed), macOS) { error in
           XCTAssertEqual(
             error as? NativeFirmwareSelectionError, .macOSUpdateRequired(version: "27.2"), macOS)
         }
