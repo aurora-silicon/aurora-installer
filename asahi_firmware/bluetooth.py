@@ -60,6 +60,9 @@ class BluetoothFWCollection(object):
                 continue
 
             path = os.path.join(source_path, fname)
+            if not os.path.isfile(path):
+                log.warning(f"Skipping {fname}: not a file")
+                continue
             with open(path, "rb") as f:
                 data = f.read()
 
@@ -82,17 +85,24 @@ class BluetoothFWCollection(object):
             return None
 
         bt_offset = pcie_offset + 1
-        if fname[bt_offset] == "macOS":
+        if fname[bt_offset:bt_offset + 1] == ["macOS"]:
             bt_offset += 1
 
         # 4388 has this extra prefix, meh
-        if fname[bt_offset] == "Willamette":
+        if fname[bt_offset:bt_offset + 1] == ["Willamette"]:
             bt_offset += 1
+
+        if bt_offset >= len(fname) or not fname[bt_offset]:
+            log.warning(f"Can't find board type in {fname}")
+            return None
 
         board_type = fname[bt_offset]
 
+        # Remove the suffix as a whole. (str.rstrip() takes a set of
+        # characters: it also ate the end of names like MALDIVES.)
         for i in self.STRIP_SUFFIXES:
-            board_type = board_type.rstrip(i)
+            if board_type.endswith(i) and len(board_type) > len(i):
+                board_type = board_type[:-len(i)]
         board_type = "apple," + board_type.lower()
 
         # make sure we can identify exactly one vendor
