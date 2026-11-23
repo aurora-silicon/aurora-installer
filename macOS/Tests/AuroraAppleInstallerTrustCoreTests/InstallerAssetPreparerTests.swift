@@ -578,7 +578,7 @@
         } ?? ""
       return Data(
         """
-        {"schemaVersion":\(schemaVersion),"sequence":30,"issuedAt":"\(issued)","expiresAt":"\(expires)"\(installer),"models":[{"deviceIdentifier":"apple,j314s","status":"enabled","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","metadataDigest":"\(digest(metadata))","payloadDigest":"\(digest(payload))","evidenceRevision":"\(evidenceRevision)"\(delivery)}]}
+        {"schemaVersion":\(schemaVersion),"channel":"stable","sequence":30,"issuedAt":"\(issued)","expiresAt":"\(expires)"\(installer),"models":[{"deviceIdentifier":"apple,j314s","status":"enabled","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","metadataDigest":"\(digest(metadata))","payloadDigest":"\(digest(payload))","evidenceRevision":"\(evidenceRevision)"\(delivery)}]}
         """.utf8
       )
     }
