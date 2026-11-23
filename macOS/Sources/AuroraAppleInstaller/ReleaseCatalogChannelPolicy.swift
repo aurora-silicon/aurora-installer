@@ -25,10 +25,14 @@
         else { throw InstallerReleaseConfigurationError.invalidCatalogChannel }
         return
       }
-      if models.isEmpty && declared == "edge" { return }
-      guard declared == "edge" else {
-        throw InstallerReleaseConfigurationError.edgeAlphaUnavailable
+      // A catalog signed for another channel and served on Edge was mis-served
+      // or replayed: that is a verification failure, as on every other
+      // channel. Only an undeclared catalog means Edge has no Alpha yet.
+      guard let declared else { throw InstallerReleaseConfigurationError.edgeAlphaUnavailable }
+      guard declared == channel.rawValue else {
+        throw InstallerReleaseConfigurationError.invalidCatalogChannel
       }
+      if models.isEmpty { return }
       guard let envelope = try? JSONDecoder().decode(Envelope.self, from: payload) else {
         throw InstallerReleaseConfigurationError.invalidEdgeQualification
       }

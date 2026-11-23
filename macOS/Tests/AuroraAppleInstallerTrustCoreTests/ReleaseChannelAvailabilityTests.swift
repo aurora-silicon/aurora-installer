@@ -77,11 +77,11 @@
       let configuration = try configuration()
       let missing = await availability(coordinator(serving: [:]), configuration, .edge)
       XCTAssertEqual(missing, .notPublished)
-      let testing = modelCatalog(devices: [thisMac])
-      let misplaced = coordinator(serving: [
-        configuration.catalogURL(for: .edge): try envelope(testing)
+      let undeclared = try legacyDevelopmentCatalog()
+      let legacy = coordinator(serving: [
+        configuration.catalogURL(for: .edge): try envelope(undeclared)
       ])
-      let state = await availability(misplaced, configuration, .edge)
+      let state = await availability(legacy, configuration, .edge)
       XCTAssertEqual(state, .notPublished)
     }
 
@@ -96,8 +96,10 @@
     }
 
     func testAnEmptyEdgeCatalogMustDeclareEdge() async throws {
-      // An empty catalog signed for no channel, or for another one, says
-      // nothing about Edge: served there it must not read as "no release yet".
+      // An empty catalog signed for no channel says nothing about Edge, and
+      // one signed for another channel was served in the wrong place: neither
+      // reads as "no release yet". Only the undeclared one is "not published";
+      // another channel's is a verification failure, as on every channel.
       let configuration = try configuration()
       let others: [ReleaseChannel?] = [nil, .stable, .rc, .testing]
       for declared in others {
@@ -106,7 +108,41 @@
             emptyCatalog(sequence: 5, channel: declared))
         ])
         let state = await availability(value, configuration, .edge)
-        XCTAssertEqual(state, .notPublished, declared?.rawValue ?? "undeclared")
+        XCTAssertEqual(
+          state, declared == nil ? .notPublished : .checkFailed(.verification),
+          declared?.rawValue ?? "undeclared")
+      }
+    }
+
+    func testACatalogSignedForAnotherChannelIsAVerificationFailureOnEdge() async throws {
+      // Stable, RC or Testing bytes served at the Edge address are a mis-served
+      // or replayed catalog, not an Edge that isn't published yet.
+      let configuration = try configuration()
+      for declared in [ReleaseChannel.stable, .rc, .testing] {
+        for payload in [
+          modelCatalog(devices: [thisMac], channel: declared),
+          emptyCatalog(sequence: 5, channel: declared),
+        ] {
+          XCTAssertThrowsError(
+            try ReleaseCatalogChannelPolicy.validate(payload: payload, channel: .edge)
+          ) {
+            XCTAssertEqual(
+              $0 as? InstallerReleaseConfigurationError, .invalidCatalogChannel,
+              declared.rawValue)
+          }
+          let value = coordinator(serving: [
+            configuration.catalogURL(for: .edge): try envelope(payload)
+          ])
+          let state = await availability(value, configuration, .edge)
+          XCTAssertEqual(state, .checkFailed(.verification), declared.rawValue)
+        }
+      }
+      for payload in [try legacyDevelopmentCatalog(), emptyCatalog(sequence: 5, channel: nil)] {
+        XCTAssertThrowsError(
+          try ReleaseCatalogChannelPolicy.validate(payload: payload, channel: .edge)
+        ) {
+          XCTAssertEqual($0 as? InstallerReleaseConfigurationError, .edgeAlphaUnavailable)
+        }
       }
     }
 
