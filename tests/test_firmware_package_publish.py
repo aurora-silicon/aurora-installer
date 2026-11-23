@@ -292,5 +292,43 @@ class Commit(Workdir):
             self.assertEqual((self.dest / name).stat().st_mode & 0o777, 0o640, name)
 
 
+class Main(unittest.TestCase):
+    def test_missing_source_is_a_message_not_a_traceback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = subprocess.run(
+                [sys.executable, "-c",
+                 "import sys; sys.path.insert(0, sys.argv[1]); sys.argv[1:2] = []\n"
+                 "from asahi_firmware.update import main; main()",
+                 str(pathlib.Path(__file__).resolve().parents[1]),
+                 os.path.join(tmp, "absent"), tmp],
+                capture_output=True, text=True)
+            self.assertEqual(os.listdir(tmp), [])
+        self.assertEqual(run.returncode, 1, run.stderr)
+        self.assertIn("all_firmware.tar.gz", run.stderr)
+        self.assertNotIn("Traceback", run.stderr)
+
+
+    def test_busy_destination_is_a_message_not_a_traceback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = pathlib.Path(tmp, "source")
+            source.mkdir()
+            with tarfile.open(source / "all_firmware.tar.gz", "w:gz"):
+                pass
+            dest = pathlib.Path(tmp, "dest")
+            dest.mkdir()
+            first = FWPackage(str(dest))
+            try:
+                run = subprocess.run(
+                    [sys.executable, "-c",
+                     "import sys; sys.path.insert(0, sys.argv[1]); sys.argv[1:2] = []\n"
+                     "from asahi_firmware.update import main; main()",
+                     str(pathlib.Path(__file__).resolve().parents[1]), str(source), str(dest)],
+                    capture_output=True, text=True)
+            finally:
+                first.abort()
+        self.assertEqual(run.returncode, 1, run.stderr)
+        self.assertIn("Another firmware update", run.stderr)
+        self.assertNotIn("Traceback", run.stderr)
+
 if __name__ == "__main__":
     unittest.main()

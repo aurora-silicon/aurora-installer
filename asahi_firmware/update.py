@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: MIT
-import pathlib, tempfile, os.path
+import pathlib, sys, tempfile, os.path
 
 from .archive import extract_archive
 
-from .core import FWPackage
+from .core import FWPackage, FWPackageBusy
 from .wifi import WiFiFWCollection
 from .bluetooth import BluetoothFWCollection
 from .multitouch import MultitouchFWCollection
@@ -62,7 +62,11 @@ def main():
     
     args = parser.parse_args()
 
-    update_firmware(args.source, args.dest)
+    try:
+        update_firmware(args.source, args.dest)
+    except (FileNotFoundError, FWPackageBusy) as e:
+        print(f"asahi-fwextract: {e}", file=sys.stderr)
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
