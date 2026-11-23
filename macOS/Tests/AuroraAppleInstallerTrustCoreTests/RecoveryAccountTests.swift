@@ -124,7 +124,9 @@
         PropertyListSerialization.propertyList(from: listingBytes, format: nil) as? [String: Any])
       var listed = 0
       var recoveryFinished = false
-      func discover(_ binding: String? = nil) throws -> CompletedRecoveryInstallation? {
+      func discover(
+        _ binding: String? = nil, preferring: (String) -> Bool = { _ in false }
+      ) throws -> CompletedRecoveryInstallation? {
         try RecoveryAccountHandoff.discover(
           in: root, binding: binding, owner: getuid(),
           read: { url, limit in
@@ -142,7 +144,7 @@
             }
             return self.target
           },
-          finished: { _ in recoveryFinished })
+          finished: { _ in recoveryFinished }, preferring: preferring)
       }
 
       XCTAssertEqual(
@@ -174,6 +176,28 @@
       XCTAssertEqual(
         try discover(freshHex),
         CompletedRecoveryInstallation(binding: freshHex, target: target, espUUID: ids[1]))
+
+      // A second completed journal for the same target: the preferred
+      // binding is taken, else the lowest, never the directory's order.
+      recoveryFinished = false
+      let otherHex = String(repeating: "e", count: 64)
+      let other = journals.appendingPathComponent(otherHex + ".jsonl")
+      try fm.copyItem(at: fresh, to: other)
+      XCTAssertEqual(chmod(other.path, 0o600), 0)
+      for id in evidence.keys {
+        try fm.copyItem(
+          at: URL(fileURLWithPath: fresh.path + ".\(id).evidence"),
+          to: URL(fileURLWithPath: other.path + ".\(id).evidence"))
+      }
+      let preferences: [((String) -> Bool, String)] = [
+        ({ _ in false }, otherHex), ({ $0 == freshHex }, freshHex),
+        ({ $0 == otherHex }, otherHex), ({ _ in true }, otherHex),
+      ]
+      for (preferred, taken) in preferences {
+        XCTAssertEqual(
+          try discover(preferring: preferred),
+          CompletedRecoveryInstallation(binding: taken, target: target, espUUID: ids[1]))
+      }
     }
 
     func testRecoveryIsFinishedOnlyWithAnInstalledReceiptAndNoActiveLauncher() throws {

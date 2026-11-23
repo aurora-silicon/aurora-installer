@@ -266,9 +266,12 @@
       defer { work.endJob() }
       let directory = workingDirectory
       if action == "inspect" {
+        // With several journals for the target, take one this account's
+        // job installed.
         guard
           let completed = try await Task.detached(operation: {
-            try RecoveryAccountHandoff.discover(in: directory)
+            try RecoveryAccountHandoff.discover(
+              in: directory, preferring: { self.startedInstallation($0, uid: initiatingUID) })
           }).value
         else { return RecoveryAccountReply() }
         guard startedInstallation(completed.binding, uid: initiatingUID)
