@@ -214,34 +214,6 @@
     }
   }
 
-  public struct AuthorizedInstallConfESPHelper: InstallConfESPHelping {
-    public let submitter: AuthenticatedEngineXPCSubmitter
-    public let authorization: MachineOwnerAuthorization
-
-    public init(
-      submitter: AuthenticatedEngineXPCSubmitter,
-      authorization: MachineOwnerAuthorization
-    ) {
-      self.submitter = submitter
-      self.authorization = authorization
-    }
-
-    public func write(
-      _ conf: InstallConf,
-      storeIdentifier: String,
-      offsetBytes: UInt64,
-      lengthBytes: UInt64
-    ) async throws -> InstallConfHandoff {
-      try await submitter.writeInstallConf(
-        conf,
-        storeIdentifier: storeIdentifier,
-        offsetBytes: offsetBytes,
-        lengthBytes: lengthBytes,
-        authorization: authorization
-      )
-    }
-  }
-
   protocol InstallConfESPDiskOperating: Sendable {
     func partitions(on storeIdentifier: String) throws -> [InstallConfESPPartition]
     func mount(_ identifier: String, at mountPoint: URL) throws

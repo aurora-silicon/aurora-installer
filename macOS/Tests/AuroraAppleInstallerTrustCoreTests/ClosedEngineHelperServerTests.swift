@@ -409,61 +409,6 @@
       XCTAssertTrue(try importedEntries(in: fixture.destination).isEmpty)
     }
 
-    func testWriteInstallConfRejectsRequestsBeforeACompletedPlan() async throws {
-      let fixture = try makeFixture()
-      defer { try? FileManager.default.removeItem(at: fixture.root) }
-      let disks = RecordingESPDisks()
-      let server = ClosedEngineHelperServer(
-        workingDirectory: fixture.destination,
-        executor: RecordingHandoffExecutor(result: fixture.transcript),
-        credentialValidator: AcceptingMachineOwnerCredentialValidator(),
-        removalDisks: UnusedRemovalDisks(),
-        removalAdminValidator: { _ in },
-        espDisks: disks
-      )
-      await assertThrowsErrorAsync(
-        try await server.writeInstallConf(
-          document: try InstallConf(encrypt: true, lane: "stable").serializedData,
-          storeIdentifier: "disk0",
-          offsetBytes: 447_750_000_000,
-          lengthBytes: 107_374_182_400,
-          authorization: try machineOwnerAuthorization()
-        )
-      ) {
-        XCTAssertEqual($0 as? ClosedEngineHelperError, .installConfPlanIncomplete)
-      }
-      XCTAssertEqual(disks.mountCalls, 0)
-    }
-
-    func testWriteInstallConfNeedsAnAdministratorAsRemovalDoes() async throws {
-      let fixture = try makeFixture()
-      defer { try? FileManager.default.removeItem(at: fixture.root) }
-      let disks = RecordingESPDisks()
-      let server = ClosedEngineHelperServer(
-        workingDirectory: fixture.destination,
-        executor: RecordingHandoffExecutor(result: fixture.transcript),
-        credentialValidator: AcceptingMachineOwnerCredentialValidator(),
-        removalDisks: UnusedRemovalDisks(),
-        removalAdminValidator: { _ in
-          throw RemovalFailure(message: "Use a macOS administrator account to remove Aurora.")
-        },
-        espDisks: disks
-      )
-      // Refused before the plan is even looked at.
-      await assertThrowsErrorAsync(
-        try await server.writeInstallConf(
-          document: try InstallConf(encrypt: true, lane: "stable").serializedData,
-          storeIdentifier: "disk0",
-          offsetBytes: 447_750_000_000,
-          lengthBytes: 107_374_182_400,
-          authorization: try machineOwnerAuthorization()
-        )
-      ) {
-        XCTAssertEqual($0 as? ClosedEngineHelperError, .invalidMachineOwnerCredentials)
-      }
-      XCTAssertEqual(disks.mountCalls, 0)
-    }
-
     func testOnlyTheAccountWithEveryAdmittedJobOwnsTheRecoveryAccount() throws {
       let fixture = try makeFixture()
       defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -530,7 +475,7 @@
       XCTAssertFalse(server.startedInstallation(binding, uid: 502))
     }
 
-    func testWriteInstallConfUsesHelperOwnedPlanAndRejectsMismatchAndReplay() async throws {
+    func testRecordInstallConfUsesHelperOwnedPlanAndRejectsMismatchAndReplay() async throws {
       let fixture = try makeFixture()
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let source = try openDirectory(fixture.source)
@@ -548,37 +493,46 @@
         removalAdminValidator: { _ in },
         espDisks: disks
       )
+      // Nothing is written before a job completes a plan.
+      await assertThrowsErrorAsync(
+        try await server.recordInstallConf(
+          document: try InstallConf(encrypt: false, lane: "rc").serializedData,
+          storeIdentifier: "disk0",
+          offsetBytes: 447_750_000_000,
+          lengthBytes: 107_374_182_400
+        )
+      ) {
+        XCTAssertEqual($0 as? ClosedEngineHelperError, .installConfPlanIncomplete)
+      }
+      XCTAssertEqual(disks.mountCalls, 0)
       _ = try await server.submit(
         packageDirectory: source,
         authorization: try machineOwnerAuthorization()
       )
       await assertThrowsErrorAsync(
-        try await server.writeInstallConf(
+        try await server.recordInstallConf(
           document: try InstallConf(encrypt: false, lane: "rc").serializedData,
           storeIdentifier: "disk1",
           offsetBytes: 447_750_000_000,
-          lengthBytes: 107_374_182_400,
-          authorization: try machineOwnerAuthorization()
+          lengthBytes: 107_374_182_400
         )
       ) {
         XCTAssertEqual($0 as? ClosedEngineHelperError, .installConfTargetMismatch)
       }
       XCTAssertEqual(disks.mountCalls, 0)
-      try await server.writeInstallConf(
+      try await server.recordInstallConf(
         document: try InstallConf(encrypt: false, lane: "rc").serializedData,
         storeIdentifier: "disk0",
         offsetBytes: 447_750_000_000,
-        lengthBytes: 107_374_182_400,
-        authorization: try machineOwnerAuthorization()
+        lengthBytes: 107_374_182_400
       )
       XCTAssertEqual(disks.mountCalls, 1)
       await assertThrowsErrorAsync(
-        try await server.writeInstallConf(
+        try await server.recordInstallConf(
           document: try InstallConf(encrypt: false, lane: "rc").serializedData,
           storeIdentifier: "disk0",
           offsetBytes: 447_750_000_000,
-          lengthBytes: 107_374_182_400,
-          authorization: try machineOwnerAuthorization()
+          lengthBytes: 107_374_182_400
         )
       ) {
         XCTAssertEqual($0 as? ClosedEngineHelperError, .installConfReplay)
@@ -586,7 +540,7 @@
       XCTAssertEqual(disks.mountCalls, 1)
     }
 
-    func testWriteInstallConfMarksConsumedWhenUnmountFailsAfterAConfirmedWrite() async throws {
+    func testRecordInstallConfMarksConsumedWhenUnmountFailsAfterAConfirmedWrite() async throws {
       let fixture = try makeFixture()
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let source = try openDirectory(fixture.source)
@@ -612,22 +566,20 @@
         authorization: try machineOwnerAuthorization()
       )
       await assertThrowsErrorAsync(
-        try await server.writeInstallConf(
+        try await server.recordInstallConf(
           document: try InstallConf(encrypt: false, lane: "rc").serializedData,
           storeIdentifier: "disk0",
           offsetBytes: 447_750_000_000,
-          lengthBytes: 107_374_182_400,
-          authorization: try machineOwnerAuthorization()
+          lengthBytes: 107_374_182_400
         )
       ) { XCTAssertEqual($0 as? InstallConfESPError, .unmountFailed) }
       XCTAssertEqual(disks.mountCalls, 1)
       await assertThrowsErrorAsync(
-        try await server.writeInstallConf(
+        try await server.recordInstallConf(
           document: try InstallConf(encrypt: false, lane: "rc").serializedData,
           storeIdentifier: "disk0",
           offsetBytes: 447_750_000_000,
-          lengthBytes: 107_374_182_400,
-          authorization: try machineOwnerAuthorization()
+          lengthBytes: 107_374_182_400
         )
       ) {
         XCTAssertEqual($0 as? ClosedEngineHelperError, .installConfReplay)

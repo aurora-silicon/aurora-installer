@@ -155,47 +155,6 @@
       XCTAssertEqual(outcome, .unconfirmed(encrypt: true))
     }
 
-    func testWriterPreservesTypedOutcomesThroughTheXPCCodec() async throws {
-      let conf = try InstallConf(encrypt: false, lane: "rc")
-      let unmount = await InstallConfESPWriter(
-        helper: XPCCodecInstallConfHelper(helperError: .unmountFailed)
-      ).record(conf, storeIdentifier: "disk0", offsetBytes: 1, lengthBytes: 2)
-      XCTAssertEqual(unmount, .unconfirmed(encrypt: false))
-
-      let readback = await InstallConfESPWriter(
-        helper: XPCCodecInstallConfHelper(helperError: .readbackMismatch)
-      ).record(
-        try InstallConf(encrypt: true, lane: "stable"),
-        storeIdentifier: "disk0", offsetBytes: 1, lengthBytes: 2)
-      XCTAssertEqual(readback, .unconfirmed(encrypt: true))
-
-      let mount = await InstallConfESPWriter(
-        helper: XPCCodecInstallConfHelper(helperError: .mountFailed)
-      ).record(conf, storeIdentifier: "disk0", offsetBytes: 1, lengthBytes: 2)
-      XCTAssertEqual(mount, .notRecorded)
-
-      let recorded = await InstallConfESPWriter(
-        helper: XPCCodecInstallConfHelper(helperError: nil)
-      ).record(conf, storeIdentifier: "disk0", offsetBytes: 1, lengthBytes: 2)
-      XCTAssertEqual(recorded, .recorded)
-
-      let (data, error) = InstallConfXPCCodec.encodeReply(
-        error: ClosedEngineHelperError.invalidMachineOwnerCredentials,
-        encrypt: false
-      )
-      XCTAssertNil(data)
-      XCTAssertEqual(
-        error?.domain,
-        EngineXPCErrorBridge.machineOwnerAuthorizationDomain
-      )
-      XCTAssertThrowsError(try InstallConfXPCCodec.decodeReply(data: data, error: error)) {
-        XCTAssertEqual(
-          $0 as? EngineXPCSubmissionError,
-          .machineOwnerCredentialsRejected
-        )
-      }
-    }
-
     func testMountWriterWritesAtomicallyAndUnmounts() throws {
       let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("esp-writer-\(UUID().uuidString)", isDirectory: true)
@@ -336,31 +295,6 @@
       _ = lengthBytes
       try result.get()
       return .recorded
-    }
-  }
-
-  private final class XPCCodecInstallConfHelper: InstallConfESPHelping, @unchecked Sendable {
-    let helperError: InstallConfESPError?
-
-    init(helperError: InstallConfESPError?) {
-      self.helperError = helperError
-    }
-
-    func write(
-      _ conf: InstallConf,
-      storeIdentifier: String,
-      offsetBytes: UInt64,
-      lengthBytes: UInt64
-    ) async throws -> InstallConfHandoff {
-      _ = storeIdentifier
-      _ = offsetBytes
-      _ = lengthBytes
-      let (data, error) = InstallConfXPCCodec.encodeReply(
-        error: helperError,
-        encrypt: conf.encrypt
-      )
-      let payload = try InstallConfXPCCodec.decodeReply(data: data, error: error)
-      return try InstallConfXPCCodec.decode(payload)
     }
   }
 

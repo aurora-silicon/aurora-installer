@@ -713,29 +713,9 @@
       return (result, handoff)
     }
 
-    public func writeInstallConf(
-      document: Data,
-      storeIdentifier: String,
-      offsetBytes: UInt64,
-      lengthBytes: UInt64,
-      authorization: MachineOwnerAuthorization
-    ) async throws {
-      guard !isRetiring else { throw ClosedEngineHelperError.retiring }
-      try work.beginJob()
-      defer { work.endJob() }
-      // As for removal: a valid password of an administrator account.
-      do {
-        try credentialValidator.validate(authorization)
-        try removalAdminValidator(authorization)
-      } catch {
-        throw ClosedEngineHelperError.invalidMachineOwnerCredentials
-      }
-      try await recordInstallConf(
-        document: document, storeIdentifier: storeIdentifier, offsetBytes: offsetBytes,
-        lengthBytes: lengthBytes)
-    }
-
-    private func recordInstallConf(
+    /// Writes install.conf to the ESP of the plan the last job completed,
+    /// once. Only a job reaches it; the app has no call of its own.
+    func recordInstallConf(
       document: Data, storeIdentifier: String, offsetBytes: UInt64, lengthBytes: UInt64
     ) async throws {
       guard let completed = completedInstallPlan else {
@@ -1107,42 +1087,6 @@
         reply(
           nil, InstallerJobXPCCodec.serviceError(registered ? error : InstallerJobError.notAdmitted)
         )
-      }
-    }
-
-    public func writeInstallConf(
-      document: Data,
-      storeIdentifier: String,
-      offsetBytes: UInt64,
-      lengthBytes: UInt64,
-      machineOwner: String,
-      password: Data,
-      reply: @escaping @Sendable (Data?, NSError?) -> Void
-    ) {
-      let server = server
-      Task {
-        do {
-          let authorization = try MachineOwnerAuthorization(
-            username: machineOwner,
-            password: password
-          )
-          try await server.writeInstallConf(
-            document: document,
-            storeIdentifier: storeIdentifier,
-            offsetBytes: offsetBytes,
-            lengthBytes: lengthBytes,
-            authorization: authorization
-          )
-          let (data, error) = InstallConfXPCCodec.encodeReply(error: nil, encrypt: true)
-          reply(data, error)
-        } catch {
-          let encrypt = (try? InstallConf.parse(document))?.encrypt ?? true
-          let (data, nsError) = InstallConfXPCCodec.encodeReply(
-            error: error,
-            encrypt: encrypt
-          )
-          reply(data, nsError)
-        }
       }
     }
   }
