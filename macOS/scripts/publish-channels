@@ -371,17 +371,8 @@ os_promote() {
   decode_envelope "$work/candidate.json" "$work/catalog" "$work/signature"
   verify_catalog "$work/catalog" "$work/signature"
   local declared_channel
-  declared_channel=$(python3 - "$work/catalog" <<'PYCHANNEL'
-import json, sys
-catalog = json.load(open(sys.argv[1]))
-if not isinstance(catalog, dict):
-    raise SystemExit("catalog is not an object")
-declared = catalog.get("channel")
-if declared is not None and not (isinstance(declared, str) and declared):
-    raise SystemExit("catalog channel is not a name")
-print(declared or "")
-PYCHANNEL
-) || die "catalog does not declare a readable channel"
+  declared_channel=$(catalog_declared_channel "$work/catalog") ||
+    die "catalog does not declare a readable channel"
   # The signature must name the channel: an undeclared catalog would verify on
   # every channel, so it is not promoted to any.
   [[ -n $declared_channel ]] ||

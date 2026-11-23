@@ -38,8 +38,10 @@ PREFIX (default STREAM/releases/TAG, STREAM being INSTALLER_STREAM_PATH, where
 publish-channels promotes from) using the aws CLI. Credentials come from
 AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY or the macOS Keychain items
 omarchy-r2-access-key-id / omarchy-r2-secret-access-key. Existing objects
-are never replaced: a size mismatch is a hard error. After upload every
-asset is downloaded back from --base-url and checked against SHA256SUMS.
+are never replaced: a size mismatch is a hard error. A per-channel
+catalog.CHANNEL.signed.json in --catalog-dir must declare CHANNEL in its
+signed catalog, or nothing is uploaded. After upload every asset is
+downloaded back from --base-url and checked against SHA256SUMS.
 EOF
   exit 1
 }
@@ -59,6 +61,35 @@ file_size() {
 
 file_digest() {
   shasum -a 256 "$1" | cut -d ' ' -f 1
+}
+
+# Prints the channel a signed catalog declares, or nothing when it declares
+# none; fails when the field is there but is not a channel name. With
+# "envelope" the file is a catalog envelope and the catalog it carries, the
+# bytes its signature covers, is read. publish-channels sources this too.
+catalog_declared_channel() {
+  local file=$1 form=${2:-catalog}
+  python3 - "$file" "$form" <<'PY'
+import base64
+import json
+import sys
+
+path, form = sys.argv[1:3]
+document = json.load(open(path, encoding="utf-8"))
+if form == "envelope":
+    if (not isinstance(document, dict)
+            or set(document) != {"schema_version", "catalog", "signature"}
+            or document["schema_version"] != 1
+            or not isinstance(document["catalog"], str)):
+        raise SystemExit("not a catalog envelope")
+    document = json.loads(base64.b64decode(document["catalog"], validate=True))
+if not isinstance(document, dict):
+    raise SystemExit("catalog is not an object")
+declared = document.get("channel")
+if declared is not None and not (isinstance(declared, str) and declared):
+    raise SystemExit("catalog channel is not a name")
+print(declared or "")
+PY
 }
 
 validate_tag() {
@@ -439,10 +470,19 @@ publish_r2_release() {
     done
     # A set bound for more than one channel also carries one signed catalog
     # per channel, which publish-channels os-promote reads for that channel.
+    # The keys are immutable, so each must declare the channel in its name
+    # before it is uploaded: a mislabelled one could never be replaced.
+    local named_channel declared_channel
     for catalog_asset in catalog.stable.signed.json catalog.rc.signed.json \
       catalog.testing.signed.json catalog.edge.signed.json; do
       [[ -e $catalog_dir/$catalog_asset ]] || continue
       require_file "$catalog_dir/$catalog_asset"
+      named_channel=${catalog_asset#catalog.}
+      named_channel=${named_channel%.signed.json}
+      declared_channel=$(catalog_declared_channel "$catalog_dir/$catalog_asset" envelope) ||
+        die "$catalog_asset is not a readable catalog envelope"
+      [[ $declared_channel == "$named_channel" ]] ||
+        die "$catalog_asset declares ${declared_channel:-no channel}; it must be signed with \"channel\": \"$named_channel\""
       catalog_assets="$catalog_assets $catalog_asset"
     done
     catalog_assets=${catalog_assets# }
