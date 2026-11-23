@@ -70,6 +70,28 @@ final class GenericFirmwareConversionTests: XCTestCase {
     XCTAssertThrowsError(try FirmwarePlist.decode(Data(wrongType.utf8)))
   }
 
+  func testReferencesShareTheirTargetsDecodedData() throws {
+    // One 64 KiB payload named once and referenced by thousands of records,
+    // directly and through a dictionary: a reader that decodes the target
+    // again for every reference holds a copy per reference before any
+    // consumer can check its budget.
+    let references = 4096
+    let payload = Data((0..<(64 << 10)).map { UInt8(truncatingIfNeeded: $0 &* 31) })
+    let xml =
+      "<plist><array><data ID='d'>\(payload.base64EncodedString())</data>"
+      + "<dict ID='r'><key>Payload</key><data IDREF='d'/></dict>"
+      + String(repeating: "<data IDREF='d'/><dict IDREF='r'/>", count: references)
+      + "</array></plist>"
+    let decoded = try XCTUnwrap(FirmwarePlist.decode(Data(xml.utf8)).array)
+    XCTAssertEqual(decoded.count, 2 + 2 * references)
+    let values = try decoded.map { try XCTUnwrap($0.data ?? $0["Payload"]?.data) }
+    func storage(_ data: Data) -> UnsafeRawPointer? { data.withUnsafeBytes { $0.baseAddress } }
+    XCTAssertEqual(values[0], payload)
+    XCTAssertTrue(values.allSatisfy { $0.count == payload.count })
+    let copies = values.filter { storage($0) != storage(values[0]) }.count
+    XCTAssertEqual(copies, 0, "references holding their own copy of the payload")
+  }
+
   private func der(_ tag: UInt8, _ content: Data) -> Data {
     var out = Data([tag])
     if content.count < 128 {
