@@ -250,7 +250,7 @@
     /// offered. A ticket is used only by the account that inspected it.
     public func recoveryAccount(
       action: String, ticket: String, username: String, password: Data,
-      recoveryTemplate: Data, initiatingUID: UInt32? = nil
+      recoveryTemplate: Data, initiatingUID: UInt32
     )
       async throws -> RecoveryAccountReply
     {
@@ -271,7 +271,7 @@
             try RecoveryAccountHandoff.discover(in: directory)
           }).value
         else { return RecoveryAccountReply() }
-        guard let initiatingUID, startedInstallation(completed.binding, uid: initiatingUID)
+        guard startedInstallation(completed.binding, uid: initiatingUID)
         else { return RecoveryAccountReply() }
         let id = UUID().uuidString
         recoveryAccountTargets = recoveryAccountTargets.filter { $0.value.1 > Date() }
@@ -780,10 +780,12 @@
     private let version: String
     private let retirement: PackageInstalledAppRetirement
     private let mayRetirePackageApps: Bool
-    private let initiatingUID: UInt32?
+    private let initiatingUID: UInt32
 
     /// - Parameter version: the helper's build version, or empty when it
     ///   carries none.
+    /// - Parameter initiatingUID: the connecting app's effective user; jobs
+    ///   and the recovery-account step are bound to it.
     /// - Parameter mayRetirePackageApps: only a helper SMJobBless installed,
     ///   running from PrivilegedHelperTools, removes the package's app. An
     ///   ad hoc build's helper runs from inside that app and accepts any
@@ -792,7 +794,7 @@
       server: ClosedEngineHelperServer, version: String = "",
       retirement: PackageInstalledAppRetirement = PackageInstalledAppRetirement(),
       mayRetirePackageApps: Bool = ClosedEngineXPCServiceEndpoint.runsFromPrivilegedHelperTools(),
-      initiatingUID: UInt32? = nil
+      initiatingUID: UInt32
     ) {
       self.server = server
       self.version = version
@@ -969,7 +971,7 @@
     ) {
       var registered = false
       do {
-        guard let initiatingUID, request.count <= 65_536, !server.isRetiring else {
+        guard request.count <= 65_536, !server.isRetiring else {
           throw InstallerJobError.invalidRequest
         }
         let request = try JSONDecoder().decode(InstallerJobStartRequest.self, from: request)
@@ -1015,7 +1017,7 @@
 
     public func jobStatus(request: Data, reply: @escaping @Sendable (Data?, NSError?) -> Void) {
       do {
-        guard let initiatingUID, request.count <= 65_536 else {
+        guard request.count <= 65_536 else {
           throw InstallerJobError.invalidRequest
         }
         let request = try JSONDecoder().decode(InstallerJobStatusRequest.self, from: request)
@@ -1032,7 +1034,7 @@
 
     public func abandonJob(request: Data, reply: @escaping @Sendable (Data?, NSError?) -> Void) {
       do {
-        guard let initiatingUID, request.count <= 65_536 else {
+        guard request.count <= 65_536 else {
           throw InstallerJobError.invalidRequest
         }
         let request = try JSONDecoder().decode(InstallerJobAbandonRequest.self, from: request)
@@ -1055,7 +1057,7 @@
     ) {
       var registered = false
       do {
-        guard let initiatingUID, request.count <= 65_536, !server.isRetiring else {
+        guard request.count <= 65_536, !server.isRetiring else {
           throw InstallerJobError.invalidRequest
         }
         let request = try JSONDecoder().decode(InstallerJobRecoveryRequest.self, from: request)

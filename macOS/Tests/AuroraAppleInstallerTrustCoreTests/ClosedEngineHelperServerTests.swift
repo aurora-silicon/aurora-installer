@@ -25,7 +25,7 @@
         do {
           _ = try await server.recoveryAccount(
             action: action, ticket: "unknown", username: "", password: Data(),
-            recoveryTemplate: template)
+            recoveryTemplate: template, initiatingUID: 501)
           XCTFail("Unexpected account request accepted: \(action)")
         } catch {
           XCTAssertTrue(error is NativeRecoveryTemplateError || error is AccountSetupFailure)
@@ -44,8 +44,8 @@
         credentialValidator: AcceptingMachineOwnerCredentialValidator()
       )
       for (endpoint, expected) in [
-        (ClosedEngineXPCServiceEndpoint(server: server, version: "28"), "28"),
-        (ClosedEngineXPCServiceEndpoint(server: server), ""),
+        (ClosedEngineXPCServiceEndpoint(server: server, version: "28", initiatingUID: 501), "28"),
+        (ClosedEngineXPCServiceEndpoint(server: server, initiatingUID: 501), ""),
       ] {
         let reported = await withCheckedContinuation { continuation in
           endpoint.helperVersion { continuation.resume(returning: $0) }
@@ -62,7 +62,8 @@
         executor: RecordingHandoffExecutor(result: fixture.transcript),
         credentialValidator: AcceptingMachineOwnerCredentialValidator()
       )
-      let endpoint = ClosedEngineXPCServiceEndpoint(server: server, version: "28")
+      let endpoint = ClosedEngineXPCServiceEndpoint(
+        server: server, version: "28", initiatingUID: 501)
       // Both reply before returning: no hop onto the actor, which a long job
       // keeps busy.
       final class Replies: @unchecked Sendable {
@@ -89,7 +90,7 @@
       )
       // The test runner is not in PrivilegedHelperTools, so the default holds.
       XCTAssertFalse(ClosedEngineXPCServiceEndpoint.runsFromPrivilegedHelperTools())
-      let endpoint = ClosedEngineXPCServiceEndpoint(server: server)
+      let endpoint = ClosedEngineXPCServiceEndpoint(server: server, initiatingUID: 501)
       let summary = await withCheckedContinuation { continuation in
         endpoint.retirePackageInstalledApps { continuation.resume(returning: $0) }
       }
@@ -155,7 +156,7 @@
         credentialValidator: AcceptingMachineOwnerCredentialValidator(),
         removalDisks: UnusedRemovalDisks(), removalAdminValidator: { _ in },
         work: work)
-      let endpoint = ClosedEngineXPCServiceEndpoint(server: server)
+      let endpoint = ClosedEngineXPCServiceEndpoint(server: server, initiatingUID: 501)
       func prepare() async -> Bool {
         await withCheckedContinuation { c in
           endpoint.prepareForReplacement(token: "A") { c.resume(returning: $0) }
@@ -199,7 +200,7 @@
           appNames: ["Current", "Legacy"],
           bundleIdentifier: "com.example.installer", packageOwner: getuid(),
           runningExecutablePaths: { [] }),
-        mayRetirePackageApps: true)
+        mayRetirePackageApps: true, initiatingUID: 501)
 
       let summary = await withCheckedContinuation { continuation in
         endpoint.retirePackageInstalledApps { continuation.resume(returning: $0) }
