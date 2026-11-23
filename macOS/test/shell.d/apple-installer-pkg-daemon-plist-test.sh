@@ -97,3 +97,36 @@ if "$derive" "$test_tmp/dir-target.app" "$test_tmp/rel.plist" relative/helper >/
   fail "derivation rejects a relative helper output"
 fi
 pass "derivation refuses a directory or relative helper output (the old install-location form)"
+
+# check-helper-bom, with lsbom replaced by a stub printing a fixture listing.
+bom_check=$pkg_dir/check-helper-bom
+printf 'bom' >"$test_tmp/Bom"
+cat >"$test_tmp/lsbom" <<'STUB'
+#!/bin/bash
+[[ $1 == -p && $2 == fmug ]] || exit 9
+cat "$BOM_LISTING"
+STUB
+chmod +x "$test_tmp/lsbom"
+bom_with() {
+  printf '%b' "$1" >"$test_tmp/listing"
+  LSBOM=$test_tmp/lsbom BOM_LISTING=$test_tmp/listing "$bom_check" "$test_tmp/Bom" "$helper_id" >/dev/null 2>&1
+}
+good_dir='./Library/PrivilegedHelperTools\t40755\t0\t0\n'
+good_helper="./Library/PrivilegedHelperTools/$helper_id\t100755\t0\t0\n"
+bom_with ".\t40755\t0\t0\n./Library\t40755\t0\t0\n$good_dir$good_helper" ||
+  fail "a Bom with a root:wheel 0755 helper passes"
+bom_with "$good_dir./Library/PrivilegedHelperTools/$helper_id\t100755\t501\t20\n" &&
+  fail "a helper owned by another user fails the Bom check"
+bom_with "$good_dir./Library/PrivilegedHelperTools/$helper_id\t100775\t0\t0\n" &&
+  fail "a group-writable helper fails the Bom check"
+bom_with "$good_dir./Library/PrivilegedHelperTools/$helper_id\t120755\t0\t0\n" &&
+  fail "a symlinked helper fails the Bom check"
+bom_with "./Library/PrivilegedHelperTools\t40755\t501\t0\n$good_helper" &&
+  fail "a helper directory owned by another user fails the Bom check"
+bom_with "$good_dir" && fail "a Bom without the helper fails the check"
+grep -Fq 'check-helper-bom' "$pkg_dir/build-pkg.sh" || fail "build-pkg.sh checks the helper's Bom entry"
+grep -Fq 'check-helper-bom' "$ROOT/Packaging/build-developer-pkg.sh" ||
+  fail "build-developer-pkg.sh checks the helper's Bom entry"
+grep -Fq 'codesign --verify --strict -R="$helper_requirement" "$root$helper_program"' "$pkg_dir/build-pkg.sh" ||
+  fail "build-pkg.sh verifies the staged helper's signature"
+pass "the packages' Bom must install the helper root:wheel 0755"

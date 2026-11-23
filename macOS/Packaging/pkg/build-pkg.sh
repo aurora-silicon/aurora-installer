@@ -71,6 +71,18 @@ prog="$(/usr/bin/plutil -extract Program raw -o - "$daemon_plist" 2>/dev/null ||
   echo "build-pkg.sh: daemon Program is not in the payload: $prog" >&2
   exit 65
 }
+# The staged copy is what root runs: it must be the app's signed helper,
+# satisfying the requirement the app pins for its helper.
+helper_requirement="$(/usr/bin/plutil -extract helper_code_signing_requirement raw -o - \
+  "$APP/Contents/Resources/Release/release.json" 2>/dev/null || true)"
+[[ -n $helper_requirement ]] || {
+  echo "build-pkg.sh: the app's release.json pins no helper requirement" >&2
+  exit 65
+}
+/usr/bin/codesign --verify --strict -R="$helper_requirement" "$root$helper_program" || {
+  echo "build-pkg.sh: the staged helper does not satisfy: $helper_requirement" >&2
+  exit 65
+}
 # The helper compiles this requirement at launch and exits EX_CONFIG when it
 # cannot, and launchd then respawns it forever while the app waits on a reply
 # that never comes. The repo template carries a placeholder that build-app.sh
@@ -115,6 +127,9 @@ comp="$work/component.pkg"
   --install-location / \
   --ownership recommended \
   "$comp"
+# The helper's ownership comes from --ownership recommended; check the Bom.
+/usr/sbin/pkgutil --expand "$comp" "$work/component-expanded"
+"$PKG_DIR/check-helper-bom" "$work/component-expanded/Bom" "$INSTALLER_HELPER_IDENTIFIER"
 
 echo "=== productbuild (signed distribution) ==="
 # Installer asks for a running installer app, under either name, to be closed

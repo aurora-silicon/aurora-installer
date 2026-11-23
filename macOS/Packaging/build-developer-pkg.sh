@@ -52,5 +52,8 @@ mkdir -p "$(dirname "$output")"
   --root "$work/root" --component-plist "$work/components.plist" \
   --scripts "$work/scripts" --identifier "$INSTALLER_PKG_IDENTIFIER.developer" \
   --version "$version" --install-location / --ownership recommended "$output"
+/usr/sbin/pkgutil --expand "$output" "$work/expanded"
+"$directory/pkg/check-helper-bom" "$work/expanded/Bom" "$INSTALLER_HELPER_IDENTIFIER" \
+  || { rm -f "$output"; fail "package does not install the helper root:wheel 0755"; }
 printf 'Built unsigned local developer package: %s\n' "$output"
 /usr/bin/shasum -a 256 "$output"
