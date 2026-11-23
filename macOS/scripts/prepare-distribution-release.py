@@ -58,6 +58,9 @@ def prepare(source, output, sealed=False, signing_team=None):
             catalog = json.loads(data["catalog.json"])
             if catalog["schemaVersion"] != 5:
                 raise ValueError(f"catalog is not a native-only schema 5 catalog: {profile}")
+            sequence = catalog.get("sequence")
+            if type(sequence) is not int or not 0 < sequence < 1 << 64:
+                raise ValueError(f"catalog sequence is not a positive 64-bit integer: {profile}")
             if not catalog["models"] or any(
                 model.get("installationProfile") != profile for model in catalog["models"]
                 if model["status"] == "enabled" or model.get("installationProfile") is not None
@@ -122,6 +125,13 @@ def prepare(source, output, sealed=False, signing_team=None):
         for name, content in data.items():
             if sealed or name not in ("catalog.json", "catalog.json.sig"):
                 (directory / name).write_bytes(descriptors[profile] if name == "release.json" else content)
+        # The app refuses a catalog older than the one it was built with, on
+        # a first run too, when no accepted catalog is stored yet. Only the
+        # verified Testing delivery is at hand, so only Testing gets a floor.
+        (directory / "catalog-floor.json").write_text(json.dumps({
+            "schema_version": 1,
+            "minimum_sequence": {"testing": json.loads(data["catalog.json"])["sequence"]},
+        }, indent=2) + "\n")
     (output / "release.json").write_bytes(root_descriptor)
     shutil.copyfile(ROOT / "Release/trust-root.ed25519.pub", output / "trust-root.ed25519.pub")
     if sealed:

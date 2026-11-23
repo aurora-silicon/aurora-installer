@@ -176,6 +176,65 @@ class DistributionReleaseTests(unittest.TestCase):
             module.prepare(self.profiles, output, signing_team="TESTTEAM01")
         self.assertFalse(output.exists())
 
+    def resequence(self, profile, sequence):
+        directory = self.profiles / profile
+        catalog = json.loads((directory / "catalog.json").read_text())
+        catalog["sequence"] = sequence
+        (directory / "catalog.json").write_text(json.dumps(catalog))
+        self.sign(directory)
+
+    def test_each_profile_records_its_verified_catalog_sequence_as_the_testing_floor(self):
+        for index, profile in enumerate(module.PROFILES):
+            self.resequence(profile, 1700000000 + index)
+        for sealed in (True, False):
+            with self.subTest(sealed=sealed):
+                output = self.root / f"output-{sealed}"
+                with patch.object(module, "ROOT", self.root):
+                    module.prepare(self.profiles, output, sealed=sealed)
+                manifest = json.loads((output / "profile-manifest.json").read_text())
+                for index, profile in enumerate(module.PROFILES):
+                    path = output / "Profiles" / profile / "catalog-floor.json"
+                    self.assertTrue(path.is_file() and not path.is_symlink())
+                    self.assertEqual(path.stat().st_mode & 0o022, 0)
+                    self.assertEqual(json.loads(path.read_text()), {
+                        "schema_version": 1, "minimum_sequence": {"testing": 1700000000 + index}})
+                    self.assertEqual(manifest["profiles"][profile]["sequence"], 1700000000 + index)
+                # The floor is per profile; the root descriptor has no catalog of its own.
+                self.assertFalse((output / "catalog-floor.json").exists())
+
+    def test_the_floor_is_the_only_addition_to_the_emitted_release(self):
+        output = self.root / "output"
+        with patch.object(module, "ROOT", self.root):
+            module.prepare(self.profiles, output, sealed=True)
+        delivered = ("catalog.json", "catalog.json.sig", "release.json", "trust-root.ed25519.pub")
+        self.assertEqual({entry.name for entry in output.iterdir()},
+                         {"Profiles", "catalog.json", "catalog.json.sig", "release.json",
+                          "trust-root.ed25519.pub", "profile-manifest.json"})
+        for profile in module.PROFILES:
+            self.assertEqual({entry.name for entry in (output / "Profiles" / profile).iterdir()},
+                             set(delivered) | {"catalog-floor.json"})
+            for name in ("catalog.json", "catalog.json.sig", "trust-root.ed25519.pub"):
+                self.assertEqual((output / "Profiles" / profile / name).read_bytes(),
+                                 (self.profiles / profile / name).read_bytes())
+            # The bundled descriptor stays schema 3 with its exact key set.
+            self.assertEqual(json.loads((output / "Profiles" / profile / "release.json").read_text()),
+                             json.loads((self.profiles / profile / "release.json").read_text()))
+        unsealed = self.root / "unsealed"
+        with patch.object(module, "ROOT", self.root):
+            module.prepare(self.profiles, unsealed)
+        for profile in module.PROFILES:
+            self.assertEqual({entry.name for entry in (unsealed / "Profiles" / profile).iterdir()},
+                             {"release.json", "trust-root.ed25519.pub", "catalog-floor.json"})
+
+    def test_a_catalog_without_a_usable_sequence_emits_no_release(self):
+        for sequence in (0, -1, 1 << 64, True, 1.5, "7", None):
+            with self.subTest(sequence=sequence):
+                self.resequence("arch-gnome", sequence)
+                output = self.root / "output"
+                with patch.object(module, "ROOT", self.root), self.assertRaisesRegex(ValueError, "sequence"):
+                    module.prepare(self.profiles, output, sealed=True)
+                self.assertFalse(output.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

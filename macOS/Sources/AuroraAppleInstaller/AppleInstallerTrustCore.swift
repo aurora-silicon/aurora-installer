@@ -85,12 +85,15 @@ public struct AppleInstallerTrustCore: Sendable {
     )
   }
 
+  /// `minimumSequence` is the build's own floor: it holds on a first run,
+  /// when nothing has been accepted yet. A catalog at the floor is accepted.
   public func validateSupportCatalog(
     payload: Data,
     signature: Data,
     trustRoot: AppOwnedTrustRoot,
     now: Date,
-    previouslyAccepted: AcceptedCatalogIdentity? = nil
+    previouslyAccepted: AcceptedCatalogIdentity? = nil,
+    minimumSequence: UInt64? = nil
   ) throws -> ValidatedSupportCatalog {
     let catalog = try SignedSupportCatalogVerifier().verify(
       payload: payload,
@@ -104,6 +107,12 @@ public struct AppleInstallerTrustCore: Sendable {
       payloadDigest: payloadDigest
     )
 
+    if let minimumSequence, candidate.sequence < minimumSequence {
+      throw SupportCatalogSequenceError.rollback(
+        stored: max(minimumSequence, previouslyAccepted?.sequence ?? 0),
+        candidate: candidate.sequence
+      )
+    }
     if let previouslyAccepted {
       guard candidate.sequence >= previouslyAccepted.sequence else {
         throw SupportCatalogSequenceError.rollback(

@@ -432,6 +432,24 @@
       XCTAssertEqual(downloadCount, 0)
     }
 
+    func testACatalogBelowTheBuildFloorStopsBeforeDownload() async throws {
+      // The fixture catalog is sequence 30.
+      let fixture = try makeFixture()
+      let directory = temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+
+      await assertAssetPreparationThrows(
+        try await fixture.preparer.prepare(
+          fixture.request(stagingDirectory: directory, minimumCatalogSequence: 31)
+        )
+      ) {
+        XCTAssertEqual(
+          $0 as? SupportCatalogSequenceError, .rollback(stored: 31, candidate: 30))
+      }
+      let downloadCount = await fixture.downloader.downloadCount
+      XCTAssertEqual(downloadCount, 0)
+    }
+
     func testPrepareForwardsStagingProgressForEveryRole() async throws {
       let fixture = try makeFixture()
       let directory = temporaryDirectory()
@@ -711,14 +729,18 @@
     let metadata: Data
     let payload: Data
 
-    func request(stagingDirectory: URL) -> InstallerAssetPreparationRequest {
+    func request(
+      stagingDirectory: URL,
+      minimumCatalogSequence: UInt64? = nil
+    ) -> InstallerAssetPreparationRequest {
       InstallerAssetPreparationRequest(
         host: host,
         catalogPayload: catalogPayload,
         catalogSignature: catalogSignature,
         trustRoot: trustRoot,
         validationTime: validationTime,
-        stagingDirectory: stagingDirectory
+        stagingDirectory: stagingDirectory,
+        minimumCatalogSequence: minimumCatalogSequence
       )
     }
   }

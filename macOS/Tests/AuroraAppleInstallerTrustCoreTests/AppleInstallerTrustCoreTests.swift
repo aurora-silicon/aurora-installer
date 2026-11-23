@@ -597,6 +597,82 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
     }
   }
 
+  func testFirstRunRefusesACatalogBelowTheBuildFloor() throws {
+    // Nothing is stored on a first run, so the build's own floor is the only
+    // thing between this Mac and any catalog ever signed for the channel.
+    let older = try makeCatalog(sequence: 9)
+
+    XCTAssertThrowsError(
+      try core.validateSupportCatalog(
+        payload: older.payload,
+        signature: older.signature,
+        trustRoot: older.trustRoot,
+        now: now,
+        previouslyAccepted: nil,
+        minimumSequence: 10
+      )
+    ) {
+      XCTAssertEqual(
+        $0 as? SupportCatalogSequenceError,
+        .rollback(stored: 10, candidate: 9)
+      )
+    }
+  }
+
+  func testFirstRunAcceptsACatalogAtOrAboveTheBuildFloor() throws {
+    for sequence: UInt64 in [10, 11] {
+      let fixture = try makeCatalog(sequence: sequence)
+      let validated = try core.validateSupportCatalog(
+        payload: fixture.payload,
+        signature: fixture.signature,
+        trustRoot: fixture.trustRoot,
+        now: now,
+        minimumSequence: 10
+      )
+      XCTAssertEqual(validated.acceptedIdentity.sequence, sequence)
+    }
+  }
+
+  func testTheBuildFloorHoldsBesideAnOlderAcceptedIdentity() throws {
+    // An app update can raise the floor above what the last app accepted.
+    let fixture = try makeCatalog(sequence: 9)
+    let accepted = try validateCatalog(fixture)
+
+    XCTAssertThrowsError(
+      try core.validateSupportCatalog(
+        payload: fixture.payload,
+        signature: fixture.signature,
+        trustRoot: fixture.trustRoot,
+        now: now,
+        previouslyAccepted: accepted.acceptedIdentity,
+        minimumSequence: 10
+      )
+    ) {
+      XCTAssertEqual(
+        $0 as? SupportCatalogSequenceError,
+        .rollback(stored: 10, candidate: 9)
+      )
+    }
+    // A floor below the stored identity changes nothing about the stored one.
+    let current = try validateCatalog(makeCatalog(sequence: 12))
+    let between = try makeCatalog(sequence: 11)
+    XCTAssertThrowsError(
+      try core.validateSupportCatalog(
+        payload: between.payload,
+        signature: between.signature,
+        trustRoot: between.trustRoot,
+        now: now,
+        previouslyAccepted: current.acceptedIdentity,
+        minimumSequence: 10
+      )
+    ) {
+      XCTAssertEqual(
+        $0 as? SupportCatalogSequenceError,
+        .rollback(stored: 12, candidate: 11)
+      )
+    }
+  }
+
   func testDifferentPayloadCannotReuseAcceptedSequence() throws {
     let first = try validateCatalog(
       makeCatalog(sequence: 11, evidence: "evidence-a")
