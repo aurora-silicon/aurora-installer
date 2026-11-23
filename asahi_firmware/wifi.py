@@ -72,26 +72,18 @@ class WiFiFWCollection(object):
                 if not name.endswith(".txt"):
                     name = "P-" + name
                 idpath, ext = os.path.join(subpath, name).rsplit(".", 1)
-                props = {}
-                for i in idpath.replace("/", "_").split("_"):
-                    if not i:
-                        continue
-                    k, v = i.split("-", 1)
-                    if k == "P" and "-" in v:
-                        plat, ant = v.split("-", 1)
-                        props["P"] = plat
-                        props["A"] = ant
-                    else:
-                        props[k] = v
+                # A name this reader cannot place (no key-value parts, an
+                # unknown key, no chip or revision) is left out; the rest of
+                # the tree is still collected.
+                props = self.parse_ident(idpath)
+                if props is None:
+                    log.warning(f"Skipping firmware file with an unexpected name: {relpath}")
+                    continue
                 ident = [ext]
                 for dim in self.DIMS:
                     if dim in props:
                         ident.append(props.pop(dim))
-                assert not props
 
-                node = self.root
-                for k in ident:
-                    node = node.leaves.setdefault(k, FWNode())
                 st = os.stat(path)
                 key = (st.st_dev, st.st_ino, name.endswith(".txt"))
                 if key not in read:
@@ -99,11 +91,42 @@ class WiFiFWCollection(object):
                         data = fd.read()
 
                     if name.endswith(".txt"):
-                        data = self.process_nvram(data)
+                        try:
+                            data = self.process_nvram(data)
+                        except ValueError as e:
+                            log.warning(f"Skipping NVRAM file that does not parse: {relpath} ({e})")
+                            continue
 
                     read[key] = FWFile(relpath, data)
                 first = read[key]
+
+                node = self.root
+                for k in ident:
+                    node = node.leaves.setdefault(k, FWNode())
                 node.this = FWFile(relpath, first.data, first.sha)
+
+    def parse_ident(self, idpath):
+        """{dimension: value} of a firmware path without its extension
+        (C-4387__s-C2/P-maui_M-XXXX), or None if it is not of that form."""
+        props = {}
+        for i in idpath.replace("/", "_").split("_"):
+            if not i:
+                continue
+            k, sep, v = i.partition("-")
+            if not sep:
+                return None
+            if k == "P" and "-" in v:
+                plat, ant = v.split("-", 1)
+                props["P"] = plat
+                props["A"] = ant
+            else:
+                props[k] = v
+        if any(k not in self.DIMS for k in props):
+            return None
+        # files() names a file by its chip and revision.
+        if "C" not in props or "s" not in props:
+            return None
+        return props
 
     def prune(self, node=None, depth=0):
         if node is None:
