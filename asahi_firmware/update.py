@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: MIT
-import pathlib, tempfile, subprocess, os.path
+import pathlib, tempfile, os.path
+
+from .archive import extract_archive
 
 from .core import FWPackage
 from .wifi import WiFiFWCollection
@@ -19,7 +21,7 @@ def update_firmware(source, dest):
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir = pathlib.Path(tmpdir)
-        subprocess.run(["tar", "xf", str(raw_fw.resolve())], cwd=tmpdir, check=True)
+        extract_archive(raw_fw, tmpdir)
 
         col = WiFiFWCollection(str(tmpdir.joinpath("firmware", "wifi")))
         pkg.add_files(sorted(col.files()))
