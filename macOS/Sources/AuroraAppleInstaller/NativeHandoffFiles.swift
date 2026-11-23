@@ -94,6 +94,13 @@
     private let protected: Bool
     private let owner: uid_t
     private let verifiedVolumeRoot: Bool
+    /// The root is that of a volume this installer created (the stub System
+    /// volume). Recovery starts the entries at its top level by path, so the
+    /// root itself is held to the rule of every inner folder: owned by
+    /// `owner`, no write by group or others. APFS creates a volume root
+    /// root:admin 0775, so the root is made root-owned 0755 through the
+    /// verified descriptor when the tree opens it and before each write.
+    private let ownedVolumeRoot: Bool
     /// Files in a hash-verified image may carry several names. Such a file is
     /// read only when its own filesystem is mounted read-only, where no link
     /// can be added; the single-link rule still guards every writable volume.
@@ -104,6 +111,7 @@
 
     init(
       _ url: URL, protected: Bool, owner: uid_t = 0, volumeRoot: Bool = false,
+      ownedVolumeRoot: Bool = false,
       volumeDevice: String? = nil, readOnlyVolume: Bool = false,
       verifyMount: @Sendable (Int32, URL, String) throws -> Void = NativeHandoffFileTree
         .verifyVolumeRoot,
@@ -114,6 +122,10 @@
       self.readOnlyVolume = readOnlyVolume
       self.mountedReadOnly = mountedReadOnly
       verifiedVolumeRoot = volumeRoot
+      self.ownedVolumeRoot = ownedVolumeRoot
+      guard !ownedVolumeRoot || (protected && volumeRoot) else {
+        throw NativeHandoffValidationError.unsafePath
+      }
       let descriptor = open(url.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
       guard descriptor >= 0 else { throw NativeHandoffValidationError.unsafePath }
       var info = stat()
@@ -127,6 +139,13 @@
         if volumeRoot {
           guard let volumeDevice else { throw NativeHandoffValidationError.invalidTarget }
           try verifyMount(descriptor, url, volumeDevice)
+        }
+        if ownedVolumeRoot {
+          // A read-only mount can't be changed, and nothing can be renamed
+          // in it either: its root is read as it is, and made safe before
+          // the first write once the volume is writable.
+          try Self.protectVolumeRoot(
+            descriptor, owner: owner, unlessReadOnly: mountedReadOnly(descriptor))
         }
       } catch {
         close(descriptor)
@@ -150,6 +169,31 @@
     /// could be a link someone added, so a file must have exactly one.
     func admitsHardLinks(_ fd: Int32) -> Bool {
       readOnlyVolume && mountedReadOnly(fd)
+    }
+
+    /// Leaves the opened, verified volume root `fd` owned by `owner` with no
+    /// write by group or others, changing it to mode 0755 when it isn't
+    /// (never by path). Refuses a root that stays writable by others, except
+    /// on a read-only mount when `unlessReadOnly` is set.
+    static func protectVolumeRoot(_ fd: Int32, owner: uid_t, unlessReadOnly: Bool = false) throws {
+      var info = stat()
+      guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFDIR, info.st_uid == owner else {
+        throw NativeHandoffValidationError.unsafePath
+      }
+      if info.st_mode & 0o022 == 0 || unlessReadOnly { return }
+      // root:wheel in the helper. Tests run as another owner, which can
+      // only give a folder to one of its own groups.
+      let group: gid_t = owner == 0 ? 0 : getegid()
+      guard fchown(fd, owner, group) == 0, fchmod(fd, 0o755) == 0, fsync(fd) == 0,
+        fstat(fd, &info) == 0, info.st_uid == owner, info.st_mode & 0o022 == 0
+      else { throw NativeHandoffValidationError.unsafePath }
+    }
+
+    /// Before a name is added, removed or renamed anywhere in an owned
+    /// volume: its root must not be writable by others. A root first opened
+    /// on a read-only mount is made safe here, once it is writable.
+    private func protectRootForWriting() throws {
+      if ownedVolumeRoot { try Self.protectVolumeRoot(root, owner: owner) }
     }
 
     static func verifyVolumeRoot(_ fd: Int32, url: URL, device: String) throws {
@@ -326,7 +370,8 @@
 
     /// The caller owns the returned descriptor across an asynchronous write.
     func writableParent(_ path: String) throws -> (Int32, String) {
-      try withParent(path, createParents: true) { parent, leaf in
+      try protectRootForWriting()
+      return try withParent(path, createParents: true) { parent, leaf in
         let descriptor = dup(parent)
         guard descriptor >= 0 else { throw NativeHandoffValidationError.unsafePath }
         return (descriptor, leaf)
@@ -350,6 +395,7 @@
       guard protected, destination.hasPrefix(admittedRoot.path + "/") else {
         throw NativeHandoffValidationError.unsafePath
       }
+      try protectRootForWriting()
       try withParent(path, createParents: true) { parent, leaf in
         if symlinkat(destination, parent, leaf) != 0 {
           guard errno == EEXIST else { throw NativeHandoffValidationError.unsafePath }
@@ -370,6 +416,7 @@
       guard protected, NativeHandoffEvidence.safeRelative(target) else {
         throw NativeHandoffValidationError.unsafePath
       }
+      try protectRootForWriting()
       try withParent(path, createParents: true) { parent, leaf in
         if symlinkat(target, parent, leaf) != 0 && errno != EEXIST {
           throw NativeHandoffValidationError.unsafePath
@@ -431,6 +478,7 @@
       let source = try existing(active: active, inactive: inactive)
       let destination = activate ? active : inactive
       if source == destination { return }
+      try protectRootForWriting()
       if try !isAbsent(destination) {
         // An identical pair: the destination already holds the bytes.
         try withParent(source) { parent, leaf in

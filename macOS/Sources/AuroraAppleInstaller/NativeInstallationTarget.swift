@@ -92,7 +92,8 @@
       let volume = try volume(role)
       return try NativeHandoffFileTree(
         root(role, writable: writable), protected: true, owner: owner,
-        volumeRoot: true, volumeDevice: volume.identifier, verifyMount: environment.verifyMount)
+        volumeRoot: true, ownedVolumeRoot: role == "System", volumeDevice: volume.identifier,
+        verifyMount: environment.verifyMount)
     }
 
     func espRoot() throws -> URL {

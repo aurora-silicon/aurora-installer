@@ -75,7 +75,30 @@ struct AccountSetupFailure: Error {
     try newTransaction.commit()
     let newStatus = try Data(contentsOf: newSnapshot.appendingPathComponent("status"))
     precondition(newStatus == Data("committed\n".utf8))
+    // Metadata reaches the opened file, never what its name has become.
+    let other = root.appendingPathComponent("other.plist")
+    let linked = root.appendingPathComponent("linked.plist")
+    try Data("other".utf8).write(to: other)
+    precondition(chmod(other.path, 0o644) == 0)
+    try fm.createSymbolicLink(at: linked, withDestinationURL: other)
+    do {
+      try RecoveryFileTransaction.setMetadata(linked, mode: 0o600, flags: UInt32(UF_NODUMP))
+      preconditionFailure("Metadata followed a symbolic link")
+    } catch {}
+    precondition(lstat(other.path, &info) == 0 && (info.st_mode & 0o7777) == 0o644)
+    precondition(info.st_flags & UInt32(UF_NODUMP) == 0)
+    try fm.removeItem(at: linked)
+    precondition(link(other.path, linked.path) == 0)
+    do {
+      try RecoveryFileTransaction.setMetadata(linked, mode: 0o600, singleName: true)
+      preconditionFailure("Metadata reached a file with another name")
+    } catch {}
+    precondition(lstat(other.path, &info) == 0 && (info.st_mode & 0o7777) == 0o644)
+    try fm.removeItem(at: linked)
+    try RecoveryFileTransaction.setMetadata(other, mode: 0o600, singleName: true)
+    precondition(lstat(other.path, &info) == 0 && (info.st_mode & 0o7777) == 0o600)
     print(
-      "PASS file rollback bytes, original absence, mode, interruption resume and target binding")
+      "PASS file rollback bytes, original absence, mode, interruption resume, target binding "
+        + "and metadata through the opened file")
   }
 }

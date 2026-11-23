@@ -133,6 +133,17 @@
       }
       _ = try AccountNativeCommand.checked("/sbin/mount", ["-u", "-w", mount])
       let system = URL(fileURLWithPath: mount, isDirectory: true)
+      // The steps below add and rename entries at the top of this volume by
+      // path. Verify the mount point as this volume's root and leave it
+      // root-owned 0755 first, so no one else can rename them meanwhile.
+      guard let device = info["DeviceIdentifier"] as? String,
+        (try? NativeHandoffFileTree(
+          system, protected: true, volumeRoot: true, ownedVolumeRoot: true,
+          volumeDevice: device)) != nil
+      else {
+        throw AccountSetupFailure(
+          "The installation's System volume could not be protected before the Recovery update.")
+      }
       let destination = system.appendingPathComponent("Aurora Installer.app", isDirectory: true)
       try resumeAppUpdate(system: system, target: target)
       let configuration = try installationConfiguration(system: system)

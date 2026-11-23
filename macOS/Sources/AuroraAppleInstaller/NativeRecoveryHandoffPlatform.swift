@@ -220,7 +220,8 @@
       }
       let system = try NativeHandoffFileTree(
         systemURL, protected: true, owner: environment.owner,
-        volumeRoot: true, volumeDevice: systems[0].identifier, verifyMount: environment.verifyMount)
+        volumeRoot: true, ownedVolumeRoot: true, volumeDevice: systems[0].identifier,
+        verifyMount: environment.verifyMount)
       let configuration = try system.read(
         "Aurora/Recovery/InstallData/install-config.json", maximum: 65_536)
       guard let config = try JSONSerialization.jsonObject(with: configuration) as? [String: Any],
@@ -348,7 +349,7 @@
       _ = try environment.command("/sbin/mount", ["-u", "-w", prepared.systemURL.path])
       let system = try NativeHandoffFileTree(
         prepared.systemURL, protected: true, owner: environment.owner,
-        volumeRoot: true, volumeDevice: prepared.systemIdentifier,
+        volumeRoot: true, ownedVolumeRoot: true, volumeDevice: prepared.systemIdentifier,
         verifyMount: environment.verifyMount)
       try system.prepareForAuthorization()
       do {
