@@ -474,6 +474,7 @@ def make_plan(installer, board, chosen, gpt, layout, mode, owner_state, size=Non
                 p["size"] = plan["shrink"]["to"]
         plan["predecessor"]["size"] = plan["shrink"]["to"]
     plan["digest"] = digest(plan)
+    check_plan(plan)
     return plan
 
 
@@ -616,9 +617,84 @@ def q(s):
     return shlex.quote(str(s))
 
 
+# Everything in a plan that came from the disk (volume and partition names,
+# mount points) or from Apple's catalog (title, version, build, URL) ends up
+# in restore.sh, which runs as root in Recovery. Such a value is refused if
+# it holds a control character, and the values written into the script
+# unquoted (numbers, the digest) must match a strict pattern.
+CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+UUID = r"[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}"
+STRICT = {
+    "version": r"\d+(\.\d+)*",
+    "build": r"[0-9A-Za-z]+",
+    "url": r"https://[A-Za-z0-9.-]+(:\d+)?/[A-Za-z0-9._~%+/-]*/InstallAssistant\.pkg",
+    "uuid": UUID,
+    "digest": r"[0-9a-f]{16}",
+    "board": r"[A-Z]\d{3}[A-Za-z]{0,2}AP",
+}
+
+
+def _no_control(value, where):
+    if isinstance(value, dict):
+        for k, v in value.items():
+            _no_control(k, where)
+            _no_control(v, f"{where}.{k}" if where else str(k))
+    elif isinstance(value, (list, tuple)):
+        for n, v in enumerate(value):
+            _no_control(v, f"{where}[{n}]")
+    elif isinstance(value, str) and CONTROL.search(value):
+        raise Refusal(f"The plan's {where or 'value'} {value!r} holds a control character "
+                      "(a line break, tab or similar), which no disk or Apple catalog value "
+                      "should have; nothing was changed.")
+
+
+def _strict(value, kind, where):
+    if not isinstance(value, str) or not re.fullmatch(STRICT[kind], value):
+        raise Refusal(f"The plan's {where} {value!r} isn't a valid {kind}; nothing was "
+                      "changed.")
+
+
+def _count(value, where):
+    if type(value) is not int or value < 0:
+        raise Refusal(f"The plan's {where} {value!r} isn't a byte count; nothing was changed.")
+
+
+def check_plan(plan):
+    """Refuses a plan with a value that could change what restore.sh does."""
+    _no_control(plan, "")
+    i = plan["installer"]
+    if plan["mode"] not in ("alongside", "replace"):
+        raise Refusal(f"Unknown mode {plan['mode']!r}.")
+    for kind in ("version", "build", "url"):
+        _strict(i[kind], kind, f"installer {kind}")
+    _strict(plan["board"], "board", "board")
+    _strict(plan["espUUID"], "uuid", "EFI partition UUID")
+    _strict(plan["predecessor"]["uuid"], "uuid", "predecessor UUID")
+    if "digest" in plan:
+        _strict(plan["digest"], "digest", "digest")
+    _count(i["size"], "installer size")
+    _count(plan["containerBytes"], "container size")
+    for key in ("start", "size"):
+        _count(plan["gap"][key], f"free space {key}")
+        _count(plan["predecessor"][key], f"predecessor {key}")
+    for group in ("partitions", "delete"):
+        for p in plan[group]:
+            _strict(p["uuid"], "uuid", "partition UUID")
+            _count(p["start"], f"partition {p['uuid']} start")
+            _count(p["size"], f"partition {p['uuid']} size")
+    if plan.get("owner") is not None and not isinstance(plan["owner"], str):
+        raise Refusal(f"The plan's owner {plan['owner']!r} isn't a name.")
+
+
+def shell_lines(text, indent="    "):
+    """`text` as one printf of single-quoted words: data can't end it."""
+    return "printf '%s\\n' \\\n" + " \\\n".join(indent + q(x) for x in text.split("\n"))
+
+
 def recovery_script(plan):
     """The script Recovery runs: plain sh, every value written in, only
     Apple's own tools (diskutil, curl, installer)."""
+    check_plan(plan)
     i = plan["installer"]
     gone = {p["uuid"] for p in plan["delete"]}
     kept = "\n".join(f"check_part {q(p['uuid'])} {p['start']} {p['size']}"
@@ -630,7 +706,7 @@ def recovery_script(plan):
     kept_count = len(plan["partitions"]) - len(gone)
     pred_end = plan["predecessor"]["start"] + plan["predecessor"]["size"]
     return f"""#!/bin/sh
-# aurora-restore {plan['digest']}: install {i['title']} {i['version']} ({i['build']}).
+# aurora-restore {plan['digest']}: install macOS {i['version']} ({i['build']}).
 # Written by aurora-restore in Aurora; run in this Mac's Recovery (Terminal).
 # Every value is fixed here; nothing is read from elsewhere.
 set -eu
@@ -770,9 +846,7 @@ fi
 say "checking the network"
 curl -fsIL --max-time 30 "$URL" >/dev/null || die "Apple's server isn't reachable: join a network (Wi-Fi menu) and $(rerun)"
 
-cat <<'PLAN'
-{plan_text(plan)}
-PLAN
+{shell_lines(plan_text(plan))}
 if [ $CHECK = 1 ]; then
     say "check passed: the disk is as planned and Apple's server answers. Nothing was changed."
     exit 0

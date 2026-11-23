@@ -348,12 +348,136 @@ class Plans(DiskImage):
         with self.assertRaisesRegex(ar.Refusal, "can't approve .* not authorized"):
             self.plan("alongside", owner={"account": "aurora", "problem": "not authorized yet"})
 
+    def test_a_volume_name_with_a_line_break_is_refused(self):
+        # The System volume's name comes from the APFS superblock as is.
+        name = 'Macintosh HD\nPLAN\ntouch /tmp/aurora-restore-injected\ncat <<\'PLAN\''
+        contents = dict(fx.CONTENTS, macos=[(name,) + v[1:] if v[1] == "System" else v
+                                            for v in fx.MAC_VOLUMES])
+        self.make(contents=contents)
+        self.assertEqual(self.layout["macos"] and wd.system_name(self.layout["macos"]), name)
+        for mode in ("alongside", "replace"):
+            with self.assertRaisesRegex(ar.Refusal, "control character"):
+                self.plan(mode)
+
     def test_digest_tracks_the_disk(self):
         self.make()
         a, b = self.plan("alongside"), self.plan("alongside")
         self.assertEqual(a["digest"], b["digest"])
         self.gpt["parts"][3]["size"] -= MIB
         self.assertNotEqual(self.plan("alongside")["digest"], a["digest"])
+
+
+class ScriptValues(unittest.TestCase):
+    """Disk- and catalog-derived text in restore.sh: a control character is
+    refused before the script is written, and anything else is only printed,
+    never run (the plan is printed from single-quoted words, not a heredoc)."""
+
+    SHELL_TEXT = ['$(touch "$OUT/pwned")', '`touch "$OUT/pwned"`', "x'; touch \"$OUT/pwned\"; '",
+                  'x"; touch "$OUT/pwned"; "', "PLAN", "\\'PLAN\\'", "a\\\\", "--check"]
+    LINE_BREAKS = ['Macintosh HD\nPLAN\necho INJECTED-AS-$(id -un) > "$OUT/pwned"\ncat <<\'PLAN\'',
+                   "Mac\rintosh", "Mac\x00HD", "Mac\x1b[2JHD", "Mac\tHD", "Mac\x7fHD"]
+
+    def plan(self, mode="alongside", **over):
+        """The reproducer's plan: an empty partition list, so the stand-in
+        diskutil passes every check and the script reaches the plan."""
+        espu = "E5E5E5E5-0000-4000-8000-000000000001"
+        plan = {"mode": mode, "board": "J473AP",
+                "installer": {"title": "macOS", "version": "27.2", "build": "26B123",
+                              "url": "https://swcdn.apple.com/x/InstallAssistant.pkg",
+                              "size": 1, "product": "p"},
+                "disk": "/dev/nvme0n1", "espUUID": espu, "label": "macOS 27.2",
+                "owner": None,
+                "predecessor": {"node": "n", "uuid": "0FFFFFFF-0000-4000-8000-000000000002",
+                                "start": 0, "size": 1},
+                "gap": {"start": 1, "size": 1}, "containerBytes": 1, "partitions": [],
+                "delete": [], "macos": "Macintosh HD", "shrink": None, "routes": [],
+                "own": None}
+        if mode == "replace":  # already deleted by "an earlier run": diskutil info fails
+            plan["delete"] = [{"node": "/dev/nvme0n1p5", "uuid": espu, "type": wd.EFI,
+                               "start": 1, "size": 1, "mounts": ["/boot/efi"]}]
+            plan["partitions"] = [{k: v for k, v in plan["delete"][0].items() if k != "mounts"}]
+        for path, value in over.items():
+            *keys, last = path.split(".")
+            d = plan
+            for k in keys:
+                d = d[int(k)] if isinstance(d, list) else d[k]
+            d[last] = value
+        plan["digest"] = ar.digest(plan)
+        return plan
+
+    def run_check(self, plan):
+        """`bash -n`, then `sh restore.sh --check` with stand-ins for diskutil
+        and curl, as the reproducer does. Returns its output."""
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        ram = f"/tmp/aurora-restore-{plan['digest']}.sh"  # the script's copy of itself
+        self.addCleanup(lambda: os.path.exists(ram) and os.unlink(ram))
+        bindir = os.path.join(d, "bin")
+        os.mkdir(bindir)
+        for name, rc in (("diskutil", 1), ("curl", 0)):
+            with open(os.path.join(bindir, name), "w") as f:
+                f.write(f"#!/bin/sh\nexit {rc}\n")
+            os.chmod(os.path.join(bindir, name), 0o755)
+        script = os.path.join(d, "restore.sh")
+        with open(script, "w") as f:
+            f.write(ar.recovery_script(plan))
+        for sh in ("sh", "bash"):
+            if shutil.which(sh):
+                subprocess.run([sh, "-n", script], check=True)
+        env = dict(os.environ, PATH=bindir + ":/usr/bin:/bin", OUT=d)
+        p = subprocess.run(["sh", script, "--check"], capture_output=True, text=True, env=env,
+                           timeout=30)
+        self.assertFalse(os.path.exists(os.path.join(d, "pwned")), p.stdout + p.stderr)
+        self.assertEqual((p.returncode, p.stderr), (0, ""), p.stdout)
+        self.assertIn("check passed", p.stdout)
+        return p.stdout
+
+    def test_line_breaks_and_control_characters_are_refused(self):
+        for value in self.LINE_BREAKS:
+            for field in ("macos", "installer.title", "label", "owner", "disk",
+                          "predecessor.node", "installer.product"):
+                with self.subTest(field=field, value=value):
+                    with self.assertRaisesRegex(ar.Refusal, "control character"):
+                        ar.recovery_script(self.plan(**{field: value}))
+            with self.subTest(field="delete.0.mounts", value=value):
+                with self.assertRaisesRegex(ar.Refusal, "control character"):
+                    ar.recovery_script(self.plan("replace", **{"delete.0.mounts": [value]}))
+
+    def test_values_written_unquoted_must_match(self):
+        for field, value in (("installer.version", "27.2; id"), ("installer.build", "26B$(id)"),
+                             ("installer.url", "https://swcdn.apple.com/$(id)/InstallAssistant.pkg"),
+                             ("installer.url", "http://swcdn.apple.com/x/InstallAssistant.pkg"),
+                             ("installer.size", "1; id"), ("installer.size", True),
+                             ("gap.start", -1), ("containerBytes", 1.5),
+                             ("espUUID", "E; id"), ("board", "J473AP; id"),
+                             ("mode", "alongside; id")):
+            with self.subTest(field=field, value=value):
+                with self.assertRaises(ar.Refusal):
+                    ar.recovery_script(self.plan(**{field: value}))
+
+    def test_shell_text_in_names_is_printed_not_run(self):
+        for value in self.SHELL_TEXT:
+            for field in ("macos", "installer.title", "owner"):
+                with self.subTest(field=field, value=value):
+                    self.assertIn(value, self.run_check(self.plan(**{field: value})))
+            with self.subTest(field="delete.0.mounts", value=value):
+                self.assertIn(value, self.run_check(
+                    self.plan("replace", **{"delete.0.mounts": [value]})))
+
+    def test_the_title_is_not_written_into_a_comment(self):
+        script = ar.recovery_script(self.plan(**{"installer.title": "macOS `x` $(y)"}))
+        self.assertFalse([x for x in script.splitlines()
+                          if x.lstrip().startswith("#") and "$(y)" in x])
+
+    def test_plan_lines_cannot_be_ended_by_data(self):
+        # Even with the check bypassed, a line break in a value stays text.
+        value = self.LINE_BREAKS[0]
+        saved = ar.check_plan
+        ar.check_plan = lambda plan: None
+        self.addCleanup(setattr, ar, "check_plan", saved)
+        for field in ("macos", "installer.title"):
+            with self.subTest(field=field):
+                self.assertIn(value, self.run_check(self.plan(**{field: value})))
 
 
 FAKE_DISKUTIL = r'''#!/usr/bin/python3 -I
