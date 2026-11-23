@@ -37,3 +37,6 @@ compile_run account-restart Sources/RecoveryAccountRestart.swift Tests/RecoveryA
 compile_run directory-swap Sources/Account/RecoveryDigest.swift Sources/Account/RecoveryFileTransaction.swift Sources/RecoveryDirectorySwap.swift Tests/RecoveryDirectorySwapCheck.swift
 compile_run baseline Sources/Account/RecoveryDigest.swift Sources/RecoveryBaseline.swift Tests/RecoveryBaselineCheck.swift
 compile_run macos-removal Sources/MacOSRemoval.swift Tests/MacOSRemovalCheck.swift
+compile_run fresh-whole-disk Sources/MacOSRemoval.swift Sources/FreshWholeDisk.swift Tests/FreshWholeDiskCheck.swift
+xcrun swiftc -parse-as-library Sources/MacOSRemoval.swift Sources/FreshWholeDisk.swift Sources/FreshWholeDiskInstall.swift Tools/FreshWholeDiskInstallTool.swift -o "$out/aurora-fresh-install"
+rc=0; "$out/aurora-fresh-install" 2>/dev/null || rc=$?; [[ $rc == 64 ]]
