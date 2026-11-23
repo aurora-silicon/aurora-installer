@@ -254,7 +254,7 @@ def load_inputs(path: Path, developer: bool = False) -> dict:
         distribution + "-" + desktop
         for distribution in ("fedora", "arch", "nixos")
         for desktop in ("kde", "gnome", "minimal")
-    } | {"omarchy-hyprland"}:
+    } | {"omarchy-hyprland", "steamos-gamemode"}:
         raise SystemExit("inputs installation_profile is not an Aurora installer profile")
 
     for key in (

@@ -82,6 +82,41 @@
       } catch NativePayloadPreflightError.invalidMetadata {}
     }
 
+    func testSteamOSAdmitsOnlyItsOwnLayoutAndGameMode() async throws {
+      let fixture = try fixture()
+      let vector = try XCTUnwrap(fixture.vectors.first { $0.name == "alarm-ext4-v1-kde" })
+      var document = try XCTUnwrap(
+        JSONSerialization.jsonObject(with: Data(vector.metadata.utf8)) as? [String: Any])
+      let original = try XCTUnwrap(document["os_list"] as? [[String: Any]])
+      let archive = try await IPSWArchive.open(
+        PayloadFixtureSource(bytes: try XCTUnwrap(fixture.archives[vector.archive])))
+      func validate(layout: String, profile: String) async throws {
+        var templates = original
+        templates[0]["layout_kind"] = layout
+        templates[0]["installation_profile"] = profile
+        document["os_list"] = templates
+        try await NativePayloadPreflight.validate(
+          metadata: JSONSerialization.data(withJSONObject: document), payloadName: "payload.zip",
+          archive: archive)
+      }
+      let optedIn = ProcessInfo.processInfo.environment["AURORA_ENABLE_STEAMOS"] == "1"
+      do {
+        try await validate(layout: "steamos-ab-v1", profile: "steamos-gamemode")
+        XCTAssertTrue(optedIn, "Default builds must reject SteamOS")
+      } catch NativePayloadPreflightError.invalidMetadata {
+        XCTAssertFalse(optedIn, "Opt-in builds must admit the SteamOS layout")
+      }
+      for (layout, profile) in [
+        ("steamos-ab-v1", "steamos-kde"), ("alarm-ext4-v1", "steamos-gamemode"),
+        ("steamos-ab-v1", "arch-kde"),
+      ] {
+        do {
+          try await validate(layout: layout, profile: profile)
+          XCTFail("\(layout) with \(profile) must be refused")
+        } catch NativePayloadPreflightError.invalidMetadata {}
+      }
+    }
+
     func testNixOSRefusesAnEFILoaderTiedToTheSourcePartitionNumber() async throws {
       let fixture = try fixture()
       let vector = try XCTUnwrap(

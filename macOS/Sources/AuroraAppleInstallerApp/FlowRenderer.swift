@@ -141,7 +141,7 @@
       let session = InstallerSession(
         environment: InstallerSimulationEnvironment(
           scenario: .recoveryRetry, delay: .milliseconds(150)),
-        allowsEncryption: selection.distribution.supportsDesktop
+        allowsEncryption: selection.distribution.supportsEncryption
           && InstallerBuildProfile.current.allowsEncryption)
       await session.inspect()
       let preparing = Task { await session.continueToPlan() }
@@ -239,7 +239,7 @@
       let session = InstallerSession(
         environment: InstallerSimulationEnvironment(
           scenario: scenario, delay: .milliseconds(120)),
-        allowsEncryption: selection.distribution.supportsDesktop
+        allowsEncryption: selection.distribution.supportsEncryption
           && InstallerBuildProfile.current.allowsEncryption)
       await session.inspect()
       guard case .partitions(_, let layout) = session.phase else { return (nil, nil) }

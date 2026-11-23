@@ -34,6 +34,9 @@ export CARGO_BUILD_JOBS="$build_jobs"
 export AURORA_ENABLE_OMARCHY="${AURORA_ENABLE_OMARCHY-0}"
 [[ $AURORA_ENABLE_OMARCHY == "0" || $AURORA_ENABLE_OMARCHY == "1" ]] \
   || fail "AURORA_ENABLE_OMARCHY must be 0 or 1"
+export AURORA_ENABLE_STEAMOS="${AURORA_ENABLE_STEAMOS-0}"
+[[ $AURORA_ENABLE_STEAMOS == "0" || $AURORA_ENABLE_STEAMOS == "1" ]] \
+  || fail "AURORA_ENABLE_STEAMOS must be 0 or 1"
 
 # Local payload support is compiled only in an explicitly requested debug test
 # build. Release configuration always compiles it out.
@@ -146,23 +149,25 @@ if [[ ${AURORA_OFFLINE_BUILD:-0} == "1" && $sealed_catalog_available != "true" ]
 fi
 
 # Catalogs are signed, so refuse mismatched staged resources before building.
-if [[ $AURORA_ENABLE_OMARCHY == "0" ]]; then
-  python3 - "$release_directory" <<'PYPROFILES'
+python3 - "$release_directory" "$AURORA_ENABLE_OMARCHY" "$AURORA_ENABLE_STEAMOS" <<'PYPROFILES'
 import json
 from pathlib import Path
 import sys
 
 release = Path(sys.argv[1])
 profiles = release / "Profiles"
-if (profiles / "omarchy-hyprland").exists() or (profiles / "omarchy-hyprland").is_symlink():
-    raise SystemExit("Omarchy profile requires AURORA_ENABLE_OMARCHY=1")
-for catalog in (release / "catalog.json", *profiles.glob("*/catalog.json")):
-    if catalog.is_file():
-        if any(model.get("installationProfile") == "omarchy-hyprland"
-               for model in json.loads(catalog.read_bytes())["models"]):
-            raise SystemExit(f"Omarchy catalog requires AURORA_ENABLE_OMARCHY=1: {catalog}")
+for profile, variable, enabled in (("omarchy-hyprland", "AURORA_ENABLE_OMARCHY", sys.argv[2]),
+                                   ("steamos-gamemode", "AURORA_ENABLE_STEAMOS", sys.argv[3])):
+    if enabled == "1":
+        continue
+    if (profiles / profile).exists() or (profiles / profile).is_symlink():
+        raise SystemExit(f"{profile} profile requires {variable}=1")
+    for catalog in (release / "catalog.json", *profiles.glob("*/catalog.json")):
+        if catalog.is_file():
+            if any(model.get("installationProfile") == profile
+                   for model in json.loads(catalog.read_bytes())["models"]):
+                raise SystemExit(f"{profile} catalog requires {variable}=1: {catalog}")
 PYPROFILES
-fi
 
 descriptor_schema="$(plutil -extract schema_version raw -o - "$release_descriptor")"
 descriptor_service="$(plutil -extract helper_mach_service_name raw -o - "$release_descriptor")"

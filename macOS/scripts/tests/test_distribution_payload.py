@@ -418,13 +418,32 @@ class DistributionPayloadTests(unittest.TestCase):
                          'allowed_device_classes', 'excluded_device_classes'):
             self.assertNotIn(fragment, source)
 
+    def test_steamos_requires_its_placeholder_root_layout(self):
+        cases = [('steamos-gamemode', 'alarm-btrfs-v1', None), ('steamos-gamemode', 'steamos-ab-v1', 'root'),
+                 ('arch-kde', 'steamos-ab-v1', None), ('arch-kde', 'alarm-btrfs-v1', None)]
+        for profile, layout, subvolume in cases:
+            with self.subTest(profile=profile, layout=layout, subvolume=subvolume):
+                image = dict(self.image, installation_profile=profile, layout_kind=layout)
+                image.pop('root_subvolume')
+                if subvolume:
+                    image['root_subvolume'] = subvolume
+                (self.bundle / 'image.json').write_text(json.dumps(image))
+                with self.assertRaisesRegex(ValueError, 'incompatible filesystem layout'):
+                    payload.assemble(self.bundle, self.app, self.root / ('out-' + profile + layout), release_id='fixture')
+
     def test_all_profiles_use_the_selected_distribution_symbol(self):
         observed = {}
         provenance = json.loads((payload.ROOT / 'Packaging/DistributionIcons/provenance.json').read_text())['icons']
-        for distribution, layout in [('fedora', 'fedora'), ('arch', 'alarm'), ('nixos', 'nixos'), ('omarchy', 'alarm')]:
-            for desktop in (('hyprland',) if distribution == 'omarchy' else ('kde', 'gnome', 'minimal')):
+        for distribution, layout in [('fedora', 'fedora-btrfs-v1'), ('arch', 'alarm-btrfs-v1'), ('nixos', 'nixos-btrfs-v1'),
+                                     ('omarchy', 'alarm-btrfs-v1'), ('steamos', 'steamos-ab-v1')]:
+            desktops = {'omarchy': ('hyprland',), 'steamos': ('gamemode',)}.get(distribution, ('kde', 'gnome', 'minimal'))
+            for desktop in desktops:
                 profile = distribution + '-' + desktop
-                self.image.update(installation_profile=profile, layout_kind=layout + '-btrfs-v1')
+                self.image.update(installation_profile=profile, layout_kind=layout)
+                if distribution == 'steamos':
+                    self.image.pop('root_subvolume', None)
+                else:
+                    self.image['root_subvolume'] = 'root'
                 (self.bundle / 'image.json').write_text(json.dumps(self.image))
                 output = self.root / profile
                 payload.assemble(self.bundle, self.app, output, release_id="fixture")

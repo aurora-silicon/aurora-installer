@@ -1,13 +1,16 @@
 import Foundation
 
 public enum AuroraDistribution: String, CaseIterable, Codable, Identifiable, Sendable {
-  case fedora, arch, nixos, omarchy
+  case fedora, arch, nixos, omarchy, steamos
   public static var installable: [Self] {
+    var result: [Self] = [.fedora, .arch, .nixos]
     #if AURORA_ENABLE_OMARCHY
-      allCases
-    #else
-      [.fedora, .arch, .nixos]
+      result.append(.omarchy)
     #endif
+    #if AURORA_ENABLE_STEAMOS
+      result.append(.steamos)
+    #endif
+    return result
   }
 
   public var id: String { rawValue }
@@ -17,19 +20,26 @@ public enum AuroraDistribution: String, CaseIterable, Codable, Identifiable, Sen
     case .arch: "Aurora Alarm"
     case .nixos: "Aurora NixOS"
     case .omarchy: "Omarchy Aurora"
+    case .steamos: "SteamOS (unofficial, Aurora)"
     }
   }
   /// Names earlier installers gave these installations. Erase Linux and
   /// reinstall still recognize them.
   public static let legacyTitles = ["Fedora Aurora Remix", "Aurora ALARM"]
   public var supportsDesktop: Bool { true }
+  /// SteamOS keeps its own A/B system partitions, which first boot does not encrypt.
+  public var supportsEncryption: Bool { self != .steamos }
   public var availableDesktops: [AuroraDesktop] {
-    self == .omarchy ? [.hyprland] : [.kde, .gnome, .minimal]
+    switch self {
+    case .omarchy: [.hyprland]
+    case .steamos: [.gamemode]
+    case .fedora, .arch, .nixos: [.kde, .gnome, .minimal]
+    }
   }
 }
 
 public enum AuroraDesktop: String, CaseIterable, Codable, Identifiable, Sendable {
-  case kde, gnome, minimal, hyprland
+  case kde, gnome, minimal, hyprland, gamemode
   public var id: String { rawValue }
   public var title: String {
     switch self {
@@ -37,6 +47,7 @@ public enum AuroraDesktop: String, CaseIterable, Codable, Identifiable, Sendable
     case .gnome: "GNOME"
     case .minimal: "Minimal (shell)"
     case .hyprland: "Hyprland"
+    case .gamemode: "Game Mode"
     }
   }
 }

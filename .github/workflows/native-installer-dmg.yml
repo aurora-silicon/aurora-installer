@@ -18,6 +18,11 @@ on:
         description: Prerelease tag
         default: 'v0.1.0-alpha.4'
         required: true
+      enable-steamos:
+        description: Add the opt-in SteamOS profile; test DMG only (test-local-payloads on, publish-release off)
+        type: boolean
+        default: false
+        required: true
       publish-release:
         description: Publish a prerelease after building; disable for a signed local rebuild
         type: boolean
@@ -41,6 +46,7 @@ jobs:
       XCODEBUILDMCP_SENTRY_DISABLED: 'true'
       AURORA_DEVELOPER_BUILD: ${{ inputs.test-local-payloads && '1' || '0' }}
       AURORA_ENABLE_OMARCHY: '0'
+      AURORA_ENABLE_STEAMOS: ${{ inputs.enable-steamos && '1' || '0' }}
       AURORA_LOCAL_PAYLOAD_TEST_BUILD: ${{ inputs.test-local-payloads && '1' || '0' }}
       AURORA_SIGNING_KEYCHAIN_TIMEOUT: '5400'
     defaults:
@@ -61,6 +67,10 @@ jobs:
           set -euo pipefail
           if [[ $LOCAL_PAYLOAD_TEST == true && $PUBLISH_RELEASE == true ]]; then
             echo 'Local payload test builds are CI artifacts only and cannot be published.' >&2
+            exit 1
+          fi
+          if [[ $AURORA_ENABLE_STEAMOS == 1 && ( $LOCAL_PAYLOAD_TEST != true || $PUBLISH_RELEASE == true ) ]]; then
+            echo 'The SteamOS profile is only built into unpublished local payload test DMGs.' >&2
             exit 1
           fi
           [[ $PROFILES_REVISION =~ ^[0-9a-f]{40}$ ]]
@@ -93,7 +103,8 @@ jobs:
           import os,shutil,sys
           root=Path(sys.argv[1]);source=Path(os.environ['GITHUB_WORKSPACE'])/'delivery/site/installer/Profiles'
           expected={f'{d}-{s}' for d in ('fedora','arch','nixos') for s in ('kde','gnome','minimal')}
-          assert expected <= {p.name for p in source.iterdir()} <= expected | {'omarchy-hyprland'}
+          expected|={'steamos-gamemode'} if os.environ['AURORA_ENABLE_STEAMOS']=='1' else set()
+          assert expected <= {p.name for p in source.iterdir()} <= expected | {'omarchy-hyprland','steamos-gamemode'}
           for profile in expected:
               destination=root/'Profiles'/profile
               destination.mkdir(parents=True)
@@ -113,6 +124,7 @@ jobs:
           from pathlib import Path
           profiles=Path(sys.argv[1])
           expected={f'{d}-{s}' for d in ('fedora','arch','nixos') for s in ('kde','gnome','minimal')}
+          expected|={'steamos-gamemode'} if os.environ['AURORA_ENABLE_STEAMOS']=='1' else set()
           assert {p.name for p in profiles.iterdir()} == expected
           schemas=set()
           models_by_profile={}
@@ -132,6 +144,8 @@ jobs:
               assert installer['minimumVersion']==os.environ['APP_VERSION']
               assert installer['latestVersion']==os.environ['APP_VERSION']
               assert installer['downloadURL'].endswith('/releases/tag/'+os.environ['RELEASE_TAG'])
+          # The opt-in SteamOS profile may list fewer Macs than the standard nine.
+          steamos=models_by_profile.pop('steamos-gamemode',None)
           assert len(schemas)==1 and len(set(map(frozenset,models_by_profile.values())))==1
           keys=Path(os.environ['GITHUB_WORKSPACE'])/'delivery/keys'
 
@@ -145,6 +159,7 @@ jobs:
                                models_in(keys/'supported-models-65.json'))
           assert 'apple,j700' in published and published<=models_in(Path('scripts/supported-models.json'))
           assert all(models==published for models in models_by_profile.values())
+          assert steamos is None or steamos<=published
           PY
       - name: Install the pinned native build driver
         run: |
@@ -206,10 +221,11 @@ jobs:
           app="$RUNNER_TEMP/application/$INSTALLER_APP_NAME.app"
           python3 - "$app/Contents/Resources/Release/Profiles" \
             "$RUNNER_TEMP/release/profile-manifest.json" <<'PYPROFILES'
-          import hashlib,json,sys
+          import hashlib,json,os,sys
           from pathlib import Path
           profiles=Path(sys.argv[1]);manifest=json.loads(Path(sys.argv[2]).read_text())
           expected={f'{d}-{s}' for d in ('fedora','arch','nixos') for s in ('kde','gnome','minimal')}
+          expected|={'steamos-gamemode'} if os.environ['AURORA_ENABLE_STEAMOS']=='1' else set()
           assert manifest['sealed'] and set(manifest['profiles'])==expected
           assert {p.name for p in profiles.iterdir()}==expected
           for profile,record in manifest['profiles'].items():

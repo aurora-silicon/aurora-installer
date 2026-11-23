@@ -26,7 +26,7 @@ import recovery_payload as aurora_recovery
 # NixOS's logos are not used for Aurora releases without their owners' permission.
 DISTRIBUTION_ICONS = {
     distribution: ROOT / 'Packaging/DistributionIcons/aurora.icns'
-    for distribution in ('fedora', 'arch', 'nixos', 'omarchy')
+    for distribution in ('fedora', 'arch', 'nixos', 'omarchy', 'steamos')
 }
 
 
@@ -311,7 +311,7 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
         raise ValueError("invalid delivery release identifier")
     image = json.loads(regular(bundle / 'image.json').read_text())
     profile = image['installation_profile']
-    if not re.fullmatch(r'(?:fedora|arch|nixos)-(?:kde|gnome|minimal)|omarchy-hyprland', profile):
+    if not re.fullmatch(r'(?:fedora|arch|nixos)-(?:kde|gnome|minimal)|omarchy-hyprland|steamos-gamemode', profile):
         raise ValueError('unknown installation profile')
     stage2_members = {}
     manifest_path = bundle / 'stage2.json'
@@ -350,8 +350,12 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
             raise ValueError('the ' + board.upper() + ' requires a current board-specific Stage 2')
     confined = check_confined_stage2(bundle, stage2_members)
     distribution_icon = regular(DISTRIBUTION_ICONS[profile.split('-')[0]])
-    expected_layout = {'fedora': 'fedora', 'arch': 'alarm', 'nixos': 'nixos', 'omarchy': 'alarm'}[profile.split('-')[0]] + '-btrfs-v1'
-    if image['layout_kind'] != expected_layout or image['root_subvolume'] != 'root':
+    distribution = profile.split('-')[0]
+    expected_layout = {'fedora': 'fedora-btrfs-v1', 'arch': 'alarm-btrfs-v1', 'nixos': 'nixos-btrfs-v1',
+                       'omarchy': 'alarm-btrfs-v1', 'steamos': 'steamos-ab-v1'}[distribution]
+    # SteamOS's Root is an ext4 placeholder its first-boot installer replaces; it has no subvolume.
+    expected_subvolume = None if distribution == 'steamos' else 'root'
+    if image['layout_kind'] != expected_layout or image.get('root_subvolume') != expected_subvolume:
         raise ValueError('incompatible filesystem layout')
     for name in ('boot.img', 'root.img'):
         path = regular(bundle / name)
@@ -398,7 +402,8 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
             archive.writestr(prefix + aurora_recovery.MANIFEST_NAME, json.dumps(recovery_manifest, sort_keys=True, indent=2) + '\n')
     with zipfile.ZipFile(payload) as archive:
         aurora_recovery.validate_payload(archive)
-    title = {'fedora': 'Aurora Fedora Remix', 'arch': 'Aurora Alarm', 'nixos': 'Aurora NixOS', 'omarchy': 'Omarchy Aurora'}[profile.split('-')[0]]
+    title = {'fedora': 'Aurora Fedora Remix', 'arch': 'Aurora Alarm', 'nixos': 'Aurora NixOS', 'omarchy': 'Omarchy Aurora',
+             'steamos': 'SteamOS (unofficial, Aurora)'}[profile.split('-')[0]]
     # omarchy_target and omarchy-native-v1 are the published metadata contract
     # every released installer reads; they predate the Aurora name.
     template = {
