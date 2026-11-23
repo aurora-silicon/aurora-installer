@@ -80,3 +80,79 @@ pass "a symlinked legacy path is left alone"
 run_removal "$legacy" 2>"$test_tmp/log" || fail "an absent legacy app is not an error"
 [[ ! -s $test_tmp/log ]] || fail "an absent legacy app logs nothing" "$(cat "$test_tmp/log")"
 pass "an absent legacy app is a no-op"
+
+# secure_helper, with chown and stat replaced by stubs: chown records its
+# arguments (or fails when the fixture says so), stat reports the owner the
+# fixture names and the file's real mode.
+grep -Fq 'secure_helper "$HELPER" || exit 1' "$postinstall" ||
+  fail "postinstall fails the package when the helper is not secured"
+helper_line=$(grep -n 'secure_helper "$HELPER" || exit 1' "$postinstall" | cut -d: -f1)
+bootstrap_line=$(grep -n 'launchctl bootstrap system' "$postinstall" | head -1 | cut -d: -f1)
+(( helper_line < bootstrap_line )) || fail "the helper is secured before launchd loads it"
+sed -n '/^secure_helper() {$/,/^}$/p' "$postinstall" >"$test_tmp/secure.sh"
+[[ -s $test_tmp/secure.sh ]] || fail "postinstall defines secure_helper"
+cat >"$test_tmp/chown" <<'STUB'
+#!/bin/bash
+[[ ! -e ${3}.chown-fails ]] || exit 1
+printf '%s\n' "$*" >>"$CHOWN_LOG"
+STUB
+cat >"$test_tmp/stat" <<'STUB'
+#!/bin/bash
+file=${@: -1}
+owner=root:wheel
+[[ ! -e $file.owner ]] || owner=$(cat "$file.owner")
+mode=$(command stat -c %a "$file" 2>/dev/null || command stat -f %Lp "$file")
+printf '%s %s\n' "$owner" "$mode"
+STUB
+chmod +x "$test_tmp/chown" "$test_tmp/stat"
+
+run_secure() (
+  CHOWN=$test_tmp/chown
+  CHMOD=chmod
+  STAT=$test_tmp/stat
+  export CHOWN_LOG=$test_tmp/chown.log
+  source "$test_tmp/secure.sh"
+  secure_helper "$1"
+)
+
+tools=$test_tmp/PrivilegedHelperTools
+mkdir -p "$tools"
+helper=$tools/$INSTALLER_HELPER_IDENTIFIER
+printf '#!/bin/sh\n' >"$helper"
+chmod 0777 "$helper"
+: >"$test_tmp/chown.log"
+run_secure "$helper" 2>"$test_tmp/log" || fail "a regular helper is secured" "$(cat "$test_tmp/log")"
+grep -Fxq -e "-h root:wheel $helper" "$test_tmp/chown.log" || fail "the helper is chowned root:wheel, never through a link" "$(cat "$test_tmp/chown.log")"
+[[ $(stat -c %a "$helper" 2>/dev/null || stat -f %Lp "$helper") == 755 ]] || fail "the helper is mode 0755"
+pass "the installed helper is set to root:wheel 0755"
+
+rm -f "$helper"
+printf '#!/bin/sh\n' >"$test_tmp/elsewhere"
+ln -s "$test_tmp/elsewhere" "$helper"
+: >"$test_tmp/chown.log"
+if run_secure "$helper" 2>"$test_tmp/log"; then fail "a symlinked helper fails the package"; fi
+[[ ! -s $test_tmp/chown.log ]] || fail "a symlinked helper is never chowned"
+rm -f "$helper"
+mkdir "$helper"
+if run_secure "$helper" 2>"$test_tmp/log"; then fail "a directory in the helper's place fails the package"; fi
+rmdir "$helper"
+if run_secure "$helper" 2>"$test_tmp/log"; then fail "a missing helper fails the package"; fi
+grep -Fq "missing or not a regular file" "$test_tmp/log" || fail "the refusal is logged" "$(cat "$test_tmp/log")"
+pass "a missing, linked or directory helper fails the package"
+
+mv "$tools" "$test_tmp/real-tools"
+ln -s "$test_tmp/real-tools" "$tools"
+printf '#!/bin/sh\n' >"$helper"
+if run_secure "$helper" 2>"$test_tmp/log"; then fail "a linked PrivilegedHelperTools fails the package"; fi
+rm "$tools"
+mv "$test_tmp/real-tools" "$tools"
+pass "a linked helper directory fails the package"
+
+printf 'admin:staff' >"$helper.owner"
+if run_secure "$helper" 2>"$test_tmp/log"; then fail "a helper left with another owner fails the package"; fi
+grep -Fq "not root:wheel 755" "$test_tmp/log" || fail "the owner refusal is logged" "$(cat "$test_tmp/log")"
+rm -f "$helper.owner"
+touch "$helper.chown-fails"
+if run_secure "$helper" 2>"$test_tmp/log"; then fail "a failed chown fails the package"; fi
+rm -f "$helper.chown-fails"
+pass "a helper that can't be made root:wheel 0755 fails the package"
