@@ -40,7 +40,7 @@
     }
 
     func testExactCodeHashAndDenyAllFormsStayAsConfigured() {
-      for hash in [String(repeating: "a", count: 40), String(repeating: "0", count: 64)] {
+      for hash in [String(repeating: "a", count: 40), String(repeating: "0", count: 40)] {
         let pinned = HelperClientRequirement.adHocRequirement(codeHash: hash)
         XCTAssertEqual(pinned, "identifier \"\(app)\" and cdhash H\"\(hash)\"")
         XCTAssertEqual(HelperClientRequirement.enforced(for: pinned), pinned)
@@ -68,6 +68,8 @@
         "anchor apple generic and identifier \"other.app\""
           + " and certificate leaf[subject.OU] = \"\(team)\"",
         "identifier \"other.app\" and cdhash H\"\(hash)\"",
+        // codesign reports a 20-byte CDHash; a longer pin is not one it wrote.
+        "identifier \"\(app)\" and cdhash H\"" + String(repeating: "0", count: 64) + "\"",
         // One Developer ID marker alone.
         "anchor apple generic and identifier \"\(app)\""
           + " and certificate leaf[field.1.2.840.113635.100.6.1.13]"

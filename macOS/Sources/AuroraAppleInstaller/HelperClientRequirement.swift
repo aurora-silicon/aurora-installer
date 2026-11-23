@@ -49,7 +49,7 @@
       let identifier = NSRegularExpression.escapedPattern(
         for: InstallerProductIdentity.appIdentifier)
       let adHoc =
-        "\\Aidentifier \"\(identifier)\" and cdhash H\"[0-9a-f]{40}(?:[0-9a-f]{24})?\"\\z"
+        "\\Aidentifier \"\(identifier)\" and cdhash H\"[0-9a-f]{40}\"\\z"
       if configured.range(of: adHoc, options: .regularExpression) != nil { return configured }
       return teamIdentifier(in: configured).map(developerIDRequirement(team:))
     }
