@@ -1,5 +1,6 @@
 #if os(macOS)
   import Foundation
+  import OSLog
 
   /// The code-signing requirement the privileged helper holds its client, the
   /// installer app, to. The helper reads it from its launchd job and enforces
@@ -52,6 +53,35 @@
         "\\Aidentifier \"\(identifier)\" and cdhash H\"[0-9a-f]{40}\"\\z"
       if configured.range(of: adHoc, options: .regularExpression) != nil { return configured }
       return teamIdentifier(in: configured).map(developerIDRequirement(team:))
+    }
+
+    /// Why the helper refuses the requirement its launchd job configures, or
+    /// nil when it enforces one.
+    public static func refusalReason(for configured: String) -> String? {
+      guard let enforced = enforced(for: configured) else {
+        return "it is none of the accepted forms: a Developer ID Application build of "
+          + "\(InstallerProductIdentity.appIdentifier) for a team, the team-only form "
+          + "earlier releases wrote, an exact identifier and cdhash pin, or never"
+      }
+      guard EngineCodeSigningRequirement.isValid(enforced) else {
+        return "it does not compile"
+      }
+      return nil
+    }
+
+    private static let logger = Logger(
+      subsystem: InstallerProductIdentity.appIdentifier, category: "helper")
+
+    /// Says why the helper stops before it exits: launchd keeps no output of
+    /// its own, so the system log is where a developer finds this.
+    static func logRefusal(of configured: String) {
+      let reason = refusalReason(for: configured) ?? "it was refused"
+      logger.error(
+        "Refusing the launchd job's client requirement, \(reason, privacy: .public): \(configured, privacy: .public)"
+      )
+      let line =
+        "Aurora installer helper: refusing the client requirement, \(reason): \(configured)\n"
+      try? FileHandle.standardError.write(contentsOf: Data(line.utf8))
     }
 
     /// The team of a Developer ID client requirement, in the current form or

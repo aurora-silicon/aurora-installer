@@ -94,6 +94,13 @@
         "never or always",
       ] {
         XCTAssertNil(HelperClientRequirement.enforced(for: refused), refused)
+        // The helper logs why it stops.
+        XCTAssertEqual(
+          HelperClientRequirement.refusalReason(for: refused)?.hasPrefix(
+            "it is none of the accepted forms"), true, refused)
+      }
+      for accepted in [developerID, "never", "identifier \"\(app)\" and cdhash H\"\(hash)\""] {
+        XCTAssertNil(HelperClientRequirement.refusalReason(for: accepted), accepted)
       }
     }
 

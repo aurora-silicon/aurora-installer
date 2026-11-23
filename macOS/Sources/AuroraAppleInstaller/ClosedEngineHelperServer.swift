@@ -1181,6 +1181,7 @@
         let enforced = HelperClientRequirement.enforced(for: clientCodeSigningRequirement),
         EngineCodeSigningRequirement.isValid(enforced)
       else {
+        HelperClientRequirement.logRefusal(of: clientCodeSigningRequirement)
         throw ClosedEngineHelperError.invalidClientRequirement
       }
       self.clientCodeSigningRequirement = enforced
