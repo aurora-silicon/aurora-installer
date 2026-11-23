@@ -311,8 +311,9 @@
       return RecoveryAccountReply(ticket: ticket, target: observed.target, record: record)
     }
 
-    /// True when `uid` started every job recorded for the journal `binding`
-    /// names, and at least one did.
+    /// True when `uid` started every job admitted for the journal `binding`
+    /// names, and at least one was. A job refused before admission, such as
+    /// one with a wrong password, counts for no account.
     nonisolated func startedInstallation(_ binding: String, uid: UInt32) -> Bool {
       guard let digest = SHA256Digest(hexadecimal: binding),
         let owners = jobs.initiatingUIDs(bindingDigest: digest.rawValue)

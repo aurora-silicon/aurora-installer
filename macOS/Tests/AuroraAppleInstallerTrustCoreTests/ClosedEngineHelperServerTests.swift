@@ -464,7 +464,7 @@
       XCTAssertEqual(disks.mountCalls, 0)
     }
 
-    func testOnlyTheAccountThatStartedEveryJobOfAnInstallationOwnsItsRecoveryAccount() throws {
+    func testOnlyTheAccountWithEveryAdmittedJobOwnsTheRecoveryAccount() throws {
       let fixture = try makeFixture()
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let server = ClosedEngineHelperServer(
@@ -473,7 +473,9 @@
         credentialValidator: AcceptingMachineOwnerCredentialValidator(),
         removalDisks: UnusedRemovalDisks(), removalAdminValidator: { _ in })
       let binding = String(repeating: "b", count: 64)
-      func start(_ uid: UInt32) throws {
+      // A job its credentials admitted, or one refused before it ran: the
+      // helper checks the password only after it records the job.
+      func start(_ uid: UInt32, admitted: Bool = true) throws {
         let request = InstallerJobStartRequest(
           ticket: try InstallerJobTicket(
             bindingDigest: "sha256:" + binding,
@@ -481,16 +483,48 @@
           operation: "install",
           installConf: try InstallConf(encrypt: true, lane: "stable").serializedData)
         XCTAssertTrue(try server.jobs.begin(request, initiatingUID: uid))
+        guard admitted else {
+          server.jobs.finish(
+            request.ticket.identifier,
+            result: .failure(ClosedEngineHelperError.invalidMachineOwnerCredentials))
+          return
+        }
+        let root = fixture.destination
+        try server.jobs.admitted(
+          request.ticket.identifier,
+          package: ImportedEngineHandoffPackage(
+            packageURL: root.appendingPathComponent("imported-\(uid)"),
+            manifestURL: root.appendingPathComponent("manifest.json"),
+            requestURL: root.appendingPathComponent("request.json"),
+            identityURL: root.appendingPathComponent("identity.json"),
+            metadataURL: root.appendingPathComponent("metadata"),
+            payloadURL: root.appendingPathComponent("payload"),
+            bindingDigest: "sha256:" + binding, planDigest: "sha256:" + binding,
+            deviceIdentifier: "J316sAP", storeIdentifier: "disk0"))
         server.jobs.finish(request.ticket.identifier, result: .success((Data(), .recorded)))
       }
       // No job, no owner: an installation no job started is not offered.
+      XCTAssertFalse(server.startedInstallation(binding, uid: 501))
+      // Nor one whose only job was refused at the password.
+      try start(501, admitted: false)
       XCTAssertFalse(server.startedInstallation(binding, uid: 501))
       try start(501)
       XCTAssertTrue(server.startedInstallation(binding, uid: 501))
       XCTAssertFalse(server.startedInstallation(binding, uid: 502))
       XCTAssertFalse(server.startedInstallation(String(repeating: "c", count: 64), uid: 501))
       XCTAssertFalse(server.startedInstallation("not a binding", uid: 501))
-      // Another account's job for the same plan leaves it with neither.
+      // Another account that tried the same plan with a wrong password takes
+      // nothing from the account that installed it, even after a restart.
+      try start(502, admitted: false)
+      XCTAssertTrue(server.startedInstallation(binding, uid: 501))
+      XCTAssertFalse(server.startedInstallation(binding, uid: 502))
+      let restarted = ClosedEngineHelperServer(
+        workingDirectory: fixture.destination,
+        executor: RecordingHandoffExecutor(result: fixture.transcript),
+        credentialValidator: AcceptingMachineOwnerCredentialValidator(),
+        removalDisks: UnusedRemovalDisks(), removalAdminValidator: { _ in })
+      XCTAssertTrue(restarted.startedInstallation(binding, uid: 501))
+      // Another account's admitted job for the same plan leaves it with neither.
       try start(502)
       XCTAssertFalse(server.startedInstallation(binding, uid: 501))
       XCTAssertFalse(server.startedInstallation(binding, uid: 502))
