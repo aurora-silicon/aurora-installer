@@ -65,9 +65,14 @@ class WiFiFWCollection(object):
                 # (25G83's C-4388__s-C2/aruba.trx names a missing
                 # paradise.trx). Such a link carries no firmware: skip it,
                 # like a file the image lacks, and keep the rest of its
-                # directory.
-                if not os.path.exists(path):
-                    log.info(f"Skipping dangling firmware alias {relpath}")
+                # directory. Anything else that is not a regular file is
+                # skipped as well (os.walk lists a socket or FIFO with the
+                # files, and opening a FIFO would block).
+                if not os.path.isfile(path):
+                    if os.path.lexists(path) and not os.path.islink(path):
+                        log.warning(f"Skipping firmware name that is not a regular file: {relpath}")
+                    else:
+                        log.info(f"Skipping dangling firmware alias {relpath}")
                     continue
                 if not name.endswith(".txt"):
                     name = "P-" + name

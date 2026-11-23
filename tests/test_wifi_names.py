@@ -59,5 +59,38 @@ class Names(unittest.TestCase):
                     "C-4387__s-C2/P-bali_M-XXXX.txt": b"key=\xff\xfe\n"}, "NVRAM")
 
 
+class NotRegularFiles(unittest.TestCase):
+    """Only regular files (or links to them) are read: an alias that leads
+    to a socket or a FIFO, or a socket in the tree, is skipped."""
+
+    def collect(self, make):
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, data in GOOD.items():
+                path = pathlib.Path(tmp) / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+            make(pathlib.Path(tmp, "C-4387__s-C2"))
+            files = dict(WiFiFWCollection(tmp).files())
+        self.assertEqual(sorted(files), GOOD_NAMES)
+
+    def test_sockets_and_links_to_them_are_skipped(self):
+        import os, socket
+        def make(chip):
+            sock = socket.socket(socket.AF_UNIX)
+            self.addCleanup(sock.close)
+            sock.bind(str(chip / "fiji.trx"))
+            os.symlink("fiji.trx", chip / "bali.trx")
+            os.symlink("..", chip / "dir.trx")
+        self.collect(make)
+
+    def test_link_to_a_fifo_is_skipped(self):
+        # Before: open() of the FIFO blocked the collector.
+        import os
+        def make(chip):
+            os.mkfifo(chip / "fifo")
+            os.symlink("fifo", chip / "bali.trx")
+        self.collect(make)
+
+
 if __name__ == "__main__":
     unittest.main()
