@@ -742,6 +742,16 @@
 
     func canRetryNow(_ identity: InstallerJobPlanIdentity) -> Bool { retryEligibility(identity) }
 
+    /// The accounts that started a job for this binding; empty when none
+    /// did, and nil when the job history cannot be read.
+    func initiatingUIDs(bindingDigest: String) -> Set<UInt32>? {
+      lock.withLock {
+        guard (try? load()) != nil else { return nil }
+        return Set(
+          records.values.filter { $0.bindingDigest == bindingDigest }.map(\.initiatingUID))
+      }
+    }
+
     /// Imported packages hold a full payload. Before any request, keep only
     /// those a job can still retry or inspect: a finished job that can no
     /// longer be retried gives up its package, and a package no job names is

@@ -435,6 +435,67 @@
       XCTAssertEqual(disks.mountCalls, 0)
     }
 
+    func testWriteInstallConfNeedsAnAdministratorAsRemovalDoes() async throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let disks = RecordingESPDisks()
+      let server = ClosedEngineHelperServer(
+        workingDirectory: fixture.destination,
+        executor: RecordingHandoffExecutor(result: fixture.transcript),
+        credentialValidator: AcceptingMachineOwnerCredentialValidator(),
+        removalDisks: UnusedRemovalDisks(),
+        removalAdminValidator: { _ in
+          throw RemovalFailure(message: "Use a macOS administrator account to remove Aurora.")
+        },
+        espDisks: disks
+      )
+      // Refused before the plan is even looked at.
+      await assertThrowsErrorAsync(
+        try await server.writeInstallConf(
+          document: try InstallConf(encrypt: true, lane: "stable").serializedData,
+          storeIdentifier: "disk0",
+          offsetBytes: 447_750_000_000,
+          lengthBytes: 107_374_182_400,
+          authorization: try machineOwnerAuthorization()
+        )
+      ) {
+        XCTAssertEqual($0 as? ClosedEngineHelperError, .invalidMachineOwnerCredentials)
+      }
+      XCTAssertEqual(disks.mountCalls, 0)
+    }
+
+    func testOnlyTheAccountThatStartedEveryJobOfAnInstallationOwnsItsRecoveryAccount() throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let server = ClosedEngineHelperServer(
+        workingDirectory: fixture.destination,
+        executor: RecordingHandoffExecutor(result: fixture.transcript),
+        credentialValidator: AcceptingMachineOwnerCredentialValidator(),
+        removalDisks: UnusedRemovalDisks(), removalAdminValidator: { _ in })
+      let binding = String(repeating: "b", count: 64)
+      func start(_ uid: UInt32) throws {
+        let request = InstallerJobStartRequest(
+          ticket: try InstallerJobTicket(
+            bindingDigest: "sha256:" + binding,
+            selection: AuroraInstallationSelection(distribution: .fedora, desktop: .gnome)),
+          operation: "install",
+          installConf: try InstallConf(encrypt: true, lane: "stable").serializedData)
+        XCTAssertTrue(try server.jobs.begin(request, initiatingUID: uid))
+        server.jobs.finish(request.ticket.identifier, result: .success((Data(), .recorded)))
+      }
+      // No job, no owner: an installation no job started is not offered.
+      XCTAssertFalse(server.startedInstallation(binding, uid: 501))
+      try start(501)
+      XCTAssertTrue(server.startedInstallation(binding, uid: 501))
+      XCTAssertFalse(server.startedInstallation(binding, uid: 502))
+      XCTAssertFalse(server.startedInstallation(String(repeating: "c", count: 64), uid: 501))
+      XCTAssertFalse(server.startedInstallation("not a binding", uid: 501))
+      // Another account's job for the same plan leaves it with neither.
+      try start(502)
+      XCTAssertFalse(server.startedInstallation(binding, uid: 501))
+      XCTAssertFalse(server.startedInstallation(binding, uid: 502))
+    }
+
     func testWriteInstallConfUsesHelperOwnedPlanAndRejectsMismatchAndReplay() async throws {
       let fixture = try makeFixture()
       defer { try? FileManager.default.removeItem(at: fixture.root) }

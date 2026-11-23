@@ -172,7 +172,10 @@
     private nonisolated let retirement = HelperRetirementFlag()
     private var completedInstallPlan: CompletedEngineInstallPlan?
     private var installConfConsumed = false
-    private var recoveryAccountTargets: [String: (CompletedRecoveryInstallation, Date)] = [:]
+    /// Each inspected target, until when it may be used, and the account
+    /// that inspected it.
+    private var recoveryAccountTargets: [String: (CompletedRecoveryInstallation, Date, UInt32)] =
+      [:]
     private var removalPlan: (ticket: AuroraRemovalTicket, plan: AuroraRemovalPlan, expires: Date)?
 
     public init(
@@ -241,9 +244,13 @@
       selfUninstaller.uninstallAfterRemoval()
     }
 
+    /// Only the account that started the installation's job may set up its
+    /// recovery account: `initiatingUID` is the connecting app's user, and a
+    /// target whose job it did not start, or that no job started, is not
+    /// offered. A ticket is used only by the account that inspected it.
     public func recoveryAccount(
       action: String, ticket: String, username: String, password: Data,
-      recoveryTemplate: Data
+      recoveryTemplate: Data, initiatingUID: UInt32? = nil
     )
       async throws -> RecoveryAccountReply
     {
@@ -264,15 +271,18 @@
             try RecoveryAccountHandoff.discover(in: directory)
           }).value
         else { return RecoveryAccountReply() }
+        guard let initiatingUID, startedInstallation(completed.binding, uid: initiatingUID)
+        else { return RecoveryAccountReply() }
         let id = UUID().uuidString
         recoveryAccountTargets = recoveryAccountTargets.filter { $0.value.1 > Date() }
-        recoveryAccountTargets[id] = (completed, Date().addingTimeInterval(1800))
+        recoveryAccountTargets[id] = (completed, Date().addingTimeInterval(1800), initiatingUID)
         let record = try await Task.detached {
           try RecoveryAccountInstaller.inspect(completed.target)
         }.value
         return RecoveryAccountReply(ticket: id, target: completed.target, record: record)
       }
-      guard let (approved, expiry) = recoveryAccountTargets[ticket], expiry > Date(),
+      guard let (approved, expiry, inspector) = recoveryAccountTargets[ticket], expiry > Date(),
+        inspector == initiatingUID,
         let observed = try await Task.detached(operation: {
           try RecoveryAccountHandoff.discover(in: directory, binding: approved.binding)
         }).value,
@@ -297,8 +307,17 @@
         }
         return try RecoveryAccountInstaller.finalize(observed.target, password: password)
       }.value
-      recoveryAccountTargets[ticket] = (observed, Date().addingTimeInterval(1800))
+      recoveryAccountTargets[ticket] = (observed, Date().addingTimeInterval(1800), inspector)
       return RecoveryAccountReply(ticket: ticket, target: observed.target, record: record)
+    }
+
+    /// True when `uid` started every job recorded for the journal `binding`
+    /// names, and at least one did.
+    nonisolated func startedInstallation(_ binding: String, uid: UInt32) -> Bool {
+      guard let digest = SHA256Digest(hexadecimal: binding),
+        let owners = jobs.initiatingUIDs(bindingDigest: digest.rawValue)
+      else { return false }
+      return owners == [uid]
     }
 
     /// - Parameter erasing: Erase on the Partitions screen: the chosen row's
@@ -703,8 +722,10 @@
       guard !isRetiring else { throw ClosedEngineHelperError.retiring }
       try work.beginJob()
       defer { work.endJob() }
+      // As for removal: a valid password of an administrator account.
       do {
         try credentialValidator.validate(authorization)
+        try removalAdminValidator(authorization)
       } catch {
         throw ClosedEngineHelperError.invalidMachineOwnerCredentials
       }
@@ -822,11 +843,12 @@
       reply: @escaping @Sendable (Data?, NSError?) -> Void
     ) {
       let server = server
+      let initiatingUID = initiatingUID
       Task {
         do {
           let result = try await server.recoveryAccount(
             action: action, ticket: ticket, username: username, password: password,
-            recoveryTemplate: recoveryTemplate)
+            recoveryTemplate: recoveryTemplate, initiatingUID: initiatingUID)
           reply(try JSONEncoder().encode(result), nil)
         } catch let error as ClosedEngineHelperError {
           // A busy, retiring or replaced helper says so, so the app can tell
