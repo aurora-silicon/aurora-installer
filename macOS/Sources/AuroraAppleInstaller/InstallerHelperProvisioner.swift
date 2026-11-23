@@ -4,7 +4,8 @@
 
   /// Where the privileged helper stands, as the app sees it.
   public enum InstallerHelperStatus: Equatable, Sendable {
-    /// No helper is registered with launchd.
+    /// No helper is registered with launchd, or only a copy whose session
+    /// job ended, as at a restart.
     case missing
     /// The helper answers and is the build this app carries.
     case current
@@ -12,8 +13,9 @@
     /// helpers installed by the installer package do; or it is loaded but
     /// refuses this app, as a helper from another build does.
     case outdated
-    /// The helper is registered but launchd has not loaded it, because the
-    /// person switched it off in Login Items.
+    /// The helper's startup job, which only the installer package and
+    /// earlier versions of the app leave, is in place but launchd has not
+    /// loaded it, because the person switched it off in Login Items.
     case disabled
     /// The helper is loaded but did not answer in time, as when it is busy
     /// verifying a large payload for another job. It is never replaced for
@@ -55,12 +57,17 @@
     case failed(String)
   }
 
-  /// Observes the installed helper. The shipping probe checks launchd's job
-  /// file and asks the helper over XPC; tests supply a fake.
+  /// Observes the installed helper. The shipping probe checks the helper's
+  /// files and asks the helper over XPC; tests supply a fake.
   public protocol InstallerHelperProbing: Sendable {
-    /// Cheap and synchronous, safe on the main actor: whether launchd has the
-    /// helper's job file.
+    /// Cheap and synchronous, safe on the main actor: whether the helper's
+    /// root-owned copy or its startup job file is in place.
     var isRegistered: Bool { get }
+    /// Whether the helper has a startup job file in /Library/LaunchDaemons,
+    /// as the installer package and earlier versions of the app leave it.
+    /// Only such a job can be switched off in Login Items; a helper the app
+    /// started for its session that is not loaded has simply ended.
+    var hasStartupJob: Bool { get }
     /// How the helper answered a ping: yes, refused quickly, or not in time.
     func ping() async -> AuthenticatedEngineXPCSubmitter.PingResult
     /// True if the installed helper agrees to be replaced by this token (no
@@ -73,12 +80,16 @@
     /// engine runs under it and no other copy of the installer, the only
     /// thing that sends it work, is open), at work, or unknown.
     func observeWork() async -> InstallerHelperWorkObservation
-    /// Whether launchd has the helper's job loaded. Switching the helper off in
-    /// Login Items unloads the job but leaves its file, while a helper from
+    /// Whether launchd has the helper's job loaded. Switching a startup job off
+    /// in Login Items unloads it but leaves its file, while a helper from
     /// another build stays loaded and refuses this app.
     func isLoaded() async -> Bool
     /// The build the running helper reports, or nil when it reports none.
     func reportedVersion() async -> String?
+  }
+
+  extension InstallerHelperProbing {
+    public var hasStartupJob: Bool { isRegistered }
   }
 
   public enum InstallerHelperWorkObservation: Equatable, Sendable {
@@ -201,8 +212,8 @@
     }
 
     /// The synchronous status the screens show: missing, or current as far as
-    /// the job file tells. `probeStatus()` refines current into outdated or
-    /// disabled.
+    /// the helper's files tell. `probeStatus()` refines current into outdated,
+    /// disabled or missing.
     public var registrationStatus: InstallerHelperStatus {
       probe.isRegistered ? .current : .missing
     }
@@ -213,6 +224,9 @@
       guard probe.isRegistered else {
         return .missing
       }
+      // Not loaded: a startup job was switched off in Login Items, or the
+      // session job of a copy has ended.
+      let notLoaded: InstallerHelperStatus = probe.hasStartupJob ? .disabled : .missing
       switch await probe.ping() {
       case .answered:
         break
@@ -220,10 +234,10 @@
         // Loaded but refusing means another build that only accepts its own
         // app; it is replaced like any outdated helper, not reported as
         // switched off.
-        return await probe.isLoaded() ? .outdated : .disabled
+        return await probe.isLoaded() ? .outdated : notLoaded
       case .noAnswer:
         // Slow is not broken: a loaded helper may be busy with another job.
-        return await probe.isLoaded() ? .busy : .disabled
+        return await probe.isLoaded() ? .busy : notLoaded
       }
       guard let bundledHelperVersion else {
         return .current
@@ -311,7 +325,7 @@
     /// this app's and the helper still idle, or, where nothing was installed,
     /// nothing another app has installed since is at work. A held helper can't
     /// start a job after this check. For one that can't be asked, a job could
-    /// still start in the instant between this check and `SMJobBless`; an
+    /// still start in the instant between this check and its replacement; an
     /// older helper has no way to refuse work, so that window is a documented
     /// migration limitation.
     private static func stillClear(
@@ -406,8 +420,8 @@
     }
   }
 
-  /// The shipping probe: launchd's job file for the synchronous check, and
-  /// the helper's own XPC service for the rest.
+  /// The shipping probe: the helper's files for the synchronous check, and
+  /// launchd and the helper's own XPC service for the rest.
   public struct SystemInstallerHelperProbe: InstallerHelperProbing {
     private let submitter: @Sendable () throws -> AuthenticatedEngineXPCSubmitter
 
@@ -421,9 +435,12 @@
     }
 
     public var isRegistered: Bool {
-      FileManager.default.fileExists(
-        atPath: InstallerProductIdentity.systemLaunchDaemonPath
-      )
+      hasStartupJob
+        || FileManager.default.fileExists(atPath: InstallerProductIdentity.installedHelperPath)
+    }
+
+    public var hasStartupJob: Bool {
+      FileManager.default.fileExists(atPath: InstallerProductIdentity.systemLaunchDaemonPath)
     }
 
     /// `launchctl print` needs no privileges for a system job and fails when
@@ -530,7 +547,7 @@
       return processes.contains { $0.pid != own && $0.mayBeInstaller }
     }
 
-    private static func runWithStatus(
+    static func runWithStatus(
       _ path: String, _ arguments: [String]
     ) -> (status: Int32, output: String) {
       let process = Process()

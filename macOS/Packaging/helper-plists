@@ -1,14 +1,15 @@
 #!/bin/bash
-# Write the two property lists linked into the helper binary. SMJobBless reads
-# them from the helper's __TEXT sections: the Info.plist names the helper, its
-# build (which the helper reports so the app can tell an outdated copy) and the
-# app allowed to install it; the launchd plist is the job SMJobBless registers.
+# Write the two property lists linked into the helper binary's __TEXT
+# sections: the Info.plist names the helper, its build (which the helper
+# reports so the app can tell an outdated copy) and the app allowed to start
+# it; the launchd plist is the job the app submits to launchd for the helper's
+# root-owned copy (SessionHelperLauncher), held in memory until restart.
 #
 # Usage: helper-plists <output directory> <build number> <marketing version> [client requirement]
 #
 # Without a client requirement (ad hoc builds) only the Info.plist is written,
-# without SMAuthorizedClients: such a build cannot install its helper itself
-# and relies on the installer package, as before.
+# without SMAuthorizedClients: such a build cannot start its helper itself
+# and relies on the installer package.
 set -euo pipefail
 
 output=${1:-}

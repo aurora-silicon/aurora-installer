@@ -1084,19 +1084,18 @@
 
       XCTAssertTrue(session.canStartInstallation)
       session.presentInstallCredentials()
-      XCTAssertEqual(session.credentialSheet.context?.mentionsBackgroundItem, true)
+      XCTAssertNotNil(session.credentialSheet.context)
 
       await session.submit(try authorization())
       XCTAssertEqual(environment.calls, ["ensureHelper:owner", "execute"])
     }
 
-    func testACurrentHelperNeedsNoBackgroundItemNotice() async throws {
+    func testACurrentHelperIsStillCheckedBeforeInstalling() async throws {
       let environment = MockInstallerEnvironment()
       environment.helper = HelperDisplay(status: .current, canInstall: true)
       let session = try await approvedSession(environment)
 
       session.presentInstallCredentials()
-      XCTAssertEqual(session.credentialSheet.context?.mentionsBackgroundItem, false)
       await session.submit(try authorization())
       // Setup still runs: it confirms the helper answers and is current.
       XCTAssertEqual(environment.calls, ["ensureHelper:owner", "execute"])
@@ -1112,7 +1111,6 @@
       await session.submit(try authorization())
 
       XCTAssertEqual(session.credentialSheet.context?.error, .credentialsRejected)
-      XCTAssertEqual(session.credentialSheet.context?.mentionsBackgroundItem, true)
       XCTAssertEqual(environment.executeCount, 0)
       XCTAssertTrue(session.canStartInstallation)
     }
@@ -1171,7 +1169,6 @@
       await session.checkWhetherHelperIsSwitchedOff()
 
       XCTAssertEqual(session.credentialSheet.context?.helperSwitchedOff, true)
-      XCTAssertEqual(session.credentialSheet.context?.mentionsBackgroundItem, true)
       await session.submit(try authorization())
       XCTAssertEqual(environment.calls, ["ensureHelper:owner:reenable", "execute"])
     }

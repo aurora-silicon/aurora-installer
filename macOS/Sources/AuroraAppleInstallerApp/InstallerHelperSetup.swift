@@ -5,14 +5,15 @@ import Foundation
 /// The app's one way to check and install its privileged helper, shared by
 /// the install flow and the removal sheet. It keeps no credential.
 enum InstallerHelperSetup {
-  /// Whether this build declares its helper for `SMJobBless`. Builds signed
-  /// ad hoc leave it out and rely on the installer package instead.
-  static let canInstall = SMJobBlessInstallerHelperBlesser.isDeclared()
+  /// Whether this build declares its helper and so can start it. Builds
+  /// signed ad hoc leave it out and rely on the installer package instead.
+  static let canInstall = SessionHelperLauncher.isDeclared()
 
   private static let provisioner = InstallerHelperProvisioner(
     probe: SystemInstallerHelperProbe(submitter: submitter),
     blesser: canInstall
-      ? SMJobBlessInstallerHelperBlesser() : UnavailableInstallerHelperBlesser(),
+      ? SessionHelperLauncher(helperRequirement: helperRequirement)
+      : UnavailableInstallerHelperBlesser(),
     credentialValidator: OpenDirectoryMachineOwnerCredentialValidator(),
     administrators: OpenDirectoryAdministratorMembership(),
     bundledHelperVersion: InstallerHelperProvisioner.bundledHelperVersion(),
@@ -28,9 +29,19 @@ enum InstallerHelperSetup {
     HelperDisplay(status: await provisioner.probeStatus(), canInstall: canInstall)
   }
 
+  @Sendable static func configuration() throws -> InstallerReleaseConfiguration {
+    try InstallerReleaseConfigurationLocator().loadFromMainBundle()
+  }
+
+  /// The signature the helper's root-owned copy must carry: the one the app
+  /// holds it to over XPC.
+  @Sendable static func helperRequirement() throws -> String {
+    try configuration().helperCodeSigningRequirement
+  }
+
   /// A connection to the helper from the bundled release configuration.
   @Sendable static func submitter() throws -> AuthenticatedEngineXPCSubmitter {
-    let configuration = try InstallerReleaseConfigurationLocator().loadFromMainBundle()
+    let configuration = try Self.configuration()
     return try AuthenticatedEngineXPCSubmitter(
       machServiceName: configuration.helperMachServiceName,
       helperCodeSigningRequirement: configuration.helperCodeSigningRequirement

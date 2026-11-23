@@ -93,7 +93,7 @@
       let summary = await withCheckedContinuation { continuation in
         endpoint.retirePackageInstalledApps { continuation.resume(returning: $0) }
       }
-      XCTAssertEqual(summary, "not installed by SMJobBless; nothing changed")
+      XCTAssertEqual(summary, "not started by the app; nothing changed")
     }
 
     func testWorkAndReplacementNeverBothGoAhead() throws {

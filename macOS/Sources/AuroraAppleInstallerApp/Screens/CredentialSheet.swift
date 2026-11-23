@@ -52,11 +52,6 @@ struct CredentialSheet: View {
         .foregroundStyle(InstallerTheme.caution)
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .combine)
-      } else if context.mentionsBackgroundItem && !isSimulation {
-        Text(PlainLanguage.authorizeBackgroundItemNotice)
-          .font(InstallerTheme.detail)
-          .foregroundStyle(InstallerTheme.secondaryText)
-          .fixedSize(horizontal: false, vertical: true)
       }
 
       field(label: PlainLanguage.authorizeUsernameLabel, reason: input.usernameReason) {

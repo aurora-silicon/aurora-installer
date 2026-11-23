@@ -536,7 +536,7 @@ for case in WrongVersion:2.0.2 NoHelper:2.0.2 OldBuild:2.0.2; do
 done
 grep -q "version 2.0.9, not 2.0.2" "$WORK/WrongVersion.log" ||
   fail "the refusal names the version" "$(cat "$WORK/WrongVersion.log")"
-grep -q "cannot install it" "$WORK/NoHelper.log" ||
+grep -q "cannot start it" "$WORK/NoHelper.log" ||
   fail "the refusal names the helper" "$(cat "$WORK/NoHelper.log")"
 grep -q "build 1 is not above build 1" "$WORK/OldBuild.log" ||
   fail "the refusal names the build" "$(cat "$WORK/OldBuild.log")"

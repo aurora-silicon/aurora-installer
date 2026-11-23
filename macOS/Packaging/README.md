@@ -17,8 +17,8 @@ The generated `Aurora Installer.app` contains:
 
 - the SwiftUI application in `Contents/MacOS`;
 - the separately signed auxiliary decoder in `Contents/Helpers`, under its own fixed identifier;
-- the root helper in `Contents/Library/LaunchServices`, named by its label, with its Info.plist (carrying the build number it reports) and, for builds with a real signing identity, its `SMJobBless` launchd job linked into `__TEXT` sections;
-- the helper's declaration for `SMJobBless` (`SMPrivilegedExecutables`) in the app's Info.plist, for builds with a real signing identity;
+- the root helper in `Contents/Library/LaunchServices`, named by its label, with its Info.plist (carrying the build number it reports and the app it accepts) and, for builds with a real signing identity, its launchd job linked into `__TEXT` sections;
+- the helper's declaration (`SMPrivilegedExecutables`, naming the requirement its copy must meet) in the app's Info.plist, for builds with a real signing identity;
 - the launch-daemon property list the fallback installer package derives its system daemon from, in `Contents/Library/LaunchDaemons`, pointing at the same helper;
 - the immutable release descriptor and Ed25519 trust root in
   `Contents/Resources/Release`;
@@ -86,7 +86,7 @@ Packaging/notarize-app.sh "/absolute/path/Aurora Installer.app"
 
 `Packaging/notarize-app.sh --verify-only APP` runs the same signature preflight without creating an archive or contacting the notary service. Passing it is signature evidence; notarization and stapling remain separate requirements. For named nine-profile builds, pass `--signing-team TEAMID` to `scripts/prepare-distribution-release.py` so the root and every profile descriptor use the helper requirement of that build. The signed catalogs and their trust root remain unchanged.
 
-The app installs its own helper with `SMJobBless` the first time the person authorizes an install, using the password they typed; ad hoc builds leave the declaration out and still need the installer package. After notarization, package the download:
+The app starts its own helper when the person authorizes an install, an Erase or a removal, using the password they typed, and registers no background item. With `SMJobSubmit` it has launchd copy the helper into `/Library/PrivilegedHelperTools` as root, checks the root-owned copy against the helper's signing requirement, and submits the launchd job linked into that copy. launchd holds the job in memory: nothing is written to `/Library/LaunchDaemons` or Login Items, so macOS shows no "Background Items Added" notice, and the job is gone after a restart until the next authorization starts it again. A startup job that the installer package or an earlier version left in `/Library/LaunchDaemons` is unloaded and removed when the app starts its own helper. Ad hoc builds leave the declaration out and still need the installer package. After notarization, package the download:
 
 ```sh
 Packaging/make-download-zip.sh "/absolute/path/Aurora Installer.app" /absolute/path/Aurora-Installer.zip
@@ -94,7 +94,7 @@ Packaging/make-download-zip.sh "/absolute/path/Aurora Installer.app" /absolute/p
 
 It refuses an app without a stapled ticket and checks that the zip holds only the app.
 
-After a completed removal the helper uninstalls itself. A build that can install its own helper sets it up again at the next authorization. A build that cannot (ad hoc builds, and anything relying on the installer package) needs the installer package run again before its next install or removal.
+After a completed installation, Erase or removal the helper uninstalls itself. A build that can start its own helper starts it again at the next authorization. A build that cannot (ad hoc builds, and anything relying on the installer package) needs the installer package run again before its next install or removal.
 
 Notarization is deliberately separate from the assembler. The script rejects
 ad-hoc and development-signed bundles, submits a temporary ZIP, staples the

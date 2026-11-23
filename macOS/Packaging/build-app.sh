@@ -47,9 +47,9 @@ if [[ ${AURORA_LOCAL_PAYLOAD_TEST_BUILD:-0} == "1" ]]; then
 fi
 
 marketing_version="${AURORA_APP_VERSION:-0.1.0}"
-# SMJobBless never replaces a helper with a lower build, so a developer build
-# defaults to its UTC build minute (YYMMDDHHMM): each one installs over the
-# helper an earlier one left, without anyone tracking numbers by hand.
+# The app replaces a helper that reports another build, so a developer build
+# defaults to its UTC build minute (YYMMDDHHMM): each one replaces the helper
+# an earlier one left, without anyone tracking numbers by hand.
 if [[ ${AURORA_DEVELOPER_BUILD:-0} == "1" ]]; then
   build_number="${AURORA_APP_BUILD_NUMBER:-$(date -u +%y%m%d%H%M)}"
 else
@@ -248,9 +248,9 @@ binary_directory="$({
 assembly_root="$(mktemp -d "$output_directory/.aurora-app.XXXXXX")"
 trap 'rm -rf "$assembly_root"' EXIT
 
-# The helper carries its Info.plist and, for SMJobBless, its launchd job in
-# __TEXT sections, so it is linked again with them. Ad hoc builds get only the
-# Info.plist: they cannot install their helper and rely on the package.
+# The helper carries its Info.plist and the launchd job the app submits for it
+# in __TEXT sections, so it is linked again with them. Ad hoc builds get only
+# the Info.plist: they cannot start their helper and rely on the package.
 helper_plists="$assembly_root/helper-plists"
 mkdir "$helper_plists"
 if [[ $signing_identity == "-" ]]; then
@@ -286,8 +286,8 @@ helper_binary="$binary_directory/AuroraAppleInstallerHelper"
 assembled_app="$assembly_root/$app_name"
 contents="$assembled_app/Contents"
 resources="$contents/Resources"
-# SMJobBless finds the helper here, named by its label; the package's daemon
-# plist points at the same binary.
+# The app copies the helper from here, named by its label; the package's
+# daemon plist points at the same binary.
 helper_relative_path="Contents/Library/LaunchServices/$helper_identifier"
 helper_path="$assembled_app/$helper_relative_path"
 

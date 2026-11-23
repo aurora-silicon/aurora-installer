@@ -97,7 +97,7 @@
     }
 
     public static let removalCredentialsFirst =
-      "To look for Aurora on this Mac, enter your macOS administrator account. It sets up the removal service and approves the removal you’ll review next. macOS will show a notice that \(windowTitle) added a background item."
+      "To look for Aurora on this Mac, enter your macOS administrator account. It sets up the removal service and approves the removal you’ll review next."
     public static let removalContinue = "Continue"
     public static let removalNotStarted =
       "The removal service didn’t answer, so removal didn’t start. No disk changes were made. Close this window and try again."

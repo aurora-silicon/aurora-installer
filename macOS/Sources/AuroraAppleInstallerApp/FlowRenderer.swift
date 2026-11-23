@@ -47,11 +47,10 @@
         save(await page(session, selection), "shrink-macos-size")
         session.setAcknowledged(true)
         session.approve()
-        if case .awaitingInstall(let plan, let helper, _) = session.phase {
+        if case .awaitingInstall(let plan, _, _) = session.phase {
           let sheet = CredentialSheet(
             context: CredentialSheetContext(
-              kind: .install, bindingDigest: plan.bindingDigest,
-              mentionsBackgroundItem: helper.willInstall),
+              kind: .install, bindingDigest: plan.bindingDigest),
             isSimulation: false, onCancel: {}, onSubmit: { _ in })
           save(
             await composite(page: page(session, selection), sheet: render(sheet, size: nil)),

@@ -782,7 +782,7 @@
 
     /// - Parameter version: the helper's build version, or empty when it
     ///   carries none.
-    /// - Parameter mayRetirePackageApps: only a helper SMJobBless installed,
+    /// - Parameter mayRetirePackageApps: only a helper the app started,
     ///   running from PrivilegedHelperTools, removes the package's app. An
     ///   ad hoc build's helper runs from inside that app and accepts any
     ///   client with the app's identifier, so it leaves it alone.
@@ -860,7 +860,7 @@
       let server = server
       let retirement = retirement
       guard mayRetirePackageApps else {
-        return reply("not installed by SMJobBless; nothing changed")
+        return reply("not started by the app; nothing changed")
       }
       Task.detached {
         guard !server.isRetiring else {
