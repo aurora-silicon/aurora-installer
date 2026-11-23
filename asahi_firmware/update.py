@@ -12,6 +12,7 @@ from .kernel import KernelFWCollection
 from .isp import ISPFWCollection
 from .als import AlsFWCollection
 from .audio_tuning import AudioTuningFWCollection
+from .touchid_host_chain import TouchIDHostChainFWCollection
 
 def collect_firmware(source, raw_fw, pkg):
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -34,6 +35,9 @@ def collect_firmware(source, raw_fw, pkg):
         pkg.add_files(sorted(col.files()))
 
         col = AudioTuningFWCollection(str(tmpdir))
+        pkg.add_files(sorted(col.files()))
+
+        col = TouchIDHostChainFWCollection(str(tmpdir))
         pkg.add_files(sorted(col.files()))
 
     col = KernelFWCollection(str(source))
