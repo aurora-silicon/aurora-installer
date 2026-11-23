@@ -400,10 +400,10 @@
       let archive = try await IPSWArchive.open(NativeWindowedRangeReader(source))
       let selection = NativeFirmwareSelection(
         version: entry.version, sourceURL: url, stubBytes: 5_999_951_872, pin: pin)
-      // M1 Pro, M2, M4 Pro and the MacBook Neo.
+      // M1 Pro, M2 Air, M2 mini, M4 Pro and the MacBook Neo.
       for (device, board, chip) in [
-        ("j316s", 0x0A, 0x6000), ("j413", 0x28, 0x8112), ("j616s", 0x06, 0x6040),
-        ("j700", 0x64, 0x8140),
+        ("j316s", 0x0A, 0x6000), ("j413", 0x28, 0x8112), ("j473", 0x24, 0x8112),
+        ("j616s", 0x06, 0x6040), ("j700", 0x64, 0x8140),
       ] as [(String, UInt64, UInt64)] {
         let plan = try await NativeStubFilePlan(
           archive: archive, source: selection, deviceClass: device + "ap", boardID: board,

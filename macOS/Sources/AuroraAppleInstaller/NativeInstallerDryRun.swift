@@ -84,7 +84,7 @@
           row["recommended_install_bytes"] = bytes
         }
         do {
-          let length = try requestedLength(candidate)
+          let length = try requestedLength(candidate, in: inventory)
           let request = try NativePlanRequest(
             inventory: inventory, candidate: candidate, requestedLengthBytes: length)
           let planned = try NativeInstallerPlanner.transcript(
@@ -175,21 +175,23 @@
       return try encode(result)
     }
 
-    /// The installer offers the recommended size when it fits and otherwise
-    /// the smallest admissible one, rounded to the plan's allocation unit.
-    static func requestedLength(_ candidate: ValidatedEngineCandidate) throws -> UInt64 {
-      let unit = NativePlanRequest.allocationUnitBytes
-      if ["repair", "replace", "reinstall"].contains(candidate.kind) {
+    /// Replay the app's allocation for each target using the recorded geometry.
+    /// Live staging reservations and snapshot constraints are checked by the app.
+    static func requestedLength(
+      _ candidate: ValidatedEngineCandidate, in inventory: ValidatedEngineInventory
+    ) throws -> UInt64 {
+      let target: InstallerPlanTarget
+      switch candidate.kind {
+      case "free":
+        target = .freeSpace(offsetBytes: candidate.offsetBytes)
+      case "resize":
+        target = .shrink(sourceIdentifier: candidate.sourceIdentifier)
+      default:
         return candidate.lengthBytes
       }
-      let maximum =
-        candidate.kind == "resize"
-        ? candidate.lengthBytes > candidate.minimumContainerBytes
-          ? candidate.lengthBytes - candidate.minimumContainerBytes : 0
-        : candidate.lengthBytes
-      let wanted = candidate.recommendedInstallBytes ?? candidate.minimumInstallBytes
-      let chosen = min(max(wanted, candidate.minimumInstallBytes), maximum)
-      return chosen / unit * unit
+      return try InstallerAllocationRecommendation(
+        inventory: inventory, target: target
+      ).requestedLengthBytes
     }
 
     private static func encode(_ value: [String: Any]) throws -> Data {
