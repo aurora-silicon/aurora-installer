@@ -163,9 +163,13 @@ def _flag(v):
 
 
 def esp_device(esp, run=subprocess.run):
-    """The block device mounted at the ESP path, or None."""
-    p = run(["findmnt", "-n", "-v", "-o", "SOURCE", "--mountpoint", str(esp)],
-            capture_output=True, text=True)
+    """The block device mounted at the ESP path, or None when that can't be
+    told now (not mounted, findmnt failed, or more than one source)."""
+    try:
+        p = run(["findmnt", "-n", "-v", "-o", "SOURCE", "--mountpoint", str(esp)],
+                capture_output=True, text=True)
+    except OSError:
+        return None
     if p.returncode != 0:
         return None
     devs = {os.path.realpath(ln.strip()) for ln in p.stdout.splitlines()
@@ -174,15 +178,20 @@ def esp_device(esp, run=subprocess.run):
 
 
 def apfs_partitions(esp_dev, run=subprocess.run):
-    """The APFS partitions on the disk holding the system ESP. Refused when
-    that disk is not known or is removable or external: no other disk is
-    read in its place."""
+    """The APFS partitions on the disk holding the system ESP; no other disk
+    is read in its place. NotNow when the disk can't be asked about now (the
+    ESP's mount source is not known, or lsblk fails); Refused when lsblk
+    answers and the ESP is not a partition of a known disk, or that disk is
+    removable or external."""
     if not esp_dev:
-        raise Refused("the disk holding the system ESP is not known; the ESP's files stay")
-    p = run(["lsblk", "-J", "-p", "-o", "PATH,PKNAME,PARTTYPE,RM,HOTPLUG,TRAN,TYPE"],
-            capture_output=True, text=True)
+        raise NotNow("the system ESP's mount source is not known now; the ESP's files stay")
+    try:
+        p = run(["lsblk", "-J", "-p", "-o", "PATH,PKNAME,PARTTYPE,RM,HOTPLUG,TRAN,TYPE"],
+                capture_output=True, text=True)
+    except OSError as e:
+        raise NotNow(f"lsblk could not run ({e}); the ESP's files stay") from e
     if p.returncode != 0:
-        raise Refused(f"lsblk failed ({p.stderr.strip()}); the ESP's files stay")
+        raise NotNow(f"lsblk failed ({p.stderr.strip()}); the ESP's files stay")
     devs = []
 
     def walk(items, parent=None):
@@ -192,7 +201,10 @@ def apfs_partitions(esp_dev, run=subprocess.run):
                 d["pkname"] = parent
             devs.append(d)
             walk(d.get("children") or [], d.get("path"))
-    walk(json.loads(p.stdout).get("blockdevices", []))
+    try:
+        walk(json.loads(p.stdout).get("blockdevices", []))
+    except (ValueError, AttributeError, TypeError) as e:
+        raise NotNow(f"lsblk output did not parse ({e}); the ESP's files stay") from e
     by_path = {d.get("path"): d for d in devs}
     esp = by_path.get(os.path.realpath(esp_dev))
     disk = by_path.get(esp.get("pkname")) if esp else None

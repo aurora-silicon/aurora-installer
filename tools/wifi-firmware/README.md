@@ -47,9 +47,13 @@ follows its macOS as macOS does.
 
 1. **Which macOS.** Every APFS container on the disk that holds the system
    ESP is read with `apfs_ro`, a small read-only APFS reader (no mount, no
-   kernel module, no FUSE). Other disks are not read. When the ESP's disk is
-   not known, or is removable or external (USB, SD, a hot-plug port such as
-   Thunderbolt), the tool refuses and the ESP's files stay. The
+   kernel module, no FUSE). Other disks are not read. When the ESP's disk
+   can't be asked about now (the ESP is not mounted, or `lsblk` fails), the
+   tool stops with "not now". When the ESP is not a partition of a disk
+   `lsblk` knows, or that disk is removable or external (USB, SD, a hot-plug
+   port such as Thunderbolt), the tool refuses. Either way the ESP's files
+   stay. An ESP on an external disk is always refused; `--macos DIR` still
+   works there. The
    System volume is not encrypted, with or without FileVault, so no password
    is needed. The boot stub's volume group (`asahi/stub_info.json`) is left
    out. With more than one macOS installed, the newest build is used.
@@ -119,7 +123,8 @@ remembered: the next boot tries again. `aurora-wifi-firmware update`
 always tries again; `update --macos DIR` leaves the boot's record alone.
 
 Exit codes: 0 done or nothing to do, 1 refused (nothing changed), 2 not now
-(no readable macOS volume, the ESP mounted read only), 3 internal error.
+(no readable macOS volume, the ESP mounted read only, the ESP's disk not
+known yet), 3 internal error.
 
 ## Packaging
 

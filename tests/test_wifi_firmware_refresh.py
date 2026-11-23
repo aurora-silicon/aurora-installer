@@ -876,14 +876,21 @@ def blockdev(path, pkname=None, parttype=None, tran=None, rm=False, hotplug=Fals
             "hotplug": hotplug, "tran": tran, "type": "part" if pkname else "disk"}
 
 
-def fake_run(devices, esp_source="/dev/nvme0n1p4"):
-    """subprocess.run for findmnt (the ESP's mount source) and lsblk -J."""
+def fake_run(devices, esp_source="/dev/nvme0n1p4", lsblk_rc=0, missing=()):
+    """subprocess.run for findmnt (the ESP's mount source; a list for a
+    stacked mount) and lsblk -J. Commands in `missing` are not installed."""
     def run(cmd, **kw):
+        if cmd[0] in missing:
+            raise FileNotFoundError(2, "No such file or directory", cmd[0])
         if cmd[0] == "findmnt":
             ok = esp_source is not None
+            sources = esp_source if isinstance(esp_source, list) else [esp_source]
             return types.SimpleNamespace(returncode=0 if ok else 1, stderr="",
-                                         stdout=f"{esp_source}\n" if ok else "")
+                                         stdout="".join(f"{x}\n" for x in sources) if ok else "")
         assert cmd[0] == "lsblk", cmd
+        if lsblk_rc:
+            return types.SimpleNamespace(returncode=lsblk_rc, stdout="",
+                                         stderr="lsblk: failed to access sysfs directory")
         return types.SimpleNamespace(returncode=0, stderr="",
                                      stdout=json.dumps({"blockdevices": devices}))
     return run
@@ -942,22 +949,46 @@ class SourceDiskTest(Case):
                 self.found(internal(**kw))
         self.assertEqual(self.read, [])
 
-    def test_esp_disk_not_known_is_refused(self):
-        for devices, source in ((internal(), None),              # the ESP is not a mount
-                                (internal(), "/dev/sdz9"),        # not in lsblk
+    def test_esp_not_on_a_known_disk_is_refused(self):
+        for devices, source in ((internal(), "/dev/sdz9"),        # not in lsblk
                                 (internal()[1:], "/dev/nvme0n1p4"),  # no parent disk
                                 (usb_disk(), "/dev/sda")):         # a whole disk
             with self.subTest(source=source), self.assertRaises(awf.Refused):
                 self.found(devices, esp_source=source)
         self.assertEqual(self.read, [])
 
+    def test_esp_disk_that_cannot_be_asked_about_now_is_not_now(self):
+        cases = (
+            {"esp_source": None},                                  # the ESP is not a mount
+            {"esp_source": ["/dev/nvme0n1p4", "/dev/sda1"]},      # two sources, stacked
+            {"lsblk_rc": 1},                                       # lsblk failed
+            {"lsblk_rc": 32},
+            {"missing": ("lsblk",)},
+            {"missing": ("findmnt",)},
+        )
+        for kw in cases:
+            with self.subTest(**kw):
+                with self.assertRaises(awf.NotNow):
+                    self.found(internal() + usb_disk(), **kw)
+                # NotNow is not a refusal: a boot does not remember it.
+                self.assertFalse(issubclass(awf.NotNow, awf.Refused))
+        self.assertEqual(self.read, [])
+
+    def test_lsblk_output_that_does_not_parse_is_not_now(self):
+        def run(cmd, **kw):
+            if cmd[0] == "findmnt":
+                return types.SimpleNamespace(returncode=0, stderr="", stdout="/dev/nvme0n1p4\n")
+            return types.SimpleNamespace(returncode=0, stderr="", stdout="not json")
+        with self.assertRaises(awf.NotNow):
+            awf.installed_macos(self.esp, opener=self.opener, run=run)
+        self.assertEqual(self.read, [])
+
     def test_plan_keeps_the_esp_when_its_disk_is_not_known(self):
         # The test ESP is a plain directory, not a mount: no disk to read.
         before = awf.tree_hashes(self.esp)
-        with self.assertRaises(awf.Refused):
+        with self.assertRaises(awf.NotNow):
             awf.plan(self.esp, None, BOARD, out=self.out.append)
         self.assertEqual(awf.tree_hashes(self.esp), before)
-
 
 
 class StatusTest(Case):
