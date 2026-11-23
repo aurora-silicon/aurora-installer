@@ -202,6 +202,21 @@
       XCTAssertEqual(download.headline, "The network request didn’t finish")
     }
 
+    func testACatalogBelowTheBuildFloorSaysTheInstallerIsNewerThanTheServer() {
+      // A first run below the build's floor is not a rollback of anything
+      // this Mac accepted; the card and the log say what it is.
+      let failure = PlainLanguage.failure(
+        for: SupportCatalogSequenceError.belowBuildFloor(floor: 10, candidate: 9))
+      XCTAssertEqual(failure.headline, "This installer is newer than the release server")
+      XCTAssertEqual(
+        failure.remedy,
+        "Check again later, or choose another release channel from the menu bar.")
+      XCTAssertEqual(failure.technicalDetail, "belowBuildFloor(floor: 10, candidate: 9)")
+      let rollback = PlainLanguage.failure(
+        for: SupportCatalogSequenceError.rollback(stored: 10, candidate: 9))
+      XCTAssertNotEqual(rollback.headline, failure.headline)
+    }
+
     func testOnlyChannelsWithNothingForThisMacAreDisabled() {
       func enabled(_ channel: ReleaseChannel, _ availability: ReleaseChannelAvailability?) -> Bool {
         PlainLanguage.channelMenuItemEnabled(

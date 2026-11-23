@@ -444,7 +444,7 @@
         )
       ) {
         XCTAssertEqual(
-          $0 as? SupportCatalogSequenceError, .rollback(stored: 31, candidate: 30))
+          $0 as? SupportCatalogSequenceError, .belowBuildFloor(floor: 31, candidate: 30))
       }
       let downloadCount = await fixture.downloader.downloadCount
       XCTAssertEqual(downloadCount, 0)

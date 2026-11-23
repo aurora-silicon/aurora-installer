@@ -53,6 +53,7 @@
         SupportCatalogError.expired,
         SupportCatalogError.notYetValid,
         SupportCatalogSequenceError.rollback(stored: 9, candidate: 8),
+        SupportCatalogSequenceError.belowBuildFloor(floor: 9, candidate: 8),
         SupportCatalogSequenceError.sequenceReuse(9),
         AcceptedCatalogIdentityStoreError.unsafeState,
       ]
@@ -388,7 +389,7 @@
         XCTFail("A catalog below the build floor was prepared")
       } catch {
         XCTAssertEqual(
-          error as? SupportCatalogSequenceError, .rollback(stored: 8, candidate: 7))
+          error as? SupportCatalogSequenceError, .belowBuildFloor(floor: 8, candidate: 7))
       }
       XCTAssertFalse(FileManager.default.fileExists(atPath: request.stagingDirectory.path))
     }

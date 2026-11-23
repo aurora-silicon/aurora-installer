@@ -96,7 +96,7 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     XCTAssertThrowsError(try adapter.candidateIdentity(for: below)) {
       XCTAssertEqual(
         $0 as? SupportCatalogSequenceError,
-        .rollback(stored: 21, candidate: 20)
+        .belowBuildFloor(floor: 21, candidate: 20)
       )
     }
     let atFloor = try makeRequest(catalogSequence: 20, minimumCatalogSequence: 20)

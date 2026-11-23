@@ -614,7 +614,7 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
     ) {
       XCTAssertEqual(
         $0 as? SupportCatalogSequenceError,
-        .rollback(stored: 10, candidate: 9)
+        .belowBuildFloor(floor: 10, candidate: 9)
       )
     }
   }
@@ -650,7 +650,7 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
     ) {
       XCTAssertEqual(
         $0 as? SupportCatalogSequenceError,
-        .rollback(stored: 10, candidate: 9)
+        .belowBuildFloor(floor: 10, candidate: 9)
       )
     }
     // A floor below the stored identity changes nothing about the stored one.
@@ -669,6 +669,23 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
       XCTAssertEqual(
         $0 as? SupportCatalogSequenceError,
         .rollback(stored: 12, candidate: 11)
+      )
+    }
+    // Below both, it is a rollback of what this Mac accepted, named as such.
+    let older = try makeCatalog(sequence: 9)
+    XCTAssertThrowsError(
+      try core.validateSupportCatalog(
+        payload: older.payload,
+        signature: older.signature,
+        trustRoot: older.trustRoot,
+        now: now,
+        previouslyAccepted: current.acceptedIdentity,
+        minimumSequence: 10
+      )
+    ) {
+      XCTAssertEqual(
+        $0 as? SupportCatalogSequenceError,
+        .rollback(stored: 12, candidate: 9)
       )
     }
   }

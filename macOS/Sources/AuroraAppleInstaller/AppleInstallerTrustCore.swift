@@ -86,7 +86,9 @@ public struct AppleInstallerTrustCore: Sendable {
   }
 
   /// `minimumSequence` is the build's own floor: it holds on a first run,
-  /// when nothing has been accepted yet. A catalog at the floor is accepted.
+  /// when nothing has been accepted yet. A catalog at the floor is accepted;
+  /// one below it is `belowBuildFloor` unless it is also below the stored
+  /// identity, which stays a `rollback`.
   public func validateSupportCatalog(
     payload: Data,
     signature: Data,
@@ -107,19 +109,22 @@ public struct AppleInstallerTrustCore: Sendable {
       payloadDigest: payloadDigest
     )
 
-    if let minimumSequence, candidate.sequence < minimumSequence {
+    if let previouslyAccepted, candidate.sequence < previouslyAccepted.sequence {
       throw SupportCatalogSequenceError.rollback(
-        stored: max(minimumSequence, previouslyAccepted?.sequence ?? 0),
+        stored: previouslyAccepted.sequence,
+        candidate: candidate.sequence
+      )
+    }
+    // Below the build's floor but not below anything stored: the served
+    // catalog is older than the one this app was built with, which is told
+    // apart from a rollback of what this Mac already accepted.
+    if let minimumSequence, candidate.sequence < minimumSequence {
+      throw SupportCatalogSequenceError.belowBuildFloor(
+        floor: minimumSequence,
         candidate: candidate.sequence
       )
     }
     if let previouslyAccepted {
-      guard candidate.sequence >= previouslyAccepted.sequence else {
-        throw SupportCatalogSequenceError.rollback(
-          stored: previouslyAccepted.sequence,
-          candidate: candidate.sequence
-        )
-      }
       guard
         candidate.sequence != previouslyAccepted.sequence
           || candidate.payloadDigest == previouslyAccepted.payloadDigest
@@ -276,5 +281,9 @@ public struct AcceptedCatalogIdentity: Equatable, Sendable {
 public enum SupportCatalogSequenceError: Error, Equatable, Sendable {
   case invalidStoredIdentity
   case rollback(stored: UInt64, candidate: UInt64)
+  /// The catalog is older than the one this app was built with
+  /// (`catalog-floor.json`), and nothing stored on this Mac is newer: the
+  /// app is newer than the feed it was served.
+  case belowBuildFloor(floor: UInt64, candidate: UInt64)
   case sequenceReuse(UInt64)
 }
