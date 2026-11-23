@@ -80,7 +80,7 @@ if [[ $signing_identity == "-" ]]; then
 else
   [[ $team_identifier =~ ^[A-Z0-9]{10}$ ]] \
     || fail "AURORA_TEAM_ID is required for named signing identities"
-  client_requirement="anchor apple generic and identifier \"$app_identifier\" and certificate leaf[subject.OU] = \"$team_identifier\""
+  client_requirement="anchor apple generic and identifier \"$app_identifier\" and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = \"$team_identifier\""
   helper_requirement="anchor apple generic and identifier \"$helper_identifier\" and certificate leaf[subject.OU] = \"$team_identifier\""
   if [[ $signing_identity == "Developer ID Application:"* ]]; then
     timestamp_arguments=(--timestamp)

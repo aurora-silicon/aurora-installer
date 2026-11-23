@@ -1192,6 +1192,8 @@
     NSObject, NSXPCListenerDelegate
   {
     private let clientCodeSigningRequirement: String
+    /// What every connection is held to; see `HelperClientRequirement`.
+    var enforcedClientRequirement: String { clientCodeSigningRequirement }
     private let server: ClosedEngineHelperServer
     private let helperVersion: String
 
@@ -1202,14 +1204,14 @@
       server: ClosedEngineHelperServer,
       helperVersion: String = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
     ) throws {
+      // Only the accepted forms are enforced; see `HelperClientRequirement`.
       guard
-        EngineCodeSigningRequirement.isValid(
-          clientCodeSigningRequirement
-        )
+        let enforced = HelperClientRequirement.enforced(for: clientCodeSigningRequirement),
+        EngineCodeSigningRequirement.isValid(enforced)
       else {
         throw ClosedEngineHelperError.invalidClientRequirement
       }
-      self.clientCodeSigningRequirement = clientCodeSigningRequirement
+      self.clientCodeSigningRequirement = enforced
       self.server = server
       self.helperVersion = helperVersion
     }

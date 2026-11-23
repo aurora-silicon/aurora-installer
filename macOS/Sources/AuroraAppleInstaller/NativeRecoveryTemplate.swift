@@ -354,11 +354,8 @@
     }
 
     private static func teamIdentifier(in client: String) -> String? {
-      let prefix =
-        "anchor apple generic and identifier \"\(InstallerProductIdentity.appIdentifier)\" and certificate leaf[subject.OU] = \""
-      guard client.hasPrefix(prefix), client.hasSuffix("\"") else { return nil }
-      let team = String(client.dropFirst(prefix.count).dropLast())
-      return team.range(of: "\\A[A-Z0-9]{10}\\z", options: .regularExpression) != nil ? team : nil
+      // The current client form or the one earlier release builds wrote.
+      HelperClientRequirement.teamIdentifier(in: client)
     }
 
     private static func requireVolumeRoot(_ url: URL, owner: uid_t) throws {

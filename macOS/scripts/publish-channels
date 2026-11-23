@@ -476,7 +476,7 @@ print("\n".join(sorted({name.split("/")[0] for name in zipfile.ZipFile(sys.argv[
   # It must also be this team's app, the version being published, a newer
   # build than the channel already serves, and able to install its own helper.
   local app="$work/unpacked/$INSTALLER_APP_NAME.app" team_requirement build previous
-  team_requirement="anchor apple generic and identifier \"$INSTALLER_APP_IDENTIFIER\" and certificate leaf[subject.OU] = \"$INSTALLER_TEAM_ID\""
+  team_requirement="anchor apple generic and identifier \"$INSTALLER_APP_IDENTIFIER\" and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = \"$INSTALLER_TEAM_ID\""
   codesign --verify --strict -R="$team_requirement" "$app" >/dev/null 2>&1 ||
     die "the app in the zip is not signed by team $INSTALLER_TEAM_ID: $zip"
   local helper_requirement

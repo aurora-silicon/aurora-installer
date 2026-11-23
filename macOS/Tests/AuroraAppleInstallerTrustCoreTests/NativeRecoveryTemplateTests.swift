@@ -398,6 +398,12 @@
       XCTAssertTrue(
         requirement?.contains("identifier \"org.aurorasilicon.recovery.recovery\"") == true)
       XCTAssertTrue(requirement?.contains("ABCDE12345") == true)
+      // The current client form names the same team.
+      XCTAssertEqual(
+        NativeRecoveryTemplate.requirement(environment: [
+          InstallerProductIdentity.clientRequirementEnvironmentVariable:
+            HelperClientRequirement.developerIDRequirement(team: "ABCDE12345")
+        ]), requirement)
     }
   }
 #endif

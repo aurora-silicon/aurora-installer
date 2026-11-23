@@ -31,6 +31,14 @@
           + " and certificate leaf[subject.OU] = \"\(team)\"")
     }
 
+    func testTheCurrentClientFormImpliesTheSameTeamForTheDecoder() {
+      XCTAssertEqual(
+        RestoreImageHelper.requirement(environment: [
+          InstallerProductIdentity.clientRequirementEnvironmentVariable:
+            HelperClientRequirement.developerIDRequirement(team: team)
+        ]), RestoreImageHelper.developerIDRequirement(team: team))
+    }
+
     func testAnyAppleCertificateOfTheTeamIsNotADeveloperIDPin() {
       // TN3127: the team OU alone also matches the team's Apple Development
       // and distribution certificates; release decoders need Developer ID.
