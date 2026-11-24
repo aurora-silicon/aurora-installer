@@ -12,15 +12,17 @@ install:
 	printf '#!/bin/sh\nexec %s -I %s/aurora_whole_disk.py "$$@"\n' '$(PYTHON)' '$(LIBDIR)' \
 		> $(DESTDIR)$(PREFIX)/bin/aurora-whole-disk
 	chmod 0755 $(DESTDIR)$(PREFIX)/bin/aurora-whole-disk
-	install -Dm0644 aurora-whole-disk-claim.service $(DESTDIR)$(UNITDIR)/aurora-whole-disk-claim.service
-	sed -i 's#/usr/bin/aurora-whole-disk#$(PREFIX)/bin/aurora-whole-disk#' \
-		$(DESTDIR)$(UNITDIR)/aurora-whole-disk-claim.service
+	for u in aurora-whole-disk-move.service aurora-whole-disk-claim.service; do \
+		install -Dm0644 $$u $(DESTDIR)$(UNITDIR)/$$u && \
+		sed -i 's#/usr/bin/aurora-whole-disk#$(PREFIX)/bin/aurora-whole-disk#' $(DESTDIR)$(UNITDIR)/$$u; \
+	done
 
 check:
 	cd $(REPO) && $(PYTHON) -I -m unittest discover -s tests -p 'test_whole_disk.py' -v
 
 # Root only: loop devices, mkfs, mount. Writes a 15 GB sparse image to DIR.
+# MODE: fresh (default), interrupted, v2, v2-interrupted, v2-refuse.
 image-test:
-	./image-test.sh $(DIR)
+	./image-test.sh $(DIR) $(DIR)/logs $(or $(MODE),fresh)
 
 .PHONY: install check image-test
