@@ -28,6 +28,10 @@ on:
         description: Download every payload part and check its SHA-256 (about 32 GB)
         type: boolean
         default: false
+      strict-distro-pins:
+        description: Fail at-pin verdicts when distro branch pins or distro parity lag the installer pin
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -74,6 +78,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           VERIFY: ${{ inputs.verify-digests && '--verify-digests' || '' }}
+          STRICT_DISTRO: ${{ (inputs.strict-distro-pins || (github.event_name == 'workflow_dispatch' && (inputs.fedora-ref != 'main' || inputs.arch-ref != 'main' || inputs.nixos-ref != 'main'))) && '--strict-distro-pins' || '' }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/conformance"
@@ -81,7 +86,7 @@ jobs:
             --distro fedora="$GITHUB_WORKSPACE/distro/fedora" \
             --distro arch="$GITHUB_WORKSPACE/distro/arch" \
             --distro nixos="$GITHUB_WORKSPACE/distro/nixos" \
-            --digests "$RUNNER_TEMP/conformance/digests" $VERIFY \
+            --digests "$RUNNER_TEMP/conformance/digests" $VERIFY $STRICT_DISTRO \
             --cache "$RUNNER_TEMP/conformance/cache" \
             --expect test/conformance/fixtures/expected.json \
             --json "$RUNNER_TEMP/conformance/matrix.json" \
