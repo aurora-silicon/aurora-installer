@@ -352,8 +352,8 @@ class DistributionPayloadTests(unittest.TestCase):
         t6050 = {'apple,' + board for board in payload.T6050_STAGE2_REQUIRED}
         self.assertEqual(set(caution), t6050 | {'apple,j575d', 'apple,j614s', 'apple,j604', 'apple,j623',
                                         'apple,j624', 'apple,j715', 'apple,j773g', 'apple,j614c',
-                                        'apple,j616c', 'apple,j773s', 'apple,j575c', 'apple,j813', 'apple,j873g',
-                                        'apple,j704', 'apple,j815', 'apple,j804', 'apple,j833ct'})
+                                        'apple,j616c', 'apple,j773s', 'apple,j575c', 'apple,j516s', 'apple,j813',
+                                        'apple,j873g', 'apple,j704', 'apple,j815', 'apple,j804', 'apple,j833ct'})
         for identifier in list(caution) + ['apple,j314s', 'apple,j316s', 'apple,j314c', 'apple,j316c',
                                            'apple,j375c', 'apple,j375d']:
             self.assertIn(identifier.removeprefix('apple,') + 'ap', qualified)
@@ -366,8 +366,9 @@ class DistributionPayloadTests(unittest.TestCase):
         # The M6 MacBook Pro and iMac shipped with macOS 27.2 (26B7124), their only firmware.
         self.assertIn('27.2', qualified['j804ap'])
         self.assertIn('27.2', qualified['j833ctap'])
-        # The 14-inch M5 MacBook Pro's and the M5 MacBook Airs' stub is the pinned
-        # macOS 27.2 (26B123), their device minimum.
+        # The 16-inch M3 Pro and 14-inch M5 MacBook Pros' and the M5 MacBook Airs' stub
+        # is the pinned macOS 27.2 (26B123), their device minimum.
+        self.assertIn('27.2', qualified['j516sap'])
         self.assertIn('27.2', qualified['j704ap'])
         self.assertIn('27.2', qualified['j813ap'])
         self.assertIn('27.2', qualified['j815ap'])

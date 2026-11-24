@@ -7,7 +7,7 @@
     func testBoardsWithStartupCautionsAreWarnedAndNotBlocked() {
       let untried = [
         "j575d", "j614s", "j604", "j623", "j624", "j715", "j773g", "j614c", "j773s", "j575c",
-        "j616c", "j813", "j873g", "j704", "j815", "j804", "j833ct",
+        "j616c", "j516s", "j813", "j873g", "j704", "j815", "j804", "j833ct",
       ]
       for board in untried {
         XCTAssertNotNil(Stage1Caution.reason(for: "apple," + board), board)
@@ -18,6 +18,13 @@
         XCTAssertTrue(reason?.contains("touchscreen") ?? false, board)
         XCTAssertFalse(reason?.contains("\u{2014}") ?? true, board)
       }
+      let j516s = Stage1Caution.reason(for: "apple,j516s")
+      XCTAssertTrue(j516s?.contains("16-inch MacBook Pro with M3 Pro") ?? false)
+      XCTAssertTrue(j516s?.contains("needs macOS 27.2 or later") ?? false)
+      XCTAssertTrue(j516s?.contains("not started Linux on one from the macOS 27.2 stub") ?? false)
+      XCTAssertTrue(j516s?.contains("no GPU acceleration") ?? false)
+      XCTAssertTrue(j516s?.contains("Aurora may not start") ?? false)
+      XCTAssertFalse(j516s?.contains("\u{2014}") ?? true)
       let j813 = Stage1Caution.reason(for: "apple,j813")
       XCTAssertTrue(j813?.contains("13-inch MacBook Air with M5") ?? false)
       XCTAssertTrue(j813?.contains("needs macOS 27.2 or later") ?? false)
