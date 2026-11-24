@@ -1,17 +1,13 @@
-# Wi-Fi and Bluetooth firmware of the installed macOS
+# Wi-Fi and Bluetooth firmware of the stub firmware's release
 
-macOS runs the Wi-Fi and Bluetooth firmware its own system volume ships, so
-every macOS update can bring new radio firmware. A Linux install keeps the
-set its installer took:
+Radio firmware is per-model, per-version data, so a Linux install takes it
+from one source only: Apple's restore image (IPSW) of the macOS version its
+stub firmware runs, for its board. The boot chain reports that version as
+`/chosen/asahi,os-fw-version` (for example 26.6.2 or 27.2); the board is the
+device tree's first compatible (`apple,j413`). Nothing is read from an
+installed macOS: updating or erasing macOS changes nothing here.
 
-- the Asahi installer takes it from its stub's Recovery image, macOS 13.5
-  (22G74) for most installs. A MacBook Pro M1 Pro installed that way runs
-  BCM4387 firmware 20.96.31 (May 2023) while its macOS 26.2 runs 20.131.4;
-- the Aurora installer takes it from the macOS it runs on (the installed
-  system volume, or for the MacBook Neo's MediaTek MT7932 the IPSW of the
-  same build), so an install matches that macOS until macOS updates.
-
-`aurora-wifi-firmware` brings the installed macOS's firmware over from Linux:
+`aurora-wifi-firmware` keeps the ESP's package on that restore image's set:
 
 | Radio | macOS files | ESP package (`vendorfw/`) |
 | --- | --- | --- |
@@ -26,37 +22,29 @@ regulatory policies are this Mac's own records; they stay as the installer
 wrote them.
 
 ```sh
-sudo aurora-wifi-firmware status    # board, ESP and running firmware, installed macOS
+sudo aurora-wifi-firmware status    # board, ESP and running firmware, the restore image used
 sudo aurora-wifi-firmware check     # dry run
-sudo aurora-wifi-firmware update    # put the installed macOS's firmware on the ESP
+sudo aurora-wifi-firmware update    # put the restore image's firmware on the ESP
 sudo aurora-wifi-firmware revert    # put the files from before the last change back
 ```
 
-After a `revert` the boot service leaves that macOS build alone; `update`,
-or the next macOS update, brings the firmware back.
-
-`check` and `update` take `--macos DIR` to read a macOS root somewhere else
-(a mounted or copied System volume) instead of the installed macOS. The boot
-service still follows the installed macOS: after the first boot with such a
-set, it puts the installed macOS's set back for the boot after.
+After a `revert` the boot service leaves that build alone; `update`, or a
+new stub firmware version, brings the firmware back.
 
 The `aurora-wifi-firmware` service runs `boot` at every start-up, so a Mac
-follows its macOS as macOS does.
+follows its stub firmware.
 
 ## What it does
 
-1. **Which macOS.** Every APFS container on the disk that holds the system
-   ESP is read with `apfs_ro`, a small read-only APFS reader (no mount, no
-   kernel module, no FUSE). Other disks are not read. When the ESP's disk
-   can't be asked about now (the ESP is not mounted, or `lsblk` fails), the
-   tool stops with "not now". When the ESP is not a partition of a disk
-   `lsblk` knows, or that disk is removable or external (USB, SD, a hot-plug
-   port such as Thunderbolt), the tool refuses. Either way the ESP's files
-   stay. An ESP on an external disk is always refused; `--macos DIR` still
-   works there. The
-   System volume is not encrypted, with or without FileVault, so no password
-   is needed. The boot stub's volume group (`asahi/stub_info.json`) is left
-   out. With more than one macOS installed, the newest build is used.
+1. **Which restore image.** `asahi_firmware.ipsw` lists the restore images
+   of the stub's version (the packaged catalog `restore-images.json`, which
+   holds every stub firmware the installer admits, then Apple's IPSW feed)
+   and uses the first whose BuildManifest carries this board. Its root file
+   system is read by HTTP ranges: `aea_ro` for Apple Encrypted Archives
+   (macOS 15 and later), `udif_ro` for the disk images of older releases
+   (13.5), then `apfs_ro` for its System volume. A few MB are fetched. An
+   image that is not the build it is listed as, or a version no known image
+   carries for this board, refuses; an unreachable image is "not now".
 2. **Convert.** The radio files are copied out of the volume and converted
    with this repository's `asahi_firmware`, the converters the installers
    use: `wifi` and `bluetooth` into `brcm/brcmfmac*` and `brcm/brcmbt*`,
@@ -112,6 +100,12 @@ Requirements: python3, liblzfse (LZFSE-compressed files on the macOS volume;
 set `AURORA_LZFSE_LIB` where the library is not on the search path),
 util-linux (`lsblk`, `blkid`, `findmnt`, `mount`), systemd.
 
+When the system ESP is not mounted, the tool mounts it for root only
+(`dmask=0077,fmask=0177,nodev,nosuid,noexec`: directories 0700, files 0600)
+and unmounts it afterwards. An ESP that is already mounted is used with its
+own options; a warning is logged when those let every user read its files
+(for example `fmask=0022`).
+
 At boot, a macOS build that was checked against the ESP's radio set is not
 read again while the build, that set and the tool stay the same; a newer
 tool (one that follows more radios or converts differently) checks it once.
@@ -120,11 +114,10 @@ set and the tool (a digest of its code and the converters) it was made
 for; later boots skip the work until one of them changes or, for a lack of
 space, the ESP has the space. A copy or swap that failed is not
 remembered: the next boot tries again. `aurora-wifi-firmware update`
-always tries again; `update --macos DIR` leaves the boot's record alone.
+always tries again.
 
 Exit codes: 0 done or nothing to do, 1 refused (nothing changed), 2 not now
-(no readable macOS volume, the ESP mounted read only, the ESP's disk not
-known yet), 3 internal error.
+(the restore image cannot be reached, the ESP mounted read only), 3 internal error.
 
 ## Packaging
 
@@ -133,12 +126,14 @@ make -C tools/wifi-firmware install DESTDIR="$pkgdir" PREFIX=/usr
 make -C tools/wifi-firmware check
 ```
 
-installs the launcher, the tool with `apfs_ro` and the `asahi_firmware`
-modules it needs (`__init__`, `core`, `cpio`, `wifi`, `bluetooth`,
-`mt7932`), and
-`aurora-wifi-firmware.service` (enable it). `apfs_ro.py` is vendored from
-speakerguardd's `packaging/upgrade`, with the volume group added.
+installs the launcher, the tool, the `asahi_firmware` modules it needs
+(`__init__`, `core`, `cpio`, `wifi`, `bluetooth`, `mt7932`, and the
+restore image reader `ipsw`, `aea_ro`, `udif_ro`, `apfs_ro`, `remotezip`
+with `restore-images.json`), and `aurora-wifi-firmware.service` (enable
+it). Run-time needs: python3-cryptography (AEA keys), liblzfse, network
+access to Apple's CDN and key service.
 
-Tests: `tests/test_wifi_firmware_refresh.py` and
-`tests/test_wifi_firmware_radios.py` (synthetic trees and the native
+Tests: `tests/test_wifi_firmware_refresh.py`,
+`tests/test_wifi_firmware_radios.py`, `tests/test_wifi_firmware_apfs_bounds.py`
+and `tests/test_ipsw_source.py` (synthetic trees and the native
 converter's test vectors, no Apple files).

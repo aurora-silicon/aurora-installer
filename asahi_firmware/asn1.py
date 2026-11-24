@@ -416,9 +416,9 @@ class Decoder(object):
         """
         if self.m_stack is None:
             raise Error('No input selected. Call start() first.')
-        if self._end_of_input():
-            return None
         if self.m_tag is None:
+            if self._end_of_input():
+                return None
             self.m_tag = self._read_tag()
         return self.m_tag
 
@@ -438,7 +438,9 @@ class Decoder(object):
         """
         if self.m_stack is None:
             raise Error('No input selected. Call start() first.')
-        if self._end_of_input():
+        # A tag that peek() already read is not the end of input, even when
+        # nothing follows it: its length is missing, which _read_length reports.
+        if self.m_tag is None and self._end_of_input():
             return None
         tag = self.peek()
         length = self._read_length()
@@ -470,6 +472,8 @@ class Decoder(object):
         if self.m_stack is None:
             raise Error('No input selected. Call start() first.')
         tag = self.peek()
+        if tag is None:
+            raise Error('Premature end of input.')
         if tag.typ != Types.Constructed:
             raise Error('Cannot enter a non-constructed tag.')
         length = self._read_length()
@@ -591,6 +595,8 @@ class Decoder(object):
     def _decode_integer(bytes_data):  # type: (bytes) -> int
         """Decode an integer value."""
         values = [int(b) for b in bytes_data]
+        if not values:
+            raise Error('ASN1 syntax error')
         # check if the integer is normalized
         if len(values) > 1 and (values[0] == 0xff and values[1] & 0x80 or values[0] == 0x00 and not (values[1] & 0x80)):
             raise Error('ASN1 syntax error')
@@ -650,7 +656,10 @@ class Decoder(object):
     @staticmethod
     def _decode_printable_string(bytes_data):  # type: (bytes) -> str
         """Decode a printable string."""
-        return bytes_data.decode('utf-8')
+        try:
+            return bytes_data.decode('utf-8')
+        except UnicodeDecodeError:
+            raise Error('ASN1 syntax error')
 
     @staticmethod
     def _decode_bitstring(bytes_data):  # type: (bytes) -> str

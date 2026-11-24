@@ -6,7 +6,10 @@
   final class NativeInstallerDryRunTests: XCTestCase {
     private let gib: UInt64 = 1 << 30
 
-    private func machine(device: String, chip: UInt64, macOS: String, boot: String) throws -> Data {
+    private func machine(
+      device: String, chip: UInt64, macOS: String, boot: String,
+      recovery: String = "25.7.83.0.0,0"
+    ) throws -> Data {
       let isc = "00000000-0000-4000-8000-000000000001"
       let store = "00000000-0000-4000-8000-000000000002"
       let container = "00000000-0000-4000-8000-000000000003"
@@ -16,7 +19,7 @@
         "deviceIdentifier": device,
         "hardware": [
           "chipID": chip, "bootVersion": boot, "macOSVersion": macOS,
-          "recoveryVersion": "25.7.83.0.0,0",
+          "recoveryVersion": recovery,
         ],
         "snapshot": [
           "disk": "disk0", "devicePath": "/dev/disk0", "diskSize": 500 * gib,
@@ -97,9 +100,32 @@
       let free = try XCTUnwrap(candidates.first { $0["kind"] as? String == "free" })
       let plan = try XCTUnwrap(free["plan"] as? [String: Any])
       XCTAssertEqual(
+        plan["offset_bytes"] as? UInt64, try XCTUnwrap(free["offset_bytes"] as? UInt64))
+      XCTAssertEqual(
+        plan["length_bytes"] as? UInt64, try XCTUnwrap(free["length_bytes"] as? UInt64))
+      XCTAssertEqual(
         plan["required_human_steps"] as? [String],
         ["enterOneTrueRecovery", "authenticateMachineOwner"])
       XCTAssertEqual(result["one_true_recovery_boot_policy"] as? [String], ["-nc"])
+    }
+
+    func testM2MiniResizeUsesTheAppAllocationOnMacOS27Point2() async throws {
+      let result = try await run(
+        machine(
+          device: "apple,j473", chip: 0x8112, macOS: "27.2", boot: "mBoot-20457.41.3",
+          recovery: "26.2.123.0.0,0"))
+      let candidates = try XCTUnwrap(result["candidates"] as? [[String: Any]])
+      let resize = try XCTUnwrap(candidates.first { $0["kind"] as? String == "resize" })
+      let plan = try XCTUnwrap(resize["plan"] as? [String: Any])
+      let offset = try XCTUnwrap(resize["offset_bytes"] as? UInt64)
+      let length = try XCTUnwrap(resize["length_bytes"] as? UInt64)
+      let minimum = try XCTUnwrap(resize["minimum_container_bytes"] as? UInt64)
+      let room = length - minimum
+      let available = room - room / 20
+      let unit = NativePlanRequest.allocationUnitBytes
+      let install = available - available % unit
+      XCTAssertEqual(plan["length_bytes"] as? UInt64, install)
+      XCTAssertEqual(plan["offset_bytes"] as? UInt64, offset + length - install)
     }
 
     func testNeoUsesTheLargeStubAndCustomBootArguments() async throws {

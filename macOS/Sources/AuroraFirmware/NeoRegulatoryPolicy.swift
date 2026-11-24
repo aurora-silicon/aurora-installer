@@ -42,40 +42,6 @@ public enum NeoRegulatoryPolicy {
   // SHA-256 of sorted ASCII path<TAB>blob-sha256<LF> records for all 244 policies.
   static let outputInventorySHA256 =
     "37419c03c0ba222d60eb78fdbdf9fed9ef1d005ef76a8bae0255d4a978defd5d"
-  /// All six tables are selected as a unit; never mix macOS revisions or sources.
-  /// The fixed system-volume path is read only. A miss/mismatch uses pinned IPSW ranges.
-  public static func liveInputs() throws -> [String: Data]? {
-    let directory = URL(
-      fileURLWithPath:
-        "/System/Library/DriverExtensions/com.apple.AppleSunriseWLAN.dext/IZUBA",
-      isDirectory: true)
-    return try matchingInputs { name in
-      try readRegular(directory.appendingPathComponent(name), maximum: 32 << 20)
-    }
-  }
-
-  static func matchingInputs(
-    hashes: [String: String] = inputSHA256,
-    read: (String) throws -> Data
-  ) throws -> [String: Data]? {
-    var result = [String: Data]()
-    do {
-      for name in hashes.keys.sorted() {
-        try Task.checkCancellation()
-        let bytes = try read(name)
-        guard bytes.count <= 32 << 20, bytes.sha256 == hashes[name] else { return nil }
-        // The digest authenticates every byte; also require the explicit format/version lines.
-        _ = try lines(bytes, name: name)
-        result[name] = bytes
-      }
-      return result
-    } catch {
-      try Task.checkCancellation()
-      if error is CancellationError { throw error }
-      return nil
-    }
-  }
-
   // CP2 138c4fca: sorted policy-v2/CC.bin<TAB>sha256<LF>, without mediatek/mt7932/.
   static let outputV2InventorySHA256 =
     "472f57a7928301916c825a896b968014c4c9e996dd942adc6d6a38e2af16e11c"

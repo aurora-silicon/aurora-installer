@@ -2,6 +2,10 @@ name: Native Swift firmware extractor
 on:
   workflow_dispatch:
     inputs:
+      live-restore-pin:
+        description: Plan the sealed 26B123 restore image for the five lab board identities
+        type: boolean
+        default: false
       live-apple-extraction:
         description: Fetch only the sealed J700 firmware ranges from Apple (16 MB)
         type: boolean
@@ -33,6 +37,14 @@ jobs:
       - name: Record source and native toolchain
         run: |
           { git rev-parse HEAD; sw_vers; uname -m; xcrun swift --version; xcodebuild -version; } > "$RUNNER_TEMP/evidence/toolchain.txt"
+      - name: Plan the live pinned restore image
+        if: inputs.live-restore-pin
+        env:
+          AURORA_LIVE_FIRMWARE_PIN: '1'
+        run: |
+          set -euo pipefail
+          xcrun swift test --jobs 6 --filter NativeStartupFirmwareTests/testOptInLivePinnedImagePlansEveryLabBoard \
+            2>&1 | tee "$RUNNER_TEMP/evidence/restore-pin.log"
       - name: Check formatting and retain any correction
         id: format
         continue-on-error: true

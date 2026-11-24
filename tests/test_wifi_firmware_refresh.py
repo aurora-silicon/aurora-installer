@@ -5,6 +5,7 @@ Synthetic trees only: a fake System volume with the apfs_ro reader's API, and
 an ESP whose asahi/all_firmware.tar.gz and vendorfw/ come from this
 repository's asahi_firmware, as an install writes them.
 """
+import contextlib
 import io
 import json
 import os
@@ -25,6 +26,8 @@ import aurora_wifi_firmware as awf  # noqa: E402
 from asahi_firmware.core import FWFile, FWPackage  # noqa: E402
 
 BOARD = "hokkaido"
+MAC_BOARD = "j616s"
+KEY = (MAC_BOARD, "26.2")
 
 
 def wifi_tree(tag, boards=("hokkaido", "maldives")):
@@ -195,8 +198,8 @@ class Case(unittest.TestCase):
         self.tmp.cleanup()
 
     def macos(self, tree, **kw):
-        return awf.MacOS("/dev/fake", FakeVol(tree, **kw), kw.get("build", "25C56"),
-                         kw.get("version", "26.2"))
+        return awf.MacOS("UniversalMac_26.2_25C56_Restore.ipsw", FakeVol(tree, **kw), kw.get("build", "25C56"),
+                         kw.get("version", "26.2"), MAC_BOARD)
 
     def update(self, esp, macos, **kw):
         kw.setdefault("probe", lambda name, text: False)
@@ -614,10 +617,12 @@ class MainTest(Case):
         self.esp = make_esp(self.root, wifi_tree("old"))
         self.mac = self.macos(wifi_tree("new"))
         self.saved = {k: getattr(awf, k) for k in ("STATE_DIR", "BACKUP_ROOT", "wifi_board",
-                                                   "installed_macos", "exchange", "verify")}
+                                                   "restore_image", "exchange", "verify",
+                                                   "mac_board", "os_fw_version")}
         awf.STATE_DIR, awf.BACKUP_ROOT = self.state, self.backups
         awf.wifi_board = lambda dt=None: BOARD
-        awf.installed_macos = lambda esp, **kw: [self.mac]
+        awf.restore_image = lambda **kw: [self.mac]
+        awf.mac_board, awf.os_fw_version = (lambda dt=None: MAC_BOARD), (lambda dt=None: "26.2")
         awf.exchange = lambda a, b: False
         self.geteuid = awf.os.geteuid
         awf.os.geteuid = lambda: 0
@@ -693,6 +698,31 @@ class MainTest(Case):
             self.assertEqual(self.run_main("boot"), 0)
             self.assertEqual(reads, [])
 
+    def test_a_checked_boot_needs_no_network(self):
+        self.checked()
+        with mock.patch.object(awf, "restore_image", side_effect=AssertionError("network read")):
+            self.assertEqual(self.run_main("boot"), 0)
+        # A new stub firmware version is another restore image: read it once.
+        calls = []
+        with mock.patch.object(awf, "os_fw_version", return_value="26.3"), \
+                mock.patch.object(awf, "restore_image", side_effect=lambda **kw: calls.append(1) or [self.mac]):
+            self.run_main("boot")
+        self.assertEqual(calls, [1])
+
+    def test_unreachable_at_boot_is_not_now(self):
+        with mock.patch.object(awf, "restore_image", side_effect=awf.NotNow("offline")):
+            self.assertEqual(self.run_main("boot"), 2)
+        self.assertIsNone(awf.read_state().get("refused"))
+
+    def test_an_incomplete_range_while_staging_is_retryable(self):
+        before = awf.tree_hashes(self.esp)
+        incomplete = awf.remotezip.RemoteZipUnavailable("short range response")
+        with mock.patch.object(awf, "stage_tree", side_effect=incomplete) as stage:
+            self.assertEqual(self.run_main("boot"), 2)
+        stage.assert_called_once()
+        self.assertIsNone(awf.read_state().get("refused"))
+        self.assertEqual(awf.tree_hashes(self.esp), before)
+
     def test_a_change_made_by_an_earlier_version_is_checked_again(self):
         # The state an earlier version left: one Wi-Fi file, no tool digest.
         self.checked()
@@ -765,7 +795,7 @@ class MainTest(Case):
         # A refusal an earlier version of the tool remembered for this space.
         awf.write_state({"refused": dict(awf.refusal(awf.NoSpace(exact), self.mac, self.esp))})
         with disk.patch():
-            self.assertFalse(awf.refusal_stands(awf.read_state()["refused"], self.mac, self.esp))
+            self.assertFalse(awf.refusal_stands(awf.read_state()["refused"], KEY, self.esp))
             self.assertEqual(self.run_main("boot"), 0)
         self.assertEqual(awf.read_state()["result"], "updated")
         self.assertEqual(awf.leftovers(self.esp), [])
@@ -773,12 +803,12 @@ class MainTest(Case):
     def test_a_refusal_for_another_tool_is_tried_again(self):
         old = awf.refusal(awf.Refused("an old converter's bug"), self.mac, self.esp)
         self.assertEqual(old["tool"], awf.tool_digest())
-        self.assertTrue(awf.refusal_stands(old, self.mac, self.esp))
+        self.assertTrue(awf.refusal_stands(old, KEY, self.esp))
         awf.write_state({"refused": dict(old, tool="0" * 64)})
         self.assertEqual(self.run_main("boot"), 0)
         self.assertEqual(awf.read_state()["result"], "updated")
         awf.write_state({"refused": {k: v for k, v in old.items() if k != "tool"}})
-        self.assertFalse(awf.refusal_stands(awf.read_state()["refused"], self.mac, self.esp))
+        self.assertFalse(awf.refusal_stands(awf.read_state()["refused"], KEY, self.esp))
 
     def test_tool_digest_covers_the_converters(self):
         mods = {n for n in sys.modules if n.startswith("asahi_firmware.")}
@@ -791,25 +821,18 @@ class MainTest(Case):
                                   not str(p).endswith("mt7932.py") else "changed"):
             self.assertNotEqual(awf.tool_digest(), digest)
 
-    def test_update_from_a_macos_dir_leaves_the_boot_refusal_alone(self):
-        before = {"refused": awf.refusal(awf.NoSpace(1 << 62), self.mac, self.esp)}
-        awf.write_state(before)
-        other = self.macos(wifi_tree("new", boards=("maldives",)), build="25D10")
-        with mock.patch.object(awf, "macos_at", return_value=other):
-            self.assertEqual(self.run_main("update", "--macos", str(self.root)), 1)
-        self.assertEqual(awf.read_state(), before)
-
-    def test_a_refusal_stands_only_for_the_same_build_esp_and_space(self):
+    def test_a_refusal_stands_only_for_the_same_source_esp_and_space(self):
         refused = awf.refusal(awf.Refused("no"), self.mac, self.esp)
-        self.assertTrue(awf.refusal_stands(refused, self.mac, self.esp))
-        newer = awf.MacOS(self.mac.device, self.mac.volume, "25D10", "26.3")
-        self.assertFalse(awf.refusal_stands(refused, newer, self.esp))
-        self.assertFalse(awf.refusal_stands(dict(refused, esp_wifi="other"), self.mac, self.esp))
-        self.assertFalse(awf.refusal_stands(dict(refused, esp_wifi=None), self.mac, self.esp))
+        self.assertTrue(awf.refusal_stands(refused, KEY, self.esp))
+        self.assertFalse(awf.refusal_stands(refused, (MAC_BOARD, "26.3"), self.esp))
+        self.assertFalse(awf.refusal_stands(refused, ("j999", "26.2"), self.esp))
+        self.assertFalse(awf.refusal_stands(refused, (None, None), self.esp))
+        self.assertFalse(awf.refusal_stands(dict(refused, esp_wifi="other"), KEY, self.esp))
+        self.assertFalse(awf.refusal_stands(dict(refused, esp_wifi=None), KEY, self.esp))
         space = awf.refusal(awf.NoSpace(1 << 20), self.mac, self.esp)
-        self.assertFalse(awf.refusal_stands(space, self.mac, self.esp), "1 MiB is free here")
-        self.assertTrue(awf.refusal_stands(dict(space, need=1 << 62), self.mac, self.esp))
-        self.assertFalse(awf.refusal_stands(None, self.mac, self.esp))
+        self.assertFalse(awf.refusal_stands(space, KEY, self.esp), "1 MiB is free here")
+        self.assertTrue(awf.refusal_stands(dict(space, need=1 << 62), KEY, self.esp))
+        self.assertFalse(awf.refusal_stands(None, KEY, self.esp))
 
     def test_a_hand_revert_is_not_undone_at_boot(self):
         self.assertEqual(self.run_main("update"), 0)
@@ -843,18 +866,6 @@ class MainTest(Case):
 
 
 class SelectionTest(Case):
-    def test_newest_macos_and_not_the_stub(self):
-        esp = make_esp(self.root, wifi_tree("old"))
-        stub = FakeVol(wifi_tree("stub"), group="aaaaaaaa-0000-0000-0000-000000000000",
-                       build="22G74", version="13.5")
-        older = FakeVol(wifi_tree("older"), build="24G90", version="15.7")
-        newer = FakeVol(wifi_tree("newer"), name="Macintosh HD - Data?", build="25C56")
-        data = FakeVol({}, name="Data")
-        data.encrypted = True
-        found = awf.installed_macos(esp, devices=["a", "b"], opener=lambda d: FakeContainer(
-            [stub, older, data] if d == "a" else [newer]))
-        self.assertEqual([m.build for m in found], ["25C56", "24G90"])
-
     def test_board_from_device_tree(self):
         dt = self.root / "dt" / "soc" / "pcie@690000000" / "pci@0,0" / "wifi@0,0"
         dt.mkdir(parents=True)
@@ -862,176 +873,49 @@ class SelectionTest(Case):
         self.assertEqual(awf.wifi_board(self.root / "dt"), "hokkaido")
         self.assertIsNone(awf.wifi_board(self.root / "nothing"))
 
-    def test_build_order(self):
-        self.assertLess(awf.build_key("24G90"), awf.build_key("25C56"))
-        self.assertLess(awf.build_key("25C56"), awf.build_key("25G83"))
-        self.assertLess(awf.build_key("25G83"), awf.build_key("26A428"))
+    def test_mac_board_and_stub_version_from_device_tree(self):
+        dt = self.root / "dt"
+        (dt / "chosen").mkdir(parents=True)
+        (dt / "compatible").write_bytes(b"apple,j413\0apple,t8112\0apple,arm-platform\0")
+        (dt / "chosen" / "asahi,os-fw-version").write_bytes(b"13.5\0")
+        self.assertEqual(awf.mac_board(dt), "j413")
+        self.assertEqual(awf.os_fw_version(dt), "13.5")
+        (dt / "chosen" / "asahi,os-fw-version").write_bytes(b"iBoot-1\0")
+        self.assertIsNone(awf.os_fw_version(dt))
+        self.assertIsNone(awf.mac_board(self.root / "nothing"))
 
+    def test_the_source_is_the_stub_versions_restore_image(self):
+        vol = FakeVol(wifi_tree("new"), build="22G74", version="13.5")
+        calls = []
 
-ESP_GUID = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
+        def open_system(board, images, version):
+            calls.append((board, images, version))
+            return vol, None, "22G74", "https://example.invalid/UniversalMac_13.5_22G74_Restore.ipsw"
+        found = awf.restore_image("j413", "13.5", open_system=open_system,
+                                  images=lambda v: [("22G74", "https://example.invalid/x.ipsw")])
+        self.assertEqual(calls[0][0], "j413")
+        self.assertEqual(calls[0][2], "13.5")
+        self.assertEqual([(m.build, m.version, m.device) for m in found],
+                         [("22G74", "13.5", "UniversalMac_13.5_22G74_Restore.ipsw")])
 
+    def test_no_image_refuses_and_no_network_is_not_now(self):
+        def none(board, images, version):
+            raise awf.ipsw.IpswError("no restore image carries board j999")
 
-def blockdev(path, pkname=None, parttype=None, tran=None, rm=False, hotplug=False):
-    return {"path": path, "pkname": pkname, "parttype": parttype, "rm": rm,
-            "hotplug": hotplug, "tran": tran, "type": "part" if pkname else "disk"}
-
-
-def fake_run(devices, esp_source="/dev/nvme0n1p4", lsblk_rc=0, missing=()):
-    """subprocess.run for findmnt (the ESP's mount source; a list for a
-    stacked mount) and lsblk -J. Commands in `missing` are not installed."""
-    def run(cmd, **kw):
-        if cmd[0] in missing:
-            raise FileNotFoundError(2, "No such file or directory", cmd[0])
-        if cmd[0] == "findmnt":
-            ok = esp_source is not None
-            sources = esp_source if isinstance(esp_source, list) else [esp_source]
-            return types.SimpleNamespace(returncode=0 if ok else 1, stderr="",
-                                         stdout="".join(f"{x}\n" for x in sources) if ok else "")
-        assert cmd[0] == "lsblk", cmd
-        if lsblk_rc:
-            return types.SimpleNamespace(returncode=lsblk_rc, stdout="",
-                                         stderr="lsblk: failed to access sysfs directory")
-        return types.SimpleNamespace(returncode=0, stderr="",
-                                     stdout=json.dumps({"blockdevices": devices}))
-    return run
-
-
-def internal(tran="nvme", rm=False, hotplug=False):
-    return [blockdev("/dev/nvme0n1", tran=tran, rm=rm, hotplug=hotplug),
-            blockdev("/dev/nvme0n1p2", "/dev/nvme0n1", awf.APFS_GUID),
-            blockdev("/dev/nvme0n1p3", "/dev/nvme0n1", awf.APFS_GUID),
-            blockdev("/dev/nvme0n1p4", "/dev/nvme0n1", ESP_GUID)]
-
-
-def usb_disk(name="/dev/sda", tran="usb", rm=True, hotplug=True):
-    return [blockdev(name, tran=tran, rm=rm, hotplug=hotplug),
-            blockdev(name + "1", name, awf.APFS_GUID)]
-
-
-class SourceDiskTest(Case):
-    """Only APFS containers on the disk that holds the system ESP are read."""
-
-    def setUp(self):
-        super().setUp()
-        self.esp = make_esp(self.root, wifi_tree("old"))
-        self.read = []
-
-    def opener(self, dev):
-        self.read.append(dev)
-        if dev == "/dev/nvme0n1p2":
-            return FakeContainer([FakeVol(wifi_tree("internal"), build="25C56")])
-        if dev == "/dev/nvme0n1p3":
-            return FakeContainer([])
-        return FakeContainer([FakeVol(wifi_tree("other"), name="Other", build="99Z999",
-                                      group="99999999-0000-0000-0000-000000000000")])
-
-    def found(self, devices, **kw):
-        return awf.installed_macos(self.esp, opener=self.opener, run=fake_run(devices, **kw))
-
-    def test_another_disk_with_a_newer_claimed_build_is_not_read(self):
-        for other in (usb_disk(), usb_disk(tran="nvme", rm=False),
-                      usb_disk("/dev/nvme1n1", tran="nvme", rm=False, hotplug=False)):
-            self.read.clear()
-            found = self.found(internal() + other)
-            self.assertEqual([m.build for m in found], ["25C56"])
-            self.assertEqual(sorted(self.read), ["/dev/nvme0n1p2", "/dev/nvme0n1p3"])
-
-    def test_tree_output_is_followed_too(self):
-        disk, *parts = internal()
-        disk = dict(disk, children=[dict(p, pkname=None) for p in parts])
-        found = self.found([disk] + usb_disk())
-        self.assertEqual([m.build for m in found], ["25C56"])
-        self.assertNotIn("/dev/sda1", self.read)
-
-    def test_esp_on_a_removable_or_external_disk_is_refused(self):
-        for kw in ({"tran": "usb"}, {"rm": True}, {"hotplug": True}, {"rm": "1"}):
-            with self.subTest(kw=kw), self.assertRaises(awf.Refused):
-                self.found(internal(**kw))
-        self.assertEqual(self.read, [])
-
-    def test_esp_not_on_a_known_disk_is_refused(self):
-        for devices, source in ((internal(), "/dev/sdz9"),        # not in lsblk
-                                (internal()[1:], "/dev/nvme0n1p4"),  # no parent disk
-                                (usb_disk(), "/dev/sda")):         # a whole disk
-            with self.subTest(source=source), self.assertRaises(awf.Refused):
-                self.found(devices, esp_source=source)
-        self.assertEqual(self.read, [])
-
-    def test_esp_disk_that_cannot_be_asked_about_now_is_not_now(self):
-        cases = (
-            {"esp_source": None},                                  # the ESP is not a mount
-            {"esp_source": ["/dev/nvme0n1p4", "/dev/sda1"]},      # two sources, stacked
-            {"lsblk_rc": 1},                                       # lsblk failed
-            {"lsblk_rc": 32},
-            {"missing": ("lsblk",)},
-            {"missing": ("findmnt",)},
-        )
-        for kw in cases:
-            with self.subTest(**kw):
-                with self.assertRaises(awf.NotNow):
-                    self.found(internal() + usb_disk(), **kw)
-                # NotNow is not a refusal: a boot does not remember it.
-                self.assertFalse(issubclass(awf.NotNow, awf.Refused))
-        self.assertEqual(self.read, [])
-
-    def test_lsblk_output_that_does_not_parse_is_not_now(self):
-        def run(cmd, **kw):
-            if cmd[0] == "findmnt":
-                return types.SimpleNamespace(returncode=0, stderr="", stdout="/dev/nvme0n1p4\n")
-            return types.SimpleNamespace(returncode=0, stderr="", stdout="not json")
+        def offline(board, images, version):
+            raise awf.ipsw.IpswUnavailable("offline")
+        with self.assertRaises(awf.Refused):
+            awf.restore_image("j999", "27.2", open_system=none, images=lambda v: [])
         with self.assertRaises(awf.NotNow):
-            awf.installed_macos(self.esp, opener=self.opener, run=run)
-        self.assertEqual(self.read, [])
+            awf.restore_image("j413", "13.5", open_system=offline, images=lambda v: [])
+        with mock.patch.object(awf, "os_fw_version", return_value=None), self.assertRaises(awf.Refused):
+            awf.restore_image("j413", open_system=offline, images=lambda v: [])
 
-    def test_plan_keeps_the_esp_when_its_disk_is_not_known(self):
-        # The test ESP is a plain directory, not a mount: no disk to read.
-        before = awf.tree_hashes(self.esp)
-        with self.assertRaises(awf.NotNow):
-            awf.plan(self.esp, None, BOARD, out=self.out.append)
-        self.assertEqual(awf.tree_hashes(self.esp), before)
-
-
-class StatusTest(Case):
-    """status prints every line, a refused or unreadable source included."""
-
-    def setUp(self):
-        super().setUp()
-        self.esp = make_esp(self.root, wifi_tree("old"))
-        self.saved = {k: getattr(awf, k) for k in ("STATE_DIR", "installed_macos", "kernel_log")}
-        awf.STATE_DIR = self.state
-        awf.kernel_log = lambda run=None: ""
-        awf.write_state({"result": "identical", "build": "25C56"}, self.state)
-
-    def tearDown(self):
-        for k, v in self.saved.items():
-            setattr(awf, k, v)
-        super().tearDown()
-
-    def status_with(self, error):
-        def installed(esp, **kw):
-            raise error
-        awf.installed_macos = installed
-        awf.status(self.esp, BOARD, out=self.out.append)
-        return self.out
-
-    def test_a_refused_esp_disk_is_a_line_and_status_goes_on(self):
-        out = self.status_with(awf.Refused("the system ESP /dev/sda2 is on a removable disk"))
-        self.assertIn("Installed: not read, refused: the system ESP /dev/sda2 is on a "
-                      "removable disk", out)
-        self.assertTrue(any(x.startswith("Last run: ") for x in out), out)
-
-    def test_an_esp_disk_not_known_now_is_a_line_and_status_goes_on(self):
-        out = self.status_with(awf.NotNow("lsblk failed"))
-        self.assertIn("Installed: not read now: lsblk failed", out)
-        self.assertTrue(any(x.startswith("Last run: ") for x in out), out)
-
-    def test_found_macos_is_listed(self):
-        awf.installed_macos = lambda esp, **kw: [self.macos(wifi_tree("new"))]
-        awf.status(self.esp, BOARD, out=self.out.append)
-        self.assertTrue(any(x.startswith("Installed: macOS 26.2 (25C56)") for x in self.out),
-                        self.out)
-        self.assertTrue(any(x.startswith("Last run: ") for x in self.out), self.out)
-
+    def test_no_installed_macos_reader_is_left(self):
+        for name in ("installed_macos", "macos_at", "DirVolume", "apfs_partitions", "stub_groups", "build_key"):
+            self.assertFalse(hasattr(awf, name), name)
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            awf.main(["check", "--macos", "/mnt"])
 
 if __name__ == "__main__":
     unittest.main()

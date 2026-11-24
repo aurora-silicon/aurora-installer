@@ -812,6 +812,20 @@
       XCTAssertEqual(failure.headline, "The release couldn’t be verified")
     }
 
+    func testACatalogForAnotherChannelIsAVerificationFailure() {
+      // A catalog that doesn't declare the channel it was served on, or
+      // declares another one, failed verification like a bad signature.
+      let failure = PlainLanguage.failure(
+        for: InstallerReleaseConfigurationError.invalidCatalogChannel
+      )
+
+      XCTAssertEqual(failure.headline, "The release couldn’t be verified")
+      XCTAssertEqual(
+        failure.plainDetail,
+        PlainLanguage.failure(for: InstallerReleaseConfigurationError.invalidCatalogSignature)
+          .plainDetail)
+    }
+
     func testRetryEligibleFailureIsFlaggedAndExplained() {
       let failure = PlainLanguage.failure(
         for: EngineXPCSubmissionError.recoveryAuthorizationFailed,
