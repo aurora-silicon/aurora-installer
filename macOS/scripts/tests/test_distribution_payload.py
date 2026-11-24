@@ -431,6 +431,29 @@ class DistributionPayloadTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'incompatible filesystem layout'):
                     payload.assemble(self.bundle, self.app, self.root / ('out-' + profile + layout), release_id='fixture')
 
+    def test_root_may_be_declared_bigger_than_its_placeholder_image(self):
+        image = dict(self.image, installation_profile='steamos-gamemode', layout_kind='steamos-ab-v1')
+        image.pop('root_subvolume')
+        placeholder = image['images']['root.img']['bytes']
+        for root_bytes, accepted in [(35 << 30, True), (0, False), ((35 << 30) + 1, False),
+                                     (str(35 << 30), False), (True, False)]:
+            with self.subTest(root_bytes=root_bytes):
+                (self.bundle / 'image.json').write_text(json.dumps(dict(image, root_bytes=root_bytes)))
+                output = self.root / ('root-' + str(root_bytes))
+                if not accepted:
+                    with self.assertRaisesRegex(ValueError, 'root_bytes'):
+                        payload.assemble(self.bundle, self.app, output, release_id='fixture')
+                    continue
+                payload.assemble(self.bundle, self.app, output, release_id='fixture')
+                metadata = json.loads((output / 'installer-data-steamos-gamemode.json').read_text())['os_list'][0]
+                root = metadata['partitions'][2]
+                self.assertEqual((root['size'], root['image'], root['expand']), (str(root_bytes) + 'B', 'root.img', True))
+        # Without root_bytes, Root is declared at its image's size, as before.
+        (self.bundle / 'image.json').write_text(json.dumps(image))
+        payload.assemble(self.bundle, self.app, self.root / 'root-default', release_id='fixture')
+        metadata = json.loads((self.root / 'root-default/installer-data-steamos-gamemode.json').read_text())['os_list'][0]
+        self.assertEqual(metadata['partitions'][2]['size'], str(placeholder) + 'B')
+
     def test_all_profiles_use_the_selected_distribution_symbol(self):
         observed = {}
         provenance = json.loads((payload.ROOT / 'Packaging/DistributionIcons/provenance.json').read_text())['icons']

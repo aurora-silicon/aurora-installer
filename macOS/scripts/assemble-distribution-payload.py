@@ -361,6 +361,14 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
         path = regular(bundle / name)
         if image['images'][name] != {'bytes': path.stat().st_size, 'sha256': digest(path)}:
             raise ValueError('filesystem image identity mismatch: ' + name)
+    # Root's least size: its image, or more when the system that replaces Root
+    # on first boot needs it (SteamOS's A/B partitions). The installer then
+    # never offers less, and writes the image at the start of the partition.
+    root_bytes = image['images']['root.img']['bytes']
+    if 'root_bytes' in image:
+        if type(image['root_bytes']) is not int or image['root_bytes'] < root_bytes or image['root_bytes'] % 4096:
+            raise ValueError('root_bytes must be a 4 KiB multiple no smaller than root.img')
+        root_bytes = image['root_bytes']
     recovery_manifest = aurora_recovery.app_inventory(recovery)
     info = plistlib.loads(regular(recovery / 'Contents/Info.plist').read_bytes())
     if info.get('OmarchyRecoveryBuildMode') != 'recovery' or info.get('OmarchyRecoveryDataLayout') != 'external-install-data-v1':
@@ -417,7 +425,7 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
              'copy_firmware': True, 'copy_installer_data': True, 'source': 'esp',
              'volume_id': '0x' + image['efi_volume_id']},
             {'name': 'Boot', 'type': 'Linux', 'size': str(image['images']['boot.img']['bytes']) + 'B', 'image': 'boot.img'},
-            {'name': 'Root', 'type': 'Linux', 'size': str(image['images']['root.img']['bytes']) + 'B', 'image': 'root.img', 'expand': True},
+            {'name': 'Root', 'type': 'Linux', 'size': str(root_bytes) + 'B', 'image': 'root.img', 'expand': True},
         ],
     }
     # The manifest uses apple,jXXX identifiers; Stage 1 qualification uses jXXXap classes.
