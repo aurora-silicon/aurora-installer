@@ -69,7 +69,7 @@
  "pinned_stage1_bytes": {
   "da8bc83bfe4a67ddfbfe301b0b23bf58f957e36d": {
    "bytes": 1638400,
-   "evidence": "aura v1.0.0b16 (da8bc83b), Fedora 45 x86_64 build with rpmbuild --target aarch64. /usr/share/aura/stage1/aura-raw.bin SHA-256 2c49eb9b1060d9eccbd07b3dfb35b5f37e44dfd92cb8bcc77961117180b68b89, marker 1.0.0b16-gda8bc83b"
+   "evidence": "aura v1.0.0b16 (da8bc83b), native Fedora 45 aarch64 RPM, run 45402040982. /usr/share/aura/stage1/aura-raw.bin SHA-256 17cc02b47ee609b49a5ae7e0646a7156374b477215779d041fbfb7cbfa2c939f, marker 1.0.0b16-gda8bc83b"
   },
   "32dccf0297e90e66deac7cf252478b2af9e71d27": {
    "bytes": 1638400,
