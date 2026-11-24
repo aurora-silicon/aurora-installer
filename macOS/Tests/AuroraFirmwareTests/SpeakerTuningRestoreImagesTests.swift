@@ -136,14 +136,15 @@ struct SpeakerTuningRestoreImagesTests {
     func attr(_ size: Int) -> Data {
       Data("fpmc".utf8) + littleBytes(9, count: 4) + littleBytes(size, count: 8)
     }
-    #expect(try decompressStorage([attr(plain.count) + Data([0xcc]) + plain]) == plain)
-    for storage in [
-      [attr(plain.count) + plain + Data([0])],  // no marker
-      [attr(plain.count) + Data([0xcc]) + plain + Data([0])],  // trailing byte
-      [attr(plain.count + 1) + Data([0xcc]) + plain],  // short
-      [attr(plain.count) + Data([0xcc]) + plain, Data([0])],  // a resource fork
-      [attr(plain.count)],
-    ] {
+    let marker = Data([0xcc])
+    let size = plain.count
+    let good: Data = attr(size) + marker + plain
+    #expect(try decompressStorage([good]) == plain)
+    let noMarker: Data = attr(size) + plain + Data([0])
+    let trailing: Data = good + Data([0])
+    let short: Data = attr(size + 1) + marker + plain
+    let refused: [[Data]] = [[noMarker], [trailing], [short], [good, Data([0])], [attr(size)]]
+    for storage in refused {
       #expect(throws: (any Error).self) { try decompressStorage(storage) }
     }
   }

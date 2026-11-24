@@ -258,8 +258,9 @@ private actor MeasuredIPSWReader: FirmwareRangeReading {
             withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) + Data([10]))
         return
       }
-      let extractor = FirmwareExtractor(
-        preferLivePolicyTables: CommandLine.arguments[1] != "extract-ipsw")
+      // extract and extract-ipsw are the same now: every file comes from the
+      // restore image's ranges.
+      let extractor = FirmwareExtractor()
       let checkpoint =
         CommandLine.arguments.count == 4
         ? URL(fileURLWithPath: CommandLine.arguments[3], isDirectory: true) : nil
