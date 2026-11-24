@@ -67,6 +67,10 @@
  },
  "proven_stage1_note": "A Stage 1 counts as proven on a board only for the aura build (its ##aura_ver## label) that booted there as the installed Stage 1. A newer pin needs its own boot through a real 1TR install.",
  "pinned_stage1_bytes": {
+  "5a244b5bcbaf4a2751abea18dc0dd8e71c325e46": {
+   "bytes": 1638400,
+   "evidence": "aura v1.0.0b17 (5a244b5b), native ALARM aarch64 package, run 45444386727, artifact 14945328076. /usr/share/aura/stage1/aura-raw.bin SHA-256 807ae0d2f7a53fb7d68499cd7423888a74365d76637092c642cf84f77c8a6515, marker 1.0.0b17-g5a244b5b"
+  },
   "da8bc83bfe4a67ddfbfe301b0b23bf58f957e36d": {
    "bytes": 1638400,
    "evidence": "aura v1.0.0b16 (da8bc83b), native Fedora 45 aarch64 RPM, run 45402040982. /usr/share/aura/stage1/aura-raw.bin SHA-256 17cc02b47ee609b49a5ae7e0646a7156374b477215779d041fbfb7cbfa2c939f, marker 1.0.0b16-gda8bc83b"
