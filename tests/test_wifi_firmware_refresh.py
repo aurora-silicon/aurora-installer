@@ -26,6 +26,8 @@ import aurora_wifi_firmware as awf  # noqa: E402
 from asahi_firmware.core import FWFile, FWPackage  # noqa: E402
 
 BOARD = "hokkaido"
+MAC_BOARD = "j616s"
+KEY = (MAC_BOARD, "26.2")
 
 
 def wifi_tree(tag, boards=("hokkaido", "maldives")):
@@ -196,8 +198,8 @@ class Case(unittest.TestCase):
         self.tmp.cleanup()
 
     def macos(self, tree, **kw):
-        return awf.MacOS("/dev/fake", FakeVol(tree, **kw), kw.get("build", "25C56"),
-                         kw.get("version", "26.2"))
+        return awf.MacOS("UniversalMac_26.2_25C56_Restore.ipsw", FakeVol(tree, **kw), kw.get("build", "25C56"),
+                         kw.get("version", "26.2"), MAC_BOARD)
 
     def update(self, esp, macos, **kw):
         kw.setdefault("probe", lambda name, text: False)
@@ -615,10 +617,12 @@ class MainTest(Case):
         self.esp = make_esp(self.root, wifi_tree("old"))
         self.mac = self.macos(wifi_tree("new"))
         self.saved = {k: getattr(awf, k) for k in ("STATE_DIR", "BACKUP_ROOT", "wifi_board",
-                                                   "restore_image", "exchange", "verify")}
+                                                   "restore_image", "exchange", "verify",
+                                                   "mac_board", "os_fw_version")}
         awf.STATE_DIR, awf.BACKUP_ROOT = self.state, self.backups
         awf.wifi_board = lambda dt=None: BOARD
         awf.restore_image = lambda **kw: [self.mac]
+        awf.mac_board, awf.os_fw_version = (lambda dt=None: MAC_BOARD), (lambda dt=None: "26.2")
         awf.exchange = lambda a, b: False
         self.geteuid = awf.os.geteuid
         awf.os.geteuid = lambda: 0
@@ -694,6 +698,22 @@ class MainTest(Case):
             self.assertEqual(self.run_main("boot"), 0)
             self.assertEqual(reads, [])
 
+    def test_a_checked_boot_needs_no_network(self):
+        self.checked()
+        with mock.patch.object(awf, "restore_image", side_effect=AssertionError("network read")):
+            self.assertEqual(self.run_main("boot"), 0)
+        # A new stub firmware version is another restore image: read it once.
+        calls = []
+        with mock.patch.object(awf, "os_fw_version", return_value="26.3"), \
+                mock.patch.object(awf, "restore_image", side_effect=lambda **kw: calls.append(1) or [self.mac]):
+            self.run_main("boot")
+        self.assertEqual(calls, [1])
+
+    def test_unreachable_at_boot_is_not_now(self):
+        with mock.patch.object(awf, "restore_image", side_effect=awf.NotNow("offline")):
+            self.assertEqual(self.run_main("boot"), 2)
+        self.assertIsNone(awf.read_state().get("refused"))
+
     def test_a_change_made_by_an_earlier_version_is_checked_again(self):
         # The state an earlier version left: one Wi-Fi file, no tool digest.
         self.checked()
@@ -766,7 +786,7 @@ class MainTest(Case):
         # A refusal an earlier version of the tool remembered for this space.
         awf.write_state({"refused": dict(awf.refusal(awf.NoSpace(exact), self.mac, self.esp))})
         with disk.patch():
-            self.assertFalse(awf.refusal_stands(awf.read_state()["refused"], self.mac, self.esp))
+            self.assertFalse(awf.refusal_stands(awf.read_state()["refused"], KEY, self.esp))
             self.assertEqual(self.run_main("boot"), 0)
         self.assertEqual(awf.read_state()["result"], "updated")
         self.assertEqual(awf.leftovers(self.esp), [])
@@ -774,12 +794,12 @@ class MainTest(Case):
     def test_a_refusal_for_another_tool_is_tried_again(self):
         old = awf.refusal(awf.Refused("an old converter's bug"), self.mac, self.esp)
         self.assertEqual(old["tool"], awf.tool_digest())
-        self.assertTrue(awf.refusal_stands(old, self.mac, self.esp))
+        self.assertTrue(awf.refusal_stands(old, KEY, self.esp))
         awf.write_state({"refused": dict(old, tool="0" * 64)})
         self.assertEqual(self.run_main("boot"), 0)
         self.assertEqual(awf.read_state()["result"], "updated")
         awf.write_state({"refused": {k: v for k, v in old.items() if k != "tool"}})
-        self.assertFalse(awf.refusal_stands(awf.read_state()["refused"], self.mac, self.esp))
+        self.assertFalse(awf.refusal_stands(awf.read_state()["refused"], KEY, self.esp))
 
     def test_tool_digest_covers_the_converters(self):
         mods = {n for n in sys.modules if n.startswith("asahi_firmware.")}
@@ -792,17 +812,18 @@ class MainTest(Case):
                                   not str(p).endswith("mt7932.py") else "changed"):
             self.assertNotEqual(awf.tool_digest(), digest)
 
-    def test_a_refusal_stands_only_for_the_same_build_esp_and_space(self):
+    def test_a_refusal_stands_only_for_the_same_source_esp_and_space(self):
         refused = awf.refusal(awf.Refused("no"), self.mac, self.esp)
-        self.assertTrue(awf.refusal_stands(refused, self.mac, self.esp))
-        newer = awf.MacOS(self.mac.device, self.mac.volume, "25D10", "26.3")
-        self.assertFalse(awf.refusal_stands(refused, newer, self.esp))
-        self.assertFalse(awf.refusal_stands(dict(refused, esp_wifi="other"), self.mac, self.esp))
-        self.assertFalse(awf.refusal_stands(dict(refused, esp_wifi=None), self.mac, self.esp))
+        self.assertTrue(awf.refusal_stands(refused, KEY, self.esp))
+        self.assertFalse(awf.refusal_stands(refused, (MAC_BOARD, "26.3"), self.esp))
+        self.assertFalse(awf.refusal_stands(refused, ("j999", "26.2"), self.esp))
+        self.assertFalse(awf.refusal_stands(refused, (None, None), self.esp))
+        self.assertFalse(awf.refusal_stands(dict(refused, esp_wifi="other"), KEY, self.esp))
+        self.assertFalse(awf.refusal_stands(dict(refused, esp_wifi=None), KEY, self.esp))
         space = awf.refusal(awf.NoSpace(1 << 20), self.mac, self.esp)
-        self.assertFalse(awf.refusal_stands(space, self.mac, self.esp), "1 MiB is free here")
-        self.assertTrue(awf.refusal_stands(dict(space, need=1 << 62), self.mac, self.esp))
-        self.assertFalse(awf.refusal_stands(None, self.mac, self.esp))
+        self.assertFalse(awf.refusal_stands(space, KEY, self.esp), "1 MiB is free here")
+        self.assertTrue(awf.refusal_stands(dict(space, need=1 << 62), KEY, self.esp))
+        self.assertFalse(awf.refusal_stands(None, KEY, self.esp))
 
     def test_a_hand_revert_is_not_undone_at_boot(self):
         self.assertEqual(self.run_main("update"), 0)

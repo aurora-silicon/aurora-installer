@@ -169,8 +169,9 @@ def os_fw_version(dt=DT):
 class MacOS:
     """The radio firmware's source: one restore image's System volume."""
 
-    def __init__(self, device, volume, build, version):
+    def __init__(self, device, volume, build, version, board=None):
         self.device, self.volume, self.build, self.version = device, volume, build, version
+        self.board = board
 
     def describe(self):
         return f"macOS {self.version} ({self.build}) restore image {self.device}"
@@ -187,11 +188,11 @@ def restore_image(board=None, version=None, open_system=ipsw.open_system, images
                       "(compatible, /chosen/asahi,os-fw-version)")
     try:
         vol, _, build, url = open_system(board, images(version), version)
-    except ipsw.IpswUnavailable as e:
+    except (ipsw.IpswUnavailable, ipsw.aea_ro.AeaUnavailable, OSError) as e:
         raise NotNow(f"the macOS {version} restore image cannot be read now: {e}")
     except (ipsw.IpswError, apfs_ro.ApfsError) as e:
         raise Refused(f"no macOS {version} restore image for {board}: {e}")
-    return [MacOS(url.rsplit("/", 1)[-1], vol, build, version)]
+    return [MacOS(url.rsplit("/", 1)[-1], vol, build, version, board)]
 
 
 class Staged:
@@ -1150,7 +1151,8 @@ def update(esp, macos=None, board=None, dry_run=False, backup_root=None,
         expect = {}
         for part in parts:
             expect.update(part.expect(files))
-        write_state({"build": macos.build, "version": macos.version, "device": macos.device,
+        write_state({"build": macos.build, "version": macos.version, "board": macos.board,
+                     "device": macos.device,
                      "volume": macos.volume.name, "result": "updated", "tool": tool_digest(),
                      "parts": [part.key for part in parts],
                      "pending": {"backup": str(backup), "expect": expect, "probes": required,
@@ -1296,6 +1298,7 @@ def verify(state, esp, out=print, log_text=None, wait=VERIFY_WAIT, sleep=time.sl
     state.pop("pending", None)
     state["result"] = "reverted"
     state["refused_build"] = state.get("build")
+    state["refused_version"] = state.get("version")
     write_state(state, state_dir)
     return "reverted"
 
@@ -1358,7 +1361,7 @@ def tool_digest():
     checks again."""
     global _TOOL
     if _TOOL is None:
-        files = {"aurora_wifi_firmware": __file__}
+        files = {"aurora_wifi_firmware": __file__, "restore-images.json": ipsw.CATALOG}
         files.update((n, m.__file__) for n, m in list(sys.modules.items())
                      if (n == "asahi_firmware" or n.startswith("asahi_firmware."))
                      and getattr(m, "__file__", None))
@@ -1381,17 +1384,29 @@ def refusal(error, macos, esp):
     it (the macOS build, the ESP's radio set and this tool's code) so an
     unchanged Mac does not read, convert and stage the same trees at every
     boot."""
-    return {"build": macos.build, "device": macos.device, "esp_wifi": esp_wifi_digest(esp),
+    return {"build": macos.build, "device": macos.device, "board": macos.board, "version": macos.version,
+            "esp_wifi": esp_wifi_digest(esp),
             "tool": tool_digest(), "reason": str(error), "need": getattr(error, "need", None)}
 
 
-def refusal_stands(refused, macos, esp):
+def source_key():
+    """What decides the source, read without the network: this Mac's board
+    and its stub firmware version. (None, None) when either is unknown."""
+    board, version = mac_board(), os_fw_version()
+    return (board, version) if board and version else (None, None)
+
+
+def same_source(record, key):
+    return bool(record) and key[0] is not None and (record.get("board"), record.get("version")) == key
+
+
+def refusal_stands(refused, key, esp):
     """True while nothing a remembered refusal depended on has changed: the
-    same macOS build and device, the same ESP radio set, the same tool and,
+    same board and stub firmware version (so the same restore image), the
+    same ESP radio set, the same tool and,
     for a lack of space, still too little free space on the ESP (counting
     what an earlier run's leftovers hold, which the next try removes)."""
-    if not refused or refused.get("build") != macos.build \
-            or refused.get("device") != macos.device \
+    if not same_source(refused, key) \
             or not refused.get("esp_wifi") or refused["esp_wifi"] != esp_wifi_digest(esp) \
             or refused.get("tool") != tool_digest():
         return False
@@ -1425,7 +1440,7 @@ def main(argv=None):
                 # `update` (or a newer macOS) brings it back.
                 st = read_state()
                 write_state(dict(st, result="reverted by hand", pending=None,
-                                 refused_build=st.get("build")))
+                                 refused_build=st.get("build"), refused_version=st.get("version")))
                 return 0
             state = read_state()
             if a.cmd == "boot":
@@ -1438,31 +1453,33 @@ def main(argv=None):
                 print("The ESP holds no Wi-Fi or Bluetooth firmware this tool follows; "
                       "nothing to do.")
                 return 0
-            found = restore_image()
-            # At boot, a macOS build already checked against this ESP package
-            # by this tool needs no second read of its tree. A newer tool (one
-            # that follows more radios, or converts differently) reads it once.
-            if a.cmd == "boot" and found[0].build == state.get("build") \
-                    and found[0].device == state.get("device", found[0].device) \
+            # At boot, everything that decides the outcome is known without the
+            # network: the source is the restore image of this board and stub
+            # firmware version, so a pair already checked against this ESP
+            # package by this tool (and its catalog) needs no second read. A
+            # new stub firmware, ESP package or tool reads the image once.
+            key = source_key()
+            if a.cmd == "boot" and same_source(state, key) \
                     and state.get("result") in ("verified", "identical") \
                     and not state.get("pending") \
                     and state.get("esp_wifi") and state.get("esp_wifi") == esp_wifi_digest(esp) \
                     and state.get("tool") == tool_digest():
-                print(f"The ESP holds macOS {found[0].build}'s radio firmware (checked before). "
-                      f"Nothing to do.")
+                print(f"The ESP holds the macOS {key[1]} restore image's radio firmware "
+                      f"({state.get('build')}, checked before). Nothing to do.")
                 return 0
-            if a.cmd == "boot" and refusal_stands(state.get("refused"), found[0], esp):
+            if a.cmd == "boot" and refusal_stands(state.get("refused"), key, esp):
                 why = state["refused"].get("reason", "")
-                print(f"macOS {found[0].build}'s radio firmware was refused for this ESP before "
-                      f"({why}); nothing changed since (run 'aurora-wifi-firmware update' to "
-                      f"try again).")
+                print(f"The macOS {key[1]} restore image's radio firmware was refused for this ESP "
+                      f"before ({why}); nothing changed since (run 'aurora-wifi-firmware update' "
+                      f"to try again).")
                 return 1
-            if a.cmd == "boot" and found[0].build == state.get("refused_build"):
+            if a.cmd == "boot" and same_source(state, key) and key[1] == state.get("refused_version"):
                 why = "was put back by hand" if state.get("result") == "reverted by hand" \
                     else "did not come up here before"
-                print(f"macOS {found[0].build}'s radio firmware {why}; keeping the current files "
-                      f"(run 'aurora-wifi-firmware update' to use it).")
+                print(f"The macOS {key[1]} restore image's radio firmware {why}; keeping the current "
+                      f"files (run 'aurora-wifi-firmware update' to use it).")
                 return 0
+            found = restore_image()
             try:
                 r = update(esp, found[0], board, dry_run=a.cmd == "check")
             except Refused as e:
@@ -1470,12 +1487,12 @@ def main(argv=None):
                     write_state(dict(state, refused=refusal(e, found[0], esp)))
                 raise
             if r == "identical" and a.cmd != "check":
-                write_state(dict(state, build=found[0].build, version=found[0].version,
+                write_state(dict(state, build=found[0].build, version=found[0].version, board=found[0].board,
                                  device=found[0].device, volume=found[0].volume.name,
                                  result="verified" if state.get("result") == "verified"
                                  and state.get("build") == found[0].build else "identical",
                                  esp_wifi=esp_wifi_digest(esp), tool=tool_digest(),
-                                 refused_build=None, refused=None))
+                                 refused_build=None, refused_version=None, refused=None))
             return 0
     except Refused as e:
         print(f"Refused: {e}", file=sys.stderr)
@@ -1486,6 +1503,12 @@ def main(argv=None):
     except apfs_ro.ApfsError as e:
         print(f"Not now: the restore image's System volume could not be read: {e}", file=sys.stderr)
         return 2
+    except (ipsw.IpswUnavailable, ipsw.aea_ro.AeaUnavailable) as e:
+        print(f"Not now: the restore image cannot be read now: {e}", file=sys.stderr)
+        return 2
+    except ipsw.aea_ro.AeaError as e:
+        print(f"Refused: the restore image failed authentication: {e}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

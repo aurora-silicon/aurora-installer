@@ -50,6 +50,15 @@ class Catalog(unittest.TestCase):
         self.assertEqual(ipsw.images_for_version("27.2", e), [("26B7124", "https://a"), ("26B123", "https://b")])
         self.assertEqual(ipsw.images_for_version("14.0", e), [])
 
+    def test_the_feed_is_asked_only_for_a_version_the_catalog_lacks(self):
+        from unittest import mock
+        with mock.patch.object(ipsw, "catalog", return_value=[("27.2", "26B123", "https://b")]), \
+                mock.patch.object(ipsw, "feed", return_value=[("27.3", "26C1", "https://f")]) as f:
+            self.assertEqual(ipsw.images_for_version("27.2"), [("26B123", "https://b")])
+            f.assert_not_called()
+            self.assertEqual(ipsw.images_for_version("27.3"), [("26C1", "https://f")])
+            f.assert_called_once()
+
 
 class Find(unittest.TestCase):
     IMAGES = [("26B7124", "https://a"), ("26B123", "https://b")]

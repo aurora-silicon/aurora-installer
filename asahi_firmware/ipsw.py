@@ -87,9 +87,13 @@ def feed(fetch=None):
 
 
 def images_for_version(version, entries=None, fetch=None):
-    """[(build, url)] of the restore images of one macOS version, catalog
-    first, then Apple's feed, without repeats."""
-    entries = entries if entries is not None else catalog() + feed(fetch)
+    """[(build, url)] of the restore images of one macOS version, without
+    repeats: the packaged catalog's, and Apple's feed only for a version
+    the catalog does not list (the feed is not fetched otherwise)."""
+    if entries is None:
+        entries = catalog()
+        if not any(v == version for v, _, _ in entries):
+            entries = feed(fetch)
     seen, out = set(), []
     for v, b, u in entries:
         if v == version and b not in seen:
@@ -145,9 +149,9 @@ def open_system(board, images, version=None, open_zip=remotezip.RemoteZip):
     build, url, member = find(board, images, version, open_zip)
     try:
         return _open(board, build, url, member, open_zip)
-    except (remotezip.RemoteZipError, OSError) as e:
+    except (aea_ro.AeaUnavailable, OSError) as e:
         raise IpswUnavailable(f"restore image {build}: {e}") from None
-    except (aea_ro.AeaError, apfs_ro.ApfsError, udif_ro.UdifError) as e:
+    except (aea_ro.AeaError, apfs_ro.ApfsError, udif_ro.UdifError, remotezip.RemoteZipError) as e:
         raise IpswError(f"restore image {build}: {e}") from None
 
 
