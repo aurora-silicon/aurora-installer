@@ -2,7 +2,14 @@
   import Foundation
 
   /// Applied only after the catalog signature and rollback floor are verified.
-  /// Legacy development catalogs belong to Testing; they can never become Edge.
+  /// The signed `channel` is what binds a catalog to the channel it is served
+  /// on: every channel's catalog, an empty one included, must declare that
+  /// channel, or the same signed bytes could be served on any of them. The one
+  /// exception is Testing, whose published development deliveries predate the
+  /// field: an undeclared catalog is accepted there only when it lists a model
+  /// that isn't disabled and each of them is of that delivery lineage (or
+  /// disabled). Those catalogs belong to Testing; they can never become Stable,
+  /// RC or Edge.
   enum ReleaseCatalogChannelPolicy {
     static func validate(payload: Data, channel: ReleaseChannel) throws {
       guard let object = try JSONSerialization.jsonObject(with: payload) as? [String: Any],
@@ -13,18 +20,21 @@
         throw InstallerReleaseConfigurationError.invalidCatalogChannel
       }
       guard channel == .edge else {
-        if let declared, declared != channel.rawValue {
-          throw InstallerReleaseConfigurationError.invalidCatalogChannel
-        }
-        if channel == .testing && declared == nil && !models.allSatisfy(isLegacyDevelopment) {
-          throw InstallerReleaseConfigurationError.invalidCatalogChannel
-        }
+        if declared == channel.rawValue { return }
+        guard channel == .testing, declared == nil,
+          models.contains(where: { $0["status"] as? String != "disabled" }),
+          models.allSatisfy(isLegacyDevelopment)
+        else { throw InstallerReleaseConfigurationError.invalidCatalogChannel }
         return
       }
-      if models.isEmpty && (declared == nil || declared == "edge") { return }
-      guard declared == "edge" else {
-        throw InstallerReleaseConfigurationError.edgeAlphaUnavailable
+      // A catalog signed for another channel and served on Edge was mis-served
+      // or replayed: that is a verification failure, as on every other
+      // channel. Only an undeclared catalog means Edge has no Alpha yet.
+      guard let declared else { throw InstallerReleaseConfigurationError.edgeAlphaUnavailable }
+      guard declared == channel.rawValue else {
+        throw InstallerReleaseConfigurationError.invalidCatalogChannel
       }
+      if models.isEmpty { return }
       guard let envelope = try? JSONDecoder().decode(Envelope.self, from: payload) else {
         throw InstallerReleaseConfigurationError.invalidEdgeQualification
       }
@@ -84,6 +94,10 @@
         && board.allSatisfy { (48...57).contains($0) || (97...122).contains($0) }
     }
 
+    /// The published development delivery lineage. scripts/
+    /// prepare-distribution-release.py ports this exactly, and
+    /// Fixtures/legacy-testing-catalog-vectors.json pins both to the same
+    /// cases. The source must be the canonical release URL byte for byte.
     private static func isLegacyDevelopment(_ model: [String: Any]) -> Bool {
       if model["status"] as? String == "disabled" { return true }
       guard let profile = model["installationProfile"] as? String,
@@ -92,9 +106,7 @@
         let artifact = model["payloadArtifact"] as? [String: Any],
         let fileName = artifact["fileName"] as? String,
         let source = artifact["sourceURL"] as? String,
-        let url = URL(string: source),
-        url.scheme == "https", url.host == "github.com", url.user == nil,
-        url.password == nil, url.query == nil, url.fragment == nil
+        isFileName(fileName)
       else { return false }
       let run = String(evidence.dropFirst("image-build-".count))
       guard !run.isEmpty, run.first != "0", run.utf8.allSatisfy({ (48...57).contains($0) })
@@ -103,16 +115,28 @@
         "fedora": "fedora-aurora", "arch": "alarm-aurora",
         "nixos": "nixos-aurora", "omarchy": "omarchy-aurora",
       ]
-      guard AuroraInstallationSelection.allProfileIDs.contains(profile),
+      guard
+        AuroraInstallationSelection.allProfileIDs.contains(where: {
+          $0.utf8.elementsEqual(profile.utf8)
+        }),
         let distribution = profile.split(separator: "-").first,
         let repository = repositories[String(distribution)]
       else { return false }
-      let parts = url.pathComponents
       let tag = "payload-\(profile)-\(run)"
-      return parts.count == 7 && parts[1] == "aurora-silicon" && parts[2] == repository
-        && parts[3] == "releases" && parts[4] == "download"
-        && [tag, tag + "-models58", tag + "-models65"].contains(parts[5])
-        && parts[6] == fileName
+      return [tag, tag + "-models58", tag + "-models65"].contains { release in
+        source.utf8.elementsEqual(
+          "https://github.com/aurora-silicon/\(repository)/releases/download/\(release)/\(fileName)"
+            .utf8)
+      }
+    }
+
+    /// ASCII letters and digits, then also `.`, `_`, `+` and `-`.
+    private static func isFileName(_ value: String) -> Bool {
+      let isAlphanumeric = { (byte: UInt8) in
+        (48...57).contains(byte) || (65...90).contains(byte) || (97...122).contains(byte)
+      }
+      guard let first = value.utf8.first, isAlphanumeric(first) else { return false }
+      return value.utf8.allSatisfy { isAlphanumeric($0) || [46, 95, 43, 45].contains($0) }
     }
 
     private struct Envelope: Decodable {

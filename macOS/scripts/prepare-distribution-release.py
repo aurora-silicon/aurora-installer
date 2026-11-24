@@ -14,6 +14,58 @@ ROOT = Path(__file__).resolve().parents[1]
 PROFILES = tuple(f"{distribution}-{desktop}" for distribution in ("fedora", "arch", "nixos")
                  for desktop in ("kde", "gnome", "minimal"))
 OMARCHY_PROFILE = "omarchy-hyprland"
+# The development delivery lineage the app reads as Testing when a catalog
+# declares no channel. This is ReleaseCatalogChannelPolicy.isLegacyDevelopment
+# and the undeclared Testing rule in validate(); both are pinned to the same
+# cases by Tests/AuroraAppleInstallerTrustCoreTests/Fixtures/
+# legacy-testing-catalog-vectors.json.
+LEGACY_REPOSITORIES = {"fedora": "fedora-aurora", "arch": "alarm-aurora",
+                       "nixos": "nixos-aurora", "omarchy": "omarchy-aurora"}
+LEGACY_EVIDENCE_PREFIX = "image-build-"
+
+
+def is_legacy_development(model, profiles):
+    if model.get("status") == "disabled":
+        return True
+    profile = model.get("installationProfile")
+    evidence = model.get("evidenceRevision")
+    artifact = model.get("payloadArtifact")
+    if not (isinstance(profile, str) and isinstance(evidence, str)
+            and evidence.startswith(LEGACY_EVIDENCE_PREFIX) and isinstance(artifact, dict)):
+        return False
+    file_name = artifact.get("fileName")
+    source = artifact.get("sourceURL")
+    if not (isinstance(file_name, str) and isinstance(source, str)
+            and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]*", file_name)):
+        return False
+    run = evidence[len(LEGACY_EVIDENCE_PREFIX):]
+    if not re.fullmatch(r"[1-9][0-9]*", run) or profile not in profiles:
+        return False
+    repository = LEGACY_REPOSITORIES.get(profile.split("-")[0])
+    if repository is None:
+        return False
+    tag = f"payload-{profile}-{run}"
+    return source in {f"https://github.com/aurora-silicon/{repository}/releases/download/{name}/{file_name}"
+                      for name in (tag, tag + "-models58", tag + "-models65")}
+
+
+def is_legacy_testing_catalog(catalog, profiles):
+    """An undeclared catalog the app reads as Testing: it lists at least one
+    Mac that is not disabled, and every model is of the delivery lineage."""
+    models = catalog.get("models") if isinstance(catalog, dict) else None
+    return (isinstance(models, list) and all(isinstance(model, dict) for model in models)
+            and any(model.get("status") != "disabled" for model in models)
+            and all(is_legacy_development(model, profiles) for model in models))
+
+
+def check_bundled_default(catalog, default_channel, profiles, name):
+    """The bundled catalog replaces the fetch for the default channel, so it
+    must pass the channel policy the app applies to that channel."""
+    if "channel" in catalog:
+        if not isinstance(catalog["channel"], str) or catalog["channel"] != default_channel:
+            raise ValueError(f"the bundled default catalog must declare {default_channel}: {name}")
+    elif default_channel != "testing" or not is_legacy_testing_catalog(catalog, profiles):
+        raise ValueError(f"an undeclared bundled catalog must be a Testing development delivery: {name}")
 
 
 def prepare(source, output, sealed=False, signing_team=None):
@@ -69,8 +121,6 @@ def prepare(source, output, sealed=False, signing_team=None):
                 for model in catalog["models"]
             ):
                 raise ValueError(f"native-only catalog includes an execution archive: {profile}")
-            if catalog.get("channel") not in (None, "testing"):
-                raise ValueError("the bundled default must be a testing delivery")
             schema_versions.add(catalog["schemaVersion"])
             descriptor = json.loads(data["release.json"])
             expected = "sha256:" + hashlib.sha256(trusted).hexdigest()
@@ -114,6 +164,13 @@ def prepare(source, output, sealed=False, signing_team=None):
         return (json.dumps(descriptor, indent=2) + "\n").encode()
     descriptors = {profile: release_descriptor(data["release.json"]) for profile, data in documents.items()}
     root_descriptor = release_descriptor((ROOT / "Release/release.json").read_bytes())
+    # Published development deliveries predate the channel field; an undeclared
+    # one is accepted only where the app reads it as Testing.
+    for profile, data in documents.items():
+        check_bundled_default(json.loads(data["catalog.json"]),
+                              json.loads(descriptors[profile]).get("default_channel"), set(profiles), profile)
+    check_bundled_default(json.loads(documents["fedora-kde"]["catalog.json"]),
+                          json.loads(root_descriptor).get("default_channel"), set(profiles), "release.json")
     # Nothing is emitted until every requested profile has verified.
     output.mkdir(parents=True)
     for profile, data in documents.items():

@@ -1,6 +1,6 @@
 # Standalone firmware tools
 
-This Asahi-derived Python library supports firmware updates and the [speaker-tuning recovery tools](../tools/speaker-tuning/README.md) for existing Linux installations. It is not part of the native macOS installer's execution path or app bundle.
+This Asahi-derived Python library supports firmware updates for existing Linux installations: [aurora-wifi-firmware](../tools/wifi-firmware/README.md), and speakerguardd's `aurora-speaker-upgrade`, which vendors it. Per-model firmware comes only from Apple's restore images (`ipsw.py`: `aea_ro`, `udif_ro`, `apfs_ro`, `remotezip`, by HTTP ranges); only per-unit values come from the Mac. It is not part of the native macOS installer's execution path or app bundle.
 
 The macOS installer uses the Swift implementations in [`AuroraFirmware`](../macOS/Sources/AuroraFirmware) and [`AuroraAppleInstaller`](../macOS/Sources/AuroraAppleInstaller).
 
