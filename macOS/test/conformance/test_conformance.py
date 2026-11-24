@@ -162,6 +162,68 @@ class RuleTests(unittest.TestCase):
         checks.append(conformance.check('1tr', True, '', 'run it'))
         self.assertEqual(conformance.verdict(checks, at_pin=True), 'UNTESTED-ON-HW')
 
+    def test_distro_pin_checks_fail_at_pin_only_when_strict(self):
+        checks = [conformance.check('stage1', True, ''),
+                  conformance.check('branch pins', False, 'aura 56299352d9f4, pin 3ff778945672', scope='distro'),
+                  conformance.check('distro parity', False, 'aura lag', scope='distro'),
+                  conformance.check('published stage1', False, '', scope='published')]
+        self.assertEqual(conformance.verdict(checks), 'FAIL')
+        self.assertEqual(conformance.verdict(checks, at_pin=True), 'PASS')
+        self.assertEqual(conformance.verdict(checks, at_pin=True, strict_distro=True), 'FAIL')
+        # Published-only failures stay out of at-pin even under strict_distro.
+        published_only = [conformance.check('stage1', True, ''),
+                          conformance.check('published stage1', False, '', scope='published')]
+        self.assertEqual(conformance.verdict(published_only, at_pin=True, strict_distro=True), 'PASS')
+
+    def test_evaluate_marks_branch_pins_and_distro_parity_with_distro_scope(self):
+        machine = MACHINES['neo']
+        board = 'j700ap'
+        pin_aura = '3ff77894567239362a116e7fcbb214c55dccf5a4'
+        pin_uboot = '250385f8c8aa0000000000000000000000000000'
+        dry_entry = {
+            'supported': True,
+            'firmware': {'version': '26.6.2', 'stub_bytes': 1, 'source_url': 'https://example.invalid/ipsw'},
+            'uses_execute_window': False,
+            'boot_chain': {
+                'stage1_member': 'esp/aurora/stage1.bin',
+                'stage1_bytes': 1638400,
+                'stage1_mode': 'macho-standard',
+                'stage2_path': 'm1n1/boot.bin',
+                'esp_layout': {'esp/m1n1/boot-j700.bin': 'm1n1/boot.bin'},
+            },
+            'one_true_recovery_boot_policy': ['-nca'],
+            'candidates': [],
+        }
+        dry = {d: dry_entry for d in conformance.DESKTOPS}
+        payload = {
+            'stage1_versions': ['##aura_ver##1.0.0b14-g3ff77894'],
+            'stage2': {board: {'device_trees': [{'compatible': 'apple,j700'}], 'u_boot': '2026.07',
+                               'versions': ['##aura_ver##1.0.0b14-g3ff77894']}},
+            'confined_stage2': {},
+            'public': {'https://example.invalid/p.zip': True},
+            'digest': {'ok': True, 'detail': 'ok'},
+        }
+        context = {
+            'pins': {'aura': pin_aura, 'u_boot': pin_uboot, 'aura_label': '1.0.0b14-g3ff77894',
+                     'aura_labels': ['1.0.0b14-g3ff77894'], 'stage1_bytes': 1638400},
+            'constraints': CONSTRAINTS,
+            'profiles': {'arch': {d: {'enabled': {'apple,j700'}, 'verified': True, 'payload': payload}
+                                  for d in conformance.DESKTOPS}},
+            'branches': {'arch': {'aura': '56299352d9f4e4569de188700ead26544a2b37b4', 'u_boot': pin_uboot}},
+            'built': {'arch': {'aura': pin_aura, 'u_boot': pin_uboot}},
+            'parity': {'lagging': {'arch': 'aura 56299352d9f4 is 95 commits behind fedora 5a244b5bcbaf'}},
+            'kernels': {'arch': {'commit': '9125b3147583', 'has_board': {'apple,j700': True}, 'ok': True,
+                                 'detail': 'kernel 9125b3147583 has %(board)s'}},
+            'stage1_caution': {},
+        }
+        checks = {c['check']: c for c in conformance.evaluate(machine, 'fresh', 'arch', dry, context)}
+        self.assertFalse(checks['branch pins']['ok'])
+        self.assertEqual(checks['branch pins']['scope'], 'distro')
+        self.assertFalse(checks['distro parity']['ok'])
+        self.assertEqual(checks['distro parity']['scope'], 'distro')
+        self.assertTrue(checks['published image pins']['ok'])
+        self.assertEqual(checks['published image pins']['scope'], 'published')
+
     def test_plan_that_overlaps_a_kept_partition_fails(self):
         machine = MACHINES['m2']
         macos = conformance.macos_partition(machine['disk']['partitions'])
