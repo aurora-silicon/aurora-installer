@@ -147,6 +147,26 @@ class Udif(unittest.TestCase):
                     ipsw.open_system("j413", [(build, url)], "13.5", open_zip=lambda _: archive)
                 self.assertEqual(fetch.call_count, 6)  # Two HEADs and four range attempts.
 
+    def test_a_failed_property_list_read_stays_retryable(self):
+        src, size = udif([(udif_ro.RAW, bytes(512))])
+        xml_off = struct.unpack_from(">Q", src.data, size - 512 + 216)[0]
+
+        class Cut(Src):
+            def pread(self, n, off):
+                if off == xml_off:
+                    raise remotezip.RemoteZipUnavailable("range fetch failed: cut")
+                return super().pread(n, off)
+        with self.assertRaises(remotezip.RemoteZipUnavailable):
+            udif_ro.Partition(Cut(src.data), size)
+        archive = types.SimpleNamespace(members={
+            "BuildManifest.plist": types.SimpleNamespace(usize=0, read=lambda n: manifest("22G74", "13.5", ["j413"], ext=".dmg")),
+            "22G74-j413.dmg": types.SimpleNamespace(method=0, usize=size, pread=Cut(src.data).pread),
+        })
+        with mock.patch.object(ipsw.aea_ro, "Ranges"):
+            with self.assertRaisesRegex(ipsw.IpswUnavailable, "range fetch failed"):
+                ipsw.open_system("j413", [("22G74", "https://updates.cdn-apple.com/x.ipsw")], "13.5",
+                                 open_zip=lambda _: archive)
+
     def test_reads_across_chunk_kinds(self):
         a, c = bytes(range(256)) * 4, b"\x07" * 1024
         src, size = udif([(udif_ro.RAW, a), (udif_ro.ZERO, 2), (udif_ro.ZLIB, c), (udif_ro.IGNORE, 1)])

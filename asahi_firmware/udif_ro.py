@@ -46,8 +46,13 @@ class Partition:
         xml_off, xml_len = struct.unpack_from(">QQ", k, 216)
         if not (0 < xml_len <= MAX_XML and xml_off + xml_len <= size and data_off + data_len <= size):
             raise UdifError("UDIF trailer out of bounds")
+        # Read outside the parse: a transfer that fails here is the
+        # source's error (unavailable, retried later), not a bad image.
+        xml = src.pread(xml_len, xml_off)
+        if len(xml) != xml_len:
+            raise UdifError("short read of the UDIF property list")
         try:
-            doc = plistlib.loads(src.pread(xml_len, xml_off))
+            doc = plistlib.loads(xml)
             blkx = doc["resource-fork"]["blkx"]
         except Exception as e:
             raise UdifError(f"UDIF property list: {e}") from None
