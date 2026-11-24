@@ -40,9 +40,9 @@
         // Firmware is read from the stub's restore directory, which holds
         // only the components the stub copies; only their paths are used.
         let copied = NativeStubFilePlan.restores(component: key)
-        guard NativeHandoffEvidence.safeRelative(key), !key.contains("/"),
+        guard NativeHandoffEvidence.safeRelative(key), !key.utf8.contains(UInt8(ascii: "/")),
           let entry = components[key]?["Info"] as? [String: Any],
-          let path = entry["Path"] as? String, !path.isEmpty, !path.contains("\0"),
+          let path = entry["Path"] as? String, !path.isEmpty, !path.utf8.contains(0),
           !copied || NativeHandoffEvidence.safeRelative(path)
         else { throw NativeStubFileError.invalidPlan }
         guard copied else { continue }
@@ -59,7 +59,8 @@
       }
       guard kernels.count == 1, let kernel = kernels.first,
         Set(selected.map(\.component)).count == selected.count,
-        machine != "j700" || selected.contains(where: { $0.component == "Multitouch" })
+        !NativePeripheralInputPath.needsPreparation(machine: machine)
+          || selected.contains(where: { $0.component == "Multitouch" })
       else { throw NativeStubFileError.invalidPlan }
       self.kernel = kernel
       fud = selected

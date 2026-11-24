@@ -35,6 +35,8 @@
     func testTransportFailuresAreNetworkAndEverythingElseIsVerification() {
       let network: [any Error] = [
         URLError(.notConnectedToInternet),
+        InstallerReleaseConfigurationError.catalogUnreachable(
+          URLError.notConnectedToInternet.rawValue),
         InstallerReleaseConfigurationError.unexpectedHTTPStatus(404),
         InstallerReleaseConfigurationError.unexpectedHTTPStatus(503),
       ]
@@ -75,21 +77,159 @@
       let configuration = try configuration()
       let missing = await availability(coordinator(serving: [:]), configuration, .edge)
       XCTAssertEqual(missing, .notPublished)
-      let testing = modelCatalog(devices: [thisMac])
-      let misplaced = coordinator(serving: [
-        configuration.catalogURL(for: .edge): try envelope(testing)
+      let undeclared = try legacyDevelopmentCatalog()
+      let legacy = coordinator(serving: [
+        configuration.catalogURL(for: .edge): try envelope(undeclared)
       ])
-      let state = await availability(misplaced, configuration, .edge)
+      let state = await availability(legacy, configuration, .edge)
       XCTAssertEqual(state, .notPublished)
     }
 
     func testSignedEmptyEdgeIsClearlyEmptyWithoutInventingQualification() async throws {
       let configuration = try configuration()
       let value = coordinator(serving: [
-        configuration.catalogURL(for: .edge): try envelope(emptyCatalog(sequence: 5))
+        configuration.catalogURL(for: .edge): try envelope(
+          emptyCatalog(sequence: 5, channel: .edge))
       ])
       let state = await availability(value, configuration, .edge)
       XCTAssertEqual(state, .noRelease)
+    }
+
+    func testAnEmptyEdgeCatalogMustDeclareEdge() async throws {
+      // An empty catalog signed for no channel says nothing about Edge, and
+      // one signed for another channel was served in the wrong place: neither
+      // reads as "no release yet". Only the undeclared one is "not published";
+      // another channel's is a verification failure, as on every channel.
+      let configuration = try configuration()
+      let others: [ReleaseChannel?] = [nil, .stable, .rc, .testing]
+      for declared in others {
+        let value = coordinator(serving: [
+          configuration.catalogURL(for: .edge): try envelope(
+            emptyCatalog(sequence: 5, channel: declared))
+        ])
+        let state = await availability(value, configuration, .edge)
+        XCTAssertEqual(
+          state, declared == nil ? .notPublished : .checkFailed(.verification),
+          declared?.rawValue ?? "undeclared")
+      }
+    }
+
+    func testACatalogSignedForAnotherChannelIsAVerificationFailureOnEdge() async throws {
+      // Stable, RC or Testing bytes served at the Edge address are a mis-served
+      // or replayed catalog, not an Edge that isn't published yet.
+      let configuration = try configuration()
+      for declared in [ReleaseChannel.stable, .rc, .testing] {
+        for payload in [
+          modelCatalog(devices: [thisMac], channel: declared),
+          emptyCatalog(sequence: 5, channel: declared),
+        ] {
+          XCTAssertThrowsError(
+            try ReleaseCatalogChannelPolicy.validate(payload: payload, channel: .edge)
+          ) {
+            XCTAssertEqual(
+              $0 as? InstallerReleaseConfigurationError, .invalidCatalogChannel,
+              declared.rawValue)
+          }
+          let value = coordinator(serving: [
+            configuration.catalogURL(for: .edge): try envelope(payload)
+          ])
+          let state = await availability(value, configuration, .edge)
+          XCTAssertEqual(state, .checkFailed(.verification), declared.rawValue)
+        }
+      }
+      for payload in [try legacyDevelopmentCatalog(), emptyCatalog(sequence: 5, channel: nil)] {
+        XCTAssertThrowsError(
+          try ReleaseCatalogChannelPolicy.validate(payload: payload, channel: .edge)
+        ) {
+          XCTAssertEqual($0 as? InstallerReleaseConfigurationError, .edgeAlphaUnavailable)
+        }
+      }
+    }
+
+    // MARK: Every channel's catalog declares that channel
+
+    func testStableAndRCRefuseACatalogThatDeclaresNoChannel() async throws {
+      // The signature covers the channel only when the catalog declares it.
+      // Without it the same signed bytes verify on every channel.
+      let configuration = try configuration()
+      var object = try XCTUnwrap(
+        JSONSerialization.jsonObject(with: modelCatalog(devices: [thisMac])) as? [String: Any])
+      object["channel"] = nil
+      let undeclared = try JSONSerialization.data(withJSONObject: object)
+      for channel in [ReleaseChannel.stable, .rc] {
+        for payload in [undeclared, emptyCatalog(sequence: 5, channel: nil)] {
+          let value = coordinator(serving: [
+            configuration.catalogURL(for: channel): try envelope(payload)
+          ])
+          let state = await availability(value, configuration, channel)
+          XCTAssertEqual(state, .checkFailed(.verification), channel.rawValue)
+        }
+      }
+    }
+
+    func testACatalogSignedForOneChannelIsRefusedOnEveryOther() async throws {
+      let configuration = try configuration()
+      for declared in ReleaseChannel.allCases {
+        for payload in [
+          modelCatalog(devices: [thisMac], channel: declared),
+          emptyCatalog(sequence: 5, channel: declared),
+        ] {
+          for channel in [ReleaseChannel.stable, .rc, .testing] {
+            let value = coordinator(serving: [
+              configuration.catalogURL(for: channel): try envelope(payload)
+            ])
+            let state = await availability(value, configuration, channel)
+            let label = "\(declared.rawValue) on \(channel.rawValue)"
+            if declared == channel {
+              XCTAssertNotEqual(state, .checkFailed(.verification), label)
+            } else {
+              XCTAssertEqual(state, .checkFailed(.verification), label)
+            }
+          }
+        }
+      }
+    }
+
+    func testAnUndeclaredLegacyDeliveryIsTestingOnly() async throws {
+      // The published development deliveries predate the channel field. They
+      // stay readable on Testing and nowhere else.
+      let configuration = try configuration()
+      let legacy = try legacyDevelopmentCatalog()
+      let testing = coordinator(serving: [
+        configuration.catalogURL(for: .testing): try envelope(legacy)
+      ])
+      let accepted = await availability(testing, configuration, .testing)
+      XCTAssertEqual(accepted, .available)
+      for channel in [ReleaseChannel.stable, .rc] {
+        let value = coordinator(serving: [
+          configuration.catalogURL(for: channel): try envelope(legacy)
+        ])
+        let state = await availability(value, configuration, channel)
+        XCTAssertEqual(state, .checkFailed(.verification), channel.rawValue)
+      }
+      let edge = coordinator(serving: [
+        configuration.catalogURL(for: .edge): try envelope(legacy)
+      ])
+      let unavailable = await availability(edge, configuration, .edge)
+      XCTAssertEqual(unavailable, .notPublished)
+    }
+
+    func testAnUndeclaredEmptyCatalogIsNotALegacyTestingDelivery() async throws {
+      // The Testing exception is for a delivery that lists its models. An
+      // empty catalog signed for no channel is not one.
+      let configuration = try configuration()
+      let value = coordinator(serving: [
+        configuration.catalogURL(for: .testing): try envelope(
+          emptyCatalog(sequence: 5, channel: nil))
+      ])
+      let undeclared = await availability(value, configuration, .testing)
+      XCTAssertEqual(undeclared, .checkFailed(.verification))
+      let declared = coordinator(serving: [
+        configuration.catalogURL(for: .testing): try envelope(
+          emptyCatalog(sequence: 5, channel: .testing))
+      ])
+      let empty = await availability(declared, configuration, .testing)
+      XCTAssertEqual(empty, .noRelease)
     }
 
     func testAQualifiedSignedEdgeAlphaIsSupportedButCannotBeReadAsTesting() async throws {
@@ -132,6 +272,118 @@
       XCTAssertEqual(rejected, .checkFailed(.verification))
     }
 
+    // MARK: Edge's per-device proof, for the default channel
+
+    func testOnlyPerDeviceEvidenceMakesEdgeTheDefaultForAMac() async throws {
+      // Listing a model makes Edge selectable on it; only being listed as
+      // family-qualified makes Edge its default.
+      let configuration = try configuration()
+      let catalog = try qualifiedEdgeCatalog(
+        devices: [thisMac, "apple,j274"],
+        proof: ["devices": [thisMac: ["evidenceDigest": digest("5")]]])
+      let coordinator = coordinator(serving: [
+        configuration.catalogURL(for: .edge): try envelope(catalog)
+      ])
+
+      let proven = await edgeCheck(coordinator, configuration, thisMac)
+      let listed = await edgeCheck(coordinator, configuration, "apple,j274")
+
+      XCTAssertEqual(
+        proven, EdgeCatalogCheck(availability: .available, qualifiesThisMac: true))
+      XCTAssertEqual(
+        listed, EdgeCatalogCheck(availability: .available, qualifiesThisMac: false))
+    }
+
+    func testNeoEvidenceWithoutDevicesProvesOnlyTheNeo() async throws {
+      // The alpha.1 and alpha.2 catalogs predate `devices`; their Neo
+      // evidence covers the MacBook Neo and no other model.
+      let configuration = try configuration()
+      let catalog = try qualifiedEdgeCatalog(
+        devices: ["apple,j700", thisMac],
+        proof: ["neoEvidence": ["checks": ["glCTS": ["status": "passed"]]]])
+      let coordinator = coordinator(serving: [
+        configuration.catalogURL(for: .edge): try envelope(catalog)
+      ])
+
+      let neo = await edgeCheck(coordinator, configuration, "apple,j700")
+      let other = await edgeCheck(coordinator, configuration, thisMac)
+
+      XCTAssertEqual(neo, EdgeCatalogCheck(availability: .available, qualifiesThisMac: true))
+      XCTAssertEqual(other, EdgeCatalogCheck(availability: .available, qualifiesThisMac: false))
+    }
+
+    func testMalformedDeviceProofQualifiesNoMac() async throws {
+      // A `devices` value that isn't well formed proves nothing, and Neo
+      // evidence beside it does not stand in for it.
+      let configuration = try configuration()
+      let malformed: [Any] = [
+        [thisMac],
+        "\(thisMac)",
+        [thisMac: ["evidenceDigest": "sha256:short"]],
+        [thisMac: ["evidenceDigest": digest("5")], "apple,j274": digest("6")] as [String: Any],
+        [thisMac: ["evidenceDigest": digest("5")], "J274": ["evidenceDigest": digest("6")]],
+        [thisMac: [:] as [String: Any]] as [String: Any],
+        NSNull(),
+      ]
+      for devices in malformed {
+        let catalog = try qualifiedEdgeCatalog(
+          devices: [thisMac, "apple,j700"],
+          proof: ["devices": devices, "neoEvidence": ["checks": [:] as [String: Any]]])
+        let coordinator = coordinator(serving: [
+          configuration.catalogURL(for: .edge): try envelope(catalog)
+        ])
+        let mac = await edgeCheck(coordinator, configuration, thisMac)
+        let neo = await edgeCheck(coordinator, configuration, "apple,j700")
+        XCTAssertEqual(
+          mac, EdgeCatalogCheck(availability: .available, qualifiesThisMac: false), "\(devices)")
+        XCTAssertEqual(
+          neo, EdgeCatalogCheck(availability: .available, qualifiesThisMac: false), "\(devices)")
+      }
+    }
+
+    func testAnEdgeCatalogWithoutThisMacOrThatFailedCarriesNoProof() async throws {
+      let configuration = try configuration()
+      let catalog = try qualifiedEdgeCatalog(
+        devices: ["apple,j274"],
+        proof: ["devices": ["apple,j274": ["evidenceDigest": digest("5")]]])
+      let other = coordinator(serving: [
+        configuration.catalogURL(for: .edge): try envelope(catalog)
+      ])
+      let missing = coordinator(serving: [:])
+
+      let unlisted = await edgeCheck(other, configuration, thisMac)
+      let unpublished = await edgeCheck(missing, configuration, thisMac)
+
+      XCTAssertEqual(
+        unlisted,
+        EdgeCatalogCheck(
+          availability: .modelUnavailable(supportedDeviceIdentifiers: ["apple,j274"]),
+          qualifiesThisMac: false))
+      XCTAssertEqual(
+        unpublished, EdgeCatalogCheck(availability: .notPublished, qualifiesThisMac: false))
+    }
+
+    func testANetworkFailureReadingACatalogSaysSo() async throws {
+      // Preparation tells an unreachable release list apart from a failed
+      // payload download, so its message can point at the channel menu.
+      let configuration = try configuration()
+      let fetcher = InstallerReleaseCatalogFetcher(downloader: OfflineDownloader())
+      for channel in [ReleaseChannel.edge, .rc] {
+        do {
+          _ = try await fetcher.fetch(configuration: configuration, channel: channel)
+          XCTFail("an offline fetch must fail")
+        } catch {
+          XCTAssertEqual(
+            error as? InstallerReleaseConfigurationError,
+            .catalogUnreachable(URLError.notConnectedToInternet.rawValue), "\(channel)")
+        }
+      }
+      let offline = coordinator(downloader: OfflineDownloader())
+      let edge = await edgeCheck(offline, configuration, thisMac)
+      XCTAssertEqual(
+        edge, EdgeCatalogCheck(availability: .checkFailed(.network), qualifiesThisMac: false))
+    }
+
     func testLegacyTestingRequiresTheSignedDevelopmentDeliveryLineage() async throws {
       let configuration = try configuration()
       var object = try XCTUnwrap(
@@ -160,10 +412,40 @@
       XCTAssertEqual(accepted, .available)
     }
 
+    func testUndeclaredTestingCatalogsMatchTheReleasePreparationVectors() throws {
+      // scripts/tests/test_distribution_release.py runs the same vectors
+      // through prepare-distribution-release.py, so a bundled default that the
+      // release preparation accepts is one this policy accepts, and back.
+      let fixtures = try XCTUnwrap(Bundle.module.url(forResource: "Fixtures", withExtension: nil))
+      let data = try Data(
+        contentsOf: fixtures.appendingPathComponent("legacy-testing-catalog-vectors.json"))
+      let vectors = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+      let cases = try XCTUnwrap(vectors["cases"] as? [[String: Any]])
+      XCTAssertFalse(cases.isEmpty)
+      for vector in cases {
+        let name = try XCTUnwrap(vector["name"] as? String)
+        let accepted = try XCTUnwrap(vector["acceptedAsTesting"] as? Bool)
+        let catalog: [String: Any] = [
+          "schemaVersion": 5, "sequence": 1, "issuedAt": "2026-09-01T00:00:00Z",
+          "models": try XCTUnwrap(vector["models"] as? [Any]),
+        ]
+        let payload = try JSONSerialization.data(withJSONObject: catalog)
+        do {
+          try ReleaseCatalogChannelPolicy.validate(payload: payload, channel: .testing)
+          XCTAssertTrue(accepted, name)
+        } catch {
+          XCTAssertFalse(accepted, name)
+          XCTAssertEqual(
+            error as? InstallerReleaseConfigurationError, .invalidCatalogChannel, name)
+        }
+      }
+    }
+
     func testEachChannelReportsItsOwnStateFromItsSignedCatalog() async throws {
       let configuration = try configuration()
       let coordinator = coordinator(serving: [
-        configuration.catalogURL(for: .stable): try envelope(emptyCatalog(sequence: 5)),
+        configuration.catalogURL(for: .stable): try envelope(
+          emptyCatalog(sequence: 5, channel: .stable)),
         configuration.catalogURL(for: .rc): try envelope(
           modelCatalog(devices: ["apple,j274"], channel: .rc)),
         configuration.catalogURL(for: .testing): try envelope(modelCatalog(devices: [thisMac])),
@@ -180,7 +462,7 @@
 
     func testAnEmptyCatalogWithABadSignatureIsNeverReadAsNoRelease() async throws {
       let configuration = try configuration()
-      let payload = emptyCatalog(sequence: 5)
+      let payload = emptyCatalog(sequence: 5, channel: .stable)
       let coordinator = coordinator(serving: [
         configuration.catalogURL(for: .stable): envelope(
           payload: payload, signature: Data(repeating: 1, count: 64))
@@ -203,7 +485,8 @@
     func testAnEmptyCatalogBelowTheRollbackFloorIsAVerificationFailure() async throws {
       let configuration = try configuration()
       let coordinator = coordinator(serving: [
-        configuration.catalogURL(for: .stable): try envelope(emptyCatalog(sequence: 5))
+        configuration.catalogURL(for: .stable): try envelope(
+          emptyCatalog(sequence: 5, channel: .stable))
       ])
 
       let stable = await coordinator.availability(
@@ -218,7 +501,7 @@
     // MARK: Preparation on a channel with no Mac release
 
     func testPreparingFromAnEmptyCatalogSaysTheChannelHasNoMacRelease() async throws {
-      let payload = emptyCatalog(sequence: 5)
+      let payload = emptyCatalog(sequence: 5, channel: .stable)
       let request = InstallerAssetPreparationRequest(
         host: host(),
         catalogPayload: payload,
@@ -263,6 +546,50 @@
 
     // MARK: Fixtures
 
+    private func edgeCheck(
+      _ coordinator: InstallerReleaseAssetCoordinator,
+      _ configuration: InstallerReleaseConfiguration,
+      _ deviceIdentifier: String
+    ) async -> EdgeCatalogCheck {
+      await coordinator.edgeCheck(
+        configuration: configuration, deviceIdentifier: deviceIdentifier,
+        validationTime: now, previouslyAcceptedCatalog: nil)
+    }
+
+    private func digest(_ character: Character) -> String {
+      "sha256:" + String(repeating: character, count: 64)
+    }
+
+    /// A signed Edge catalog with a passing qualification for its payload,
+    /// plus `proof` merged into `edgeQualification`.
+    private func qualifiedEdgeCatalog(devices: [String], proof: [String: Any]) throws -> Data {
+      var object = try XCTUnwrap(
+        JSONSerialization.jsonObject(with: modelCatalog(devices: devices, channel: .edge))
+          as? [String: Any])
+      let source = { (repository: String) in
+        [
+          "repository": repository, "branch": "aurora-edge",
+          "revision": String(repeating: "a", count: 40), "tree": String(repeating: "b", count: 40),
+        ]
+      }
+      var qualification: [String: Any] = [
+        "schemaVersion": 1, "releaseKind": "alpha", "status": "passed", "imageRunID": 41,
+        "payloadDigest": digest("3"), "evidenceDigest": digest("4"),
+        "linux": source("aurora-silicon/linux"), "mesa": source("aurora-silicon/mesa"),
+      ]
+      qualification.merge(proof) { _, new in new }
+      object["edgeQualification"] = qualification
+      return try JSONSerialization.data(withJSONObject: object)
+    }
+
+    private func coordinator(downloader: any ReleaseDocumentDownloading)
+      -> InstallerReleaseAssetCoordinator
+    {
+      InstallerReleaseAssetCoordinator(
+        catalogFetcher: InstallerReleaseCatalogFetcher(downloader: downloader),
+        assetPreparer: InstallerAssetPreparer())
+    }
+
     private func availability(
       _ coordinator: InstallerReleaseAssetCoordinator,
       _ configuration: InstallerReleaseConfiguration,
@@ -280,12 +607,31 @@
         assetPreparer: InstallerAssetPreparer())
     }
 
-    /// What `publish-channels empty-catalog` writes.
-    private func emptyCatalog(sequence: Int) -> Data {
-      Data(
+    /// What `publish-channels empty-catalog --channel` writes. Without a
+    /// channel it is the undeclared form older publishers wrote.
+    private func emptyCatalog(sequence: Int, channel: ReleaseChannel?) -> Data {
+      let declared = channel.map { "\"channel\":\"\($0.rawValue)\"," } ?? ""
+      return Data(
         """
-        {"schemaVersion":5,"sequence":\(sequence),"issuedAt":"2026-09-01T00:00:00Z","models":[]}
+        {"schemaVersion":5,\(declared)"sequence":\(sequence),"issuedAt":"2026-09-01T00:00:00Z","models":[]}
         """.utf8)
+    }
+
+    /// An undeclared catalog of the published development delivery lineage.
+    private func legacyDevelopmentCatalog() throws -> Data {
+      var object = try XCTUnwrap(
+        JSONSerialization.jsonObject(with: modelCatalog(devices: [thisMac])) as? [String: Any])
+      object["channel"] = nil
+      var models = try XCTUnwrap(object["models"] as? [[String: Any]])
+      models[0]["installationProfile"] = "fedora-kde"
+      models[0]["evidenceRevision"] = "image-build-41"
+      models[0]["payloadArtifact"] = [
+        "sourceURL": "https://github.com/aurora-silicon/fedora-aurora/releases/download/"
+          + "payload-fedora-kde-41/payload.zip",
+        "fileName": "payload.zip", "sizeBytes": 1,
+      ]
+      object["models"] = models
+      return try JSONSerialization.data(withJSONObject: object)
     }
 
     private func modelCatalog(devices: [String], channel: ReleaseChannel = .testing) -> Data {
@@ -346,6 +692,12 @@
           containerIdentifier: "disk3", physicalStoreIdentifier: "disk0s2", isInternal: true,
           containerSizeBytes: 1_000, containerFreeBytes: 500, minimumPreferredSizeBytes: 600)
       )
+    }
+  }
+
+  private struct OfflineDownloader: ReleaseDocumentDownloading {
+    func download(from url: URL, maximumBytes: Int, role: String) async throws -> Data {
+      throw URLError(.notConnectedToInternet)
     }
   }
 

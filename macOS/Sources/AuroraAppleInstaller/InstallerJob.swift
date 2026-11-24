@@ -882,7 +882,7 @@
   }
 
   /// Descriptor-relative, private atomic storage shared by root records and GUI hints.
-  private final class PrivateInstallerJobFiles {
+  final class PrivateInstallerJobFiles {
     private let fd: Int32
 
     init(directory: URL) throws {

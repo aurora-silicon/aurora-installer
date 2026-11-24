@@ -219,7 +219,7 @@
       guard count > 0 else { throw NativeFirmwareInputFailure.invalidSource }
       let target = String(
         decoding: buffer.prefix(count).map { UInt8(bitPattern: $0) }, as: UTF8.self)
-      guard !target.contains("/"), target != ".", target != "..",
+      guard !target.utf8.contains(UInt8(ascii: "/")), target != ".", target != "..",
         NativeHandoffEvidence.safeRelative(target)
       else { throw NativeFirmwareInputFailure.invalidSource }
       let directory = relative.split(separator: "/").dropLast().joined(separator: "/")

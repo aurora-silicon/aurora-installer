@@ -140,7 +140,11 @@
         let systems = volumes.filter { $0.roles == ["System"] }
         let data = volumes.filter { $0.roles == ["Data"] }
         guard !systems.isEmpty, !data.isEmpty else { return .foreign }
-        guard stubSizes.contains(where: { $0.contains(part.size) }), volumes.count == 4,
+        // macOS 27.2 can give a new startup container an Update volume.
+        let updates = volumes.filter { $0.roles == ["Update"] }
+        guard stubSizes.contains(where: { $0.contains(part.size) }),
+          volumes.count - updates.count == 4, updates.count <= 1,
+          updates.allSatisfy({ $0.group == nil }),
           systems.count == 1,
           data.count == 1, let group = systems[0].group, data[0].group == group,
           volumes.filter({ $0.roles == ["Preboot"] }).count == 1,

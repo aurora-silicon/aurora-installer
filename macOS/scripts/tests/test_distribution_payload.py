@@ -363,12 +363,14 @@ class DistributionPayloadTests(unittest.TestCase):
         self.assertIn('j616sap', qualified)
         # The M6 Mac mini's stub is macOS 27.0, the firmware aura was brought up on.
         self.assertIn('27.0', qualified['j873gap'])
-        self.assertIn('26.6.2', qualified['j813ap'])
         # The M6 MacBook Pro and iMac shipped with macOS 27.2 (26B7124), their only firmware.
         self.assertIn('27.2', qualified['j804ap'])
         self.assertIn('27.2', qualified['j833ctap'])
-        self.assertIn('26.6.2', qualified['j704ap'])
-        self.assertIn('26.6.2', qualified['j815ap'])
+        # The 14-inch M5 MacBook Pro's and the M5 MacBook Airs' stub is the pinned
+        # macOS 27.2 (26B123), their device minimum.
+        self.assertIn('27.2', qualified['j704ap'])
+        self.assertIn('27.2', qualified['j813ap'])
+        self.assertIn('27.2', qualified['j815ap'])
         # Every admitted T6050 board selects only the matching 27.2 firmware.
         for identifier in t6050:
             self.assertEqual(qualified[identifier.removeprefix('apple,') + 'ap'], ['27.2'])
