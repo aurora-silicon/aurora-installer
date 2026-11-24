@@ -1,12 +1,12 @@
 #!/usr/bin/python3 -I
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Aurora Silicon Contributors
-"""apfs_ro: a minimal read-only APFS reader for the macOS system volume.
+"""apfs_ro: a minimal read-only APFS reader for a macOS System volume.
 
-Reads the sealed macOS System volume of an Apple silicon Mac from Linux,
-straight from the block device, opened O_RDONLY. It never writes, never
-mounts and needs no kernel module or FUSE. Written from Apple's public
-"Apple File System Reference".
+Reads the System volume of a macOS restore image's root file system
+(through aea_ro, by HTTP ranges; see ipsw.py) or of an image file, opened
+O_RDONLY. It never writes, never mounts and needs no kernel module or FUSE.
+Written from Apple's public "Apple File System Reference".
 
 Vendored from speakerguardd (packaging/upgrade/aurora_speaker_upgrade,
 v2 26b88eac); the additions are Volume.group (apfs_volume_group_id) and
@@ -581,8 +581,14 @@ class Volume:
         if magic != DECMPFS_MAGIC or usize > MAX_FILE:
             raise ApfsError(f"inode {ino}: bad decmpfs header")
         body = hdr[16:]
-        if ctype in (1, 9):
+        if ctype == 1:
             return body[:usize]
+        if ctype == 9:
+            # Stored in the attribute, uncompressed: a 0xcc marker byte, then
+            # exactly the file.
+            if body[:1] != b"\xcc" or len(body) != usize + 1:
+                raise ApfsError(f"inode {ino}: malformed uncompressed decmpfs attribute")
+            return body[1:]
         if ctype == 3:
             return body[1:1 + usize] if body[:1] == b"\xff" else inflate(body, usize)
         if ctype == 7:
