@@ -24,7 +24,7 @@ The preview uses simulated data and does not change disks or register a helper. 
 
 An installed system boots with one picture on screen from power-on to the desktop; [flicker-free boot](https://github.com/aurora-silicon/aurora-distributions/blob/main/docs/flicker-free-boot.md) describes each boot stage, the branding a distribution or downstream configures, and how to verify it.
 
-Standalone [speaker-tuning tools](tools/speaker-tuning/README.md) and their Python firmware library remain available for existing Linux installations.
+Existing Linux installations get speaker tuning from `aurora-speaker-upgrade` (speakerguardd), which takes it from the pinned macOS restore image, and keep their Wi-Fi and Bluetooth firmware on their stub firmware's restore image with [aurora-wifi-firmware](tools/wifi-firmware/README.md).
 
 ## Credits
 

@@ -313,79 +313,26 @@ class OlderStateTest(Case):
         self.assertEqual(r, "ok")
 
 
-class MacOSDirTest(Case):
-    """--macos DIR: a macOS root on disk instead of the installed macOS."""
+class RestoreImageTest(Case):
+    """The source is a restore image's System volume (asahi_firmware.ipsw);
+    a newer stub version's image brings its radio firmware."""
 
-    def root_with(self, b1=(B1_NEW, None)):
-        root = self.root / "macos"
-        plist = (b'<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>'
-                 b"<key>ProductBuildVersion</key><string>26A428</string>"
-                 b"<key>ProductVersion</key><string>27.0</string></dict></plist>")
-        files = {awf.SYSTEM_VERSION: plist, f"{mt7932.BT_DIR}/{B0}": RAW["bluetooth/" + B0],
-                 f"{mt7932.BT_DIR}/{b1[0]}": b1[1] or bt_image("27.0"),
-                 f"{mt7932.BT_DIR}/{PTX}": RAW["bluetooth/" + PTX]}
-        for n in mt7932.WIFI_SOURCES:
-            files[f"{mt7932.WIFI_DIR}/{n}"] = RAW["sunrise/" + n]
-        for rel, data in files.items():
-            (root / rel).parent.mkdir(parents=True, exist_ok=True)
-            (root / rel).write_bytes(data)
-        os.symlink(B0, root / mt7932.BT_DIR / "MT7932B0_link.bin")
-        return root
-
-    def test_update_from_a_directory(self):
+    def test_update_from_a_newer_restore_image(self):
         esp = neo_esp(self.root)
-        mac = awf.macos_at(self.root_with())
-        self.assertEqual((mac.build, mac.version), ("26A428", "27.0"))
+        vol = FakeVol({}, build="26A428", version="27.0")
+        for n in mt7932.WIFI_SOURCES:
+            vol._add(f"{mt7932.WIFI_DIR}/{n}", RAW["sunrise/" + n])
+        vol._add(f"{mt7932.BT_DIR}/{B0}", RAW["bluetooth/" + B0])
+        vol._add(f"{mt7932.BT_DIR}/{B1_NEW}", bt_image("27.0"))
+        vol._add(f"{mt7932.BT_DIR}/{PTX}", RAW["bluetooth/" + PTX])
+        mac = awf.MacOS("UniversalMac_27.0_26A428_Restore.ipsw", vol, "26A428", "27.0")
         r = awf.update(esp, mac, None, backup_root=self.backups, state_dir=self.state,
                        out=self.out.append, swap=lambda a, b: False, probe=lambda n, t: True,
                        log_text="")
         self.assertEqual(r, "updated")
         self.assertEqual(members(esp)[mt7932.ALIAS_B1][1], bt_image("27.0"))
-        self.assertEqual(awf.read_state(self.state)["build"], "26A428")
-
-    def test_boot_reads_the_installed_macos_after_a_directory_update(self):
-        """A set taken with --macos is not the installed macOS's, even with the same build."""
-        esp = neo_esp(self.root)
-        mac = awf.macos_at(self.root_with())
-        awf.update(esp, mac, None, backup_root=self.backups, state_dir=self.state,
-                   out=self.out.append, swap=lambda a, b: False, probe=lambda n, t: True,
-                   log_text="")
         st = awf.read_state(self.state)
-        st.pop("pending")
-        st["result"], st["esp_wifi"] = "verified", awf.esp_wifi_digest(esp)
-        awf.write_state(st, self.state)
-        installed = macos_mt7932()
-        installed.build = "26A428"
-        saved = {k: getattr(awf, k) for k in ("STATE_DIR", "BACKUP_ROOT", "wifi_board",
-                                               "installed_macos", "exchange", "radio_probe")}
-        geteuid = awf.os.geteuid
-        try:
-            awf.STATE_DIR, awf.BACKUP_ROOT = self.state, self.backups
-            awf.wifi_board = lambda dt=None: None
-            awf.installed_macos = lambda esp, **kw: [installed]
-            awf.exchange = lambda a, b: False
-            awf.radio_probe = lambda n, t: True
-            awf.os.geteuid = lambda: 0
-            with open(os.devnull, "w") as null:
-                import contextlib
-                with contextlib.redirect_stdout(null), contextlib.redirect_stderr(null):
-                    self.assertEqual(awf.main(["--esp", str(esp), "boot"]), 0)
-        finally:
-            for k, v in saved.items():
-                setattr(awf, k, v)
-            awf.os.geteuid = geteuid
-        st = awf.read_state(self.state)
-        self.assertEqual(st["device"], "/dev/fake")
-        self.assertEqual(st["result"], "updated")
-
-    def test_not_a_macos_root(self):
-        with self.assertRaisesRegex(awf.Refused, "not a macOS root"):
-            awf.macos_at(self.root)
-
-    def test_no_way_out_of_the_root(self):
-        vol = awf.DirVolume(self.root_with())
-        with self.assertRaises(awf.apfs_ro.ApfsError):
-            vol.resolve("../macos/" + awf.SYSTEM_VERSION)
+        self.assertEqual((st["build"], st["device"]), ("26A428", "UniversalMac_27.0_26A428_Restore.ipsw"))
 
 
 class ProbeTest(Case):

@@ -13,10 +13,8 @@ from unittest import mock
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools" / "wifi-firmware"))
-sys.path.insert(0, str(ROOT / "tools" / "speaker-tuning"))
 
 import aurora_wifi_firmware as awf  # noqa: E402
-import speaker_tuning as st  # noqa: E402
 
 PRIVATE = {"dmask=0077", "fmask=0177", "nodev", "nosuid", "noexec"}
 
@@ -72,15 +70,6 @@ class EspMountOptionsTest(unittest.TestCase):
         self.assertEqual((str(path), mounted), (self.mountpoint, self.mountpoint))
         self.assertLessEqual(PRIVATE, mount_options(self.mount_call(calls)))
 
-    def test_speaker_tuning_mounts_the_esp_for_root_only(self):
-        dt, run, calls = unmounted_esp(self.tmp)
-        with mock.patch.object(st, "MOUNTPOINT", self.mountpoint):
-            path, mounted = st.find_esp(
-                run=run, dt_esp=str(dt / "chosen" / "asahi,efi-system-partition"),
-                root=str(self.tmp))
-        self.assertEqual((str(path), mounted), (self.mountpoint, self.mountpoint))
-        self.assertLessEqual(PRIVATE, mount_options(self.mount_call(calls)))
-
 
 def mounted_esp(tmp, options):
     """As unmounted_esp, with the ESP already mounted read-write at /boot/efi."""
@@ -108,29 +97,24 @@ class ReusedEspMountTest(unittest.TestCase):
         root = pathlib.Path(tempfile.mkdtemp(dir=self.tmp))
         dt, run, calls = mounted_esp(root, options)
         with self.assertLogs(tool.log, level="WARNING") if others(options) else nullcontext():
-            if tool is awf:
-                path, mounted = awf.find_esp(run=run, dt=dt, root=str(root))
-            else:
-                path, mounted = st.find_esp(
-                    run=run, dt_esp=str(dt / "chosen" / "asahi,efi-system-partition"),
-                    root=str(root))
+            path, mounted = tool.find_esp(run=run, dt=dt, root=str(root))
         self.assertEqual((str(path), mounted), ("/boot/efi", None))
         self.assertEqual([c[0] for c in calls], ["findmnt"])
 
     def test_a_mount_others_can_read_is_used_with_a_warning(self):
-        for tool in (awf, st):
+        for tool in (awf,):
             self.find(tool, "rw,relatime,fmask=0022,dmask=0022,codepage=437")
             self.find(tool, "rw,relatime,umask=0000")
 
     def test_a_private_mount_is_used_quietly(self):
-        for tool in (awf, st):
+        for tool in (awf,):
             with mock.patch.object(tool.log, "warning") as warning:
                 self.find(tool, "rw,relatime,fmask=0077,dmask=0077")
                 self.find(tool, "rw,relatime,fmask=0137,dmask=0027")
             warning.assert_not_called()
 
     def test_mask_parsing(self):
-        for tool in (awf, st):
+        for tool in (awf,):
             self.assertTrue(tool.others_can_read("rw,fmask=0022"))
             self.assertFalse(tool.others_can_read("rw,fmask=0077"))
             self.assertFalse(tool.others_can_read("rw,fmask=0004"))
@@ -145,7 +129,7 @@ def others(options):
 class UnmountTest(unittest.TestCase):
     def test_a_failed_unmount_is_logged(self):
         failed = subprocess.CompletedProcess(["umount"], 32, b"", b"target is busy")
-        for tool in (awf, st):
+        for tool in (awf,):
             esp = (pathlib.Path("/run/x"), "/run/x")
             with mock.patch.object(tool, "find_esp", return_value=esp), \
                     mock.patch.object(tool.subprocess, "run", return_value=failed) as run, \

@@ -1,16 +1,16 @@
 #!/usr/bin/python3 -I
 # SPDX-License-Identifier: MIT
-"""Keep an installed system's Wi-Fi and Bluetooth firmware on the installed macOS's.
+"""Keep an installed system's Wi-Fi and Bluetooth firmware on its stub firmware's release.
 
-macOS loads the radio firmware its own system volume ships, so a macOS
-update brings new Wi-Fi and Bluetooth firmware. A Linux install keeps the set
-its installer took: the Asahi installer's from its stub's Recovery image
-(macOS 13.5 for most installs), the Aurora installer's from the macOS that
-ran it. This tool reads the installed macOS's System volume from Linux, read
-only (apfs_ro: the System volume is not encrypted, with or without
-FileVault), converts the radio firmware with this repository's
-asahi_firmware, and when the result differs from the ESP's package it puts
-it in:
+The radio firmware is per-model, per-version data, so it comes from one
+source only: Apple's restore image (IPSW) of the macOS version this Mac's
+stub firmware runs (the boot chain reports it as
+/chosen/asahi,os-fw-version), for this Mac's board, read by HTTP ranges
+(asahi_firmware.ipsw). Never from an installed macOS: a macOS install the
+user updated, or none at all, changes nothing here. A Linux install keeps
+the set its installer took; this tool converts the restore image's radio
+firmware with this repository's asahi_firmware, and when the result
+differs from the ESP's package it puts it in:
 
   Broadcom Wi-Fi       /usr/share/firmware/wifi -> brcm/brcmfmac*
   Broadcom Bluetooth   /usr/share/firmware/bluetooth -> brcm/brcmbt*
@@ -49,8 +49,7 @@ for cand in (HERE, HERE.parents[1]):
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-import apfs_ro  # noqa: E402
-from asahi_firmware import mt7932  # noqa: E402
+from asahi_firmware import apfs_ro, ipsw, mt7932  # noqa: E402
 from asahi_firmware.bluetooth import BluetoothFWCollection  # noqa: E402
 from asahi_firmware.core import FWFile, FWPackage  # noqa: E402
 from asahi_firmware.wifi import WiFiFWCollection  # noqa: E402
@@ -65,7 +64,6 @@ RAW_PREFIX = "firmware/wifi/"
 RAW_BT_PREFIX = "firmware/bluetooth/"
 PKG_PREFIX = "brcm/brcmfmac"
 BT_PREFIX = "brcm/brcmbt"
-APFS_GUID = "7c3457ef-0000-11aa-aa11-00306543ecac"
 DT = pathlib.Path("/proc/device-tree")
 DT_ESP = "chosen/asahi,efi-system-partition"
 SYS = pathlib.Path("/sys")
@@ -124,12 +122,6 @@ def file_sha256(path):
     return h.hexdigest()
 
 
-def build_key(build):
-    """25C56 -> (25, 'C', 56, ''): newer macOS builds sort later."""
-    m = re.match(r"\A(\d+)([A-Z])(\d+)([a-z]?)\Z", build or "")
-    return (int(m[1]), m[2], int(m[3]), m[4]) if m else (0, "", 0, build or "")
-
-
 # ---------------------------------------------------------------- this Mac
 
 def dt_string(rel, dt=DT):
@@ -154,125 +146,52 @@ def wifi_board(dt=DT):
     return found.pop() if found else None
 
 
+def mac_board(dt=DT):
+    """This Mac's board (j413) from the device tree's first compatible
+    ("apple,j413"), the name restore images list it under."""
+    try:
+        first = (dt / "compatible").read_bytes().split(b"\0", 1)[0]
+    except OSError:
+        return None
+    m = re.fullmatch(rb"apple,([a-z][a-z0-9]{0,31})", first)
+    return m[1].decode() if m else None
+
+
+def os_fw_version(dt=DT):
+    """The macOS version of this Mac's stub (OS) firmware, as the boot chain
+    reports it (/chosen/asahi,os-fw-version, e.g. 26.6.2)."""
+    v = dt_string("chosen/asahi,os-fw-version", dt)
+    return v if v and re.fullmatch(r"\d+(\.\d+){1,2}", v) else None
+
+
 # ---------------------------------------------------------------- the macOS side
 
-def apfs_partitions(run=subprocess.run):
-    p = run(["lsblk", "-J", "-p", "-o", "PATH,PARTTYPE"], capture_output=True, text=True)
-    if p.returncode != 0:
-        return []
-    out = []
-
-    def walk(devs):
-        for d in devs:
-            if (d.get("parttype") or "").lower() == APFS_GUID:
-                out.append(d["path"])
-            walk(d.get("children") or [])
-    walk(json.loads(p.stdout).get("blockdevices", []))
-    return out
-
-
-def stub_groups(esp):
-    """Volume groups of the stub macOS this Linux install boots through
-    (asahi/stub_info.json "vgid"): a boot stub, not an installed macOS."""
-    with contextlib.suppress(OSError, ValueError, AttributeError):
-        vgid = json.loads((pathlib.Path(esp) / "asahi" / "stub_info.json").read_text())["vgid"]
-        return {str(vgid).lower()}
-    return set()
-
-
 class MacOS:
-    """One installed macOS: its System volume and build."""
+    """The radio firmware's source: one restore image's System volume."""
 
     def __init__(self, device, volume, build, version):
         self.device, self.volume, self.build, self.version = device, volume, build, version
 
-    @property
-    def group(self):
-        return self.volume.group
-
     def describe(self):
-        return f"macOS {self.version} ({self.build}), '{self.volume.name}' on {self.device}"
+        return f"macOS {self.version} ({self.build}) restore image {self.device}"
 
 
-def installed_macos(esp, devices=None, opener=apfs_ro.Container):
-    """Every readable macOS System volume that ships radio firmware, the
-    stub's left out, newest build first."""
-    skip = stub_groups(esp)
-    found = []
-    for dev in devices if devices is not None else apfs_partitions():
-        try:
-            vols = [v for v in opener(dev).volumes()
-                    if v.role == apfs_ro.ROLE_SYSTEM and not v.encrypted]
-        except (OSError, apfs_ro.ApfsError) as e:
-            log.info(f"{dev}: not readable as APFS ({e})")
-            continue
-        for v in vols:
-            if v.group in skip:
-                log.info(f"{dev} '{v.name}': the boot stub's volume group, skipped")
-                continue
-            try:
-                info = plistlib.loads(v.read_file(v.resolve(SYSTEM_VERSION)[0]))
-                v.resolve(FIRMWARE)
-            except (apfs_ro.ApfsError, ValueError, plistlib.InvalidFileException) as e:
-                log.info(f"{dev} '{v.name}': no radio firmware ({e})")
-                continue
-            found.append(MacOS(dev, v, info.get("ProductBuildVersion"), info.get("ProductVersion")))
-    found.sort(key=lambda m: build_key(m.build), reverse=True)
-    return found
-
-
-class DirVolume:
-    """A macOS root copied or mounted somewhere (--macos DIR), with the
-    apfs_ro volume calls the tool uses. Read only, nothing outside root."""
-    role, encrypted, group = apfs_ro.ROLE_SYSTEM, False, None
-
-    def __init__(self, root):
-        self.root = pathlib.Path(root).resolve()
-        self.name = str(self.root)
-        self.paths = {}
-
-    def _ino(self, path):
-        ino = len(self.paths) + 2
-        self.paths[ino] = path
-        return ino
-
-    @staticmethod
-    def _kind(path):
-        return 10 if path.is_symlink() else 4 if path.is_dir() else 8
-
-    def resolve(self, path):
-        parts = [x for x in path.split("/") if x]
-        full = self.root
-        for n, part in enumerate(parts):
-            if part in (".", ".."):
-                raise apfs_ro.ApfsError(f"{path}: unsupported component")
-            full = full / part
-            if not os.path.lexists(full):
-                raise apfs_ro.ApfsError(f"{path}: {part} not found")
-            if full.is_symlink() and n < len(parts) - 1:
-                raise apfs_ro.ApfsError(f"{path}: {part} is a link")
-        return self._ino(full), self._kind(full)
-
-    def children(self, ino):
-        d = self.paths[ino]
-        return {e.name: (self._ino(pathlib.Path(e.path)), self._kind(pathlib.Path(e.path)))
-                for e in os.scandir(d)}
-
-    def read_file(self, ino):
-        return self.paths[ino].read_bytes()
-
-    def readlink(self, ino):
-        return os.readlink(self.paths[ino])
-
-
-def macos_at(root):
-    """The macOS whose root is the directory root (its SystemVersion.plist)."""
-    vol = DirVolume(root)
+def restore_image(board=None, version=None, open_system=ipsw.open_system, images=ipsw.images_for_version):
+    """[MacOS] of the restore image of this Mac's stub firmware version for
+    its board. NotNow when the image cannot be reached; Refused when no
+    known image fits."""
+    board = board or mac_board()
+    version = version or os_fw_version()
+    if not board or not version:
+        raise Refused("the device tree names no board or stub firmware version "
+                      "(compatible, /chosen/asahi,os-fw-version)")
     try:
-        info = plistlib.loads(vol.read_file(vol.resolve(SYSTEM_VERSION)[0]))
-    except (OSError, apfs_ro.ApfsError, ValueError, plistlib.InvalidFileException) as e:
-        raise Refused(f"{root} is not a macOS root: {e}")
-    return MacOS(str(vol.root), vol, info.get("ProductBuildVersion"), info.get("ProductVersion"))
+        vol, _, build, url = open_system(board, images(version), version)
+    except ipsw.IpswUnavailable as e:
+        raise NotNow(f"the macOS {version} restore image cannot be read now: {e}")
+    except (ipsw.IpswError, apfs_ro.ApfsError) as e:
+        raise Refused(f"no macOS {version} restore image for {board}: {e}")
+    return [MacOS(url.rsplit("/", 1)[-1], vol, build, version)]
 
 
 class Staged:
@@ -1109,12 +1028,7 @@ def plan(esp, macos=None, board=None, out=print):
     if not parts:
         raise Refused("the ESP's vendorfw has no radio firmware this tool follows")
     if macos is None:
-        found = installed_macos(esp)
-        if not found:
-            raise NotNow("no installed macOS System volume with radio firmware was readable")
-        macos = found[0]
-        if len(found) > 1:
-            out("Installed macOS: " + "; ".join(m.describe() for m in found) + " (newest used)")
+        macos = restore_image()[0]
     out(f"Source: {macos.describe()}")
     return {"esp": esp, "vendorfw": vendorfw, "all_fw": all_fw, "macos": macos,
             "manifest": manifest, "parts": parts, "board": board,
@@ -1429,8 +1343,7 @@ def status(esp, board, out=print):
     for x in ("hci:hci_bcm4377", "net:mt7932-fullmac", "hci:mt7932_bt_pcie"):
         if radio_probe(x, text):
             out(f"Up: {x}")
-    for m in installed_macos(esp):
-        out(f"Installed: {m.describe()}")
+    out(f"Source: the macOS {os_fw_version() or '(unknown)'} restore image for {mac_board() or '(unknown)'}")
     st = read_state()
     if st:
         out("Last run: " + json.dumps(st, sort_keys=True))
@@ -1447,7 +1360,7 @@ def tool_digest():
     if _TOOL is None:
         files = {"aurora_wifi_firmware": __file__}
         files.update((n, m.__file__) for n, m in list(sys.modules.items())
-                     if (n == "apfs_ro" or n == "asahi_firmware" or n.startswith("asahi_firmware."))
+                     if (n == "asahi_firmware" or n.startswith("asahi_firmware."))
                      and getattr(m, "__file__", None))
         h = hashlib.sha256()
         for name in sorted(files):
@@ -1493,9 +1406,6 @@ def main(argv=None):
     ap.add_argument("cmd", nargs="?", default="update",
                     choices=["status", "check", "update", "boot", "revert"])
     ap.add_argument("--esp", help="the system ESP (default: the one the device tree names)")
-    ap.add_argument("--macos", metavar="DIR",
-                    help="take the firmware from this macOS root (a mounted or copied System "
-                         "volume) instead of the installed macOS; check and update only")
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO if a.verbose else logging.WARNING,
@@ -1528,14 +1438,7 @@ def main(argv=None):
                 print("The ESP holds no Wi-Fi or Bluetooth firmware this tool follows; "
                       "nothing to do.")
                 return 0
-            if a.macos:
-                if a.cmd not in ("check", "update"):
-                    raise Refused("--macos goes with check or update")
-                found = [macos_at(a.macos)]
-            else:
-                found = installed_macos(esp)
-            if not found:
-                raise NotNow("no installed macOS System volume with radio firmware was readable")
+            found = restore_image()
             # At boot, a macOS build already checked against this ESP package
             # by this tool needs no second read of its tree. A newer tool (one
             # that follows more radios, or converts differently) reads it once.
@@ -1563,9 +1466,7 @@ def main(argv=None):
             try:
                 r = update(esp, found[0], board, dry_run=a.cmd == "check")
             except Refused as e:
-                # Only the installed macOS's refusals concern the boot; a
-                # person's `update --macos DIR` leaves them alone.
-                if remembered(e) and (a.cmd == "boot" or (a.cmd == "update" and not a.macos)):
+                if remembered(e) and a.cmd in ("boot", "update"):
                     write_state(dict(state, refused=refusal(e, found[0], esp)))
                 raise
             if r == "identical" and a.cmd != "check":
@@ -1583,7 +1484,7 @@ def main(argv=None):
         print(f"Not now: {e}", file=sys.stderr)
         return 2
     except apfs_ro.ApfsError as e:
-        print(f"Not now: the macOS volume could not be read: {e}", file=sys.stderr)
+        print(f"Not now: the restore image's System volume could not be read: {e}", file=sys.stderr)
         return 2
 
 

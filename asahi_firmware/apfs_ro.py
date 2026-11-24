@@ -1,12 +1,12 @@
 #!/usr/bin/python3 -I
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Aurora Silicon Contributors
-"""apfs_ro: a minimal read-only APFS reader for the macOS system volume.
+"""apfs_ro: a minimal read-only APFS reader for a macOS System volume.
 
-Reads the sealed macOS System volume of an Apple silicon Mac from Linux,
-straight from the block device, opened O_RDONLY. It never writes, never
-mounts and needs no kernel module or FUSE. Written from Apple's public
-"Apple File System Reference".
+Reads the System volume of a macOS restore image's root file system
+(through aea_ro, by HTTP ranges; see ipsw.py) or of an image file, opened
+O_RDONLY. It never writes, never mounts and needs no kernel module or FUSE.
+Written from Apple's public "Apple File System Reference".
 
 Vendored from speakerguardd (packaging/upgrade/aurora_speaker_upgrade,
 v2 26b88eac); the additions are Volume.group (apfs_volume_group_id) and

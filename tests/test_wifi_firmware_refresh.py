@@ -5,6 +5,7 @@ Synthetic trees only: a fake System volume with the apfs_ro reader's API, and
 an ESP whose asahi/all_firmware.tar.gz and vendorfw/ come from this
 repository's asahi_firmware, as an install writes them.
 """
+import contextlib
 import io
 import json
 import os
@@ -614,10 +615,10 @@ class MainTest(Case):
         self.esp = make_esp(self.root, wifi_tree("old"))
         self.mac = self.macos(wifi_tree("new"))
         self.saved = {k: getattr(awf, k) for k in ("STATE_DIR", "BACKUP_ROOT", "wifi_board",
-                                                   "installed_macos", "exchange", "verify")}
+                                                   "restore_image", "exchange", "verify")}
         awf.STATE_DIR, awf.BACKUP_ROOT = self.state, self.backups
         awf.wifi_board = lambda dt=None: BOARD
-        awf.installed_macos = lambda esp, **kw: [self.mac]
+        awf.restore_image = lambda **kw: [self.mac]
         awf.exchange = lambda a, b: False
         self.geteuid = awf.os.geteuid
         awf.os.geteuid = lambda: 0
@@ -791,14 +792,6 @@ class MainTest(Case):
                                   not str(p).endswith("mt7932.py") else "changed"):
             self.assertNotEqual(awf.tool_digest(), digest)
 
-    def test_update_from_a_macos_dir_leaves_the_boot_refusal_alone(self):
-        before = {"refused": awf.refusal(awf.NoSpace(1 << 62), self.mac, self.esp)}
-        awf.write_state(before)
-        other = self.macos(wifi_tree("new", boards=("maldives",)), build="25D10")
-        with mock.patch.object(awf, "macos_at", return_value=other):
-            self.assertEqual(self.run_main("update", "--macos", str(self.root)), 1)
-        self.assertEqual(awf.read_state(), before)
-
     def test_a_refusal_stands_only_for_the_same_build_esp_and_space(self):
         refused = awf.refusal(awf.Refused("no"), self.mac, self.esp)
         self.assertTrue(awf.refusal_stands(refused, self.mac, self.esp))
@@ -843,18 +836,6 @@ class MainTest(Case):
 
 
 class SelectionTest(Case):
-    def test_newest_macos_and_not_the_stub(self):
-        esp = make_esp(self.root, wifi_tree("old"))
-        stub = FakeVol(wifi_tree("stub"), group="aaaaaaaa-0000-0000-0000-000000000000",
-                       build="22G74", version="13.5")
-        older = FakeVol(wifi_tree("older"), build="24G90", version="15.7")
-        newer = FakeVol(wifi_tree("newer"), name="Macintosh HD - Data?", build="25C56")
-        data = FakeVol({}, name="Data")
-        data.encrypted = True
-        found = awf.installed_macos(esp, devices=["a", "b"], opener=lambda d: FakeContainer(
-            [stub, older, data] if d == "a" else [newer]))
-        self.assertEqual([m.build for m in found], ["25C56", "24G90"])
-
     def test_board_from_device_tree(self):
         dt = self.root / "dt" / "soc" / "pcie@690000000" / "pci@0,0" / "wifi@0,0"
         dt.mkdir(parents=True)
@@ -862,11 +843,49 @@ class SelectionTest(Case):
         self.assertEqual(awf.wifi_board(self.root / "dt"), "hokkaido")
         self.assertIsNone(awf.wifi_board(self.root / "nothing"))
 
-    def test_build_order(self):
-        self.assertLess(awf.build_key("24G90"), awf.build_key("25C56"))
-        self.assertLess(awf.build_key("25C56"), awf.build_key("25G83"))
-        self.assertLess(awf.build_key("25G83"), awf.build_key("26A428"))
+    def test_mac_board_and_stub_version_from_device_tree(self):
+        dt = self.root / "dt"
+        (dt / "chosen").mkdir(parents=True)
+        (dt / "compatible").write_bytes(b"apple,j413\0apple,t8112\0apple,arm-platform\0")
+        (dt / "chosen" / "asahi,os-fw-version").write_bytes(b"13.5\0")
+        self.assertEqual(awf.mac_board(dt), "j413")
+        self.assertEqual(awf.os_fw_version(dt), "13.5")
+        (dt / "chosen" / "asahi,os-fw-version").write_bytes(b"iBoot-1\0")
+        self.assertIsNone(awf.os_fw_version(dt))
+        self.assertIsNone(awf.mac_board(self.root / "nothing"))
 
+    def test_the_source_is_the_stub_versions_restore_image(self):
+        vol = FakeVol(wifi_tree("new"), build="22G74", version="13.5")
+        calls = []
+
+        def open_system(board, images, version):
+            calls.append((board, images, version))
+            return vol, None, "22G74", "https://example.invalid/UniversalMac_13.5_22G74_Restore.ipsw"
+        found = awf.restore_image("j413", "13.5", open_system=open_system,
+                                  images=lambda v: [("22G74", "https://example.invalid/x.ipsw")])
+        self.assertEqual(calls[0][0], "j413")
+        self.assertEqual(calls[0][2], "13.5")
+        self.assertEqual([(m.build, m.version, m.device) for m in found],
+                         [("22G74", "13.5", "UniversalMac_13.5_22G74_Restore.ipsw")])
+
+    def test_no_image_refuses_and_no_network_is_not_now(self):
+        def none(board, images, version):
+            raise awf.ipsw.IpswError("no restore image carries board j999")
+
+        def offline(board, images, version):
+            raise awf.ipsw.IpswUnavailable("offline")
+        with self.assertRaises(awf.Refused):
+            awf.restore_image("j999", "27.2", open_system=none, images=lambda v: [])
+        with self.assertRaises(awf.NotNow):
+            awf.restore_image("j413", "13.5", open_system=offline, images=lambda v: [])
+        with mock.patch.object(awf, "os_fw_version", return_value=None), self.assertRaises(awf.Refused):
+            awf.restore_image("j413", open_system=offline, images=lambda v: [])
+
+    def test_no_installed_macos_reader_is_left(self):
+        for name in ("installed_macos", "macos_at", "DirVolume", "apfs_partitions", "stub_groups", "build_key"):
+            self.assertFalse(hasattr(awf, name), name)
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            awf.main(["check", "--macos", "/mnt"])
 
 if __name__ == "__main__":
     unittest.main()
