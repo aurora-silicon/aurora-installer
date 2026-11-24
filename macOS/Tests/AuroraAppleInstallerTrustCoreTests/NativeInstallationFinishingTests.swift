@@ -187,7 +187,7 @@
               root: root, prefix: "wifi",
               tree: NativeHandoffFileTree(root, protected: true, owner: owner), owner: owner)
           },
-          audioTuning: { _ in
+          audioTuning: { _, _ in
             // Synthetic tuning: a laptop with speaker calibration, and a
             // desktop without it that still gets its tuning folder.
             NativeAudioTuningInputs.Snapshot(

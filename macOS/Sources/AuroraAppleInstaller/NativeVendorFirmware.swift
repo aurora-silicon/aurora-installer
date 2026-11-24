@@ -32,9 +32,11 @@
     var systemWiFi: @Sendable (uid_t) throws -> NativeFirmwareInputFiles.Snapshot = {
       try NativeSystemWiFiFirmware.live(owner: $0)
     }
-    /// This Mac's own speaker tuning (`AID<n>` and `speaker-thiele-small`).
-    var audioTuning: @Sendable (uid_t) throws -> NativeAudioTuningInputs.Snapshot? = {
-      try NativeAudioTuningInputs.live(owner: $0)
+    /// This Mac's speaker tuning: the model's `AID<n>` files from the pinned
+    /// restore image, extracted under the working directory, and this
+    /// unit's `speaker-thiele-small`.
+    var audioTuning: @Sendable (uid_t, URL) async throws -> NativeAudioTuningInputs.Snapshot? = {
+      try await NativeAudioTuningInputs.live(owner: $0, workingDirectory: $1)
     }
 
     func prepare(
@@ -282,10 +284,20 @@
           try merge(calibration, into: &outputs)
           try merge(calibration, into: &fallback)
         }
-        // The speaker protection's parameters: this Mac's own Apple tuning,
-        // stored like the other per-machine firmware and never shipped.
-        let tuning = try InstallerPerformance.measure("vendor_audio_tuning") {
-          try NativeAudioTuningInputs.collect(audioTuning, owner: owner)
+        // The speaker protection's parameters: the model's Apple tuning from
+        // the pinned restore image and this unit's calibration, stored like
+        // the other per-machine firmware and never shipped.
+        let tuning = try await InstallerPerformance.measuring("vendor_audio_tuning") {
+          let snapshot: Result<NativeAudioTuningInputs.Snapshot?, any Error>
+          do {
+            snapshot = .success(
+              try await audioTuning(owner, package.packageURL.deletingLastPathComponent()))
+          } catch is CancellationError {
+            throw CancellationError()
+          } catch {
+            snapshot = .failure(error)
+          }
+          return try NativeAudioTuningInputs.collect({ _ in try snapshot.get() }, owner: owner)
         }
         try merge(tuning.package, into: &outputs)
         try merge(tuning.fallback, into: &fallback)
