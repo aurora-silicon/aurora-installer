@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: MIT
 """asahi_firmware.ipsw and udif_ro: the restore image source. Synthetic
 data only, no network."""
+import http.client
+import io
 import json
 import pathlib
 import plistlib
@@ -10,10 +12,11 @@ import sys
 import types
 import unittest
 import zlib
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from asahi_firmware import ipsw, udif_ro  # noqa: E402
+from asahi_firmware import ipsw, remotezip, udif_ro  # noqa: E402
 
 
 def manifest(build, version, boards, ext=".dmg.aea"):
@@ -51,7 +54,6 @@ class Catalog(unittest.TestCase):
         self.assertEqual(ipsw.images_for_version("14.0", e), [])
 
     def test_the_feed_is_asked_only_for_a_version_the_catalog_lacks(self):
-        from unittest import mock
         with mock.patch.object(ipsw, "catalog", return_value=[("27.2", "26B123", "https://b")]), \
                 mock.patch.object(ipsw, "feed", return_value=[("27.3", "26C1", "https://f")]) as f:
             self.assertEqual(ipsw.images_for_version("27.2"), [("26B123", "https://b")])
@@ -118,6 +120,33 @@ def udif(chunks, name="Apple_APFS", total=None):
 
 
 class Udif(unittest.TestCase):
+    def test_incomplete_http_range_keeps_the_udif_source_retryable(self):
+        url = "https://updates.cdn-apple.com/example.ipsw"
+        build = "22G74"
+        manifest_data = manifest(build, "13.5", ["j413"], ext=".dmg")
+
+        def open_url(request, **kwargs):
+            if request.get_method() == "HEAD":
+                response = io.BytesIO()
+                response.headers = {"Content-Length": "1024", "Accept-Ranges": "bytes"}
+                return response
+            if reported_by_http:
+                raise http.client.IncompleteRead(bytes(1023), 1)
+            return io.BytesIO(bytes(1023))
+
+        for reported_by_http in (False, True):
+            with self.subTest(reported_by_http=reported_by_http), \
+                    mock.patch.object(remotezip.urllib.request, "urlopen", side_effect=open_url) as fetch:
+                remote = remotezip.RemoteFile(url)
+                archive = types.SimpleNamespace(members={
+                    "BuildManifest.plist": types.SimpleNamespace(usize=len(manifest_data),
+                                                               read=lambda n: manifest_data),
+                    f"{build}-j413.dmg": types.SimpleNamespace(method=0, usize=1024, pread=remote.pread),
+                })
+                with self.assertRaisesRegex(ipsw.IpswUnavailable, "range fetch failed"):
+                    ipsw.open_system("j413", [(build, url)], "13.5", open_zip=lambda _: archive)
+                self.assertEqual(fetch.call_count, 6)  # Two HEADs and four range attempts.
+
     def test_reads_across_chunk_kinds(self):
         a, c = bytes(range(256)) * 4, b"\x07" * 1024
         src, size = udif([(udif_ro.RAW, a), (udif_ro.ZERO, 2), (udif_ro.ZLIB, c), (udif_ro.IGNORE, 1)])

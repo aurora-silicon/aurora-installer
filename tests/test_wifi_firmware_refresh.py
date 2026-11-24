@@ -714,6 +714,15 @@ class MainTest(Case):
             self.assertEqual(self.run_main("boot"), 2)
         self.assertIsNone(awf.read_state().get("refused"))
 
+    def test_an_incomplete_range_while_staging_is_retryable(self):
+        before = awf.tree_hashes(self.esp)
+        incomplete = awf.remotezip.RemoteZipUnavailable("short range response")
+        with mock.patch.object(awf, "stage_tree", side_effect=incomplete) as stage:
+            self.assertEqual(self.run_main("boot"), 2)
+        stage.assert_called_once()
+        self.assertIsNone(awf.read_state().get("refused"))
+        self.assertEqual(awf.tree_hashes(self.esp), before)
+
     def test_a_change_made_by_an_earlier_version_is_checked_again(self):
         # The state an earlier version left: one Wi-Fi file, no tool digest.
         self.checked()

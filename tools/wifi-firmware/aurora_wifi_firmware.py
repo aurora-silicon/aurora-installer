@@ -49,7 +49,7 @@ for cand in (HERE, HERE.parents[1]):
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-from asahi_firmware import apfs_ro, ipsw, mt7932  # noqa: E402
+from asahi_firmware import apfs_ro, ipsw, mt7932, remotezip  # noqa: E402
 from asahi_firmware.bluetooth import BluetoothFWCollection  # noqa: E402
 from asahi_firmware.core import FWFile, FWPackage  # noqa: E402
 from asahi_firmware.wifi import WiFiFWCollection  # noqa: E402
@@ -1503,7 +1503,7 @@ def main(argv=None):
     except apfs_ro.ApfsError as e:
         print(f"Not now: the restore image's System volume could not be read: {e}", file=sys.stderr)
         return 2
-    except (ipsw.IpswUnavailable, ipsw.aea_ro.AeaUnavailable) as e:
+    except (ipsw.IpswUnavailable, ipsw.aea_ro.AeaUnavailable, remotezip.RemoteZipUnavailable) as e:
         print(f"Not now: the restore image cannot be read now: {e}", file=sys.stderr)
         return 2
     except ipsw.aea_ro.AeaError as e:

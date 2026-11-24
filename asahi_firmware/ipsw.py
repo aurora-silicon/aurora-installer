@@ -129,9 +129,9 @@ def find(board, images, version=None, open_zip=remotezip.RemoteZip):
     for build, url in images:
         try:
             bm = _manifest(open_zip(url))
-        except (remotezip.RemoteZipError, OSError) as e:
+        except (remotezip.RemoteZipUnavailable, OSError) as e:
             raise IpswUnavailable(f"restore image {build}: {e}") from None
-        except (IpswError, ValueError) as e:
+        except (IpswError, remotezip.RemoteZipError, ValueError) as e:
             raise IpswError(f"restore image {build}: {e}") from None
         got, gotv = bm.get("ProductBuildVersion"), bm.get("ProductVersion")
         if got != build or (version is not None and gotv != version):
@@ -149,7 +149,7 @@ def open_system(board, images, version=None, open_zip=remotezip.RemoteZip):
     build, url, member = find(board, images, version, open_zip)
     try:
         return _open(board, build, url, member, open_zip)
-    except (aea_ro.AeaUnavailable, OSError) as e:
+    except (aea_ro.AeaUnavailable, remotezip.RemoteZipUnavailable, OSError) as e:
         raise IpswUnavailable(f"restore image {build}: {e}") from None
     except (aea_ro.AeaError, apfs_ro.ApfsError, udif_ro.UdifError, remotezip.RemoteZipError) as e:
         raise IpswError(f"restore image {build}: {e}") from None
