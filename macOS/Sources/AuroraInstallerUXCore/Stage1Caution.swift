@@ -21,6 +21,9 @@
     private static let m4MacMini =
       "Support for the Mac mini with M4 is experimental. An earlier build of this installer completed on one, but the system it installed did not start Aurora. With the current published installer payloads, Aurora is not expected to start yet. Aurora has started on one only with changes that are still under review; with those changes, HDMI, the front USB ports and Ethernet worked. Even with those changes, the rear USB-C ports and GPU acceleration did not work."
 
+    private static let m4MaxMacStudio =
+      "Support for the Mac Studio with M4 Max is experimental. An earlier build of this installer installed Aurora on one, and it started: HDMI and USB-C displays, USB, Ethernet and GPU acceleration worked, and sound worked after a system update. If the first start after the installation shows no picture, restart the Mac once. This build has not been tried on one, so Aurora may not start."
+
     private static let newMaxBoard =
       "Support for the 16-inch MacBook Pro with M4 Max is experimental: Aurora has run on one, but not from this installer, and the Linux device tree this installer uses for it has not started on one yet, so Aurora may not start."
 
@@ -36,8 +39,14 @@
     private static let unqualifiedT6050Composition =
       "This installer and its kernel, startup code and firmware combination have not been qualified on this Mac. Its Linux device tree is present, but Aurora may not start and some hardware may not work. Continue only after acknowledging the warning and the recovery steps."
 
+    private static let m5Air13 =
+      "Support for the 13-inch MacBook Air with M5 is experimental, and it needs macOS 27.2 or later: on an older macOS the installer asks you to update first. The Aurora team has installed it with a test build of this installer on the macOS 27.2 stub and started Linux from its internal disk, but only with a newer U-Boot than the published downloads carry: with theirs, the Mac stops at the U-Boot prompt, and macOS stays available from Startup Options. The kernel in the published downloads does not bring up its GPU or display driver on the macOS 27.2 stub yet, so the built-in display works only as a simple boot screen, and the installer does not collect its Wi-Fi and Bluetooth firmware yet. A standard install has no GPU acceleration, display driver, Wi-Fi or Bluetooth, and Aurora may not start."
+
     private static let m5Air15 =
       "Support for the 15-inch MacBook Air with M5 is experimental, and it needs macOS 27.2 or later: on an older macOS the installer asks you to update first. The Aurora team has installed it with a test build of this installer on the macOS 27.2 stub, finished the installation and started Linux on it, but only with a separately built kernel. The kernel in the published downloads does not support most of its hardware yet, and the installer does not collect its Wi-Fi and Bluetooth firmware yet, so a standard install has no GPU acceleration, display driver, Wi-Fi or Bluetooth, and Aurora may not start."
+
+    private static let m5Pro14 =
+      "Support for the 14-inch MacBook Pro with M5 is experimental, and it needs macOS 27.2 or later: on an older macOS the installer asks you to update first. The Aurora team does not have one. A contributor has installed it on the macOS 27.2 stub with a development kernel. Its GPU and built-in display need Linux changes that are still under review (aurora-silicon/linux#2093) and are not in the kernel in the published downloads yet. A standard install has no GPU acceleration, and Aurora may start without the built-in display."
 
     static let reasons: [String: String] = [
       "apple,j575d": untriedChip,
@@ -50,10 +59,10 @@
       "apple,j773g": m4MacMini,
       "apple,j614c": untriedM4Board,
       "apple,j773s": untriedM4Board,
-      "apple,j575c": untriedM4Board,
-      "apple,j813": untriedM5M6,
+      "apple,j575c": m4MaxMacStudio,
+      "apple,j813": m5Air13,
       "apple,j873g": untriedM5M6,
-      "apple,j704": describedOnly,
+      "apple,j704": m5Pro14,
       "apple,j815": m5Air15,
       "apple,j804": describedOnly,
       "apple,j833ct": describedOnly,

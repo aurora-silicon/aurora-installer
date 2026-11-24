@@ -238,14 +238,6 @@ class PrivateTransport(unittest.TestCase):
                 offset = (offset + fields[6] + 3) & ~3
                 if name == "TRAILER!!!": break
             self.assertEqual(modes["vendorfw/" + path], 0o600)
-            sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "tools/speaker-tuning"))
-            import speaker_tuning
-            buffer = io.BytesIO()
-            with tarfile.open(fileobj=buffer, mode="w") as tar:
-                speaker_tuning.tar_add(tar, "audio-tuning/" + fill.NAME, b"synthetic")
-            buffer.seek(0)
-            with tarfile.open(fileobj=buffer) as tar:
-                self.assertEqual(tar.getmembers()[0].mode, 0o600)
 
 class BundleIntegration(unittest.TestCase):
     def test_optional_fill_round_trip_and_old_full_manifest_unchanged(self):
@@ -296,12 +288,3 @@ class BundleIntegration(unittest.TestCase):
                 self.assertEqual(capture.call_args.args[1:4], (AID, "00A000", unit))
                 self.assertEqual(fill.NAME in col.bundle, result is raw)
 
-class ForcedReadbackResult(unittest.TestCase):
-    def test_explicit_verification_cannot_report_success_without_a_field(self):
-        import types
-        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "tools/speaker-tuning"))
-        import speaker_tuning
-        with patch.object(speaker_tuning, "AudioTuningFWCollection",
-                          return_value=types.SimpleNamespace(bundle=files(False))):
-            with self.assertRaises(speaker_tuning.Refused):
-                speaker_tuning.collect(force_lsm2_fill=True)

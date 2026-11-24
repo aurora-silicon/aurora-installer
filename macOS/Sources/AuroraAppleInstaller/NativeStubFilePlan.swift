@@ -299,7 +299,7 @@
     /// Encrypted Archive.
     func isTopLevelRestore(_ copy: Copy) -> Bool {
       copy.role == "Preboot" && copy.path.hasPrefix(restorePath + "/")
-        && !String(copy.path.dropFirst(restorePath.count + 1)).contains("/")
+        && !String(copy.path.dropFirst(restorePath.count + 1)).utf8.contains(UInt8(ascii: "/"))
     }
 
     /// Every member the stub stage restores through `restore`, which decodes

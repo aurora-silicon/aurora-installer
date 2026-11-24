@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -24,6 +25,13 @@ from macho_fixtures import (CPU_X86_64, fat, other_lattice, padded,  # noqa: E40
 
 LATTICE = synthetic_lattice()
 _component = None
+COMPONENT = None
+
+
+def collection(**kw):
+    """A collection from a staged tree with the synthetic AudioDSP component."""
+    kw.setdefault("audiodsp", COMPONENT)
+    return AudioTuningFWCollection(**kw)
 
 
 def setUpModule():
@@ -32,7 +40,8 @@ def setUpModule():
     _component = tempfile.TemporaryDirectory()
     path = pathlib.Path(_component.name) / "AudioDSP"
     path.write_bytes(fat(thin(padded(LATTICE), cpu=CPU_X86_64), thin(padded(LATTICE))))
-    audio_tuning.AUDIODSP_PATH = str(path)
+    global COMPONENT
+    COMPONENT = str(path)
 
 
 def tearDownModule():
@@ -78,6 +87,15 @@ def tunings(root, aid="AID35"):
 
 
 class AudioTuningTest(unittest.TestCase):
+    def test_no_staged_tree_collects_nothing(self):
+        """There is no default source: without a staged restore-image tree
+        nothing is read, so the installed macOS is never a source."""
+        run = fake_run(AID35)
+        with mock.patch.object(audio_tuning, "read_folder", side_effect=AssertionError):
+            self.assertEqual(AudioTuningFWCollection(run=run).files(), [])
+            self.assertEqual(AudioTuningFWCollection(tunings_root="/x", run=run).files(), [])
+            self.assertEqual(AudioTuningFWCollection(audiodsp=COMPONENT, run=run).files(), [])
+
     def test_acoustic_id_is_one_little_endian_word(self):
         self.assertEqual(audio_tuning.acoustic_id(b"\x23\0\0\0"), 35)
         self.assertIsNone(audio_tuning.acoustic_id(b"\x23"))
@@ -88,7 +106,7 @@ class AudioTuningTest(unittest.TestCase):
             root = pathlib.Path(tmp)
             tunings(root)
             spts = bytes(range(16))
-            col = AudioTuningFWCollection(
+            col = collection(
                 tunings_root=str(root),
                 run=fake_run([{"acoustic-id": b"\x23\0\0\0", "speaker-thiele-small": spts}]))
             names = sorted(n for n, _ in col.files())
@@ -132,7 +150,7 @@ class AudioTuningTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             tunings(root, "AID12")
-            col = AudioTuningFWCollection(
+            col = collection(
                 tunings_root=str(root), run=fake_run([{"acoustic-id": b"\x0c\0\0\0"}]))
             names = [n for n, _ in col.files()]
             self.assertIn("apple/audio-tuning/AID12/ADM/config.plist", names)
@@ -142,11 +160,11 @@ class AudioTuningTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             tunings(root)
-            self.assertEqual(AudioTuningFWCollection(tunings_root=str(root), run=fake_run([])).files(), [])
+            self.assertEqual(collection(tunings_root=str(root), run=fake_run([])).files(), [])
             two = [{"acoustic-id": b"\x23\0\0\0"}, {"acoustic-id": b"\x09\0\0\0"}]
-            self.assertEqual(AudioTuningFWCollection(tunings_root=str(root), run=fake_run(two)).files(), [])
+            self.assertEqual(collection(tunings_root=str(root), run=fake_run(two)).files(), [])
             missing = [{"acoustic-id": b"\x09\0\0\0"}]
-            self.assertEqual(AudioTuningFWCollection(tunings_root=str(root), run=fake_run(missing)).files(), [])
+            self.assertEqual(collection(tunings_root=str(root), run=fake_run(missing)).files(), [])
 
     def test_links_out_of_the_folder_are_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -154,7 +172,7 @@ class AudioTuningTest(unittest.TestCase):
             folder = tunings(root)
             (root / "outside").write_bytes(b"x")
             (folder / "escape").symlink_to(root / "outside")
-            col = AudioTuningFWCollection(
+            col = collection(
                 tunings_root=str(root), run=fake_run([{"acoustic-id": b"\x23\0\0\0"}]))
             self.assertEqual(col.files(), [])
 
@@ -163,7 +181,7 @@ AID35 = [{"acoustic-id": b"\x23\0\0\0"}]
 
 
 def collect(root):
-    return AudioTuningFWCollection(tunings_root=str(root), run=fake_run(AID35))
+    return collection(tunings_root=str(root), run=fake_run(AID35))
 
 
 def fallback(tmp):
@@ -312,7 +330,7 @@ class CompletenessTest(unittest.TestCase):
             raise OSError("ioreg failed")
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertLogs("asahi_firmware.audio_tuning", "WARNING"):
-                col = AudioTuningFWCollection(tunings_root=tmp, run=broken)
+                col = collection(tunings_root=tmp, run=broken)
             self.assertNothing(col)
             self.assertFalse(col.write_fallback(tmp))
             self.assertFalse((pathlib.Path(tmp) / "audio-tuning").exists())
@@ -348,7 +366,7 @@ class SpeakerIDTest(unittest.TestCase):
                 self.assertIsNone(sid([{"device UID": "Speaker", "speakerID": bad}]))
 
     def collected(self, root, speakers):
-        col = AudioTuningFWCollection(
+        col = collection(
             tunings_root=str(root), run=fake_run(AID35, speakers=speakers))
         return col, json.loads(dict(col.files())["apple/audio-tuning/manifest.json"].data)
 
@@ -397,7 +415,7 @@ class SpeakerIDTest(unittest.TestCase):
             tunings(root)
             (root / "Config" / "AID35.plist").unlink()
             with self.assertLogs("asahi_firmware.audio_tuning", "WARNING"):
-                col = AudioTuningFWCollection(
+                col = collection(
                     tunings_root=str(root), run=fake_run(AID35, speakers=[SPEAKER]))
             self.assertEqual(col.files(), [])
             self.assertFalse(col.write_fallback(tmp))
@@ -629,7 +647,7 @@ class LatticeTest(unittest.TestCase):
     def collect_with(self, root, component):
         path = root / "component"
         path.write_bytes(component)
-        return AudioTuningFWCollection(tunings_root=str(root), run=fake_run(AID35),
+        return collection(tunings_root=str(root), run=fake_run(AID35),
                                        audiodsp=str(path))
 
     def test_the_bundle_carries_the_lattice_and_its_record(self):
@@ -670,7 +688,7 @@ class LatticeTest(unittest.TestCase):
             root = pathlib.Path(tmp)
             tunings(root)
             with self.assertLogs("asahi_firmware.audio_tuning", "ERROR"):
-                col = AudioTuningFWCollection(tunings_root=str(root), run=fake_run(AID35),
+                col = collection(tunings_root=str(root), run=fake_run(AID35),
                                               audiodsp=str(root / "absent"))
             self.assertEqual(col.bundle, {})
 
@@ -735,7 +753,7 @@ class BuzzKillMatrixTest(unittest.TestCase):
     def collect_with(self, root, component, buzzkill=True):
         path = root / "component"
         path.write_bytes(component)
-        return AudioTuningFWCollection(tunings_root=str(root), run=fake_run(AID35),
+        return collection(tunings_root=str(root), run=fake_run(AID35),
                                        audiodsp=str(path), buzzkill=buzzkill)
 
     def test_not_collected_by_default(self):
@@ -837,7 +855,7 @@ class IdentityTest(unittest.TestCase):
         base = pathlib.Path(tmp.name)
         tunings(base)
         nodes = nodes or [{"acoustic-id": b"\x23\0\0\0", "speaker-thiele-small": bytes(range(16))}]
-        col = AudioTuningFWCollection(tunings_root=str(base), run=fake_run(nodes, root=root))
+        col = collection(tunings_root=str(base), run=fake_run(nodes, root=root))
         self.assertTrue(col.bundle)
         return col, base
 

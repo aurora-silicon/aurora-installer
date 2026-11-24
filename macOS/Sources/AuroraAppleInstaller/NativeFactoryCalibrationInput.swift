@@ -35,7 +35,9 @@
       var result = [String: Data]()
       var total = 0
       for name in names.sorted() {
-        guard !name.contains("/") else { throw NativePeripheralInputError.localInput }
+        guard !name.utf8.contains(UInt8(ascii: "/")) else {
+          throw NativePeripheralInputError.localInput
+        }
         let bytes: Data
         if name.hasPrefix("BWC2-") {
           bytes = try read(tree, name: name, volumeDevice: device)
@@ -99,7 +101,7 @@
       volumeDevice: String? = nil, afterRead: () throws -> Void = {}
     ) throws -> Data {
       guard maximum > 0, maximum <= 64 << 20,
-        name.utf8.count <= 255, !name.contains("/"),
+        name.utf8.count <= 255, !name.utf8.contains(UInt8(ascii: "/")),
         NativeHandoffEvidence.safeRelative(name)
       else { throw NativePeripheralInputError.localInput }
       let path = NativeSensorInputCollector.factoryRelativePath + "/" + name

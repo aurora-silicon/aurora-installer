@@ -2,7 +2,7 @@
 import Foundation
 
 /// Shared Broadcom radio firmware conversions. Inputs are admitted, relative
-/// files from the selected Recovery image or the installed macOS system volume,
+/// files from the stub's Recovery image or its restore image's System volume,
 /// never arbitrary host filesystem paths.
 public enum BroadcomFirmware {
   private final class Node {
@@ -194,14 +194,30 @@ public enum BroadcomFirmware {
 
   public enum WiFiSource: String, Sendable { case system, recovery }
 
-  /// The installed macOS ships every board's Wi-Fi firmware on its sealed
-  /// system volume, while a Recovery image may carry only part of a chip's
-  /// set: 26.6.2 (25G83) Recovery holds no usable BCM4388 rev C2 firmware.
-  /// Prefer the installed system, and use Recovery only when it alone has
-  /// this board's firmware or the board is unknown.
+  /// A restore image's System volume ships every board's Wi-Fi firmware,
+  /// while its Recovery image may carry only part of a chip's set: 26.6.2
+  /// (25G83) Recovery holds no usable BCM4388 rev C2 firmware. Prefer the
+  /// stub restore image's System volume (`RadioFirmwareRestoreImages`), and
+  /// use Recovery only when it alone has this board's firmware or the board
+  /// is unknown. Never the running macOS.
   public static func wifiSource(board: String?, system: [String: Data]?) -> WiFiSource {
     guard let board, let system, carriesWiFi(system, board: board) else { return .recovery }
     return .system
+  }
+
+  /// `outputs` with this board's Wi-Fi outputs (`...-pcie.apple,<board>.`
+  /// and `...,<board>-<sku>.`) replaced by `board` ones: the converted files
+  /// of that one board from the stub restore image's System volume.
+  public static func replacingWiFi(
+    _ outputs: [String: Data], board: String, with boardOutputs: [String: Data]
+  ) throws -> [String: Data] {
+    func own(_ name: String) -> Bool {
+      name.contains("-pcie.apple," + board + ".") || name.contains("-pcie.apple," + board + "-")
+    }
+    try require(
+      !boardOutputs.isEmpty && boardOutputs.keys.allSatisfy(own),
+      "The board's Wi-Fi firmware names another board.")
+    return outputs.filter { !own($0.key) }.merging(boardOutputs) { _, board in board }
   }
 
   /// The Bluetooth names a board still lacks: firmware and its patch table

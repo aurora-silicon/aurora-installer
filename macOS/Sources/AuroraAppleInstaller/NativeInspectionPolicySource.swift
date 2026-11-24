@@ -255,7 +255,7 @@
           },
           "j704": {
             "expert": false,
-            "minimum": "26.6.2"
+            "minimum": "27.2"
           },
           "j713": {
             "expert": false,
@@ -303,7 +303,7 @@
           },
           "j813": {
             "expert": false,
-            "minimum": "26.6.2"
+            "minimum": "27.2"
           },
           "j815": {
             "expert": false,
@@ -368,12 +368,10 @@
               "j623",
               "j624",
               "j700",
-              "j704",
               "j713",
               "j715",
               "j773g",
-              "j773s",
-              "j813"
+              "j773s"
             ],
             "sourceURL": "https://updates.cdn-apple.com/2026SummerFCS/fullrestores/140-75212/A2A24B94-1FC1-45A3-93F7-C51B02AF1F4D/UniversalMac_26.6.2_25G83_Restore.ipsw",
             "version": "26.6.2"
@@ -469,12 +467,14 @@
             "minimumMacOS": "27.2",
             "minimumRecovery": "26.2.123.0.0,0",
             "models": [
+              "j704",
               "j714c",
               "j714s",
               "j716c",
               "j716s",
               "j775c",
               "j775d",
+              "j813",
               "j815",
               "j873s"
             ],

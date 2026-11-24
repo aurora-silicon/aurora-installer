@@ -99,7 +99,7 @@ public enum FirmwarePackageBuilder {
       try require(
         safeRelative(name) && name.utf8.count <= 255 && names.insert(name).inserted
           && name.split(separator: "/").count >= 2
-          && safeRelative(leaf) && (parent || !leaf.contains("/"))
+          && safeRelative(leaf) && (parent || !leaf.utf8.contains(UInt8(ascii: "/")))
           && target.utf8.count <= 100, "Invalid fallback alias.")
       let components = name.split(separator: "/").dropLast(parent ? 2 : 1).map(String.init)
       let resolved = (components + [leaf]).joined(separator: "/")

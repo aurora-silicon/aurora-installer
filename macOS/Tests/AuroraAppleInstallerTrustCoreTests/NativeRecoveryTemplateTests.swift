@@ -180,7 +180,8 @@
 
     func testFlatContainerRejectsTraversalMalformedDataAndUnsignedApp() throws {
       for mode in [
-        "traversal", "absolute", "empty-component", "collision", "malformed", "signature",
+        "traversal", "absolute", "empty-component", "collision", "combining-traversal",
+        "malformed", "signature",
       ] {
         let (root, app) = try fixture()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -193,6 +194,7 @@
           let name = [
             "traversal": "Contents/../outside", "absolute": "/outside",
             "empty-component": "Contents//bad", "collision": "Contents/MacOS",
+            "combining-traversal": "Contents/../\u{301}x",
           ][mode]!
           files[name] = Data("invalid".utf8)
           bytes = try JSONEncoder().encode(files)
@@ -208,6 +210,28 @@
           try FileManager.default.contentsOfDirectory(atPath: root.path).contains {
             $0.hasPrefix("native-recovery-")
           })
+      }
+    }
+
+    func testMemberNamesAreJudgedOnBytesNotCharacters() {
+      // A combining mark after "/", or a prepended mark before it, makes one
+      // Character with it, so a Character split misses that "/".
+      let climb = "Contents/" + String(repeating: "\u{600}/../../\u{301}", count: 3) + "x"
+      for name in [
+        "Contents/../\u{301}x", "Contents/..\u{0}\u{301}", "Contents/a\u{0}\u{301}",
+        "Contents/./\u{301}", "Contents/a//\u{301}", "Contents/\u{301}/../../x",
+        "Contents/\u{600}/../x", climb, "/\u{301}Contents/x", "Contents\u{301}/x", "Contents",
+        "Contents/", "contents/x", "Contents/..", "Contents/.", "",
+        "Contents/" + String(repeating: "a", count: 1016),
+      ] {
+        XCTAssertFalse(NativeRecoveryTemplate.isSafeMemberName(name), name.debugDescription)
+      }
+      for name in [
+        "Contents/Info.plist", "Contents/MacOS/OmarchyRecovery", "Contents/\u{301}x",
+        "Contents/..\u{301}/x", "Contents/a/.\u{301}", "Contents/..a", "Contents/\u{E9}",
+        "Contents/\u{600}x", "Contents/" + String(repeating: "a", count: 1015),
+      ] {
+        XCTAssertTrue(NativeRecoveryTemplate.isSafeMemberName(name), name.debugDescription)
       }
     }
 

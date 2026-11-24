@@ -85,7 +85,8 @@
       }
       let info = try environment.disk(target.system.identifier)
       guard let name = info["VolumeName"] as? String, (1...80).contains(name.count),
-        !name.contains("/"), name.unicodeScalars.allSatisfy({ $0.value >= 32 && $0.value != 127 }),
+        !name.utf8.contains(UInt8(ascii: "/")),
+        name.unicodeScalars.allSatisfy({ $0.value >= 32 && $0.value != 127 }),
         (info["VolumeUUID"] as? String)?.uppercased() == target.system.uuid.uppercased(),
         (info["APFSVolumeGroupID"] as? String)?.uppercased() == target.group.uppercased(),
         info["MountPoint"] as? String == systemRoot.path

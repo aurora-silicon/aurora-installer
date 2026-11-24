@@ -41,7 +41,7 @@ struct InstallConfiguration: Decodable {
     guard config.schema == 2, let mode = AuraBootMode(recorded: config.bootMode),
       config.stage2Path == AuraStage1Format.stage2Path(executeWindow: mode == .macho),
       !config.volumeName.isEmpty, config.volumeName.count <= 80,
-      !config.volumeName.contains("/"),
+      !config.volumeName.utf8.contains(UInt8(ascii: "/")),
       config.volumeName.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) })
     else { throw InstallConfigurationError.invalid }
     for identifier in [config.systemUUID, config.groupUUID, config.prebootUUID, config.espUUID] {
