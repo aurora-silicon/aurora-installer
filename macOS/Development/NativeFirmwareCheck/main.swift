@@ -22,29 +22,42 @@ private actor MeasuredIPSWReader: FirmwareRangeReading {
 @main struct AuroraFirmwareCheck {
   static func main() async {
     do {
-      if (CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "policy")
-        || CommandLine.arguments == [CommandLine.arguments[0], "policy-live"]
-      {
-        let inputs: [String: Data]
-        if CommandLine.arguments[1] == "policy-live" {
-          guard let live = try NeoRegulatoryPolicy.liveInputs() else {
-            throw RestoreFailure("The live macOS policy tables do not match the pins.")
-          }
-          inputs = live
-        } else {
-          let directory = URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)
-          inputs = try Dictionary(
-            uniqueKeysWithValues: NeoRegulatoryPolicy.inputSHA256.keys.map { name in
-              let file = try FileHandle(
-                forReadingFrom: directory.appendingPathComponent("sunrise/" + name))
-              defer { try? file.close() }
-              let bytes = try file.read(upToCount: (32 << 20) + 1) ?? Data()
-              guard bytes.count <= 32 << 20 else {
-                throw RestoreFailure("Regulatory input exceeds its budget.")
-              }
-              return (name, bytes)
-            })
-        }
+      if CommandLine.arguments.count == 4 && CommandLine.arguments[1] == "speaker-tuning" {
+        // speaker-tuning BOARD:ACOUSTIC-ID OUTPUT (j713:37): the files the installer
+        // reads this board's speaker tuning from, extracted from the pinned
+        // restore image's authenticated ranges. Reports names, sizes and
+        // digests only.
+        guard let acousticID = UInt32(CommandLine.arguments[2].split(separator: ":").last ?? "")
+        else { throw RestoreFailure("usage: speaker-tuning BOARD:ACOUSTIC-ID OUTPUT") }
+        let board = String(CommandLine.arguments[2].split(separator: ":").first ?? "")
+        let source = try SpeakerTuningRestoreImages.source(board: board, acousticID: acousticID)
+        let output = URL(fileURLWithPath: CommandLine.arguments[3], isDirectory: true)
+        let receipt = try await FirmwareExtractor().extract(source.plan, to: output)
+        let report: [String: Any] = [
+          "release": source.release, "build": source.build, "acousticID": acousticID,
+          "recipeSHA256": source.plan.recipeSHA256, "rangeBytes": receipt.authenticatedRangeBytes,
+          "componentSHA256": source.componentSHA256 ?? "",
+          "files": receipt.files.map {
+            ["name": $0.name, "bytes": $0.sizeBytes, "sha256": $0.sha256]
+          },
+        ]
+        FileHandle.standardOutput.write(
+          try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]) + Data([10]))
+        return
+      }
+      if CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "policy" {
+        let directory = URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)
+        let inputs: [String: Data] = try Dictionary(
+          uniqueKeysWithValues: NeoRegulatoryPolicy.inputSHA256.keys.map { name in
+            let file = try FileHandle(
+              forReadingFrom: directory.appendingPathComponent("sunrise/" + name))
+            defer { try? file.close() }
+            let bytes = try file.read(upToCount: (32 << 20) + 1) ?? Data()
+            guard bytes.count <= 32 << 20 else {
+              throw RestoreFailure("Regulatory input exceeds its budget.")
+            }
+            return (name, bytes)
+          })
         let policies = try NeoRegulatoryPolicy.derive(inputs)
         func inventory(_ files: [String: Data], strip: String = "") -> String {
           let index = files.keys.sorted().map { name in
@@ -58,8 +71,7 @@ private actor MeasuredIPSWReader: FirmwareRangeReading {
         let report: [String: Any] = [
           "v1Count": v1.count, "v1InventorySHA256": inventory(v1),
           "v2Count": v2.count, "v2InventorySHA256": inventory(v2, strip: "mediatek/mt7932/"),
-          "source": CommandLine.arguments[1] == "policy-live"
-            ? "live-macOS" : "authenticated-inputs",
+          "source": "authenticated-inputs",
         ]
         FileHandle.standardOutput.write(
           try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]) + Data([10]))
@@ -215,7 +227,7 @@ private actor MeasuredIPSWReader: FirmwareRangeReading {
         ["extract", "extract-ipsw", "verify", "zip"].contains(CommandLine.arguments[1])
       else {
         throw RestoreFailure(
-          "usage: AuroraFirmwareCheck extract|extract-ipsw|verify|zip OUTPUT [CHECKPOINT]; or policy INPUT; or policy-live; or multitouch INPUT MACHINE; or radio FIRMWARE-ROOT [MACHINE]"
+          "usage: AuroraFirmwareCheck extract|extract-ipsw|verify|zip OUTPUT [CHECKPOINT]; or policy INPUT; or speaker-tuning BOARD:ACOUSTIC-ID OUTPUT; or multitouch INPUT MACHINE; or radio FIRMWARE-ROOT [MACHINE]"
         )
       }
       let output = URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)
