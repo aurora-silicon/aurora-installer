@@ -6,13 +6,16 @@ import Foundation
 //
 //   AuroraFirmwareRecipeGenerator RECIPE OUTPUT
 //     the Neo's sealed recipe (pinned below)
-//   AuroraFirmwareRecipeGenerator speaker-tuning INDEX OUTPUT RECIPE...
-//     the speaker tuning restore image pin (index pinned below) and every
-//     recipe it names, each checked against the index
+//   AuroraFirmwareRecipeGenerator speaker-tuning|radio-firmware INDEX OUTPUT RECIPE...
+//     a restore image list (index pinned below) and every recipe it names,
+//     each checked against the index
 let arguments = CommandLine.arguments
 let digest = "40686fb3b064e35205cae8dc7061f0406c154326301f9e8dcb17d82df3e9c4b3"
 /// SHA-256 of Resources/speaker-tuning/index.json: the pinned macOS release
 /// and restore images speaker tuning is read from.
+/// SHA-256 of Resources/radio-firmware/index.json: the stub restore images
+/// Wi-Fi firmware is read from.
+let radioFirmwareIndexDigest = "7cdb0d0ae85a33a494ded4b1809e96f09f33d9bdc291cd1234ef2c3ba1824132"
 let speakerTuningIndexDigest = "2f1dd2b7020e2ea5a8a216104519bde762681fbfaeb42c8953c5f4c50849c322"
 
 func sha256(_ bytes: Data) -> String {
@@ -26,9 +29,13 @@ func read(_ path: String, maximum: Int) throws -> Data {
 }
 
 do {
-  if arguments.count >= 4 && arguments[1] == "speaker-tuning" {
+  let indexes: [String: (digest: String, type: String, key: String)] = [
+    "speaker-tuning": (speakerTuningIndexDigest, "EmbeddedSpeakerTuningRecipes", "AID"),
+    "radio-firmware": (radioFirmwareIndexDigest, "EmbeddedRadioFirmwareRecipes", ""),
+  ]
+  if arguments.count >= 4, let kind = indexes[arguments[1]] {
     let index = try read(arguments[2], maximum: 1_048_576)
-    guard sha256(index) == speakerTuningIndexDigest,
+    guard sha256(index) == kind.digest,
       let document = try JSONSerialization.jsonObject(with: index) as? [String: Any],
       let images = document["images"] as? [[String: Any]]
     else { throw CocoaError(.fileReadCorruptFile) }
@@ -37,7 +44,7 @@ do {
       guard let build = image["build"] as? String,
         let recipes = image["recipes"] as? [String: String]
       else { throw CocoaError(.fileReadCorruptFile) }
-      for (aid, sha) in recipes { pinned["\(build)-AID\(aid).json"] = sha }
+      for (key, sha) in recipes { pinned["\(build)-\(kind.key)\(key).json"] = sha }
     }
     var entries = [String]()
     for path in arguments[4...] {
@@ -53,11 +60,11 @@ do {
     guard pinned.isEmpty else { throw CocoaError(.fileNoSuchFile) }
     let source = """
       import Foundation
-      enum EmbeddedSpeakerTuningRecipes {
-        static let indexSHA256 = "\(speakerTuningIndexDigest)"
+      enum \(kind.type) {
+        static let indexSHA256 = "\(kind.digest)"
         static let index = Data(base64Encoded: "\(index.base64EncodedString())")!
         static let recipes: [String: Data] = [
-      \(entries.sorted().joined(separator: "\n"))
+      \(entries.isEmpty ? ":" : entries.sorted().joined(separator: "\n"))
         ]
       }
 

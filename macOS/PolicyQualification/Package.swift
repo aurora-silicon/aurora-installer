@@ -26,6 +26,9 @@ let package = Package(
         "RangeCacheTests.swift", "RestoreImageTests.swift", "SignedSensorInputsTests.swift",
         "TransportTests.swift",
       ],
-      sources: ["NeoRegulatoryPolicyV2Tests.swift", "SpeakerTuningRestoreImagesTests.swift"],
+      sources: [
+        "NeoRegulatoryPolicyV2Tests.swift", "SpeakerTuningRestoreImagesTests.swift",
+        "RadioFirmwareRestoreImagesTests.swift",
+      ],
       resources: [.copy("Fixtures")]),
   ])

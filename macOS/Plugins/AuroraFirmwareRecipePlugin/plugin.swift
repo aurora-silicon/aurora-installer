@@ -9,32 +9,36 @@ struct AuroraFirmwareRecipePlugin: BuildToolPlugin {
     let recipe = resources.appending(component: "j700-25G83-ranges.json")
     let output = context.pluginWorkDirectoryURL.appending(component: "EmbeddedFirmwareRecipe.swift")
     let generator = try context.tool(named: "AuroraFirmwareRecipeGenerator").url
-    // The speaker tuning pin and every recipe beside it; the generator
-    // checks each against the pinned index.
-    let tuning = resources.appending(component: "speaker-tuning")
-    let index = tuning.appending(component: "index.json")
-    let recipes = try FileManager.default.contentsOfDirectory(
-      at: tuning, includingPropertiesForKeys: nil
-    )
-    .filter { $0.pathExtension == "json" && $0.lastPathComponent != "index.json" }
-    .sorted { $0.lastPathComponent < $1.lastPathComponent }
-    let tuningOutput = context.pluginWorkDirectoryURL.appending(
-      component: "EmbeddedSpeakerTuningRecipes.swift")
+    // Each restore image list and every recipe beside it; the generator
+    // checks each against its pinned index.
+    func list(_ kind: String, _ directory: String, _ type: String, _ name: String) throws
+      -> Command
+    {
+      let folder = resources.appending(component: directory)
+      let index = folder.appending(component: "index.json")
+      let recipes = try FileManager.default.contentsOfDirectory(
+        at: folder, includingPropertiesForKeys: nil
+      )
+      .filter { $0.pathExtension == "json" && $0.lastPathComponent != "index.json" }
+      .sorted { $0.lastPathComponent < $1.lastPathComponent }
+      let generated = context.pluginWorkDirectoryURL.appending(component: type + ".swift")
+      return .buildCommand(
+        displayName: "Embedding " + name + " restore image recipes",
+        executable: generator,
+        arguments: [kind, index.path(percentEncoded: false), generated.path(percentEncoded: false)]
+          + recipes.map { $0.path(percentEncoded: false) },
+        inputFiles: [index] + recipes, outputFiles: [generated])
+    }
     return [
       .buildCommand(
         displayName: "Embedding sealed firmware recipe",
         executable: generator,
         arguments: [recipe.path(percentEncoded: false), output.path(percentEncoded: false)],
         inputFiles: [recipe], outputFiles: [output]),
-      .buildCommand(
-        displayName: "Embedding speaker tuning restore image recipes",
-        executable: generator,
-        arguments: [
-          "speaker-tuning", index.path(percentEncoded: false),
-          tuningOutput.path(percentEncoded: false),
-        ]
-          + recipes.map { $0.path(percentEncoded: false) },
-        inputFiles: [index] + recipes, outputFiles: [tuningOutput]),
+      try list(
+        "speaker-tuning", "speaker-tuning", "EmbeddedSpeakerTuningRecipes", "speaker tuning"),
+      try list(
+        "radio-firmware", "radio-firmware", "EmbeddedRadioFirmwareRecipes", "Wi-Fi firmware"),
     ]
   }
 }

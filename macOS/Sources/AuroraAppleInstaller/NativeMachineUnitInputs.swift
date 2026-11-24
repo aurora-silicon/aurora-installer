@@ -25,6 +25,10 @@
   ///   that binds the calibration to this unit; never stored or logged.
   /// - `target-type` (device tree root): which board this unit is; selects
   ///   the restore image whose BuildManifest carries it.
+  /// - the `wlan` node's `module-instance` (device tree,
+  ///   `NativeSystemWiFiFirmware.board`): the Wi-Fi module fitted to this
+  ///   unit. The stub's restore image must name the same board for the
+  ///   model; the firmware itself comes from that image.
   ///
   /// Factory data, per unit, with their own admission (unchanged):
   /// ambient-light LSCI (`NativeAmbientLightInputs`), Touch ID FSC2/FSCl and
