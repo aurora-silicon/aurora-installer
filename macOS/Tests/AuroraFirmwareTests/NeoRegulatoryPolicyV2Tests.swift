@@ -168,33 +168,6 @@ struct NeoRegulatoryPolicyV2Tests {
     }
   }
 
-  @Test func liveSelectionIsAtomicAndVersionMismatchFallsBack() throws {
-    let inputs = try fixture().inputs.mapValues { Data($0.utf8) }
-    let hashes = inputs.mapValues(\.sha256)
-    #expect(try NeoRegulatoryPolicy.matchingInputs(hashes: hashes) { inputs[$0]! } == inputs)
-    var reads = 0
-    let missing = try NeoRegulatoryPolicy.matchingInputs(hashes: hashes) { name in
-      reads += 1
-      if name == "IZUBA_db.dat" { throw RestoreFailure("missing") }
-      return inputs[name]!
-    }
-    #expect(missing == nil && reads > 0)
-    var changed = inputs
-    changed["IZUBA_db.dat"] = Data(
-      String(decoding: inputs["IZUBA_db.dat"]!, as: UTF8.self)
-        .replacingOccurrences(of: "Snrs_V2.0", with: "Snrs_V3.0").utf8)
-    #expect(try NeoRegulatoryPolicy.matchingInputs(hashes: hashes) { changed[$0]! } == nil)
-    // Even when a caller supplies a matching test hash, the version gate is independent.
-    #expect(
-      try NeoRegulatoryPolicy.matchingInputs(hashes: changed.mapValues(\.sha256)) { changed[$0]! }
-        == nil)
-    var cancelled = false
-    do {
-      _ = try NeoRegulatoryPolicy.matchingInputs(hashes: hashes) { _ in throw CancellationError() }
-    } catch is CancellationError { cancelled = true }
-    #expect(cancelled)
-  }
-
   @Test func inventoryRejectsChangesMissingAndExtraCountries() throws {
     let outputs = ["policy-v2/US.bin": Data([1]), "policy-v2/AU.bin": Data([2])]
     let expected = NeoRegulatoryPolicy.inventoryDigest(outputs)
@@ -212,36 +185,6 @@ struct NeoRegulatoryPolicyV2Tests {
       #expect(throws: (any Error).self) {
         try NeoRegulatoryPolicy.verifyOutputs(changed, pins: [:], inventory: expected)
       }
-    }
-  }
-
-  @Test func preferredTablesPruneOnlyTheirIPSWDependencies() throws {
-    let url = try #require(
-      Bundle.module.url(
-        forResource: "j700-25G83-ranges", withExtension: "json", subdirectory: "Fixtures"))
-    let recipe = try strictRecipe(Data(contentsOf: url))
-    let network = try networkRecipe(recipe, preferred: [:])
-    var syntheticRecipe = recipe
-    let index = try #require(
-      syntheticRecipe.files.firstIndex {
-        $0.name == "sunrise/IZUBA_TxPwrLimit_MT79x1.dat"
-      })
-    let name = syntheticRecipe.files[index].name
-    syntheticRecipe.files[index].size = 1
-    syntheticRecipe.files[index].sha256 = Data([1]).sha256
-    syntheticRecipe.files[index].rawSHA256 = Data([1]).sha256
-    let local = try networkRecipe(syntheticRecipe, preferred: [name: Data([1])])
-    #expect(local.files.count == recipe.files.count - 1)
-    #expect(!local.files.contains { $0.name == name })
-    #expect(local.segments.count < recipe.segments.count)
-    try local.validate()
-    #expect(network.files.count == recipe.files.count)
-    #expect(network.segments.count == recipe.segments.count)
-    #expect(throws: (any Error).self) {
-      try networkRecipe(recipe, preferred: ["sunrise/IZUBA_db.dat": Data([0])])
-    }
-    #expect(throws: (any Error).self) {
-      try networkRecipe(recipe, preferred: ["unexpected": Data([0])])
     }
   }
 
@@ -333,9 +276,26 @@ struct NeoRegulatoryPolicyV2Tests {
     }
   }
 
-  @Test func liveLPIArchivesBindWithoutChangingLegacyDeployment() throws {
-    guard ProcessInfo.processInfo.environment["AURORA_LIVE_POLICY_TEST"] == "1" else { return }
-    let inputs = try #require(try NeoRegulatoryPolicy.liveInputs())
+  /// The six tables from the pinned 25G83 restore image's authenticated
+  /// ranges: the only source of them (network; opt in with
+  /// AURORA_IPSW_POLICY_TEST=1).
+  private func ipswInputs() async throws -> [String: Data] {
+    let plan = try FirmwareExtractionPlan.bundled(for: "apple,j700")
+    let work = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "aurora-policy-" + UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: work, withIntermediateDirectories: false)
+    defer { try? FileManager.default.removeItem(at: work) }
+    let output = work.appendingPathComponent("raw", isDirectory: true)
+    _ = try await FirmwareExtractor().extract(plan, to: output)
+    return try Dictionary(
+      uniqueKeysWithValues: NeoRegulatoryPolicy.inputSHA256.keys.map {
+        ($0, try Data(contentsOf: output.appendingPathComponent("sunrise/" + $0)))
+      })
+  }
+
+  @Test func ipswLPIArchivesBindWithoutChangingLegacyDeployment() async throws {
+    guard ProcessInfo.processInfo.environment["AURORA_IPSW_POLICY_TEST"] == "1" else { return }
+    let inputs = try await ipswInputs()
     let archives = try NeoRegulatoryPolicy.archiveLPIInputs(inputs)
     #expect(archives.count == 129)
     let relative = Dictionary(
@@ -363,9 +323,9 @@ struct NeoRegulatoryPolicyV2Tests {
     print("Local policy qualification: 129 bound v4, unchanged 244 v1 + 120 v2")
   }
 
-  @Test func liveTablesReproduceBothInventories() throws {
-    guard ProcessInfo.processInfo.environment["AURORA_LIVE_POLICY_TEST"] == "1" else { return }
-    let inputs = try #require(try NeoRegulatoryPolicy.liveInputs())
+  @Test func ipswTablesReproduceBothInventories() async throws {
+    guard ProcessInfo.processInfo.environment["AURORA_IPSW_POLICY_TEST"] == "1" else { return }
+    let inputs = try await ipswInputs()
     let outputs = try NeoRegulatoryPolicy.derive(inputs)
     let v1 = outputs.filter { $0.key.contains("/policy/") }
     let v2 = outputs.filter { $0.key.contains("/policy-v2/") }
@@ -388,11 +348,6 @@ struct NeoRegulatoryPolicyV2Tests {
     for (country, sha) in references {
       #expect(v2["mediatek/mt7932/policy-v2/" + country + ".bin"]?.sha256 == sha)
     }
-    let plan = try FirmwareExtractionPlan.bundled(for: "apple,j700")
-    let preferred = Dictionary(uniqueKeysWithValues: inputs.map { ("sunrise/" + $0.key, $0.value) })
-    let pruned = try networkRecipe(plan.recipe, preferred: preferred)
-    #expect(pruned.files.count == plan.recipe.files.count - 6)
-    #expect(pruned.segments.count < plan.recipe.segments.count)
     print("Local policy qualification: v1=244, v2=120, both pinned inventories verified")
   }
   @Test func vendorFirmwareKeepsAllOperationalPolicyDirectories() throws {

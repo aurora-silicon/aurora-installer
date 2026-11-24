@@ -13,11 +13,11 @@
   /// are authenticated again before they can be reused.
   struct NativeFirmwarePreparer: NativeFirmwarePreparing {
     private let expectedOwnerID: uid_t
-    private let extract: @Sendable (FirmwareExtractionPlan, URL, URL) async throws -> Void
+    private let extractRecipe: @Sendable (FirmwareExtractionPlan, URL, URL) async throws -> Void
 
-    init() {
-      expectedOwnerID = 0
-      extract = { plan, output, cache in
+    init(expectedOwnerID: uid_t = 0) {
+      self.expectedOwnerID = expectedOwnerID
+      extractRecipe = { plan, output, cache in
         _ = try await FirmwareExtractor().extractOrResume(
           plan, to: output, cacheDirectory: cache)
       }
@@ -28,7 +28,7 @@
       extract: @escaping @Sendable (FirmwareExtractionPlan, URL, URL) async throws -> Void
     ) {
       self.expectedOwnerID = expectedOwnerID
-      self.extract = extract
+      extractRecipe = extract
     }
 
     func prepare(deviceIdentifier: String, in workingDirectory: URL) async throws -> URL? {
@@ -36,7 +36,13 @@
       // has its own qualification. Never apply this board's inputs to another Mac.
       guard NativePeripheralInputPath.needsPreparation(deviceIdentifier: deviceIdentifier)
       else { return nil }
-      let plan = try FirmwareExtractionPlan.bundled(for: deviceIdentifier)
+      return try await extract(
+        FirmwareExtractionPlan.bundled(for: deviceIdentifier), in: workingDirectory)
+    }
+
+    /// The authenticated files of a sealed recipe, extracted (or verified
+    /// again and reused) under `workingDirectory/native-firmware/<recipe>/raw`.
+    func extract(_ plan: FirmwareExtractionPlan, in workingDirectory: URL) async throws -> URL {
       try validateDirectory(workingDirectory)
       let namespace = workingDirectory.appendingPathComponent("native-firmware", isDirectory: true)
       try ensureDirectory(namespace)
@@ -44,7 +50,7 @@
       try ensureDirectory(recipe)
       let output = recipe.appendingPathComponent("raw", isDirectory: true)
       let cache = recipe.appendingPathComponent("ranges", isDirectory: true)
-      try await extract(plan, output, cache)
+      try await extractRecipe(plan, output, cache)
       try validateDirectory(output)
       return output
     }

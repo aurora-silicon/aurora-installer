@@ -8,9 +8,9 @@
   /// (`asahi_firmware/lsm2_fill.py`) collects it, byte for byte.
   ///
   /// An lsm2 preset is short when it lacks any of the compiler's 1,021 base
-  /// parameter IDs. The missing values are read back from the running
-  /// macOS's own lsm2 AudioUnit through the public AudioUnit v2 hosting
-  /// interface: find (or register, in this process) the component,
+  /// parameter IDs. The missing values are read back from this Mac's lsm2
+  /// AudioUnit, only when its component is the pinned restore image's
+  /// (`pinned`), through the public AudioUnit v2 hosting interface: find (or register, in this process) the component,
   /// instantiate it, set the strip's ClassInfo and the matching propstrip
   /// properties, then read ParameterList, ParameterInfo and each parameter.
   /// Nothing is rendered, no audio device is opened and no system file is
@@ -347,6 +347,40 @@
         "unit_id": .string(unit), "unit_versions": .array(unitVersions),
       ]
       return .object(record)
+    }
+
+    // MARK: The pinned unit
+
+    /// A reader that hosts this Mac's lsm2 unit only when its code is the
+    /// restore image's: the installed AudioDSP component must be byte for
+    /// byte (SHA-256) the one in the pinned restore image the tuning comes
+    /// from, before the unit is loaded and in what the readback reports.
+    /// Otherwise there is no readback: the fill is left out and the short
+    /// presets stay muted on Linux. The fill's `configuration_sha256` is
+    /// over the restore image's files, which are the bundle's.
+    ///
+    /// The restore image's component itself is not hosted: it is built for
+    /// that release's frameworks, and on that release it is the installed
+    /// one anyway.
+    static func pinned(
+      _ reader: @escaping Reader, componentSHA256 expected: String?,
+      installed: @escaping () throws -> String = { try componentDigest() }
+    ) -> Reader {
+      { path, effect, files in
+        guard let expected, validDigest(expected) else {
+          throw Failure("the pinned restore image names no AudioDSP component")
+        }
+        guard try installed() == expected else {
+          throw Failure(
+            "this Mac's AudioDSP component is not the pinned restore image's; the lsm2 unit is "
+              + "not hosted")
+        }
+        let result = try reader(path, effect, files)
+        guard result.componentSHA256 == expected else {
+          throw Failure("the hosted lsm2 unit is not the pinned restore image's")
+        }
+        return result
+      }
     }
 
     // MARK: The isolated readback

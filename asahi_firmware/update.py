@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: MIT
-import pathlib, tempfile, subprocess, os.path
+import pathlib, sys, tarfile, tempfile, os.path
 
-from .core import FWPackage
+from .archive import ArchiveError, extract_archive
+
+from .core import FWPackage, FWPackageBusy
+from .img4 import IM4PError
 from .wifi import WiFiFWCollection
 from .bluetooth import BluetoothFWCollection
 from .multitouch import MultitouchFWCollection
@@ -10,16 +13,10 @@ from .isp import ISPFWCollection
 from .als import AlsFWCollection
 from .audio_tuning import AudioTuningFWCollection
 
-def update_firmware(source, dest):
-    raw_fw = source.joinpath("all_firmware.tar.gz")
-    if not raw_fw.exists():
-        print(f"Could not find {raw_fw}")
-    
-    pkg = FWPackage(dest)
-
+def collect_firmware(source, raw_fw, pkg):
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir = pathlib.Path(tmpdir)
-        subprocess.run(["tar", "xf", str(raw_fw.resolve())], cwd=tmpdir, check=True)
+        extract_archive(raw_fw, tmpdir)
 
         col = WiFiFWCollection(str(tmpdir.joinpath("firmware", "wifi")))
         pkg.add_files(sorted(col.files()))
@@ -42,7 +39,16 @@ def update_firmware(source, dest):
     col = KernelFWCollection(str(source))
     pkg.add_files(sorted(col.files()))
 
-    pkg.close()
+def update_firmware(source, dest):
+    # Look at the source before anything is created in dest, and publish the
+    # package only when all of it was built (FWPackage renames on close):
+    # a run that fails leaves the package dest already holds.
+    raw_fw = source.joinpath("all_firmware.tar.gz")
+    if not raw_fw.is_file():
+        raise FileNotFoundError(f"Could not find {raw_fw}")
+
+    with FWPackage(dest) as pkg:
+        collect_firmware(source, raw_fw, pkg)
 
 def main():
     import argparse
@@ -57,7 +63,11 @@ def main():
     
     args = parser.parse_args()
 
-    update_firmware(args.source, args.dest)
+    try:
+        update_firmware(args.source, args.dest)
+    except (OSError, tarfile.TarError, ArchiveError, IM4PError, FWPackageBusy) as e:
+        print(f"asahi-fwextract: {e}", file=sys.stderr)
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
