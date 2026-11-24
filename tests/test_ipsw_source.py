@@ -62,6 +62,30 @@ class Catalog(unittest.TestCase):
             f.assert_called_once()
 
 
+class RequireAea(unittest.TestCase):
+    def test_the_member_checked_is_the_member_opened(self):
+        """A source that serves an AEA manifest first and a plain one later
+        never gets anything but the checked member opened."""
+        served = [manifest("26B123", "27.2", ["j473"]), manifest("26B123", "27.2", ["j473"], ext=".dmg")]
+        fetches = []
+
+        def open_zip(url):
+            data = served[min(len(fetches), 1)]
+            fetches.append(url)
+            return types.SimpleNamespace(members={"BuildManifest.plist": types.SimpleNamespace(
+                usize=len(data), read=lambda n: data)})
+        opened = []
+        with mock.patch.object(ipsw, "_open", side_effect=lambda *a: opened.append(a[3]) or ("vol", None, a[1], a[2])):
+            ipsw.open_system("j473", [("26B123", "https://b")], "27.2", open_zip, require_aea=True)
+        self.assertEqual(len(fetches), 1)
+        self.assertEqual(opened, ["26B123-j473.dmg.aea"])
+        fetches.clear()
+        served.reverse()
+        with mock.patch.object(ipsw, "_open", side_effect=AssertionError("opened")):
+            with self.assertRaisesRegex(ipsw.IpswError, "not an Apple Encrypted Archive"):
+                ipsw.open_system("j473", [("26B123", "https://b")], "27.2", open_zip, require_aea=True)
+
+
 class Find(unittest.TestCase):
     IMAGES = [("26B7124", "https://a"), ("26B123", "https://b")]
 
