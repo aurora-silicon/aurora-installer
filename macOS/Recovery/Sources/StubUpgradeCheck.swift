@@ -22,11 +22,12 @@ public struct StubUpgradeFacts {
   public var stage1: Data?
   /// Free bytes in the stub's APFS container.
   public var containerFreeBytes: UInt64
-  /// Bytes the stub's current Recovery image takes (0 when there is none).
+  /// Bytes the stub's current Recovery image takes (0 when there is none),
+  /// for the record: the running Recovery keeps it attached, so removing it
+  /// frees nothing during the visit.
   public var recoveryImageBytes: UInt64
-  /// Whether removing it gives its blocks back: no attached disk image
-  /// holds it open.
-  public var recoveryImageReleasable: Bool
+  /// The system Recovery's version (iSCPreboot SFR RestoreLongVersion).
+  public var systemRecovery: String?
   public var systemVersionVisible: Bool
   public var systemVersionHidden: Bool
   /// `.IAPhysicalMedia` is there and opens Aurora Installer.app.
@@ -36,7 +37,7 @@ public struct StubUpgradeFacts {
     group: String, chipID: UInt64?, deviceClass: String?, espPartitionUUID: String?,
     espRequest: Data?, stubInfo: Data?, espFreeBytes: UInt64, systemFirmware: String?,
     stage1: Data?, containerFreeBytes: UInt64, recoveryImageBytes: UInt64,
-    recoveryImageReleasable: Bool, systemVersionVisible: Bool, systemVersionHidden: Bool,
+    systemRecovery: String?, systemVersionVisible: Bool, systemVersionHidden: Bool,
     launchedByMarker: Bool
   ) {
     self.group = group
@@ -50,7 +51,7 @@ public struct StubUpgradeFacts {
     self.stage1 = stage1
     self.containerFreeBytes = containerFreeBytes
     self.recoveryImageBytes = recoveryImageBytes
-    self.recoveryImageReleasable = recoveryImageReleasable
+    self.systemRecovery = systemRecovery
     self.systemVersionVisible = systemVersionVisible
     self.systemVersionHidden = systemVersionHidden
     self.launchedByMarker = launchedByMarker
@@ -65,6 +66,7 @@ public struct StubUpgradeFacts {
 public enum StubUpgradeCheck {
   public enum Refusal: Error, Equatable, LocalizedError {
     case notStaged
+    case slot
     case notLaunched
     case otherVolume
     case otherMac
@@ -72,6 +74,7 @@ public enum StubUpgradeCheck {
     case requestDiffers
     case noStubInfo
     case firmwareFloor(have: String, need: String)
+    case recoveryFloor(have: String, need: String)
     case stage1Changed
     case versionMetadata
     case imageDiffers
@@ -83,6 +86,10 @@ public enum StubUpgradeCheck {
       switch self {
       case .notStaged:
         return "No startup firmware upgrade is staged on this volume." + unchanged
+      case .slot:
+        return
+          "This upgrade goes to a second startup volume; that volume's own Recovery installs it."
+          + unchanged
       case .notLaunched:
         return "This volume's Recovery wasn't opened for an upgrade. Stage it again from Linux."
           + unchanged
@@ -108,6 +115,10 @@ public enum StubUpgradeCheck {
         return
           "This Mac's system firmware (\(have)) is older than the new startup firmware needs (\(need)). Update macOS first."
           + unchanged
+      case .recoveryFloor(let have, let need):
+        return
+          "This Mac's system Recovery (\(have)) is older than the new startup firmware needs (\(need)). Update macOS first."
+          + unchanged
       case .stage1Changed:
         return "The staged Stage 1 doesn't match the upgrade request." + unchanged
       case .versionMetadata:
@@ -128,16 +139,15 @@ public enum StubUpgradeCheck {
     }
   }
 
-  /// The installer's Recovery working room beside the restored stub
-  /// (NativeEnrollmentSpace), as aurora-upgrade's `Space.peak` counts it.
-  public static let recoveryRoom: UInt64 = 512 << 20
   public static let espFloor: UInt64 = 100 << 20
 
   /// Everything that needs no network. Returns the request.
   public static func verify(config: Data, facts: StubUpgradeFacts) throws -> StubUpgradeRequest {
     guard facts.launchedByMarker else { throw Refusal.notLaunched }
     let request: StubUpgradeRequest
-    do { request = try StubUpgradeRequest.decode(config) } catch { throw Refusal.notStaged }
+    do { request = try StubUpgradeRequest.decode(config) } catch StubUpgradeRequest.Failure.slot {
+      throw Refusal.slot
+    } catch { throw Refusal.notStaged }
     guard request.group == facts.group.uppercased() else { throw Refusal.otherVolume }
     guard facts.chipID == request.chipID, facts.deviceClass == request.deviceClass else {
       throw Refusal.otherMac
@@ -157,6 +167,16 @@ public enum StubUpgradeCheck {
       throw Refusal.firmwareFloor(
         have: facts.systemFirmware ?? "unknown", need: request.target.minimumBoot)
     }
+    // As the main installer reads the system Recovery (NativeInspectionHardware):
+    // unreadable, or without a floor in the request, is refused too.
+    guard let recovery = facts.systemRecovery, !request.target.minimumRecovery.isEmpty,
+      (try? versionAtLeast(recovery, request.target.minimumRecovery)) == true
+    else {
+      throw Refusal.recoveryFloor(
+        have: facts.systemRecovery ?? "unreadable",
+        need: request.target.minimumRecovery.isEmpty ? "none named" : request.target.minimumRecovery
+      )
+    }
     guard let stage1 = facts.stage1, RecoveryDigest.sha256(stage1) == request.stage1SHA256 else {
       throw Refusal.stage1Changed
     }
@@ -167,41 +187,45 @@ public enum StubUpgradeCheck {
     return request
   }
 
-  /// What the swap still needs at most beyond what the container holds now,
-  /// for a run that has reached `phase`: the new restore bundle beside the
-  /// old one, the new Recovery image once the old one is removed, and the
-  /// installer's Recovery room. aurora-upgrade's peak, measured from here.
+  /// What the upgrade still adds to the container at most, for a run that
+  /// has reached `phase`: aurora-upgrade's `Space.peak` less what is used
+  /// now, from the plan's own sizes where they are larger. The old Recovery
+  /// image is never counted as freed (the running Recovery has it attached).
+  /// New: the Recovery image plus 1/16 for its recompression in 64 KiB
+  /// blocks; the boot files three times (the restore bundle, then the two
+  /// copies `bless` personalizes); and the Stage 1 twice (staged, then
+  /// kmutil's copy). The staged payload is already in the container.
   public static func neededBytes(
-    plan: RestoreImageStubPlan, facts: StubUpgradeFacts, phase: RestoreImageStubUpgrade.Phase?
+    plan: RestoreImageStubPlan, request: StubUpgradeRequest, stage1Bytes: Int,
+    phase: RestoreImageStubUpgrade.Phase?
   ) -> UInt64 {
-    let preboot = plan.copies.filter { $0.role == "Preboot" }.reduce(UInt64(plan.manifest.count)) {
+    let bundle = plan.copies.filter { $0.role == "Preboot" }.reduce(UInt64(plan.manifest.count)) {
       $0 + UInt64(plan.entries[$1.member]?.size ?? 0)
     }
+    let boot = max(bundle, UInt64(request.space.newBootFiles))
+    let member = max(UInt64(plan.recoveryMember.size), UInt64(request.space.newRecoveryImage))
     let reached = phase ?? .started
-    var need = recoveryRoom
-    if reached < .prebootWritten { need += preboot }
-    if reached < .recoveryWritten {
-      need += UInt64(plan.recoveryMember.size)
-      if facts.recoveryImageReleasable {
-        need -= min(need, facts.recoveryImageBytes)
-      }
-    }
+    var need: UInt64 = 0
+    if reached < .prebootWritten { need += boot }
+    if reached < .recoveryWritten { need += member + member / 16 }
+    if reached < .blessed { need += 2 * boot }
+    if reached < .enrolled { need += 2 * UInt64(stage1Bytes) }
     return need
   }
 
-  /// The checks on Apple's image (its plan is built against the pin) and the space.
+  /// The space check: `freeBytes` is the container's free space now, plus
+  /// what an in-place-grow upgrade will add before it writes.
   public static func verify(
-    plan: RestoreImageStubPlan, facts: StubUpgradeFacts, phase: RestoreImageStubUpgrade.Phase?
+    plan: RestoreImageStubPlan, request: StubUpgradeRequest, stage1Bytes: Int, freeBytes: UInt64,
+    phase: RestoreImageStubUpgrade.Phase?
   ) throws {
-    let need = neededBytes(plan: plan, facts: facts, phase: phase)
-    guard need <= facts.containerFreeBytes else {
-      throw Refusal.space(need: need, free: facts.containerFreeBytes)
-    }
+    let need = neededBytes(plan: plan, request: request, stage1Bytes: stage1Bytes, phase: phase)
+    guard need <= freeBytes else { throw Refusal.space(need: need, free: freeBytes) }
   }
 
-  /// The installer's NativeInspectionPolicy.Version rule, as aurora-upgrade
-  /// ports it: parts split at "-", ",", "." and " ", numbers compared as
-  /// numbers, "N beta M" before N.
+  /// The main installer's NativeInspectionPolicy.Version rule: parts split
+  /// at "-", ",", "." and " ", what Int reads compared as numbers, the rest
+  /// as text, "N beta M" before N.
   public static func versionAtLeast(_ lhs: String, _ rhs: String) throws -> Bool {
     enum Part: Equatable {
       case number(Int)
@@ -211,17 +235,11 @@ public enum StubUpgradeCheck {
       guard !value.isEmpty, value.utf8.count <= 128 else { throw Refusal.notStaged }
       var out = value.split(
         omittingEmptySubsequences: false, whereSeparator: { "-,. ".contains($0) }
-      ).map { piece -> Part in
-        let text = String(piece)
-        if !text.isEmpty, text.unicodeScalars.allSatisfy({ ("0"..."9").contains($0) }),
-          let number = Int(text)
-        {
-          return .number(number)
-        }
-        return .text(text)
-      }
+      ).map { piece -> Part in Int(piece).map(Part.number) ?? .text(String(piece)) }
       if out.count > 3, out[out.count - 2] == .text("beta") {
-        guard case .number(let base) = out[out.count - 3] else { throw Refusal.notStaged }
+        guard case .number(let base) = out[out.count - 3], base > Int.min else {
+          throw Refusal.notStaged
+        }
         out[out.count - 3] = .number(base - 1)
         out[out.count - 2] = .number(99)
       }
@@ -232,9 +250,7 @@ public enum StubUpgradeCheck {
     for (a, b) in zip(left, right) where a != b {
       switch (a, b) {
       case (.number(let x), .number(let y)): return x > y
-      case (.text(let x), .text(let y)):
-        return Array(x.unicodeScalars.map(\.value)).lexicographicallyPrecedes(
-          y.unicodeScalars.map(\.value)) == false
+      case (.text(let x), .text(let y)): return x > y
       default: throw Refusal.notStaged
       }
     }

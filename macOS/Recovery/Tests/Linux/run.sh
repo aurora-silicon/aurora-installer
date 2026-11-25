@@ -78,11 +78,11 @@ swiftc -parse-as-library -I Tests/Linux -I Compression/include "${archive[@]}" \
 # in-place writer on a fake existing stub. RecoveryFileTransaction gets BSD
 # file flags from DarwinFlags.swift.
 upgrade=("${archive[@]}" Sources/RestoreImageStubPlan.swift Sources/RestoreImageStubFiles.swift
-  Sources/RestoreImageRemote.swift Sources/StubUpgradeRequest.swift Sources/StubUpgradeCheck.swift
+  Sources/RestoreImageRemote.swift Sources/StubUpgradeRequest.swift Sources/StubUpgradeCheck.swift Sources/StubUpgradeGrow.swift Sources/StubUpgradeRecords.swift
   Sources/RestoreImageStubUpgrade.swift Sources/RecoveryDirectorySwap.swift
   Sources/Account/RecoveryFileTransaction.swift Sources/Account/AuraStage1.swift
-  Sources/RecoveryOwner.swift Tests/Linux/DarwinFlags.swift)
-for check in StubUpgradeRequestCheck RestoreImageRemoteCheck RestoreImageStubUpgradeCheck; do
+  Sources/RecoveryOwner.swift Sources/Stage1Reenrollment.swift Sources/BootSelection.swift Tests/Linux/DarwinFlags.swift)
+for check in StubUpgradeRequestCheck RestoreImageRemoteCheck RestoreImageStubUpgradeCheck StubUpgradeGrowCheck; do
   swiftc -parse-as-library -I Tests/Linux -I Compression/include "${upgrade[@]}" \
     "Tests/$check.swift" "$build/shim.o" "${lzfse[@]}" \
     -Xlinker -l:libcrypto.so.3 -o "$build/$check"

@@ -452,6 +452,11 @@ struct AccountSetupFailure: Error {
         var s1 = object["stage1"] as! [String: Any]
         s1["sha256"] = RecoveryDigest.sha256(stage1)
         object["stage1"] = s1
+        // Linux's measures below this image's, so the plan's sizes count.
+        var space = object["space"] as! [String: Any]
+        space["new_recovery_image"] = 1
+        space["new_boot_files"] = 1
+        object["space"] = space
         change(&object)
         object.removeValue(forKey: "plan_sha256")
         object["plan_sha256"] = RecoveryDigest.sha256(
@@ -465,7 +470,8 @@ struct AccountSetupFailure: Error {
         espPartitionUUID: decoded.espPartitionUUID, espRequest: config,
         stubInfo: try JSONSerialization.data(withJSONObject: ["vgid": group]),
         espFreeBytes: 200 << 20, systemFirmware: "iBoot-13822.41.1", stage1: stage1,
-        containerFreeBytes: 1 << 30, recoveryImageBytes: 1 << 20, recoveryImageReleasable: true,
+        containerFreeBytes: 1 << 30, recoveryImageBytes: 1 << 20,
+        systemRecovery: "26.2.123.0.0,0",
         systemVersionVisible: false, systemVersionHidden: true, launchedByMarker: true)
       /// The whole Recovery sequence up to the files: checks, plan, space, write.
       func upgrade(
@@ -478,7 +484,9 @@ struct AccountSetupFailure: Error {
         let plan = try StubUpgradeCheck.plan(
           request, directory: served, read: image.read,
           boardID: UInt64(planExpected["board"] as! Int))
-        try StubUpgradeCheck.verify(plan: plan, facts: facts, phase: nil)
+        try StubUpgradeCheck.verify(
+          plan: plan, request: request, stage1Bytes: stage1.count,
+          freeBytes: facts.containerFreeBytes, phase: nil)
         try RestoreImageStubUpgrade.run(
           plan: plan, directory: served, read: image.read, roots: roots, group: request.group,
           planSHA256: request.planSHA256, build: request.target.build, journal: journal(roots),
@@ -554,20 +562,50 @@ struct AccountSetupFailure: Error {
       try refused("another image size pinned", .imageDiffers, config: otherSize) {
         $0.espRequest = otherSize
       }
-      let need = StubUpgradeCheck.neededBytes(plan: plan, facts: facts, phase: nil)
+      // The space: aurora-upgrade's peak less what is used now, from this
+      // plan's sizes: the Recovery image and 1/16, three copies of the boot
+      // files (the restore bundle and bless's two), the Stage 1 twice. The
+      // old Recovery image is never counted as freed.
+      let bundle = plan.copies.filter { $0.role == "Preboot" }.reduce(plan.manifest.count) {
+        $0 + image.entry($1.member).size
+      }
+      let member = plan.recoveryMember.size
+      let need = StubUpgradeCheck.neededBytes(
+        plan: plan, request: decoded, stage1Bytes: stage1.count, phase: nil)
+      expect(
+        need == UInt64(3 * bundle + member + member / 16 + 2 * stage1.count),
+        "\(name): need \(need)")
       try refused("too little space", .space(need: need, free: need - 1)) {
         $0.containerFreeBytes = need - 1
       }
-      // An image the running Recovery holds open frees nothing when removed.
-      var held = facts
-      held.recoveryImageReleasable = false
       expect(
-        StubUpgradeCheck.neededBytes(plan: plan, facts: held, phase: nil) == need + (1 << 20),
-        "\(name): a held Recovery image counts in full")
+        (try? StubUpgradeCheck.verify(
+          plan: plan, request: decoded, stage1Bytes: stage1.count, freeBytes: need, phase: nil))
+          != nil, "\(name): exactly enough space passes")
+      // Linux's larger measures win: never less safe than its peak.
+      let linux = try StubUpgradeRequest.decode(
+        request {
+          var space = $0["space"] as! [String: Any]
+          space["new_recovery_image"] = 1_600_000_000
+          space["new_boot_files"] = 300_000_000
+          $0["space"] = space
+        })
       expect(
-        StubUpgradeCheck.neededBytes(plan: plan, facts: facts, phase: .recoveryWritten)
-          == StubUpgradeCheck.recoveryRoom,
-        "\(name): a rerun past the files needs only the Recovery room")
+        StubUpgradeCheck.neededBytes(plan: plan, request: linux, stage1Bytes: 0, phase: nil)
+          == 1_600_000_000 + 100_000_000 + 3 * 300_000_000,
+        "\(name): Linux's measures count when larger")
+      // A rerun counts only what is still to come.
+      for (phase, want) in [
+        (RestoreImageStubUpgrade.Phase.prebootWritten, need - UInt64(bundle)),
+        (.recoveryWritten, UInt64(2 * bundle + 2 * stage1.count)),
+        (.systemWritten, UInt64(2 * bundle + 2 * stage1.count)),
+        (.blessed, UInt64(2 * stage1.count)), (.enrolled, 0),
+      ] {
+        expect(
+          StubUpgradeCheck.neededBytes(
+            plan: plan, request: decoded, stage1Bytes: stage1.count, phase: phase) == want,
+          "\(name): need after \(phase)")
+      }
     }
 
     if failures > 0 {

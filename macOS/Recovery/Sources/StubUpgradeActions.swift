@@ -34,6 +34,8 @@ struct StubUpgradeStage1 {
   let mode: AuraBootMode
   let stage2Path: String
   let enrolled: Data
+  /// The filled object before its keys: what the Recovery baseline records.
+  let filled: Data
   let update: Stage1Reenrollment
 }
 
@@ -152,22 +154,54 @@ extension RecoveryActions {
     return bytes.enumerated().reduce(UInt64(0)) { $0 | UInt64($1.element) << (8 * $1.offset) }
   }
 
-  /// Whether an attached disk image is the stub's Recovery image: removing
-  /// it then frees nothing until Recovery stops.
-  static func recoveryImageHeld(group: String) -> Bool {
-    guard let bytes = try? run("/usr/bin/hdiutil", ["info", "-plist"]),
-      let info = try? PropertyListSerialization.propertyList(from: bytes, format: nil)
+  /// The system Recovery's version, as the main installer reads it
+  /// (NativeInspectionHardware): RestoreLongVersion of iSCPreboot's SFR.
+  static func systemRecoveryVersion() -> String? {
+    guard
+      let data = try? boundedRead(
+        URL(fileURLWithPath: "/System/Volumes/iSCPreboot/SFR/current/RestoreVersion.plist"),
+        limit: 65536),
+      let plist = try? PropertyListSerialization.propertyList(from: data, format: nil)
         as? [String: Any]
-    else {
-      InstallerLog.shared.append(
-        "hdiutil info failed; counting the old Recovery image as freed when removed.",
-        level: .error)
-      return false
+    else { return nil }
+    return plist["RestoreLongVersion"] as? String
+  }
+
+  /// The partitions of the disk holding `store` and that disk's size, from
+  /// the IOMedia objects (offsets and sizes in bytes, GPT partition UUIDs).
+  static func diskLayout(store: String) throws -> StubUpgradeGrow.Layout {
+    guard let whole = try disk(store)["ParentWholeDisk"] as? String, !whole.isEmpty else {
+      throw StubUpgradeGrow.Refusal.noContainer
     }
-    let suffix = "/" + group + "/" + RestoreImageStubFiles.recoveryImagePath
-    return (info["images"] as? [[String: Any]] ?? []).contains {
-      ($0["image-path"] as? String)?.hasSuffix(suffix) == true
+    var iterator: io_iterator_t = 0
+    guard
+      IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOMedia"), &iterator)
+        == KERN_SUCCESS
+    else { throw RecoveryFailure(message: "Cannot read this Mac's disk layout.") }
+    defer { IOObjectRelease(iterator) }
+    var partitions = [StubUpgradeGrow.Partition]()
+    var diskSize: Int?
+    while case let media = IOIteratorNext(iterator), media != 0 {
+      defer { IOObjectRelease(media) }
+      var properties: Unmanaged<CFMutableDictionary>?
+      guard
+        IORegistryEntryCreateCFProperties(media, &properties, kCFAllocatorDefault, 0)
+          == KERN_SUCCESS,
+        let values = properties?.takeRetainedValue() as NSDictionary? as? [String: Any],
+        let name = values["BSD Name"] as? String, let size = values["Size"] as? Int
+      else { continue }
+      if name == whole {
+        diskSize = size
+      } else if name.hasPrefix(whole + "s"), Int(name.dropFirst(whole.count + 1)) != nil,
+        let base = values["Base"] as? Int
+      {
+        partitions.append(
+          StubUpgradeGrow.Partition(
+            bsdName: name, uuid: values["UUID"] as? String ?? "", base: base, size: size))
+      }
     }
+    guard let diskSize else { throw StubUpgradeGrow.Refusal.noContainer }
+    return StubUpgradeGrow.Layout(partitions: partitions, diskSize: diskSize)
   }
 
   /// Every check of UPGRADE-FLOW.md section 4.2 step 1, before any change:
@@ -216,7 +250,7 @@ extension RecoveryActions {
           StubUpgradeRequest.stage1Directory + "/" + request.stage1Path),
         limit: Stage1Reenrollment.maximumBytes),
       containerFreeBytes: try freeBytes(recovery), recoveryImageBytes: imageBytes,
-      recoveryImageReleasable: imageBytes == 0 || !recoveryImageHeld(group: volumes.groupUUID),
+      systemRecovery: systemRecoveryVersion(),
       systemVersionVisible: fm.fileExists(
         atPath: core.appendingPathComponent("SystemVersion.plist").path),
       systemVersionHidden: fm.fileExists(
@@ -246,7 +280,17 @@ extension RecoveryActions {
     }
     let plan = try StubUpgradeCheck.plan(
       request, directory: directory, read: remote.read, boardID: board)
-    try StubUpgradeCheck.verify(plan: plan, facts: facts, phase: journal?.phase)
+    // An in-place-grow upgrade checks the layout now and counts the space the
+    // container gains, which it adds before writing; after that, as it is.
+    var free = facts.containerFreeBytes
+    if request.mode == .inPlaceGrow, journal?.containerGrown != true {
+      let grown = try StubUpgradeGrow.check(
+        diskLayout(store: volumes.physicalStore), store: volumes.physicalStore, request: request)
+      if !grown { free += UInt64(request.espMove?.size ?? 0) }
+    }
+    try StubUpgradeCheck.verify(
+      plan: plan, request: request, stage1Bytes: stage1.enrolled.count, freeBytes: free,
+      phase: journal?.phase)
     return StubUpgradePreparation(
       request: request, volumes: volumes, facts: facts, esp: espRoot, preboot: preboot,
       recovery: recovery, plan: plan, directory: directory, read: remote.read, journal: journal,
@@ -290,7 +334,8 @@ extension RecoveryActions {
       holdsKeys || keys.map({ $0.owner == .aurora }) ?? true,
       "The new startup software can't hold this Mac's own key. Nothing was changed.")
     let enrolled = try (holdsKeys ? keys?.filled(filled) : nil) ?? filled
-    return StubUpgradeStage1(mode: mode, stage2Path: path, enrolled: enrolled, update: update)
+    return StubUpgradeStage1(
+      mode: mode, stage2Path: path, enrolled: enrolled, filled: filled, update: update)
   }
 
   /// The owner who approves the upgrade: setup's when the installer recorded
@@ -350,28 +395,36 @@ extension RecoveryActions {
     let p = try prepareStubUpgrade(writable: false)
     let owner = try stubUpgradeOwner()
     let r = p.request
-    let need = StubUpgradeCheck.neededBytes(plan: p.plan, facts: p.facts, phase: p.journal?.phase)
-    let preboot = p.plan.copies.filter { $0.role == "Preboot" }
     let mb = { (bytes: UInt64) in "\(bytes / 1_000_000) MB" }
-    var lines = [
-      "Startup firmware upgrade, dry run: nothing was written.",
-      "  Volume group      \(r.group)",
-      "  Startup firmware  macOS \(r.currentVersion) (\(r.currentBuild)) -> macOS \(r.target.version) (\(r.target.build))",
-      "  Mac               \(r.deviceClass), chip 0x\(String(r.chipID, radix: 16)), system firmware \(p.facts.systemFirmware ?? "?") (needs \(r.target.minimumBoot))",
-      "  Restore image     \(r.target.url.absoluteString): \(r.target.sourceBytes) bytes, manifest and build \(r.target.build) as pinned",
-      "  EFI partition     \(r.espPartitionUUID) at \(p.esp.path): request.json is this plan (\(r.planSHA256.prefix(12)))",
-      "  Space             needs \(mb(need)) of \(mb(p.facts.containerFreeBytes)) free (old Recovery image \(mb(p.facts.recoveryImageBytes)), \(p.facts.recoveryImageReleasable ? "freed when removed" : "held open: not counted as freed"))",
-      "  Stage 1           \(r.stage1Version) \(p.stage1.update.stage1SHA256.prefix(12)), \(p.stage1.mode == .macho ? "padded" : "unpadded"), loads \(p.stage1.stage2Path) from this EFI partition",
-      "  Owner             \(owner.username) (\(owner.uuid.uuidString))",
-      "  Progress          \(p.journal.map { "recorded up to \($0.phase.rawValue)" } ?? "not started")",
-      "Steps:",
-      "  1. Preboot: write \(r.group)/\(p.plan.restorePath)\(RestoreImageStubUpgrade.newSuffix) (\(preboot.count + 1) files), then \(p.plan.restorePath) -> \(p.plan.restorePath)\(RestoreImageStubUpgrade.oldSuffix), \(p.plan.restorePath)\(RestoreImageStubUpgrade.newSuffix) -> \(p.plan.restorePath); \(r.group)/boot is not touched",
-      "  2. Recovery: remove the old \(RestoreImageStubFiles.recoveryImagePath), then write \(p.plan.recoveryMember.name) (\(mb(UInt64(p.plan.recoveryMember.size)))) decoded and compressed",
-      "  3. System: bootcaches.plist, PlatformSupport.plist, \(p.facts.systemVersionHidden ? "SystemVersion-disabled.plist" : "SystemVersion.plist") (\(r.target.version)), the Restore link",
-      "  4. bless --setBoot with \(owner.username)'s password",
-      "  5. bputil -nc -v \(r.group); kmutil \(p.stage1.mode.enrollmentArguments(stage1: "<Stage 1>", volume: volume.path).joined(separator: " "))",
-      "  6. remove \(p.plan.restorePath)\(RestoreImageStubUpgrade.oldSuffix), write the receipts and asahi/stub_info.json, disarm the launcher, restart",
-    ]
+    let need = StubUpgradeCheck.neededBytes(
+      plan: p.plan, request: p.request, stage1Bytes: p.stage1.enrolled.count,
+      phase: p.journal?.phase)
+    let grow = p.request.espMove.map { move in
+      "  0. Grow the startup container into the EFI partition's old place (\(mb(UInt64(move.size))) at \(move.oldStart)) to \(mb(UInt64(p.request.growContainerTo ?? 0))): diskutil apfs resizeContainer \(p.volumes.physicalStore) 0\(p.journal?.containerGrown == true ? " (done)" : "")"
+    }
+    let preboot = p.plan.copies.filter { $0.role == "Preboot" }
+    var lines =
+      [
+        "Startup firmware upgrade, dry run: nothing was written.",
+        "  Volume group      \(r.group)",
+        "  Startup firmware  macOS \(r.currentVersion) (\(r.currentBuild)) -> macOS \(r.target.version) (\(r.target.build))",
+        "  Mac               \(r.deviceClass), chip 0x\(String(r.chipID, radix: 16)), system firmware \(p.facts.systemFirmware ?? "?") (needs \(r.target.minimumBoot))",
+        "  Restore image     \(r.target.url.absoluteString): \(r.target.sourceBytes) bytes, manifest and build \(r.target.build) as pinned",
+        "  EFI partition     \(r.espPartitionUUID) at \(p.esp.path): request.json is this plan (\(r.planSHA256.prefix(12)))",
+        "  Space             needs \(mb(need)) of \(mb(p.facts.containerFreeBytes)) free (\(r.mode == .inPlaceGrow && p.journal?.containerGrown != true ? "after growing; " : "")the old Recovery image's \(mb(p.facts.recoveryImageBytes)) is not counted as freed)",
+        "  System Recovery   \(p.facts.systemRecovery ?? "?") (needs \(r.target.minimumRecovery))",
+        "  Stage 1           \(r.stage1Version) \(p.stage1.update.stage1SHA256.prefix(12)), \(p.stage1.mode == .macho ? "padded" : "unpadded"), loads \(p.stage1.stage2Path) from this EFI partition",
+        "  Owner             \(owner.username) (\(owner.uuid.uuidString))",
+        "  Progress          \(p.journal.map { "recorded up to \($0.phase.rawValue)" } ?? "not started")",
+        "Steps:",
+      ] + (grow.map { [$0] } ?? []) + [
+        "  1. Preboot: write \(r.group)/\(p.plan.restorePath)\(RestoreImageStubUpgrade.newSuffix) (\(preboot.count + 1) files), then \(p.plan.restorePath) -> \(p.plan.restorePath)\(RestoreImageStubUpgrade.oldSuffix), \(p.plan.restorePath)\(RestoreImageStubUpgrade.newSuffix) -> \(p.plan.restorePath); \(r.group)/boot is not touched",
+        "  2. Recovery: remove the old \(RestoreImageStubFiles.recoveryImagePath), then write \(p.plan.recoveryMember.name) (\(mb(UInt64(p.plan.recoveryMember.size)))) decoded and compressed",
+        "  3. System: bootcaches.plist, PlatformSupport.plist, \(p.facts.systemVersionHidden ? "SystemVersion-disabled.plist" : "SystemVersion.plist") (\(r.target.version)), the Restore link",
+        "  4. bless --setBoot with \(owner.username)'s password",
+        "  5. bputil -nc -v \(r.group); kmutil \(p.stage1.mode.enrollmentArguments(stage1: "<Stage 1>", volume: volume.path).joined(separator: " "))",
+        "  6. remove \(p.plan.restorePath)\(RestoreImageStubUpgrade.oldSuffix), write the receipts and asahi/stub_info.json, disarm the launcher, restart",
+      ]
     if !r.target.caution.isEmpty { lines.append("Known for this Mac: " + r.target.caution) }
     return lines.joined(separator: "\n")
   }
@@ -399,7 +452,23 @@ extension RecoveryActions {
         at: upgradeJournal,
         to: state.appendingPathComponent("upgrade-journal-\(earlier.planSHA256.prefix(16)).json"))
     }
-    let p = try prepareStubUpgrade(writable: true)
+    var p = try prepareStubUpgrade(writable: true)
+    if p.request.mode == .inPlaceGrow, p.journal?.containerGrown != true {
+      // Before any file: grow the container into the EFI partition's old
+      // place, then check everything (the space above all) again.
+      progress(0.03, "Growing the startup container")
+      var grown = try RestoreImageStubUpgrade.begin(
+        upgradeJournal, planSHA256: p.request.planSHA256, group: p.request.group,
+        build: p.request.target.build, prebootRoot: p.preboot, restorePath: p.plan.restorePath)
+      let store = p.volumes.physicalStore
+      try StubUpgradeGrow.run(
+        request: p.request, store: store, journal: &grown, at: upgradeJournal,
+        layout: { try diskLayout(store: store) },
+        resize: {
+          try run("/usr/sbin/diskutil", ["apfs", "resizeContainer", store, "0"], timeout: 1800)
+        })
+      p = try prepareStubUpgrade(writable: true)
+    }
     let request = p.request
     let operation = state.appendingPathComponent("upgrade-" + UUID().uuidString)
     try fm.createDirectory(
@@ -498,8 +567,16 @@ extension RecoveryActions {
     try RecoveryFileTransaction.write(
       JSONSerialization.data(withJSONObject: receipt, options: [.prettyPrinted, .sortedKeys]),
       to: upgradeReceipt)
-    // An installation the Aurora installer made records its Stage 1 as Update startup software does.
+    // An installation the Aurora installer made records its Stage 1 as Update
+    // startup software does: the receipt, the stub copy a later Reset
+    // compares, and the Recovery baseline `aura recover` checks against it.
     if let record = try? installed() {
+      try StubUpgradeRecords.updateBaseline(
+        payloads: payloadRoot(), stage1: p.stage1.filled, path: p.stage1.mode.stage1Path)
+      let stub = volume.appendingPathComponent(stubStage1MachOPath)
+      if fm.fileExists(atPath: stub.deletingLastPathComponent().path) {
+        try RecoveryFileTransaction.write(p.stage1.filled, to: stub)
+      }
       try RecoveryFileTransaction.write(
         JSONSerialization.data(
           withJSONObject: p.stage1.update.receipt(
@@ -508,34 +585,17 @@ extension RecoveryActions {
     }
     // asahi/stub_info.json, as the installer writes it, for the new firmware.
     let infoURL = p.esp.appendingPathComponent("asahi/stub_info.json")
-    guard let old = try boundedRead(infoURL, limit: 1 << 20),
-      var info = try JSONSerialization.jsonObject(with: old) as? [String: Any],
-      let new = try JSONSerialization.jsonObject(with: p.plan.stubInfo) as? [String: Any]
-    else { throw StubUpgradeCheck.Refusal.noStubInfo }
-    info["system_version"] = new["system_version"]
-    info["manifest_info"] = new["manifest_info"]
-    info["vgid"] = request.group
-    try atomic(
-      JSONSerialization.data(
-        withJSONObject: info, options: [.sortedKeys, .withoutEscapingSlashes]),
-      to: infoURL)
-    // The request's journal on the EFI partition, for aurora-upgrade finish.
-    let espJournal = p.esp.appendingPathComponent(StubUpgradeRequest.espJournalPath)
-    if let bytes = try boundedRead(espJournal, limit: 1 << 20),
-      var value = try JSONSerialization.jsonObject(with: bytes) as? [String: Any]
-    {
-      var steps = value["steps"] as? [[String: Any]] ?? []
-      if steps.last?["kind"] as? String != "recovery-upgraded" {
-        steps.append([
-          "kind": "recovery-upgraded", "time": Int(Date().timeIntervalSince1970),
-          "build": request.target.build, "group": request.group,
-        ])
-      }
-      value["steps"] = steps
-      value["state"] = "upgraded"
-      try atomic(
-        JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted]), to: espJournal)
+    guard let old = try boundedRead(infoURL, limit: 1 << 20) else {
+      throw StubUpgradeCheck.Refusal.noStubInfo
     }
+    try atomic(StubUpgradeRecords.stubInfo(old, plan: p.plan, group: request.group), to: infoURL)
+    // The request's journal on the EFI partition: "upgraded", which
+    // aurora-upgrade finish waits for with the new firmware version.
+    let espJournal = p.esp.appendingPathComponent(StubUpgradeRequest.espJournalPath)
+    try atomic(
+      StubUpgradeRecords.espJournal(
+        boundedRead(espJournal, limit: 1 << 20), request: request,
+        time: Int(Date().timeIntervalSince1970)), to: espJournal)
     // The volume starts its new Stage 1 again instead of this app.
     try RecoveryVersionMetadata.showForStartupDisk(system: volume)
     try RecoveryFileTransaction.flushDirectory(

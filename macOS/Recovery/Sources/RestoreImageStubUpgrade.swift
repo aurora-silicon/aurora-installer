@@ -62,6 +62,8 @@ public enum RestoreImageStubUpgrade {
     public var installed: [RestoreImageStubFiles.Installed]
     /// The enrolled Stage 1's SHA-256, once enrolled.
     public var stage1SHA256: String?
+    /// An in-place-grow upgrade grew the stub container (StubUpgradeGrow).
+    public var containerGrown: Bool?
 
     public init(planSHA256: String, group: String, build: String) {
       self.planSHA256 = planSHA256
@@ -111,24 +113,15 @@ public enum RestoreImageStubUpgrade {
       chunkBytes: chunkBytes, archiveKey: archiveKey)
     // Every archive is decoded here; nothing may be left for a later pass.
     guard archiveKey != nil else { throw Failure.keyRequired }
-    let preboot = writer.trees["Preboot"]!
     let system = writer.trees["System"]!
     let restore = group + "/" + plan.restorePath
     let next = restore + newSuffix
     let old = restore + oldSuffix
-    var journal: Journal
-    if let found = try Journal.load(url) {
-      guard found.planSHA256 == planSHA256, found.group == group, found.build == build else {
-        throw Failure.otherJournal
-      }
-      journal = found
-    } else {
-      // Nothing of a run is there before its journal is.
-      guard try !preboot.exists(next), try !preboot.exists(old) else { throw Failure.foreignState }
-      journal = Journal(planSHA256: planSHA256, group: group, build: build)
-      try journal.save(url)
-      try checkpoint(.started)
-    }
+    let begun = try begin(
+      url, planSHA256: planSHA256, group: group, build: build, preboot: writer.trees["Preboot"]!,
+      restorePath: plan.restorePath)
+    var journal = begun.0
+    if begun.created { try checkpoint(.started) }
     func advance(_ phase: Phase, _ written: [RestoreImageStubFiles.Installed] = []) throws {
       journal.installed += written
       journal.phase = phase
@@ -181,6 +174,40 @@ public enum RestoreImageStubUpgrade {
       try advance(.systemWritten, files)
     }
     return journal
+  }
+
+  /// The run's journal at `url`, made (and saved) when there is none: then
+  /// nothing of a run may be there yet (`Restore.new`, `Restore.old`).
+  /// Another plan's, group's or build's journal is refused.
+  static func begin(
+    _ url: URL, planSHA256: String, group: String, build: String,
+    preboot: RestoreImageStubFiles.Tree, restorePath: String
+  ) throws -> (Journal, created: Bool) {
+    if let found = try Journal.load(url) {
+      guard found.planSHA256 == planSHA256, found.group == group, found.build == build else {
+        throw Failure.otherJournal
+      }
+      return (found, false)
+    }
+    let restore = group + "/" + restorePath
+    guard try !preboot.exists(restore + newSuffix), try !preboot.exists(restore + oldSuffix) else {
+      throw Failure.foreignState
+    }
+    let journal = Journal(planSHA256: planSHA256, group: group, build: build)
+    try journal.save(url)
+    return (journal, true)
+  }
+
+  /// `begin` for a caller with the Preboot volume's root.
+  public static func begin(
+    _ url: URL, planSHA256: String, group: String, build: String, prebootRoot: URL,
+    restorePath: String, owner: uid_t = geteuid()
+  ) throws -> Journal {
+    try begin(
+      url, planSHA256: planSHA256, group: group, build: build,
+      preboot: RestoreImageStubFiles.Tree(prebootRoot, owner: owner, namespace: group),
+      restorePath: restorePath
+    ).0
   }
 
   /// Saves `journal` at `phase`, for the caller's steps after the files.

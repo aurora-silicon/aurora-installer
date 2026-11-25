@@ -5,8 +5,10 @@ import Foundation
 /// `Aurora/Recovery/UpgradeData/upgrade-config.json` on the stub's System
 /// volume and `aurora/upgrade/request.json` on the EFI partition, ending in
 /// `plan_sha256`, the SHA-256 of the rest as Python's `json.dumps(...,
-/// sort_keys=True)` writes it. Only an in-place upgrade is read here: a
-/// second startup volume ("slot") has its own Recovery do the work.
+/// sort_keys=True)` writes it. Only an in-place upgrade is done here
+/// ("in-place", or "in-place-grow" after Linux moved the EFI partition out
+/// of the container's way); a second startup volume ("slot") has its own
+/// Recovery do the work and is refused.
 public struct StubUpgradeRequest: Equatable {
   public struct Target: Equatable {
     public let version: String
@@ -16,7 +18,23 @@ public struct StubUpgradeRequest: Equatable {
     /// The restore image's BuildManifest.plist SHA-256, in hex.
     public let manifestSHA256: String
     public let minimumBoot: String
+    /// The oldest system Recovery (RestoreLongVersion) the target admits.
+    public let minimumRecovery: String
     public let caution: String
+  }
+
+  public enum Mode: String, Equatable {
+    case inPlace = "in-place"
+    case inPlaceGrow = "in-place-grow"
+  }
+
+  /// Where Linux moved the EFI partition (same entry and PARTUUID), so the
+  /// stub container can grow into its old place. Bytes.
+  public struct ESPMove: Equatable {
+    public let partitionNumber: Int
+    public let oldStart: Int
+    public let newStart: Int
+    public let size: Int
   }
 
   public struct Space: Equatable {
@@ -25,12 +43,16 @@ public struct StubUpgradeRequest: Equatable {
     public let recoveryImage: Int
     public let preboot: Int
     public let newRecoveryImage: Int
+    /// The target identity's boot components, as Linux measured them.
+    public let newBootFiles: Int
     public let peak: Int
   }
 
   public enum Failure: Error, Equatable {
-    /// Not the JSON aurora-upgrade writes, or not an in-place upgrade.
+    /// Not the JSON aurora-upgrade writes.
     case invalid
+    /// A second startup volume, which this Recovery doesn't do.
+    case slot
     /// `plan_sha256` isn't the digest of the rest.
     case digest
   }
@@ -42,6 +64,10 @@ public struct StubUpgradeRequest: Equatable {
   public static let espRequestPath = "aurora/upgrade/request.json"
   public static let espJournalPath = "aurora/upgrade/journal.json"
 
+  public let mode: Mode
+  /// For `inPlaceGrow`: the move Linux made, and the container size to grow to.
+  public let espMove: ESPMove?
+  public let growContainerTo: Int?
   public let board: String
   public let chipID: UInt64
   public let systemFirmware: String
@@ -85,25 +111,42 @@ public struct StubUpgradeRequest: Equatable {
       else { throw Failure.invalid }
       return text
     }
+    let base: Set<String> = [
+      "schema", "mode", "board", "chip", "system_firmware", "current", "target", "space",
+      "esp_partuuid", "stage1", "plan_sha256",
+    ]
+    guard try integer(object["schema"]) == schema else { throw Failure.invalid }
+    let modeName = try string(object["mode"])
+    if modeName == "slot" { throw Failure.slot }
+    guard let mode = Mode(rawValue: modeName) else { throw Failure.invalid }
     let top = try dictionary(
-      object,
-      [
-        "schema", "mode", "board", "chip", "system_firmware", "current", "target", "space",
-        "esp_partuuid", "stage1", "plan_sha256",
-      ])
-    guard try integer(top["schema"]) == schema, try string(top["mode"]) == "in-place" else {
-      throw Failure.invalid
+      object, mode == .inPlaceGrow ? base.union(["esp_move", "grow_container_to"]) : base)
+    var espMove: ESPMove?
+    var growTo: Int?
+    if mode == .inPlaceGrow {
+      let move = try dictionary(top["esp_move"], ["partno", "old_start", "new_start", "size"])
+      espMove = ESPMove(
+        partitionNumber: try integer(move["partno"]), oldStart: try integer(move["old_start"]),
+        newStart: try integer(move["new_start"]), size: try integer(move["size"]))
+      growTo = try integer(top["grow_container_to"])
+      guard let espMove, espMove.size > 0, espMove.newStart != espMove.oldStart,
+        espMove.newStart + espMove.size <= espMove.oldStart
+          || espMove.oldStart + espMove.size <= espMove.newStart
+      else { throw Failure.invalid }
     }
     let current = try dictionary(top["current"], ["version", "build", "group", "device"])
     let target = try dictionary(
       top["target"],
       [
         "version", "build", "url", "source_bytes", "manifest_sha256", "minimum_boot",
-        "stub_bytes", "caution",
+        "stub_bytes", "caution", "minimum_recovery",
       ])
     let space = try dictionary(
       top["space"],
-      ["container", "used", "recovery_image", "preboot", "new_recovery_image", "peak"])
+      [
+        "container", "used", "recovery_image", "preboot", "new_recovery_image",
+        "new_boot_files", "peak",
+      ])
     let stage1 = try dictionary(top["stage1"], ["path", "sha256", "version"])
     let board = try string(top["board"])
     let chip = try string(top["chip"])
@@ -128,7 +171,13 @@ public struct StubUpgradeRequest: Equatable {
     unsigned.removeValue(forKey: "plan_sha256")
     guard let canonical = Self.pythonJSON(unsigned) else { throw Failure.invalid }
     guard RecoveryDigest.sha256(Data(canonical.utf8)) == digest else { throw Failure.digest }
+    if let growTo, let espMove {
+      guard growTo == (try integer(space["container"])) + espMove.size else {
+        throw Failure.invalid
+      }
+    }
     return Self(
+      mode: mode, espMove: espMove, growContainerTo: growTo,
       board: board, chipID: chipID, systemFirmware: try string(top["system_firmware"]),
       currentVersion: try string(current["version"]), currentBuild: try string(current["build"]),
       group: try uuid(current["group"]).uppercased(),
@@ -136,11 +185,14 @@ public struct StubUpgradeRequest: Equatable {
         version: try string(target["version"]), build: try string(target["build"]),
         url: location, sourceBytes: try integer(target["source_bytes"]),
         manifestSHA256: String(manifest.dropFirst(7)),
-        minimumBoot: try string(target["minimum_boot"]), caution: try string(target["caution"])),
+        minimumBoot: try string(target["minimum_boot"]),
+        minimumRecovery: try string(target["minimum_recovery"]),
+        caution: try string(target["caution"])),
       space: Space(
         container: try integer(space["container"]), used: try integer(space["used"]),
         recoveryImage: try integer(space["recovery_image"]), preboot: try integer(space["preboot"]),
         newRecoveryImage: try integer(space["new_recovery_image"]),
+        newBootFiles: try integer(space["new_boot_files"]),
         peak: try integer(space["peak"])),
       espPartitionUUID: try uuid(top["esp_partuuid"]).lowercased(),
       stage1Path: stage1Path, stage1SHA256: stage1Digest,

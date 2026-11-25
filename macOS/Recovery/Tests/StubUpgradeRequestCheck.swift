@@ -54,10 +54,54 @@ struct AccountSetupFailure: Error {
       expect(request.target.manifestSHA256 == String(repeating: "ab", count: 32), "manifest hash")
       expect(request.target.sourceBytes == 19_000_000_000, "image size")
       expect(request.currentBuild == "20G75" && request.currentVersion == "13.5", "current")
-      expect(request.space.peak == 2_346_870_912, "peak")
+      expect(request.space.peak == 2_841_875_000, "peak")
+      expect(request.space.newBootFiles == 120_000_000, "boot files")
+      expect(request.target.minimumRecovery == "26.2.123.0.0,0", "Recovery floor")
+      expect(request.mode == .inPlace && request.espMove == nil, "in place")
       expect(request.stage1Path == "stage1/aura-boot.macho", "Stage 1 path")
     } catch {
       expect(false, "the fixture: \(error)")
+    }
+    // in-place-grow: the EFI partition's move and the size to grow to.
+    let grow = try Data(contentsOf: fixtures.appendingPathComponent("grow.json"))
+    do {
+      let request = try StubUpgradeRequest.decode(grow)
+      expect(request.mode == .inPlaceGrow, "grow mode")
+      expect(
+        request.espMove
+          == .init(
+            partitionNumber: 4, oldStart: 539_370_717_184, newStart: 536_346_624_000,
+            size: 524_288_000), "the move: \(String(describing: request.espMove))")
+      expect(request.growContainerTo == 3_024_093_184, "grow to")
+    } catch {
+      expect(false, "the grow fixture: \(error)")
+    }
+    let growObject = try JSONSerialization.jsonObject(with: grow) as! [String: Any]
+    for (what, change) in [
+      ("no move", { (o: inout [String: Any]) in o.removeValue(forKey: "esp_move") }),
+      ("no size", { $0.removeValue(forKey: "grow_container_to") }),
+      ("a size that isn't container + ESP", { $0["grow_container_to"] = 3_024_093_185 }),
+      (
+        "a move onto itself",
+        {
+          var move = $0["esp_move"] as! [String: Any]
+          move["new_start"] = move["old_start"]
+          $0["esp_move"] = move
+        }
+      ),
+      ("a move in place mode", { $0["mode"] = "in-place" }),
+    ] as [(String, (inout [String: Any]) -> Void)] {
+      var bad = growObject
+      change(&bad)
+      expect((try? StubUpgradeRequest.decode(signed(bad))) == nil, "grow: \(what) refused")
+    }
+    // A second startup volume is refused by name.
+    do {
+      _ = try StubUpgradeRequest.decode(
+        Data(contentsOf: fixtures.appendingPathComponent("slot.json")))
+      expect(false, "a slot plan decoded")
+    } catch {
+      expect(error as? StubUpgradeRequest.Failure == .slot, "slot: \(error)")
     }
     do {
       let request = try StubUpgradeRequest.decode(caution)
@@ -88,7 +132,7 @@ struct AccountSetupFailure: Error {
       try JSONSerialization.data(withJSONObject: unsigned))
     expect((try? StubUpgradeRequest.decode(signed(changed))) != nil, "a re-signed request")
     for (key, value) in [
-      ("mode", "slot" as Any), ("schema", 2), ("chip", "8112"), ("chip", "0x08112"),
+      ("mode", "in-place-shrink" as Any), ("schema", 2), ("chip", "8112"), ("chip", "0x08112"),
       ("board", "J413"), ("esp_partuuid", "not-a-uuid"), ("extra", 1),
     ] {
       var bad = object
@@ -137,7 +181,7 @@ struct AccountSetupFailure: Error {
       espPartitionUUID: request.espPartitionUUID.uppercased(), espRequest: staged,
       stubInfo: stubInfo, espFreeBytes: 300 << 20, systemFirmware: "iBoot-13822.61.2",
       stage1: stage1, containerFreeBytes: 1_450_000_000, recoveryImageBytes: 810_000_000,
-      recoveryImageReleasable: true, systemVersionVisible: false, systemVersionHidden: true,
+      systemRecovery: "26.2.123.0.0,0", systemVersionVisible: false, systemVersionHidden: true,
       launchedByMarker: true)
     expect((try? StubUpgradeCheck.verify(config: staged, facts: good)) != nil, "good facts pass")
     func refusal(
@@ -180,6 +224,40 @@ struct AccountSetupFailure: Error {
     refusal("no firmware version", .firmwareFloor(have: "unknown", need: "iBoot-13822.41.1")) {
       $0.systemFirmware = nil
     }
+    refusal(
+      "a system Recovery below the floor",
+      .recoveryFloor(have: "23.6.97.0.0,0", need: "26.2.123.0.0,0")
+    ) { $0.systemRecovery = "23.6.97.0.0,0" }
+    refusal(
+      "an unreadable system Recovery", .recoveryFloor(have: "unreadable", need: "26.2.123.0.0,0")
+    ) {
+      $0.systemRecovery = nil
+    }
+    refusal(
+      "a system Recovery version that doesn't parse",
+      .recoveryFloor(have: "26.x.1", need: "26.2.123.0.0,0")
+    ) { $0.systemRecovery = "26.x.1" }
+    var noFloor = withStage1
+    var noFloorTarget = noFloor["target"] as! [String: Any]
+    noFloorTarget["minimum_recovery"] = ""
+    noFloor["target"] = noFloorTarget
+    let unfloored = signed(noFloor)
+    refusal(
+      "a request without a Recovery floor",
+      .recoveryFloor(have: "26.2.123.0.0,0", need: "none named"), config: unfloored
+    ) {
+      $0.espRequest = unfloored
+    }
+    expect(
+      (try? StubUpgradeCheck.verify(
+        config: staged,
+        facts: {
+          var newer = good
+          newer.systemRecovery = "27.2.123.0.0,0"
+          return newer
+        }())) != nil, "a newer system Recovery passes")
+    let slot = try Data(contentsOf: fixtures.appendingPathComponent("slot.json"))
+    refusal("a slot plan", .slot, config: slot) { $0.espRequest = slot }
     refusal("another Stage 1", .stage1Changed) { $0.stage1 = Data("other".utf8) }
     refusal("both version files", .versionMetadata) { $0.systemVersionVisible = true }
     refusal("no version file", .versionMetadata) { $0.systemVersionHidden = false }
@@ -192,7 +270,9 @@ struct AccountSetupFailure: Error {
       ("iBoot-11881.1.1", "iBoot-13822.41.1", false), ("27.2", "26.0", true),
       ("13.5", "26.0", false),
       ("26.0", "26.0.1", false), ("26.0.1", "26.0", true), ("26.1 beta 2", "26.1", false),
-      ("26.1 beta 2", "26.0", true),
+      ("26.1 beta 2", "26.0", true), ("26.2.123.0.0,0", "26.2.123.0.0,0", true),
+      ("26.2.124.0.0,0", "26.2.123.0.0,0", true), ("26.2.99.0.0,0", "26.2.123.0.0,0", false),
+      ("26.2.123.0.0", "26.2.123.0.0,0", false), ("26.02", "26.2", true),
     ] {
       expect(
         (try? StubUpgradeCheck.versionAtLeast(a, b)) == want, "\(a) at least \(b): want \(want)")
