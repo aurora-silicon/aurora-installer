@@ -21,6 +21,12 @@ else
   # Release builders need only Xcode's bundled Swift tools.
   xcrun swift build --package-path "$PWD" --configuration release
 fi
+# Every object and the executable must run on the app's oldest recoveryOS:
+# ld only warns about an object built for a newer macOS.
+while IFS= read -r -d '' object; do
+  ./Tools/require-macos13.sh "$object"
+done < <(find .build/release/ -name '*.o' -print0)
+./Tools/require-macos13.sh .build/release/AuroraRecovery
 ./test-all.sh "$OUT/checks"
 # Released templates and the payloads built from them name the executable
 # OmarchyRecovery, and installers check that name, so the bundle keeps it.

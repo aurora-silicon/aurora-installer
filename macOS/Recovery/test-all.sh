@@ -40,12 +40,15 @@ compile_run restore-image-key -parse-as-library Sources/RestoreImageKey.swift So
 compile_run restore-image-key-cryptokit -parse-as-library Sources/RestoreImageKey.swift Sources/RestoreImageKeyAgreement.swift Tests/RestoreImageKeyCryptoKitCheck.swift
 compile_run restore-image-member -parse-as-library Sources/RestoreImageMember.swift Tests/RestoreImageMemberCheck.swift
 compile_run restore-image-stub-plan -parse-as-library Sources/Account/RecoveryDigest.swift Sources/RestoreImageMember.swift Sources/RestoreImageDirectory.swift Sources/RestoreImageStubPlan.swift Tests/RestoreImageStubPlanCheck.swift
-# LZFSE from libcompression through the app's own C module (Compression/), as the app links it.
-xcrun clang -c -Wall -Wextra -Werror -I Compression/include Compression/RecoveryCompression.c -o "$out/recovery-compression.o"
+# LZFSE from libcompression through the app's own C module (Compression/), as the app links
+# it, built for the app's oldest recoveryOS (Package.swift: macOS 13) like the checks below.
+xcrun clang -target "$(uname -m)-apple-macos13.0" -c -Wall -Wextra -Werror -I Compression/include Compression/RecoveryCompression.c -o "$out/recovery-compression.o"
+./Tools/require-macos13.sh "$out/recovery-compression.o"
 archive=(-parse-as-library -I Compression/include Sources/Account/RecoveryDigest.swift Sources/RestoreImageKey.swift Sources/RestoreImageKeyAgreement.swift Sources/RestoreImageMember.swift Sources/RestoreImageDirectory.swift Sources/RestoreImageStream.swift Sources/RestoreImageArchive.swift Sources/RestoreImageResourceFork.swift Sources/RestoreImageStubPlan.swift Sources/RestoreImageStubFiles.swift "$out/recovery-compression.o" -lcompression)
 # For the app's oldest recoveryOS (macOS 13), so an API it lacks fails the build.
 compile_run restore-image-archive -target "$(uname -m)-apple-macos13.0" "${archive[@]}" Tests/RestoreImageArchiveCheck.swift
 compile_run restore-image-stub-files -target "$(uname -m)-apple-macos13.0" "${archive[@]}" Tests/RestoreImageStubFilesCheck.swift
+./Tools/require-macos13.sh "$out/restore-image-archive" "$out/restore-image-stub-files"
 # Built for the app's oldest recoveryOS (Package.swift: macOS 13) so the same
 # binary can be run there by hand; CI keeps it with the Recovery evidence.
 xcrun swiftc -target "$(uname -m)-apple-macos13.0" -parse-as-library Sources/RestoreImageKey.swift Sources/RestoreImageKeyAgreement.swift Sources/RestoreImageMember.swift Tools/RestoreImageKeyTool.swift -o "$out/aurora-restore-key"

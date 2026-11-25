@@ -1,4 +1,5 @@
 import Foundation
+import RecoveryCompression
 
 #if canImport(Darwin)
   import Darwin
@@ -16,7 +17,9 @@ import Foundation
 // aea-* images are decoded to their plain bytes (lengths and SHA-256s from
 // generate.py), the Recovery image kept compressed (decmpfs on macOS); a
 // wrong key, a changed segment or a Recovery image without a disk image
-// trailer stops the run with no Recovery image published.
+// trailer stops the run with no Recovery image published. On macOS the
+// Recovery image must also be decmpfs type 12 whose resource fork decodes to
+// the bytes read back through the file system.
 @main struct Check {
   nonisolated(unsafe) static var failures = 0
   static func expect(_ condition: Bool, _ what: String) {
@@ -76,6 +79,52 @@ import Foundation
   static func sha(_ url: URL) -> String? {
     (try? Data(contentsOf: url)).map(RecoveryDigest.sha256)
   }
+
+  #if canImport(Darwin)
+    /// The SHA-256 of a decmpfs type 12 file's bytes as its resource fork holds
+    /// them (every LZFSE block decoded), if its decmpfs header says type 12
+    /// and its own length. Once UF_COMPRESSED is set, APFS hides both
+    /// attributes unless XATTR_SHOWCOMPRESSION asks for them.
+    static func compressedForm(_ url: URL) -> String? {
+      let options = XATTR_NOFOLLOW | XATTR_SHOWCOMPRESSION
+      func attribute(_ name: String) -> [UInt8]? {
+        let size = getxattr(url.path, name, nil, 0, 0, options)
+        guard size > 0 else { return nil }
+        var value = [UInt8](repeating: 0, count: size)
+        guard getxattr(url.path, name, &value, size, 0, options) == size else { return nil }
+        return value
+      }
+      var info = stat()
+      guard lstat(url.path, &info) == 0, info.st_flags & UInt32(UF_COMPRESSED) != 0,
+        let header = attribute("com.apple.decmpfs"), header.count == 16,
+        header[0..<8] == [0x66, 0x70, 0x6d, 0x63, 12, 0, 0, 0],
+        header[8..<16].reversed().reduce(0, { $0 << 8 | Int($1) }) == Int(info.st_size),
+        let fork = attribute("com.apple.ResourceFork")
+      else { return nil }
+      let blocks = (Int(info.st_size) + 65535) / 65536
+      guard fork.count >= (blocks + 1) * 4 else { return nil }
+      let offsets = (0...blocks).map { index in
+        fork[(index * 4)..<(index * 4 + 4)].reversed().reduce(0) { $0 << 8 | Int($1) }
+      }
+      guard offsets.first == (blocks + 1) * 4, offsets.last == fork.count,
+        zip(offsets, offsets.dropFirst()).allSatisfy({ $0 < $1 })
+      else { return nil }
+      var plain = Data()
+      for index in 0..<blocks {
+        let block = Array(fork[offsets[index]..<offsets[index + 1]])
+        var out = [UInt8](repeating: 0, count: 65537)
+        let count = block.withUnsafeBufferPointer { source in
+          out.withUnsafeMutableBufferPointer { target in
+            aurora_lzfse_decode(
+              target.baseAddress!, target.count, source.baseAddress!, source.count)
+          }
+        }
+        guard count == min(65536, Int(info.st_size) - index * 65536) else { return nil }
+        plain += out.prefix(count)
+      }
+      return RecoveryDigest.sha256(plain)
+    }
+  #endif
 
   /// Every name under `url` that is a leftover temporary file.
   static func leftovers(_ url: URL) -> [String] {
@@ -195,11 +244,9 @@ import Foundation
         expect(
           compressed == (want.0 == "Recovery"), "\(name): \(full) compressed: \(compressed)")
         if want.0 == "Recovery" {
-          var header = [UInt8](repeating: 0, count: 16)
-          let count = getxattr(url.path, "com.apple.decmpfs", &header, 16, 0, XATTR_NOFOLLOW)
           expect(
-            count == 16 && header[0..<8] == [0x66, 0x70, 0x6d, 0x63, 12, 0, 0, 0],
-            "\(name): \(full) is decmpfs type 12")
+            compressedForm(url) == installed.identity.sha256,
+            "\(name): \(full) is decmpfs type 12 holding its bytes")
         }
       #endif
     }
