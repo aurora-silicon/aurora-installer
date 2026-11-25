@@ -1,5 +1,7 @@
 // Linux test shim on libcrypto 3 (declared here: the swift image has no OpenSSL headers).
 #include "CommonCrypto.h"
+#include "../../Compression/include/RecoveryCompression.h"
+#include <stdlib.h>
 #include <string.h>
 typedef struct evp_md_st EVP_MD;
 typedef struct bignum_st BIGNUM;
@@ -57,6 +59,91 @@ CCCryptorStatus CCCrypt(CCOperation op, CCAlgorithm alg, CCOptions o, const void
   *moved = n;
   return kCCSuccess;
 }
+
+struct _CCCryptor {
+  unsigned char ks[512];
+  unsigned char counter[16];
+  unsigned char stream[16];
+  size_t used;
+};
+
+CCCryptorStatus CCCryptorCreateWithMode(CCOperation op, CCMode mode, CCAlgorithm alg,
+                                        CCPadding padding, const void *iv, const void *key,
+                                        size_t kl, const void *tweak, size_t tl, int rounds,
+                                        CCModeOptions options, CCCryptorRef *out) {
+  (void)tweak;
+  struct _CCCryptor *c;
+  if (op != kCCEncrypt || mode != kCCModeCTR || alg != kCCAlgorithmAES || padding != ccNoPadding ||
+      !iv || kl != 32 || tl || rounds || options != kCCModeOptionCTR_BE || !out)
+    return -4300;
+  c = calloc(1, sizeof *c);
+  if (!c) return -4302;
+  if (AES_set_encrypt_key(key, 256, c->ks) != 0) {
+    free(c);
+    return -4301;
+  }
+  memcpy(c->counter, iv, 16);
+  c->used = 16;
+  *out = c;
+  return kCCSuccess;
+}
+
+CCCryptorStatus CCCryptorUpdate(CCCryptorRef c, const void *in, size_t n, void *out, size_t avail,
+                                size_t *moved) {
+  if (avail < n) return -4300;
+  for (size_t i = 0; i < n; i++) {
+    if (c->used == 16) {
+      AES_encrypt(c->counter, c->stream, c->ks);
+      for (int b = 15; b >= 0 && ++c->counter[b] == 0; b--) {
+      }
+      c->used = 0;
+    }
+    ((unsigned char *)out)[i] = ((const unsigned char *)in)[i] ^ c->stream[c->used++];
+  }
+  *moved = n;
+  return kCCSuccess;
+}
+
+CCCryptorStatus CCCryptorRelease(CCCryptorRef c) {
+  free(c);
+  return kCCSuccess;
+}
+
+#ifndef AURORA_LZFSE_GO
+// LZFSE stand-in when run.sh couldn't build lzfse/ (the Go decoder): Linux has no
+// libcompression, and the swift image no liblzfse. Only
+// uncompressed blocks ("bvx-") and the end-of-stream block ("bvx$") are decoded, and
+// encoding writes them; both are valid LZFSE, which macOS's own decoder reads (test-all.sh
+// runs the same checks there on real LZFSE). Any other block decodes as an error (0).
+static uint32_t le32(const uint8_t *p) {
+  return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+}
+
+size_t aurora_lzfse_decode(uint8_t *dst, size_t dst_size, const uint8_t *src, size_t src_size) {
+  size_t in = 0, out = 0;
+  while (src_size - in >= 4) {
+    if (!memcmp(src + in, "bvx$", 4)) return out;
+    if (memcmp(src + in, "bvx-", 4) || src_size - in < 8) return 0;
+    size_t n = le32(src + in + 4);
+    if (src_size - in - 8 < n) return 0;
+    size_t take = n < dst_size - out ? n : dst_size - out;
+    memcpy(dst + out, src + in + 8, take);
+    out += take;
+    if (take < n) return out;  // dst full: libcompression stops there too
+    in += 8 + n;
+  }
+  return 0;
+}
+
+size_t aurora_lzfse_encode(uint8_t *dst, size_t dst_size, const uint8_t *src, size_t src_size) {
+  if (dst_size < src_size + 12) return 0;
+  memcpy(dst, "bvx-", 4);
+  for (int i = 0; i < 4; i++) dst[4 + i] = (uint8_t)(src_size >> (8 * i));
+  memcpy(dst + 8, src, src_size);
+  memcpy(dst + 8 + src_size, "bvx$", 4);
+  return src_size + 12;
+}
+#endif
 
 int aurora_test_ecdh(const uint8_t *scalar32, const uint8_t *peer65, uint8_t *out32) {
   int status = 2;

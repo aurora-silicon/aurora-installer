@@ -12,7 +12,11 @@ import Foundation
 // written file holds its member's bytes, links their targets, and a second run
 // adopts the first; a changed file, a link or a writable directory in the way,
 // and a body that doesn't decode to its declared bytes stop the run with
-// nothing published.
+// nothing published. With an archive key, the Apple Encrypted Archives of the
+// aea-* images are decoded to their plain bytes (lengths and SHA-256s from
+// generate.py), the Recovery image kept compressed (decmpfs on macOS); a
+// wrong key, a changed segment or a Recovery image without a disk image
+// trailer stops the run with no Recovery image published.
 @main struct Check {
   nonisolated(unsafe) static var failures = 0
   static func expect(_ condition: Bool, _ what: String) {
@@ -82,20 +86,36 @@ import Foundation
 
   static func write(
     _ image: Image, _ plan: RestoreImageStubPlan, _ roots: [String: URL], chunk: Int = 65536,
-    group: String = group
+    group: String = group, key: Data? = nil
   ) -> Result<RestoreImageStubFiles, Error> {
     Result {
       try RestoreImageStubFiles(
         plan: plan, directory: image.directory, read: image.read, roots: roots, group: group,
-        chunkBytes: chunk)
+        chunkBytes: chunk,
+        archiveKey: key.map { key in
+          { entry, metadata in
+            // The key closure gets the member and its archive's metadata.
+            expect(
+              metadata["com.apple.wkms.fcs-key-url"] != nil
+                && image.directory.entries.contains(entry),
+              "archive key asked for \(entry.name) with its metadata")
+            return key
+          }
+        })
     }
+  }
+
+  struct Decoded {
+    let bytes: Int
+    let sha256: String
   }
 
   /// The written stub agrees with the plan and the members' bytes, and what
   /// it leaves pending would complete the receipts in the main installer's order.
   static func verify(
     _ name: String, _ image: Image, _ plan: RestoreImageStubPlan,
-    _ files: RestoreImageStubFiles, _ roots: [String: URL], sha256: [String: String]
+    _ files: RestoreImageStubFiles, _ roots: [String: URL], sha256: [String: String],
+    decoded: [String: Decoded] = [:]
   ) {
     var wanted = [(String, String, String?, String?)]()  // role, path, data name, member
     for copy in plan.copies {
@@ -154,7 +174,10 @@ import Foundation
       }
       let digest = sha(url)
       expect(digest == installed.identity.sha256, "\(name): \(full) on disk matches its identity")
-      if let member = want.3 {
+      if let member = want.3, let plain = decoded[member] {
+        expect(digest == plain.sha256, "\(name): \(full) holds \(member)'s decoded bytes")
+        expect(installed.identity.bytes == plain.bytes, "\(name): \(full) decoded size")
+      } else if let member = want.3 {
         expect(digest == sha256[member], "\(name): \(full) holds \(member)'s bytes")
         expect(installed.identity.bytes == image.entry(member).size, "\(name): \(full) size")
       } else if want.1.hasSuffix("BuildManifest.plist") {
@@ -166,6 +189,19 @@ import Foundation
       expect(
         lstat(url.path, &info) == 0 && info.st_mode & 0o7777 == 0o644 && info.st_nlink == 1,
         "\(name): \(full) is 0644 with one name")
+      #if canImport(Darwin)
+        // Only the Recovery image is stored compressed, as decmpfs type 12.
+        let compressed = info.st_flags & UInt32(UF_COMPRESSED) != 0
+        expect(
+          compressed == (want.0 == "Recovery"), "\(name): \(full) compressed: \(compressed)")
+        if want.0 == "Recovery" {
+          var header = [UInt8](repeating: 0, count: 16)
+          let count = getxattr(url.path, "com.apple.decmpfs", &header, 16, 0, XATTR_NOFOLLOW)
+          expect(
+            count == 16 && header[0..<8] == [0x66, 0x70, 0x6d, 0x63, 12, 0, 0, 0],
+            "\(name): \(full) is decmpfs type 12")
+        }
+      #endif
     }
     // Every directory the writer made is 0755, whatever the umask.
     for (_, root) in roots {
@@ -203,6 +239,7 @@ import Foundation
     // This directory's images and, as "plan/<name>", every plan image that
     // admits a plan; member SHA-256s from Python's zipfile.
     var cases = [(String, URL, [String: String], [RestoreImageStubFiles.Pending])]()
+    var keyed = [String: (key: Data, decoded: [String: Decoded], refuse: String?)]()
     for (name, value) in expected.sorted(by: { $0.key < $1.key }) {
       guard let value = value as? [String: Any] else { continue }
       let url =
@@ -214,7 +251,17 @@ import Foundation
           name, url, value["sha256"] as! [String: String],
           pending(value["pending"] as! [[String: Any]])
         ))
+      if let key = value["key"] as? String {
+        let bytes = stride(from: 0, to: key.count, by: 2).map {
+          UInt8(key.dropFirst($0).prefix(2), radix: 16)!
+        }
+        let decoded = (value["decoded"] as? [String: [String: Any]] ?? [:]).mapValues {
+          Decoded(bytes: $0["bytes"] as! Int, sha256: $0["sha256"] as! String)
+        }
+        keyed[name] = (Data(bytes), decoded, value["refuse"] as? String)
+      }
     }
+    expect(keyed.count == 3, "keyed cases: \(keyed.count)")
     let admitted = (planExpected["cases"] as! [String: Any]).merging(
       planExpected["recovery_only"] as! [String: Any]
     ) { a, _ in a }.filter { $0.value is [String: Any] }.keys.sorted()
@@ -263,6 +310,55 @@ import Foundation
         } else {
           expect(false, "\(name): second run refused")
         }
+      }
+      // With the archive key: decoded, or refused with no Recovery image.
+      guard let (key, decoded, refuse) = keyed[name].map({ ($0.key, $0.decoded, $0.refuse) })
+      else { continue }
+      for chunk in [4096, RestoreImageDirectory.streamChunk] {
+        let (base, roots) = try roots()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let recovery = roots["Recovery"]!.appendingPathComponent(
+          group + "/" + RestoreImageStubFiles.recoveryImagePath)
+        switch (write(image, plan, roots, chunk: chunk, key: key), refuse) {
+        case (.success(let files), nil):
+          written += 1
+          verify(name, image, plan, files, roots, sha256: sums, decoded: decoded)
+          expect(files.pending.isEmpty, "\(name): keyed run left \(files.pending)")
+          expect(leftovers(base).isEmpty, "\(name): keyed run left temporary files")
+          let again = write(image, plan, roots, chunk: chunk, key: key)
+          expect(
+            (try? again.get())?.installed == files.installed, "\(name): keyed rerun: \(again)")
+          // Another key opens none of them; what is published stays as it was.
+          let other = write(image, plan, roots, chunk: chunk, key: Data(key.map { $0 ^ 0x80 }))
+          if case .failure(let error) = other {
+            expect("\(error)" == "authentication", "\(name): another key: \(error)")
+          } else {
+            expect(false, "\(name): another key decoded")
+          }
+          expect(
+            sha(recovery) == decoded[plan.recoveryMember.name]?.sha256,
+            "\(name): Recovery image kept")
+        case (.failure(let error), let refuse?):
+          expect("\(error)" == refuse, "\(name): keyed run \(error), want \(refuse)")
+          expect(!FileManager.default.fileExists(atPath: recovery.path), "\(name): published")
+          expect(leftovers(base).isEmpty, "\(name): refused run left temporary files")
+        case (let result, _):
+          expect(false, "\(name): keyed run \(result), want \(refuse ?? "success")")
+        }
+      }
+      // Another key on a fresh stub publishes no decoded file.
+      do {
+        let (base, roots) = try roots()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let result = write(image, plan, roots, key: Data(key.map { $0 ^ 0x80 }))
+        expect((try? result.get()) == nil, "\(name): another key")
+        for copy in plan.copies where decoded[copy.member] != nil {
+          expect(
+            !FileManager.default.fileExists(
+              atPath: roots[copy.role]!.appendingPathComponent(group + "/" + copy.path).path),
+            "\(name): \(copy.path) published under another key")
+        }
+        expect(leftovers(base).isEmpty, "\(name): another key left temporary files")
       }
     }
 

@@ -17,12 +17,18 @@ import Foundation
 /// holds anything else is left alone and stops the run. No path goes through
 /// a link: every directory is opened without following one.
 ///
-/// Two kinds of file are left to the next step and returned in `pending`,
-/// each with its place among the receipts: a top-level restore directory
-/// member that is an Apple Encrypted Archive (decoded first, as the main
-/// installer does on macOS), and the Recovery image, which the stub keeps
-/// compressed (decmpfs, as the main installer writes it) and which is itself
-/// an Apple Encrypted Archive in current images. The installer's own files
+/// A top-level restore directory member that is an Apple Encrypted Archive
+/// is decoded first, as the main installer does on macOS, and the Recovery
+/// image, itself an Apple Encrypted Archive in current images, is decoded and
+/// kept compressed (decmpfs type 12, as the main installer writes it and as
+/// Apple's stubs keep it). Each archive is decoded as it streams in
+/// (RestoreImageArchive: every header, segment MAC and segment SHA-256
+/// checked before use) into the private file next to its destination, so no
+/// plain copy is staged anywhere else; the Recovery image must also end in a
+/// disk image trailer. The archive key comes from `archiveKey`, which gets the
+/// member and its AEA metadata (`RestoreImageKey.keyURL` and `unwrap` open
+/// it); without one, these files are left to the next step and returned in
+/// `pending`, each with its place among the receipts. The installer's own files
 /// (AdminUserRecoveryInfo.plist, the System volume's restore link, the Finish
 /// Installation launcher, .IAPhysicalMedia and the receipts) are not written
 /// here either. `roots` must be the stub's mounted volume roots, which the
@@ -36,6 +42,8 @@ public struct RestoreImageStubFiles {
     /// A destination already holds other bytes, or a file changed while read.
     case changedFile
     case writeFailed
+    /// A decoded Recovery image doesn't end in a disk image (UDIF) trailer.
+    case invalidImage
   }
 
   public struct Identity: Codable, Equatable {
@@ -79,7 +87,8 @@ public struct RestoreImageStubFiles {
   public init(
     plan: RestoreImageStubPlan, directory: RestoreImageDirectory,
     read: RestoreImageDirectory.Read, roots: [String: URL], group: String,
-    owner: uid_t = geteuid(), chunkBytes: Int = RestoreImageDirectory.streamChunk
+    owner: uid_t = geteuid(), chunkBytes: Int = RestoreImageDirectory.streamChunk,
+    archiveKey: ((RestoreImageDirectory.Entry, [String: Data]) throws -> Data)? = nil
   ) throws {
     guard Set(roots.keys) == Set(Self.roles), let uuid = UUID(uuidString: group),
       uuid.uuidString == group
@@ -107,13 +116,48 @@ public struct RestoreImageStubFiles {
     }
     func copy(
       _ role: String, _ path: String, _ dataName: String?,
-      _ entry: RestoreImageDirectory.Entry
+      _ entry: RestoreImageDirectory.Entry, compressed: Bool = false
     ) throws {
       try record(role, path, dataName) { tree, relative in
-        try tree.publish(relative, bytes: entry.size, mode: 0o644) { append in
+        try tree.publish(relative, bytes: entry.size, mode: 0o644, compressed: compressed) {
+          append in
           try directory.stream(entry, chunkBytes: chunkBytes, read: read, consume: append)
         }
       }
+    }
+    /// An Apple Encrypted Archive member's plain image, decoded as it streams.
+    func decode(
+      _ role: String, _ path: String, _ dataName: String?,
+      _ entry: RestoreImageDirectory.Entry, key: Data, diskImage: Bool
+    ) throws {
+      let prefix = try directory.appleEncryptedPrefix(entry, read: read)
+      // The root header authenticates here, before any file is made.
+      let size = try RestoreImageArchive.plainSize(
+        prefix, archiveKey: key, archiveSize: entry.size)
+      try record(role, path, dataName) { tree, relative in
+        try tree.publish(relative, bytes: size, mode: 0o644, compressed: diskImage) { append in
+          let decoder = try RestoreImageArchive.Decoder(archiveKey: key, archiveSize: entry.size)
+          var tail = Data()
+          try directory.stream(entry, chunkBytes: chunkBytes, read: read) { chunk in
+            try decoder.consume(chunk) { plain in
+              tail = Data((plain.count >= 512 ? plain : tail + plain).suffix(512))
+              try append(plain)
+            }
+          }
+          guard try decoder.finish().bytes == size else { throw Failure.changedFile }
+          // As the main installer checks its decoded Recovery image: a UDIF trailer.
+          if diskImage {
+            guard tail.count == 512, tail.prefix(4) == Data("koly".utf8) else {
+              throw Failure.invalidImage
+            }
+          }
+        }
+      }
+    }
+    func key(_ entry: RestoreImageDirectory.Entry) throws -> Data? {
+      guard let archiveKey else { return nil }
+      return try archiveKey(
+        entry, RestoreImageKey.metadata(directory.appleEncryptedPrefix(entry, read: read)))
     }
 
     for operation in plan.copies {
@@ -126,6 +170,12 @@ public struct RestoreImageStubFiles {
       } else if plan.isTopLevelRestore(operation),
         try directory.isAppleEncryptedArchive(entry, read: read)
       {
+        if let key = try key(entry) {
+          try decode(
+            operation.role, operation.path, operation.installerDataName, entry, key: key,
+            diskImage: false)
+          continue
+        }
         pending.append(
           Pending(
             member: operation.member, role: operation.role, path: operation.path,
@@ -138,12 +188,19 @@ public struct RestoreImageStubFiles {
     try record("Preboot", plan.restorePath + "/BuildManifest.plist", "BuildManifest.plist") {
       try $0.data(plan.manifest, at: $1)
     }
-    pending.append(
-      Pending(
-        member: plan.recoveryMember.name, role: "Recovery", path: Self.recoveryImagePath,
-        installerDataName: nil,
-        appleEncrypted: try directory.isAppleEncryptedArchive(plan.recoveryMember, read: read),
-        compressed: true, position: installed.count))
+    let recovery = plan.recoveryMember
+    if !(try directory.isAppleEncryptedArchive(recovery, read: read)) {
+      // An older image's Recovery image is a plain disk image: copied as it is, compressed.
+      try copy("Recovery", Self.recoveryImagePath, nil, recovery, compressed: true)
+    } else if let key = try key(recovery) {
+      try decode("Recovery", Self.recoveryImagePath, nil, recovery, key: key, diskImage: true)
+    } else {
+      pending.append(
+        Pending(
+          member: recovery.name, role: "Recovery", path: Self.recoveryImagePath,
+          installerDataName: nil, appleEncrypted: true, compressed: true,
+          position: installed.count))
+    }
     try record("System", Self.systemVersionPath, "SystemVersion.plist") {
       try $0.data(plan.systemVersion, at: $1)
     }
@@ -239,8 +296,12 @@ public struct RestoreImageStubFiles {
 
     /// Writes `bytes` bytes that `produce` hands to its sink into a private
     /// file, checks and flushes it, then names it `path`.
+    /// With `compressed`, the bytes go to the resource fork as decmpfs type 12
+    /// (RestoreImageResourceFork) and are checked through APFS's own
+    /// decompressed read. Linux has no decmpfs; there, where only the
+    /// fixture checks run, they are written as they are.
     func publish(
-      _ path: String, bytes: Int, mode: mode_t,
+      _ path: String, bytes: Int, mode: mode_t, compressed: Bool = false,
       produce: (_ append: (Data) throws -> Void) throws -> Void
     ) throws -> Identity {
       guard bytes >= 0, bytes <= RestoreImageDirectory.maximumMember else {
@@ -272,16 +333,47 @@ public struct RestoreImageStubFiles {
         close(descriptor)
         if !removed { unlinkat(parent, temporary, 0) }
       }
+      var fork: RestoreImageResourceFork?
+      var resource: Int32 = -1
+      defer { if resource >= 0 { close(resource) } }
+      #if canImport(Darwin)
+        if compressed {
+          resource = try Self.resourceFork(descriptor)
+          let target = resource
+          fork = try RestoreImageResourceFork(bytes: bytes) { try Self.write(target, $0, at: $1) }
+        }
+      #endif
       var written = 0
       var hash = RecoveryDigest.Stream()
       try produce { chunk in
         guard chunk.count <= bytes - written else { throw Failure.changedFile }
-        try Self.write(descriptor, chunk, at: written)
+        if let fork {
+          try fork.append(chunk)
+        } else {
+          try Self.write(descriptor, chunk, at: written)
+        }
         hash.update(chunk)
         written += chunk.count
       }
+      guard written == bytes else { throw Failure.changedFile }
+      #if canImport(Darwin)
+        if let fork {
+          try fork.finish()
+          guard fsync(resource) == 0 else { throw Failure.writeFailed }
+          close(resource)
+          resource = -1
+          let attribute = RestoreImageResourceFork.attribute(bytes: bytes)
+          let status = attribute.withUnsafeBytes {
+            fsetxattr(
+              descriptor, "com.apple.decmpfs", $0.baseAddress, attribute.count, 0, XATTR_CREATE)
+          }
+          guard status == 0, fchflags(descriptor, UInt32(UF_COMPRESSED)) == 0 else {
+            throw Failure.writeFailed
+          }
+        }
+      #endif
       let expected = Identity(bytes: written, sha256: hash.finish())
-      guard written == bytes, fchmod(descriptor, mode) == 0, fsync(descriptor) == 0,
+      guard fchmod(descriptor, mode) == 0, fsync(descriptor) == 0,
         try Self.identity(descriptor, owner: owner, maximum: bytes) == expected
       else { throw Failure.changedFile }
       // A hard link names the file only if nothing has that name yet; both
@@ -299,6 +391,27 @@ public struct RestoreImageStubFiles {
       guard removed, fsync(parent) == 0 else { throw Failure.writeFailed }
       return expected
     }
+
+    #if canImport(Darwin)
+      /// The resource fork of the opened private file, as the main installer
+      /// opens it: by the file's path, then checked to be the same file.
+      static func resourceFork(_ descriptor: Int32) throws -> Int32 {
+        var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        guard fcntl(descriptor, F_GETPATH, &path) == 0 else { throw Failure.unsafeFile }
+        let resource = open(
+          String(cString: path) + "/..namedfork/rsrc", O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW,
+          0o600)
+        var original = stat()
+        var fork = stat()
+        guard resource >= 0, fstat(descriptor, &original) == 0, fstat(resource, &fork) == 0,
+          original.st_ino == fork.st_ino, original.st_dev == fork.st_dev, fork.st_size == 0
+        else {
+          if resource >= 0 { close(resource) }
+          throw Failure.unsafeFile
+        }
+        return resource
+      }
+    #endif
 
     /// The private name `path` is written under before it is published.
     static func temporaryName(namespace: String, path: String) -> String {

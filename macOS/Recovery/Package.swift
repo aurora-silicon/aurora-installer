@@ -14,9 +14,13 @@ let package = Package(
   products: [.executable(name: "AuroraRecovery", targets: ["AuroraRecovery"])],
   targets: [
     .target(name: "RecoveryAuthorization", path: "Native", publicHeadersPath: "."),
+    // LZFSE from libcompression, without Swift's Compression overlay.
+    .target(
+      name: "RecoveryCompression", path: "Compression", publicHeadersPath: "include",
+      linkerSettings: [.linkedLibrary("compression")]),
     .executableTarget(
       name: "AuroraRecovery",
-      dependencies: ["RecoveryAuthorization"],
+      dependencies: ["RecoveryAuthorization", "RecoveryCompression"],
       path: "Sources",
       swiftSettings: [
         .define(buildMode == "recovery" ? "AURORA_STEP2_RECOVERY" : "AURORA_STEP2_PREVIEW")
