@@ -24,12 +24,15 @@ public enum StubUpgradeRecords {
       withJSONObject: info, options: [.sortedKeys, .withoutEscapingSlashes])
   }
 
-  /// aurora-upgrade's journal with this visit's step and `state` "upgraded",
-  /// which `aurora-upgrade finish` waits for (with the new firmware version).
-  /// A journal that is missing is started; the step is recorded once.
-  public static func espJournal(_ old: Data?, request: StubUpgradeRequest, time: Int) throws
-    -> Data
-  {
+  /// aurora-upgrade's journal with this visit's step and `state`: "upgraded",
+  /// which `aurora-upgrade finish` waits for (with the new firmware version),
+  /// or `needs-macos-bless` when Recovery's bless refused and the stub is
+  /// back as it was. A journal that is missing is started; each step is
+  /// recorded once.
+  public static func espJournal(
+    _ old: Data?, request: StubUpgradeRequest, time: Int, state: String = "upgraded"
+  ) throws -> Data {
+    let kind = state == "upgraded" ? "recovery-upgraded" : "recovery-" + state
     var value: [String: Any] = ["schema": StubUpgradeRequest.schema, "steps": [[String: Any]]()]
     if let old {
       guard let parsed = try? JSONSerialization.jsonObject(with: old) as? [String: Any] else {
@@ -39,15 +42,15 @@ public enum StubUpgradeRecords {
     }
     var steps = value["steps"] as? [[String: Any]] ?? []
     if !steps.contains(where: {
-      $0["kind"] as? String == "recovery-upgraded" && $0["build"] as? String == request.target.build
+      $0["kind"] as? String == kind && $0["build"] as? String == request.target.build
     }) {
       steps.append([
-        "kind": "recovery-upgraded", "time": time, "build": request.target.build,
+        "kind": kind, "time": time, "build": request.target.build,
         "version": request.target.version, "group": request.group,
       ])
     }
     value["steps"] = steps
-    value["state"] = "upgraded"
+    value["state"] = state
     value["plan_sha256"] = request.planSHA256
     return try JSONSerialization.data(
       withJSONObject: value, options: [.prettyPrinted, .sortedKeys])

@@ -77,6 +77,18 @@ extension RecoveryActions {
     return launch["AppName"] as? String == "Aurora Installer.app"
   }
 
+  /// This volume's upgrade journal; one an earlier installer's order wrote is refused in words.
+  static func loadUpgradeJournal() throws -> RestoreImageStubUpgrade.Journal? {
+    do {
+      return try RestoreImageStubUpgrade.Journal.load(upgradeJournal)
+    } catch RestoreImageStubUpgrade.Failure.oldJournal {
+      throw RecoveryFailure(
+        message:
+          "An earlier Aurora Installer left a startup firmware upgrade unfinished on this volume, in an order this one can't continue. Restore the startup volume from its backup, or run aurora-upgrade cancel in Linux and stage the upgrade again. Nothing was changed."
+      )
+    }
+  }
+
   /// The upgrade Linux staged on this volume, while the launcher is armed for it.
   static func pendingStubUpgrade() -> StubUpgradeRequest? {
     guard launcherArmed, let bytes = try? boundedRead(upgradeConfig, limit: 65536) else {
@@ -281,7 +293,7 @@ extension RecoveryActions {
     _ = try StubUpgradeCheck.verify(config: config, facts: facts)
     guard let espRoot = esp else { throw StubUpgradeCheck.Refusal.otherPartition }
     let stage1 = try stubUpgradeStage1(request, stage1: facts.stage1!, esp: espRoot)
-    let journal = try RestoreImageStubUpgrade.Journal.load(upgradeJournal)
+    let journal = try loadUpgradeJournal()
       .flatMap { $0.planSHA256 == request.planSHA256 ? $0 : nil }
     // Apple's image, read where it is: size and manifest against the pin.
     InstallerLog.shared.append(
@@ -441,9 +453,9 @@ extension RecoveryActions {
         "Steps:",
       ] + (grow.map { [$0] } ?? []) + [
         "  1. Preboot: write \(r.group)/\(p.plan.restorePath)\(RestoreImageStubUpgrade.newSuffix) (\(preboot.count + 1) files), then \(p.plan.restorePath) -> \(p.plan.restorePath)\(RestoreImageStubUpgrade.oldSuffix), \(p.plan.restorePath)\(RestoreImageStubUpgrade.newSuffix) -> \(p.plan.restorePath); \(r.group)/boot is not touched",
-        "  2. Recovery: remove the old \(RestoreImageStubFiles.recoveryImagePath), then write \(p.plan.recoveryMember.name) (\(mb(UInt64(p.plan.recoveryMember.size)))) decoded and compressed",
-        "  3. System: bootcaches.plist, PlatformSupport.plist, \(p.facts.systemVersionHidden ? "SystemVersion-disabled.plist" : "SystemVersion.plist") (\(r.target.version)), the Restore link",
-        "  4. bless --setBoot with \(owner.username)'s password",
+        "  2. System (saved first): bootcaches.plist, PlatformSupport.plist, \(p.facts.systemVersionHidden ? "SystemVersion-disabled.plist" : "SystemVersion.plist") (\(r.target.version)), the Restore link",
+        "  3. bless --setBoot with \(owner.username)'s password; if it refuses, Preboot and System are put back, the Recovery volume is not touched, and macOS finishes the approval",
+        "  4. Recovery, only if bless personalized its boot files again: remove the old \(RestoreImageStubFiles.recoveryImagePath), then write \(p.plan.recoveryMember.name) (\(mb(UInt64(p.plan.recoveryMember.size)))) decoded and compressed",
         "  5. bputil -nc -v \(r.group); kmutil \(p.stage1.mode.enrollmentArguments(stage1: "<Stage 1>", volume: volume.path).joined(separator: " "))",
         "  6. remove \(p.plan.restorePath)\(RestoreImageStubUpgrade.oldSuffix), write the receipts and asahi/stub_info.json, disarm the launcher, restart",
       ]
@@ -464,7 +476,7 @@ extension RecoveryActions {
     try fm.createDirectory(
       at: state, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     // A finished earlier upgrade's journal is kept under its plan's name.
-    if let earlier = try RestoreImageStubUpgrade.Journal.load(upgradeJournal),
+    if let earlier = try loadUpgradeJournal(),
       earlier.planSHA256 != staged.planSHA256
     {
       try check(
@@ -478,85 +490,111 @@ extension RecoveryActions {
     var p = try prepareStubUpgrade(writable: true)
     let store = p.volumes.physicalStore
     let keys = RestoreImageRemote.ArchiveKeys()
-    let steps: [RestoreImageStubUpgrade.Phase: (Double, String)] = [
+    let progressSteps: [RestoreImageStubUpgrade.Phase: (Double, String)] = [
       .started: (0.05, "Writing the new startup firmware"),
       .prebootWritten: (0.2, "Replacing the restore bundle"),
-      .prebootSwapped: (0.22, "Removing the old Recovery image"),
-      .recoveryRemoved: (0.25, "Writing the new Recovery image. This can take several minutes."),
-      .recoveryWritten: (0.5, "Updating the startup volume"),
-      .systemWritten: (0.55, "Approving the new startup firmware"),
+      .systemSaved: (0.22, "Updating the startup volume"),
+      .systemWritten: (0.25, "Approving the new startup firmware"),
+      .blessed: (0.3, "Writing the new Recovery image. This can take several minutes."),
+      .recoveryWritten: (0.6, "Checking the new Stage 1"),
     ]
-    // In-place-grow: the container grows before any volume tree is opened,
-    // then everything is checked again; only then are the volumes written.
-    var journal = try StubUpgradeGrow.growThenWrite(
-      request: p.request, store: store, journal: upgradeJournal,
-      layout: { try diskLayout(store: store) },
-      resize: {
-        progress(0.03, "Growing the startup container")
-        try run("/usr/sbin/diskutil", ["apfs", "resizeContainer", store, "0"], timeout: 1800)
-      },
-      recheck: {
-        if p.request.mode == .inPlaceGrow { p = try prepareStubUpgrade(writable: true) }
-        for root in [volume, p.preboot, p.recovery] { try verifyMountRoot(root) }
-      },
-      write: {
-        try RestoreImageStubUpgrade.run(
-          plan: p.plan, directory: p.directory, read: p.read,
-          roots: ["System": volume, "Preboot": p.preboot, "Recovery": p.recovery],
-          group: p.request.group, planSHA256: p.request.planSHA256,
-          build: p.request.target.build, journal: upgradeJournal,
-          archiveKey: { entry, metadata in
-            let key = try keys.key(entry, metadata: metadata)
-            InstallerLog.shared.append("Archive key for \(entry.name) opened.")
-            return key
-          },
-          checkpoint: { phase in
-            if let (amount, text) = steps[phase] { progress(amount, text) }
-          })
-      })
-    let request = p.request
     let operation = state.appendingPathComponent("upgrade-" + UUID().uuidString)
     try fm.createDirectory(
       at: operation, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
     InstallerLog.shared.persist(to: operation.appendingPathComponent("installer.log"))
-    if journal.phase < .blessed {
-      // Apple personalizes the new boot files for this Mac (network).
-      try authorized(
-        "/usr/sbin/bless", ["--mount", volume.path, "--setBoot", "--user", owner.username],
-        owner: owner, password: password)
-      try RestoreImageStubUpgrade.record(.blessed, &journal, at: upgradeJournal)
-    }
-    let stage1 = p.stage1
-    if journal.phase < .enrolled {
-      let stage1Path = operation.appendingPathComponent("stage1")
-      try Stage1ReenrollmentRunner.run(
-        stage: {
-          progress(0.6, "Checking the new Stage 1")
-          try stageStage1(stage1.enrolled, mode: stage1.mode, at: stage1Path)
-        },
-        authorizePolicy: {
-          progress(0.65, "Authorizing the boot environment")
+    let stage1Path = operation.appendingPathComponent("stage1")
+    defer { try? fm.removeItem(at: stage1Path) }
+    // The same commands setup runs, through the owner's authorization.
+    func commands(_ p: StubUpgradePreparation) -> RestoreImageStubUpgrade.Steps {
+      let stage1 = p.stage1
+      return RestoreImageStubUpgrade.Steps(
+        bless: {
+          // Apple personalizes the new boot files for this Mac (network),
+          // from this group's paired recoveryOS: the one running.
           try authorized(
-            "/usr/bin/bputil",
-            RecoveryBootPolicy.authorizationArguments(
-              groupUUID: request.group,
-              allowCustomBootArguments: (try? configuration.get())?.allowCustomBootArguments
-                == true),
+            "/usr/sbin/bless", ["--mount", volume.path, "--setBoot", "--user", owner.username],
             owner: owner, password: password)
         },
         enroll: {
-          progress(0.7, stage1.mode == .macho ? slowEnrollment : "Installing the startup software")
-          try authorized(
-            "/usr/bin/kmutil",
-            stage1.mode.enrollmentArguments(stage1: stage1Path.path, volume: volume.path),
-            owner: owner, password: password)
+          try Stage1ReenrollmentRunner.run(
+            stage: { try stageStage1(stage1.enrolled, mode: stage1.mode, at: stage1Path) },
+            authorizePolicy: {
+              progress(0.65, "Authorizing the boot environment")
+              try authorized(
+                "/usr/bin/bputil",
+                RecoveryBootPolicy.authorizationArguments(
+                  groupUUID: p.request.group,
+                  allowCustomBootArguments: (try? configuration.get())?.allowCustomBootArguments
+                    == true),
+                owner: owner, password: password)
+            },
+            enroll: {
+              progress(
+                0.7, stage1.mode == .macho ? slowEnrollment : "Installing the startup software")
+              try authorized(
+                "/usr/bin/kmutil",
+                stage1.mode.enrollmentArguments(stage1: stage1Path.path, volume: volume.path),
+                owner: owner, password: password)
+            },
+            record: {}, finish: {})
         },
-        record: {
-          journal.stage1SHA256 = hash(stage1.enrolled)
-          try RestoreImageStubUpgrade.record(.enrolled, &journal, at: upgradeJournal)
+        bootState: { role in
+          RestoreImageStubUpgrade.bootState(
+            root: role == "Preboot" ? p.preboot : p.recovery, group: p.request.group)
+        })
+    }
+    // In-place-grow: the container grows before any volume tree is opened,
+    // then everything is checked again; only then are the volumes written,
+    // blessed, the Recovery image swapped and Stage 1 enrolled.
+    var journal: RestoreImageStubUpgrade.Journal
+    do {
+      journal = try StubUpgradeGrow.growThenWrite(
+        request: p.request, store: store, journal: upgradeJournal,
+        layout: { try diskLayout(store: store) },
+        resize: {
+          progress(0.03, "Growing the startup container")
+          try run("/usr/sbin/diskutil", ["apfs", "resizeContainer", store, "0"], timeout: 1800)
         },
-        finish: {})
-      try? fm.removeItem(at: stage1Path)
+        recheck: {
+          if p.request.mode == .inPlaceGrow { p = try prepareStubUpgrade(writable: true) }
+          for root in [volume, p.preboot, p.recovery] { try verifyMountRoot(root) }
+        },
+        write: {
+          try RestoreImageStubUpgrade.run(
+            plan: p.plan, directory: p.directory, read: p.read,
+            roots: ["System": volume, "Preboot": p.preboot, "Recovery": p.recovery],
+            group: p.request.group, planSHA256: p.request.planSHA256,
+            build: p.request.target.build, journal: upgradeJournal,
+            archiveKey: { entry, metadata in
+              let key = try keys.key(entry, metadata: metadata)
+              InstallerLog.shared.append("Archive key for \(entry.name) opened.")
+              return key
+            },
+            steps: commands(p),
+            checkpoint: { phase in
+              if let (amount, text) = progressSteps[phase] { progress(amount, text) }
+            })
+        })
+    } catch RestoreImageStubUpgrade.Failure.needsMacOSBless {
+      // The stub is back as it was (but for a grown container) and its
+      // Recovery untouched; the EFI partition's journal says what comes next.
+      InstallerLog.shared.append(
+        "bless refused in this Recovery; the startup volume's files were put back.", level: .error)
+      let espJournal = p.esp.appendingPathComponent(StubUpgradeRequest.espJournalPath)
+      try? atomic(
+        StubUpgradeRecords.espJournal(
+          boundedRead(espJournal, limit: 1 << 20), request: p.request,
+          time: Int(Date().timeIntervalSince1970),
+          state: RestoreImageStubUpgrade.needsMacOSBlessState), to: espJournal)
+      throw RecoveryFailure(message: StubUpgradeFallback.message)
+    }
+    let request = p.request
+    let stage1 = p.stage1
+    journal.stage1SHA256 = hash(stage1.enrolled)
+    try journal.save(upgradeJournal)
+    if journal.recoveryKept == true {
+      InstallerLog.shared.append(
+        "bless didn't personalize this volume's Recovery again, so its Recovery image was kept.")
     }
     progress(0.9, "Finishing the upgrade")
     try finishStubUpgrade(p, journal: &journal)
@@ -637,7 +675,7 @@ extension RecoveryActions {
   /// Restarts into Linux once the upgrade is recorded and this volume is the startup disk.
   static func restartAfterStubUpgrade(group: String) throws {
     try check(inRecovery && geteuid() == 0, "Open Aurora Installer in its paired Recovery.")
-    guard let journal = try RestoreImageStubUpgrade.Journal.load(upgradeJournal),
+    guard let journal = try loadUpgradeJournal(),
       journal.phase == .finished, journal.group == group
     else {
       throw RecoveryFailure(

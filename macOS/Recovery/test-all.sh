@@ -51,7 +51,7 @@ compile_run restore-image-stub-files -target "$(uname -m)-apple-macos13.0" "${ar
 ./Tools/require-macos13.sh "$out/restore-image-archive" "$out/restore-image-stub-files"
 # The in-place startup firmware upgrade: request and checks, network reader and
 # archive keys (a fake transport), and the in-place writer on a fake stub.
-upgrade=("${archive[@]}" Sources/RestoreImageRemote.swift Sources/StubUpgradeRequest.swift Sources/StubUpgradeCheck.swift Sources/StubUpgradeGrow.swift Sources/StubUpgradeRecords.swift Sources/RestoreImageStubUpgrade.swift Sources/RecoveryDirectorySwap.swift Sources/Account/RecoveryFileTransaction.swift Sources/Account/AuraStage1.swift Sources/RecoveryOwner.swift Sources/Stage1Reenrollment.swift Sources/BootSelection.swift)
+upgrade=("${archive[@]}" Sources/RestoreImageRemote.swift Sources/StubUpgradeRequest.swift Sources/StubUpgradeCheck.swift Sources/StubUpgradeGrow.swift Sources/StubUpgradeRecords.swift Sources/StubUpgradeFallback.swift Sources/RestoreImageStubUpgrade.swift Sources/RecoveryDirectorySwap.swift Sources/Account/RecoveryFileTransaction.swift Sources/Account/AuraStage1.swift Sources/RecoveryOwner.swift Sources/Stage1Reenrollment.swift Sources/BootSelection.swift)
 compile_run stub-upgrade-request -target "$(uname -m)-apple-macos13.0" "${upgrade[@]}" Tests/StubUpgradeRequestCheck.swift
 compile_run restore-image-remote -target "$(uname -m)-apple-macos13.0" "${upgrade[@]}" Tests/RestoreImageRemoteCheck.swift
 compile_run restore-image-stub-upgrade -target "$(uname -m)-apple-macos13.0" "${upgrade[@]}" Tests/RestoreImageStubUpgradeCheck.swift

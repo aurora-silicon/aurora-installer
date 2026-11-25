@@ -203,6 +203,25 @@ struct AccountSetupFailure: Error {
     expect(
       (try? StubUpgradeRecords.espJournal(Data("[".utf8), request: request, time: 2)) == nil,
       "an unreadable journal is refused")
+    // A refused bless: the EFI journal says so, then "upgraded" once it is done.
+    let waiting =
+      try JSONSerialization.jsonObject(
+        with: StubUpgradeRecords.espJournal(
+          linux, request: request, time: 2, state: RestoreImageStubUpgrade.needsMacOSBlessState))
+      as! [String: Any]
+    expect(
+      waiting["state"] as? String == "needs-macos-bless"
+        && (waiting["steps"] as? [[String: Any]])?.last?["kind"] as? String
+          == "recovery-needs-macos-bless",
+      "the EFI journal waits for macOS")
+    let done =
+      try JSONSerialization.jsonObject(
+        with: StubUpgradeRecords.espJournal(
+          JSONSerialization.data(withJSONObject: waiting), request: request, time: 3))
+      as! [String: Any]
+    expect(
+      done["state"] as? String == "upgraded" && (done["steps"] as? [Any])?.count == 3,
+      "then upgraded")
 
     // The Recovery baseline: the new Stage 1 and its manifest entry; the rest kept.
     let payloads = base.appendingPathComponent("AuraPayloads")

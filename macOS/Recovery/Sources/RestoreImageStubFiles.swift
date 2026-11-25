@@ -289,6 +289,9 @@ public struct RestoreImageStubFiles {
     let root: Int32
     let owner: uid_t
     let namespace: String
+    /// The root's mode and group as found, before an owned root was made
+    /// the owner's alone (an upgrade that is put back restores them).
+    private(set) var rootFound: (mode: mode_t, group: gid_t) = (0, 0)
 
     /// `url` is a mounted volume's root, which the caller has identified
     /// (RecoveryActions checks the volume mounted there).
@@ -303,7 +306,18 @@ public struct RestoreImageStubFiles {
       self.owner = owner
       self.namespace = namespace
       guard root >= 0 else { throw Failure.unsafeFile }
+      var info = stat()
+      guard fstat(root, &info) == 0 else { throw Failure.unsafeFile }
+      rootFound = (info.st_mode & 0o7777, info.st_gid)
       try Self.requireVolumeRoot(root, owner: owner, owned: ownedRoot)
+    }
+
+    /// Gives the root back the mode and group it had (`rootFound` of an
+    /// earlier run), never a mode that lets others write.
+    func restoreRoot(mode: mode_t, group: gid_t) throws {
+      guard mode & 0o002 == 0, mode & 0o020 == 0 || Self.rootGroupAdmitted(group, owner: owner),
+        fchown(root, owner, group) == 0, fchmod(root, mode) == 0, fsync(root) == 0
+      else { throw Failure.writeFailed }
     }
     deinit { close(root) }
 
@@ -478,6 +492,14 @@ public struct RestoreImageStubFiles {
         throw Failure.unsafeFile
       }
       return String(decoding: buffer.prefix(count).map { UInt8(bitPattern: $0) }, as: UTF8.self)
+    }
+
+    /// Removes the link of `owner`'s at `path`; nothing there is not an error.
+    func removeLink(_ path: String) throws {
+      guard try linkTarget(path) != nil else { return }
+      let (parent, leaf) = try self.parent(path)
+      defer { close(parent) }
+      guard unlinkat(parent, leaf, 0) == 0, fsync(parent) == 0 else { throw Failure.writeFailed }
     }
 
     /// A link at `path` to `target`, replacing a link of `owner`'s that

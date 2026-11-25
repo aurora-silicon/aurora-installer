@@ -173,19 +173,57 @@ struct AccountSetupFailure: Error {
     roots["System"]!.appendingPathComponent("Aurora/Recovery/State/upgrade.pending.json")
   }
 
-  enum Stop: Error { case here }
+  enum Stop: Error { case here, blessRefused }
+
+  /// What the stand-in commands did, in order.
+  final class Events {
+    var log = [String]()
+  }
+
+  /// What a bless that personalizes `role` leaves: a new boot/<hash>.
+  static func personalizedFiles(_ role: String) -> [String: String] {
+    [
+      "\(role)/\(group)/boot/F00D": "dir",
+      "\(role)/\(group)/boot/F00D/personalized": "file 644 "
+        + RecoveryDigest.sha256(Data("personalized \(role)".utf8)),
+    ]
+  }
+
+  /// Stand-ins for bless, bputil and kmutil: bless personalizes the boot
+  /// files of `personalize`, or fails; enrolment only logs.
+  static func steps(
+    _ roots: [String: URL], events: Events? = nil, blessFails: Bool = false,
+    personalize: [String] = ["Preboot", "Recovery"]
+  ) -> RestoreImageStubUpgrade.Steps {
+    RestoreImageStubUpgrade.Steps(
+      bless: {
+        events?.log.append("bless")
+        if blessFails { throw Stop.blessRefused }
+        for role in personalize {
+          let directory = roots[role]!.appendingPathComponent(group + "/boot/F00D")
+          try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+          chmod(directory.path, 0o755)
+          let url = directory.appendingPathComponent("personalized")
+          try Data("personalized \(role)".utf8).write(to: url)
+          chmod(url.path, 0o644)
+        }
+      },
+      enroll: { events?.log.append("enroll") },
+      bootState: { RestoreImageStubUpgrade.bootState(root: roots[$0]!, group: group) })
+  }
 
   static func run(
     _ image: Image, _ plan: RestoreImageStubPlan, _ roots: [String: URL], key: Data,
     planSHA256: String = String(repeating: "1", count: 64), chunk: Int = 4096,
-    read: RestoreImageDirectory.Read? = nil,
+    read: RestoreImageDirectory.Read? = nil, steps: RestoreImageStubUpgrade.Steps? = nil,
     checkpoint: (RestoreImageStubUpgrade.Phase) throws -> Void = { _ in }
   ) -> Result<RestoreImageStubUpgrade.Journal, Error> {
     Result {
       try RestoreImageStubUpgrade.run(
         plan: plan, directory: image.directory, read: read ?? image.read, roots: roots,
         group: group, planSHA256: planSHA256, build: "25G100", journal: journal(roots),
-        chunkBytes: chunk, archiveKey: { _, _ in key }, checkpoint: checkpoint)
+        chunkBytes: chunk, archiveKey: { _, _ in key }, steps: steps ?? Self.steps(roots),
+        checkpoint: checkpoint)
     }
   }
 
@@ -258,6 +296,9 @@ struct AccountSetupFailure: Error {
             want[mapped] = value
           }
         }
+        // What bless personalized.
+        want.merge(personalizedFiles("Preboot")) { $1 }
+        want.merge(personalizedFiles("Recovery")) { $1 }
         return want
       }
 
@@ -270,10 +311,14 @@ struct AccountSetupFailure: Error {
         let oldImage = roots["Recovery"]!.appendingPathComponent(
           group + "/" + RestoreImageStubFiles.recoveryImagePath)
         var orderChecked = false
+        let events = Events()
         let watched: RestoreImageDirectory.Read = { offset, count in
           if offset + count > recoveryStart,
             offset < recoveryStart + plan.recoveryMember.compressedSize
           {
+            // bless ran first, on the old Recovery; enrolment comes after.
+            expect(
+              events.log == ["bless"], "\(name): the Recovery image read after \(events.log)")
             let content = try? Data(contentsOf: oldImage)
             expect(
               content != Data("old 13.5 recovery".utf8),
@@ -282,12 +327,15 @@ struct AccountSetupFailure: Error {
           }
           return try image.read(offset, count)
         }
-        guard case .success(let journal) = run(image, plan, roots, key: aeaKey, read: watched)
+        guard
+          case .success(let journal) = run(
+            image, plan, roots, key: aeaKey, read: watched, steps: steps(roots, events: events))
         else {
           expect(false, "\(name): upgrade: \(run(image, plan, roots, key: aeaKey))")
           continue
         }
         expect(orderChecked, "\(name): the Recovery image was read")
+        expect(events.log == ["bless", "enroll"], "\(name): commands \(events.log)")
         // On APFS's 0775 admin roots: the System root is made the owner's
         // alone, Preboot's and Recovery's are left as they are.
         func mode(_ role: String) -> mode_t {
@@ -298,7 +346,7 @@ struct AccountSetupFailure: Error {
         expect(
           mode("System") == 0o755 && mode("Preboot") == 0o775 && mode("Recovery") == 0o775,
           "\(name): roots \(mode("System")) \(mode("Preboot")) \(mode("Recovery"))")
-        expect(journal.phase == .systemWritten, "\(name): phase \(journal.phase)")
+        expect(journal.phase == .enrolled, "\(name): phase \(journal.phase)")
         var after = snapshot(base)
         let journalPath = "System/Aurora/Recovery/State/upgrade.pending.json"
         expect(after.removeValue(forKey: journalPath) != nil, "\(name): journal kept")
@@ -314,14 +362,16 @@ struct AccountSetupFailure: Error {
         where path.contains("/boot/") || path.hasSuffix("AdminUserRecoveryInfo.plist") {
           expect(after[path] == value, "\(name): \(path) changed")
         }
-        // The receipts: a new stub's, the restore link last.
-        let link = journal.installed.last
+        // The receipts: a new stub's, and the restore link.
+        let link = journal.installed.first { $0.linkTarget != nil && $0.role == "System" }
         expect(
           link?.path == "Restore" && link?.linkTarget == "/Volumes/Preboot/\(group)/./Restore",
           "\(name): the old restore link to the group's Restore is kept: \(String(describing: link))"
         )
         let receipts = Set(
-          journal.installed.dropLast().map { "\($0.role) \($0.path) \($0.identity.sha256)" })
+          journal.installed.filter { $0 != link }.map {
+            "\($0.role) \($0.path) \($0.identity.sha256)"
+          })
         let freshReceipts = Set(
           fresh.installed.map { "\($0.role) \($0.path) \($0.identity.sha256)" })
         expect(receipts == freshReceipts, "\(name): receipts are a new stub's")
@@ -342,7 +392,9 @@ struct AccountSetupFailure: Error {
         expect(
           (try? fm.destinationOfSymbolicLink(
             atPath: roots["System"]!.appendingPathComponent("Restore").path))
-            == target && journal.installed.last?.linkTarget == target,
+            == target
+            && journal.installed.contains(where: { $0.path == "Restore" && $0.linkTarget == target }
+            ),
           "\(name): a foreign restore link is replaced")
       }
 
@@ -353,7 +405,8 @@ struct AccountSetupFailure: Error {
       _ = try run(image, plan, referenceRoots, key: aeaKey).get()
       let reference = snapshot(referenceBase)
       let phases: [RestoreImageStubUpgrade.Phase] = [
-        .started, .prebootWritten, .prebootSwapped, .recoveryRemoved, .recoveryWritten,
+        .started, .prebootWritten, .prebootSwapped, .systemSaved, .systemWritten, .blessed,
+        .recoveryRemoved, .recoveryWritten,
       ]
       var stops: [(String, RestoreImageDirectory.Read?, RestoreImageStubUpgrade.Phase?)] =
         phases.map { ("after \($0)", nil, $0) }
@@ -382,11 +435,11 @@ struct AccountSetupFailure: Error {
         var stopped = snapshot(base)
         stopped.removeValue(forKey: "System/Aurora/Recovery/State/upgrade.pending.json")
         // Linux still starts: the old personalized boot files are untouched at every stop.
-        for (path, value) in reference where path.contains("/boot/") {
+        for (path, value) in reference where path.contains("/boot/") && !path.contains("/F00D") {
           expect(stopped[path] == value, "\(name): \(what): \(path) changed")
         }
         let second = run(image, plan, roots, key: aeaKey)
-        expect((try? second.get())?.phase == .systemWritten, "\(name): \(what): rerun: \(second)")
+        expect((try? second.get())?.phase == .enrolled, "\(name): \(what): rerun: \(second)")
         let tree = snapshot(base)
         let differs = Set(tree.keys).union(reference.keys).filter { tree[$0] != reference[$0] }
         expect(differs.isEmpty, "\(name): \(what): rerun differs at \(differs.sorted().prefix(5))")
@@ -397,6 +450,129 @@ struct AccountSetupFailure: Error {
         converged += 1
       }
 
+      // bless refused: Preboot and System go back exactly as they were, the
+      // Recovery volume is never touched, enrolment never runs, and the
+      // journal waits for the main installer's bless in macOS.
+      let journalPath = "System/Aurora/Recovery/State/upgrade.pending.json"
+      func withoutJournal(_ tree: [String: String]) -> [String: String] {
+        tree.filter { $0.key != journalPath }
+      }
+      do {
+        let (base, roots) = try existingStub()
+        defer { try? fm.removeItem(at: base) }
+        let before = snapshot(base)
+        let events = Events()
+        let refused = run(
+          image, plan, roots, key: aeaKey, steps: steps(roots, events: events, blessFails: true))
+        expect(
+          (refused.failure as? RestoreImageStubUpgrade.Failure) == .needsMacOSBless
+            && events.log == ["bless"],
+          "\(name): a refused bless: \(refused), \(events.log)")
+        let after = withoutJournal(snapshot(base))
+        let differs = Set(after.keys).union(before.keys).filter { after[$0] != before[$0] }
+        expect(differs.isEmpty, "\(name): a refused bless left \(differs.sorted())")
+        var systemRoot = stat()
+        lstat(roots["System"]!.path, &systemRoot)
+        var prebootRoot = stat()
+        lstat(roots["Preboot"]!.path, &prebootRoot)
+        expect(
+          systemRoot.st_mode & 0o7777 == 0o775 && systemRoot.st_gid == prebootRoot.st_gid,
+          "\(name): the System root is given back its mode and group")
+        let waiting = try RestoreImageStubUpgrade.Journal.load(journal(roots))
+        expect(
+          waiting?.state == RestoreImageStubUpgrade.needsMacOSBlessState
+            && waiting?.phase == .started && waiting?.installed.isEmpty == true,
+          "\(name): the journal waits for macOS: \(String(describing: waiting))")
+        expect(
+          StubUpgradeFallback.next(waiting) == .finishInMacOS, "\(name): next is macOS")
+        // Recovery may try again; with bless approving, it converges on the reference.
+        let retried = run(image, plan, roots, key: aeaKey)
+        expect((try? retried.get())?.phase == .enrolled, "\(name): retried: \(retried)")
+        let tree = withoutJournal(snapshot(base))
+        let files = withoutJournal(reference)
+        expect(
+          tree == files,
+          "\(name): retried differs at \(Set(tree.keys).union(files.keys).filter { tree[$0] != files[$0] }.sorted())"
+        )
+      }
+      // A put-back cut short finishes on the next run.
+      do {
+        let (base, roots) = try existingStub()
+        defer { try? fm.removeItem(at: base) }
+        let before = snapshot(base)
+        _ = run(image, plan, roots, key: aeaKey) { if $0 == .systemWritten { throw Stop.here } }
+        var cut = try RestoreImageStubUpgrade.Journal.load(journal(roots))!
+        cut.state = "rolling-back"
+        try cut.save(journal(roots))
+        expect(
+          StubUpgradeFallback.next(cut) == .finishPutBack, "\(name): next finishes the put-back")
+        let events = Events()
+        let result = run(image, plan, roots, key: aeaKey, steps: steps(roots, events: events))
+        expect(
+          (result.failure as? RestoreImageStubUpgrade.Failure) == .needsMacOSBless
+            && events.log.isEmpty, "\(name): put-back finished: \(result) \(events.log)")
+        expect(withoutJournal(snapshot(base)) == before, "\(name): put back exactly")
+      }
+      // bless personalized Preboot only: the Recovery image is kept.
+      do {
+        let (base, roots) = try existingStub()
+        defer { try? fm.removeItem(at: base) }
+        let before = snapshot(base)
+        let result = run(
+          image, plan, roots, key: aeaKey, steps: steps(roots, personalize: ["Preboot"]))
+        expect(
+          (try? result.get())?.recoveryKept == true && (try? result.get())?.phase == .enrolled,
+          "\(name): Recovery kept: \(result)")
+        let after = snapshot(base)
+        for (path, value) in before where path.hasPrefix("Recovery/") {
+          expect(after[path] == value, "\(name): Recovery \(path) changed though kept")
+        }
+        expect(
+          after.keys.filter { $0.hasPrefix("Recovery/") }.count
+            == before.keys.filter { $0.hasPrefix("Recovery/") }.count,
+          "\(name): nothing added to Recovery")
+      }
+      // bless returned but personalized nothing: stop before the Recovery volume.
+      do {
+        let (base, roots) = try existingStub()
+        defer { try? fm.removeItem(at: base) }
+        let before = snapshot(base)
+        let events = Events()
+        let result = run(
+          image, plan, roots, key: aeaKey, steps: steps(roots, events: events, personalize: []))
+        expect(
+          (result.failure as? RestoreImageStubUpgrade.Failure) == .blessChangedNothing
+            && events.log == ["bless"], "\(name): bless changed nothing: \(result)")
+        let after = snapshot(base)
+        for (path, value) in before where path.hasPrefix("Recovery/") {
+          expect(after[path] == value, "\(name): Recovery \(path) changed after an empty bless")
+        }
+      }
+      // The main installer's bless (in macOS) recorded: Recovery resumes
+      // after it, without blessing again.
+      do {
+        let (base, roots) = try existingStub()
+        defer { try? fm.removeItem(at: base) }
+        _ = run(image, plan, roots, key: aeaKey, steps: steps(roots, blessFails: true))
+        var waiting = try RestoreImageStubUpgrade.Journal.load(journal(roots))!
+        try StubUpgradeFallback.recordMacOSBless(
+          &waiting, installed: [], recoveryWritten: false, recoveryPersonalized: true)
+        try waiting.save(journal(roots))
+        expect(
+          StubUpgradeFallback.next(waiting) == .recovery(.blessed), "\(name): resumes at blessed")
+        expect(
+          (try? StubUpgradeFallback.recordMacOSBless(
+            &waiting, installed: [], recoveryWritten: false, recoveryPersonalized: true)) == nil,
+          "\(name): recorded once")
+        let events = Events()
+        let resumed = run(image, plan, roots, key: aeaKey, steps: steps(roots, events: events))
+        let recovery = roots["Recovery"]!.appendingPathComponent(
+          group + "/" + RestoreImageStubFiles.recoveryImagePath)
+        expect(
+          (try? resumed.get())?.phase == .enrolled && events.log == ["enroll"]
+            && (try? Data(contentsOf: recovery)) != Data("old 13.5 recovery".utf8),
+          "\(name): resumed after macOS: \(resumed) \(events.log)")
+      }
       // Refusals leave the stub as it was.
       func unchanged(
         _ what: String, setup: ([String: URL]) throws -> Void = { _ in },
@@ -412,6 +588,22 @@ struct AccountSetupFailure: Error {
         } catch {}
         expect(snapshot(base) == before, "\(name): \(what): the stub changed")
       }
+      // A journal from the earlier order (schema 1) is refused unchanged.
+      try unchanged(
+        "an earlier order's journal",
+        setup: { roots in
+          let url = journal(roots)
+          try Data(#"{"schema": 1, "phase": "systemWritten"}"#.utf8).write(to: url)
+          chmod(url.path, 0o600)
+        },
+        body: { roots in
+          let result = run(image, plan, roots, key: aeaKey)
+          expect(
+            (result.failure as? RestoreImageStubUpgrade.Failure) == .oldJournal,
+            "\(name): old journal: \(result)")
+          _ = try result.get()
+        })
+
       try unchanged(
         "another plan's journal",
         setup: { roots in
@@ -451,7 +643,7 @@ struct AccountSetupFailure: Error {
         try RestoreImageStubUpgrade.run(
           plan: plan, directory: image.directory, read: image.read, roots: roots, group: group,
           planSHA256: String(repeating: "1", count: 64), build: "25G100", journal: journal(roots),
-          archiveKey: nil)
+          archiveKey: nil, steps: steps(roots))
       }
 
       // The checks before any change, with this image as Apple's: a request
@@ -514,7 +706,7 @@ struct AccountSetupFailure: Error {
         try RestoreImageStubUpgrade.run(
           plan: plan, directory: served, read: image.read, roots: roots, group: request.group,
           planSHA256: request.planSHA256, build: request.target.build, journal: journal(roots),
-          archiveKey: { _, _ in aeaKey })
+          archiveKey: { _, _ in aeaKey }, steps: steps(roots))
       }
       do {
         let (base, roots) = try existingStub()
@@ -572,7 +764,7 @@ struct AccountSetupFailure: Error {
               return try RestoreImageStubUpgrade.run(
                 plan: plan, directory: image.directory, read: image.read, roots: roots,
                 group: group, planSHA256: growRequest.planSHA256, build: "25G100",
-                journal: journal(roots), archiveKey: { _, _ in aeaKey })
+                journal: journal(roots), archiveKey: { _, _ in aeaKey }, steps: steps(roots))
             })
         }
         events = log
@@ -598,7 +790,7 @@ struct AccountSetupFailure: Error {
         chmod(roots["Preboot"]!.path, 0o775)
         let again = ordered(roots, layout: disk(growRequest.growContainerTo!), events: &events)
         expect(
-          (try? again.get())?.phase == .systemWritten && events == ["recheck", "write"],
+          (try? again.get())?.phase == .enrolled && events == ["recheck", "write"],
           "\(name): grown run again \(events): \(again)")
         let tree = snapshot(base).filter { !$0.key.hasSuffix("upgrade.pending.json") }
         let files = reference.filter { !$0.key.hasSuffix("upgrade.pending.json") }
@@ -718,9 +910,9 @@ struct AccountSetupFailure: Error {
       // A rerun counts only what is still to come.
       for (phase, want) in [
         (RestoreImageStubUpgrade.Phase.prebootWritten, need - UInt64(bundle)),
-        (.recoveryWritten, UInt64(2 * bundle + 2 * stage1.count)),
-        (.systemWritten, UInt64(2 * bundle + 2 * stage1.count)),
-        (.blessed, UInt64(2 * stage1.count)), (.enrolled, 0),
+        (.systemWritten, need - UInt64(bundle)),
+        (.blessed, UInt64(member + member / 16 + 2 * stage1.count)),
+        (.recoveryWritten, UInt64(2 * stage1.count)), (.enrolled, 0),
       ] {
         expect(
           StubUpgradeCheck.neededBytes(
