@@ -99,14 +99,8 @@
           metadata: JSONSerialization.data(withJSONObject: document), payloadName: "payload.zip",
           archive: archive)
       }
-      let optedIn = ProcessInfo.processInfo.environment["AURORA_ENABLE_DEBIAN"] == "1"
       for desktop in ["kde", "gnome", "minimal"] {
-        do {
-          try await validate(layout: "debian-btrfs-v1", profile: "debian-" + desktop)
-          XCTAssertTrue(optedIn, "Default builds must reject Debian")
-        } catch NativePayloadPreflightError.invalidMetadata {
-          XCTAssertFalse(optedIn, "Opt-in builds must admit the Debian Btrfs layout")
-        }
+        try await validate(layout: "debian-btrfs-v1", profile: "debian-" + desktop)
       }
       for (layout, profile) in [
         ("debian-btrfs-v1", "debian-hyprland"), ("debian-btrfs-v1", "arch-kde"),

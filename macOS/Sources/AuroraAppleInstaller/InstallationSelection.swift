@@ -3,12 +3,9 @@ import Foundation
 public enum AuroraDistribution: String, CaseIterable, Codable, Identifiable, Sendable {
   case fedora, arch, nixos, omarchy, debian
   public static var installable: [Self] {
-    var distributions: [Self] = [.fedora, .arch, .nixos]
+    var distributions: [Self] = [.fedora, .arch, .nixos, .debian]
     #if AURORA_ENABLE_OMARCHY
       distributions.append(.omarchy)
-    #endif
-    #if AURORA_ENABLE_DEBIAN
-      distributions.append(.debian)
     #endif
     return distributions
   }

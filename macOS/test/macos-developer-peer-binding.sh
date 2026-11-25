@@ -89,7 +89,7 @@ import sys
 release = Path(sys.argv[1])
 profiles = {distribution + "-" + desktop for distribution in ("fedora", "arch", "nixos")
             for desktop in ("kde", "gnome", "minimal")} | {"omarchy-hyprland"}
-# A developer build made with AURORA_ENABLE_DEBIAN=1 carries all three Debian profiles too.
+# A developer build with Debian catalogs carries all three Debian profiles too.
 debian = {"debian-" + desktop for desktop in ("kde", "gnome", "minimal")}
 found = {path.name for path in (release / "Profiles").iterdir()}
 assert found in (profiles, profiles | debian), sorted(found)

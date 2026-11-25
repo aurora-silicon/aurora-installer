@@ -43,10 +43,10 @@ The native executor is `NativeInstallerExecutor`. Signed schema-5 catalogs selec
 
 ## Images and releases
 
-The distribution/desktop profiles (ten, and three more in builds with `AURORA_ENABLE_DEBIAN=1`) and their payloads are maintained in [aurora-distributions](https://github.com/aurora-silicon/aurora-distributions). Image producers live in [fedora-aurora](https://github.com/aurora-silicon/fedora-aurora), [alarm-aurora](https://github.com/aurora-silicon/alarm-aurora), [nixos-aurora](https://github.com/aurora-silicon/nixos-aurora), [omarchy-aurora](https://github.com/aurora-silicon/omarchy-aurora) and [debian-aurora](https://github.com/aurora-silicon/debian-aurora).
+The distribution/desktop profiles and their payloads are maintained in [aurora-distributions](https://github.com/aurora-silicon/aurora-distributions). Image producers live in [fedora-aurora](https://github.com/aurora-silicon/fedora-aurora), [alarm-aurora](https://github.com/aurora-silicon/alarm-aurora), [nixos-aurora](https://github.com/aurora-silicon/nixos-aurora), [omarchy-aurora](https://github.com/aurora-silicon/omarchy-aurora) and [debian-aurora](https://github.com/aurora-silicon/debian-aurora).
 
 Catalogs bind the selected profile and exact artifact hashes. Firmware and calibration are collected from the target Mac. Names required by existing installations and released payloads are recorded in `Sources/AuroraAppleInstaller/PublishedContractNames.swift`.
 
 See [DMG release builds](docs/native-dmg-release.md) and [local payload testing](docs/private-local-payload-install.md). Current downloads and hardware qualification belong in the distribution repository.
 
-Omarchy Aurora offers Hyprland only and reuses the signed ALARM Btrfs/GRUB/first-boot contract. "Aurora, based on Debian testing" follows Debian testing (Debian's marks may not be part of a product name), offers KDE, GNOME and minimal, and has its own `debian-btrfs-v1` layout; it is a build opt-in (`AURORA_ENABLE_DEBIAN=1`, see [release inputs](Release/README.md)). Other distributions keep their existing KDE, GNOME and minimal profiles.
+Omarchy Aurora offers Hyprland only and reuses the signed ALARM Btrfs/GRUB/first-boot contract. "Aurora, based on Debian testing" follows Debian testing (Debian's marks may not be part of a product name), offers KDE, GNOME and minimal, and has its own `debian-btrfs-v1` layout (see [release inputs](Release/README.md)). Other distributions keep their existing KDE, GNOME and minimal profiles.

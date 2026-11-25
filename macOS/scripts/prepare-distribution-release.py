@@ -73,11 +73,10 @@ def prepare(source, output, sealed=False, signing_team=None):
     omarchy = os.environ.get("AURORA_ENABLE_OMARCHY", "0")
     if omarchy not in ("0", "1"):
         raise ValueError("AURORA_ENABLE_OMARCHY must be 0 or 1")
-    debian = os.environ.get("AURORA_ENABLE_DEBIAN", "0")
-    if debian not in ("0", "1"):
-        raise ValueError("AURORA_ENABLE_DEBIAN must be 0 or 1")
+    has_debian = any((source / profile).exists() or (source / profile).is_symlink()
+                     for profile in DEBIAN_PROFILES)
     profiles = (PROFILES + ((OMARCHY_PROFILE,) if omarchy == "1" else ())
-                + (DEBIAN_PROFILES if debian == "1" else ()))
+                + (DEBIAN_PROFILES if has_debian else ()))
     if signing_team is not None and not re.fullmatch(r"[A-Z0-9]{10}", signing_team):
         raise ValueError("invalid release signing team")
     identity = {}
