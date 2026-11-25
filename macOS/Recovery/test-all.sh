@@ -15,8 +15,8 @@ compile_run() {
 }
 compile_run enrollment Sources/EnrollmentGate.swift Tests/EnrollmentGateCheck.swift
 compile_run digest Sources/Account/RecoveryDigest.swift Tests/RecoveryDigestCheck.swift
-compile_run owner Sources/RecoveryOwner.swift Sources/Stage1Reenrollment.swift Sources/BootSelection.swift Tests/RecoveryOwnerCheck.swift
-compile_run bootstrap-owner Sources/RecoveryOwner.swift Sources/Stage1Reenrollment.swift Sources/BootSelection.swift Tests/BootstrapOwnerCheck.swift
+compile_run owner Sources/RecoveryOwner.swift Sources/Account/AuraStage1.swift Sources/Account/RecoveryDigest.swift Sources/Stage1Reenrollment.swift Sources/BootSelection.swift Tests/RecoveryOwnerCheck.swift
+compile_run bootstrap-owner Sources/RecoveryOwner.swift Sources/Account/AuraStage1.swift Sources/Account/RecoveryDigest.swift Sources/Stage1Reenrollment.swift Sources/BootSelection.swift Tests/BootstrapOwnerCheck.swift
 compile_run boot-selection Sources/Account/AuraStage1.swift Sources/BootSelection.swift Tests/BootSelectionCheck.swift
 compile_run macho-boot-object Sources/Account/AuraStage1.swift Tests/MachOBootObjectCheck.swift
 compile_run stage1-keys Sources/Account/AuraStage1.swift Sources/Account/Ed25519.swift Sources/Account/StartupKeys.swift Tests/Stage1KeysCheck.swift
@@ -30,7 +30,7 @@ compile_run sheet-presenter Sources/SheetPresenter.swift Tests/SheetPresenterChe
 compile_run primary-action Sources/RecoveryPrimaryAction.swift Sources/RecoveryAccountForm.swift Tests/RecoveryPrimaryActionCheck.swift
 compile_run busy-action Sources/InstallerTheme.swift Sources/RecoveryTheme.swift Sources/RecoveryPrimaryAction.swift Sources/RecoveryBusyAction.swift Sources/RecoverySheet.swift Tests/RecoveryBusyActionCheck.swift
 compile_run log-menu Sources/RecoveryLogMenu.swift Tests/RecoveryLogMenuCheck.swift
-compile_run configuration Sources/RecoveryOwner.swift Sources/Stage1Reenrollment.swift Sources/BootSelection.swift Sources/Account/AuraStage1.swift Sources/Account/Ed25519.swift Sources/Account/StartupKeys.swift Sources/BootSelection.swift Sources/InstallConfiguration.swift Tests/InstallConfigurationCheck.swift
+compile_run configuration Sources/RecoveryOwner.swift Sources/Account/RecoveryDigest.swift Sources/Stage1Reenrollment.swift Sources/BootSelection.swift Sources/Account/AuraStage1.swift Sources/Account/Ed25519.swift Sources/Account/StartupKeys.swift Sources/InstallConfiguration.swift Tests/InstallConfigurationCheck.swift
 compile_run file-transaction Sources/Account/RecoveryDigest.swift Sources/Account/RecoveryFileTransaction.swift Tests/RecoveryFileTransactionCheck.swift
 compile_run installation-journal Sources/RecoveryInstallationJournal.swift Tests/RecoveryInstallationJournalCheck.swift
 compile_run account-restart Sources/RecoveryAccountRestart.swift Tests/RecoveryAccountRestartCheck.swift
