@@ -62,6 +62,15 @@ import RecoveryCompression
   }
 
   /// Fresh System, Preboot and Recovery roots.
+  /// The group APFS gives a volume root, admin (80); a check run by an
+  /// owner that can't give a folder to it uses its own group.
+  static func volumeRoot(_ url: URL) {
+    chmod(url.path, 0o775)
+    if chown(url.path, geteuid(), 80) != 0 { chown(url.path, geteuid(), getegid()) }
+  }
+
+  /// Fresh System, Preboot and Recovery roots, as APFS makes them: 0775,
+  /// group admin.
   static func roots() throws -> (URL, [String: URL]) {
     let base = FileManager.default.temporaryDirectory.appendingPathComponent(
       "stub-files-" + UUID().uuidString)
@@ -69,7 +78,7 @@ import RecoveryCompression
     for role in RestoreImageStubFiles.roles {
       let root = base.appendingPathComponent(role)
       try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-      chmod(root.path, 0o755)
+      volumeRoot(root)
       roots[role] = root
     }
     chmod(base.path, 0o755)
@@ -577,8 +586,45 @@ import RecoveryCompression
       try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
       chmod(url.path, 0o777)
     }
-    try fault("a root others can write", .unsafeFile) { _, roots in
-      chmod(roots["System"]!.path, 0o775)
+    try fault("a System root others can write", .unsafeFile) { _, roots in
+      chmod(roots["System"]!.path, 0o777)
+    }
+    try fault("a Preboot root others can write", .unsafeFile) { _, roots in
+      chmod(roots["Preboot"]!.path, 0o777)
+    }
+    try fault("an inner directory its group can write", .unsafeFile) { _, roots in
+      let url = roots["Recovery"]!.appendingPathComponent(group)
+      try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+      chmod(url.path, 0o775)
+    }
+    if geteuid() == 0 {
+      try fault("a root another group can write", .unsafeFile) { _, roots in
+        chown(roots["Preboot"]!.path, 0, 20)
+      }
+      try fault("a System root another group can write", .unsafeFile) { _, roots in
+        chown(roots["System"]!.path, 0, 20)
+      }
+      try fault("a root of another user's", .unsafeFile) { _, roots in
+        chown(roots["Recovery"]!.path, 1234, 80)
+      }
+    }
+    // A written stub's System root is the owner's alone (0755, group wheel
+    // for root); Preboot and Recovery keep APFS's 0775 admin roots.
+    do {
+      let (base, roots) = try roots()
+      defer { try? FileManager.default.removeItem(at: base) }
+      _ = try write(image, plan, roots).get()
+      func mode(_ role: String) -> (mode_t, gid_t) {
+        var info = stat()
+        lstat(roots[role]!.path, &info)
+        return (info.st_mode & 0o7777, info.st_gid)
+      }
+      expect(
+        mode("System").0 == 0o755 && (geteuid() != 0 || mode("System").1 == 0),
+        "the System root is made 0755: \(mode("System"))")
+      expect(
+        mode("Preboot").0 == 0o775 && mode("Recovery").0 == 0o775,
+        "Preboot and Recovery roots are kept")
     }
     try fault("a file where a directory goes", .unsafeFile) { _, roots in
       try Data().write(to: roots["Preboot"]!.appendingPathComponent(group))

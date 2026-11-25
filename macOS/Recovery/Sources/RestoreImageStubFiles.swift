@@ -132,7 +132,11 @@ public struct RestoreImageStubFiles {
       else { throw Failure.invalidPlan }
       var trees = [String: Tree]()
       for role in RestoreImageStubFiles.roles {
-        trees[role] = try Tree(roots[role]!, owner: owner, namespace: group)
+        // recoveryOS starts the app and the aura command from the System
+        // volume by path: its root is made the owner's alone, as the main
+        // installer makes it (NativeHandoffFiles ownedVolumeRoot).
+        trees[role] = try Tree(
+          roots[role]!, owner: owner, namespace: group, ownedRoot: role == "System")
       }
       self.plan = plan
       self.directory = directory
@@ -286,14 +290,88 @@ public struct RestoreImageStubFiles {
     let owner: uid_t
     let namespace: String
 
-    init(_ url: URL, owner: uid_t, namespace: String) throws {
+    /// `url` is a mounted volume's root, which the caller has identified
+    /// (RecoveryActions checks the volume mounted there).
+    /// APFS makes a volume root root:admin 0775, so a root may let its group
+    /// write when that group is wheel or admin; no one else may. With
+    /// `ownedRoot`, a writable root is then made `owner`'s alone (mode 0755,
+    /// group wheel) through the opened descriptor, and refused if it still
+    /// lets another account write. Every directory below a root is checked
+    /// strictly (`requireDirectory`).
+    init(_ url: URL, owner: uid_t, namespace: String, ownedRoot: Bool = false) throws {
       root = open(url.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
       self.owner = owner
       self.namespace = namespace
       guard root >= 0 else { throw Failure.unsafeFile }
-      try Self.requireDirectory(root, owner: owner)
+      try Self.requireVolumeRoot(root, owner: owner, owned: ownedRoot)
     }
     deinit { close(root) }
+
+    /// The groups APFS gives a volume root: wheel and admin. A check run by
+    /// another owner than root may also use its own group.
+    static func rootGroupAdmitted(_ group: gid_t, owner: uid_t) -> Bool {
+      group == 0 || group == 80 || (owner != 0 && group == getegid())
+    }
+
+    static func requireVolumeRoot(_ descriptor: Int32, owner: uid_t, owned: Bool) throws {
+      var info = stat()
+      guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
+        info.st_uid == owner, info.st_mode & 0o002 == 0,
+        info.st_mode & 0o020 == 0 || rootGroupAdmitted(info.st_gid, owner: owner)
+      else { throw Failure.unsafeFile }
+      #if canImport(Darwin)
+        var filesystem = statfs()
+        guard fstatfs(descriptor, &filesystem) == 0,
+          filesystem.f_flags & UInt32(MNT_IGNORE_OWNERSHIP) == 0
+        else { throw Failure.unsafeFile }
+      #endif
+      guard owned else { return }
+      #if canImport(Darwin)
+        // No access-control entry may let another account write. (Which
+        // volume is mounted at `url` the caller has checked.)
+        guard !hasWriteACL(descriptor) else { throw Failure.unsafeFile }
+        if filesystem.f_flags & UInt32(MNT_RDONLY) != 0 { return }
+      #endif
+      if info.st_mode & 0o022 == 0 { return }
+      // root:wheel in Recovery; a check run by another owner can only give
+      // a folder to one of its own groups.
+      let group: gid_t = owner == 0 ? 0 : getegid()
+      guard fchown(descriptor, owner, group) == 0, fchmod(descriptor, 0o755) == 0,
+        fsync(descriptor) == 0, fstat(descriptor, &info) == 0, info.st_uid == owner,
+        info.st_mode & 0o022 == 0
+      else { throw Failure.unsafeFile }
+    }
+
+    #if canImport(Darwin)
+      /// Whether `fd` has an extended access-control entry that lets anyone
+      /// write, delete, add entries or change its mode, owner or list, as
+      /// the main installer checks (NativeHandoffFiles.hasWriteACL). An
+      /// unreadable list counts as one that does.
+      static func hasWriteACL(_ fd: Int32) -> Bool {
+        guard let acl = acl_get_fd_np(fd, ACL_TYPE_EXTENDED) else { return errno != ENOENT }
+        defer { acl_free(UnsafeMutableRawPointer(acl)) }
+        let writes: [acl_perm_t] = [
+          ACL_WRITE_DATA, ACL_APPEND_DATA, ACL_DELETE, ACL_DELETE_CHILD, ACL_WRITE_ATTRIBUTES,
+          ACL_WRITE_EXTATTRIBUTES, ACL_WRITE_SECURITY, ACL_CHANGE_OWNER,
+        ]
+        var entry: acl_entry_t?
+        var id = ACL_FIRST_ENTRY.rawValue
+        while acl_get_entry(acl, id, &entry) == 0, let current = entry {
+          id = ACL_NEXT_ENTRY.rawValue
+          var tag = ACL_UNDEFINED_TAG
+          var permissions: acl_permset_t?
+          guard acl_get_tag_type(current, &tag) == 0, acl_get_permset(current, &permissions) == 0,
+            let permissions
+          else { return true }
+          if tag == ACL_EXTENDED_ALLOW,
+            writes.contains(where: { acl_get_perm_np(permissions, $0) != 0 })
+          {
+            return true
+          }
+        }
+        return false
+      }
+    #endif
 
     /// A directory of `owner`'s that no one else can write.
     static func requireDirectory(_ descriptor: Int32, owner: uid_t) throws {

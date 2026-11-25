@@ -109,12 +109,20 @@ public enum StubUpgradeGrow {
   }
 
   /// Grows the container once: checks, `resize`, checks the new size and
-  /// records it. `layout` reads the disk; `resize` runs diskutil.
+  /// records it in the journal at `url` (made only then, so a refusal
+  /// leaves no trace). `layout` reads the disk; `resize` runs diskutil.
   public static func run(
-    request: StubUpgradeRequest, store: String, journal: inout RestoreImageStubUpgrade.Journal,
-    at url: URL, layout: () throws -> Layout, resize: () throws -> Void
+    request: StubUpgradeRequest, store: String, journal url: URL,
+    layout: () throws -> Layout, resize: () throws -> Void
   ) throws {
-    guard request.mode == .inPlaceGrow, journal.containerGrown != true else { return }
+    guard request.mode == .inPlaceGrow else { return }
+    func begin() throws -> RestoreImageStubUpgrade.Journal {
+      try RestoreImageStubUpgrade.begin(
+        url, planSHA256: request.planSHA256, group: request.group, build: request.target.build)
+    }
+    if try RestoreImageStubUpgrade.Journal.load(url) != nil, try begin().containerGrown == true {
+      return
+    }
     if try !check(layout(), store: store, request: request) {
       try resize()
       let after = try layout()
@@ -123,7 +131,25 @@ public enum StubUpgradeGrow {
         throw Refusal.didNotGrow(size: size, want: request.growContainerTo ?? 0)
       }
     }
+    var journal = try begin()
     journal.containerGrown = true
     try journal.save(url)
+  }
+
+  /// The order of an upgrade's disk work: for in-place-grow, the container
+  /// grows first (`layout`, `resize`, recorded in the journal at `url`,
+  /// without any volume tree being opened), then everything is checked again
+  /// (`recheck`: the space above all), and only then does `write` open,
+  /// check and write the volumes. An in-place upgrade goes straight to
+  /// `recheck` and `write`. The request, pin and floor checks come before
+  /// this (StubUpgradeCheck); nothing here runs if they refuse.
+  public static func growThenWrite(
+    request: StubUpgradeRequest, store: String, journal url: URL,
+    layout: () throws -> Layout, resize: () throws -> Void, recheck: () throws -> Void,
+    write: () throws -> RestoreImageStubUpgrade.Journal
+  ) throws -> RestoreImageStubUpgrade.Journal {
+    try run(request: request, store: store, journal: url, layout: layout, resize: resize)
+    try recheck()
+    return try write()
   }
 }

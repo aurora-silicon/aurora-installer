@@ -80,12 +80,24 @@ struct AccountSetupFailure: Error {
     return out
   }
 
+  /// A directory as macOS leaves one in a stub: 0755, group admin (80).
   static func directory(_ url: URL) throws {
     try fm.createDirectory(at: url, withIntermediateDirectories: true)
     var path = url
     while path.path.count > fm.temporaryDirectory.path.count {
       chmod(path.path, 0o755)
+      admin(path)
       path = path.deletingLastPathComponent()
+    }
+  }
+  static func admin(_ url: URL) {
+    if chown(url.path, geteuid(), 80) != 0 { chown(url.path, geteuid(), getegid()) }
+  }
+  /// The three roots as APFS makes them: 0775, group admin.
+  static func volumeRoots(_ roots: [String: URL]) {
+    for root in roots.values {
+      chmod(root.path, 0o775)
+      admin(root)
     }
   }
   static func file(_ url: URL, _ text: String, mode: mode_t = 0o644) throws {
@@ -102,6 +114,7 @@ struct AccountSetupFailure: Error {
       roots[role] = base.appendingPathComponent(role)
       try directory(roots[role]!)
     }
+    volumeRoots(roots)
     return (base, roots)
   }
 
@@ -134,7 +147,7 @@ struct AccountSetupFailure: Error {
     chmod(system.appendingPathComponent("Aurora/Recovery/State").path, 0o700)
     try fm.createSymbolicLink(
       atPath: system.appendingPathComponent("Restore").path,
-      withDestinationPath: link ?? "/Volumes/Preboot/\(group)/Restore")
+      withDestinationPath: link ?? "/Volumes/Preboot/\(group)/./Restore")
     for name in ["BuildManifest.plist", "RestoreVersion.plist", "kernelcache.release.mac14j"] {
       try file(preboot.appendingPathComponent("Restore/" + name), "old " + name)
     }
@@ -152,6 +165,7 @@ struct AccountSetupFailure: Error {
     try file(
       recovery.appendingPathComponent(RestoreImageStubFiles.recoveryImagePath), "old 13.5 recovery")
     try file(recovery.appendingPathComponent("boot/E5F6/usr/standalone/firmware/iBoot.img4"), "rec")
+    volumeRoots(roots)
     return (base, roots)
   }
 
@@ -274,6 +288,16 @@ struct AccountSetupFailure: Error {
           continue
         }
         expect(orderChecked, "\(name): the Recovery image was read")
+        // On APFS's 0775 admin roots: the System root is made the owner's
+        // alone, Preboot's and Recovery's are left as they are.
+        func mode(_ role: String) -> mode_t {
+          var info = stat()
+          lstat(roots[role]!.path, &info)
+          return info.st_mode & 0o7777
+        }
+        expect(
+          mode("System") == 0o755 && mode("Preboot") == 0o775 && mode("Recovery") == 0o775,
+          "\(name): roots \(mode("System")) \(mode("Preboot")) \(mode("Recovery"))")
         expect(journal.phase == .systemWritten, "\(name): phase \(journal.phase)")
         var after = snapshot(base)
         let journalPath = "System/Aurora/Recovery/State/upgrade.pending.json"
@@ -293,7 +317,7 @@ struct AccountSetupFailure: Error {
         // The receipts: a new stub's, the restore link last.
         let link = journal.installed.last
         expect(
-          link?.path == "Restore" && link?.linkTarget == "/Volumes/Preboot/\(group)/Restore",
+          link?.path == "Restore" && link?.linkTarget == "/Volumes/Preboot/\(group)/./Restore",
           "\(name): the old restore link to the group's Restore is kept: \(String(describing: link))"
         )
         let receipts = Set(
@@ -503,6 +527,103 @@ struct AccountSetupFailure: Error {
       } catch {
         expect(false, "\(name): checked upgrade: \(error)")
       }
+      // In-place-grow: the container grows before any writer code opens a
+      // volume, then everything is checked again, then the files are written.
+      let growConfig = request {
+        $0["mode"] = "in-place-grow"
+        let size = 524_288_000
+        let space = $0["space"] as! [String: Any]
+        $0["esp_move"] = [
+          "partno": 4, "old_start": 600 << 30, "new_start": (600 << 30) - (4 << 30), "size": size,
+        ]
+        $0["grow_container_to"] = (space["container"] as! Int) + size
+      }
+      let growRequest = try StubUpgradeRequest.decode(growConfig)
+      let move = growRequest.espMove!
+      let store = "disk0s3"
+      func disk(_ size: Int) -> StubUpgradeGrow.Layout {
+        StubUpgradeGrow.Layout(
+          partitions: [
+            .init(
+              bsdName: "disk0s4", uuid: growRequest.espPartitionUUID, base: move.newStart,
+              size: move.size),
+            .init(
+              bsdName: store, uuid: UUID().uuidString,
+              base: move.oldStart - growRequest.space.container, size: size),
+          ], diskSize: 1 << 40)
+      }
+      func ordered(
+        _ roots: [String: URL], layout start: StubUpgradeGrow.Layout,
+        events: inout [String]
+      ) -> Result<RestoreImageStubUpgrade.Journal, Error> {
+        var current = start
+        var log = [String]()
+        let result = Result {
+          try StubUpgradeGrow.growThenWrite(
+            request: growRequest, store: store, journal: journal(roots),
+            layout: { current },
+            resize: {
+              log.append("resize")
+              current = disk(growRequest.growContainerTo!)
+            },
+            recheck: { log.append("recheck") },
+            write: {
+              log.append("write")
+              return try RestoreImageStubUpgrade.run(
+                plan: plan, directory: image.directory, read: image.read, roots: roots,
+                group: group, planSHA256: growRequest.planSHA256, build: "25G100",
+                journal: journal(roots), archiveKey: { _, _ in aeaKey })
+            })
+        }
+        events = log
+        return result
+      }
+      do {
+        // A Preboot root no writer admits: had any writer code run before the
+        // resize, the run would stop there with no resize.
+        let (base, roots) = try existingStub()
+        defer { try? fm.removeItem(at: base) }
+        chmod(roots["Preboot"]!.path, 0o777)
+        var events = [String]()
+        let result = ordered(roots, layout: disk(growRequest.space.container), events: &events)
+        expect(
+          (result.failure as? RestoreImageStubFiles.Failure) == .unsafeFile
+            && events == ["resize", "recheck", "write"],
+          "\(name): grow order \(events): \(result)")
+        let recorded = try RestoreImageStubUpgrade.Journal.load(journal(roots))
+        expect(
+          recorded?.containerGrown == true && recorded?.prebootChecked != true,
+          "\(name): the growth recorded, no file step")
+        // The same run on admitted roots completes, the growth not repeated.
+        chmod(roots["Preboot"]!.path, 0o775)
+        let again = ordered(roots, layout: disk(growRequest.growContainerTo!), events: &events)
+        expect(
+          (try? again.get())?.phase == .systemWritten && events == ["recheck", "write"],
+          "\(name): grown run again \(events): \(again)")
+        let tree = snapshot(base).filter { !$0.key.hasSuffix("upgrade.pending.json") }
+        let files = reference.filter { !$0.key.hasSuffix("upgrade.pending.json") }
+        let differs = Set(tree.keys).union(files.keys).filter { tree[$0] != files[$0] }
+        expect(differs.isEmpty, "\(name): the grown upgrade differs at \(differs.sorted())")
+      }
+      do {
+        // A layout the growth refuses: nothing else runs, nothing is written.
+        let (base, roots) = try existingStub()
+        defer { try? fm.removeItem(at: base) }
+        let before = snapshot(base)
+        var events = [String]()
+        var moved = disk(growRequest.space.container)
+        moved = StubUpgradeGrow.Layout(
+          partitions: moved.partitions.map {
+            $0.bsdName == "disk0s4"
+              ? .init(bsdName: $0.bsdName, uuid: $0.uuid, base: move.oldStart, size: $0.size) : $0
+          }, diskSize: moved.diskSize)
+        let result = ordered(roots, layout: moved, events: &events)
+        expect(
+          (result.failure as? StubUpgradeGrow.Refusal) == .espNotMoved && events.isEmpty,
+          "\(name): refused growth \(events): \(result)")
+        expect(snapshot(base) == before, "\(name): a refused growth changed the stub")
+      }
+
       func refused(
         _ what: String, _ want: StubUpgradeCheck.Refusal, config: Data? = nil,
         sourceBytes: Int? = nil, _ change: (inout StubUpgradeFacts) -> Void = { _ in }

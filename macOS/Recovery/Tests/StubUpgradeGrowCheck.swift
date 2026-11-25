@@ -74,13 +74,11 @@ struct AccountSetupFailure: Error {
       resizes wanted: Int, grown: Bool
     ) {
       let url = base.appendingPathComponent(UUID().uuidString + ".json")
-      var journal = RestoreImageStubUpgrade.Journal(
-        planSHA256: request.planSHA256, group: request.group, build: request.target.build)
       var disk = start
       var resizes = 0
       do {
         try StubUpgradeGrow.run(
-          request: request, store: store, journal: &journal, at: url, layout: { disk },
+          request: request, store: store, journal: url, layout: { disk },
           resize: {
             resizes += 1
             if let after { disk = after }
@@ -93,15 +91,14 @@ struct AccountSetupFailure: Error {
       }
       expect(resizes == wanted, "\(what): \(resizes) resizes, want \(wanted)")
       let saved = (try? RestoreImageStubUpgrade.Journal.load(url)) ?? nil
-      expect(
-        (saved?.containerGrown == true) == grown && (journal.containerGrown == true) == grown,
-        "\(what): recorded grown \(grown)")
+      expect((saved?.containerGrown == true) == grown, "\(what): recorded grown \(grown)")
+      // A refusal leaves no journal behind.
+      expect(grown || saved == nil, "\(what): a refusal left a journal")
       // Run again: a recorded growth is never repeated.
       if grown {
-        var again = journal
         var more = 0
         try? StubUpgradeGrow.run(
-          request: request, store: store, journal: &again, at: url, layout: { disk },
+          request: request, store: store, journal: url, layout: { disk },
           resize: { more += 1 })
         expect(more == 0, "\(what): grown again")
       }

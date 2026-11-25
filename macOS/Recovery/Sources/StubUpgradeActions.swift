@@ -131,7 +131,29 @@ extension RecoveryActions {
     if writable, info["WritableVolume"] as? Bool == false {
       try run("/sbin/mount", ["-u", "-w", mount])
     }
+    // The writer checks owners: a volume mounted ignoring them reads every
+    // owner as the caller, so it must honour them first.
+    var filesystem = statfs()
+    if writable, statfs(mount, &filesystem) == 0,
+      filesystem.f_flags & UInt32(MNT_IGNORE_OWNERSHIP) != 0
+    {
+      try run("/usr/sbin/diskutil", ["enableOwnership", uuid])
+    }
     return URL(fileURLWithPath: mount)
+  }
+
+  /// `url` is the root of a mounted volume, which honours its owners.
+  static func verifyMountRoot(_ url: URL) throws {
+    var filesystem = statfs()
+    guard statfs(url.path, &filesystem) == 0 else {
+      throw RecoveryFailure(message: "Cannot inspect \(url.path).")
+    }
+    let mountedOn = withUnsafeBytes(of: filesystem.f_mntonname) {
+      String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self)
+    }
+    try check(
+      mountedOn == url.path && filesystem.f_flags & UInt32(MNT_IGNORE_OWNERSHIP) == 0,
+      "\(url.path) is not a volume of this startup container that honours its owners.")
   }
 
   /// A property of an IODeviceTree node.
@@ -452,28 +474,9 @@ extension RecoveryActions {
         at: upgradeJournal,
         to: state.appendingPathComponent("upgrade-journal-\(earlier.planSHA256.prefix(16)).json"))
     }
+    // The request, pin, floor and space checks; nothing is opened for writing yet.
     var p = try prepareStubUpgrade(writable: true)
-    if p.request.mode == .inPlaceGrow, p.journal?.containerGrown != true {
-      // Before any file: grow the container into the EFI partition's old
-      // place, then check everything (the space above all) again.
-      progress(0.03, "Growing the startup container")
-      var grown = try RestoreImageStubUpgrade.begin(
-        upgradeJournal, planSHA256: p.request.planSHA256, group: p.request.group,
-        build: p.request.target.build, prebootRoot: p.preboot, restorePath: p.plan.restorePath)
-      let store = p.volumes.physicalStore
-      try StubUpgradeGrow.run(
-        request: p.request, store: store, journal: &grown, at: upgradeJournal,
-        layout: { try diskLayout(store: store) },
-        resize: {
-          try run("/usr/sbin/diskutil", ["apfs", "resizeContainer", store, "0"], timeout: 1800)
-        })
-      p = try prepareStubUpgrade(writable: true)
-    }
-    let request = p.request
-    let operation = state.appendingPathComponent("upgrade-" + UUID().uuidString)
-    try fm.createDirectory(
-      at: operation, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
-    InstallerLog.shared.persist(to: operation.appendingPathComponent("installer.log"))
+    let store = p.volumes.physicalStore
     let keys = RestoreImageRemote.ArchiveKeys()
     let steps: [RestoreImageStubUpgrade.Phase: (Double, String)] = [
       .started: (0.05, "Writing the new startup firmware"),
@@ -483,19 +486,39 @@ extension RecoveryActions {
       .recoveryWritten: (0.5, "Updating the startup volume"),
       .systemWritten: (0.55, "Approving the new startup firmware"),
     ]
-    var journal = try RestoreImageStubUpgrade.run(
-      plan: p.plan, directory: p.directory, read: p.read,
-      roots: ["System": volume, "Preboot": p.preboot, "Recovery": p.recovery],
-      group: request.group, planSHA256: request.planSHA256, build: request.target.build,
-      journal: upgradeJournal,
-      archiveKey: { entry, metadata in
-        let key = try keys.key(entry, metadata: metadata)
-        InstallerLog.shared.append("Archive key for \(entry.name) opened.")
-        return key
+    // In-place-grow: the container grows before any volume tree is opened,
+    // then everything is checked again; only then are the volumes written.
+    var journal = try StubUpgradeGrow.growThenWrite(
+      request: p.request, store: store, journal: upgradeJournal,
+      layout: { try diskLayout(store: store) },
+      resize: {
+        progress(0.03, "Growing the startup container")
+        try run("/usr/sbin/diskutil", ["apfs", "resizeContainer", store, "0"], timeout: 1800)
       },
-      checkpoint: { phase in
-        if let (amount, text) = steps[phase] { progress(amount, text) }
+      recheck: {
+        if p.request.mode == .inPlaceGrow { p = try prepareStubUpgrade(writable: true) }
+        for root in [volume, p.preboot, p.recovery] { try verifyMountRoot(root) }
+      },
+      write: {
+        try RestoreImageStubUpgrade.run(
+          plan: p.plan, directory: p.directory, read: p.read,
+          roots: ["System": volume, "Preboot": p.preboot, "Recovery": p.recovery],
+          group: p.request.group, planSHA256: p.request.planSHA256,
+          build: p.request.target.build, journal: upgradeJournal,
+          archiveKey: { entry, metadata in
+            let key = try keys.key(entry, metadata: metadata)
+            InstallerLog.shared.append("Archive key for \(entry.name) opened.")
+            return key
+          },
+          checkpoint: { phase in
+            if let (amount, text) = steps[phase] { progress(amount, text) }
+          })
       })
+    let request = p.request
+    let operation = state.appendingPathComponent("upgrade-" + UUID().uuidString)
+    try fm.createDirectory(
+      at: operation, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+    InstallerLog.shared.persist(to: operation.appendingPathComponent("installer.log"))
     if journal.phase < .blessed {
       // Apple personalizes the new boot files for this Mac (network).
       try authorized(
