@@ -382,7 +382,7 @@ class Plan:
 
 
 def make_plan(machine, stub_info, stubs, extents, policy, qualification, esp_free, system_free, payload, space,
-              esp=None):
+              esp=None, moved=None):
     if stub_info.get("vgid", "").upper() != machine.stub_group:
         raise Refused("asahi/stub_info.json on the EFI partition does not name the startup volume "
                       "this Mac started from; refusing to guess which installation this is")
@@ -405,6 +405,12 @@ def make_plan(machine, stub_info, stubs, extents, policy, qualification, esp_fre
     extent, esp_move = None, None
     need = space.peak(payload.get("bytes", 0))
     move = plan_esp_move(esp, stub, extents) if need > space.container else None
+    if move is None and moved is not None and esp is not None and need > space.container \
+            and esp["start"] == moved.new_start and esp["size"] == moved.size \
+            and 0 <= moved.old_start - (stub.start + stub.size) < ALIGN \
+            and any(e.start <= moved.old_start + ALIGN and e.start + e.size >= moved.old_start + moved.size - ALIGN
+                    for e in extents):
+        move = moved   # an earlier stage already moved the ESP; its old place is free right after the stub
     if need <= space.container:
         mode = "in-place"
     elif move is not None and need <= space.container + move.size:
@@ -836,6 +842,29 @@ def esp_files(root):
     return {p.relative_to(root).as_posix(): _sha256(p) for p in sorted(root.rglob("*")) if p.is_file()}
 
 
+def rec_state(record_path):
+    try:
+        return json.loads(pathlib.Path(record_path).read_text()).get("state")
+    except (OSError, ValueError):
+        return None
+
+
+def kernel_start(disk, node, start, sector, tries=5):
+    """Make the kernel map `node` at `start` (bytes): partx, settled, checked in sysfs."""
+    sysfs = pathlib.Path("/sys/class/block") / pathlib.Path(os.path.realpath(node)).name / "start"
+    for _ in range(tries):
+        subprocess.run(["udevadm", "settle"], check=False)
+        subprocess.run(["partx", "-u", "--nr", re.search(r"(\d+)$", node).group(1), disk],
+                       capture_output=True, check=False)
+        try:
+            if int(sysfs.read_text()) * 512 == start:
+                return
+        except (OSError, ValueError):
+            pass
+        time.sleep(1)
+    raise NotNow(f"the kernel did not take the new place of {node}")
+
+
 def move_esp(disk, node, move, esp_mount, sector, record_path, to_start=None):
     """Copy the ESP to its new place, check it, then point its partition entry there.
 
@@ -846,6 +875,7 @@ def move_esp(disk, node, move, esp_mount, sector, record_path, to_start=None):
     if not (dst + move.size <= src or src + move.size <= dst):
         raise Refused("the new place of the EFI partition overlaps the old one")
     before = esp_files(esp_mount)
+    table_written = False
     opts = next((l.split()[3] for l in pathlib.Path("/proc/self/mounts").read_text().splitlines()
                  if l.split()[1] == esp_mount), "rw")
     subprocess.run(["sync"], check=False)
@@ -876,12 +906,18 @@ def move_esp(disk, node, move, esp_mount, sector, record_path, to_start=None):
         if got != norm(new):
             diff = [f"wrote {a!r} read {b!r}" for a, b in zip(norm(new), got) if a != b]
             raise Refused(f"the partition table does not read back as written: {diff or 'line count'}")
-        partno = move.partno
-        subprocess.run(["partx", "-u", "--nr", str(partno), disk], check=True)
+        table_written = True
+        kernel_start(disk, node, dst, sector)
         rec["state"] = "moved"
         pathlib.Path(record_path).write_text(json.dumps(rec, indent=2) + "\n")
     finally:
         subprocess.run(["udevadm", "settle"], check=False)
+        if rec_state(record_path) == "copied" and table_written:
+            # The table points at the new place but the kernel still maps the old one:
+            # mounting now would write the stale copy. Stay unmounted and say so.
+            raise Refused(f"the partition table now places the EFI partition at its new start, but the kernel "
+                          f"still maps the old one; with {esp_mount} unmounted run `partx -u --nr {move.partno} "
+                          f"{disk}`, then `aurora-upgrade stage` again (the copy is checked; nothing is lost)")
         if subprocess.run(["mount", esp_mount], capture_output=True).returncode != 0:  # fstab, else the node
             subprocess.run(["mount", "-o", opts, node, esp_mount], check=False)
     if not os.path.ismount(esp_mount) or esp_files(esp_mount) != before:
@@ -917,6 +953,18 @@ def mounted(device, slot, mount_tool, readonly):
             os.rmdir(mnt)
 
 
+def recorded_move(path=None):
+    """The ESP move an earlier stage recorded, once its table write is in (state copied or moved)."""
+    path = pathlib.Path(path or f"{STATE_DIR}/esp-move.json")
+    try:
+        rec = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    if rec.get("state") not in ("copied", "moved"):
+        return None
+    return EspMove(rec["partno"], rec["old_start"], rec["new_start"], rec["size"])
+
+
 def gather(args):
     machine = read_machine(args.device_tree)
     esp = args.esp or esp_mountpoint(machine.esp_partuuid)
@@ -950,7 +998,7 @@ def gather(args):
                       "start": p["start"] * sector, "size": p["size"] * sector}
                      for p in table["partitiontable"]["partitions"] if os.path.realpath(p["node"]) == espdev), None)
     plan = make_plan(machine, stub_info, stubs, free_extents(table), policy, qualification,
-                     st.f_bavail * st.f_frsize, system_free, payload, space, esp_part)
+                     st.f_bavail * st.f_frsize, system_free, payload, space, esp_part, recorded_move())
     plan.disk, plan.sector, plan.esp_node = disk, sector, esp_part["node"] if esp_part else None
     return plan, esp
 
@@ -975,8 +1023,17 @@ def cmd_stage(args):
             print("Nothing changed.")
             return EXIT_REFUSED
     if plan.mode == "in-place-grow":
-        print("Moving the EFI partition out of the startup volume's way...")
-        move_esp(plan.disk, plan.esp_node, plan.esp_move, esp, plan.sector, f"{STATE_DIR}/esp-move.json")
+        record = f"{STATE_DIR}/esp-move.json"
+        done = recorded_move(record)
+        if done is not None and done == plan.esp_move:
+            kernel_start(plan.disk, plan.esp_node, done.new_start, plan.sector)
+            rec = json.loads(pathlib.Path(record).read_text())
+            rec["state"] = "moved"
+            pathlib.Path(record).write_text(json.dumps(rec, indent=2) + "\n")
+            print("The EFI partition was already moved by an earlier run.")
+        else:
+            print("Moving the EFI partition out of the startup volume's way...")
+            move_esp(plan.disk, plan.esp_node, plan.esp_move, esp, plan.sector, record)
     journal = Journal(esp)
     write_request(esp, plan)
     journal.set(plan_sha256=plan.digest(), state="staging")

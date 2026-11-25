@@ -137,6 +137,19 @@ class Planning(unittest.TestCase):
         self.assertIn("Neural Engine", au.warning_text(pl))
         self.assertEqual(pl.digest(), plan().digest())
 
+    def test_resume_after_the_esp_moved(self):
+        first = plan()
+        mv = first.esp_move
+        # The table now has the ESP at its new start and its old place is free right after the stub.
+        moved_table = copy.deepcopy(J413_TABLE)
+        moved_table["partitiontable"]["partitions"][3]["start"] = mv.new_start // 4096
+        esp_now = {**J413_ESP, "start": mv.new_start}
+        again = plan(extents=au.free_extents(moved_table), esp=esp_now, moved=mv)
+        self.assertEqual(again.mode, "in-place-grow")
+        self.assertEqual(again.esp_move, mv)
+        # Without the record it would not know the move is ours.
+        self.assertEqual(plan(extents=au.free_extents(moved_table), esp=esp_now).mode, "slot")
+
     def test_roomy_stub_is_plain_in_place(self):
         pl = plan(space=ROOMY)
         self.assertEqual(pl.mode, "in-place")
