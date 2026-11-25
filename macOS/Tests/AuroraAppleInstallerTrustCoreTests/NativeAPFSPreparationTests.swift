@@ -347,9 +347,27 @@
       }
     }
 
+    /// macOS 27.2 can give the new container an Update volume; it stays as it is.
+    func testTheUpdateVolumeMacOS27AddsToTheNewContainerIsKept() throws {
+      let fixture = try InputFixture(kind: "free")
+      defer { fixture.remove() }
+      fixture.fault = "update-volume"
+      try fixture.prepare()
+      XCTAssertEqual(fixture.commands.count, 6)
+      let receipt = try NativeStubVolumes.read(
+        Data(
+          contentsOf: URL(
+            fileURLWithPath: fixture.journal.path + ".native-stub-volumes.evidence")))
+      XCTAssertEqual(receipt.volumes.count, 5)
+      XCTAssertEqual(receipt.volumes.filter { $0.roles == ["Update"] }.map(\.group), [nil])
+      try fixture.prepare()
+      XCTAssertEqual(fixture.commands.count, 6)
+    }
+
     func testWrongVolumeGraphAndUnrelatedChangesCannotPublishAnAPFSCheckpoint() throws {
       for fault in [
         "duplicate-preboot", "wrong-group", "unrelated-volume", "renumber-before-command",
+        "duplicate-update", "grouped-update",
       ] {
         let fixture = try InputFixture(kind: "free")
         defer { fixture.remove() }
@@ -623,6 +641,24 @@
                       identifier: "disk8s1")
                   ]))
               if self.fault == "unrelated" { self.snapshot.partitions[0].size -= 4096 }
+              // macOS 27.2 can give the new container an Update volume.
+              if let updates = ["update-volume": 1, "grouped-update": 1, "duplicate-update": 2][
+                self.fault ?? ""]
+              {
+                let created = self.snapshot.containers.removeLast()
+                self.snapshot.containers.append(
+                  RemovalContainer(
+                    uuid: created.uuid, storeUUID: created.storeUUID,
+                    volumes: created.volumes
+                      + (0..<updates).map {
+                        RemovalVolume(
+                          uuid: "00000000-0000-0000-0000-00000000047" + String($0),
+                          name: "Update", roles: ["Update"],
+                          group: self.fault == "grouped-update"
+                            ? "00000000-0000-0000-0000-000000000900" : nil,
+                          identifier: "disk8s" + String(2 + $0))
+                      }))
+              }
               if self.fault == "automatic-volumes" || self.fault == "duplicate-preboot" {
                 try self.mutateVolume([
                   "apfs", "addVolume", "disk8", "apfs", "Preboot", "-role", "B",
@@ -667,7 +703,7 @@
           let number = volumes.count + 1
           volumes.append(
             RemovalVolume(
-              uuid: "00000000-0000-0000-0000-00000000045" + String(number + 5),
+              uuid: "00000000-0000-0000-0000-000000000" + String(455 + number),
               name: arguments[4], roles: [role],
               group: role == "System"
                 ? (fault == "wrong-group" ? "00000000-0000-0000-0000-000000000901" : group) : nil,

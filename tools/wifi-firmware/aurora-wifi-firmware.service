@@ -1,32 +1,34 @@
 [Unit]
-Description=Wi-Fi and Bluetooth firmware of the installed macOS
+Description=Wi-Fi and Bluetooth firmware of the stub firmware's macOS restore image
 Documentation=https://github.com/aurora-silicon/aurora-installer/blob/main/tools/wifi-firmware/README.md
-# macOS runs the Wi-Fi and Bluetooth firmware its system volume ships. At
-# every boot this checks the installed macOS's firmware against the ESP's
-# and, when macOS has newer firmware, puts it on the ESP for the next boot
-# (backed up first). The boot after a change checks that the drivers came up
-# with it and puts the previous files back if they did not. Nothing is
-# reloaded in the running boot.
+# The radio firmware comes from Apple's restore image of the macOS version
+# the stub firmware runs (/chosen/asahi,os-fw-version), for this board. At
+# every boot this checks it against the ESP's and, when it differs, puts it
+# on the ESP for the next boot (backed up first). The boot after a change
+# checks that the drivers came up with it and puts the previous files back
+# if they did not. Nothing is reloaded in the running boot.
 ConditionPathExists=/proc/device-tree/chosen/asahi,efi-system-partition
-# The macOS partitions sit on the disk the root file system was mounted
-# from, so their block devices exist once local-fs.target is reached, and
-# lsblk reads their partition types itself. Nothing here waits for udev to
-# settle.
-After=local-fs.target
+# A boot whose board, stub version, ESP package and tool were checked before
+# finishes without the network. Any other boot reads the restore image by
+# HTTP ranges, so it runs once the network is up; without one it ends "not
+# now" (2) and the next boot tries again.
+Wants=network-online.target
+After=local-fs.target network-online.target
 
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/aurora-wifi-firmware boot
 # 1 = refused (nothing changed, the reason is in the journal), 2 = not now
-# (no readable macOS volume, the ESP busy): outcomes, not unit failures.
+# (the restore image cannot be reached, the ESP busy): outcomes, not unit
+# failures.
 SuccessExitStatus=1 2
-# The boot after a change waits up to VERIFY_WAIT (150 s) for the radios;
-# a boot that then finds newer firmware reads the macOS System volume,
-# converts and stages it (a full check took 15.6 s wall on an M4 Pro
-# MacBook Pro) at idle I/O priority, which the rest of boot can starve.
-# The default 90 s would stop the check itself; this limit only keeps a
-# wedged read from holding the job for ever. It is not a measured worst
-# case.
+# The boot after a change waits up to VERIFY_WAIT (150 s) for the radios; a
+# boot that reads the restore image fetches a few MB by ranges, then
+# converts and stages the files (a full check took 63-70 s wall on a
+# MacBook Air M3 and a MacBook Pro M4 Pro) at idle I/O priority, which the
+# rest of boot can starve. The default 90 s would stop the check itself;
+# this limit only keeps a wedged read from holding the job for ever. It is
+# not a measured worst case.
 TimeoutStartSec=900
 Nice=10
 IOSchedulingClass=idle
