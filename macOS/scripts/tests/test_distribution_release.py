@@ -95,7 +95,7 @@ class DistributionReleaseTests(unittest.TestCase):
         self.assertEqual({entry.name for entry in (output / "Profiles").iterdir()},
                          set(module.PROFILES))
         self.assertEqual((output / "catalog.json").read_bytes(),
-                         (self.profiles / "fedora-kde/catalog.json").read_bytes())
+                         (self.profiles / "fedora-gnome/catalog.json").read_bytes())
 
     def test_complete_native_only_set(self):
         for profile in module.PROFILES:
