@@ -410,7 +410,9 @@ def make_plan(machine, stub_info, stubs, extents, policy, qualification, esp_fre
             and 0 <= moved.old_start - (stub.start + stub.size) < ALIGN \
             and any(e.start <= moved.old_start + ALIGN and e.start + e.size >= moved.old_start + moved.size - ALIGN
                     for e in extents):
-        move = moved   # an earlier stage already moved the ESP; its old place is free right after the stub
+        # An earlier stage already moved the ESP; its old place is free right after the stub. Partition
+        # numbers are not kept: diskutil re-sorts the GPT entries when it grows the container.
+        move = dataclasses.replace(moved, partno=esp["partno"])
     if need <= space.container:
         mode = "in-place"
     elif move is not None and need <= space.container + move.size:
@@ -916,7 +918,7 @@ def move_esp(disk, node, move, esp_mount, sector, record_path, to_start=None):
             # The table points at the new place but the kernel still maps the old one:
             # mounting now would write the stale copy. Stay unmounted and say so.
             raise Refused(f"the partition table now places the EFI partition at its new start, but the kernel "
-                          f"still maps the old one; with {esp_mount} unmounted run `partx -u --nr {move.partno} "
+                          f"still maps the old one; with {esp_mount} unmounted run `partx -u --nr {re.search(r"(\d+)$", node).group(1)} "
                           f"{disk}`, then `aurora-upgrade stage` again (the copy is checked; nothing is lost)")
         if subprocess.run(["mount", esp_mount], capture_output=True).returncode != 0:  # fstab, else the node
             subprocess.run(["mount", "-o", opts, node, esp_mount], check=False)
@@ -1025,7 +1027,8 @@ def cmd_stage(args):
     if plan.mode == "in-place-grow":
         record = f"{STATE_DIR}/esp-move.json"
         done = recorded_move(record)
-        if done is not None and done == plan.esp_move:
+        same = lambda a, b: (a.old_start, a.new_start, a.size) == (b.old_start, b.new_start, b.size)
+        if done is not None and same(done, plan.esp_move):
             kernel_start(plan.disk, plan.esp_node, done.new_start, plan.sector)
             rec = json.loads(pathlib.Path(record).read_text())
             rec["state"] = "moved"

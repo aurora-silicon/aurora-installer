@@ -147,6 +147,11 @@ class Planning(unittest.TestCase):
         again = plan(extents=au.free_extents(moved_table), esp=esp_now, moved=mv)
         self.assertEqual(again.mode, "in-place-grow")
         self.assertEqual(again.esp_move, mv)
+        # diskutil re-sorts the GPT when it grows the container: the ESP becomes entry 3.
+        renumbered = plan(extents=au.free_extents(moved_table), esp={**esp_now, "partno": 3}, moved=mv)
+        self.assertEqual(renumbered.mode, "in-place-grow")
+        self.assertEqual(renumbered.esp_move.partno, 3)
+        self.assertEqual((renumbered.esp_move.old_start, renumbered.esp_move.new_start), (mv.old_start, mv.new_start))
         # Without the record it would not know the move is ours.
         self.assertEqual(plan(extents=au.free_extents(moved_table), esp=esp_now).mode, "slot")
 
