@@ -26,7 +26,7 @@ public enum StubUpgradeFallback {
 
   /// What the person sees when Recovery's bless refused.
   public static let message =
-    "Aurora can't approve the new startup firmware from this Recovery. Restart into macOS, open the Aurora Installer and choose Finish startup firmware update; it will ask for the owner's password once, then return here."
+    "This Recovery can't approve the new startup firmware, so nothing was changed. Restart to use Aurora as before."
 
   public static func next(_ journal: RestoreImageStubUpgrade.Journal?) -> Next {
     guard let journal else { return .recovery(.started) }
