@@ -52,7 +52,6 @@ DATA_DIR = "Aurora/Recovery/UpgradeData"
 SYSVER = "System/Library/CoreServices/SystemVersion.plist"
 SYSVER_HIDDEN = "System/Library/CoreServices/SystemVersion-disabled.plist"
 PREV = ".aurora-upgrade-prev"
-RECOVERY_ROOM = 512 << 20      # NativeEnrollmentSpace: Recovery data beside the restored stub
 
 
 class Refused(Exception):
@@ -251,6 +250,7 @@ class Target:
     minimum_boot: str
     stub_bytes: int
     caution: str = ""
+    minimum_recovery: str = ""   # Recovery checks the system Recovery against it before any change
 
 
 def choose_target(policy, qualification, machine):
@@ -284,7 +284,8 @@ def choose_target(policy, qualification, machine):
                       source_bytes=pin["sourceBytes"], manifest_sha256=pin["manifestSHA256"],
                       minimum_boot=entry["minimumBoot"],
                       stub_bytes=STUB_BYTES_LARGE if version_at_least(entry["version"], "26.0") else STUB_BYTES_SMALL,
-                      caution=board.get("caution", "") if isinstance(board, dict) else "")
+                      caution=board.get("caution", "") if isinstance(board, dict) else "",
+                      minimum_recovery=entry.get("minimumRecovery", ""))
     if best is None:
         raise Refused(f"no pinned startup firmware is admitted for this Mac ({machine.board}) yet")
     return best
@@ -292,19 +293,48 @@ def choose_target(policy, qualification, machine):
 
 @dataclasses.dataclass
 class Space:
-    """Bytes in the current startup container, and what the upgrade swaps in."""
-    container: int        # the container's size
-    used: int             # allocated now (all volumes, incl. the locked Data volume)
-    recovery_image: int   # the current Recovery image's allocation
-    preboot: int          # the current Preboot volume's allocation
+    """Bytes in the current startup container, and what the upgrade adds."""
+    container: int            # the container's size
+    used: int                 # allocated now (all volumes, incl. the locked Data volume)
+    recovery_image: int       # the current Recovery image's allocation (for the record)
+    preboot: int              # the current Preboot volume's allocation (for the record)
     new_recovery_image: int   # the target image's Recovery member, as stored in the restore image
+    new_boot_files: int = 0   # the target identity's boot components (kernelcache, firmware, trust caches)
 
     def peak(self, payload_bytes):
-        """The most the in-place upgrade holds at once: the old Recovery image is
-        replaced first, a new Preboot restore bundle goes in beside the old one,
-        plus the staged payload and the installer's 512 MiB Recovery working room
-        (NativeEnrollmentSpace)."""
-        return self.used - self.recovery_image + self.new_recovery_image + self.preboot + payload_bytes + RECOVERY_ROOM
+        """The most the in-place upgrade holds at once. The running Recovery keeps
+        its own image attached, so removing the old image frees nothing during the
+        visit: everything new is counted on top of what is used now. New: the
+        Recovery image (stored recompressed in 64 KiB blocks, measured 4.4 % over
+        the archive on an M3 Air's 27.2 stub, so 1/16 is added), the restore
+        bundle and the two copies bless personalizes (Preboot and Recovery), and
+        the staged payload."""
+        image = self.new_recovery_image + self.new_recovery_image // 16
+        return self.used + image + 3 * self.new_boot_files + payload_bytes
+
+
+@dataclasses.dataclass
+class EspMove:
+    """Move the EFI partition out of the stub container's way: same partition entry,
+    PARTUUID, type, name and bytes (so its FAT volume ID too), new place."""
+    partno: int
+    old_start: int   # bytes
+    new_start: int   # bytes
+    size: int        # bytes
+
+
+def plan_esp_move(esp, stub, extents):
+    """Where the ESP can go so the stub container can grow into its place: the end
+    of a free extent that holds it (the one right before the stub first)."""
+    if esp is None or not (0 <= esp["start"] - (stub.start + stub.size) < ALIGN):
+        return None
+    fits = [e for e in extents if e.size >= esp["size"]]
+    before = [e for e in fits if 0 <= stub.start - (e.start + e.size) < ALIGN]
+    for e in before + sorted(fits, key=lambda e: e.size):
+        new_start = (e.start + e.size - esp["size"]) // ALIGN * ALIGN
+        if new_start >= e.start:
+            return EspMove(esp["partno"], esp["start"], new_start, esp["size"])
+    return None
 
 
 @dataclasses.dataclass
@@ -315,12 +345,13 @@ class Plan:
     current_version: str
     stub: Stub
     other_stubs: list
-    mode: str              # "in-place" or "slot"
+    mode: str              # "in-place", "in-place-grow" (move the ESP, grow the stub) or "slot"
     space: Space
     extent: object         # Extent for a slot, None in place
     esp_free: int
     system_free: int
     payload: dict
+    esp_move: object = None   # EspMove for in-place-grow
 
     def digest(self):
         blob = json.dumps(self.to_json(include_digest=False), sort_keys=True).encode()
@@ -339,6 +370,9 @@ class Plan:
             "esp_partuuid": self.machine.esp_partuuid,
             "stage1": self.payload.get("stage1", {}),
         }
+        if self.esp_move is not None:
+            out["esp_move"] = dataclasses.asdict(self.esp_move)
+            out["grow_container_to"] = self.space.container + self.esp_move.size
         if self.extent is not None:
             out["slot_extent"] = {"start": self.extent.start, "size": self.target.stub_bytes,
                                   "free_extent_size": self.extent.size}
@@ -347,7 +381,8 @@ class Plan:
         return out
 
 
-def make_plan(machine, stub_info, stubs, extents, policy, qualification, esp_free, system_free, payload, space):
+def make_plan(machine, stub_info, stubs, extents, policy, qualification, esp_free, system_free, payload, space,
+              esp=None):
     if stub_info.get("vgid", "").upper() != machine.stub_group:
         raise Refused("asahi/stub_info.json on the EFI partition does not name the startup volume "
                       "this Mac started from; refusing to guess which installation this is")
@@ -367,9 +402,13 @@ def make_plan(machine, stub_info, stubs, extents, policy, qualification, esp_fre
     stub = mine[0]
     others = [s for s in stubs if s is not stub]
     # In place when the swap fits the container; a second startup volume only when it doesn't.
-    extent = None
-    if space.peak(payload.get("bytes", 0)) <= space.container:
+    extent, esp_move = None, None
+    need = space.peak(payload.get("bytes", 0))
+    move = plan_esp_move(esp, stub, extents) if need > space.container else None
+    if need <= space.container:
         mode = "in-place"
+    elif move is not None and need <= space.container + move.size:
+        mode, esp_move = "in-place-grow", move
     else:
         mode = "slot"
         if any(s.size >= target.stub_bytes for s in others):
@@ -386,7 +425,7 @@ def make_plan(machine, stub_info, stubs, extents, policy, qualification, esp_fre
     if system_free < SYSTEM_FLOOR + payload.get("bytes", 0):
         raise Refused("the current startup volume has no room for the installer")
     return Plan(machine, target, current_build, current_version, stub, others, mode, space, extent,
-                esp_free, system_free, payload)
+                esp_free, system_free, payload, esp_move)
 
 
 WARNING = """\
@@ -417,6 +456,12 @@ def warning_text(plan):
     if plan.mode == "in-place":
         where = (f"  Startup volume     replaced in place ({sp.peak(plan.payload.get('bytes', 0)) / 1e9:.2f} GB "
                  f"needed at most, {sp.container / 1e9:.2f} GB available)\n")
+    elif plan.mode == "in-place-grow":
+        where = (f"  EFI partition      moved to free space at {plan.esp_move.new_start / 1e9:.1f} GB first "
+                 f"(same partition and contents;\n                     Linux starts as before)\n"
+                 f"  Startup volume     grown to {(sp.container + plan.esp_move.size) / 1e9:.2f} GB into its old "
+                 f"place, then replaced in place\n                     "
+                 f"({sp.peak(plan.payload.get('bytes', 0)) / 1e9:.2f} GB needed at most)\n")
     else:
         where = (f"  New volume         {t.stub_bytes / 1e9:.1f} GB \"Aurora {t.version}\" in free space at "
                  f"{plan.extent.start / 1e9:.1f} GB (the current one is too small; it stays as the way back)\n"
@@ -716,8 +761,9 @@ def measure_stub(stub, apfuse):
     return total, used, image, walk_allocation(walk(vol["preboot"]))
 
 
-def target_recovery_image_bytes(target, board, open_zip=None):
-    """The pinned image's Recovery member for this board, after checking Apple serves the pinned image."""
+def target_sizes(target, board, open_zip=None):
+    """(Recovery member bytes, boot component bytes) of the pinned image for this board,
+    after checking Apple serves the pinned image."""
     import plistlib
     if open_zip is None:
         here = pathlib.Path(__file__).resolve().parent
@@ -735,17 +781,112 @@ def target_recovery_image_bytes(target, board, open_zip=None):
     if "sha256:" + hashlib.sha256(raw).hexdigest() != target.manifest_sha256:
         raise Refused(f"Apple's restore image does not carry the pinned build {target.build} manifest")
     manifest = plistlib.loads(raw)
-    paths = {bi["Manifest"]["BaseSystem"]["Info"]["Path"] for bi in manifest.get("BuildIdentities", [])
-             if bi.get("Info", {}).get("DeviceClass") == f"{board}ap"
-             and bi.get("Info", {}).get("RestoreBehavior") == "Erase"
-             and bi.get("Info", {}).get("Variant", "").startswith("macOS Customer")
-             and "BaseSystem" in bi.get("Manifest", {})}
+    idents = [bi for bi in manifest.get("BuildIdentities", [])
+              if bi.get("Info", {}).get("DeviceClass") == f"{board}ap"
+              and bi.get("Info", {}).get("RestoreBehavior") == "Erase"
+              and bi.get("Info", {}).get("Variant", "").startswith("macOS Customer")
+              and "BaseSystem" in bi.get("Manifest", {})]
+    paths = {bi["Manifest"]["BaseSystem"]["Info"]["Path"] for bi in idents}
     if len(paths) != 1:
         raise Refused(f"the pinned image names {len(paths)} Recovery images for {board}")
     member = z.members.get(paths.pop())
     if member is None:
         raise Refused("the pinned image lacks its Recovery image")
-    return member.csize
+    # The boot components the stub plan copies (NativeStubFilePlan's exclusions).
+    skip = {"BaseSystem", "OS", "RestoreRamDisk", "RestoreTrustCache", "Ap,SystemVolumeCanonicalMetadata"}
+    comps = {v["Info"]["Path"] for k, v in idents[0]["Manifest"].items()
+             if k not in skip and not k.startswith("Cryptex") and v.get("Info", {}).get("Path")}
+    boot = sum(z.members[p].usize for p in comps if p in z.members)
+    boot += sum(m.usize for n, m in z.members.items() if n.startswith("BootabilityBundle/"))
+    return member.csize, boot
+
+
+STATE_DIR = "/var/lib/aurora-upgrade"
+
+
+def _range_sha256(fd, start, size):
+    h, off = hashlib.sha256(), 0
+    while off < size:
+        n = min(4 << 20, size - off)
+        chunk = os.pread(fd, n, start + off)
+        if len(chunk) != n:
+            raise Refused("short read while checking the EFI partition copy")
+        h.update(chunk)
+        off += n
+    return h.hexdigest()
+
+
+def sfdisk_retarget(dump, node, start_sector, size_sector):
+    """The same `sfdisk --dump` with one partition's start (and size) changed; every
+    other field (label id, PARTUUID, type, name, attributes) as it was."""
+    out, hit = [], 0
+    for line in dump.splitlines():
+        if line.startswith(node + " :"):
+            line = re.sub(r"start=\s*\d+", f"start={start_sector}", line)
+            line = re.sub(r"size=\s*\d+", f"size={size_sector}", line)
+            hit += 1
+        out.append(line)
+    if hit != 1:
+        raise Refused(f"the partition table dump does not name {node} once")
+    return "\n".join(out) + "\n"
+
+
+def esp_files(root):
+    root = pathlib.Path(root)
+    return {p.relative_to(root).as_posix(): _sha256(p) for p in sorted(root.rglob("*")) if p.is_file()}
+
+
+def move_esp(disk, node, move, esp_mount, sector, record_path, to_start=None):
+    """Copy the ESP to its new place, check it, then point its partition entry there.
+
+    The two ranges don't overlap, so until the table is written the old copy is
+    the ESP, and after it the new one is; a power cut at any point leaves one
+    whole, unchanged ESP. `to_start` moves it back (cancel)."""
+    src, dst = (move.old_start, move.new_start) if to_start is None else (move.new_start, move.old_start)
+    if not (dst + move.size <= src or src + move.size <= dst):
+        raise Refused("the new place of the EFI partition overlaps the old one")
+    before = esp_files(esp_mount)
+    opts = next((l.split()[3] for l in pathlib.Path("/proc/self/mounts").read_text().splitlines()
+                 if l.split()[1] == esp_mount), "rw")
+    subprocess.run(["sync"], check=False)
+    if subprocess.run(["umount", esp_mount]).returncode != 0:
+        raise NotNow(f"can't unmount the EFI partition at {esp_mount} (in use?)")
+    try:
+        fd = os.open(disk, os.O_RDWR)
+        try:
+            off = 0
+            while off < move.size:
+                n = min(4 << 20, move.size - off)
+                os.pwrite(fd, os.pread(fd, n, src + off), dst + off)
+                off += n
+            os.fsync(fd)
+            digest = _range_sha256(fd, src, move.size)
+            if _range_sha256(fd, dst, move.size) != digest:
+                raise Refused("the EFI partition copy does not read back; nothing was changed")
+        finally:
+            os.close(fd)
+        rec = {**dataclasses.asdict(move), "sha256": digest, "state": "copied", "to": dst}
+        pathlib.Path(record_path).parent.mkdir(parents=True, exist_ok=True)
+        pathlib.Path(record_path).write_text(json.dumps(rec, indent=2) + "\n")
+        dump = _run("sfdisk", "--dump", disk)
+        new = sfdisk_retarget(dump, node, dst // sector, move.size // sector)
+        subprocess.run(["sfdisk", "--no-reread", "--no-tell-kernel", "-q", disk], input=new, text=True, check=True)
+        norm = lambda text: [re.sub(r"=\s+", "=", " ".join(line.split())) for line in text.splitlines() if line.strip()]
+        got = norm(_run("sfdisk", "--dump", disk))
+        if got != norm(new):
+            diff = [f"wrote {a!r} read {b!r}" for a, b in zip(norm(new), got) if a != b]
+            raise Refused(f"the partition table does not read back as written: {diff or 'line count'}")
+        partno = move.partno
+        subprocess.run(["partx", "-u", "--nr", str(partno), disk], check=True)
+        rec["state"] = "moved"
+        pathlib.Path(record_path).write_text(json.dumps(rec, indent=2) + "\n")
+    finally:
+        subprocess.run(["udevadm", "settle"], check=False)
+        if subprocess.run(["mount", esp_mount], capture_output=True).returncode != 0:  # fstab, else the node
+            subprocess.run(["mount", "-o", opts, node, esp_mount], check=False)
+    if not os.path.ismount(esp_mount) or esp_files(esp_mount) != before:
+        raise Refused("the EFI partition at its new place does not show the same files")
+    return digest
 
 
 @contextlib.contextmanager
@@ -801,9 +942,16 @@ def gather(args):
         raise Refused("can't find the startup container this Mac started from")
     total, used, image, preboot = measure_stub(mine[0], args.apfuse)
     target = choose_target(policy, qualification, machine)
-    space = Space(total, used, image, preboot, target_recovery_image_bytes(target, machine.board))
+    new_image, new_boot = target_sizes(target, machine.board)
+    space = Space(total, used, image, preboot, new_image, new_boot)
+    sector = table["partitiontable"].get("sectorsize", 512)
+    espdev = os.path.realpath(f"/dev/disk/by-partuuid/{machine.esp_partuuid}")
+    esp_part = next(({"partno": int(re.search(r"(\d+)$", p["node"]).group(1)), "node": p["node"],
+                      "start": p["start"] * sector, "size": p["size"] * sector}
+                     for p in table["partitiontable"]["partitions"] if os.path.realpath(p["node"]) == espdev), None)
     plan = make_plan(machine, stub_info, stubs, free_extents(table), policy, qualification,
-                     st.f_bavail * st.f_frsize, system_free, payload, space)
+                     st.f_bavail * st.f_frsize, system_free, payload, space, esp_part)
+    plan.disk, plan.sector, plan.esp_node = disk, sector, esp_part["node"] if esp_part else None
     return plan, esp
 
 
@@ -826,6 +974,9 @@ def cmd_stage(args):
         if input("Type UPGRADE to continue: ").strip() != "UPGRADE":
             print("Nothing changed.")
             return EXIT_REFUSED
+    if plan.mode == "in-place-grow":
+        print("Moving the EFI partition out of the startup volume's way...")
+        move_esp(plan.disk, plan.esp_node, plan.esp_move, esp, plan.sector, f"{STATE_DIR}/esp-move.json")
     journal = Journal(esp)
     write_request(esp, plan)
     journal.set(plan_sha256=plan.digest(), state="staging")
@@ -852,6 +1003,21 @@ def cmd_cancel(args):
     with mounted(mine[0].device, mine[0].system.slot, args.apfuse_mount, readonly=False) as root:
         cancel_system_volume(root, journal.data["steps"])
     shutil.rmtree(journal.dir)
+    rec_path = pathlib.Path(f"{STATE_DIR}/esp-move.json")
+    if rec_path.exists():
+        rec = json.loads(rec_path.read_text())
+        info = _run(args.apfuse, "info", mine[0].device)
+        total, _ = container_space(info, _run(args.apfuse, "space", mine[0].device))
+        if total != req["space"]["container"]:
+            raise Refused("the startup container has already grown into the EFI partition's old place; "
+                          "the EFI partition stays where it is now")
+        table = json.loads(_run("sfdisk", "--json", disk))
+        sector = table["partitiontable"].get("sectorsize", 512)
+        node = next(p["node"] for p in table["partitiontable"]["partitions"]
+                    if p["start"] * sector == rec["new_start"])
+        move = EspMove(rec["partno"], rec["old_start"], rec["new_start"], rec["size"])
+        move_esp(disk, node, move, esp, sector, str(rec_path), to_start=rec["old_start"])
+        rec_path.unlink()
     print("Cancelled: the startup volume is as it was.")
     return EXIT_OK
 
@@ -872,10 +1038,16 @@ def cmd_finish(args):
     if not reqp.exists():
         return EXIT_OK
     req = json.loads(reqp.read_text())
-    if machine.stub_group == req["current"]["group"]:
+    in_place = req.get("mode", "slot") != "slot"
+    if not in_place and machine.stub_group == req["current"]["group"]:
         print("This boot came from the old startup volume; the upgrade is still waiting.")
         return EXIT_NOT_NOW
+    if in_place and machine.stub_group != req["current"]["group"]:
+        raise Refused("this boot came from another startup volume than the one being upgraded")
     if not version_at_least(machine.os_firmware, req["target"]["version"]):
+        if in_place and j.data.get("state") != "upgraded":
+            print("The startup firmware hasn't been replaced yet; the upgrade is still waiting.")
+            return EXIT_NOT_NOW
         raise Refused(f"this boot reports startup firmware {machine.os_firmware}, not {req['target']['version']}")
     j.set(state="done", new_group=machine.stub_group, finished=int(time.time()))
     print(f"Upgrade done: startup firmware {machine.os_firmware}, volume group {machine.stub_group}.")

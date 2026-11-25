@@ -21,8 +21,8 @@ Measured with our APFS driver in real stub containers (bytes allocated):
 | M2 MacBook Air (J413) | 13.5 | 2.50 GB | 1.05 GB | 0.81 GB | 0.22 GB | 0.002 GB |
 
 - A 27.2 stub needs about 1.8 GB. The installer's 6 GB (`stubBytes` for 26.0 and later) is our own room, not Apple's need; the System volume bytes are the installer's own payload copies.
-- So a 27.2 stub fits a 2.5 GB M1/M2 container with room to spare, but only if the old Recovery image is replaced before the new one is written. Keeping both side by side would need about 2.85 GB.
-- `aurora-upgrade` computes the peak for each Mac from its own container (`apfuse info/space/walk`) and the pinned image's Recovery member (read from Apple, after checking the image size and manifest hash): used − old Recovery image + new Recovery image + a second Preboot + the staged payload + the installer's 512 MiB Recovery room. On the lab J413: 2.44 GB of 2.50 GB.
+- The Recovery that runs the upgrade keeps its own image attached, so removing the old image frees nothing during the visit. The peak is everything used now plus everything new: the Recovery image (the pinned member, plus 1/16 for its 64 KiB-block recompression, measured +4.4 % on a J615), three copies of the identity's boot components (the restore bundle and the two personalized copies `bless` makes), and the staged payload. On the lab J413: about 2.6 GB, more than its 2.50 GB container.
+- The ESP sits right after an M1/M2 stub. Linux moves it into free space just before the stub (same partition entry, PARTUUID, type, name and FAT bytes, so Stage 1, U-Boot, GRUB and fstab references are unchanged), and the Recovery visit grows the stub container into its 0.52 GB (`diskutil apfs resizeContainer`): 3.02 GB on the J413. Still one visit and one volume. A container with room (a 6 GB stub) skips the move.
 
 ## 3. Who does what
 
@@ -36,15 +36,16 @@ Measured with our APFS driver in real stub containers (bytes allocated):
 ## 4. What changes on disk
 
 ### 4.1 Linux stage
+- If the plan says `in-place-grow`: move the ESP first. Copy its bytes to the end of the free extent before the stub (the ranges don't overlap), check both by SHA-256, then one `sfdisk` write that changes only the ESP entry's start, read the table back, `partx -u`, remount, and compare every file. Until the table write the old copy is the ESP; after it the new one is; both stay whole until Recovery grows the container. `cancel` moves it back while the container hasn't grown. Rehearsed on a loop device with the J413's layout.
 - ESP: `aurora/upgrade/request.json` (the plan, with its sha256) and `journal.json` (each step, written before it is taken).
 - The stub's System volume: `Aurora Installer.app` (older copy kept beside for cancel), `Aurora/Recovery/UpgradeData/` (the plan and the release's unfilled Stage 1; Recovery fills it for this ESP with the installer's own code), `SystemVersion.plist` → `SystemVersion-disabled.plist`, and the `.IAPhysicalMedia` marker last ({AppName "Aurora Installer.app", ProductBuildVersion "00A191", ProductVersion "12.1"}).
 - Measured on a J413: a normal restart with this staged still starts Linux; `aurora-upgrade cancel` gives back the exact tree.
 
 ### 4.2 Recovery, in place, in this order
-1. Recheck the request against this volume group, chip and ESP; read Apple's image size and manifest hash (nothing changes if Apple serves anything else or there is no network).
+1. Recheck the request against this volume group, chip and ESP; check the system Recovery against `minimum_recovery`; read Apple's image size and manifest hash (nothing changes if Apple serves anything else or there is no network). For `in-place-grow`: `diskutil apfs resizeContainer <stub container> 0` into the ESP's old place, then recheck the space.
 2. Plan the stub files for this board's Customer/Erase identity (`RestoreImageStubPlan`, the Recovery port of `NativeStubFilePlan`).
 3. Preboot: write the new restore bundle as `<group>/Restore.new` (trimmed BuildManifest, Bootability, trust caches, manifest components), then swap names (`Restore` → `Restore.old`, `Restore.new` → `Restore`). The personalized boot files under `<group>/boot/` are not touched yet, so Linux still starts from the old ones.
-4. Recovery volume: remove the old Recovery image, write the new one (decoded from the image's AEA archive, stored compressed). From here until step 6 the stub's own Recovery is the new one; the Mac's system Recovery is always there.
+4. Recovery volume: remove the old Recovery image (its blocks come back only after the restart, since this Recovery runs from it), write the new one (decoded from the image's AEA archive, stored compressed). From here until step 6 the stub's own Recovery is the new one; the Mac's system Recovery is always there.
 5. System volume: `bootcaches.plist`, `PlatformSupport.plist`, stub `SystemVersion.plist` (27.2), the `Restore` link.
 6. `bless` with the owner's password: Apple personalizes the 27.2 boot files for this Mac (network).
 7. `bputil -nc` and `kmutil configure-boot -c aura-boot.macho -v <volume>` (Stage 1 b17; unpadded on M1-M3), the existing setup sequence.
@@ -53,7 +54,7 @@ Measured with our APFS driver in real stub containers (bytes allocated):
 ## 5. What is never touched
 - macOS: container, volumes, Preboot, LocalPolicy, FileVault, users and data.
 - Linux: `/boot`, the root file system, boot entries, the kernel. Stage 2 on the ESP (it already starts on 13.5 and 27.2 firmware).
-- The partition table, the system Recovery, NVRAM other than what `bless` sets, any other startup volume.
+- The partition table, except the ESP entry's start when the plan moves the ESP. The system Recovery, NVRAM other than what `bless` sets, any other startup volume.
 
 ## 6. Version jump and the paired Recovery
 - The stub's Recovery image and its boot files come from the same pinned image as the stub's boot files, so after the upgrade the group boots a 27.2 Recovery paired with 27.2 firmware.
@@ -62,7 +63,7 @@ Measured with our APFS driver in real stub containers (bytes allocated):
 - The board must be admitted to the pinned entry (qualified or experimental in `scripts/firmware-qualification.json`). The warning shows the board's recorded caution.
 
 ## 7. Refused before anything changes
-Not started by Stage 1; `asahi/stub_info.json` doesn't name the booted group; board not admitted; system firmware below the floor; already on the target or newer; peak above the container and no room for a slot; ESP under 100 MB free; no room on the System volume for the payload; a foreign marker; a different plan already staged; Apple serves a different image; no network; no owner who can approve (a whole-disk install without a finalized recovery account).
+Not started by Stage 1; the ESP can't be unmounted or doesn't read back after a move; `asahi/stub_info.json` doesn't name the booted group; board not admitted; system firmware below the floor; already on the target or newer; peak above the container and no room for a slot; ESP under 100 MB free; no room on the System volume for the payload; a foreign marker; a different plan already staged; Apple serves a different image; no network; no owner who can approve (a whole-disk install without a finalized recovery account).
 
 ## 8. Failure and the way back
 | When | State | Way back |

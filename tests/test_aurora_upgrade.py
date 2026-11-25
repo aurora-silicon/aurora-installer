@@ -70,15 +70,19 @@ def stub():
 
 
 # Measured on the lab M2 Air's 13.5 stub (2.5 GB container) and the pinned 26B123 Recovery member.
-J413_SPACE = au.Space(container=610304 * 4096, used=256035 * 4096, recovery_image=809_600_000,
-                      preboot=224_700_000, new_recovery_image=1_308_622_848)
+J413_SPACE = au.Space(container=610304 * 4096, used=256035 * 4096, recovery_image=681_304_064,
+                      preboot=224_731_136, new_recovery_image=1_308_622_848, new_boot_files=77_200_000)
+J413_ESP = {"partno": 4, "node": "/dev/nvme0n1p4", "start": 44710698 * 4096, "size": 128000 * 4096}
+ROOMY = au.Space(container=5_999_951_872, used=1_800_000_000, recovery_image=1_366_700_000,
+                 preboot=164_500_000, new_recovery_image=1_308_622_848, new_boot_files=77_200_000)
 
 
 def plan(policy=None, qual=None, **kw):
     p, q = admitted() if policy is None else (policy, qual)
     args = dict(machine=machine(), stub_info=STUB_INFO, stubs=[stub()], extents=au.free_extents(J413_TABLE),
                 policy=p, qualification=q, esp_free=275 << 20, system_free=1400 << 20,
-                payload={"bytes": 40 << 20, "dir": "", "stage1": {"version": "1.0.0b17"}}, space=J413_SPACE)
+                payload={"bytes": 40 << 20, "dir": "", "stage1": {"version": "1.0.0b17"}}, space=J413_SPACE,
+                esp=J413_ESP)
     args.update(kw)
     return au.make_plan(**args)
 
@@ -114,16 +118,47 @@ class Layout(unittest.TestCase):
 class Planning(unittest.TestCase):
     def test_j413_plan(self):
         pl = plan()
-        self.assertEqual(pl.mode, "in-place")
+        # The running Recovery keeps its image open: 2.5 GB is too small, the ESP's 0.5 GB makes it fit.
+        self.assertGreater(pl.space.peak(40 << 20), J413_SPACE.container)
+        self.assertEqual(pl.mode, "in-place-grow")
         self.assertIsNone(pl.extent)
-        self.assertLess(pl.space.peak(40 << 20), J413_SPACE.container)
-        self.assertIn("replaced in place", au.warning_text(pl))
+        self.assertLessEqual(pl.space.peak(40 << 20), J413_SPACE.container + pl.esp_move.size)
+        mv = pl.esp_move
+        self.assertEqual((mv.partno, mv.old_start, mv.size), (4, J413_ESP["start"], J413_ESP["size"]))
+        self.assertEqual(mv.new_start % au.ALIGN, 0)
+        self.assertLessEqual(mv.new_start + mv.size, 44100394 * 4096)   # ends before the stub
+        self.assertGreaterEqual(mv.new_start, 37041408 * 4096)          # starts after Macintosh HD
+        self.assertIn("EFI partition      moved", au.warning_text(pl))
+        self.assertEqual(pl.to_json()["grow_container_to"], J413_SPACE.container + J413_ESP["size"])
         self.assertEqual(pl.target.build, "26B123")
         self.assertEqual(pl.target.stub_bytes, au.STUB_BYTES_LARGE)
         self.assertEqual(pl.stub.device, "/dev/nvme0n1p3")
         self.assertIn("breaking change", au.warning_text(pl))
         self.assertIn("Neural Engine", au.warning_text(pl))
         self.assertEqual(pl.digest(), plan().digest())
+
+    def test_roomy_stub_is_plain_in_place(self):
+        pl = plan(space=ROOMY)
+        self.assertEqual(pl.mode, "in-place")
+        self.assertIsNone(pl.esp_move)
+        self.assertIn("replaced in place", au.warning_text(pl))
+
+    def test_esp_not_behind_stub_takes_a_slot(self):
+        pl = plan(esp={**J413_ESP, "start": J413_ESP["start"] + (64 << 20)})
+        self.assertEqual(pl.mode, "slot")
+
+    def test_sfdisk_retarget_changes_one_line(self):
+        dump = ("label: gpt\nlabel-id: L\nsector-size: 4096\n\n"
+                "/dev/nvme0n1p3 : start=    44100394, size=      610304, type=7C3457EF-0000-11AA-AA11-00306543ECAC, uuid=U3\n"
+                "/dev/nvme0n1p4 : start=    44710698, size=      128000, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, uuid=U4, name=\"EFI\"\n")
+        out = au.sfdisk_retarget(dump, "/dev/nvme0n1p4", 43972352, 128000)
+        a, b = dump.splitlines(), out.splitlines()
+        self.assertEqual([x for x, y in zip(a, b) if x != y], [a[-1]])
+        self.assertIn("start=43972352", b[-1])
+        self.assertIn("uuid=U4", b[-1])
+        self.assertIn('name="EFI"', b[-1])
+        with self.assertRaises(au.Refused):
+            au.sfdisk_retarget(dump, "/dev/nvme0n1p9", 1, 1)
 
     def test_board_not_admitted_is_refused(self):
         with self.assertRaisesRegex(au.Refused, "no pinned startup firmware"):
@@ -144,7 +179,7 @@ class Planning(unittest.TestCase):
 
     def test_too_small_takes_a_slot(self):
         tight = au.Space(container=1_500_000_000, used=1_050_000_000, recovery_image=810_000_000,
-                         preboot=225_000_000, new_recovery_image=1_308_622_848)
+                         preboot=225_000_000, new_recovery_image=1_308_622_848, new_boot_files=77_200_000)
         pl = plan(space=tight)
         self.assertEqual(pl.mode, "slot")
         self.assertIsNotNone(pl.extent)
@@ -211,14 +246,14 @@ class Measuring(unittest.TestCase):
     def test_target_recovery_member(self):
         raw = self.manifest()
         z = self.fake_zip(1000, raw, {"022-1.dmg.aea": 1_308_622_848})
-        self.assertEqual(au.target_recovery_image_bytes(self.target(raw), "j413", z), 1_308_622_848)
+        self.assertEqual(au.target_sizes(self.target(raw), "j413", z), (1_308_622_848, 0))
 
     def test_target_wrong_size_or_manifest(self):
         raw = self.manifest()
         with self.assertRaisesRegex(au.Refused, "different restore image"):
-            au.target_recovery_image_bytes(self.target(raw), "j413", self.fake_zip(999, raw, {}))
+            au.target_sizes(self.target(raw), "j413", self.fake_zip(999, raw, {}))
         with self.assertRaisesRegex(au.Refused, "manifest"):
-            au.target_recovery_image_bytes(self.target(raw + b" "), "j413", self.fake_zip(1000, raw, {}))
+            au.target_sizes(self.target(raw + b" "), "j413", self.fake_zip(1000, raw, {}))
 
 
 class Staging(unittest.TestCase):
@@ -371,3 +406,33 @@ class DeviceTree(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Finish(unittest.TestCase):
+    def run_finish(self, os_fw, state):
+        with tempfile.TemporaryDirectory() as t:
+            t = pathlib.Path(t)
+            dt, esp = t / "dt", t / "esp"
+            (dt / "chosen").mkdir(parents=True)
+            (dt / "compatible").write_bytes(b"apple,j413\0apple,t8112\0")
+            for k, v in {"asahi,iboot1-version": "mBoot-20457.41.3", "asahi,os-fw-version": os_fw,
+                         "apfs-preboot-uuid": GROUP, "asahi,efi-system-partition": "99999999-2222-4333-8444-555555555555"}.items():
+                (dt / "chosen" / k).write_bytes(v.encode() + b"\0")
+            req = {"mode": "in-place-grow", "current": {"group": GROUP}, "target": {"version": "27.2"}}
+            (esp / au.REQUEST_DIR).mkdir(parents=True)
+            (esp / au.REQUEST_DIR / "request.json").write_text(json.dumps(req))
+            j = au.Journal(esp)
+            j.set(state=state)
+            args = type("A", (), {"device_tree": str(dt), "esp": str(esp)})
+            rc = au.cmd_finish(args)
+            return rc, au.Journal(esp).data["state"]
+
+    def test_in_place_waiting(self):
+        self.assertEqual(self.run_finish("13.5", "staged"), (au.EXIT_NOT_NOW, "staged"))
+
+    def test_in_place_done(self):
+        self.assertEqual(self.run_finish("27.2", "upgraded"), (au.EXIT_OK, "done"))
+
+    def test_upgraded_but_old_firmware_is_refused(self):
+        with self.assertRaises(au.Refused):
+            self.run_finish("13.5", "upgraded")
