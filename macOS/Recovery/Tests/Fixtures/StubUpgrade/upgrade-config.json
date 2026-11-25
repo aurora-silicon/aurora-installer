@@ -1,0 +1,38 @@
+{
+  "board": "j413",
+  "chip": "0x8112",
+  "current": {
+    "build": "20G75",
+    "device": "/dev/nvme0n1p3",
+    "group": "6A1E2B3C-4D5E-4F60-8172-8394A5B6C7D8",
+    "version": "13.5"
+  },
+  "esp_partuuid": "1b2c3d4e-5f60-4172-8394-a5b6c7d8e9f0",
+  "mode": "in-place",
+  "plan_sha256": "25721204510e68084dfd16bab3521402bcd7f7b7a1e99fa9361b494d48112133",
+  "schema": 1,
+  "space": {
+    "container": 2499805184,
+    "new_recovery_image": 1310000000,
+    "peak": 2346870912,
+    "preboot": 220000000,
+    "recovery_image": 810000000,
+    "used": 1050000000
+  },
+  "stage1": {
+    "path": "stage1/aura-boot.macho",
+    "sha256": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+    "version": "1.0.0b17"
+  },
+  "system_firmware": "iBoot-13822.41.1",
+  "target": {
+    "build": "26B123",
+    "caution": "",
+    "manifest_sha256": "sha256:abababababababababababababababababababababababababababababababab",
+    "minimum_boot": "iBoot-13822.41.1",
+    "source_bytes": 19000000000,
+    "stub_bytes": 5999951872,
+    "url": "https://updates.cdn-apple.com/fixture/UniversalMac_27.2_26B123_Restore.ipsw",
+    "version": "27.2"
+  }
+}

@@ -53,4 +53,57 @@ enum RecoveryDirectorySwap {
     }
     try RecoveryFileTransaction.flushDirectory(target.deletingLastPathComponent())
   }
+
+  /// Puts the finished directory `next` in place of `target`, keeping the
+  /// old one as `backup`, by two renames. Run again after either rename was
+  /// interrupted, it finishes the swap; once `next` is gone and `backup` and
+  /// `target` both exist, it is done. Any other state is refused unchanged.
+  static func promote(next: URL, target: URL, backup: URL) throws {
+    let fm = FileManager.default
+    func present(_ url: URL) throws -> Bool {
+      var info = stat()
+      if lstat(url.path, &info) == 0 {
+        guard info.st_mode & S_IFMT == S_IFDIR else {
+          throw AccountSetupFailure("\(url.lastPathComponent) is not a directory.")
+        }
+        return true
+      }
+      guard errno == ENOENT else {
+        throw AccountSetupFailure("Cannot inspect \(url.lastPathComponent).")
+      }
+      return false
+    }
+    let parent = target.deletingLastPathComponent()
+    switch (try present(next), try present(target), try present(backup)) {
+    case (true, true, false):
+      try fm.moveItem(at: target, to: backup)
+      try RecoveryFileTransaction.flushDirectory(parent)
+      fallthrough
+    case (true, false, _):
+      try fm.moveItem(at: next, to: target)
+      try RecoveryFileTransaction.flushDirectory(parent)
+    case (false, true, true):
+      return
+    default:
+      throw AccountSetupFailure(
+        "\(target.lastPathComponent) can't be swapped: \(next.lastPathComponent) or \(backup.lastPathComponent) is missing or in the way."
+      )
+    }
+  }
+
+  /// Removes the directory `backup` an earlier `promote` kept, once nothing
+  /// needs it; nothing there is not an error.
+  static func discard(backup: URL) throws {
+    let fm = FileManager.default
+    var info = stat()
+    guard lstat(backup.path, &info) == 0 else {
+      guard errno == ENOENT else { throw AccountSetupFailure("Cannot inspect the old directory.") }
+      return
+    }
+    guard info.st_mode & S_IFMT == S_IFDIR else {
+      throw AccountSetupFailure("\(backup.lastPathComponent) is not a directory.")
+    }
+    try fm.removeItem(at: backup)
+    try RecoveryFileTransaction.flushDirectory(backup.deletingLastPathComponent())
+  }
 }

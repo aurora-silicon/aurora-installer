@@ -73,3 +73,18 @@ swiftc -parse-as-library -I Tests/Linux -I Compression/include "${archive[@]}" \
   Tests/RestoreImageStubFilesCheck.swift "$build/shim.o" "${lzfse[@]}" \
   -Xlinker -l:libcrypto.so.3 -o "$build/restore-image-stub-files"
 "$build/restore-image-stub-files"
+# The in-place startup firmware upgrade: the request and its checks, the
+# network reader and archive keys (no network: a fake transport), and the
+# in-place writer on a fake existing stub. RecoveryFileTransaction gets BSD
+# file flags from DarwinFlags.swift.
+upgrade=("${archive[@]}" Sources/RestoreImageStubPlan.swift Sources/RestoreImageStubFiles.swift
+  Sources/RestoreImageRemote.swift Sources/StubUpgradeRequest.swift Sources/StubUpgradeCheck.swift
+  Sources/RestoreImageStubUpgrade.swift Sources/RecoveryDirectorySwap.swift
+  Sources/Account/RecoveryFileTransaction.swift Sources/Account/AuraStage1.swift
+  Sources/RecoveryOwner.swift Tests/Linux/DarwinFlags.swift)
+for check in StubUpgradeRequestCheck RestoreImageRemoteCheck RestoreImageStubUpgradeCheck; do
+  swiftc -parse-as-library -I Tests/Linux -I Compression/include "${upgrade[@]}" \
+    "Tests/$check.swift" "$build/shim.o" "${lzfse[@]}" \
+    -Xlinker -l:libcrypto.so.3 -o "$build/$check"
+  "$build/$check"
+done

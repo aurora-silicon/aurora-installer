@@ -90,6 +90,34 @@ public enum Stage1Configuration {
     return result
   }
 
+  /// Returns `image` filled to chainload `stage2Path` from the EFI partition
+  /// `espUUID` (stored in lower case) with no proxy window, as the main
+  /// installer's NativeBootChain.fillStage1 fills a release's Stage 1. The
+  /// block may be unfilled; it must be the image's only one, of version 1.
+  /// It reads the same in the raw image and in the boot object carrying it.
+  public static func filled(_ image: Data, espUUID: String, stage2Path: String) throws -> Data {
+    let image = Data(image)
+    let uuid = espUUID.lowercased()
+    let encoded = Array((";" + stage2Path).utf8)
+    guard let parsed = UUID(uuidString: uuid), parsed.uuidString.lowercased() == uuid,
+      encoded.count < pathRange.count, !stage2Path.isEmpty,
+      stage2Path.utf8.allSatisfy({ $0 >= 0x20 && $0 < 0x7F && $0 != 0x3B && $0 != 0x5C })
+    else { throw Invalid(reason: "its startup partition or Stage 2 path cannot be stored") }
+    guard let first = image.range(of: magic),
+      image.range(of: magic, in: first.upperBound..<image.endIndex) == nil,
+      first.upperBound + pathRange.upperBound + 4 <= image.endIndex,
+      image[first.upperBound..<(first.upperBound + 4)].elementsEqual([1, 0, 0, 0])
+    else { throw Invalid(reason: "it has no single configuration block") }
+    var body: [UInt8] = [1, 0, 0, 0, 0, 0, 0, 0] + Array(uuid.utf8)
+    body += [UInt8](repeating: 0, count: pathRange.lowerBound - body.count)
+    body += encoded + [UInt8](repeating: 0, count: pathRange.count - encoded.count)
+    var result = image
+    result.replaceSubrange(
+      first.upperBound..<(first.upperBound + body.count + 4),
+      with: body + withUnsafeBytes(of: crc32(body).littleEndian, Array.init))
+    return result
+  }
+
   /// The block's offset past its magic, and its fields without the CRC.
   private static func block(in image: Data) throws -> (Int, [UInt8]) {
     guard let first = image.range(of: magic),

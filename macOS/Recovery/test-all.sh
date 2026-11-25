@@ -49,6 +49,13 @@ archive=(-parse-as-library -I Compression/include Sources/Account/RecoveryDigest
 compile_run restore-image-archive -target "$(uname -m)-apple-macos13.0" "${archive[@]}" Tests/RestoreImageArchiveCheck.swift
 compile_run restore-image-stub-files -target "$(uname -m)-apple-macos13.0" "${archive[@]}" Tests/RestoreImageStubFilesCheck.swift
 ./Tools/require-macos13.sh "$out/restore-image-archive" "$out/restore-image-stub-files"
+# The in-place startup firmware upgrade: request and checks, network reader and
+# archive keys (a fake transport), and the in-place writer on a fake stub.
+upgrade=("${archive[@]}" Sources/RestoreImageRemote.swift Sources/StubUpgradeRequest.swift Sources/StubUpgradeCheck.swift Sources/RestoreImageStubUpgrade.swift Sources/RecoveryDirectorySwap.swift Sources/Account/RecoveryFileTransaction.swift Sources/Account/AuraStage1.swift Sources/RecoveryOwner.swift)
+compile_run stub-upgrade-request -target "$(uname -m)-apple-macos13.0" "${upgrade[@]}" Tests/StubUpgradeRequestCheck.swift
+compile_run restore-image-remote -target "$(uname -m)-apple-macos13.0" "${upgrade[@]}" Tests/RestoreImageRemoteCheck.swift
+compile_run restore-image-stub-upgrade -target "$(uname -m)-apple-macos13.0" "${upgrade[@]}" Tests/RestoreImageStubUpgradeCheck.swift
+./Tools/require-macos13.sh "$out/stub-upgrade-request" "$out/restore-image-remote" "$out/restore-image-stub-upgrade"
 # Built for the app's oldest recoveryOS (Package.swift: macOS 13) so the same
 # binary can be run there by hand; CI keeps it with the Recovery evidence.
 xcrun swiftc -target "$(uname -m)-apple-macos13.0" -parse-as-library Sources/RestoreImageKey.swift Sources/RestoreImageKeyAgreement.swift Sources/RestoreImageMember.swift Tools/RestoreImageKeyTool.swift -o "$out/aurora-restore-key"

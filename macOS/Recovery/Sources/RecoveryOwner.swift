@@ -110,6 +110,24 @@ enum RecoveryOwnerResolver {
     }
   }
 
+  /// The owner for a stub without a recorded bootstrap (one asahi-installer
+  /// made, which copied the administrators of the macOS it was installed
+  /// from but no APFS users): its own volume owner when it has one, else the
+  /// one copied administrator who owns any of this Mac's other macOS volume
+  /// groups (`sources`: each group's `diskutil apfs listUsers`). Two such
+  /// administrators are ambiguous; bputil, kmutil and bless still check the
+  /// password themselves.
+  static func resolve(
+    admins: [String: Any], targetUsers: [String: Any], sources: [[String: Any]]
+  ) throws -> RecoveryOwner {
+    do {
+      return try resolve(admins: admins, cryptoUsers: targetUsers)
+    } catch RecoveryOwnerError.noOwner {
+      let owners = sources.flatMap { $0["Users"] as? [[String: Any]] ?? [] }
+      return try resolve(admins: admins, cryptoUsers: ["Users": owners])
+    }
+  }
+
   static func sourceSystem(
     group: String, candidates: [[String: Any]]
   ) throws -> [String: Any] {

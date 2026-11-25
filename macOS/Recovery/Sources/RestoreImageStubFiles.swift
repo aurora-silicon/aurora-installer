@@ -90,37 +90,96 @@ public struct RestoreImageStubFiles {
     owner: uid_t = geteuid(), chunkBytes: Int = RestoreImageDirectory.streamChunk,
     archiveKey: ((RestoreImageDirectory.Entry, [String: Data]) throws -> Data)? = nil
   ) throws {
-    guard Set(roots.keys) == Set(Self.roles), let uuid = UUID(uuidString: group),
-      uuid.uuidString == group
-    else { throw Failure.invalidPlan }
-    var trees = [String: Tree]()
-    for role in Self.roles {
-      trees[role] = try Tree(roots[role]!, owner: owner, namespace: group)
+    (installed, pending) = try withoutActuallyEscaping(read) { read in
+      let writer = try Writer(
+        plan: plan, directory: directory, read: read, roots: roots, group: group, owner: owner,
+        chunkBytes: chunkBytes, archiveKey: archiveKey)
+      try writer.write(roles: Set(Self.roles))
+      return (writer.installed, writer.pending)
     }
-    let members = Dictionary(uniqueKeysWithValues: directory.entries.map { ($0.name, $0) })
-    var installed = [Installed]()
-    var pending = [Pending]()
+  }
+
+  /// One pass of the stub's files, all of them or only some volumes' (an
+  /// in-place upgrade writes Preboot, then Recovery, then System). The
+  /// receipts name each file where the plan puts it; `restoreDirectory` and
+  /// `systemVersionPath` say where it is written instead, for an upgrade that
+  /// builds the restore bundle beside the old one and keeps SystemVersion.plist
+  /// where the launcher hid it. With `replaceSystemFiles`, a System file that
+  /// holds other bytes is replaced (renamed over); elsewhere it stops the run.
+  final class Writer {
+    let plan: RestoreImageStubPlan
+    let directory: RestoreImageDirectory
+    let read: RestoreImageDirectory.Read
+    let group: String
+    let chunkBytes: Int
+    let archiveKey: ((RestoreImageDirectory.Entry, [String: Data]) throws -> Data)?
+    let trees: [String: Tree]
+    let members: [String: RestoreImageDirectory.Entry]
+    var restoreDirectory: String
+    var systemVersionPath = RestoreImageStubFiles.systemVersionPath
+    var replaceSystemFiles = false
+    private(set) var installed = [Installed]()
+    private(set) var pending = [Pending]()
+
+    init(
+      plan: RestoreImageStubPlan, directory: RestoreImageDirectory,
+      read: @escaping RestoreImageDirectory.Read, roots: [String: URL], group: String,
+      owner: uid_t, chunkBytes: Int,
+      archiveKey: ((RestoreImageDirectory.Entry, [String: Data]) throws -> Data)?
+    ) throws {
+      guard Set(roots.keys) == Set(RestoreImageStubFiles.roles),
+        let uuid = UUID(uuidString: group), uuid.uuidString == group
+      else { throw Failure.invalidPlan }
+      var trees = [String: Tree]()
+      for role in RestoreImageStubFiles.roles {
+        trees[role] = try Tree(roots[role]!, owner: owner, namespace: group)
+      }
+      self.plan = plan
+      self.directory = directory
+      self.read = read
+      self.group = group
+      self.chunkBytes = chunkBytes
+      self.archiveKey = archiveKey
+      self.trees = trees
+      members = Dictionary(uniqueKeysWithValues: directory.entries.map { ($0.name, $0) })
+      restoreDirectory = plan.restorePath
+    }
 
     func fullPath(_ role: String, _ path: String) -> String {
       role == "System" ? path : group + "/" + path
+    }
+    /// Where `path` of `role` is written: the restore bundle under
+    /// `restoreDirectory`, the stub version at `systemVersionPath`.
+    func writtenPath(_ role: String, _ path: String) -> String {
+      let restore = Array((plan.restorePath + "/").utf8)
+      if role == "Preboot", Array(path.utf8).starts(with: restore) {
+        let rest = String(decoding: Array(path.utf8).dropFirst(restore.count), as: UTF8.self)
+        return fullPath(role, restoreDirectory + "/" + rest)
+      }
+      if role == "System", path == RestoreImageStubFiles.systemVersionPath {
+        return systemVersionPath
+      }
+      return fullPath(role, path)
     }
     func record(
       _ role: String, _ path: String, _ dataName: String?, link: String? = nil,
       _ write: (Tree, String) throws -> Identity
     ) throws {
-      let relative = fullPath(role, path)
       installed.append(
         Installed(
-          role: role, path: relative, installerDataName: dataName,
-          identity: try write(trees[role]!, relative), linkTarget: link))
+          role: role, path: fullPath(role, path), installerDataName: dataName,
+          identity: try write(trees[role]!, writtenPath(role, path)), linkTarget: link))
     }
+    func replacing(_ role: String) -> Bool { replaceSystemFiles && role == "System" }
     func copy(
       _ role: String, _ path: String, _ dataName: String?,
       _ entry: RestoreImageDirectory.Entry, compressed: Bool = false
     ) throws {
       try record(role, path, dataName) { tree, relative in
-        try tree.publish(relative, bytes: entry.size, mode: 0o644, compressed: compressed) {
-          append in
+        try tree.publish(
+          relative, bytes: entry.size, mode: 0o644, compressed: compressed,
+          replacing: replacing(role)
+        ) { append in
           try directory.stream(entry, chunkBytes: chunkBytes, read: read, consume: append)
         }
       }
@@ -135,7 +194,9 @@ public struct RestoreImageStubFiles {
       let size = try RestoreImageArchive.plainSize(
         prefix, archiveKey: key, archiveSize: entry.size)
       try record(role, path, dataName) { tree, relative in
-        try tree.publish(relative, bytes: size, mode: 0o644, compressed: diskImage) { append in
+        try tree.publish(
+          relative, bytes: size, mode: 0o644, compressed: diskImage, replacing: replacing(role)
+        ) { append in
           let decoder = try RestoreImageArchive.Decoder(archiveKey: key, archiveSize: entry.size)
           var tail = Data()
           try directory.stream(entry, chunkBytes: chunkBytes, read: read) { chunk in
@@ -160,52 +221,62 @@ public struct RestoreImageStubFiles {
         entry, RestoreImageKey.metadata(directory.appleEncryptedPrefix(entry, read: read)))
     }
 
-    for operation in plan.copies {
-      guard let entry = members[operation.member] else { throw Failure.invalidPlan }
-      if let target = plan.linkTargets[operation.member] {
-        // A link's receipt has no installer data name, as in the main installer.
-        try record(operation.role, operation.path, nil, link: target) {
-          try $0.link($1, target: target)
+    /// Writes the files of `roles`' volumes, in the main installer's order.
+    func write(roles: Set<String>) throws {
+      for operation in plan.copies where roles.contains(operation.role) {
+        guard let entry = members[operation.member] else { throw Failure.invalidPlan }
+        if let target = plan.linkTargets[operation.member] {
+          // A link's receipt has no installer data name, as in the main installer.
+          try record(operation.role, operation.path, nil, link: target) {
+            try $0.link($1, target: target)
+          }
+        } else if plan.isTopLevelRestore(operation),
+          try directory.isAppleEncryptedArchive(entry, read: read)
+        {
+          if let key = try key(entry) {
+            try decode(
+              operation.role, operation.path, operation.installerDataName, entry, key: key,
+              diskImage: false)
+            continue
+          }
+          pending.append(
+            Pending(
+              member: operation.member, role: operation.role, path: operation.path,
+              installerDataName: operation.installerDataName, appleEncrypted: true,
+              compressed: false, position: installed.count))
+        } else {
+          try copy(operation.role, operation.path, operation.installerDataName, entry)
         }
-      } else if plan.isTopLevelRestore(operation),
-        try directory.isAppleEncryptedArchive(entry, read: read)
-      {
-        if let key = try key(entry) {
+      }
+      if roles.contains("Preboot") {
+        try record("Preboot", plan.restorePath + "/BuildManifest.plist", "BuildManifest.plist") {
+          try $0.data(plan.manifest, at: $1)
+        }
+      }
+      if roles.contains("Recovery") {
+        let recovery = plan.recoveryMember
+        if !(try directory.isAppleEncryptedArchive(recovery, read: read)) {
+          // An older image's Recovery image is a plain disk image: copied as it is, compressed.
+          try copy(
+            "Recovery", RestoreImageStubFiles.recoveryImagePath, nil, recovery, compressed: true)
+        } else if let key = try key(recovery) {
           try decode(
-            operation.role, operation.path, operation.installerDataName, entry, key: key,
-            diskImage: false)
-          continue
+            "Recovery", RestoreImageStubFiles.recoveryImagePath, nil, recovery, key: key,
+            diskImage: true)
+        } else {
+          pending.append(
+            Pending(
+              member: recovery.name, role: "Recovery",
+              path: RestoreImageStubFiles.recoveryImagePath, installerDataName: nil,
+              appleEncrypted: true, compressed: true, position: installed.count))
         }
-        pending.append(
-          Pending(
-            member: operation.member, role: operation.role, path: operation.path,
-            installerDataName: operation.installerDataName, appleEncrypted: true,
-            compressed: false, position: installed.count))
-      } else {
-        try copy(operation.role, operation.path, operation.installerDataName, entry)
+      }
+      if roles.contains("System") {
+        try record("System", RestoreImageStubFiles.systemVersionPath, "SystemVersion.plist") {
+          try $0.data(plan.systemVersion, at: $1, replacing: replaceSystemFiles)
+        }
       }
     }
-    try record("Preboot", plan.restorePath + "/BuildManifest.plist", "BuildManifest.plist") {
-      try $0.data(plan.manifest, at: $1)
-    }
-    let recovery = plan.recoveryMember
-    if !(try directory.isAppleEncryptedArchive(recovery, read: read)) {
-      // An older image's Recovery image is a plain disk image: copied as it is, compressed.
-      try copy("Recovery", Self.recoveryImagePath, nil, recovery, compressed: true)
-    } else if let key = try key(recovery) {
-      try decode("Recovery", Self.recoveryImagePath, nil, recovery, key: key, diskImage: true)
-    } else {
-      pending.append(
-        Pending(
-          member: recovery.name, role: "Recovery", path: Self.recoveryImagePath,
-          installerDataName: nil, appleEncrypted: true, compressed: true,
-          position: installed.count))
-    }
-    try record("System", Self.systemVersionPath, "SystemVersion.plist") {
-      try $0.data(plan.systemVersion, at: $1)
-    }
-    self.installed = installed
-    self.pending = pending
   }
 
   /// A volume's tree, opened at its root, walked one directory at a time
@@ -232,8 +303,14 @@ public struct RestoreImageStubFiles {
       else { throw Failure.unsafeFile }
     }
 
-    /// The opened parent directory of `path`, made as needed, and its leaf.
+    /// The opened parent directory of `path`, made as needed (or, without
+    /// `create`, nil when a directory on the way is missing), and its leaf.
     func parent(_ path: String) throws -> (Int32, String) {
+      guard let found = try parent(path, create: true) else { throw Failure.writeFailed }
+      return found
+    }
+
+    func parent(_ path: String, create: Bool) throws -> (Int32, String)? {
       guard RestoreImageDirectory.safeRelative(Array(path.utf8)) else {
         throw Failure.invalidPlan
       }
@@ -246,6 +323,10 @@ public struct RestoreImageStubFiles {
       guard current >= 0 else { throw Failure.unsafeFile }
       for part in parts {
         var next = openat(current, part, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        if next < 0 && errno == ENOENT && !create {
+          close(current)
+          return nil
+        }
         if next < 0 && errno == ENOENT {
           // A new directory gets its mode whatever the umask, and its name
           // is flushed, as in the main installer.
@@ -271,8 +352,72 @@ public struct RestoreImageStubFiles {
       return (current, leaf)
     }
 
-    func data(_ data: Data, at path: String, mode: mode_t = 0o644) throws -> Identity {
-      try publish(path, bytes: data.count, mode: mode) { try $0(data) }
+    func data(
+      _ data: Data, at path: String, mode: mode_t = 0o644, replacing: Bool = false
+    ) throws -> Identity {
+      try publish(path, bytes: data.count, mode: mode, replacing: replacing) { try $0(data) }
+    }
+
+    /// Removes the regular file of `owner`'s at `path`, which has one name,
+    /// and flushes its directory. Returns false when there is no such file.
+    @discardableResult func remove(_ path: String) throws -> Bool {
+      guard let (parent, leaf) = try self.parent(path, create: false) else { return false }
+      defer { close(parent) }
+      var info = stat()
+      guard fstatat(parent, leaf, &info, AT_SYMLINK_NOFOLLOW) == 0 else {
+        guard errno == ENOENT else { throw Failure.unsafeFile }
+        return false
+      }
+      guard info.st_mode & S_IFMT == S_IFREG, info.st_uid == owner, info.st_nlink == 1 else {
+        throw Failure.unsafeFile
+      }
+      guard unlinkat(parent, leaf, 0) == 0, fsync(parent) == 0 else { throw Failure.writeFailed }
+      return true
+    }
+
+    /// Whether `path` names anything, without following a link at its end.
+    func exists(_ path: String) throws -> Bool {
+      guard let (parent, leaf) = try self.parent(path, create: false) else { return false }
+      defer { close(parent) }
+      var info = stat()
+      if fstatat(parent, leaf, &info, AT_SYMLINK_NOFOLLOW) == 0 { return true }
+      guard errno == ENOENT else { throw Failure.unsafeFile }
+      return false
+    }
+
+    /// The target of the link of `owner`'s at `path`; nil when nothing is there.
+    func linkTarget(_ path: String) throws -> String? {
+      guard let (parent, leaf) = try self.parent(path, create: false) else { return nil }
+      defer { close(parent) }
+      var info = stat()
+      guard fstatat(parent, leaf, &info, AT_SYMLINK_NOFOLLOW) == 0 else {
+        guard errno == ENOENT else { throw Failure.unsafeFile }
+        return nil
+      }
+      var buffer = [CChar](repeating: 0, count: 4097)
+      let count = readlinkat(parent, leaf, &buffer, 4096)
+      guard info.st_mode & S_IFMT == S_IFLNK, info.st_uid == owner, count >= 0 else {
+        throw Failure.unsafeFile
+      }
+      return String(decoding: buffer.prefix(count).map { UInt8(bitPattern: $0) }, as: UTF8.self)
+    }
+
+    /// A link at `path` to `target`, replacing a link of `owner`'s that
+    /// points elsewhere by a rename (never a file or a directory).
+    func relink(_ path: String, target: String) throws -> Identity {
+      if let current = try linkTarget(path), current != target {
+        let (parent, leaf) = try self.parent(path)
+        defer { close(parent) }
+        let temporary = Self.temporaryName(namespace: namespace, path: path)
+        if unlinkat(parent, temporary, 0) != 0 && errno != ENOENT { throw Failure.unsafeFile }
+        guard symlinkat(target, parent, temporary) == 0 else { throw Failure.writeFailed }
+        guard renameat(parent, temporary, parent, leaf) == 0 else {
+          unlinkat(parent, temporary, 0)
+          throw Failure.writeFailed
+        }
+        guard fsync(parent) == 0 else { throw Failure.writeFailed }
+      }
+      return try link(path, target: target)
     }
 
     /// A link at `path` to `target`; an existing link to the same target is adopted.
@@ -295,13 +440,16 @@ public struct RestoreImageStubFiles {
     }
 
     /// Writes `bytes` bytes that `produce` hands to its sink into a private
-    /// file, checks and flushes it, then names it `path`.
+    /// file, checks and flushes it, then names it `path`. A file already
+    /// there with the same bytes is adopted; one with other bytes stops the
+    /// run, or with `replacing` (a regular file of `owner`'s with one name)
+    /// is replaced by renaming the private file over it.
     /// With `compressed`, the bytes go to the resource fork as decmpfs type 12
     /// (RestoreImageResourceFork) and are checked through APFS's own
     /// decompressed read. Linux has no decmpfs; there, where only the
     /// fixture checks run, they are written as they are.
     func publish(
-      _ path: String, bytes: Int, mode: mode_t, compressed: Bool = false,
+      _ path: String, bytes: Int, mode: mode_t, compressed: Bool = false, replacing: Bool = false,
       produce: (_ append: (Data) throws -> Void) throws -> Void
     ) throws -> Identity {
       guard bytes >= 0, bytes <= RestoreImageDirectory.maximumMember else {
@@ -383,8 +531,16 @@ public struct RestoreImageStubFiles {
         let existing = openat(parent, leaf, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
         guard existing >= 0 else { throw Failure.unsafeFile }
         defer { close(existing) }
-        guard try Self.identity(existing, owner: owner, maximum: bytes) == expected else {
-          throw Failure.changedFile
+        let found = try Self.identity(
+          existing, owner: owner,
+          maximum: replacing ? RestoreImageDirectory.maximumMember : bytes)
+        if found != expected {
+          guard replacing else { throw Failure.changedFile }
+          // One rename: the old file or the new one has the name, never neither.
+          guard renameat(parent, temporary, parent, leaf) == 0 else { throw Failure.writeFailed }
+          removed = true
+          guard fsync(parent) == 0 else { throw Failure.writeFailed }
+          return expected
         }
       }
       removed = unlinkat(parent, temporary, 0) == 0
