@@ -24,7 +24,11 @@ public enum AuroraDistribution: String, CaseIterable, Codable, Identifiable, Sen
   public static let legacyTitles = ["Fedora Aurora Remix", "Aurora ALARM"]
   public var supportsDesktop: Bool { true }
   public var availableDesktops: [AuroraDesktop] {
-    self == .omarchy ? [.hyprland] : [.kde, .gnome, .minimal]
+    switch self {
+    case .fedora: [.gnome, .kde, .minimal]
+    case .arch, .nixos: [.kde, .gnome, .minimal]
+    case .omarchy: [.hyprland]
+    }
   }
 }
 
