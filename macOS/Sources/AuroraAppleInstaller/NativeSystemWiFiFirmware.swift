@@ -1,31 +1,39 @@
 #if os(macOS)
+  import AuroraFirmware
   import Darwin
   import Foundation
   import IOKit
 
-  /// Wi-Fi firmware from the macOS this Mac runs. Its sealed system volume
-  /// ships every board's firmware, while a Recovery image may not: 26.6.2
-  /// (25G83) Recovery has no usable BCM4388 rev C2 firmware for any M4 Pro or
-  /// M4 Max board.
+  /// Wi-Fi firmware from the System volume of the restore image of the stub
+  /// being installed, never from the macOS this Mac runs: radio firmware
+  /// follows the stub's version. The stub's Recovery image may lack a board
+  /// (26.6.2 (25G83) Recovery has no usable BCM4388 rev C2 firmware for any
+  /// M4 Pro or M4 Max board), while the same image's System volume has it.
   enum NativeSystemWiFiFirmware {
-    static let prefix = "usr/share/firmware/wifi"
+    static let prefix = RadioFirmwareSource.wifiPath
 
-    /// The running system's Wi-Fi tree, read only from a read-only volume.
-    static func live(owner: uid_t) throws -> NativeFirmwareInputFiles.Snapshot {
-      let root = URL(fileURLWithPath: "/", isDirectory: true)
-      let tree = try NativeHandoffFileTree(
-        root, protected: true, owner: owner, readOnlyVolume: true)
-      let descriptor = try tree.fileDescriptor(prefix)
-      defer { close(descriptor) }
-      guard NativeHandoffFileTree.isReadOnly(descriptor) else {
-        throw NativeFirmwareInputFailure.invalidSource
-      }
+    /// This board's Wi-Fi files from the stub restore image's System volume,
+    /// extracted by its sealed range recipe under `workingDirectory`. Nil
+    /// when the stub comes from an image the recipes do not cover (older
+    /// plain disk images, update archives): their own Recovery image is then
+    /// the source. A covered image without this board is an error.
+    static func stub(
+      source: URL, machine: String, board: String, owner: uid_t, workingDirectory: URL
+    ) async throws -> NativeFirmwareInputFiles.Snapshot? {
+      guard try RadioFirmwareRestoreImages.covers(stubSource: source) else { return nil }
+      let radio = try RadioFirmwareRestoreImages.source(
+        stubSource: source, machine: machine, board: board)
+      let root = try await NativeFirmwarePreparer(expectedOwnerID: owner).extract(
+        radio.plan, in: workingDirectory)
       return try NativeFirmwareInputFiles.snapshot(
-        root: root, prefix: prefix, tree: tree, owner: owner)
+        root: root, prefix: prefix,
+        tree: NativeHandoffFileTree(root, protected: true, owner: owner), owner: owner)
     }
 
     /// This Mac's Wi-Fi board: the ADT `wlan` node's `module-instance`, the
-    /// name aura gives Linux as `brcm,board-type`. Nil when no such node exists.
+    /// name aura gives Linux as `brcm,board-type`. Nil when no such node
+    /// exists. A hardware fact of this unit (`NativeMachineUnitInputs`); the
+    /// restore image must name the same board for the model.
     static func board() throws -> String? {
       var iterator: io_iterator_t = 0
       guard

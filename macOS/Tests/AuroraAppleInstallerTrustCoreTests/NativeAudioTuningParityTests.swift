@@ -268,6 +268,51 @@
       XCTAssertNil(snapshot.paramFill)
     }
 
+    /// The unit is hosted only when its component is the restore image's:
+    /// the installed component's digest is checked before the reader runs,
+    /// and the readback's after. Anything else leaves the fill out.
+    func testOnlyThePinnedComponentIsHosted() throws {
+      let pinned = String(repeating: "5a", count: 32)
+      let other = String(repeating: "6b", count: 32)
+      final class Calls: @unchecked Sendable { var count = 0 }
+      let calls = Calls()
+      let reader: Fill.Reader = { path, effect, files in
+        calls.count += 1
+        return try Self.readback(path, effect, files)
+      }
+      let root = try copiedRoot()
+      let entry = try XCTUnwrap(Self.cases["aid97"])
+      let tree = try NativeHandoffFileTree(root, protected: true, owner: geteuid())
+      let device = Inputs.Device(
+        acousticID: entry.acoustic, thieleSmall: entry.thieleSmall, build: entry.build,
+        speakerID: entry.speaker, board: "j999",
+        unitID: Inputs.unitID(Data("SYNTHETIC0A".utf8)))
+      func fill(_ readback: @escaping Fill.Reader) throws -> Data? {
+        try XCTUnwrap(
+          Inputs.snapshot(
+            root: root, tree: tree, owner: geteuid(), device: device, readback: readback)
+        ).paramFill
+      }
+      // The installed component differs: the unit is never loaded.
+      XCTAssertNil(try fill(Fill.pinned(reader, componentSHA256: pinned, installed: { other })))
+      XCTAssertEqual(calls.count, 0)
+      // No pinned component, or an unreadable installed one.
+      XCTAssertNil(try fill(Fill.pinned(reader, componentSHA256: nil, installed: { pinned })))
+      XCTAssertNil(
+        try fill(
+          Fill.pinned(
+            reader, componentSHA256: pinned, installed: { throw Fill.Failure("unreadable") })))
+      XCTAssertEqual(calls.count, 0)
+      // The hosted unit reports another component.
+      XCTAssertNil(try fill(Fill.pinned(reader, componentSHA256: other, installed: { other })))
+      XCTAssertGreaterThan(calls.count, 0)
+      // The same component: the same fill as an unchecked readback.
+      XCTAssertEqual(
+        try fill(Fill.pinned(reader, componentSHA256: pinned, installed: { pinned })),
+        try fill(Self.readback))
+      XCTAssertNotNil(try fill(Self.readback))
+    }
+
     func testSavedIDsOutsideTheSchemaAreRefused() throws {
       let base = Fill.baseIDs.sorted()
       func strip(_ ids: [UInt32]) throws -> Data {

@@ -8,7 +8,7 @@ The workflow runs the portable checks, strict Swift lint and native debug/releas
 
 `Packaging/make-download-dmg.sh` requires a notarized, stapled app with matching release-team signatures. The app must be at most 32 MiB and contain no bundled execution runtime or OS artifacts. Packaging reserves 10 GiB free, copies the app with its icon and ticket, adds the Applications shortcut, signs and notarizes the compressed image, staples its ticket, verifies the image and runs Gatekeeper assessment. Existing output files are never replaced. This follows [the notarization workflow](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow).
 
-The repository secrets are `APPLE_CERTIFICATE_P12_BASE64`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_TEAM_ID`, `APPLE_SIGNING_IDENTITY`, `APPLE_NOTARY_KEY_BASE64`, `APPLE_NOTARY_KEY_ID` and `APPLE_NOTARY_ISSUER_ID`. For artifact-only builds, explicitly set `publish-release=false`. Physical installation, update, reboot and hardware qualification must be recorded before public release approval.
+The signing secrets are environment secrets of the `apple-signing` environment, which requires a reviewer's approval before each run: `APPLE_CERTIFICATE_P12_BASE64`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_TEAM_ID`, `APPLE_SIGNING_IDENTITY`, `APPLE_NOTARY_KEY_BASE64`, `APPLE_NOTARY_KEY_ID` and `APPLE_NOTARY_ISSUER_ID`. For artifact-only builds, explicitly set `publish-release=false`. Physical installation, update, reboot and hardware qualification must be recorded before public release approval.
 
 Record the actual DMG/notarization result for each candidate alongside its source and catalog revisions. Source checks and signing authentication probes alone do not qualify a deliverable.
 

@@ -145,8 +145,16 @@ func decompressStorage(_ storage: [Data]) throws -> Data {
   let kind = try attr.little(4, 4)
   let size = try attr.little(8, 8)
   try require(
-    size > 0 && size <= maxFileBytes && [3, 4, 7, 8, 11, 12].contains(kind),
+    size > 0 && size <= maxFileBytes && [3, 4, 7, 8, 9, 11, 12].contains(kind),
     "Unsupported APFS compression or size.")
+  if kind == 9 {
+    // Uncompressed in the attribute: a 0xcc marker byte, then the file.
+    let marker = try attr.part(16, 1)
+    try require(
+      storage.count == 1 && size <= 65536 && attr.count == 17 + size && marker == Data([0xcc]),
+      "Invalid uncompressed APFS attribute storage.")
+    return try attr.part(17, size)
+  }
   var blocks: [Data] = []
   if kind % 2 == 1 {
     try require(

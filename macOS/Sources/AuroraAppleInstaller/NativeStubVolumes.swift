@@ -46,12 +46,14 @@
       let matches = snapshot.containers.filter { $0.storeUUID == target.uuid }
       guard matches.count == 1, let initial = matches.first,
         initial.volumes.filter({ $0.roles.isEmpty && $0.name == label }).count == 1,
+        // macOS 27.2 can give the new container an Update volume.
         initial.volumes.allSatisfy({
-          $0.group == nil && [[], ["Preboot"], ["Recovery"], ["VM"]].contains($0.roles)
+          $0.group == nil
+            && [[], ["Preboot"], ["Recovery"], ["VM"], ["Update"]].contains($0.roles)
         }),
         Set(initial.volumes.map(\.uuid)).count == initial.volumes.count
       else { throw NativeStubVolumeError.changedContainer }
-      for role in [[], ["Preboot"], ["Recovery"], ["VM"]] {
+      for role in [[], ["Preboot"], ["Recovery"], ["VM"], ["Update"]] {
         guard initial.volumes.filter({ $0.roles == role }).count <= 1 else {
           throw NativeStubVolumeError.changedVolumes
         }
@@ -177,15 +179,20 @@
     }
 
     private static func validateComplete(_ container: RemovalContainer, label: String) throws {
-      guard (4...5).contains(container.volumes.count),
+      guard (4...6).contains(container.volumes.count),
         Set(container.volumes.map(\.uuid)).count == container.volumes.count,
         container.volumes.allSatisfy({ validUUID($0.uuid) }),
         container.volumes.allSatisfy({
-          [["System"], ["Data"], ["Preboot"], ["Recovery"], ["VM"]].contains($0.roles)
+          [["System"], ["Data"], ["Preboot"], ["Recovery"], ["VM"], ["Update"]].contains($0.roles)
         })
       else { throw NativeStubVolumeError.changedVolumes }
       for role in ["System", "Data", "Preboot", "Recovery"] {
         guard container.volumes.filter({ $0.roles == [role] }).count == 1 else {
+          throw NativeStubVolumeError.changedVolumes
+        }
+      }
+      for role in ["VM", "Update"] {
+        guard container.volumes.filter({ $0.roles == [role] }).count <= 1 else {
           throw NativeStubVolumeError.changedVolumes
         }
       }

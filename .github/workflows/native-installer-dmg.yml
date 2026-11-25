@@ -31,6 +31,9 @@ concurrency:
 jobs:
   build:
     if: github.repository == 'aurora-silicon/aurora-installer'
+    # The signing and notary secrets live in this environment. Its protection
+    # rules (required reviewers) gate every run, whichever branch is dispatched.
+    environment: apple-signing
     runs-on: macos-26
     timeout-minutes: 90
     env:
