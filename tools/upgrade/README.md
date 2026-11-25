@@ -8,20 +8,19 @@ Status: the Linux side is here. The Recovery side (making the new volume and enr
 
 1. `sudo aurora-upgrade plan` shows what would change. It writes nothing.
 2. `sudo aurora-upgrade stage --payload <release>` asks you to type `UPGRADE`, then puts the Aurora Installer and the new Stage 1 on your current startup volume.
-3. Shut down. Hold the power button until the startup options appear and choose your current Aurora volume. Join Wi-Fi when asked and type the Mac owner's password. Recovery makes a new volume, "Aurora 27.2", from Apple's restore image, then shuts down.
-4. Hold the power button again and choose "Aurora 27.2". Type the owner's password. The Mac starts Linux.
+3. Shut down. Hold the power button until the startup options appear and choose the Aurora volume. Join Wi-Fi when asked and type the Mac owner's password. Recovery replaces the startup firmware with Apple's macOS 27.2, puts the new Stage 1 in place and starts Linux.
 
-Linux, your files and macOS stay as they are. The old volume stays and still starts the same Linux: choose it in the startup options to go back. Changed your mind before step 3? `sudo aurora-upgrade cancel` puts the volume back as it was.
+Linux, your files and macOS stay as they are, and until the last step Linux still starts as it does now. Changed your mind before step 3? `sudo aurora-upgrade cancel` puts the volume back as it was. If your startup volume is too small for the swap, `plan` says so; then the upgrade makes a second startup volume next to it and takes a second visit.
 
 ## What it checks first
 
-It stops, and changes nothing, when: this isn't an Aurora system started by Stage 1; the EFI partition's `asahi/stub_info.json` doesn't name the volume the Mac started from; the installer doesn't admit your Mac to the new firmware yet; your system firmware is older than the new version needs (update macOS first); there are no 6 GB of free disk space outside every partition; the EFI partition has under 100 MB free; another startup volume of that size already exists; or a different upgrade is already staged.
+It stops, and changes nothing, when: this isn't an Aurora system started by Stage 1; the EFI partition's `asahi/stub_info.json` doesn't name the volume the Mac started from; the installer doesn't admit your Mac to the new firmware yet; your system firmware is older than the new version needs (update macOS first); the startup volume is too small for the swap and there are no 6 GB of free disk space for a second one; the EFI partition has under 100 MB free; another startup volume of that size already exists; or a different upgrade is already staged.
 
 ## What it writes
 
 - EFI partition: `aurora/upgrade/request.json` (the plan) and `journal.json` (each step, written before it is taken).
 - The current startup volume's System volume, through apfs-linux-rs: `Aurora Installer.app`, `Aurora/Recovery/UpgradeData/` (the plan and the release's Stage 1), `SystemVersion.plist` renamed to `SystemVersion-disabled.plist`, and the `.IAPhysicalMedia` marker, last. Every file is written beside its name and renamed in, so a power cut leaves either the old state or a state `stage` finishes and `cancel` undoes.
 
-Nothing else: not macOS, not Linux's partitions or boot entries, not the partition table, NVRAM, Preboot, Recovery or a startup security policy.
+Linux writes nothing else: not macOS, not Linux's partitions or boot entries, not the partition table, NVRAM, Preboot, Recovery or a startup security policy.
 
 Exit codes: 0 done or nothing to do, 1 refused (nothing changed), 2 not now, 3 internal error. Tests: `make check`.

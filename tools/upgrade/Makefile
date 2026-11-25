@@ -10,6 +10,8 @@ REPO := ../..
 
 install:
 	install -Dm0644 aurora_upgrade.py $(DESTDIR)$(LIBDIR)/aurora_upgrade.py
+	for f in __init__ remotezip; do \
+		install -Dm0644 $(REPO)/asahi_firmware/$$f.py $(DESTDIR)$(LIBDIR)/asahi_firmware/$$f.py; done
 	install -d $(DESTDIR)$(SHAREDIR)
 	$(PYTHON) -I -c 'import json,sys; sys.path.insert(0, "."); import aurora_upgrade as a; \
 		json.dump(a.load_policy(sys.argv[1]), open(sys.argv[2], "w"), indent=1, sort_keys=True)' \

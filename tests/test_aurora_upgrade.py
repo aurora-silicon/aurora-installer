@@ -69,11 +69,16 @@ def stub():
     return au.Stub("/dev/nvme0n1p3", 44100394 * 4096, 610304 * 4096, au.parse_apfuse_info(INFO))
 
 
+# Measured on the lab M2 Air's 13.5 stub (2.5 GB container) and the pinned 26B123 Recovery member.
+J413_SPACE = au.Space(container=610304 * 4096, used=256035 * 4096, recovery_image=809_600_000,
+                      preboot=224_700_000, new_recovery_image=1_308_622_848)
+
+
 def plan(policy=None, qual=None, **kw):
     p, q = admitted() if policy is None else (policy, qual)
     args = dict(machine=machine(), stub_info=STUB_INFO, stubs=[stub()], extents=au.free_extents(J413_TABLE),
                 policy=p, qualification=q, esp_free=275 << 20, system_free=1400 << 20,
-                payload={"bytes": 40 << 20, "dir": "", "stage1": {"version": "1.0.0b17"}})
+                payload={"bytes": 40 << 20, "dir": "", "stage1": {"version": "1.0.0b17"}}, space=J413_SPACE)
     args.update(kw)
     return au.make_plan(**args)
 
@@ -109,6 +114,10 @@ class Layout(unittest.TestCase):
 class Planning(unittest.TestCase):
     def test_j413_plan(self):
         pl = plan()
+        self.assertEqual(pl.mode, "in-place")
+        self.assertIsNone(pl.extent)
+        self.assertLess(pl.space.peak(40 << 20), J413_SPACE.container)
+        self.assertIn("replaced in place", au.warning_text(pl))
         self.assertEqual(pl.target.build, "26B123")
         self.assertEqual(pl.target.stub_bytes, au.STUB_BYTES_LARGE)
         self.assertEqual(pl.stub.device, "/dev/nvme0n1p3")
@@ -133,9 +142,19 @@ class Planning(unittest.TestCase):
         with self.assertRaisesRegex(au.Refused, "refusing to guess"):
             plan(stub_info={**STUB_INFO, "vgid": "11111111-2222-3333-4444-555555555555"})
 
-    def test_no_free_space(self):
+    def test_too_small_takes_a_slot(self):
+        tight = au.Space(container=1_500_000_000, used=1_050_000_000, recovery_image=810_000_000,
+                         preboot=225_000_000, new_recovery_image=1_308_622_848)
+        pl = plan(space=tight)
+        self.assertEqual(pl.mode, "slot")
+        self.assertIsNotNone(pl.extent)
+        self.assertIn("second visit", au.warning_text(pl))
+        self.assertIn("slot_extent", pl.to_json())
+
+    def test_too_small_and_no_free_space(self):
+        tight = au.Space(1_500_000_000, 1_050_000_000, 810_000_000, 225_000_000, 1_308_622_848)
         with self.assertRaisesRegex(au.Refused, "free disk"):
-            plan(extents=[au.Extent(0, 5 << 30)])
+            plan(space=tight, extents=[au.Extent(0, 5 << 30)])
 
     def test_esp_floor(self):
         with self.assertRaisesRegex(au.Refused, "EFI partition"):
@@ -145,7 +164,61 @@ class Planning(unittest.TestCase):
         other = au.Stub("/dev/nvme0n1p8", 10 << 30, au.STUB_BYTES_LARGE, au.parse_apfuse_info(
             INFO.replace("11111111-2222-4333-8444-555555555555", "aaaaaaaa-2222-4333-8444-555555555555")))
         with self.assertRaisesRegex(au.Refused, "another startup volume"):
-            plan(stubs=[stub(), other])
+            plan(stubs=[stub(), other], space=au.Space(1_500_000_000, 1_050_000_000, 810_000_000,
+                                                        225_000_000, 1_308_622_848))
+
+
+class Measuring(unittest.TestCase):
+    def test_container_space(self):
+        info = "container\n  block size   4096\n  blocks       610304\n"
+        space = "device main\n  blocks           610304\n  free (summary)   354269\n"
+        self.assertEqual(au.container_space(info, space), (610304 * 4096, (610304 - 354269) * 4096))
+
+    def test_walk_allocation(self):
+        walk = ("/G/usr/standalone/firmware/arm64eBaseSystem.dmg\tf\t0644\t0\t0\t1\t1942600000\t1\t1\t1\t2668359\t-\t\n"
+                "/G/boot\td\t0755\t0\t0\t3\t0\t1\t1\t1\t0\t-\t\n"
+                "/G/boot/x\tf\t0644\t0\t0\t1\t4096\t1\t1\t1\t8\tab\t\n")
+        self.assertEqual(au.walk_allocation(walk, au.RECOVERY_IMAGE), 2668359 * 512)
+        self.assertEqual(au.walk_allocation(walk), (2668359 + 8) * 512)
+
+    def fake_zip(self, size, manifest, members):
+        class M:
+            def __init__(self, data=b"", csize=0):
+                self.data, self.csize = data, csize
+            def read(self, limit):
+                return self.data
+        class Z:
+            pass
+        z = Z()
+        z.f = Z()
+        z.f.size = size
+        z.members = {"BuildManifest.plist": M(manifest), **{k: M(csize=v) for k, v in members.items()}}
+        return lambda url: z
+
+    def manifest(self):
+        import plistlib
+        ident = lambda dc, behaviour, path: {"Info": {"DeviceClass": dc, "RestoreBehavior": behaviour,
+                                                     "Variant": "macOS Customer"},
+                                            "Manifest": {"BaseSystem": {"Info": {"Path": path}}}}
+        return plistlib.dumps({"BuildIdentities": [ident("j413ap", "Erase", "022-1.dmg.aea"),
+                                                   ident("j413ap", "Update", "other.dmg"),
+                                                   ident("j615ap", "Erase", "022-2.dmg.aea")]})
+
+    def target(self, raw):
+        return au.Target("27.2", "26B123", "https://updates.cdn-apple.com/x.ipsw", 1000,
+                         "sha256:" + hashlib.sha256(raw).hexdigest(), "mBoot-20457.41.3", au.STUB_BYTES_LARGE)
+
+    def test_target_recovery_member(self):
+        raw = self.manifest()
+        z = self.fake_zip(1000, raw, {"022-1.dmg.aea": 1_308_622_848})
+        self.assertEqual(au.target_recovery_image_bytes(self.target(raw), "j413", z), 1_308_622_848)
+
+    def test_target_wrong_size_or_manifest(self):
+        raw = self.manifest()
+        with self.assertRaisesRegex(au.Refused, "different restore image"):
+            au.target_recovery_image_bytes(self.target(raw), "j413", self.fake_zip(999, raw, {}))
+        with self.assertRaisesRegex(au.Refused, "manifest"):
+            au.target_recovery_image_bytes(self.target(raw + b" "), "j413", self.fake_zip(1000, raw, {}))
 
 
 class Staging(unittest.TestCase):

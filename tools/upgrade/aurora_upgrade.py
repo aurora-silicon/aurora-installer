@@ -4,24 +4,26 @@
 
 The startup firmware is the stub macOS that iBoot starts before Stage 1.
 An installation keeps the stub its installer chose; this command moves it
-to the newest pinned build the installer's policy admits for this Mac,
-the installer's "startup firmware slot" (macOS/docs/startup-firmware-update.md):
+to the newest pinned build the installer's policy admits for this Mac:
 
   Linux (this command)   checks the Mac, shows the plan, and after the owner
                          types UPGRADE stages the upgrade: a request on the
-                         EFI partition and, on the current stub's System
-                         volume, the Aurora Installer, the release's Stage 1
-                         and the install-media marker that makes Recovery
-                         open the installer.
-  Recovery, visit 1      (the current stub's own Recovery, power button)
-                         makes the new startup volume from Apple's restore
-                         image and approves it with the owner's password.
-  Recovery, visit 2      (the new volume's Recovery) enrolls Stage 1.
-  Linux, first boot      `finish`: checks the boot came from the new volume.
+                         EFI partition and, on the stub's System volume, the
+                         Aurora Installer, the release's Stage 1 and the
+                         install-media marker that makes Recovery open it.
+  Recovery (one visit,   replaces the stub's files in place from Apple's
+  power button)          restore image, approves them with the owner's
+                         password and enrolls Stage 1.
+  Linux, first boot      `finish`: checks the boot came from the new firmware.
+
+A 27.2 stub needs about 1.8 GB, so it fits a 2.5 GB 13.x container when the
+old Recovery image is replaced first; the plan computes that peak for this
+Mac. Only a container too small for it takes the installer's startup
+firmware slot, a second startup volume, instead.
 
 Nothing here writes macOS, Linux's partitions, the partition table, NVRAM,
-Preboot, Recovery or a startup security policy. The current stub stays
-bootable; it is the way back.
+Preboot, Recovery or a startup security policy. Until Recovery enrolls the
+new Stage 1, Linux starts as it does now.
 
     aurora-upgrade plan            what would happen; writes nothing
     aurora-upgrade stage           ask, then stage (--yes skips the question)
@@ -50,6 +52,7 @@ DATA_DIR = "Aurora/Recovery/UpgradeData"
 SYSVER = "System/Library/CoreServices/SystemVersion.plist"
 SYSVER_HIDDEN = "System/Library/CoreServices/SystemVersion-disabled.plist"
 PREV = ".aurora-upgrade-prev"
+RECOVERY_ROOM = 512 << 20      # NativeEnrollmentSpace: Recovery data beside the restored stub
 
 
 class Refused(Exception):
@@ -288,6 +291,23 @@ def choose_target(policy, qualification, machine):
 
 
 @dataclasses.dataclass
+class Space:
+    """Bytes in the current startup container, and what the upgrade swaps in."""
+    container: int        # the container's size
+    used: int             # allocated now (all volumes, incl. the locked Data volume)
+    recovery_image: int   # the current Recovery image's allocation
+    preboot: int          # the current Preboot volume's allocation
+    new_recovery_image: int   # the target image's Recovery member, as stored in the restore image
+
+    def peak(self, payload_bytes):
+        """The most the in-place upgrade holds at once: the old Recovery image is
+        replaced first, a new Preboot restore bundle goes in beside the old one,
+        plus the staged payload and the installer's 512 MiB Recovery working room
+        (NativeEnrollmentSpace)."""
+        return self.used - self.recovery_image + self.new_recovery_image + self.preboot + payload_bytes + RECOVERY_ROOM
+
+
+@dataclasses.dataclass
 class Plan:
     machine: Machine
     target: Target
@@ -295,7 +315,9 @@ class Plan:
     current_version: str
     stub: Stub
     other_stubs: list
-    extent: Extent
+    mode: str              # "in-place" or "slot"
+    space: Space
+    extent: object         # Extent for a slot, None in place
     esp_free: int
     system_free: int
     payload: dict
@@ -307,22 +329,25 @@ class Plan:
     def to_json(self, include_digest=True):
         out = {
             "schema": SCHEMA,
+            "mode": self.mode,
             "board": self.machine.board, "chip": f"{self.machine.chip:#x}",
             "system_firmware": self.machine.system_firmware,
             "current": {"version": self.current_version, "build": self.current_build,
                         "group": self.stub.group, "device": self.stub.device},
             "target": dataclasses.asdict(self.target),
-            "slot_extent": {"start": self.extent.start, "size": self.target.stub_bytes,
-                            "free_extent_size": self.extent.size},
+            "space": {**dataclasses.asdict(self.space), "peak": self.space.peak(self.payload.get("bytes", 0))},
             "esp_partuuid": self.machine.esp_partuuid,
             "stage1": self.payload.get("stage1", {}),
         }
+        if self.extent is not None:
+            out["slot_extent"] = {"start": self.extent.start, "size": self.target.stub_bytes,
+                                  "free_extent_size": self.extent.size}
         if include_digest:
             out["plan_sha256"] = self.digest()
         return out
 
 
-def make_plan(machine, stub_info, stubs, extents, policy, qualification, esp_free, system_free, payload):
+def make_plan(machine, stub_info, stubs, extents, policy, qualification, esp_free, system_free, payload, space):
     if stub_info.get("vgid", "").upper() != machine.stub_group:
         raise Refused("asahi/stub_info.json on the EFI partition does not name the startup volume "
                       "this Mac started from; refusing to guess which installation this is")
@@ -341,20 +366,27 @@ def make_plan(machine, stub_info, stubs, extents, policy, qualification, esp_fre
         raise Refused("can't find the startup container this Mac started from")
     stub = mine[0]
     others = [s for s in stubs if s is not stub]
-    if any(s.size >= target.stub_bytes for s in others):
-        raise Refused("another startup volume already exists beside this one (an earlier upgrade "
-                      "or a second installation); remove it or finish that upgrade first")
-    extent = choose_extent(extents, target.stub_bytes, after=stub.start + stub.size)
-    if extent is None:
-        raise Refused(f"the new startup volume needs {target.stub_bytes / 1e9:.1f} GB of free disk "
-                      "space outside every partition and there is none; free space in macOS "
-                      "(or shrink Linux) first")
+    # In place when the swap fits the container; a second startup volume only when it doesn't.
+    extent = None
+    if space.peak(payload.get("bytes", 0)) <= space.container:
+        mode = "in-place"
+    else:
+        mode = "slot"
+        if any(s.size >= target.stub_bytes for s in others):
+            raise Refused("another startup volume already exists beside this one (an earlier upgrade "
+                          "or a second installation); remove it or finish that upgrade first")
+        extent = choose_extent(extents, target.stub_bytes, after=stub.start + stub.size)
+        if extent is None:
+            raise Refused(f"macOS {target.version} startup firmware needs "
+                          f"{space.peak(payload.get('bytes', 0)) / 1e9:.2f} GB in the startup container, "
+                          f"which holds {space.container / 1e9:.2f} GB, and there is no "
+                          f"{target.stub_bytes / 1e9:.1f} GB of free disk space for a second one")
     if esp_free < ESP_FLOOR:
         raise Refused(f"the EFI partition has {esp_free >> 20} MB free; it keeps at least 100 MB")
     if system_free < SYSTEM_FLOOR + payload.get("bytes", 0):
         raise Refused("the current startup volume has no room for the installer")
-    return Plan(machine, target, current_build, current_version, stub, others, extent, esp_free,
-                system_free, payload)
+    return Plan(machine, target, current_build, current_version, stub, others, mode, space, extent,
+                esp_free, system_free, payload)
 
 
 WARNING = """\
@@ -362,31 +394,36 @@ This is a breaking change to how this Mac starts.
 
   Startup firmware   macOS {cur_v} ({cur_b})  ->  macOS {tgt_v} ({tgt_b})
   Stage 1            {s1_cur}  ->  {s1_new}
-  New volume         {size:.1f} GB "Aurora {tgt_v}" made in free space at {start:.1f} GB
-
+{where}
 What happens:
   1. Now: this command puts the Aurora Installer and the new Stage 1 on the
-     current startup volume. Nothing else on the disk changes.
+     startup volume. Nothing else on the disk changes.
   2. Shut down. Hold the power button until the startup options appear and
-     choose the current Aurora volume. Join Wi-Fi when asked. Its Recovery
-     makes the new volume from Apple's macOS {tgt_v} restore image and asks
-     for the Mac owner's password (the macOS user who can unlock this Mac).
-  3. When it shuts down, hold the power button again and choose
-     "Aurora {tgt_v}". Type the owner's password again. It starts Linux.
+     choose the Aurora volume. Join Wi-Fi when asked. Its Recovery replaces
+     the startup firmware with Apple's macOS {tgt_v} and asks for the Mac
+     owner's password (the macOS user who can unlock this Mac). Then the Mac
+     starts Linux.
 
-Linux, your files and macOS are not changed. The current volume stays and
-still starts this Linux: choose it in the startup options to go back.
-After the upgrade, Linux runs on macOS {tgt_v} firmware. Some parts of a Mac
-can work differently on new firmware until Aurora supports them there.
+Linux, your files and macOS are not changed. Until the last step Linux
+still starts as it does now. After the upgrade, Linux runs on macOS {tgt_v}
+firmware; some parts of a Mac can work differently on new firmware until
+Aurora supports them there.
 {caution}"""
 
 
 def warning_text(plan):
     t = plan.target
+    sp = plan.space
+    if plan.mode == "in-place":
+        where = (f"  Startup volume     replaced in place ({sp.peak(plan.payload.get('bytes', 0)) / 1e9:.2f} GB "
+                 f"needed at most, {sp.container / 1e9:.2f} GB available)\n")
+    else:
+        where = (f"  New volume         {t.stub_bytes / 1e9:.1f} GB \"Aurora {t.version}\" in free space at "
+                 f"{plan.extent.start / 1e9:.1f} GB (the current one is too small; it stays as the way back)\n"
+                 f"  This takes a second visit: after the first, choose \"Aurora {t.version}\" the same way.\n")
     return WARNING.format(cur_v=plan.current_version, cur_b=plan.current_build, tgt_v=t.version,
                           tgt_b=t.build, s1_cur=plan.machine.stage1_version or "unknown",
-                          s1_new=plan.payload.get("stage1", {}).get("version", "unknown"),
-                          size=t.stub_bytes / 1e9, start=plan.extent.start / 1e9,
+                          s1_new=plan.payload.get("stage1", {}).get("version", "unknown"), where=where,
                           caution=(f"\nKnown for this Mac: {t.caution}\n" if t.caution else ""))
 
 
@@ -647,6 +684,70 @@ def scan_stubs(disk, table, apfuse):
     return out
 
 
+def container_space(info_text, space_text):
+    """(container bytes, allocated bytes) from `apfuse info` and `apfuse space`."""
+    bs = int(re.search(r"^\s+block size\s+(\d+)", info_text, re.M).group(1))
+    blocks = int(re.search(r"^\s+blocks\s+(\d+)", info_text, re.M).group(1))
+    free = int(re.search(r"free \(summary\)\s+(\d+)", space_text).group(1))
+    return blocks * bs, (blocks - free) * bs
+
+
+def walk_allocation(walk_text, suffix=None):
+    """Allocated bytes of the files in an `apfuse walk --no-content` listing (or of the ones ending in suffix)."""
+    total = 0
+    for line in walk_text.splitlines():
+        f = line.split("\t")
+        if len(f) > 10 and f[1] == "f" and (suffix is None or f[0].endswith(suffix)):
+            total += int(f[10]) * 512
+    return total
+
+
+RECOVERY_IMAGE = "/usr/standalone/firmware/arm64eBaseSystem.dmg"
+
+
+def measure_stub(stub, apfuse):
+    info = _run(apfuse, "info", stub.device)
+    total, used = container_space(info, _run(apfuse, "space", stub.device))
+    vol = {v.role: v.slot for v in stub.volumes}
+    walk = lambda slot: _run(apfuse, "walk", f"--volume={slot}", "--no-content", "--no-xattrs", stub.device)
+    image = walk_allocation(walk(vol["recovery"]), RECOVERY_IMAGE)
+    if not image:
+        raise Refused("the startup container's Recovery volume has no Recovery image")
+    return total, used, image, walk_allocation(walk(vol["preboot"]))
+
+
+def target_recovery_image_bytes(target, board, open_zip=None):
+    """The pinned image's Recovery member for this board, after checking Apple serves the pinned image."""
+    import plistlib
+    if open_zip is None:
+        here = pathlib.Path(__file__).resolve().parent
+        sys.path[:0] = [str(here), str(here.parent.parent)]  # installed beside us, or the repository
+        from asahi_firmware import remotezip
+        open_zip = remotezip.RemoteZip
+    try:
+        z = open_zip(target.url)
+    except Exception as e:  # the network, or Apple's server
+        raise NotNow(f"can't read Apple's restore image: {e}")
+    if z.f.size != target.source_bytes:
+        raise Refused(f"Apple's server returned a different restore image than build {target.build}")
+    m = z.members.get("BuildManifest.plist")
+    raw = m.read(64 << 20) if m else b""  # 26B123 carries a 31 MB manifest
+    if "sha256:" + hashlib.sha256(raw).hexdigest() != target.manifest_sha256:
+        raise Refused(f"Apple's restore image does not carry the pinned build {target.build} manifest")
+    manifest = plistlib.loads(raw)
+    paths = {bi["Manifest"]["BaseSystem"]["Info"]["Path"] for bi in manifest.get("BuildIdentities", [])
+             if bi.get("Info", {}).get("DeviceClass") == f"{board}ap"
+             and bi.get("Info", {}).get("RestoreBehavior") == "Erase"
+             and bi.get("Info", {}).get("Variant", "").startswith("macOS Customer")
+             and "BaseSystem" in bi.get("Manifest", {})}
+    if len(paths) != 1:
+        raise Refused(f"the pinned image names {len(paths)} Recovery images for {board}")
+    member = z.members.get(paths.pop())
+    if member is None:
+        raise Refused("the pinned image lacks its Recovery image")
+    return member.csize
+
+
 @contextlib.contextmanager
 def mounted(device, slot, mount_tool, readonly):
     mnt = tempfile.mkdtemp(prefix="aurora-upgrade-", dir="/run")
@@ -696,8 +797,13 @@ def gather(args):
         with mounted(mine[0].device, mine[0].system.slot, args.apfuse_mount, readonly=True) as root:
             sv = os.statvfs(root)
             system_free = sv.f_bavail * sv.f_frsize
+    if len(mine) != 1:
+        raise Refused("can't find the startup container this Mac started from")
+    total, used, image, preboot = measure_stub(mine[0], args.apfuse)
+    target = choose_target(policy, qualification, machine)
+    space = Space(total, used, image, preboot, target_recovery_image_bytes(target, machine.board))
     plan = make_plan(machine, stub_info, stubs, free_extents(table), policy, qualification,
-                     st.f_bavail * st.f_frsize, system_free, payload)
+                     st.f_bavail * st.f_frsize, system_free, payload, space)
     return plan, esp
 
 
