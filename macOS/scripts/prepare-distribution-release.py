@@ -169,7 +169,7 @@ def prepare(source, output, sealed=False, signing_team=None):
     for profile, data in documents.items():
         check_bundled_default(json.loads(data["catalog.json"]),
                               json.loads(descriptors[profile]).get("default_channel"), set(profiles), profile)
-    check_bundled_default(json.loads(documents["fedora-kde"]["catalog.json"]),
+    check_bundled_default(json.loads(documents["fedora-gnome"]["catalog.json"]),
                           json.loads(root_descriptor).get("default_channel"), set(profiles), "release.json")
     # Nothing is emitted until every requested profile has verified.
     output.mkdir(parents=True)
@@ -183,7 +183,7 @@ def prepare(source, output, sealed=False, signing_team=None):
     shutil.copyfile(ROOT / "Release/trust-root.ed25519.pub", output / "trust-root.ed25519.pub")
     if sealed:
         for name in ("catalog.json", "catalog.json.sig"):
-            (output / name).write_bytes(documents["fedora-kde"][name])
+            (output / name).write_bytes(documents["fedora-gnome"][name])
     (output / "profile-manifest.json").write_text(json.dumps({
         "schema": 1, "sealed": sealed, "profiles": {
             profile: {"catalog_sha256": hashlib.sha256(data["catalog.json"]).hexdigest(),

@@ -218,7 +218,7 @@ jobs:
               catalog=json.loads(data)
               assert catalog['sequence']==record['sequence'],profile
               assert all(model.get('installationProfile') in (None,profile) for model in catalog['models']),profile
-          assert (profiles.parent/'catalog.json').read_bytes()==(profiles/'fedora-kde/catalog.json').read_bytes()
+          assert (profiles.parent/'catalog.json').read_bytes()==(profiles/'fedora-gnome/catalog.json').read_bytes()
           PYPROFILES
           expected=disabled
           if [[ $AURORA_LOCAL_PAYLOAD_TEST_BUILD == 1 ]]; then expected=enabled; fi
