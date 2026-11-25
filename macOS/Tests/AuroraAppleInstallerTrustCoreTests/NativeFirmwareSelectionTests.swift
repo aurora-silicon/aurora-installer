@@ -214,13 +214,18 @@
       // The M6 MacBook Pro (J804) and iMac (J833ct) are only in 27.2 (26B7124).
       let m6 = NativeInspectionHardware(
         chipID: 0x8152, bootVersion: "mBoot-20457.1.29", macOSVersion: "27.2",
-        recoveryVersion: "26.2.7124.0.0,0")
+        recoveryVersion: "26.2.124.7.0,0")
+      let m6on2721 = NativeInspectionHardware(
+        chipID: 0x8152, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2.1",
+        recoveryVersion: "26.2.131.7.0,0")
       for device in ["apple,j804", "apple,j833ct"] {
-        XCTAssertTrue(policy.supports(device, hardware: m6), device)
-        let selection = try choose(device, m6)
-        XCTAssertEqual(selection.version, "27.2", device)
-        XCTAssertEqual(
-          selection.sourceURL.lastPathComponent, "UniversalMac_27.2_26B7124_Restore.ipsw", device)
+        for hardware in [m6, m6on2721] {
+          XCTAssertTrue(policy.supports(device, hardware: hardware), device)
+          let selection = try choose(device, hardware)
+          XCTAssertEqual(selection.version, "27.2", device)
+          XCTAssertEqual(
+            selection.sourceURL.lastPathComponent, "UniversalMac_27.2_26B7124_Restore.ipsw", device)
+        }
       }
       // The 27.2 entry is theirs alone: the M6 Mac mini keeps its 27.0 stub.
       XCTAssertEqual(try choose("apple,j873g", m6).version, "27.0")
