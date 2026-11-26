@@ -142,6 +142,7 @@ jobs:
           import json,os,sys
           from pathlib import Path
           profiles=Path(sys.argv[1])
+          delivery=Path(os.environ['GITHUB_WORKSPACE'])/'delivery/site/installer/Profiles'
           expected={f'{d}-{s}' for d in ('fedora','arch','nixos') for s in ('kde','gnome','minimal')}
           assert {p.name for p in profiles.iterdir()} == expected
           schemas=set()
@@ -169,6 +170,17 @@ jobs:
                   # new enough for the delivery it will read.
                   version=lambda v: tuple(map(int,v.split('.')))
                   assert version(installer['minimumVersion'])<=version(os.environ['APP_VERSION']),profile.name
+                  # The Testing floor comes from this delivery, so it must be what
+                  # the feed serves now: no stale profiles-revision, and the base
+                  # catalog must be the Testing envelope the app will fetch.
+                  import base64,urllib.request
+                  base=(profile/'catalog.json').read_bytes()
+                  envelope=delivery/profile.name/'channels/testing/catalog.signed.json'
+                  assert base64.b64decode(json.loads(envelope.read_bytes())['catalog'])==base,profile.name
+                  url=json.loads((profile/'release.json').read_text())['channels']['testing']['catalog_url']
+                  with urllib.request.urlopen(url,timeout=60) as response:
+                      live=json.loads(base64.b64decode(json.loads(response.read(1572864))['catalog']))
+                  assert live['sequence']==catalog['sequence'],(profile.name,live['sequence'],catalog['sequence'])
           assert len(schemas)==1 and len(set(map(frozenset,models_by_profile.values())))==1
           keys=Path(os.environ['GITHUB_WORKSPACE'])/'delivery/keys'
 
