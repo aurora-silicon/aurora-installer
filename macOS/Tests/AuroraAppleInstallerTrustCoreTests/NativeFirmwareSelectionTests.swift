@@ -289,7 +289,7 @@
       func choose(_ device: String, chip: UInt64, boot: String) throws -> NativeFirmwareSelection {
         let hardware = NativeInspectionHardware(
           chipID: chip, bootVersion: boot, macOSVersion: "27.2",
-          recoveryVersion: "26.2.8125.0.0,0")
+          recoveryVersion: "26.2.125.8.0,0")
         return try NativeFirmwareSelection.choose(
           deviceIdentifier: device, facts: .init(deviceIdentifier: device, hardware: hardware),
           metadata: metadata, policy: policy)

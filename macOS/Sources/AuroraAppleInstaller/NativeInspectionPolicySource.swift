@@ -403,7 +403,7 @@
             "expert": false,
             "minimumBoot": "iBoot-13822.120.5",
             "minimumMacOS": "27.0",
-            "minimumRecovery": "26.2.8125.0.0,0",
+            "minimumRecovery": "26.2.125.8.0,0",
             "models": [
               "k114c",
               "k114s",

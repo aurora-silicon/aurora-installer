@@ -83,18 +83,35 @@
       }
     }
 
-    /// A 14-inch M5 Pro on macOS 27.2 (device build 26B8119, system firmware
-    /// 20457.41.3) takes the 26B123 pin whichever loader name /chosen reports.
-    func testAnM5ProOnItsOwn272BuildTakesThe272Pin() throws {
+    /// A 14-inch M5 Pro on macOS 27.2 (system firmware 20457.41.3) takes the
+    /// 26B123 pin whichever loader name /chosen reports.
+    func testAnM5ProOn272TakesThe272PinWhicheverLoaderName() throws {
       let sealed = try NativeInspectionPolicy.sealed()
       for boot in ["mBoot-20457.41.3", "iBoot-20457.41.3"] {
         let m5Pro = NativeInspectionHardware(
           chipID: 0x6050, bootVersion: boot, macOSVersion: "27.2",
-          recoveryVersion: "26.2.8119.0.0,0")
+          recoveryVersion: "26.2.123.0.0,0")
         let selection = try choose("apple,j714s", m5Pro, policy: sealed)
         XCTAssertEqual(selection.version, "27.2", boot)
         XCTAssertEqual(selection.pin?.build, Self.build, boot)
       }
+    }
+
+    /// Apple writes a 27.2 device build's Recovery as build, then variant:
+    /// 26B8125 is 26.2.125.8.0,0, as its restore image's RestoreVersion.plist
+    /// says, and a Mac's own SFR copy uses the same form (26B8119 here). The
+    /// OLED entry's minimum is in that form, so a Mac on exactly 26B8125 passes.
+    func testTheOLEDEntryAdmitsItsOwnDeviceBuildRecovery() throws {
+      let sealed = try NativeInspectionPolicy.sealed()
+      let exact = NativeInspectionHardware(
+        chipID: 0x6050, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2",
+        recoveryVersion: "26.2.125.8.0,0")
+      XCTAssertTrue(
+        try choose("apple,k114s", exact, policy: sealed).sourceURL.lastPathComponent
+          .hasSuffix("_26B8125_Restore.ipsw"))
+      let entry = try XCTUnwrap(
+        sealed.firmware.first { $0.sourceURL.hasSuffix("_26B8125_Restore.ipsw") })
+      XCTAssertEqual(entry.minimumRecovery, "26.2.125.8.0,0")
     }
 
     /// A Mac already on macOS 27.2 whose Recovery is older than its entry is
@@ -103,14 +120,14 @@
       let sealed = try NativeInspectionPolicy.sealed()
       let oled = NativeInspectionHardware(
         chipID: 0x6050, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2",
-        recoveryVersion: "26.2.8119.0.0,0")
+        recoveryVersion: "26.2.119.8.0,0")
       XCTAssertThrowsError(try choose("apple,k114s", oled, policy: sealed)) { error in
         XCTAssertEqual(
           error as? NativeFirmwareSelectionError,
           .firmwareBelowRelease(
             NativeFirmwareShortfall(
-              version: "27.2", check: .recovery, detected: "26.2.8119.0.0,0",
-              required: "26.2.8125.0.0,0")))
+              version: "27.2", check: .recovery, detected: "26.2.119.8.0,0",
+              required: "26.2.125.8.0,0")))
       }
     }
 
