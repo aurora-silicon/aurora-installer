@@ -336,14 +336,21 @@
           selected.sourceURL.lastPathComponent, "UniversalMac_27.2_26B123_Restore.ipsw")
         XCTAssertEqual(selected.pin?.build, "26B123", board)
         XCTAssertEqual(selected.pin?.sourceBytes, 25_595_669_503, board)
-        // Admission does not lower the existing system-firmware floor or
-        // treat iBoot branding as proof of an equivalent mBoot release.
-        for boot in ["mBoot-20457.41.2", "iBoot-13822.120.5"] {
+        // Admission does not lower the existing system-firmware floor: boot
+        // firmware below it is refused by number, whatever the loader name.
+        // This Mac already runs 27.2, so it is told its boot firmware is
+        // short rather than to install the macOS it runs.
+        for boot in ["mBoot-20457.41.2", "iBoot-13822.120.5", "iBoot-20457.41.2"] {
           XCTAssertThrowsError(try choose(device, boot: boot)) { error in
             XCTAssertEqual(
-              error as? NativeFirmwareSelectionError, .macOSUpdateRequired(version: "27.2"), board)
+              error as? NativeFirmwareSelectionError,
+              .firmwareBelowRelease(
+                NativeFirmwareShortfall(
+                  version: "27.2", check: .boot, detected: boot, required: "mBoot-20457.41.3")),
+              board)
           }
         }
+        XCTAssertEqual(try choose(device, boot: "iBoot-20457.41.3").pin?.build, "26B123", board)
       }
     }
 
