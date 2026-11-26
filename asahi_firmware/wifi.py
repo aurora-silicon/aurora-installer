@@ -40,6 +40,11 @@ class WiFiFWCollection(object):
         self.prune()
 
     def load(self, source_path):
+        # macOS names most firmware through aliases (symbolic links, about
+        # three per file). Read each file once and let its aliases share the
+        # data, or the collection holds every alias's own copy (660 MiB for
+        # a 33 MB tree).
+        read = {}
         for dirpath, dirnames, filenames in os.walk(source_path):
             if "perf" in dirnames:
                 dirnames.remove("perf")
@@ -60,40 +65,73 @@ class WiFiFWCollection(object):
                 # (25G83's C-4388__s-C2/aruba.trx names a missing
                 # paradise.trx). Such a link carries no firmware: skip it,
                 # like a file the image lacks, and keep the rest of its
-                # directory.
-                if not os.path.exists(path):
-                    log.info(f"Skipping dangling firmware alias {relpath}")
+                # directory. Anything else that is not a regular file is
+                # skipped as well (os.walk lists a socket or FIFO with the
+                # files, and opening a FIFO would block).
+                if not os.path.isfile(path):
+                    if os.path.lexists(path) and not os.path.islink(path):
+                        log.warning(f"Skipping firmware name that is not a regular file: {relpath}")
+                    else:
+                        log.info(f"Skipping dangling firmware alias {relpath}")
                     continue
                 if not name.endswith(".txt"):
                     name = "P-" + name
                 idpath, ext = os.path.join(subpath, name).rsplit(".", 1)
-                props = {}
-                for i in idpath.replace("/", "_").split("_"):
-                    if not i:
-                        continue
-                    k, v = i.split("-", 1)
-                    if k == "P" and "-" in v:
-                        plat, ant = v.split("-", 1)
-                        props["P"] = plat
-                        props["A"] = ant
-                    else:
-                        props[k] = v
+                # A name this reader cannot place (no key-value parts, an
+                # unknown key, no chip or revision) is left out; the rest of
+                # the tree is still collected.
+                props = self.parse_ident(idpath)
+                if props is None:
+                    log.warning(f"Skipping firmware file with an unexpected name: {relpath}")
+                    continue
                 ident = [ext]
                 for dim in self.DIMS:
                     if dim in props:
                         ident.append(props.pop(dim))
-                assert not props
+
+                st = os.stat(path)
+                key = (st.st_dev, st.st_ino, name.endswith(".txt"))
+                if key not in read:
+                    with open(path, "rb") as fd:
+                        data = fd.read()
+
+                    if name.endswith(".txt"):
+                        try:
+                            data = self.process_nvram(data)
+                        except ValueError as e:
+                            log.warning(f"Skipping NVRAM file that does not parse: {relpath} ({e})")
+                            continue
+
+                    read[key] = FWFile(relpath, data)
+                first = read[key]
 
                 node = self.root
                 for k in ident:
                     node = node.leaves.setdefault(k, FWNode())
-                with open(path, "rb") as fd:
-                    data = fd.read()
+                node.this = FWFile(relpath, first.data, first.sha)
 
-                if name.endswith(".txt"):
-                    data = self.process_nvram(data)
-
-                node.this = FWFile(relpath, data)
+    def parse_ident(self, idpath):
+        """{dimension: value} of a firmware path without its extension
+        (C-4387__s-C2/P-maui_M-XXXX), or None if it is not of that form."""
+        props = {}
+        for i in idpath.replace("/", "_").split("_"):
+            if not i:
+                continue
+            k, sep, v = i.partition("-")
+            if not sep:
+                return None
+            if k == "P" and "-" in v:
+                plat, ant = v.split("-", 1)
+                props["P"] = plat
+                props["A"] = ant
+            else:
+                props[k] = v
+        if any(k not in self.DIMS for k in props):
+            return None
+        # files() names a file by its chip and revision.
+        if "C" not in props or "s" not in props:
+            return None
+        return props
 
     def prune(self, node=None, depth=0):
         if node is None:

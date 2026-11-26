@@ -51,10 +51,20 @@ func unhex(_ value: String) throws -> Data {
     stride(from: 0, to: bytes.count, by: 2).map { digit(bytes[$0]) * 16 + digit(bytes[$0 + 1]) })
 }
 func safeRelative(_ name: String) -> Bool {
-  !name.isEmpty && !name.contains(where: { "\\\0\r\n".contains($0) })
-    && name.split(separator: "/", omittingEmptySubsequences: false).allSatisfy {
-      !$0.isEmpty && $0 != "." && $0 != ".."
-    }
+  // Judge the UTF-8 bytes the file system sees, not Characters: a grapheme
+  // cluster can hide a separator, a dot, NUL or a line break ("/\u{301}",
+  // "\0\u{301}"), and "\r\n" is one Character, so a lone "\r" or "\n"
+  // never matched it. Callers also split admitted paths on Characters, so
+  // every '/' byte must be a Character of its own: a grapheme cluster that
+  // absorbs it ("a/\u{301}b", "a\u{600}/b") is one component to them and
+  // two to the file system.
+  let refused: [UInt8] = [UInt8(ascii: "\\"), 0, UInt8(ascii: "\r"), UInt8(ascii: "\n")]
+  let bytes = Array(name.utf8)
+  let dot = UInt8(ascii: ".")
+  let parts = bytes.split(separator: UInt8(ascii: "/"), omittingEmptySubsequences: false)
+  return !bytes.isEmpty && !bytes.contains(where: { refused.contains($0) })
+    && parts.count == name.split(separator: "/", omittingEmptySubsequences: false).count
+    && parts.allSatisfy { !$0.isEmpty && $0 != [dot] && $0 != [dot, dot] }
 }
 
 func exists(_ path: URL) -> Bool {

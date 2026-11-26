@@ -22,7 +22,7 @@ The 26B123 entry (`UniversalMac_27.2_26B123_Restore.ipsw`, 25,595,669,503 bytes)
 
 The qualified 26B123 boards are J615 (15-inch M3 MacBook Air) and J713 (13-inch M4 MacBook Air), which boot Linux on the 26B123 stub. No T8112 board is listed: a Mac mini M2 (J473) installed with the 26B123 stub got it as selected, but it then started with no display and no network and never reached Linux. The T8112 boards (J413, J415, J473, J493), the other M1 and M2 Macs, the M4 Pro and the A18 Pro keep their older entry until they have a recorded boot on the 26B123 stub.
 
-The experimental 26B123 admissions are J714c, J714s, J716c, J716s, J775c, J775d and J873s, whose Customer identities in the pinned BuildManifest all use T6050, and J815 (T8142, chip `0x8142`, board `0x26`). Board IDs are recorded separately. The J815's device minimum is macOS 27.2: below it the J815 is asked to update macOS instead of falling back to an older stub, because everything it runs is 27.2 firmware. These Macs use this universal image rather than the OLED-only 26B8125 image. The existing system-firmware, macOS and Recovery floors still apply: admitting a board does not equate an older `iBoot` version with the required `mBoot` version or prove an installation on that board.
+The experimental 26B123 admissions are J714c, J714s, J716c, J716s, J775c, J775d and J873s, whose Customer identities in the pinned BuildManifest all use T6050, and the T8142 boards J704 (chip `0x8142`, board `0x22`), J813 (chip `0x8142`, board `0x24`) and J815 (chip `0x8142`, board `0x26`). Board IDs are recorded separately. The J704's, J813's and J815's device minimum is macOS 27.2: below it they are asked to update macOS instead of falling back to an older stub. Everything the J815 runs is 27.2 firmware, and the J704 has been installed only on the 27.2 stub; its GPU and built-in display need aurora-silicon/linux#2093, which is not in the published distribution kernel yet. On the J813's 27.2 stub, the published distribution kernel brings up neither its GPU nor its display driver yet. These Macs use this universal image rather than the OLED-only 26B8125 image. The existing system-firmware, macOS and Recovery floors still apply: admitting a board does not equate an older `iBoot` version with the required `mBoot` version or prove an installation on that board.
 
 Release templates don't set `supported_fw`, so the model list is the only gate. A release that wants to hold a board back can still list older versions in `supported_fw`.
 
@@ -52,7 +52,7 @@ The vendor firmware on the EFI partition (`vendorfw/`, `asahi/all_firmware.tar.g
 
 ### What the owner does
 
-The same as after a fresh install: shut down, hold the power button until the startup options appear, choose the slot's volume ("Aurora Fedora Remix 27.2"), and let its Recovery enroll Stage 1 with the owner's password (`bputil` and `kmutil configure-boot`, as the installation's own Recovery does). The Mac then starts the slot. To go back, choose the old volume in the startup options, or run `asahi-bless` from Linux.
+The same as after a fresh install: shut down, hold the power button until the startup options appear, choose the slot's volume ("Aurora Fedora Remix 27.2"), and let its Recovery enroll Stage 1 with the owner's password (`bputil` and `kmutil configure-boot`, as the installation's own Recovery does). The Mac then starts the slot. To go back, choose the old volume in the startup options, or run `aurora-bless` from Linux.
 
 ### Not built yet
 

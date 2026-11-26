@@ -5,7 +5,7 @@ This focused Swift Testing package compiles the production AuroraFirmware source
 ```sh
 macOS/PolicyQualification/test.sh
 macOS/PolicyQualification/test.sh -c release
-AURORA_LIVE_POLICY_TEST=1 macOS/PolicyQualification/test.sh -c release
+AURORA_IPSW_POLICY_TEST=1 macOS/PolicyQualification/test.sh -c release
 ```
 
-The opt-in live test reads the six pinned tables from the running macOS, derives 244 v1 and 120 v2 packages in memory, and verifies both inventories. It writes no Apple tables or generated policy packages. The regular tests use synthetic data and a recording modprobe; they never probe hardware.
+The opt-in test reads the six pinned tables from the authenticated ranges of the pinned 25G83 restore image (their only source; it needs the network), derives 244 v1 and 120 v2 packages in memory, and verifies both inventories. It writes no Apple tables or generated policy packages. The regular tests use synthetic data and a recording modprobe; they never probe hardware.

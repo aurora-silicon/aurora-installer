@@ -62,44 +62,84 @@
       XCTAssertEqual(
         entry.models,
         [
-          "j615", "j713", "j714c", "j714s", "j716c", "j716s", "j775c", "j775d", "j815", "j873s",
+          "j615", "j704", "j713", "j714c", "j714s", "j716c", "j716s", "j775c", "j775d", "j813", "j815",
+          "j873s",
         ])
       // It is last, so it wins wherever a board qualifies for it.
       XCTAssertEqual(sealed.firmware.last?.pin?.build, Self.build)
-      // Admitting the Airs, the J815 and the T6050 boards does not change the M2
-      // MacBook Air's choice.
+      // Admitting the Airs, the J704, J813, J815 and the T6050 boards does not change the
+      // M2 MacBook Air's choice.
       XCTAssertEqual(try choose("apple,j413", air272, policy: sealed).version, "13.5")
     }
 
-    func testJ815TakesTheSealedPinAndIsAskedToUpdateBelow272() throws {
+    func testTheM5AirsTakeTheSealedPinAndAreAskedToUpdateBelow272() throws {
       let sealed = try NativeInspectionPolicy.sealed()
-      let j815 = NativeInspectionHardware(
+      for device in ["apple,j813", "apple,j815"] {
+        let air = NativeInspectionHardware(
+          chipID: 0x8142, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2",
+          recoveryVersion: "26.2.123.0.0,0")
+        XCTAssertTrue(sealed.supports(device, hardware: air), device)
+        let selection = try choose(device, air, policy: sealed)
+        XCTAssertEqual(selection.version, "27.2", device)
+        XCTAssertEqual(selection.pin?.build, Self.build, device)
+        let point = NativeInspectionHardware(
+          chipID: 0x8142, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2.1",
+          recoveryVersion: "26.2.123.0.0,0")
+        XCTAssertEqual(try choose(device, point, policy: sealed).pin?.build, Self.build, device)
+        // The macOS floor holds by itself: 27.1 is refused even on 27.2-level
+        // system firmware and Recovery.
+        let newFirmware = NativeInspectionHardware(
+          chipID: 0x8142, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.1",
+          recoveryVersion: "26.2.123.0.0,0")
+        XCTAssertThrowsError(try choose(device, newFirmware, policy: sealed), device) { error in
+          XCTAssertEqual(
+            error as? NativeFirmwareSelectionError, .macOSUpdateRequired(version: "27.2"), device)
+        }
+        // On 26.6.2 through 27.1 neither gets the 26.6.2 stub: the M5 support
+        // (the 27.2 ANE, AVE, GPU and display firmware) is 27.2's.
+        for macOS in ["26.6.2", "27.0", "27.1"] {
+          let older = NativeInspectionHardware(
+            chipID: 0x8142, bootVersion: "mBoot-18000.161.10", macOSVersion: macOS,
+            recoveryVersion: "25.7.83.0.0,0")
+          XCTAssertThrowsError(try choose(device, older, policy: sealed), device + " " + macOS) {
+            error in
+            XCTAssertEqual(
+              error as? NativeFirmwareSelectionError, .macOSUpdateRequired(version: "27.2"),
+              device + " " + macOS)
+          }
+        }
+      }
+    }
+
+    func testJ704TakesTheSealedPinAndIsAskedToUpdateBelow272() throws {
+      let sealed = try NativeInspectionPolicy.sealed()
+      let j704 = NativeInspectionHardware(
         chipID: 0x8142, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2",
         recoveryVersion: "26.2.123.0.0,0")
-      XCTAssertTrue(sealed.supports("apple,j815", hardware: j815))
-      let selection = try choose("apple,j815", j815, policy: sealed)
+      XCTAssertTrue(sealed.supports("apple,j704", hardware: j704))
+      let selection = try choose("apple,j704", j704, policy: sealed)
       XCTAssertEqual(selection.version, "27.2")
       XCTAssertEqual(selection.pin?.build, Self.build)
       let point = NativeInspectionHardware(
         chipID: 0x8142, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2.1",
         recoveryVersion: "26.2.123.0.0,0")
-      XCTAssertEqual(try choose("apple,j815", point, policy: sealed).pin?.build, Self.build)
+      XCTAssertEqual(try choose("apple,j704", point, policy: sealed).pin?.build, Self.build)
       // The macOS floor holds by itself: 27.1 is refused even on 27.2-level
       // system firmware and Recovery.
       let newFirmware = NativeInspectionHardware(
         chipID: 0x8142, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.1",
         recoveryVersion: "26.2.123.0.0,0")
-      XCTAssertThrowsError(try choose("apple,j815", newFirmware, policy: sealed)) { error in
+      XCTAssertThrowsError(try choose("apple,j704", newFirmware, policy: sealed)) { error in
         XCTAssertEqual(
           error as? NativeFirmwareSelectionError, .macOSUpdateRequired(version: "27.2"))
       }
-      // On 26.6.2 through 27.1 it no longer gets the 26.6.2 stub: everything the
-      // J815 runs (the 27.2 ANE, AVE, GPU and display firmware) is 27.2's.
+      // On 26.6.2 through 27.1 it no longer gets the 26.6.2 stub: the J704 has
+      // been installed only on the 27.2 stub.
       for macOS in ["26.6.2", "27.0", "27.1"] {
         let older = NativeInspectionHardware(
           chipID: 0x8142, bootVersion: "mBoot-18000.161.10", macOSVersion: macOS,
           recoveryVersion: "25.7.83.0.0,0")
-        XCTAssertThrowsError(try choose("apple,j815", older, policy: sealed), macOS) { error in
+        XCTAssertThrowsError(try choose("apple,j704", older, policy: sealed), macOS) { error in
           XCTAssertEqual(
             error as? NativeFirmwareSelectionError, .macOSUpdateRequired(version: "27.2"), macOS)
         }
@@ -463,10 +503,10 @@
       let archive = try await IPSWArchive.open(NativeWindowedRangeReader(source))
       let selection = NativeFirmwareSelection(
         version: entry.version, sourceURL: url, stubBytes: 5_999_951_872, pin: pin)
-      // M1 Pro, M2, M4 Pro and the MacBook Neo.
+      // M1 Pro, M2 Air, M2 mini, M4 Pro and the MacBook Neo.
       for (device, board, chip) in [
-        ("j316s", 0x0A, 0x6000), ("j413", 0x28, 0x8112), ("j616s", 0x06, 0x6040),
-        ("j700", 0x64, 0x8140),
+        ("j316s", 0x0A, 0x6000), ("j413", 0x28, 0x8112), ("j473", 0x24, 0x8112),
+        ("j616s", 0x06, 0x6040), ("j700", 0x64, 0x8140),
       ] as [(String, UInt64, UInt64)] {
         let plan = try await NativeStubFilePlan(
           archive: archive, source: selection, deviceClass: device + "ap", boardID: board,

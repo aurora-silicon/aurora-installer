@@ -107,8 +107,7 @@ func decodeRanges(_ recipe: RangeRecipe, fetched: [RangeRecord: Data], archiveKe
 }
 
 func assembleRangeFiles(
-  _ recipe: RangeRecipe, decoded: [Int: Data], output: URL, workspace: URL? = nil,
-  preferred: [String: Data] = [:]
+  _ recipe: RangeRecipe, decoded: [Int: Data], output: URL, workspace: URL? = nil
 ) throws {
   try require(!exists(output), "Firmware output already exists.")
   let fm = FileManager.default
@@ -117,7 +116,7 @@ func assembleRangeFiles(
   for file in recipe.files {
     try Task.checkCancellation()
     var storage: [Data] = []
-    for record in file.storage where preferred[file.name] == nil {
+    for record in file.storage {
       var data = Data()
       for span in record.spans {
         var offset = span.offset
@@ -137,8 +136,7 @@ func assembleRangeFiles(
         data.count == record.size && data.sha256 == record.sha256, "APFS storage SHA-256 mismatch.")
       storage.append(data)
     }
-    var result =
-      try preferred[file.name] ?? (file.compressed ? decompressStorage(storage) : storage[0])
+    var result = try file.compressed ? decompressStorage(storage) : storage[0]
     try require(result.sha256 == file.rawSHA256, "Source firmware SHA-256 mismatch.")
     if file.transform == "nvram" {
       try require(result.allSatisfy { $0 <= 127 }, "Non-ASCII NVRAM.")
@@ -188,42 +186,13 @@ func assembleRangeFiles(
   try require(fsync(parent) == 0, "Cannot sync firmware publication directory.")
 }
 
-// Keep the sealed recipe's exact dependency closure for files still requiring IPSW data.
-// Preferred bytes are admitted against the same output pins before any network access.
-func networkRecipe(_ recipe: RangeRecipe, preferred: [String: Data]) throws -> RangeRecipe {
-  try recipe.validate()
-  for (name, bytes) in preferred {
-    guard let file = recipe.files.first(where: { $0.name == name }),
-      file.transform == "identity", bytes.count == file.size, bytes.sha256 == file.sha256
-    else { throw RestoreFailure("Local firmware differs from the sealed recipe.") }
-  }
-  var network = recipe
-  network.files.removeAll { preferred[$0.name] != nil }
-  var ids = Set<Int>()
-  for file in network.files {
-    for storage in file.storage {
-      for span in storage.spans {
-        ids.formUnion((span.offset / segmentBytes)...((span.offset + span.size - 1) / segmentBytes))
-      }
-    }
-  }
-  network.segments = recipe.segments.filter { ids.contains(Int($0.key)!) }
-  network.headers = recipe.headers.filter { header in
-    ids.contains { $0 / clusterWidth == header.cluster }
-  }
-  if !network.files.isEmpty { try network.validate() }
-  return network
-}
-
 func extractFirmwareRecipe(
   _ recipe: RangeRecipe, output: URL,
   cache: FirmwareRangeCache? = nil,
-  progress: @Sendable (FirmwareExtractionProgress) -> Void,
-  preferred: [String: Data] = [:]
+  progress: @Sendable (FirmwareExtractionProgress) -> Void
 ) async throws -> Int {
   // Admission and publication failures never trigger a whole-IPSW fallback.
-  let fullRecipe = recipe
-  let recipe = try networkRecipe(recipe, preferred: preferred)
+  try recipe.validate()
   try require(!exists(output), "Firmware output already exists.")
   let decoded: [Int: Data]
   if recipe.files.isEmpty {
@@ -306,8 +275,7 @@ func extractFirmwareRecipe(
       + recipe.segments.values.reduce(0) { $0 + $1.size }
   progress(FirmwareExtractionProgress(stage: .writing, completedBytes: total, totalBytes: total))
   let workspace = try await cache?.publicationWorkspace(beside: output)
-  try assembleRangeFiles(
-    fullRecipe, decoded: decoded, output: output, workspace: workspace, preferred: preferred)
+  try assembleRangeFiles(recipe, decoded: decoded, output: output, workspace: workspace)
   progress(FirmwareExtractionProgress(stage: .complete, completedBytes: total, totalBytes: total))
   return total
 }

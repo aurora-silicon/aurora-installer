@@ -5,6 +5,21 @@ import XCTest
 @testable import AuroraAppleInstallerTrustCore
 
 final class InstallationSelectionTests: XCTestCase {
+  func testDefaultSelectionIsFedoraGNOME() {
+    let selection = AuroraInstallationSelection()
+    XCTAssertEqual(selection.distribution, .fedora)
+    XCTAssertEqual(selection.desktop, .gnome)
+    XCTAssertEqual(selection.profileID, "fedora-gnome")
+    XCTAssertEqual(AuroraDistribution.fedora.availableDesktops, [.gnome, .kde, .minimal])
+    XCTAssertEqual(AuroraDistribution.arch.availableDesktops, [.kde, .gnome, .minimal])
+    XCTAssertEqual(AuroraDistribution.nixos.availableDesktops, [.kde, .gnome, .minimal])
+
+    var switched = AuroraInstallationSelection(distribution: .omarchy, desktop: .hyprland)
+    switched.selectDistribution(.fedora)
+    XCTAssertEqual(switched.desktop, .gnome)
+    XCTAssertEqual(switched.profileID, "fedora-gnome")
+  }
+
   func testEachLinuxDesktopHasItsOwnProfile() {
     let optedIn = ProcessInfo.processInfo.environment["AURORA_ENABLE_OMARCHY"] == "1"
     let distributions: [AuroraDistribution] = [.fedora, .arch, .nixos]

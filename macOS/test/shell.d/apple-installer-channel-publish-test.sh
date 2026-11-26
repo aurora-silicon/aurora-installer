@@ -234,22 +234,34 @@ with open(output, "w", encoding="utf-8") as stream:
 PY
 }
 
+# publish_candidate TAG SEQUENCE URL SIZE [CHANNELS] [FILE]
+# Stages one signed catalog per channel, each declaring its channel, as
+# catalog.<channel>.signed.json: a set bound for stable and rc by default.
+# FILE stages a single channel's catalog under that name instead, and the
+# channel "undeclared" stages catalog.signed.json with no channel at all, as
+# catalogs from before the channel field were.
 publish_candidate() {
-  local tag=$1 sequence=$2 payload_url=$3 payload_size=$4 declared_channel=${5:-}
-  local catalog="$WORK/$tag.catalog" signature="$WORK/$tag.sig"
-  write_catalog "$catalog" "$sequence" "$payload_url" "$payload_size"
-  if [[ -n $declared_channel ]]; then
-    python3 - "$catalog" "$declared_channel" <<'PYCHANNEL'
+  local tag=$1 sequence=$2 payload_url=$3 payload_size=$4 channels=${5:-stable rc} file=${6:-}
+  local channel catalog signature name
+  mkdir -p "$STREAM_DIR/releases/$tag"
+  for channel in $channels; do
+    catalog="$WORK/$tag.$channel.catalog" signature="$WORK/$tag.$channel.sig"
+    write_catalog "$catalog" "$sequence" "$payload_url" "$payload_size"
+    name=${file:-catalog.$channel.signed.json}
+    if [[ $channel == "undeclared" ]]; then
+      name=${file:-catalog.signed.json}
+    else
+      python3 - "$catalog" "$channel" <<'PYCHANNEL'
 import json, sys
 from pathlib import Path
 p = Path(sys.argv[1]); value = json.loads(p.read_text()); value['channel'] = sys.argv[2]
 p.write_text(json.dumps(value))
 PYCHANNEL
-  fi
-  sign_catalog "$catalog" "$signature"
-  mkdir -p "$STREAM_DIR/releases/$tag"
-  "$PUBLISHER" envelope --catalog "$catalog" --signature "$signature" \
-    --output "$STREAM_DIR/releases/$tag/catalog.signed.json" >/dev/null
+    fi
+    sign_catalog "$catalog" "$signature"
+    "$PUBLISHER" envelope --catalog "$catalog" --signature "$signature" \
+      --output "$STREAM_DIR/releases/$tag/$name" >/dev/null
+  done
 }
 
 stage_payload() {
@@ -279,7 +291,7 @@ MX_ROOT_DIGEST=$(root_digest)
 # --- the envelope carries the catalog and its signature together ------------
 stage_payload "os-v4.0.2-mac.1.20260902" 128
 publish_candidate "os-v4.0.2-mac.1.20260902" 100 "$BASE/releases/os-v4.0.2-mac.1.20260902/payload.zip" 128
-[[ -f $STREAM_DIR/releases/os-v4.0.2-mac.1.20260902/catalog.signed.json ]] ||
+[[ -f $STREAM_DIR/releases/os-v4.0.2-mac.1.20260902/catalog.stable.signed.json ]] ||
   fail "envelope is written"
 python3 -c '
 import base64, json, sys
@@ -287,7 +299,7 @@ d = json.load(open(sys.argv[1]))
 assert set(d) == {"schema_version", "catalog", "signature"}, d.keys()
 assert d["schema_version"] == 1
 json.loads(base64.b64decode(d["catalog"]))
-' "$STREAM_DIR/releases/os-v4.0.2-mac.1.20260902/catalog.signed.json" ||
+' "$STREAM_DIR/releases/os-v4.0.2-mac.1.20260902/catalog.stable.signed.json" ||
   fail "envelope decodes to a catalog and a signature"
 pass "an envelope holds the catalog and its signature in one object"
 
@@ -764,7 +776,7 @@ rm -f "$BUCKET_LOCKED"
 # Restore the fixture state the later prune cases expect: stable back on …20260902.
 rm -rf "$STREAM_DIR/releases/os-v4.0.2-mac.1.20260701" "$STREAM_DIR/releases/os-v4.0.2-mac.1.20260908"
 publish_candidate "os-v4.0.2-mac.1.20260902" 100 "$BASE/releases/os-v4.0.2-mac.1.20260902/payload.zip" 128
-cp "$STREAM_DIR/releases/os-v4.0.2-mac.1.20260902/catalog.signed.json" "$STREAM_DIR/channels/stable/catalog.signed.json"
+cp "$STREAM_DIR/releases/os-v4.0.2-mac.1.20260902/catalog.stable.signed.json" "$STREAM_DIR/channels/stable/catalog.signed.json"
 pass "a bucket lock is reported after promotion, never as a failed release"
 
 # --- prune keeps what a channel can reach and the newest spare set ----------
@@ -811,7 +823,7 @@ pass "prune deletes only unreferenced immutable sets and never a channel object"
 
 # --- Testing is development; Edge requires a separate qualified Alpha ---------
 stage_payload "os-v4.0.2-mac.1.20260910" 128
-publish_candidate "os-v4.0.2-mac.1.20260910" 900 "$BASE/releases/os-v4.0.2-mac.1.20260910/payload.zip" 128 testing
+publish_candidate "os-v4.0.2-mac.1.20260910" 900 "$BASE/releases/os-v4.0.2-mac.1.20260910/payload.zip" 128 testing catalog.signed.json
 AURORA_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260910 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260910 --to testing \
   >"$WORK/testing.log" 2>&1 || fail "testing promotion succeeds" "$(cat "$WORK/testing.log")"
 [[ -f $STREAM_DIR/channels/testing/catalog.signed.json ]] || fail "the testing catalog is published"
@@ -836,46 +848,151 @@ grep -q "catalog_sequence=900" "$WORK/testing-status.log" || fail "status reads 
 grep -q "catalog=absent" "$WORK/edge-status.log" || fail "Edge does not alias testing"
 pass "testing stays development and cannot be promoted or relabelled as Edge"
 
+# --- a catalog that declares no channel is promoted nowhere -------------------
+# Its signature would verify on every channel alike, so nothing binds it to
+# the one it is served on.
+stage_payload "os-v4.0.2-mac.1.20260914" 128
+publish_candidate "os-v4.0.2-mac.1.20260914" 950 "$BASE/releases/os-v4.0.2-mac.1.20260914/payload.zip" 128 undeclared
+before_calls=$(grep -c '^aws ' "$CALLS" || true)
+before=$(find "$STREAM_DIR/channels" -type f | sort | xargs shasum | shasum | cut -d" " -f1)
+for target in stable rc testing; do
+  if AURORA_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260914 "$PUBLISHER" os-promote \
+    --tag os-v4.0.2-mac.1.20260914 --to "$target" >"$WORK/undeclared-$target.log" 2>&1; then
+    fail "an undeclared catalog is not promoted to $target"
+  fi
+  grep -q "catalog declares no channel" "$WORK/undeclared-$target.log" ||
+    fail "the $target refusal names the missing channel" "$(cat "$WORK/undeclared-$target.log")"
+done
+[[ $(grep -c '^aws ' "$CALLS" || true) == "$before_calls" ]] || fail "an undeclared catalog reaches no publication"
+after=$(find "$STREAM_DIR/channels" -type f | sort | xargs shasum | shasum | cut -d" " -f1)
+[[ $before == "$after" ]] || fail "an undeclared catalog changes no channel"
+rm -rf "$STREAM_DIR/releases/os-v4.0.2-mac.1.20260914"
+pass "a catalog that declares no channel is refused on stable, rc and testing"
+
+# --- only a 404 for catalog.<channel>.signed.json falls back -----------------
+# A set staging both files, where the single catalog.signed.json also declares
+# the channel: an error reading the channel's own file must stop the promotion,
+# not quietly promote the other one.
+fallback_tag=os-v4.0.2-mac.1.20260915
+stage_payload "$fallback_tag" 128
+publish_candidate "$fallback_tag" 960 "$BASE/releases/$fallback_tag/payload.zip" 128 testing
+publish_candidate "$fallback_tag" 960 "$BASE/releases/$fallback_tag/payload.zip" 128 testing catalog.signed.json
+before=$(find "$STREAM_DIR/channels" -type f | sort | xargs shasum | shasum | cut -d" " -f1)
+for failure in CURL_UNAVAILABLE CURL_TRUNCATED; do
+  if env "$failure=releases/$fallback_tag/catalog.testing.signed.json" \
+    AURORA_PUBLISH_ASSUME_YES=$fallback_tag "$PUBLISHER" os-promote \
+    --tag "$fallback_tag" --to testing --no-prune >"$WORK/fallback-$failure.log" 2>&1; then
+    fail "a $failure read of the channel's catalog stops the promotion" "$(cat "$WORK/fallback-$failure.log")"
+  fi
+  grep -q "could not read releases/$fallback_tag/catalog.testing.signed.json" "$WORK/fallback-$failure.log" ||
+    fail "the $failure refusal names the channel's catalog" "$(cat "$WORK/fallback-$failure.log")"
+  grep -q "Reading releases/$fallback_tag/catalog.signed.json" "$WORK/fallback-$failure.log" &&
+    fail "a $failure read never falls back to catalog.signed.json" "$(cat "$WORK/fallback-$failure.log")"
+done
+after=$(find "$STREAM_DIR/channels" -type f | sort | xargs shasum | shasum | cut -d" " -f1)
+[[ $before == "$after" ]] || fail "a failed read of the channel's catalog changes no channel"
+rm "$STREAM_DIR/releases/$fallback_tag/catalog.testing.signed.json"
+AURORA_PUBLISH_ASSUME_YES=$fallback_tag "$PUBLISHER" os-promote \
+  --tag "$fallback_tag" --to testing --no-prune >"$WORK/fallback-404.log" 2>&1 ||
+  fail "a 404 for the channel's catalog falls back to catalog.signed.json" "$(cat "$WORK/fallback-404.log")"
+grep -q "Reading releases/$fallback_tag/catalog.signed.json" "$WORK/fallback-404.log" ||
+  fail "the 404 fallback reads catalog.signed.json" "$(cat "$WORK/fallback-404.log")"
+cmp -s "$STREAM_DIR/channels/testing/catalog.signed.json" "$STREAM_DIR/releases/$fallback_tag/catalog.signed.json" ||
+  fail "testing serves the fallback catalog"
+pass "only a 404 for the channel's own catalog falls back to catalog.signed.json"
+
+# --- a set bound for two channels stages one signed catalog for each ----------
+# The stable and rc catalogs of …20260907 are different signed bytes; neither
+# channel was ever handed the other's.
+for target in stable rc; do
+  python3 -c '
+import base64, json, sys
+catalog = json.loads(base64.b64decode(json.load(open(sys.argv[1]))["catalog"]))
+assert catalog["channel"] == sys.argv[2], catalog.get("channel")
+' "$STREAM_DIR/channels/$target/catalog.signed.json" "$target" ||
+    fail "the $target channel serves a catalog declaring $target"
+done
+"$PUBLISHER" channel-status --channel stable >"$WORK/declared-status.log" 2>&1 || fail "stable status succeeds"
+grep -q "catalog_channel=stable" "$WORK/declared-status.log" ||
+  fail "status reports the declared channel" "$(cat "$WORK/declared-status.log")"
+pass "every promoted channel serves a catalog declaring that channel"
+
 # --- a channel with no Mac release serves a signed empty catalog --------------
-"$PUBLISHER" empty-catalog --sequence 1000 --output "$WORK/empty.catalog" >"$WORK/empty.log" 2>&1 ||
+"$PUBLISHER" empty-catalog --channel stable --sequence 1000 --output "$WORK/empty.catalog" >"$WORK/empty.log" 2>&1 ||
   fail "empty-catalog succeeds" "$(cat "$WORK/empty.log")"
 python3 -c '
 import json, sys
 catalog = json.load(open(sys.argv[1]))
-assert set(catalog) == {"schemaVersion", "sequence", "issuedAt", "models"}, catalog
+assert set(catalog) == {"schemaVersion", "channel", "sequence", "issuedAt", "models"}, catalog
 assert catalog["schemaVersion"] == 5 and catalog["sequence"] == 1000 and catalog["models"] == []
-' "$WORK/empty.catalog" || fail "the empty catalog is a schema-5 catalog without models"
-"$PUBLISHER" empty-catalog --sequence 1000 --output "$WORK/empty.catalog" >/dev/null 2>&1 &&
+assert catalog["channel"] == "stable", catalog
+' "$WORK/empty.catalog" || fail "the empty catalog is a schema-5 catalog without models that declares its channel"
+grep -q "^catalog_channel=stable$" "$WORK/empty.log" || fail "empty-catalog reports its channel"
+"$PUBLISHER" empty-catalog --sequence 1000 --output "$WORK/nochannel.catalog" >/dev/null 2>&1 &&
+  fail "empty-catalog refuses to write a catalog without a channel"
+[[ ! -e $WORK/nochannel.catalog ]] || fail "no undeclared empty catalog is written"
+"$PUBLISHER" empty-catalog --channel nightly --sequence 1000 --output "$WORK/nightly.catalog" >/dev/null 2>&1 &&
+  fail "empty-catalog refuses an unknown channel"
+for declared in rc testing edge; do
+  "$PUBLISHER" empty-catalog --channel "$declared" --sequence 1000 --output "$WORK/empty.$declared.catalog" >/dev/null ||
+    fail "empty-catalog writes the $declared channel's empty catalog"
+  [[ $(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["channel"])' "$WORK/empty.$declared.catalog") == "$declared" ]] ||
+    fail "the $declared empty catalog declares $declared"
+done
+"$PUBLISHER" empty-catalog --channel stable --sequence 1000 --output "$WORK/empty.catalog" >/dev/null 2>&1 &&
   fail "empty-catalog never overwrites"
-"$PUBLISHER" empty-catalog --sequence 0 --output "$WORK/zero.catalog" >/dev/null 2>&1 &&
+"$PUBLISHER" empty-catalog --channel stable --sequence 0 --output "$WORK/zero.catalog" >/dev/null 2>&1 &&
   fail "empty-catalog refuses a zero sequence"
-"$PUBLISHER" empty-catalog --sequence $(( $(date +%s) + 86400 )) --output "$WORK/future.catalog" >/dev/null 2>&1 &&
+"$PUBLISHER" empty-catalog --channel stable --sequence $(( $(date +%s) + 86400 )) --output "$WORK/future.catalog" >/dev/null 2>&1 &&
   fail "empty-catalog refuses a sequence later than now"
 before=$(date +%s)
-"$PUBLISHER" empty-catalog --output "$WORK/now.catalog" >/dev/null || fail "empty-catalog defaults its sequence"
+"$PUBLISHER" empty-catalog --channel stable --output "$WORK/now.catalog" >/dev/null || fail "empty-catalog defaults its sequence"
 python3 -c 'import json, sys; s = json.load(open(sys.argv[1]))["sequence"]; assert int(sys.argv[2]) <= s <= int(sys.argv[2]) + 60, s' \
   "$WORK/now.catalog" "$before" || fail "the default sequence is the current Unix time"
 sign_catalog "$WORK/empty.catalog" "$WORK/empty.sig"
+sign_catalog "$WORK/empty.rc.catalog" "$WORK/empty.rc.sig"
 mkdir -p "$STREAM_DIR/releases/os-v4.0.2-mac.1.20260911-empty"
 "$PUBLISHER" envelope --catalog "$WORK/empty.catalog" --signature "$WORK/empty.sig" \
-  --output "$STREAM_DIR/releases/os-v4.0.2-mac.1.20260911-empty/catalog.signed.json" >/dev/null ||
+  --output "$STREAM_DIR/releases/os-v4.0.2-mac.1.20260911-empty/catalog.stable.signed.json" >/dev/null ||
   fail "the empty catalog wraps into an envelope"
+# The stable channel's empty catalog alone, staged as the set's only catalog,
+# is not rc's: rc needs the empty catalog signed for rc.
+cp "$STREAM_DIR/releases/os-v4.0.2-mac.1.20260911-empty/catalog.stable.signed.json" \
+  "$STREAM_DIR/releases/os-v4.0.2-mac.1.20260911-empty/catalog.signed.json"
+if AURORA_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260911-empty "$PUBLISHER" os-promote \
+  --tag os-v4.0.2-mac.1.20260911-empty --to rc >"$WORK/empty-wrong.log" 2>&1; then
+  fail "the stable channel's empty catalog is not promoted to rc"
+fi
+grep -q "catalog is bound to stable" "$WORK/empty-wrong.log" ||
+  fail "the refusal names the empty catalog's channel" "$(cat "$WORK/empty-wrong.log")"
+rm "$STREAM_DIR/releases/os-v4.0.2-mac.1.20260911-empty/catalog.signed.json"
+"$PUBLISHER" envelope --catalog "$WORK/empty.rc.catalog" --signature "$WORK/empty.rc.sig" \
+  --output "$STREAM_DIR/releases/os-v4.0.2-mac.1.20260911-empty/catalog.rc.signed.json" >/dev/null ||
+  fail "the rc empty catalog wraps into an envelope"
 # Stable prunes after promotion; the empty set must survive it, or rc could
 # no longer be promoted from the same tag.
 AURORA_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260911-empty "$PUBLISHER" os-promote \
   --tag os-v4.0.2-mac.1.20260911-empty --to stable >"$WORK/empty-stable.log" 2>&1 ||
   fail "the empty catalog promotes to stable" "$(cat "$WORK/empty-stable.log")"
-[[ -f $STREAM_DIR/releases/os-v4.0.2-mac.1.20260911-empty/catalog.signed.json ]] ||
+[[ -f $STREAM_DIR/releases/os-v4.0.2-mac.1.20260911-empty/catalog.rc.signed.json ]] ||
   fail "the stable prune keeps the set stable now serves" "$(cat "$WORK/empty-stable.log")"
 AURORA_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260911-empty "$PUBLISHER" os-promote \
   --tag os-v4.0.2-mac.1.20260911-empty --to rc >"$WORK/empty-rc.log" 2>&1 ||
   fail "the empty catalog then promotes to rc" "$(cat "$WORK/empty-rc.log")"
-cmp -s "$STREAM_DIR/channels/stable/catalog.signed.json" "$STREAM_DIR/channels/rc/catalog.signed.json" ||
-  fail "stable and rc serve the same empty catalog"
-pass "a signed empty catalog promotes to stable and rc and survives the stable prune"
+cmp -s "$STREAM_DIR/channels/stable/catalog.signed.json" \
+  "$STREAM_DIR/releases/os-v4.0.2-mac.1.20260911-empty/catalog.stable.signed.json" ||
+  fail "stable serves the empty catalog signed for stable"
+cmp -s "$STREAM_DIR/channels/rc/catalog.signed.json" \
+  "$STREAM_DIR/releases/os-v4.0.2-mac.1.20260911-empty/catalog.rc.signed.json" ||
+  fail "rc serves the empty catalog signed for rc"
+"$PUBLISHER" channel-status --channel all >"$WORK/empty-status.log" 2>&1 ||
+  fail "channel-status reads the empty channels" "$(cat "$WORK/empty-status.log")"
+grep -q "stable_equals_rc=yes" "$WORK/empty-status.log" ||
+  fail "stable and rc offer the same empty release" "$(cat "$WORK/empty-status.log")"
+pass "each channel's own signed empty catalog promotes to it and survives the stable prune"
 
 # --- replacing an empty catalog keeps it as the rollback set -----------------
-"$PUBLISHER" empty-catalog --sequence 1100 --output "$WORK/empty2.catalog" >/dev/null
+"$PUBLISHER" empty-catalog --channel rc --sequence 1100 --output "$WORK/empty2.catalog" >/dev/null
 sign_catalog "$WORK/empty2.catalog" "$WORK/empty2.sig"
 mkdir -p "$STREAM_DIR/releases/os-v4.0.2-mac.1.20260912-empty"
 "$PUBLISHER" envelope --catalog "$WORK/empty2.catalog" --signature "$WORK/empty2.sig" \
@@ -890,7 +1007,7 @@ pass "an empty catalog it replaces stays recorded for rollback"
 # An old app still reads its bundled legacy development endpoint. Pruning
 # must retain payloads reachable only through that compatibility alias.
 stage_payload "os-v4.0.2-mac.1.20260913" 128
-publish_candidate "os-v4.0.2-mac.1.20260913" 1200 "$BASE/releases/os-v4.0.2-mac.1.20260913/payload.zip" 128
+publish_candidate "os-v4.0.2-mac.1.20260913" 1200 "$BASE/releases/os-v4.0.2-mac.1.20260913/payload.zip" 128 undeclared
 mkdir -p "$STREAM_DIR/channels/edge"
 cp "$STREAM_DIR/releases/os-v4.0.2-mac.1.20260913/catalog.signed.json" "$STREAM_DIR/channels/edge/catalog.signed.json"
 AURORA_PUBLISH_ASSUME_YES=prune "$PUBLISHER" prune --confirm >"$WORK/legacy-prune.log" 2>&1 || fail "legacy-aware prune succeeds"

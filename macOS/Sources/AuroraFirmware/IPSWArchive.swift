@@ -233,7 +233,7 @@ public struct IPSWArchive: Sendable {
       let directory = name.hasSuffix("/")
       try require(
         safeRelative(directory ? String(name.dropLast()) : name) && name.utf8.count <= 4096
-          && !names.contains(name) && !name.contains("\0"),
+          && !names.contains(name) && !name.utf8.contains(0),
         "Unsafe or duplicate IPSW member name.")
       names.insert(name)
       let sizes = try extended(
@@ -465,7 +465,7 @@ public struct IPSWArchive: Sendable {
       member, maximumBytes: 4096, maximumCompressedBytes: 65536,
       expectedSHA256: nil, symbolicLink: true, consume: { bytes.append($0) })
     guard let target = String(data: bytes, encoding: .utf8), safeRelative(target),
-      !target.contains("\0")
+      !target.utf8.contains(0)
     else { throw RestoreFailure("Unsafe restore link target.") }
     return target
   }
