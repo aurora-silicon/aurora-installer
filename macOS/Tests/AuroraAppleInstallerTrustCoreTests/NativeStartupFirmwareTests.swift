@@ -62,14 +62,75 @@
       XCTAssertEqual(
         entry.models,
         [
-          "j615", "j704", "j713", "j714c", "j714s", "j716c", "j716s", "j775c", "j775d", "j813", "j815",
+          "j516s", "j615", "j704", "j713", "j714c", "j714s", "j716c", "j716s", "j775c", "j775d",
+          "j813", "j815",
           "j873s",
         ])
       // It is last, so it wins wherever a board qualifies for it.
       XCTAssertEqual(sealed.firmware.last?.pin?.build, Self.build)
-      // Admitting the Airs, the J704, J813, J815 and the T6050 boards does not change the
-      // M2 MacBook Air's choice.
+      // Admitting the Airs, the experimental J516s, J704, J813, J815 and the T6050 boards
+      // does not change the M2 MacBook Air's choice.
       XCTAssertEqual(try choose("apple,j413", air272, policy: sealed).version, "13.5")
+    }
+
+    func testBootFirmwareComparesByNumberWhateverTheLoaderIsCalled() throws {
+      typealias V = NativeInspectionPolicy.Version
+      XCTAssertTrue(try V.bootAtLeast("iBoot-20457.41.3", "mBoot-20457.41.3"))
+      XCTAssertTrue(try V.bootAtLeast("mBoot-20457.41.3", "iBoot-13822.120.5"))
+      XCTAssertFalse(try V.bootAtLeast("mBoot-18000.161.10", "iBoot-20457.1.29"))
+      XCTAssertTrue(try V.bootAtLeast("20457.41.3", "mBoot-20457.41.3"))
+      XCTAssertFalse(try V.bootAtLeast("iBoot-20457.41.2", "mBoot-20457.41.3"))
+      for bad in ["", "mBoot-", "iBoot-20457.x", "mBoot-20457..3", "Boot-1-2"] {
+        XCTAssertThrowsError(try V.bootAtLeast(bad, "mBoot-1"), bad)
+      }
+    }
+
+    /// A 14-inch M5 Pro on macOS 27.2 (system firmware 20457.41.3) takes the
+    /// 26B123 pin whichever loader name /chosen reports.
+    func testAnM5ProOn272TakesThe272PinWhicheverLoaderName() throws {
+      let sealed = try NativeInspectionPolicy.sealed()
+      for boot in ["mBoot-20457.41.3", "iBoot-20457.41.3"] {
+        let m5Pro = NativeInspectionHardware(
+          chipID: 0x6050, bootVersion: boot, macOSVersion: "27.2",
+          recoveryVersion: "26.2.123.0.0,0")
+        let selection = try choose("apple,j714s", m5Pro, policy: sealed)
+        XCTAssertEqual(selection.version, "27.2", boot)
+        XCTAssertEqual(selection.pin?.build, Self.build, boot)
+      }
+    }
+
+    /// Apple writes a 27.2 device build's Recovery as build, then variant:
+    /// 26B8125 is 26.2.125.8.0,0, as its restore image's RestoreVersion.plist
+    /// says, and a Mac's own SFR copy uses the same form (26B8119 here). The
+    /// OLED entry's minimum is in that form, so a Mac on exactly 26B8125 passes.
+    func testTheOLEDEntryAdmitsItsOwnDeviceBuildRecovery() throws {
+      let sealed = try NativeInspectionPolicy.sealed()
+      let exact = NativeInspectionHardware(
+        chipID: 0x6050, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2",
+        recoveryVersion: "26.2.125.8.0,0")
+      XCTAssertTrue(
+        try choose("apple,k114s", exact, policy: sealed).sourceURL.lastPathComponent
+          .hasSuffix("_26B8125_Restore.ipsw"))
+      let entry = try XCTUnwrap(
+        sealed.firmware.first { $0.sourceURL.hasSuffix("_26B8125_Restore.ipsw") })
+      XCTAssertEqual(entry.minimumRecovery, "26.2.125.8.0,0")
+    }
+
+    /// A Mac already on macOS 27.2 whose Recovery is older than its entry is
+    /// told which check is short, never to update to the macOS it runs.
+    func testAMacOn272WithAnOlderRecoveryIsToldWhatIsShort() throws {
+      let sealed = try NativeInspectionPolicy.sealed()
+      let oled = NativeInspectionHardware(
+        chipID: 0x6050, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2",
+        recoveryVersion: "26.2.119.8.0,0")
+      XCTAssertThrowsError(try choose("apple,k114s", oled, policy: sealed)) { error in
+        XCTAssertEqual(
+          error as? NativeFirmwareSelectionError,
+          .firmwareBelowRelease(
+            NativeFirmwareShortfall(
+              version: "27.2", check: .recovery, detected: "26.2.119.8.0,0",
+              required: "26.2.125.8.0,0")))
+      }
     }
 
     func testTheM5AirsTakeTheSealedPinAndAreAskedToUpdateBelow272() throws {
@@ -108,6 +169,47 @@
               device + " " + macOS)
           }
         }
+      }
+    }
+
+    func testJ516sTakesTheSealedPinAndIsAskedToUpdateBelow272() throws {
+      let sealed = try NativeInspectionPolicy.sealed()
+      for macOS in ["27.2", "27.2.1"] {
+        let j516s = NativeInspectionHardware(
+          chipID: 0x6030, bootVersion: "mBoot-20457.41.3", macOSVersion: macOS,
+          recoveryVersion: "26.2.123.0.0,0")
+        XCTAssertTrue(sealed.supports("apple,j516s", hardware: j516s), macOS)
+        let selection = try choose("apple,j516s", j516s, policy: sealed)
+        XCTAssertEqual(selection.version, "27.2", macOS)
+        XCTAssertEqual(selection.pin?.build, Self.build, macOS)
+        XCTAssertEqual(selection.stubBytes, 5_999_951_872, macOS)
+      }
+      // Below macOS 27.2 it no longer gets the 14.8.3 stub, and the macOS floor
+      // holds by itself: 27.1 is refused even on 27.2-level system firmware and
+      // Recovery.
+      for (boot, macOS, recovery) in [
+        ("iBoot-11881.1.1", "15.1", "24.1.0.0.0,0"),
+        ("mBoot-18000.120.36", "26.5.1", "25.6.80.0.0,0"),
+        ("mBoot-18000.161.10", "26.6.2", "25.7.83.0.0,0"),
+        ("mBoot-20457.41.3", "27.1", "26.2.123.0.0,0"),
+      ] {
+        let older = NativeInspectionHardware(
+          chipID: 0x6030, bootVersion: boot, macOSVersion: macOS, recoveryVersion: recovery)
+        XCTAssertThrowsError(try choose("apple,j516s", older, policy: sealed), macOS) { error in
+          XCTAssertEqual(
+            error as? NativeFirmwareSelectionError, .macOSUpdateRequired(version: "27.2"), macOS)
+        }
+      }
+      // The other M3 Pro and M3 Max MacBook Pros keep the 14.8.3 stub, even on 27.2.
+      let m3Pro272 = NativeInspectionHardware(
+        chipID: 0x6030, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2",
+        recoveryVersion: "26.2.123.0.0,0")
+      XCTAssertEqual(try choose("apple,j514s", m3Pro272, policy: sealed).version, "14.8.3")
+      let m3Max272 = NativeInspectionHardware(
+        chipID: 0x6031, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2",
+        recoveryVersion: "26.2.123.0.0,0")
+      for device in ["apple,j514c", "apple,j516c"] {
+        XCTAssertEqual(try choose(device, m3Max272, policy: sealed).version, "14.8.3", device)
       }
     }
 
@@ -187,12 +289,38 @@
       assertUpdate("apple,j615", j615On2662)
       // A release that lists 27.2 among others still stops it.
       assertUpdate("apple,j615", j615On2662, supported: ["14.8.3", "26.6.2", "27.2"])
-      // macOS 27.2 without the 27.2 system firmware is still below the floor.
-      assertUpdate(
-        "apple,j615",
-        NativeInspectionHardware(
-          chipID: 0x8122, bootVersion: "mBoot-18000.161.10", macOSVersion: "27.2",
-          recoveryVersion: "26.2.123.0.0,0"))
+      // macOS 27.2 without the 27.2 system firmware is still below the floor,
+      // but updating to the macOS it runs can't help: it is told the system
+      // firmware is short, not handed an older stub.
+      XCTAssertThrowsError(
+        try choose(
+          "apple,j615",
+          NativeInspectionHardware(
+            chipID: 0x8122, bootVersion: "mBoot-18000.161.10", macOSVersion: "27.2",
+            recoveryVersion: "26.2.123.0.0,0"), policy: sealed)
+      ) {
+        XCTAssertEqual(
+          $0 as? NativeFirmwareSelectionError,
+          .firmwareBelowRelease(
+            NativeFirmwareShortfall(
+              version: "27.2", check: .boot, detected: "mBoot-18000.161.10",
+              required: "mBoot-20457.41.3")))
+      }
+      // An Air on 27.2 with an older Recovery is told Recovery is short.
+      XCTAssertThrowsError(
+        try choose(
+          "apple,j713",
+          NativeInspectionHardware(
+            chipID: 0x8132, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2",
+            recoveryVersion: "26.2.119.0.0,0"), policy: sealed)
+      ) {
+        XCTAssertEqual(
+          $0 as? NativeFirmwareSelectionError,
+          .firmwareBelowRelease(
+            NativeFirmwareShortfall(
+              version: "27.2", check: .recovery, detected: "26.2.119.0.0,0",
+              required: "26.2.123.0.0,0")))
+      }
       assertUpdate(
         "apple,j713",
         NativeInspectionHardware(
@@ -503,10 +631,10 @@
       let archive = try await IPSWArchive.open(NativeWindowedRangeReader(source))
       let selection = NativeFirmwareSelection(
         version: entry.version, sourceURL: url, stubBytes: 5_999_951_872, pin: pin)
-      // M1 Pro, M2 Air, M2 mini, M4 Pro and the MacBook Neo.
+      // M1 Pro, M2 Air, M2 mini, M3 Pro, M4 Pro and the MacBook Neo.
       for (device, board, chip) in [
         ("j316s", 0x0A, 0x6000), ("j413", 0x28, 0x8112), ("j473", 0x24, 0x8112),
-        ("j616s", 0x06, 0x6040), ("j700", 0x64, 0x8140),
+        ("j516s", 0x06, 0x6030), ("j616s", 0x06, 0x6040), ("j700", 0x64, 0x8140),
       ] as [(String, UInt64, UInt64)] {
         let plan = try await NativeStubFilePlan(
           archive: archive, source: selection, deviceClass: device + "ap", boardID: board,

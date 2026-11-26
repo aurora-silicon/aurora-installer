@@ -205,7 +205,7 @@
           },
           "j516s": {
             "expert": false,
-            "minimum": "14.8.3"
+            "minimum": "27.2"
           },
           "j575c": {
             "expert": false,
@@ -405,7 +405,7 @@
             "expert": false,
             "minimumBoot": "iBoot-13822.120.5",
             "minimumMacOS": "27.0",
-            "minimumRecovery": "26.2.8125.0.0,0",
+            "minimumRecovery": "26.2.125.8.0,0",
             "models": [
               "k114c",
               "k114s",
@@ -456,7 +456,6 @@
               "j514s",
               "j514c",
               "j514m",
-              "j516s",
               "j516c",
               "j516m"
             ],
@@ -469,6 +468,7 @@
             "minimumMacOS": "27.2",
             "minimumRecovery": "26.2.123.0.0,0",
             "models": [
+              "j516s",
               "j615",
               "j704",
               "j713",

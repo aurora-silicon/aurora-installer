@@ -8,14 +8,14 @@
       "manifest_sha256": "sha256:0fbfae04175cde81ef36d273aa280d39ffe5a54eacba8494b45a59daca462510",
       "boards": {
         "j615": {
-          "kernel": "integration/aurora 7.3 (7.3.0-aurora-fleet78) with a Stage 2 carrying aura#227 (macOS 27.2 DCP on the M3 Air)",
+          "kernel": "linux main with linux#3133 (27.2 DCP, carries #1832) and linux#2576 (trackpad); aura 1.0.0b15 or later (aura#227); 27.2 GPU acceleration needs linux#3163",
           "distributions": [
             "Aurora Fedora Remix"
           ],
           "evidence": "https://github.com/aurora-silicon/aura/pull/227"
         },
         "j713": {
-          "kernel": "integration/aurora 7.3 with the J713 display and NVMe hand-off changes (aura#299, aura#305; linux#2189 for the internal display and GPU without boot parameters)",
+          "kernel": "linux main with linux#2533 (27.2 CPU clocks) and linux#2189; aura#299 and aura#305; the 27.2 internal panel needs linux#2541, #2818 and #2673",
           "distributions": [
             "Aurora Fedora Remix"
           ],
@@ -23,6 +23,16 @@
         }
       },
       "experimental_boards": {
+        "j516s": {
+          "device_tree": "arch/arm64/boot/dts/apple/t6030-j516s.dts",
+          "evidence": "https://github.com/aurora-silicon/linux/blob/4925fc23681e06d1371c4c3f26b1da35a9f79233/arch/arm64/boot/dts/apple/t6030-j516s.dts",
+          "manifest_identity": {
+            "device_class": "j516sap",
+            "chip_id": "0x6030",
+            "board_id": "0x06"
+          },
+          "qualification": "not_hardware_qualified"
+        },
         "j704": {
           "device_tree": "arch/arm64/boot/dts/apple/t8142-j704.dts",
           "evidence": "https://github.com/aurora-silicon/linux/blob/b241e354955f2caf95f57c0045f98e0613899d2d/arch/arm64/boot/dts/apple/t8142-j704.dts",

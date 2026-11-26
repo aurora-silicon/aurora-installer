@@ -1067,6 +1067,17 @@
             actionURL: softwareUpdateSettingsURL,
             actionTitle: openSoftwareUpdate
           )
+        case .firmwareBelowRelease(let version, let check, let detected, let required):
+          return FailureDisplay(
+            headline: "This Mac’s \(check) is older than Aurora needs",
+            plainDetail:
+              "This Mac already runs the macOS that Aurora needs, but its \(check) is \(detected) and Aurora’s macOS \(version) startup files need \(required) or later. The disk has not been changed.",
+            technicalDetail: technical,
+            remedy:
+              "Install any update offered in System Settings → General → Software Update, which also updates the \(check), then open \(windowTitle) again. If none is offered, reinstall macOS \(version) from Recovery.",
+            actionURL: softwareUpdateSettingsURL,
+            actionTitle: openSoftwareUpdate
+          )
         case .firmwareUnavailable:
           return FailureDisplay(
             headline: "Boot firmware for this Mac couldn’t be selected",
@@ -1225,6 +1236,16 @@
             remedy: "Review the error details, then try again."
           )
         }
+      }
+
+      if case SupportCatalogSequenceError.belowBuildFloor = error {
+        return FailureDisplay(
+          headline: "This installer is newer than the release server",
+          plainDetail:
+            "This channel’s signed release list is older than the one this installer was built with, so the release server hasn’t caught up with this installer yet. Installation has not started.",
+          technicalDetail: technical,
+          remedy: "Check again later, or choose another release channel from the menu bar."
+        )
       }
 
       if case SupportCatalogError.nativeEngineRequired = error {

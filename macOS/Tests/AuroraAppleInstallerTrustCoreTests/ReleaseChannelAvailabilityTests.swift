@@ -53,6 +53,7 @@
         SupportCatalogError.expired,
         SupportCatalogError.notYetValid,
         SupportCatalogSequenceError.rollback(stored: 9, candidate: 8),
+        SupportCatalogSequenceError.belowBuildFloor(floor: 9, candidate: 8),
         SupportCatalogSequenceError.sequenceReuse(9),
         AcceptedCatalogIdentityStoreError.unsafeState,
       ]
@@ -260,7 +261,23 @@
       XCTAssertEqual(edge, .available)
       XCTAssertEqual(testing, .checkFailed(.verification))
       var proof = try XCTUnwrap(object["edgeQualification"] as? [String: Any])
+      var linux = source("aurora-silicon/linux")
+      linux["branch"] = "main"
+      proof["linux"] = linux
+      object["edgeQualification"] = proof
+      XCTAssertThrowsError(
+        try ReleaseCatalogChannelPolicy.validate(
+          payload: JSONSerialization.data(withJSONObject: object), channel: .edge))
       var mesa = source("aurora-silicon/mesa")
+      mesa["branch"] = "aurora-wip"
+      proof["mesa"] = mesa
+      object["edgeQualification"] = proof
+      let defaults = coordinator(serving: [
+        configuration.catalogURL(for: .edge): try envelope(
+          JSONSerialization.data(withJSONObject: object))
+      ])
+      let defaultsAvailable = await availability(defaults, configuration, .edge)
+      XCTAssertEqual(defaultsAvailable, .available)
       mesa["branch"] = "main"
       proof["mesa"] = mesa
       object["edgeQualification"] = proof
@@ -496,6 +513,86 @@
           sequence: 6, payloadDigest: "sha256:" + String(repeating: "a", count: 64)))
 
       XCTAssertEqual(stable, .checkFailed(.verification))
+    }
+
+    // MARK: The build's own catalog floor
+
+    func testAFirstRunRefusesAChannelCatalogBelowTheBuildFloor() async throws {
+      // Sequence 7, with nothing stored: the floor alone decides.
+      let base = try configuration()
+      let coordinator = coordinator(serving: [
+        base.catalogURL(for: .testing): try envelope(modelCatalog(devices: [thisMac]))
+      ])
+
+      let below = await availability(coordinator, floored(base, [.testing: 8]), .testing)
+      let atFloor = await availability(coordinator, floored(base, [.testing: 7]), .testing)
+      let above = await availability(coordinator, floored(base, [.testing: 6]), .testing)
+      let otherChannel = await availability(coordinator, floored(base, [.stable: 8]), .testing)
+      let noFloor = await availability(coordinator, base, .testing)
+
+      XCTAssertEqual(below, .checkFailed(.verification))
+      XCTAssertEqual(atFloor, .available)
+      XCTAssertEqual(above, .available)
+      XCTAssertEqual(otherChannel, .available)
+      XCTAssertEqual(noFloor, .available)
+    }
+
+    func testASealedCatalogAtTheBuildFloorStillValidates() async throws {
+      // The build seals the very catalog its floor names, so the two are equal.
+      let payload = modelCatalog(devices: [thisMac])
+      let sealed = InstallerReleaseCatalogDocuments(
+        payload: payload, signature: try key.signature(for: payload))
+      let base = try configuration()
+      let offline = coordinator(serving: [:])
+
+      let atFloor = await availability(
+        offline, floored(base, [.testing: 7], sealed: sealed), .testing)
+      let below = await availability(
+        offline, floored(base, [.testing: 8], sealed: sealed), .testing)
+
+      XCTAssertEqual(atFloor, .available)
+      XCTAssertEqual(below, .checkFailed(.verification))
+    }
+
+    func testPreparingRefusesACatalogBelowTheBuildFloorBeforeAnyDownload() async throws {
+      let base = try configuration()
+      let coordinator = coordinator(serving: [
+        base.catalogURL(for: .testing): try envelope(modelCatalog(devices: [thisMac]))
+      ])
+      let request = InstallerReleasePreparationRequest(
+        host: host(),
+        configuration: floored(base, [.testing: 8]),
+        channel: .testing,
+        validationTime: now,
+        previouslyAcceptedCatalog: nil,
+        stagingDirectory: FileManager.default.temporaryDirectory
+          .appendingPathComponent("aurora-floor-\(UUID().uuidString.lowercased())")
+      )
+
+      do {
+        _ = try await coordinator.prepareRelease(request)
+        XCTFail("A catalog below the build floor was prepared")
+      } catch {
+        XCTAssertEqual(
+          error as? SupportCatalogSequenceError, .belowBuildFloor(floor: 8, candidate: 7))
+      }
+      XCTAssertFalse(FileManager.default.fileExists(atPath: request.stagingDirectory.path))
+    }
+
+    private func floored(
+      _ base: InstallerReleaseConfiguration,
+      _ minimumCatalogSequence: [ReleaseChannel: UInt64],
+      sealed: InstallerReleaseCatalogDocuments? = nil
+    ) -> InstallerReleaseConfiguration {
+      InstallerReleaseConfiguration(
+        channels: base.channels,
+        defaultChannel: base.defaultChannel,
+        trustRoot: base.trustRoot,
+        helperMachServiceName: base.helperMachServiceName,
+        helperCodeSigningRequirement: base.helperCodeSigningRequirement,
+        sealedCatalogDocuments: sealed,
+        minimumCatalogSequence: minimumCatalogSequence
+      )
     }
 
     // MARK: Preparation on a channel with no Mac release

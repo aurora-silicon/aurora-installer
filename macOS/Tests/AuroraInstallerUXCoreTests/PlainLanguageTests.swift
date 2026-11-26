@@ -202,6 +202,21 @@
       XCTAssertEqual(download.headline, "The network request didn’t finish")
     }
 
+    func testACatalogBelowTheBuildFloorSaysTheInstallerIsNewerThanTheServer() {
+      // A first run below the build's floor is not a rollback of anything
+      // this Mac accepted; the card and the log say what it is.
+      let failure = PlainLanguage.failure(
+        for: SupportCatalogSequenceError.belowBuildFloor(floor: 10, candidate: 9))
+      XCTAssertEqual(failure.headline, "This installer is newer than the release server")
+      XCTAssertEqual(
+        failure.remedy,
+        "Check again later, or choose another release channel from the menu bar.")
+      XCTAssertEqual(failure.technicalDetail, "belowBuildFloor(floor: 10, candidate: 9)")
+      let rollback = PlainLanguage.failure(
+        for: SupportCatalogSequenceError.rollback(stored: 10, candidate: 9))
+      XCTAssertNotEqual(rollback.headline, failure.headline)
+    }
+
     func testOnlyChannelsWithNothingForThisMacAreDisabled() {
       func enabled(_ channel: ReleaseChannel, _ availability: ReleaseChannelAvailability?) -> Bool {
         PlainLanguage.channelMenuItemEnabled(
@@ -549,6 +564,18 @@
 
       let firmware = PlainLanguage.failure(for: InstallerPlanPreparationError.firmwareUnavailable)
       XCTAssertNotEqual(firmware.headline, "An installation plan couldn’t be prepared")
+
+      let short = PlainLanguage.failure(
+        for: InstallerPlanPreparationError.firmwareBelowRelease(
+          version: "27.2", check: "Recovery", detected: "26.2.119.8.0,0",
+          required: "26.2.125.8.0,0"))
+      XCTAssertEqual(short.headline, "This Mac’s Recovery is older than Aurora needs")
+      XCTAssertFalse(short.headline.contains("Update macOS"))
+      for value in ["26.2.119.8.0,0", "26.2.125.8.0,0", "already runs"] {
+        XCTAssertTrue(short.plainDetail.contains(value), value)
+      }
+      XCTAssertTrue(short.plainDetail.hasSuffix("The disk has not been changed."))
+      XCTAssertEqual(short.actionURL, PlainLanguage.softwareUpdateSettingsURL)
     }
 
     func testUnsupportedModelNamesTheMacAndTheCatalogFamilies() throws {
