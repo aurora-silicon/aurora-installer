@@ -34,8 +34,9 @@ back when they did not.
     aurora-wifi-firmware boot            verify a pending change, then update
     aurora-wifi-firmware revert          put the files from before the last change back
 
-Exit codes: 0 done or nothing to do, 1 refused (nothing changed), 2 not now,
-3 internal error.
+Exit codes: 0 done or nothing to do, 1 refused (nothing changed) or a
+change whose secure boot UKIs were not rebuilt (the message says what to
+run), 2 not now, 3 internal error.
 """
 import argparse, contextlib, ctypes, errno, fcntl, gzip, hashlib, io, json, logging, os, pathlib, \
     plistlib, re, shutil, socket, struct, subprocess, sys, tarfile, tempfile, time, zlib
@@ -72,6 +73,8 @@ BACKUP_ROOT = pathlib.Path("/var/lib/aurora-rollback")
 BACKUP_PREFIX = "wifi-firmware-"
 KEEP_BACKUPS = 2
 MOUNTPOINT = "/run/aurora-wifi-firmware-esp"
+SECBOOT = "aurora-secboot"
+SECBOOT_PIN = "vendorfw.sha256"
 # The ESP this tool mounts itself is readable by root only while mounted
 # (vfat has no permissions of its own: they come from these options).
 ESP_MOUNT_OPTIONS = "dmask=0077,fmask=0177,nodev,nosuid,noexec"
@@ -104,6 +107,12 @@ class Transient(Refused):
     """A copy or the swap failed in a way the next try need not repeat (an
     I/O error, a copy that read back wrong, a .old in the way). A boot does
     not remember these: the next boot tries again."""
+
+
+class Unbound(Transient):
+    """The ESP's vendor firmware changed, but aurora-secboot's UKIs do not
+    name it yet, so signed boots refuse it. Not remembered: it says nothing
+    about the restore image."""
 
 
 class NotNow(Exception):
@@ -989,6 +998,56 @@ def commit(esp, pairs, backup, swap=exchange):
     os.sync()
 
 
+def rebind_secure_boot(esp, out=print, run=subprocess.run):
+    """Make aurora-secboot's UKIs name the ESP's vendor firmware archive.
+
+    A signed boot unpacks only the vendorfw/firmware.cpio whose digest its
+    UKI command line carries (aurora.vendorfw=), and aurora-secboot takes
+    that digest from the pin in its key directory. After a change to the
+    archive, pin the new one and rebuild each UKI, as kernel-install does;
+    otherwise the next signed boot refuses the radio firmware and the boot
+    check puts the previous files back."""
+    tool = shutil.which(SECBOOT)
+    if not tool:
+        return
+    try:
+        st = json.loads(run([tool, "status", "--json"], check=True, capture_output=True,
+                            text=True).stdout)
+    except (OSError, subprocess.CalledProcessError, ValueError) as e:
+        raise Unbound(f"aurora-secboot status failed ({e}); signed boots refuse the ESP's new "
+                      f"vendor firmware until its pin and UKIs follow it") from e
+    if not st.get("config_present"):
+        return
+    try:
+        same = os.path.samefile(st["esp"], esp)
+    except (KeyError, OSError):
+        same = False
+    if not same:
+        out(f"aurora-secboot uses another ESP ({st.get('esp')}); its vendor firmware pin is left alone")
+        return
+    key_dir = pathlib.Path(st["key_dir"])
+    if key_dir.is_dir():
+        pin, partial = key_dir / SECBOOT_PIN, key_dir / f".{SECBOOT_PIN}.new"
+        try:
+            digest = file_sha256(pathlib.Path(esp) / "vendorfw" / "firmware.cpio")
+            fd = os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(f"sha256:{digest}\n")
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(partial, pin)
+        except OSError as e:
+            raise Unbound(f"could not pin the ESP's new vendor firmware in {pin} ({e}); signed boots "
+                          f"refuse it until the pin and UKIs follow it") from e
+        out(f"Pinned the new vendor firmware for secure boot in {pin}")
+    for kver in [u["kernel"] for u in st.get("ukis", []) if u.get("kernel")]:
+        # kernel-install's step: it builds the UKI and, on the secure path,
+        # the boot loader copy too.
+        if run([tool, "hook", "add", kver]).returncode:
+            raise Unbound(f"the UKI of {kver} was not rebuilt; signed boots refuse the ESP's new "
+                          f"vendor firmware until 'aurora-secboot hook add {kver}' succeeds")
+
+
 # ---------------------------------------------------------------- state
 
 def read_state(state_dir=None):
@@ -1159,6 +1218,7 @@ def update(esp, macos=None, board=None, dry_run=False, backup_root=None,
                                  "parts": [part.key for part in parts], "boot_id": boot_id()}},
                     state_dir)
         prune_backups(backup_root)
+        rebind_secure_boot(esp, out)
         out(f"Done: macOS {macos.build}'s radio firmware is on the ESP and loads at the next boot. "
             f"The previous files are in {backup}.")
         return "updated"
@@ -1300,6 +1360,7 @@ def verify(state, esp, out=print, log_text=None, wait=VERIFY_WAIT, sleep=time.sl
     state["refused_build"] = state.get("build")
     state["refused_version"] = state.get("version")
     write_state(state, state_dir)
+    rebind_secure_boot(esp, out)
     return "reverted"
 
 
@@ -1441,6 +1502,7 @@ def main(argv=None):
                 st = read_state()
                 write_state(dict(st, result="reverted by hand", pending=None,
                                  refused_build=st.get("build"), refused_version=st.get("version")))
+                rebind_secure_boot(esp)
                 return 0
             state = read_state()
             if a.cmd == "boot":
@@ -1494,6 +1556,9 @@ def main(argv=None):
                                  esp_wifi=esp_wifi_digest(esp), tool=tool_digest(),
                                  refused_build=None, refused_version=None, refused=None))
             return 0
+    except Unbound as e:
+        print(f"Secure boot: {e}", file=sys.stderr)
+        return 1
     except Refused as e:
         print(f"Refused: {e}", file=sys.stderr)
         return 1

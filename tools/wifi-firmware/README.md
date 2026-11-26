@@ -116,8 +116,9 @@ space, the ESP has the space. A copy or swap that failed is not
 remembered: the next boot tries again. `aurora-wifi-firmware update`
 always tries again.
 
-Exit codes: 0 done or nothing to do, 1 refused (nothing changed), 2 not now
-(the restore image cannot be reached, the ESP mounted read only), 3 internal error.
+With aurora-secboot set up, a signed boot unpacks only the `vendorfw/firmware.cpio` whose digest its UKI command line carries (`aurora.vendorfw=`), and aurora-secboot takes that digest from `vendorfw.sha256` in its key directory. So after every change to the archive (an update, the boot check's revert and `revert`), the tool writes the new digest there and runs `aurora-secboot hook add` for each of this Mac's UKIs, the same step kernel-install runs. When a rebuild fails it exits 1 and names the command to run; until that succeeds, signed boots refuse the new firmware, and the boot check puts the previous files back. Without aurora-secboot, or when it uses another ESP, nothing changes.
+
+Exit codes: 0 done or nothing to do, 1 refused (nothing changed) or the secure boot UKIs were not rebuilt for a change (the message says what to run), 2 not now (the restore image cannot be reached, the ESP mounted read only), 3 internal error.
 
 ## Packaging
 

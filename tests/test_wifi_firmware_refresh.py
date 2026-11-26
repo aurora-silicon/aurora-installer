@@ -193,6 +193,10 @@ class Case(unittest.TestCase):
         self.state = self.root / "state"
         self.backups = self.root / "backups"
         self.out = []
+        # Never this host's aurora-secboot.
+        patcher = mock.patch.object(awf, "SECBOOT", str(self.root / "no-aurora-secboot"))
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -609,6 +613,107 @@ class VerifyRevertTest(Case):
         self.assertEqual(awf.tree_hashes(esp), old)
 
 
+KVER = "6.18.4-400.aurora.fc44.aarch64"
+FAKE_SECBOOT = """#!/bin/sh
+d=$(dirname "$0")
+case "$1" in
+  status) cat "$d/status.json" ;;
+  hook) echo "$*" >> "$d/hooks"; exit "$(cat "$d/hook-status")" ;;
+  *) exit 2 ;;
+esac
+"""
+
+
+class FakeSecboot:
+    """aurora-secboot's status --json and hook add, set up for an ESP."""
+
+    def __init__(self, case, esp):
+        self.dir = case.root / "secboot"
+        self.keys = self.dir / "keys"
+        self.keys.mkdir(parents=True, mode=0o700)
+        self.pin = self.keys / "vendorfw.sha256"
+        self.pin.write_text(archive_pin(esp))
+        cli = self.dir / "aurora-secboot"
+        cli.write_text(FAKE_SECBOOT)
+        cli.chmod(0o755)
+        self.status(esp=str(esp))
+        self.fail_hooks(False)
+        patcher = mock.patch.object(awf, "SECBOOT", str(cli))
+        patcher.start()
+        case.addCleanup(patcher.stop)
+
+    def status(self, esp, present=True):
+        (self.dir / "status.json").write_text(json.dumps({
+            "config_present": present, "key_dir": str(self.keys), "esp": esp,
+            "ukis": [{"kernel": KVER, "path": "a.efi"}, {"kernel": None, "path": "other.efi"}]}))
+
+    def fail_hooks(self, fail):
+        (self.dir / "hook-status").write_text("1" if fail else "0")
+
+    def hooks(self):
+        log = self.dir / "hooks"
+        return log.read_text().splitlines() if log.exists() else []
+
+    def pinned(self):
+        return self.pin.read_text()
+
+
+def archive_pin(esp):
+    return "sha256:" + awf.file_sha256(esp / "vendorfw" / "firmware.cpio") + "\n"
+
+
+class SecureBootTest(Case):
+    """A signed boot uses only the archive its UKI names; a change must follow there."""
+
+    def setUp(self):
+        super().setUp()
+        self.esp = make_esp(self.root, wifi_tree("old"))
+        self.old = archive_pin(self.esp)
+        self.secboot = FakeSecboot(self, self.esp)
+
+    def test_update_pins_the_new_archive_and_rebuilds_each_uki(self):
+        self.assertEqual(self.update(self.esp, self.macos(wifi_tree("new"))), "updated")
+        self.assertNotEqual(archive_pin(self.esp), self.old)
+        self.assertEqual(self.secboot.pinned(), archive_pin(self.esp))
+        self.assertEqual(self.secboot.pin.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(sorted(p.name for p in self.secboot.keys.iterdir()), ["vendorfw.sha256"])
+        self.assertEqual(self.secboot.hooks(), [f"hook add {KVER}"])
+
+    def test_failed_rebuild_names_the_command_and_keeps_the_boot_check(self):
+        self.secboot.fail_hooks(True)
+        with self.assertRaisesRegex(awf.Unbound, f"'aurora-secboot hook add {KVER}' succeeds") as cm:
+            self.update(self.esp, self.macos(wifi_tree("new")))
+        self.assertFalse(awf.remembered(cm.exception))
+        self.assertEqual(self.secboot.pinned(), archive_pin(self.esp))
+        # The next boot still checks the change and can put it back.
+        self.assertIn("pending", awf.read_state(self.state))
+
+    def test_boot_check_revert_pins_the_previous_archive(self):
+        self.update(self.esp, self.macos(wifi_tree("new")))
+        st = awf.read_state(self.state)
+        st["pending"]["boot_id"] = "an earlier boot"
+        r = awf.verify(st, self.esp, out=self.out.append, log_text="", wait=0,
+                       unpacked_sha=lambda n: st["pending"]["expect"][n], state_dir=self.state,
+                       swap=lambda a, b: False)
+        self.assertEqual(r, "reverted")
+        self.assertEqual(archive_pin(self.esp), self.old)
+        self.assertEqual(self.secboot.pinned(), self.old)
+        self.assertEqual(self.secboot.hooks(), [f"hook add {KVER}"] * 2)
+
+    def test_unconfigured_secure_boot_or_another_esp_is_left_alone(self):
+        self.secboot.status(esp=str(self.esp), present=False)
+        self.update(self.esp, self.macos(wifi_tree("new")))
+        self.assertEqual(self.secboot.pinned(), self.old)
+        other = self.root / "other-esp"
+        other.mkdir()
+        self.secboot.status(esp=str(other))
+        awf.rebind_secure_boot(self.esp, self.out.append)
+        self.assertEqual(self.secboot.pinned(), self.old)
+        self.assertEqual(self.secboot.hooks(), [])
+        self.assertIn(f"aurora-secboot uses another ESP ({other}); its vendor firmware pin is left alone",
+                      self.out)
+
+
 class MainTest(Case):
     """The commands as the boot unit and a person run them."""
 
@@ -851,6 +956,19 @@ class MainTest(Case):
         self.assertEqual(awf.esp_wifi_digest(self.esp), awf.sha256("".join(
             f"{k} {v}\n" for k, v in sorted(manifest.items())).encode()))
         self.assertIsNone(awf.read_state().get("refused_build"))
+
+    def test_secure_boot_follows_update_and_hand_revert(self):
+        old = archive_pin(self.esp)
+        secboot = FakeSecboot(self, self.esp)
+        secboot.fail_hooks(True)
+        # The firmware changed but signed boots would refuse it: say so.
+        self.assertEqual(self.run_main("update"), 1)
+        self.assertEqual(secboot.pinned(), archive_pin(self.esp))
+        secboot.fail_hooks(False)
+        self.assertEqual(self.run_main("revert"), 0)
+        self.assertEqual(archive_pin(self.esp), old)
+        self.assertEqual(secboot.pinned(), old)
+        self.assertEqual(secboot.hooks(), [f"hook add {KVER}"] * 2)
 
     def staged_new(self):
         raw = self.root / "raw-new"
