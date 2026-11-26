@@ -1227,6 +1227,16 @@
         }
       }
 
+      if case SupportCatalogSequenceError.belowBuildFloor = error {
+        return FailureDisplay(
+          headline: "This installer is newer than the release server",
+          plainDetail:
+            "This channel’s signed release list is older than the one this installer was built with, so the release server hasn’t caught up with this installer yet. Installation has not started.",
+          technicalDetail: technical,
+          remedy: "Check again later, or choose another release channel from the menu bar."
+        )
+      }
+
       if case SupportCatalogError.nativeEngineRequired = error {
         return FailureDisplay(
           headline: "This channel isn’t ready for this installer",

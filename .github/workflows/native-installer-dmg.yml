@@ -118,6 +118,18 @@ jobs:
                       original=original_stable/name
                       assert original.is_file() and not original.is_symlink() and original.stat().st_size<=limit
                       shutil.copyfile(original,stable/name)
+              # Each fetched channel's signed catalog, for its build floor (see
+              # prepare-distribution-release.py); an absent one gets no floor.
+              for channel in ('stable','rc','edge-alpha'):
+                  original=source/profile/'channels'/channel/'catalog.signed.json'
+                  if not original.exists() and not original.is_symlink():
+                      continue
+                  if channel=='stable' and os.environ['STABLE_RELEASE_TAG']:
+                      continue  # Copied above with its detached catalog.
+                  assert not any(p.is_symlink() for p in (original,original.parent,original.parent.parent))
+                  assert original.is_file() and original.stat().st_size<=1572864
+                  (destination/'channels'/channel).mkdir(parents=True)
+                  shutil.copyfile(original,destination/'channels'/channel/'catalog.signed.json')
           PYCATALOGS
       - name: Require catalogs paired with this execution contract
         env:
@@ -227,7 +239,7 @@ jobs:
           app="$RUNNER_TEMP/application/$INSTALLER_APP_NAME.app"
           python3 - "$app/Contents/Resources/Release/Profiles" \
             "$RUNNER_TEMP/release/profile-manifest.json" <<'PYPROFILES'
-          import hashlib,json,sys
+          import hashlib,json,os,sys
           from pathlib import Path
           profiles=Path(sys.argv[1]);manifest=json.loads(Path(sys.argv[2]).read_text())
           expected={f'{d}-{s}' for d in ('fedora','arch','nixos') for s in ('kde','gnome','minimal')}
@@ -239,6 +251,11 @@ jobs:
               catalog=json.loads(data)
               assert catalog['sequence']==record['sequence'],profile
               assert all(model.get('installationProfile') in (None,profile) for model in catalog['models']),profile
+              # The sealed default sits at its own floor, so it is never refused.
+              floor=json.loads((profiles/profile/'catalog-floor.json').read_text())['minimum_sequence']
+              default='stable' if os.environ['STABLE_RELEASE_TAG'] else 'testing'
+              assert floor[default]==record['sequence'],profile
+              print(profile,json.dumps(floor,sort_keys=True))
           assert (profiles.parent/'catalog.json').read_bytes()==(profiles/'fedora-gnome/catalog.json').read_bytes()
           PYPROFILES
           expected=disabled

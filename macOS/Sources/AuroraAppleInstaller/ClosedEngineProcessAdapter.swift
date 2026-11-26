@@ -7,6 +7,9 @@ public struct ClosedEngineCandidateRequest: Sendable {
   public let trustRoot: AppOwnedTrustRoot
   public let validationTime: Date
   public let previouslyAcceptedCatalog: AcceptedCatalogIdentity?
+  /// The build's own floor for the catalog's channel; see
+  /// `InstallerReleaseConfiguration.minimumCatalogSequence`.
+  public let minimumCatalogSequence: UInt64?
 
   public init(
     planningTranscript: Data,
@@ -14,7 +17,8 @@ public struct ClosedEngineCandidateRequest: Sendable {
     catalogSignature: Data,
     trustRoot: AppOwnedTrustRoot,
     validationTime: Date,
-    previouslyAcceptedCatalog: AcceptedCatalogIdentity? = nil
+    previouslyAcceptedCatalog: AcceptedCatalogIdentity? = nil,
+    minimumCatalogSequence: UInt64? = nil
   ) {
     self.planningTranscript = planningTranscript
     self.catalogPayload = catalogPayload
@@ -22,6 +26,7 @@ public struct ClosedEngineCandidateRequest: Sendable {
     self.trustRoot = trustRoot
     self.validationTime = validationTime
     self.previouslyAcceptedCatalog = previouslyAcceptedCatalog
+    self.minimumCatalogSequence = minimumCatalogSequence
   }
 }
 
@@ -119,7 +124,8 @@ public struct ClosedEngineProcessAdapter: Sendable {
       signature: request.catalogSignature,
       trustRoot: request.trustRoot,
       now: request.validationTime,
-      previouslyAccepted: request.previouslyAcceptedCatalog
+      previouslyAccepted: request.previouslyAcceptedCatalog,
+      minimumSequence: request.minimumCatalogSequence
     )
     let transcript = try trustCore.validateEngineTranscript(
       request.planningTranscript

@@ -153,7 +153,8 @@
         catalogSignature: request.release.catalogDocuments.signature,
         trustRoot: request.configuration.trustRoot,
         validationTime: request.validationTime,
-        previouslyAcceptedCatalog: request.previouslyAcceptedCatalog
+        previouslyAcceptedCatalog: request.previouslyAcceptedCatalog,
+        minimumCatalogSequence: request.release.minimumCatalogSequence
       )
       return PreparedInstallerPlanExecution(
         review: review,
