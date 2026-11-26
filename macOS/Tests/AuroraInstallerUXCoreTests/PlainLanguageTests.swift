@@ -567,11 +567,11 @@
 
       let short = PlainLanguage.failure(
         for: InstallerPlanPreparationError.firmwareBelowRelease(
-          version: "27.2", check: "Recovery", detected: "26.2.8119.0.0,0",
-          required: "26.2.8125.0.0,0"))
+          version: "27.2", check: "Recovery", detected: "26.2.119.8.0,0",
+          required: "26.2.125.8.0,0"))
       XCTAssertEqual(short.headline, "This Mac’s Recovery is older than Aurora needs")
       XCTAssertFalse(short.headline.contains("Update macOS"))
-      for value in ["26.2.8119.0.0,0", "26.2.8125.0.0,0", "already runs"] {
+      for value in ["26.2.119.8.0,0", "26.2.125.8.0,0", "already runs"] {
         XCTAssertTrue(short.plainDetail.contains(value), value)
       }
       XCTAssertTrue(short.plainDetail.hasSuffix("The disk has not been changed."))
