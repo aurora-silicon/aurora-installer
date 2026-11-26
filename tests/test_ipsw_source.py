@@ -45,7 +45,10 @@ class Catalog(unittest.TestCase):
             if m:
                 want.add((f["version"], m[2], f["sourceURL"]))
         self.assertTrue(want)
-        self.assertEqual(set(ipsw.catalog()), want)
+        got = set(ipsw.catalog())
+        self.assertTrue(want.issubset(got))
+        # Point releases carried for speaker-tuning readbacks beyond the stub list.
+        self.assertEqual({(v, b) for v, b, _ in got - want}, {("27.2.1", "26B131")})
 
     def test_versions(self):
         e = [("27.2", "26B7124", "https://a"), ("27.2", "26B123", "https://b"), ("13.5", "22G74", "https://c"),
@@ -109,6 +112,26 @@ class Find(unittest.TestCase):
             ipsw.find("j713", [], "99.0")
         with self.assertRaises(ipsw.IpswUnavailable):
             ipsw.find("j713", self.IMAGES, "27.2", zips({"https://a": None}))
+
+    def test_per_entry_version_and_preferred_build(self):
+        entries = [
+            ("26B123", "https://a"),
+            ("26B131", "https://b", "27.2.1"),
+            ("26B8125", "https://c"),
+        ]
+        oz = zips({
+            "https://a": manifest("26B123", "27.2", ["j713"]),
+            "https://b": manifest("26B131", "27.2.1", ["j713"]),
+            "https://c": manifest("26B8125", "27.2", ["k114c"]),
+        })
+        self.assertEqual(ipsw.find("j713", entries, "27.2", oz)[0], "26B123")
+        self.assertEqual(ipsw.find("j713", entries, "27.2", oz, preferred_build="26B131")[0], "26B131")
+        # An unpinned preferred_build is ignored and keeps the listed order.
+        self.assertEqual(ipsw.find("j713", entries, "27.2", oz, preferred_build="26B999")[0], "26B123")
+        # Per-entry version mismatch still refuses.
+        bad = zips({"https://b": manifest("26B131", "27.2", ["j713"])})
+        with self.assertRaises(ipsw.IpswError):
+            ipsw.find("j713", entries, "27.2", bad, preferred_build="26B131")
 
 
 class Src:
