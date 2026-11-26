@@ -203,7 +203,7 @@
           },
           "j516s": {
             "expert": false,
-            "minimum": "14.8.3"
+            "minimum": "27.2"
           },
           "j575c": {
             "expert": false,
@@ -454,7 +454,6 @@
               "j514s",
               "j514c",
               "j514m",
-              "j516s",
               "j516c",
               "j516m"
             ],
@@ -467,6 +466,7 @@
             "minimumMacOS": "27.2",
             "minimumRecovery": "26.2.123.0.0,0",
             "models": [
+              "j516s",
               "j704",
               "j714c",
               "j714s",
