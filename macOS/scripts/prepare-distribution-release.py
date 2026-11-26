@@ -15,15 +15,73 @@ ROOT = Path(__file__).resolve().parents[1]
 PROFILES = tuple(f"{distribution}-{desktop}" for distribution in ("fedora", "arch", "nixos")
                  for desktop in ("kde", "gnome", "minimal"))
 OMARCHY_PROFILE = "omarchy-hyprland"
+# The development delivery lineage the app reads as Testing when a catalog
+# declares no channel. This is ReleaseCatalogChannelPolicy.isLegacyDevelopment
+# and the undeclared Testing rule in validate(); both are pinned to the same
+# cases by Tests/AuroraAppleInstallerTrustCoreTests/Fixtures/
+# legacy-testing-catalog-vectors.json.
+LEGACY_REPOSITORIES = {"fedora": "fedora-aurora", "arch": "alarm-aurora",
+                       "nixos": "nixos-aurora", "omarchy": "omarchy-aurora"}
+LEGACY_EVIDENCE_PREFIX = "image-build-"
 
 
-def prepare(source, output, sealed=False, signing_team=None):
+def is_legacy_development(model, profiles):
+    if model.get("status") == "disabled":
+        return True
+    profile = model.get("installationProfile")
+    evidence = model.get("evidenceRevision")
+    artifact = model.get("payloadArtifact")
+    if not (isinstance(profile, str) and isinstance(evidence, str)
+            and evidence.startswith(LEGACY_EVIDENCE_PREFIX) and isinstance(artifact, dict)):
+        return False
+    file_name = artifact.get("fileName")
+    source = artifact.get("sourceURL")
+    if not (isinstance(file_name, str) and isinstance(source, str)
+            and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]*", file_name)):
+        return False
+    run = evidence[len(LEGACY_EVIDENCE_PREFIX):]
+    if not re.fullmatch(r"[1-9][0-9]*", run) or profile not in profiles:
+        return False
+    repository = LEGACY_REPOSITORIES.get(profile.split("-")[0])
+    if repository is None:
+        return False
+    tag = f"payload-{profile}-{run}"
+    return source in {f"https://github.com/aurora-silicon/{repository}/releases/download/{name}/{file_name}"
+                      for name in (tag, tag + "-models58", tag + "-models65")}
+
+
+def is_legacy_testing_catalog(catalog, profiles):
+    """An undeclared catalog the app reads as Testing: it lists at least one
+    Mac that is not disabled, and every model is of the delivery lineage."""
+    models = catalog.get("models") if isinstance(catalog, dict) else None
+    return (isinstance(models, list) and all(isinstance(model, dict) for model in models)
+            and any(model.get("status") != "disabled" for model in models)
+            and all(is_legacy_development(model, profiles) for model in models))
+
+
+def check_bundled_default(catalog, default_channel, profiles, name):
+    """The bundled catalog replaces the fetch for the default channel, so it
+    must pass the channel policy the app applies to that channel."""
+    if "channel" in catalog:
+        if not isinstance(catalog["channel"], str) or catalog["channel"] != default_channel:
+            raise ValueError(f"the bundled default catalog must declare {default_channel}: {name}")
+    elif default_channel != "testing" or not is_legacy_testing_catalog(catalog, profiles):
+        raise ValueError(f"an undeclared bundled catalog must be a Testing development delivery: {name}")
+
+
+def prepare(source, output, sealed=False, signing_team=None, stable_release_tag=None):
     omarchy = os.environ.get("AURORA_ENABLE_OMARCHY", "0")
     if omarchy not in ("0", "1"):
         raise ValueError("AURORA_ENABLE_OMARCHY must be 0 or 1")
     profiles = PROFILES + ((OMARCHY_PROFILE,) if omarchy == "1" else ())
     if signing_team is not None and not re.fullmatch(r"[A-Z0-9]{10}", signing_team):
         raise ValueError("invalid release signing team")
+    if stable_release_tag is not None and not re.fullmatch(
+        r"v[0-9]+\.[0-9]+\.[0-9]+-alpha\.[1-9][0-9]*", stable_release_tag
+    ):
+        raise ValueError("invalid Stable installer release tag")
+    if stable_release_tag is not None and not sealed:
+        raise ValueError("a Stable default requires sealed catalogs")
     identity = {}
     for line in (ROOT / "Packaging/identity.conf").read_text().splitlines():
         if not line.strip() or line.lstrip().startswith("#"):
@@ -45,19 +103,39 @@ def prepare(source, output, sealed=False, signing_team=None):
         key.write_bytes(bytes.fromhex("302a300506032b6570032100") + trusted)
         for profile in profiles:
             directory = source / profile
+            catalog_directory = directory / "channels/stable" if stable_release_tag is not None else directory
+            if stable_release_tag is not None and (catalog_directory.is_symlink()
+                                                   or catalog_directory.parent.is_symlink()):
+                raise ValueError(f"unsafe Stable catalog directory: {profile}")
             names = ("release.json", "trust-root.ed25519.pub", "catalog.json", "catalog.json.sig")
             data = {}
             for name in names:
-                path = directory / name
+                path = (catalog_directory if name.startswith("catalog.") else directory) / name
                 if path.is_symlink() or not path.is_file() or path.stat().st_size > 1048576:
                     raise ValueError(f"unsafe or missing {profile}/{name}")
                 data[name] = path.read_bytes()
             if data["trust-root.ed25519.pub"] != trusted or len(data["catalog.json.sig"]) != 64:
                 raise ValueError(f"untrusted delivery: {profile}")
             subprocess.run(["openssl", "pkeyutl", "-verify", "-pubin", "-keyform", "DER", "-inkey", str(key),
-                            "-rawin", "-in", str(directory / "catalog.json"), "-sigfile",
-                            str(directory / "catalog.json.sig")], check=True)
+                            "-rawin", "-in", str(catalog_directory / "catalog.json"), "-sigfile",
+                            str(catalog_directory / "catalog.json.sig")], check=True)
             catalog = json.loads(data["catalog.json"])
+            if stable_release_tag is not None:
+                envelope_path = catalog_directory / "catalog.signed.json"
+                if (envelope_path.is_symlink() or not envelope_path.is_file()
+                        or envelope_path.stat().st_size > 1500000):
+                    raise ValueError(f"unsafe or missing Stable envelope: {profile}")
+                envelope = json.loads(envelope_path.read_bytes())
+                if (not isinstance(envelope, dict) or set(envelope) != {"schema_version", "catalog", "signature"}
+                        or type(envelope["schema_version"]) is not int or envelope["schema_version"] != 1
+                        or base64.b64decode(envelope["catalog"], validate=True) != data["catalog.json"]
+                        or base64.b64decode(envelope["signature"], validate=True) != data["catalog.json.sig"]):
+                    raise ValueError(f"Stable envelope differs from its detached catalog: {profile}")
+                expected_url = "https://github.com/aurora-silicon/aurora-installer/releases/tag/" + stable_release_tag
+                if catalog.get("installer", {}).get("downloadURL") != expected_url:
+                    raise ValueError(f"Stable catalog names a different installer release: {profile}")
+                if not any(model.get("status") == "enabled" for model in catalog["models"]):
+                    raise ValueError(f"Stable catalog has no enabled models: {profile}")
             if catalog["schemaVersion"] != 5:
                 raise ValueError(f"catalog is not a native-only schema 5 catalog: {profile}")
             sequence = catalog.get("sequence")
@@ -74,8 +152,6 @@ def prepare(source, output, sealed=False, signing_team=None):
                 for model in catalog["models"]
             ):
                 raise ValueError(f"native-only catalog includes an execution archive: {profile}")
-            if catalog.get("channel") not in (None, "testing"):
-                raise ValueError("the bundled default must be a testing delivery")
             schema_versions.add(catalog["schemaVersion"])
             descriptor = json.loads(data["release.json"])
             expected = "sha256:" + hashlib.sha256(trusted).hexdigest()
@@ -86,7 +162,13 @@ def prepare(source, output, sealed=False, signing_team=None):
                 if descriptor["channels"][channel]["catalog_url"] != base + "/channels/" + ("edge-alpha" if channel == "edge" and "testing" in descriptor["channels"] else channel) + "/catalog.signed.json":
                     raise ValueError(f"descriptor channel mismatch: {profile}")
             documents[profile] = data
-            floors[profile] = {"testing": sequence}
+            if stable_release_tag is None:
+                floors[profile] = {"testing": sequence}
+            else:
+                # The sealed default is Stable; Testing is fetched, so its floor
+                # comes from the delivery's own verified base catalog.
+                floors[profile] = {"stable": sequence,
+                                   "testing": testing_floor(directory, profile, key)}
             for channel, name in FETCHED_CHANNEL_DIRECTORIES.items():
                 envelope = directory / "channels" / name / "catalog.signed.json"
                 if not envelope.exists() and not envelope.is_symlink():
@@ -109,6 +191,8 @@ def prepare(source, output, sealed=False, signing_team=None):
                 descriptor["default_channel"] = "testing"
         if set(channels) != {"stable", "rc", "testing", "edge"} or descriptor.get("default_channel") == "edge":
             raise ValueError("Edge is never the bundled default; all four channel endpoints are required")
+        if stable_release_tag is not None:
+            descriptor["default_channel"] = "stable"
         if signing_team is None:
             return (json.dumps(descriptor, indent=2) + "\n").encode()
         helper = identity["INSTALLER_HELPER_IDENTIFIER"]
@@ -125,6 +209,13 @@ def prepare(source, output, sealed=False, signing_team=None):
         return (json.dumps(descriptor, indent=2) + "\n").encode()
     descriptors = {profile: release_descriptor(data["release.json"]) for profile, data in documents.items()}
     root_descriptor = release_descriptor((ROOT / "Release/release.json").read_bytes())
+    # Published development deliveries predate the channel field; an undeclared
+    # one is accepted only where the app reads it as Testing.
+    for profile, data in documents.items():
+        check_bundled_default(json.loads(data["catalog.json"]),
+                              json.loads(descriptors[profile]).get("default_channel"), set(profiles), profile)
+    check_bundled_default(json.loads(documents["fedora-gnome"]["catalog.json"]),
+                          json.loads(root_descriptor).get("default_channel"), set(profiles), "release.json")
     # Nothing is emitted until every requested profile has verified.
     output.mkdir(parents=True)
     for profile, data in documents.items():
@@ -145,7 +236,7 @@ def prepare(source, output, sealed=False, signing_team=None):
     shutil.copyfile(ROOT / "Release/trust-root.ed25519.pub", output / "trust-root.ed25519.pub")
     if sealed:
         for name in ("catalog.json", "catalog.json.sig"):
-            (output / name).write_bytes(documents["fedora-kde"][name])
+            (output / name).write_bytes(documents["fedora-gnome"][name])
     (output / "profile-manifest.json").write_text(json.dumps({
         "schema": 1, "sealed": sealed, "profiles": {
             profile: {"catalog_sha256": hashlib.sha256(data["catalog.json"]).hexdigest(),
@@ -159,6 +250,22 @@ def prepare(source, output, sealed=False, signing_team=None):
 # comes from the verified bundled catalog.json (the sealed default), and the
 # legacy channels/edge alias is read by no shipped descriptor.
 FETCHED_CHANNEL_DIRECTORIES = {"stable": "stable", "rc": "rc", "edge": "edge-alpha"}
+
+
+def testing_floor(directory, profile, key):
+    """The sequence of the delivery's verified base (Testing) catalog."""
+    paths = [directory / name for name in ("catalog.json", "catalog.json.sig")]
+    if any(path.is_symlink() or not path.is_file() or path.stat().st_size > 1048576 for path in paths):
+        raise ValueError(f"unsafe or missing {profile} Testing catalog")
+    if paths[1].stat().st_size != 64:
+        raise ValueError(f"untrusted delivery: {profile}")
+    subprocess.run(["openssl", "pkeyutl", "-verify", "-pubin", "-keyform", "DER", "-inkey", str(key),
+                    "-rawin", "-in", str(paths[0]), "-sigfile", str(paths[1])], check=True)
+    catalog = json.loads(paths[0].read_bytes())
+    sequence = catalog.get("sequence") if type(catalog) is dict else None
+    if type(sequence) is not int or not 0 < sequence < 1 << 64:
+        raise ValueError(f"Testing catalog sequence is not a positive 64-bit integer: {profile}")
+    return sequence
 
 
 def channel_floor(path, channel, profile, key, temporary):
@@ -212,5 +319,6 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--sealed", action="store_true", help="seal exact signed catalogs for a developer/offline build")
     parser.add_argument("--signing-team", help="bind the root and all profile descriptors to this named-signing team")
+    parser.add_argument("--stable-release-tag", help="seal the signed Stable catalogs for this published installer tag")
     args = parser.parse_args()
-    prepare(args.profiles, args.output, args.sealed, args.signing_team)
+    prepare(args.profiles, args.output, args.sealed, args.signing_team, args.stable_release_tag)

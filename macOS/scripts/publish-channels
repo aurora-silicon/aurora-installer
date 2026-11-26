@@ -58,7 +58,7 @@ channels_usage() {
   cat <<'USAGE'
 Usage:
   publish-channels envelope --catalog FILE --signature FILE --output FILE
-  publish-channels empty-catalog --output FILE [--sequence N]
+  publish-channels empty-catalog --channel stable|rc|testing|edge --output FILE [--sequence N]
   publish-channels os-promote --tag TAG --to stable|rc|testing|edge [--minimum-sequence N] [--no-prune]
   publish-channels app-publish --zip FILE --version X.Y.Z [--to stable|rc|testing|edge]
   publish-channels channel-status [--channel stable|rc|testing|edge|all]
@@ -70,6 +70,14 @@ wrap it with envelope, stage it as releases/TAG/catalog.signed.json and
 os-promote it like any other release. Its sequence defaults to the current Unix
 time, as real catalogs use; a later one would block every real release until
 that time passes, so it is refused.
+
+Every catalog declares the one channel it is signed for, an empty one
+included, and os-promote publishes it to that channel only. A catalog that
+declares no channel is never promoted: the signature would not say which
+channel it belongs to, so the same bytes could be served on any of them.
+A release set that goes to more than one channel stages one signed catalog
+for each as releases/TAG/catalog.CHANNEL.signed.json; os-promote reads that
+first and releases/TAG/catalog.signed.json otherwise.
 
 Credentials come from AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY or the Keychain
 items omarchy-r2-access-key-id and omarchy-r2-secret-access-key.
@@ -119,23 +127,27 @@ bucket_key() {
 }
 
 # A channel with no Mac release yet still serves a signed catalog, so the app
-# can tell "nothing here yet" from a channel it cannot reach or verify.
+# can tell "nothing here yet" from a channel it cannot reach or verify. It
+# declares its channel like any other catalog, so one channel's empty catalog
+# cannot be served on another.
 write_empty_catalog() {
-  local sequence=$1 output=$2 now
+  local channel=$1 sequence=$2 output=$3 now
+  validate_channel "$channel"
   now=$(date +%s)
   [[ -n $sequence ]] || sequence=$now
   [[ $sequence =~ ^[1-9][0-9]*$ ]] || die "the sequence must be a positive integer: $sequence"
   (( sequence <= now )) ||
     die "the sequence $sequence is later than now ($now); real catalogs could not follow it"
   [[ ! -e $output ]] || die "refusing to overwrite $output"
-  python3 - "$sequence" "$output" <<'PY'
+  python3 - "$channel" "$sequence" "$output" <<'PY'
 import datetime
 import json
 import sys
 
-sequence, output = int(sys.argv[1]), sys.argv[2]
+channel, sequence, output = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 catalog = {
     "schemaVersion": 5,
+    "channel": channel,
     "sequence": sequence,
     "issuedAt": datetime.datetime.now(datetime.timezone.utc)
     .replace(microsecond=0)
@@ -147,6 +159,7 @@ with open(output, "x", encoding="utf-8") as stream:
     stream.write("\n")
 PY
   echo "empty_catalog=$output"
+  echo "catalog_channel=$channel"
   echo "catalog_sequence=$sequence"
 }
 
@@ -334,18 +347,37 @@ os_promote() {
   local work
   work=$(make_scratch)
 
-  echo "Reading releases/$tag/catalog.signed.json"
-  fetch_public "releases/$tag/catalog.signed.json" "$work/candidate.json" ||
-    die "releases/$tag/catalog.signed.json is not published"
+  # A set offered on more than one channel stages one signed catalog per
+  # channel, catalog.<channel>.signed.json; a set for a single channel may
+  # stage just catalog.signed.json. Either must declare the channel it goes to.
+  # Only a 404 for the channel's own catalog falls back to the single one; any
+  # other failure stops, so a transient error can't promote the other file.
+  local candidate_key="releases/$tag/catalog.$channel.signed.json" candidate_status
+  candidate_status=$(fetch_status "$candidate_key" "$work/candidate.json")
+  case $candidate_status in
+    200) ;;
+    404)
+      candidate_key="releases/$tag/catalog.signed.json"
+      candidate_status=$(fetch_status "$candidate_key" "$work/candidate.json")
+      case $candidate_status in
+        200) ;;
+        404) die "neither releases/$tag/catalog.$channel.signed.json nor $candidate_key is published" ;;
+        *) die "could not read $candidate_key ($candidate_status)" ;;
+      esac
+      ;;
+    *) die "could not read $candidate_key ($candidate_status); not falling back to releases/$tag/catalog.signed.json" ;;
+  esac
+  echo "Reading $candidate_key"
   decode_envelope "$work/candidate.json" "$work/catalog" "$work/signature"
   verify_catalog "$work/catalog" "$work/signature"
   local declared_channel
-  declared_channel=$(python3 - "$work/catalog" <<'PYCHANNEL'
-import json, sys
-print(json.load(open(sys.argv[1])).get("channel", ""))
-PYCHANNEL
-)
-  [[ -z $declared_channel || $declared_channel == "$channel" ]] ||
+  declared_channel=$(catalog_declared_channel "$work/catalog") ||
+    die "catalog does not declare a readable channel"
+  # The signature must name the channel: an undeclared catalog would verify on
+  # every channel, so it is not promoted to any.
+  [[ -n $declared_channel ]] ||
+    die "catalog declares no channel; $channel requires a catalog signed with \"channel\": \"$channel\""
+  [[ $declared_channel == "$channel" ]] ||
     die "catalog is bound to $declared_channel; $channel requires its own signed channel catalog"
 
   local sequence
@@ -664,6 +696,10 @@ channel_status() {
     if fetch_public "channels/$directory/catalog.signed.json" "$work/$channel.json"; then
       decode_envelope "$work/$channel.json" "$work/$channel.catalog" "$work/$channel.sig"
       if verify_catalog "$work/$channel.catalog" "$work/$channel.sig" >/dev/null 2>&1; then
+        echo "  catalog_channel=$(python3 -c '
+import json, sys
+print(json.load(open(sys.argv[1])).get("channel") or "undeclared")
+' "$work/$channel.catalog")"
         echo "  catalog_sequence=$(catalog_field "$work/$channel.catalog" sequence)"
         echo "  catalog_schema=$(catalog_field "$work/$channel.catalog" schemaVersion)"
         echo "  catalog_sha256=$(file_digest "$work/$channel.catalog")"
@@ -683,8 +719,18 @@ channel_status() {
   done
 
   if [[ $requested == "all" ]]; then
-    if [[ -f $work/stable.json && -f $work/rc.json ]] &&
-      [[ $(file_digest "$work/stable.json") == "$(file_digest "$work/rc.json")" ]]; then
+    # Each channel's catalog is signed for that channel alone, so the two
+    # agree when they offer the same release at the same sequence, not when
+    # the bytes match.
+    if [[ -f $work/stable.catalog && -f $work/rc.catalog ]] &&
+      python3 -c '
+import json, sys
+first, second = (json.load(open(path)) for path in sys.argv[1:3])
+for catalog in (first, second):
+    catalog.pop("channel", None)
+    catalog.pop("issuedAt", None)
+raise SystemExit(0 if first == second else 1)
+' "$work/stable.catalog" "$work/rc.catalog"; then
       echo "stable_equals_rc=yes"
     else
       echo "stable_equals_rc=no"
@@ -876,16 +922,17 @@ channels_main() {
       echo "envelope=$output"
       ;;
     empty-catalog)
-      local sequence="" output=""
+      local channel="" sequence="" output=""
       while (( $# > 0 )); do
         case $1 in
+          --channel) channel=${2:-}; shift 2 ;;
           --sequence) sequence=${2:-}; shift 2 ;;
           --output) output=${2:-}; shift 2 ;;
           *) channels_usage ;;
         esac
       done
-      [[ -n $output ]] || channels_usage
-      write_empty_catalog "$sequence" "$output"
+      [[ -n $channel && -n $output ]] || channels_usage
+      write_empty_catalog "$channel" "$sequence" "$output"
       ;;
     os-promote) os_promote "$@" ;;
     app-publish) app_publish "$@" ;;

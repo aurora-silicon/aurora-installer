@@ -1209,7 +1209,7 @@
               "Check your internet connection and try again, or choose another channel from the Release channel menu."
           )
         case .invalidCatalogEnvelope, .invalidCatalogSignature,
-          .oversizedDocument:
+          .invalidCatalogChannel, .oversizedDocument:
           return FailureDisplay(
             headline: "The release couldn’t be verified",
             plainDetail:

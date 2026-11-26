@@ -214,28 +214,42 @@
       // The M6 MacBook Pro (J804) and iMac (J833ct) are only in 27.2 (26B7124).
       let m6 = NativeInspectionHardware(
         chipID: 0x8152, bootVersion: "mBoot-20457.1.29", macOSVersion: "27.2",
-        recoveryVersion: "26.2.7124.0.0,0")
+        recoveryVersion: "26.2.124.7.0,0")
+      let m6on2721 = NativeInspectionHardware(
+        chipID: 0x8152, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2.1",
+        recoveryVersion: "26.2.131.7.0,0")
       for device in ["apple,j804", "apple,j833ct"] {
-        XCTAssertTrue(policy.supports(device, hardware: m6), device)
-        let selection = try choose(device, m6)
-        XCTAssertEqual(selection.version, "27.2", device)
-        XCTAssertEqual(
-          selection.sourceURL.lastPathComponent, "UniversalMac_27.2_26B7124_Restore.ipsw", device)
+        for hardware in [m6, m6on2721] {
+          XCTAssertTrue(policy.supports(device, hardware: hardware), device)
+          let selection = try choose(device, hardware)
+          XCTAssertEqual(selection.version, "27.2", device)
+          XCTAssertEqual(
+            selection.sourceURL.lastPathComponent, "UniversalMac_27.2_26B7124_Restore.ipsw", device)
+        }
       }
       // The 27.2 entry is theirs alone: the M6 Mac mini keeps its 27.0 stub.
       XCTAssertEqual(try choose("apple,j873g", m6).version, "27.0")
-      // The 14-inch M5 MacBook Pro (J704) is in the universal 26.6.2 (25G83)
-      // image, like the 13-inch J813.
+      // The 14-inch M5 MacBook Pro (J704) and both M5 MacBook Airs (J813, J815)
+      // run only on the pinned macOS 27.2 stub: on 26.6.2 they are asked to
+      // update macOS first.
       let m5 = NativeInspectionHardware(
         chipID: 0x8142, bootVersion: "mBoot-18000.161.10", macOSVersion: "26.6.2",
         recoveryVersion: "25.7.83.0.0,0")
-      XCTAssertTrue(policy.supports("apple,j704", hardware: m5))
-      XCTAssertEqual(try choose("apple,j704", m5).version, "26.6.2")
-      // The 15-inch M5 MacBook Air (J815) runs only on the pinned macOS 27.2
-      // stub: on 26.6.2 it is asked to update macOS first.
-      XCTAssertThrowsError(try choose("apple,j815", m5)) { error in
+      for device in ["apple,j704", "apple,j813", "apple,j815"] {
+        XCTAssertThrowsError(try choose(device, m5), device) { error in
+          XCTAssertEqual(
+            error as? NativeFirmwareSelectionError, .macOSUpdateRequired(version: "27.2"), device)
+        }
+      }
+      let m5on272 = NativeInspectionHardware(
+        chipID: 0x8142, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2.1",
+        recoveryVersion: "26.2.123.0.0,0")
+      for device in ["apple,j704", "apple,j813", "apple,j815"] {
+        XCTAssertTrue(policy.supports(device, hardware: m5on272), device)
+        let selection = try choose(device, m5on272)
+        XCTAssertEqual(selection.version, "27.2", device)
         XCTAssertEqual(
-          error as? NativeFirmwareSelectionError, .macOSUpdateRequired(version: "27.2"))
+          selection.sourceURL.lastPathComponent, "UniversalMac_27.2_26B123_Restore.ipsw", device)
       }
     }
 

@@ -400,7 +400,8 @@ def esp_archive(remote, members, wanted, path):
 # ---------------------------------------------------------------- cells
 
 def check(name, ok, detail, hardware=None, scope=None):
-    """scope 'published' marks checks of today's signed images rather than the pins."""
+    """scope 'published' marks checks of today's signed images; 'distro' marks
+    floating distro-branch pin and parity checks."""
     return {'check': name, 'ok': ok, 'detail': detail, 'hardware': hardware, 'scope': scope}
 
 
@@ -505,7 +506,7 @@ def evaluate(machine, mode, distro, dry, context):
     # 5. U-Boot and aura pins: the distro branch, and the published image's sources
     branch, built = context['branches'][distro], context['built'][distro]
     pins = context['pins']
-    for label, sources, scope in (('branch', branch, None), ('published image', built, 'published')):
+    for label, sources, scope in (('branch', branch, 'distro'), ('published image', built, 'published')):
         if sources is None:
             continue
         problems = []
@@ -517,7 +518,8 @@ def evaluate(machine, mode, distro, dry, context):
             pins['aura'][:12], pins['u_boot'][:12]), scope=scope))
     parity = context['parity']
     lag = parity['lagging'].get(distro)
-    checks.append(check('distro parity', not lag, lag or 'kernel, aura and U-Boot match the other distributions'))
+    checks.append(check('distro parity', not lag, lag or 'kernel, aura and U-Boot match the other distributions',
+                        scope='distro'))
 
     # 6. the distribution image: public, sized and digest-checked
     problems, digests = [], []
@@ -708,9 +710,10 @@ def container_summary(macos):
     return ' (macOS container %.1f GB, %.1f GB used; a resize keeps used + 38 GB)' % (a['capacity'] / 1e9, used / 1e9)
 
 
-def verdict(checks, at_pin=False):
+def verdict(checks, at_pin=False, strict_distro=False):
     if at_pin:
-        checks = [c for c in checks if c.get('scope') != 'published']
+        ignored = {'published'} if strict_distro else {'published', 'distro'}
+        checks = [c for c in checks if c.get('scope') not in ignored]
     if any(c['ok'] is False for c in checks):
         return 'FAIL'
     if any(c['ok'] is None for c in checks) or any(c['hardware'] for c in checks):
@@ -822,6 +825,8 @@ def main():
     parser.add_argument('--verify-digests', action='store_true',
                         help='download every payload part and check its SHA-256 against the signed catalog')
     parser.add_argument('--expect', help='expected at-pin verdicts; exit 1 only when a cell does worse')
+    parser.add_argument('--strict-distro-pins', action='store_true',
+                        help='count distro branch pins and distro parity in at-pin verdicts')
     parser.add_argument('--stage1', help='the pinned aura raw Stage 1, to apply known iBoot size limits')
     parser.add_argument('--machines', default=str(HERE / 'fixtures/machines'))
     parser.add_argument('--cache', default=os.path.join(tempfile.gettempdir(), 'installer-conformance-cache'))
@@ -916,7 +921,8 @@ def main():
                            for d in DESKTOPS_BY_DISTRO[distro]}
                 checks = evaluate(machine, mode, distro, results, context)
                 cells.append({'machine': machine['name'], 'device': machine['device_identifier'], 'mode': mode,
-                              'distro': distro, 'verdict': verdict(checks), 'at_pin': verdict(checks, True),
+                              'distro': distro, 'verdict': verdict(checks),
+                              'at_pin': verdict(checks, True, strict_distro=args.strict_distro_pins),
                               'checks': checks})
     report = {'pins': pins, 'branches': branches, 'built': built, 'tips': tip_lag(branches, pins),
               'images': {d: {k: {'payload': v['payload_name'], 'source': v['image_source']} for k, v in p.items()}
@@ -990,8 +996,9 @@ def distro_sources_from(data):
 def markdown(report):
     titles = {'fedora': 'Fedora', 'arch': 'Arch', 'nixos': 'NixOS', 'omarchy': 'Omarchy'}
     columns = ['Machine', 'Mode'] + [titles[d] + ' (today / at pin)' for d in report['built']]
-    lines = ['Today: the installer with the signed catalogs it downloads now. At the pin: the same, once images',
-             'built from the pinned branches are published (checks of today\'s images left out).', '',
+    lines = ['Today: the installer with the signed catalogs it downloads now and live distro branches. At the pin:',
+             'the installer against its own pins (checks of today\'s images left out, and floating distro-branch',
+             'pins/parity left out unless --strict-distro-pins is set).', '',
              '| ' + ' | '.join(columns) + ' |', '| ' + ' | '.join(['---'] * len(columns)) + ' |']
     index = {(c['machine'], c['mode'], c['distro']): c for c in report['cells']}
     for machine in dict.fromkeys(c['machine'] for c in report['cells']):
