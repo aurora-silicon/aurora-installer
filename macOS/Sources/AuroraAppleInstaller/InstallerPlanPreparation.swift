@@ -15,6 +15,10 @@
     /// This Mac's boot firmware is older than every OS firmware the release
     /// allows; it must update to this macOS version first.
     case macOSUpdateRequired(version: String)
+    /// This Mac runs the macOS the release needs, but its boot firmware or
+    /// Recovery is older than the release's entry: `check` names which, with
+    /// the version this Mac has and the one needed.
+    case firmwareBelowRelease(version: String, check: String, detected: String, required: String)
     /// No compatible boot firmware could be selected for this Mac.
     case firmwareUnavailable
     /// The firmware this Mac needs comes only as an OTA update archive this

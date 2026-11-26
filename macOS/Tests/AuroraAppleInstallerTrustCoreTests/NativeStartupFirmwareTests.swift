@@ -71,6 +71,49 @@
       XCTAssertEqual(try choose("apple,j413", air272, policy: sealed).version, "13.5")
     }
 
+    func testBootFirmwareComparesByNumberWhateverTheLoaderIsCalled() throws {
+      typealias V = NativeInspectionPolicy.Version
+      XCTAssertTrue(try V.bootAtLeast("iBoot-20457.41.3", "mBoot-20457.41.3"))
+      XCTAssertTrue(try V.bootAtLeast("mBoot-20457.41.3", "iBoot-13822.120.5"))
+      XCTAssertFalse(try V.bootAtLeast("mBoot-18000.161.10", "iBoot-20457.1.29"))
+      XCTAssertTrue(try V.bootAtLeast("20457.41.3", "mBoot-20457.41.3"))
+      XCTAssertFalse(try V.bootAtLeast("iBoot-20457.41.2", "mBoot-20457.41.3"))
+      for bad in ["", "mBoot-", "iBoot-20457.x", "mBoot-20457..3", "Boot-1-2"] {
+        XCTAssertThrowsError(try V.bootAtLeast(bad, "mBoot-1"), bad)
+      }
+    }
+
+    /// A 14-inch M5 Pro on macOS 27.2 (device build 26B8119, system firmware
+    /// 20457.41.3) takes the 26B123 pin whichever loader name /chosen reports.
+    func testAnM5ProOnItsOwn272BuildTakesThe272Pin() throws {
+      let sealed = try NativeInspectionPolicy.sealed()
+      for boot in ["mBoot-20457.41.3", "iBoot-20457.41.3"] {
+        let m5Pro = NativeInspectionHardware(
+          chipID: 0x6050, bootVersion: boot, macOSVersion: "27.2",
+          recoveryVersion: "26.2.8119.0.0,0")
+        let selection = try choose("apple,j714s", m5Pro, policy: sealed)
+        XCTAssertEqual(selection.version, "27.2", boot)
+        XCTAssertEqual(selection.pin?.build, Self.build, boot)
+      }
+    }
+
+    /// A Mac already on macOS 27.2 whose Recovery is older than its entry is
+    /// told which check is short, never to update to the macOS it runs.
+    func testAMacOn272WithAnOlderRecoveryIsToldWhatIsShort() throws {
+      let sealed = try NativeInspectionPolicy.sealed()
+      let oled = NativeInspectionHardware(
+        chipID: 0x6050, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2",
+        recoveryVersion: "26.2.8119.0.0,0")
+      XCTAssertThrowsError(try choose("apple,k114s", oled, policy: sealed)) { error in
+        XCTAssertEqual(
+          error as? NativeFirmwareSelectionError,
+          .firmwareBelowRelease(
+            NativeFirmwareShortfall(
+              version: "27.2", check: .recovery, detected: "26.2.8119.0.0,0",
+              required: "26.2.8125.0.0,0")))
+      }
+    }
+
     func testTheM5AirsTakeTheSealedPinAndAreAskedToUpdateBelow272() throws {
       let sealed = try NativeInspectionPolicy.sealed()
       for device in ["apple,j813", "apple,j815"] {
