@@ -39,7 +39,7 @@ change whose secure boot UKIs were not rebuilt (the message says what to
 run), 2 not now, 3 internal error.
 """
 import argparse, contextlib, ctypes, errno, fcntl, gzip, hashlib, io, json, logging, os, pathlib, \
-    plistlib, re, shutil, socket, struct, subprocess, sys, tarfile, tempfile, time, zlib
+    plistlib, re, shutil, socket, stat, struct, subprocess, sys, tarfile, tempfile, time, zlib
 
 HERE = pathlib.Path(__file__).resolve().parent
 for cand in (HERE, HERE.parents[1]):
@@ -998,38 +998,151 @@ def commit(esp, pairs, backup, swap=exchange):
     os.sync()
 
 
-def rebind_secure_boot(esp, out=print, run=subprocess.run):
-    """Make aurora-secboot's UKIs name the ESP's vendor firmware archive.
-
-    A signed boot unpacks only the vendorfw/firmware.cpio whose digest its
-    UKI command line carries (aurora.vendorfw=), and aurora-secboot takes
-    that digest from the pin in its key directory. After a change to the
-    archive, pin the new one and rebuild each UKI, as kernel-install does;
-    otherwise the next signed boot refuses the radio firmware and the boot
-    check puts the previous files back."""
+def secure_boot(esp, out=print, run=subprocess.run):
+    """(aurora-secboot, its status) when it is set up for this ESP, else None."""
     tool = shutil.which(SECBOOT)
     if not tool:
-        return
+        return None
     try:
         st = json.loads(run([tool, "status", "--json"], check=True, capture_output=True,
                             text=True).stdout)
     except (OSError, subprocess.CalledProcessError, ValueError) as e:
-        raise Unbound(f"aurora-secboot status failed ({e}); signed boots refuse the ESP's new "
-                      f"vendor firmware until its pin and UKIs follow it") from e
+        raise Transient(f"aurora-secboot status failed ({e})") from e
     if not st.get("config_present"):
-        return
+        return None
     try:
         same = os.path.samefile(st["esp"], esp)
     except (KeyError, OSError):
         same = False
     if not same:
+        log.warning(f"aurora-secboot uses another ESP ({st.get('esp')}); its vendor firmware pin is "
+                    "left alone")
         out(f"aurora-secboot uses another ESP ({st.get('esp')}); its vendor firmware pin is left alone")
-        return
-    key_dir = pathlib.Path(st["key_dir"])
-    if key_dir.is_dir():
-        pin, partial = key_dir / SECBOOT_PIN, key_dir / f".{SECBOOT_PIN}.new"
+        return None
+    return tool, st
+
+
+def read_pin(st):
+    """aurora-secboot's vendor firmware pin (sha256:<digest> or none, or
+    whatever the file holds), or None when nothing is pinned."""
+    try:
+        return (pathlib.Path(st["key_dir"]) / SECBOOT_PIN).read_text().strip()
+    except FileNotFoundError:
+        return None
+
+
+def cpio_files(data):
+    """{name: (mode, bytes)} of the files in a newc archive, hard links
+    resolved; directories are left out and anything else is refused."""
+    entries, bodies, off = [], {}, 0
+    while True:
+        off = (off + 3) & ~3
+        head = data[off:off + 110]
+        if len(head) < 110 or head[:6] not in (b"070701", b"070702"):
+            raise Refused("firmware.cpio is not a newc archive")
         try:
-            digest = file_sha256(pathlib.Path(esp) / "vendorfw" / "firmware.cpio")
+            f = [int(head[6 + 8 * i:14 + 8 * i], 16) for i in range(13)]
+            name = data[off + 110:off + 110 + f[11] - 1].decode("ascii")
+        except ValueError:
+            raise Refused("firmware.cpio has a malformed header") from None
+        ino, mode, size = f[0], f[1], f[6]
+        off = (off + 110 + f[11] + 3) & ~3
+        if name == "TRAILER!!!":
+            return {n: (m, bodies[i]) for n, i, m in entries}
+        body = data[off:off + size]
+        if len(body) != size:
+            raise Refused("firmware.cpio is truncated")
+        off += size
+        if stat.S_ISDIR(mode):
+            continue
+        if not stat.S_ISREG(mode):
+            raise Refused(f"firmware.cpio holds {name}, which is not a file")
+        # A hard link's data is in one of its entries; the others are empty.
+        if size or ino not in bodies:
+            bodies[ino] = body
+        entries.append((name, ino, mode & 0o777))
+
+
+def tar_files(path):
+    """{name: (mode, bytes)} of firmware.tar's files, hard links resolved."""
+    out = {}
+    with tarfile.open(path) as tar:
+        for m in tar.getmembers():
+            if m.isdir():
+                continue
+            src, hops = m, 0
+            while src.islnk() and hops < 64:
+                src, hops = tar.getmember(src.linkname), hops + 1
+            if not src.isfile():
+                raise Refused(f"firmware.tar holds {m.name}, which is not a file")
+            out[m.name] = (src.mode & 0o777, tar.extractfile(src).read())
+    return out
+
+
+def check_vendorfw(vendorfw, pin):
+    """Refuse unless vendorfw/ is the package aurora-secboot's pin names:
+    firmware.cpio, the only part a signed boot uses, has the pinned digest,
+    and firmware.tar and manifest.txt, which a rebuild keeps files from,
+    hold what it holds. Returns the digest."""
+    vendorfw = pathlib.Path(vendorfw)
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", pin or ""):
+        raise Refused(f"aurora-secboot's vendor firmware pin is {pin or 'empty'!r}, not an archive digest: "
+                      "signed boots trust no archive, so a new one needs the owner to remove the pin")
+    try:
+        data = (vendorfw / "firmware.cpio").read_bytes()
+    except OSError as e:
+        raise Refused(f"cannot read {vendorfw / 'firmware.cpio'}: {e}") from e
+    if "sha256:" + sha256(data) != pin:
+        raise Refused(f"{vendorfw / 'firmware.cpio'} is not the archive aurora-secboot's pin names: "
+                      "signed boots refuse it, and nothing is built on it")
+    files = cpio_files(data)
+    _, manifest = files.pop("vendorfw/.vendorfw.manifest", (None, None))
+    try:
+        if manifest is None or (vendorfw / "manifest.txt").read_bytes() != manifest:
+            raise Refused(f"{vendorfw / 'manifest.txt'} is not the manifest in the pinned firmware.cpio")
+        if {f"vendorfw/{k}": v for k, v in tar_files(vendorfw / "firmware.tar").items()} != files:
+            raise Refused(f"{vendorfw / 'firmware.tar'} does not hold what the pinned firmware.cpio holds")
+    except (OSError, KeyError, tarfile.TarError) as e:
+        raise Refused(f"{vendorfw} does not read as the pinned package: {e}") from e
+    return sha256(data)
+
+
+def rebind_secure_boot(esp, digest, out=print, run=subprocess.run):
+    """Make aurora-secboot's pin and UKIs name the archive this tool put on
+    the ESP: digest is its firmware.cpio's, as built or checked here, or
+    None for one nothing checked.
+
+    A signed boot unpacks only the vendorfw/firmware.cpio whose digest its
+    UKI command line carries (aurora.vendorfw=), and aurora-secboot takes
+    that digest from the pin in its key directory, which is the only source
+    of truth: the pin follows a change only to an archive built from checked
+    files (the restore image's, and those of the pinned package), and only
+    when the ESP holds exactly that archive. Then each UKI is rebuilt, as
+    kernel-install does; otherwise the next signed boot refuses the radio
+    firmware and the boot check puts the previous files back."""
+    try:
+        sb = secure_boot(esp, out, run)
+    except Transient as e:
+        raise Unbound(f"{e}; signed boots refuse the ESP's new vendor firmware until its pin and "
+                      f"UKIs follow it") from e
+    if sb is None:
+        return
+    tool, st = sb
+    pin = pathlib.Path(st["key_dir"]) / SECBOOT_PIN
+    if read_pin(st) is not None:
+        if digest is None:
+            raise Unbound(f"the restored vendor firmware was backed up without a secure boot pin to check "
+                          f"it against, so it is not pinned: signed boots refuse it until the owner removes "
+                          f"{pin} and rebuilds the UKIs")
+        try:
+            on_esp = file_sha256(pathlib.Path(esp) / "vendorfw" / "firmware.cpio")
+        except OSError as e:
+            on_esp = f"unreadable ({e})"
+        if on_esp != digest:
+            raise Unbound("the ESP's firmware.cpio is not the one this tool built or checked, so it is not "
+                          "pinned: signed boots refuse it")
+        partial = pin.with_name(f".{SECBOOT_PIN}.new")
+        try:
             fd = os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(fd, "w") as f:
                 f.write(f"sha256:{digest}\n")
@@ -1108,6 +1221,12 @@ def update(esp, macos=None, board=None, dry_run=False, backup_root=None,
     backup_root = pathlib.Path(backup_root or BACKUP_ROOT)
     p = plan(esp, macos, board, out)
     esp, vendorfw, all_fw, macos = p["esp"], p["vendorfw"], p["all_fw"], p["macos"]
+    # The rebuild keeps every other file of the ESP's package, so on the
+    # secure path that package must be the one aurora-secboot pinned.
+    sb = secure_boot(esp, out)
+    pin = read_pin(sb[1]) if sb else None
+    if pin is not None:
+        check_vendorfw(vendorfw, pin)
     with tempfile.TemporaryDirectory(prefix="aurora-wifi-firmware-") as tmp:
         tmp = pathlib.Path(tmp)
         parts, files, trees, raw_same = [], {}, {}, True
@@ -1172,6 +1291,7 @@ def update(esp, macos=None, board=None, dry_run=False, backup_root=None,
         staged.mkdir()
         rebuild_vendorfw(vendorfw, staged, files, owns)
         check_package(vendorfw, staged, files, owns)
+        built = file_sha256(staged / "firmware.cpio")
         new_fw = tmp / "all_firmware.tar.gz"
         if not raw_same:
             try:
@@ -1204,6 +1324,9 @@ def update(esp, macos=None, board=None, dry_run=False, backup_root=None,
         if not raw_same:
             copy_verified(all_fw, backup / "all_firmware.tar.gz")
         copy_verified(vendorfw, backup / "vendorfw")
+        if pin is not None:
+            # Checked against it above; a revert re-pins only a backup that matches.
+            (backup / SECBOOT_PIN).write_text(pin + "\n")
         out(f"Backed up the ESP files to {backup}")
         pairs = ([] if raw_same else [(new_fw, all_fw)]) + [(staged, vendorfw)]
         commit(esp, pairs, backup, swap)
@@ -1218,7 +1341,7 @@ def update(esp, macos=None, board=None, dry_run=False, backup_root=None,
                                  "parts": [part.key for part in parts], "boot_id": boot_id()}},
                     state_dir)
         prune_backups(backup_root)
-        rebind_secure_boot(esp, out)
+        rebind_secure_boot(esp, built, out)
         out(f"Done: macOS {macos.build}'s radio firmware is on the ESP and loads at the next boot. "
             f"The previous files are in {backup}.")
         return "updated"
@@ -1354,13 +1477,13 @@ def verify(state, esp, out=print, log_text=None, wait=VERIFY_WAIT, sleep=time.sl
            "the unpacked firmware is not the one put on the ESP" if got != expect else
            f"{', '.join(down)} did not come up within {wait} s")
     out(f"The new radio firmware did not come up ({why}); putting the previous files back.")
-    revert(esp, pathlib.Path(pend["backup"]), out=out, swap=swap)
+    restored = revert(esp, pathlib.Path(pend["backup"]), out=out, swap=swap)
     state.pop("pending", None)
     state["result"] = "reverted"
     state["refused_build"] = state.get("build")
     state["refused_version"] = state.get("version")
     write_state(state, state_dir)
-    rebind_secure_boot(esp, out)
+    rebind_secure_boot(esp, restored, out)
     return "reverted"
 
 
@@ -1379,10 +1502,16 @@ def revert(esp, backup=None, out=print, swap=exchange, backup_root=None):
         pairs.append((backup / "all_firmware.tar.gz", esp / "asahi" / "all_firmware.tar.gz"))
     if not (backup / "vendorfw" / "manifest.txt").is_file():
         raise Refused(f"{backup} holds no vendorfw")
+    # The secure boot pin the backup was checked against when it was made:
+    # restore only what still matches it. A backup without one is restored
+    # but not pinned (rebind_secure_boot).
+    restored = None
+    if (backup / SECBOOT_PIN).is_file():
+        restored = check_vendorfw(backup / "vendorfw", (backup / SECBOOT_PIN).read_text().strip())
     pairs.append((backup / "vendorfw", esp / "vendorfw"))
     commit(esp, pairs, backup, swap)
     out(f"Restored the ESP's radio firmware files from {backup}; they load at the next boot.")
-    return "reverted"
+    return restored
 
 
 # ---------------------------------------------------------------- main
@@ -1496,13 +1625,13 @@ def main(argv=None):
                 status(esp, board)
                 return 0
             if a.cmd == "revert":
-                revert(esp)
+                restored = revert(esp)
                 # The boot unit leaves this macOS build alone from now on;
                 # `update` (or a newer macOS) brings it back.
                 st = read_state()
                 write_state(dict(st, result="reverted by hand", pending=None,
                                  refused_build=st.get("build"), refused_version=st.get("version")))
-                rebind_secure_boot(esp)
+                rebind_secure_boot(esp, restored)
                 return 0
             state = read_state()
             if a.cmd == "boot":

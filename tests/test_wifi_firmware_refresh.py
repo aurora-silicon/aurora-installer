@@ -662,6 +662,17 @@ def archive_pin(esp):
     return "sha256:" + awf.file_sha256(esp / "vendorfw" / "firmware.cpio") + "\n"
 
 
+def edit_tar(path, name, data):
+    """Rewrite one member of a tar in place, as someone with the ESP could."""
+    with tarfile.open(path) as tar:
+        members = [(m, tar.extractfile(m).read() if m.isfile() else None) for m in tar.getmembers()]
+    with tarfile.open(path, "w") as tar:
+        for m, body in members:
+            if m.name == name:
+                body, m.size = data, len(data)
+            tar.addfile(m, io.BytesIO(body) if body is not None else None)
+
+
 class SecureBootTest(Case):
     """A signed boot uses only the archive its UKI names; a change must follow there."""
 
@@ -678,6 +689,77 @@ class SecureBootTest(Case):
         self.assertEqual(self.secboot.pin.stat().st_mode & 0o777, 0o600)
         self.assertEqual(sorted(p.name for p in self.secboot.keys.iterdir()), ["vendorfw.sha256"])
         self.assertEqual(self.secboot.hooks(), [f"hook add {KVER}"])
+        backups = list(self.backups.glob("*/vendorfw.sha256"))
+        self.assertEqual([b.read_text() for b in backups], [self.old], "the backup keeps the pin it matched")
+
+    def refused(self, why):
+        before = awf.tree_hashes(self.esp)
+        with self.assertRaisesRegex(awf.Refused, why):
+            self.update(self.esp, self.macos(wifi_tree("new")))
+        self.assertEqual(awf.tree_hashes(self.esp), before)
+        self.assertEqual(self.secboot.hooks(), [])
+
+    def test_an_edited_firmware_tar_is_not_built_on(self):
+        # Boots use only firmware.cpio, so an edited firmware.tar goes unnoticed
+        # until a rebuild keeps its files; then the pin would bless them.
+        edit_tar(self.esp / "vendorfw" / "firmware.tar", "asmedia/asm2214a-apple.bin", b"planted")
+        self.refused("firmware.tar does not hold what the pinned firmware.cpio holds")
+        self.assertEqual(self.secboot.pinned(), self.old)
+
+    def test_an_archive_signed_boots_refuse_is_not_built_on(self):
+        with open(self.esp / "vendorfw" / "firmware.cpio", "ab") as f:
+            f.write(bytes(4))
+        self.refused("is not the archive aurora-secboot's pin names")
+        self.assertEqual(self.secboot.pinned(), self.old)
+
+    def test_an_edited_manifest_is_not_built_on(self):
+        manifest = self.esp / "vendorfw" / "manifest.txt"
+        manifest.write_text(manifest.read_text() + "FILE planted.bin SHA256 " + "0" * 64 + "\n")
+        self.refused("is not the manifest in the pinned firmware.cpio")
+
+    def test_a_pinned_none_is_not_replaced(self):
+        # The owner pinned no archive; a new one needs them to remove the pin.
+        self.secboot.pin.write_text("none\n")
+        self.refused("not an archive digest")
+        self.assertEqual(self.secboot.pinned(), "none\n")
+
+    def test_an_esp_that_changes_after_the_commit_is_not_pinned(self):
+        cpio = self.esp / "vendorfw" / "firmware.cpio"
+        with mock.patch.object(awf, "prune_backups", side_effect=lambda *a, **k: cpio.write_bytes(b"swapped")), \
+                self.assertRaisesRegex(awf.Unbound, "not the one this tool built or checked"):
+            self.update(self.esp, self.macos(wifi_tree("new")))
+        self.assertEqual(self.secboot.pinned(), self.old)
+        self.assertEqual(self.secboot.hooks(), [])
+
+    def changed(self):
+        self.update(self.esp, self.macos(wifi_tree("new")))
+        st = awf.read_state(self.state)
+        st["pending"]["boot_id"] = "an earlier boot"
+        return st, pathlib.Path(st["pending"]["backup"])
+
+    def dead_boot(self, st):
+        return awf.verify(st, self.esp, out=self.out.append, log_text="", wait=0,
+                          unpacked_sha=lambda n: st["pending"]["expect"][n], state_dir=self.state,
+                          swap=lambda a, b: False)
+
+    def test_a_tampered_backup_is_not_restored(self):
+        st, backup = self.changed()
+        new, pinned = awf.tree_hashes(self.esp), self.secboot.pinned()
+        edit_tar(backup / "vendorfw" / "firmware.tar", "asmedia/asm2214a-apple.bin", b"planted")
+        with self.assertRaisesRegex(awf.Refused, "does not hold what the pinned firmware.cpio holds"):
+            self.dead_boot(st)
+        self.assertEqual(awf.tree_hashes(self.esp), new)
+        self.assertEqual(self.secboot.pinned(), pinned)
+
+    def test_a_backup_without_its_pin_is_restored_but_not_pinned(self):
+        st, backup = self.changed()
+        pinned = self.secboot.pinned()
+        (backup / "vendorfw.sha256").unlink()
+        with self.assertRaisesRegex(awf.Unbound, "backed up without a secure boot pin"):
+            self.dead_boot(st)
+        self.assertEqual(archive_pin(self.esp), self.old, "the files are back")
+        self.assertEqual(self.secboot.pinned(), pinned, "but not pinned")
+        self.assertEqual(awf.read_state(self.state)["result"], "reverted")
 
     def test_failed_rebuild_names_the_command_and_keeps_the_boot_check(self):
         self.secboot.fail_hooks(True)
@@ -707,7 +789,7 @@ class SecureBootTest(Case):
         other = self.root / "other-esp"
         other.mkdir()
         self.secboot.status(esp=str(other))
-        awf.rebind_secure_boot(self.esp, self.out.append)
+        awf.rebind_secure_boot(self.esp, None, self.out.append)
         self.assertEqual(self.secboot.pinned(), self.old)
         self.assertEqual(self.secboot.hooks(), [])
         self.assertIn(f"aurora-secboot uses another ESP ({other}); its vendor firmware pin is left alone",
