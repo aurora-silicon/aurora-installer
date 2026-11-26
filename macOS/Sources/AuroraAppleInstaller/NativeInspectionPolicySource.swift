@@ -391,7 +391,7 @@
             "expert": false,
             "minimumBoot": "mBoot-20457.1.29",
             "minimumMacOS": "27.0",
-            "minimumRecovery": "26.2.7124.0.0,0",
+            "minimumRecovery": "26.2.124.7.0,0",
             "models": [
               "j804",
               "j833ct"

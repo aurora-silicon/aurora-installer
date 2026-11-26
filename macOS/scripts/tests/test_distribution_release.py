@@ -1,3 +1,4 @@
+import base64
 import importlib.util
 import json
 import os
@@ -95,7 +96,7 @@ class DistributionReleaseTests(unittest.TestCase):
         self.assertEqual({entry.name for entry in (output / "Profiles").iterdir()},
                          set(module.PROFILES))
         self.assertEqual((output / "catalog.json").read_bytes(),
-                         (self.profiles / "fedora-kde/catalog.json").read_bytes())
+                         (self.profiles / "fedora-gnome/catalog.json").read_bytes())
 
     def test_complete_native_only_set(self):
         for profile in module.PROFILES:
@@ -125,6 +126,66 @@ class DistributionReleaseTests(unittest.TestCase):
         with patch.object(module, "ROOT", self.root):
             module.prepare(self.profiles, output, sealed=True)
         self.assertEqual(json.loads((output / "catalog.json").read_text())["channel"], "testing")
+
+    def create_stable_catalogs(self):
+        tag = "v0.1.0-alpha.23"
+        for profile in module.PROFILES:
+            directory = self.profiles / profile
+            stable = directory / "channels/stable"
+            stable.mkdir(parents=True)
+            catalog = json.loads((directory / "catalog.json").read_bytes())
+            catalog.update(channel="stable", sequence=2)
+            catalog["installer"] = {
+                "downloadURL": "https://github.com/aurora-silicon/aurora-installer/releases/tag/" + tag
+            }
+            raw = json.dumps(catalog).encode()
+            (stable / "catalog.json").write_bytes(raw)
+            self.sign(stable)
+            signature = (stable / "catalog.json.sig").read_bytes()
+            (stable / "catalog.signed.json").write_text(json.dumps({
+                "schema_version": 1, "catalog": base64.b64encode(raw).decode(),
+                "signature": base64.b64encode(signature).decode()
+            }))
+        return tag
+
+    def test_seals_all_profiles_from_the_selected_stable_baseline(self):
+        tag = self.create_stable_catalogs()
+        output = self.root / "output"
+        with patch.object(module, "ROOT", self.root):
+            module.prepare(self.profiles, output, sealed=True, stable_release_tag=tag)
+        for profile in module.PROFILES:
+            bundled = output / "Profiles" / profile
+            source = self.profiles / profile / "channels/stable"
+            descriptor = json.loads((bundled / "release.json").read_bytes())
+            self.assertEqual(descriptor["default_channel"], "stable")
+            self.assertTrue(descriptor["channels"]["testing"]["catalog_url"].endswith(
+                "/channels/testing/catalog.signed.json"))
+            for name in ("catalog.json", "catalog.json.sig"):
+                self.assertEqual((bundled / name).read_bytes(), (source / name).read_bytes())
+        self.assertEqual(json.loads((output / "release.json").read_bytes())["default_channel"], "stable")
+        self.assertEqual((output / "catalog.json").read_bytes(),
+                         (output / "Profiles/fedora-gnome/catalog.json").read_bytes())
+
+    def test_refuses_a_stable_envelope_with_different_detached_bytes(self):
+        tag = self.create_stable_catalogs()
+        directory = self.profiles / "fedora-gnome/channels/stable"
+        path = directory / "catalog.signed.json"
+        envelope = json.loads(path.read_bytes())
+        envelope["catalog"] = base64.b64encode(b"{}").decode()
+        path.write_text(json.dumps(envelope))
+        output = self.root / "output"
+        with patch.object(module, "ROOT", self.root), self.assertRaisesRegex(
+                ValueError, "Stable envelope differs from its detached catalog"):
+            module.prepare(self.profiles, output, sealed=True, stable_release_tag=tag)
+        self.assertFalse(output.exists())
+
+    def test_refuses_stable_catalogs_for_a_different_release(self):
+        self.create_stable_catalogs()
+        output = self.root / "output"
+        with patch.object(module, "ROOT", self.root), self.assertRaisesRegex(
+                ValueError, "Stable catalog names a different installer release"):
+            module.prepare(self.profiles, output, sealed=True, stable_release_tag="v0.1.0-alpha.22")
+        self.assertFalse(output.exists())
 
     def test_a_delivery_signed_for_another_channel_emits_no_release(self):
         for channel in ("stable", "rc", "edge", "", 5):

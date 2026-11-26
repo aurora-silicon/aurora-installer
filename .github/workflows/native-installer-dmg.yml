@@ -18,6 +18,10 @@ on:
         description: Prerelease tag
         default: 'v0.1.0-alpha.4'
         required: true
+      stable-release-tag:
+        description: Published installer tag for the signed Stable catalogs to use as the app default
+        default: ''
+        required: false
       publish-release:
         description: Publish a prerelease after building; disable for a signed local rebuild
         type: boolean
@@ -55,6 +59,7 @@ jobs:
         env:
           PROFILES_REVISION: ${{ inputs.profiles-revision }}
           APP_VERSION: ${{ inputs.version }}
+          STABLE_RELEASE_TAG: ${{ inputs.stable-release-tag }}
           LOCAL_PAYLOAD_TEST: ${{ inputs.test-local-payloads }}
           PUBLISH_RELEASE: ${{ inputs.publish-release }}
         run: |
@@ -65,6 +70,7 @@ jobs:
           fi
           [[ $PROFILES_REVISION =~ ^[0-9a-f]{40}$ ]]
           [[ $APP_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ -z $STABLE_RELEASE_TAG || $STABLE_RELEASE_TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha\.[1-9][0-9]*$ ]]
           [[ $(uname -m) == arm64 ]]
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -76,6 +82,8 @@ jobs:
             site/installer/Profiles
           persist-credentials: false
       - name: Load the current signed distribution catalogs
+        env:
+          STABLE_RELEASE_TAG: ${{ inputs.stable-release-tag }}
         run: |
           set -euo pipefail
           if [[ ! -x /opt/homebrew/opt/openssl@3/bin/openssl ]]; then brew install openssl@3; fi
@@ -101,6 +109,15 @@ jobs:
                   original=source/profile/name
                   assert original.is_file() and not original.is_symlink() and original.stat().st_size<=1<<20
                   shutil.copyfile(original,destination/name)
+              if os.environ['STABLE_RELEASE_TAG']:
+                  stable=destination/'channels/stable'
+                  stable.mkdir(parents=True)
+                  original_stable=source/profile/'channels/stable'
+                  assert original_stable.is_dir() and not original_stable.is_symlink() and not original_stable.parent.is_symlink()
+                  for name,limit in (('catalog.json',1<<20),('catalog.json.sig',64),('catalog.signed.json',1500000)):
+                      original=original_stable/name
+                      assert original.is_file() and not original.is_symlink() and original.stat().st_size<=limit
+                      shutil.copyfile(original,stable/name)
           PYCATALOGS
       - name: Require catalogs paired with this execution contract
         env:
@@ -191,15 +208,19 @@ jobs:
           APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
           APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
           AURORA_APP_VERSION: ${{ inputs.version }}
+          STABLE_RELEASE_TAG: ${{ inputs.stable-release-tag }}
         run: |
           set -euo pipefail
           cat > "$RUNNER_TEMP/package.sh" <<'PACKAGE'
           #!/bin/bash
           set -euo pipefail
           source Packaging/identity.conf
-          python3 scripts/prepare-distribution-release.py \
-            --profiles "$RUNNER_TEMP/alpha-catalogs/Profiles" \
-            --output "$RUNNER_TEMP/release" --sealed --signing-team "$AURORA_TEAM_ID"
+          release_args=(--profiles "$RUNNER_TEMP/alpha-catalogs/Profiles"
+                        --output "$RUNNER_TEMP/release" --sealed --signing-team "$AURORA_TEAM_ID")
+          if [[ -n "$STABLE_RELEASE_TAG" ]]; then
+            release_args+=(--stable-release-tag "$STABLE_RELEASE_TAG")
+          fi
+          python3 scripts/prepare-distribution-release.py "${release_args[@]}"
           export AURORA_APP_BUILD_NUMBER=$(date -u +%y%m%d%H%M)
           export AURORA_RECOVERY_TEMPLATE="$RUNNER_TEMP/recovery-template/$INSTALLER_APP_NAME.app"
           bash Packaging/build-app.sh "$RUNNER_TEMP/release" "$RUNNER_TEMP/application"
@@ -218,7 +239,7 @@ jobs:
               catalog=json.loads(data)
               assert catalog['sequence']==record['sequence'],profile
               assert all(model.get('installationProfile') in (None,profile) for model in catalog['models']),profile
-          assert (profiles.parent/'catalog.json').read_bytes()==(profiles/'fedora-kde/catalog.json').read_bytes()
+          assert (profiles.parent/'catalog.json').read_bytes()==(profiles/'fedora-gnome/catalog.json').read_bytes()
           PYPROFILES
           expected=disabled
           if [[ $AURORA_LOCAL_PAYLOAD_TEST_BUILD == 1 ]]; then expected=enabled; fi

@@ -50,7 +50,7 @@ The vendor firmware on the EFI partition (`vendorfw/`, `asahi/all_firmware.tar.g
 
 ### What the owner does
 
-The same as after a fresh install: shut down, hold the power button until the startup options appear, choose the slot's volume ("Aurora Fedora Remix 27.2"), and let its Recovery enroll Stage 1 with the owner's password (`bputil` and `kmutil configure-boot`, as the installation's own Recovery does). The Mac then starts the slot. To go back, choose the old volume in the startup options, or run `asahi-bless` from Linux.
+The same as after a fresh install: shut down, hold the power button until the startup options appear, choose the slot's volume ("Aurora Fedora Remix 27.2"), and let its Recovery enroll Stage 1 with the owner's password (`bputil` and `kmutil configure-boot`, as the installation's own Recovery does). The Mac then starts the slot. To go back, choose the old volume in the startup options, or run `aurora-bless` from Linux.
 
 ### Not built yet
 

@@ -49,4 +49,4 @@ Catalogs bind the selected profile and exact artifact hashes. Firmware and calib
 
 See [DMG release builds](docs/native-dmg-release.md) and [local payload testing](docs/private-local-payload-install.md). Current downloads and hardware qualification belong in the distribution repository.
 
-Omarchy Aurora offers Hyprland only and reuses the signed ALARM Btrfs/GRUB/first-boot contract. Other distributions keep their existing KDE, GNOME and minimal profiles.
+Omarchy Aurora offers Hyprland only and reuses the signed ALARM Btrfs/GRUB/first-boot contract. Aurora Fedora Remix defaults to GNOME and keeps KDE Plasma and minimal profiles; ALARM and NixOS keep their existing KDE, GNOME and minimal profiles.
