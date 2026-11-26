@@ -112,6 +112,28 @@
             chipID: vector.hardware.chipID, bootVersion: entry.minimumBoot,
             macOSVersion: version, recoveryVersion: entry.minimumRecovery)
           XCTAssertNoThrow(try choose(updated), vector.name)
+        } catch NativeFirmwareSelectionError.firmwareBelowRelease(let shortfall) {
+          // macOS already meets the entry: only the named boot firmware or
+          // Recovery is short, and meeting it makes the entry selectable.
+          named += 1
+          XCTAssertNotEqual(shortfall.check, .macOS, vector.name)
+          let entry = try XCTUnwrap(
+            policy.firmware.last {
+              $0.version == shortfall.version
+                && ($0.minimumBoot == shortfall.required
+                  || $0.minimumRecovery == shortfall.required)
+            }, vector.name)
+          XCTAssertEqual(
+            shortfall.detected,
+            shortfall.check == .boot
+              ? vector.hardware.bootVersion : vector.hardware.recoveryVersion, vector.name)
+          let updated = NativeInspectionHardware(
+            chipID: vector.hardware.chipID,
+            bootVersion: shortfall.check == .boot ? entry.minimumBoot : vector.hardware.bootVersion,
+            macOSVersion: vector.hardware.macOSVersion,
+            recoveryVersion: shortfall.check == .recovery
+              ? entry.minimumRecovery : vector.hardware.recoveryVersion)
+          XCTAssertNoThrow(try choose(updated), vector.name)
         } catch NativeFirmwareSelectionError.noCompatibleFirmware {
           // No macOS update helps when the release offers this Mac nothing.
           let newest = NativeInspectionHardware(

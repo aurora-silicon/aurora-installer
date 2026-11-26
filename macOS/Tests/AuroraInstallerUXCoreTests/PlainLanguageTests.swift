@@ -564,6 +564,18 @@
 
       let firmware = PlainLanguage.failure(for: InstallerPlanPreparationError.firmwareUnavailable)
       XCTAssertNotEqual(firmware.headline, "An installation plan couldn’t be prepared")
+
+      let short = PlainLanguage.failure(
+        for: InstallerPlanPreparationError.firmwareBelowRelease(
+          version: "27.2", check: "Recovery", detected: "26.2.8119.0.0,0",
+          required: "26.2.8125.0.0,0"))
+      XCTAssertEqual(short.headline, "This Mac’s Recovery is older than Aurora needs")
+      XCTAssertFalse(short.headline.contains("Update macOS"))
+      for value in ["26.2.8119.0.0,0", "26.2.8125.0.0,0", "already runs"] {
+        XCTAssertTrue(short.plainDetail.contains(value), value)
+      }
+      XCTAssertTrue(short.plainDetail.hasSuffix("The disk has not been changed."))
+      XCTAssertEqual(short.actionURL, PlainLanguage.softwareUpdateSettingsURL)
     }
 
     func testUnsupportedModelNamesTheMacAndTheCatalogFamilies() throws {

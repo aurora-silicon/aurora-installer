@@ -10,6 +10,10 @@
     /// macOS or recovery version is older than every such entry needs.
     /// Updating macOS to `version` makes the lowest of them installable.
     case macOSUpdateRequired(version: String)
+    /// This Mac already runs the macOS the release needs, but its boot
+    /// firmware or Recovery is older than the entry asks. Updating macOS to
+    /// the same version would not help, so this names what is short.
+    case firmwareBelowRelease(NativeFirmwareShortfall)
     case invalidSource
     /// The selected firmware comes only as an OTA update archive whose
     /// Recovery image patches an earlier one. Only whole-image update
@@ -18,6 +22,23 @@
     /// The restore image isn't the build the policy pins: its size,
     /// manifest or build number differs.
     case pinnedSourceMismatch(build: String)
+  }
+
+  /// Which minimum of a firmware entry this Mac missed, with both values.
+  struct NativeFirmwareShortfall: Equatable, Sendable {
+    enum Check: String, Equatable, Sendable {
+      case boot = "boot firmware"
+      case macOS
+      case recovery = "Recovery"
+    }
+    let version: String
+    let check: Check
+    let detected: String
+    let required: String
+
+    var summary: String {
+      "macOS \(version) needs \(check.rawValue) \(required) or later; this Mac has \(detected)."
+    }
   }
 
   struct NativeFirmwareSelection: Equatable, Sendable {
@@ -78,6 +99,8 @@
         ? chip : device.minimum
       var selected: NativeInspectionPolicy.Firmware?
       var lowest: NativeInspectionPolicy.Firmware?
+      var shortfall: NativeFirmwareShortfall?
+      var verdicts = [String]()
       // Preserve source order: the backend chooses the last compatible entry,
       // not the entry with the numerically highest version.
       for entry in policy.firmware {
@@ -89,15 +112,37 @@
         // The lowest version this Mac and release may use at all names the
         // macOS update that makes one installable, as the backend's message does.
         if try lowest.map({ try entry.isOlder(than: $0) }) ?? true { lowest = entry }
-        if try NativeInspectionPolicy.Version.atLeast(boot, entry.minimumBoot),
-          try NativeInspectionPolicy.Version.atLeast(macOS, entry.minimumMacOS),
-          try NativeInspectionPolicy.Version.atLeast(recovery, entry.minimumRecovery)
-        {
+        let bootOK = try NativeInspectionPolicy.Version.bootAtLeast(boot, entry.minimumBoot)
+        let macOSOK = try NativeInspectionPolicy.Version.atLeast(macOS, entry.minimumMacOS)
+        let recoveryOK = try NativeInspectionPolicy.Version.atLeast(
+          recovery, entry.minimumRecovery)
+        verdicts.append(
+          "Firmware \(entry.version)\(entry.pin.map { " (\($0.build))" } ?? ""): boot \(boot) >= "
+            + "\(entry.minimumBoot) \(bootOK), macOS \(macOS) >= \(entry.minimumMacOS) \(macOSOK), "
+            + "Recovery \(recovery) >= \(entry.minimumRecovery) \(recoveryOK)")
+        if bootOK, macOSOK, recoveryOK {
           selected = entry
+        } else if macOSOK, try NativeInspectionPolicy.Version.atLeast(macOS, entry.version) {
+          // This Mac already runs this entry's macOS, so updating to it can't
+          // help: say which of its other minimums is short. Below the entry's
+          // version, installing that macOS brings its firmware and Recovery.
+          shortfall =
+            bootOK
+            ? NativeFirmwareShortfall(
+              version: entry.version, check: .recovery, detected: recovery,
+              required: entry.minimumRecovery)
+            : NativeFirmwareShortfall(
+              version: entry.version, check: .boot, detected: boot, required: entry.minimumBoot)
         }
       }
       guard let selected else {
+        // Named once, only when nothing fits: each entry's three checks.
+        if !verdicts.isEmpty {
+          InstallerLog.error("No boot firmware fits this Mac. " + verdicts.joined(separator: "; "))
+        }
         guard let lowest else { throw NativeFirmwareSelectionError.noCompatibleFirmware }
+        // Only a Mac below the macOS an entry needs is told to update macOS.
+        if let shortfall { throw NativeFirmwareSelectionError.firmwareBelowRelease(shortfall) }
         throw NativeFirmwareSelectionError.macOSUpdateRequired(version: lowest.version)
       }
       guard let components = URLComponents(string: selected.sourceURL),

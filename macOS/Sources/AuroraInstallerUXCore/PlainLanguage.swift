@@ -1067,6 +1067,17 @@
             actionURL: softwareUpdateSettingsURL,
             actionTitle: openSoftwareUpdate
           )
+        case .firmwareBelowRelease(let version, let check, let detected, let required):
+          return FailureDisplay(
+            headline: "This Mac’s \(check) is older than Aurora needs",
+            plainDetail:
+              "This Mac already runs the macOS that Aurora needs, but its \(check) is \(detected) and Aurora’s macOS \(version) startup files need \(required) or later. The disk has not been changed.",
+            technicalDetail: technical,
+            remedy:
+              "Install any update offered in System Settings → General → Software Update, which also updates the \(check), then open \(windowTitle) again. If none is offered, reinstall macOS \(version) from Recovery.",
+            actionURL: softwareUpdateSettingsURL,
+            actionTitle: openSoftwareUpdate
+          )
         case .firmwareUnavailable:
           return FailureDisplay(
             headline: "Boot firmware for this Mac couldn’t be selected",

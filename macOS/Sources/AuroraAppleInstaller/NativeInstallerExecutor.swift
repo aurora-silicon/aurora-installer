@@ -441,6 +441,9 @@
       if let chain = error as? NativeBootChainError, chain.releaseLacksMachO {
         return (.deviceUnsupported, NativeBootChainError.releaseLacksMachOSummary)
       }
+      if case NativeFirmwareSelectionError.firmwareBelowRelease(let shortfall) = error {
+        return (.firmwarePreparation, shortfall.summary)
+      }
       return error is NativeFirmwareSelectionError
         ? (.firmwarePreparation, "Compatible boot firmware could not be selected.")
         : (.planIntegrity, "The installation images could not be verified (\(errorName(error))).")
@@ -461,6 +464,8 @@
       }
       let name = errorName(error)
       switch error {
+      case NativeFirmwareSelectionError.firmwareBelowRelease(let shortfall):
+        return (.firmwarePreparation, shortfall.summary)
       case NativeFirmwareSelectionError.updateArchiveOnly(let version):
         return (.deviceUnsupported, updateArchiveSummary(version: version))
       case NativeFirmwareSelectionError.unsupportedDevice:
