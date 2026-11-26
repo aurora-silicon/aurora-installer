@@ -261,7 +261,23 @@
       XCTAssertEqual(edge, .available)
       XCTAssertEqual(testing, .checkFailed(.verification))
       var proof = try XCTUnwrap(object["edgeQualification"] as? [String: Any])
+      var linux = source("aurora-silicon/linux")
+      linux["branch"] = "main"
+      proof["linux"] = linux
+      object["edgeQualification"] = proof
+      XCTAssertThrowsError(
+        try ReleaseCatalogChannelPolicy.validate(
+          payload: JSONSerialization.data(withJSONObject: object), channel: .edge))
       var mesa = source("aurora-silicon/mesa")
+      mesa["branch"] = "aurora-wip"
+      proof["mesa"] = mesa
+      object["edgeQualification"] = proof
+      let defaults = coordinator(serving: [
+        configuration.catalogURL(for: .edge): try envelope(
+          JSONSerialization.data(withJSONObject: object))
+      ])
+      let defaultsAvailable = await availability(defaults, configuration, .edge)
+      XCTAssertEqual(defaultsAvailable, .available)
       mesa["branch"] = "main"
       proof["mesa"] = mesa
       object["edgeQualification"] = proof
