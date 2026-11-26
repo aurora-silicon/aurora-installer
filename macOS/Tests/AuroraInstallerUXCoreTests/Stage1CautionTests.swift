@@ -20,10 +20,10 @@
       }
       let j516s = Stage1Caution.reason(for: "apple,j516s")
       XCTAssertTrue(j516s?.contains("16-inch MacBook Pro with M3 Pro") ?? false)
-      XCTAssertTrue(j516s?.contains("needs macOS 27.2 or later") ?? false)
-      XCTAssertTrue(j516s?.contains("not started Linux on one from the macOS 27.2 stub") ?? false)
+      XCTAssertTrue(j516s?.contains("requires macOS 27.2 or later") ?? false)
+      XCTAssertTrue(j516s?.contains("Linux has booted from the 27.2 stub") ?? false)
       XCTAssertTrue(j516s?.contains("no GPU acceleration") ?? false)
-      XCTAssertTrue(j516s?.contains("Aurora may not start") ?? false)
+      XCTAssertTrue(j516s?.contains("published installer downloads still need the 27.2 display and graphics updates") ?? false)
       XCTAssertFalse(j516s?.contains("\u{2014}") ?? true)
       let j813 = Stage1Caution.reason(for: "apple,j813")
       XCTAssertTrue(j813?.contains("13-inch MacBook Air with M5") ?? false)
