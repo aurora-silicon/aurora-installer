@@ -135,6 +135,15 @@
         minimumSequence: minimumSequence
       )
       try ReleaseCatalogChannelPolicy.validate(payload: catalog.payload, channel: request.channel)
+      let configuration = request.configuration
+      InstallerLog.progress(
+        ResolvedReleaseSummary(
+          payload: catalog.payload, channel: request.channel,
+          sealed: configuration.sealedCatalogDocuments != nil
+            && request.channel == configuration.defaultChannel,
+          feed: configuration.catalogURL(for: request.channel), minimumSequence: minimumSequence,
+          deviceIdentifier: request.host.identity.deviceIdentifier
+        ).logLine)
       let assets = try await assetPreparer.prepare(
         InstallerAssetPreparationRequest(
           host: request.host,
