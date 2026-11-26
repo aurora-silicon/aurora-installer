@@ -128,6 +128,39 @@
       XCTAssertEqual(plan["offset_bytes"] as? UInt64, offset + length - install)
     }
 
+    func testJ516sPlansThePinnedMacOS272StubAndAsksOlderMacOSToUpdate() async throws {
+      let result = try await run(
+        machine(
+          device: "apple,j516s", chip: 0x6030, macOS: "27.2", boot: "mBoot-20457.41.3",
+          recovery: "26.2.123.0.0,0"))
+      XCTAssertEqual(result["supported"] as? Bool, true)
+      let firmware = try XCTUnwrap(result["firmware"] as? [String: Any])
+      XCTAssertEqual(firmware["version"] as? String, "27.2")
+      XCTAssertEqual(
+        (firmware["source_url"] as? String)?.hasSuffix("UniversalMac_27.2_26B123_Restore.ipsw"),
+        true)
+      XCTAssertEqual(firmware["stub_bytes"] as? UInt64, 5_999_951_872)
+      XCTAssertEqual(result["inspection_stub_bytes"] as? UInt64, 5_999_951_872)
+      // The M3 Pro keeps the unpadded Stage 1: its CPUs have no execute window.
+      XCTAssertEqual(result["uses_execute_window"] as? Bool, false)
+      let candidates = try XCTUnwrap(result["candidates"] as? [[String: Any]])
+      let free = try XCTUnwrap(candidates.first { $0["kind"] as? String == "free" })
+      let plan = try XCTUnwrap(free["plan"] as? [String: Any])
+      XCTAssertEqual(plan["stub_bytes"] as? UInt64, 5_999_951_872)
+      XCTAssertEqual(
+        plan["required_human_steps"] as? [String],
+        ["enterOneTrueRecovery", "authenticateMachineOwner"])
+      XCTAssertEqual(result["one_true_recovery_boot_policy"] as? [String], ["-nc"])
+      // On macOS 26.5.1 it is asked to update macOS first, not given the 14.8.3 stub.
+      let older = try await run(
+        machine(
+          device: "apple,j516s", chip: 0x6030, macOS: "26.5.1", boot: "mBoot-18000.120.36",
+          recovery: "25.6.80.0.0,0"))
+      XCTAssertEqual(older["supported"] as? Bool, true)
+      XCTAssertNil(older["firmware"])
+      XCTAssertNotNil(older["firmware_error"])
+    }
+
     func testNeoUsesTheLargeStubAndCustomBootArguments() async throws {
       let result = try await run(
         machine(device: "apple,j700", chip: 0x8140, macOS: "26.6.2", boot: "mBoot-18000.161.10"))

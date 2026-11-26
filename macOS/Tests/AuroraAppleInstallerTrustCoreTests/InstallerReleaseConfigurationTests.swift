@@ -552,6 +552,159 @@
       }
     }
 
+    func testLocatorWithoutACatalogFloorHasNoFloor() throws {
+      let root = try makeDirectory()
+      defer { try? FileManager.default.removeItem(at: root) }
+      try writeReleaseIdentity(
+        Curve25519.Signing.PrivateKey().publicKey.rawRepresentation, to: root)
+
+      let result = try InstallerReleaseConfigurationLocator().load(from: root)
+
+      XCTAssertTrue(result.minimumCatalogSequence.isEmpty)
+    }
+
+    func testLocatorLoadsTheCatalogFloorTheBuildWrote() throws {
+      let root = try makeDirectory()
+      defer { try? FileManager.default.removeItem(at: root) }
+      try writeReleaseIdentity(
+        Curve25519.Signing.PrivateKey().publicKey.rawRepresentation, to: root)
+      // What scripts/prepare-distribution-release.py writes.
+      try writeCatalogFloor(
+        "{\n  \"schema_version\": 1,\n  \"minimum_sequence\": {\n    \"testing\": 1790000000\n  }\n}\n",
+        to: root)
+
+      let result = try InstallerReleaseConfigurationLocator().load(from: root)
+
+      XCTAssertEqual(result.minimumCatalogSequence, [.testing: 1_790_000_000])
+    }
+
+    func testLocatorLoadsACatalogFloorForSeveralChannels() throws {
+      let root = try makeDirectory()
+      defer { try? FileManager.default.removeItem(at: root) }
+      try writeReleaseIdentity(
+        Curve25519.Signing.PrivateKey().publicKey.rawRepresentation, to: root)
+      try writeCatalogFloor(
+        #"{"schema_version":1,"minimum_sequence":{"stable":4,"edge":1790000001}}"#,
+        to: root)
+
+      let result = try InstallerReleaseConfigurationLocator().load(from: root)
+
+      XCTAssertEqual(result.minimumCatalogSequence, [.stable: 4, .edge: 1_790_000_001])
+    }
+
+    func testLocatorRejectsAMalformedCatalogFloor() throws {
+      let malformed = [
+        "not json",
+        "[]",
+        "{}",
+        #"{"schema_version":1}"#,
+        #"{"minimum_sequence":{"testing":7}}"#,
+        #"{"schema_version":1,"minimum_sequence":{"testing":7},"extra":1}"#,
+        #"{"schema_version":"1","minimum_sequence":{"testing":7}}"#,
+        #"{"schema_version":1,"minimum_sequence":[7]}"#,
+        #"{"schema_version":1,"minimum_sequence":7}"#,
+        #"{"schema_version":1,"minimum_sequence":{"testing":0}}"#,
+        #"{"schema_version":1,"minimum_sequence":{"testing":-1}}"#,
+        #"{"schema_version":1,"minimum_sequence":{"testing":1.5}}"#,
+        #"{"schema_version":1,"minimum_sequence":{"testing":"7"}}"#,
+        #"{"schema_version":1,"minimum_sequence":{"testing":true}}"#,
+        #"{"schema_version":1,"minimum_sequence":{"testing":null}}"#,
+        #"{"schema_version":1,"minimum_sequence":{"dev":7}}"#,
+        #"{"schema_version":1,"minimum_sequence":{"Testing":7}}"#,
+        #"{"schema_version":1,"minimum_sequence":{"testing":7,"nightly":7}}"#,
+      ]
+      for content in malformed {
+        let root = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeReleaseIdentity(
+          Curve25519.Signing.PrivateKey().publicKey.rawRepresentation, to: root)
+        try writeCatalogFloor(content, to: root)
+
+        XCTAssertThrowsError(
+          try InstallerReleaseConfigurationLocator().load(from: root), content
+        ) {
+          XCTAssertEqual(
+            $0 as? InstallerReleaseConfigurationError, .invalidDescriptor, content)
+        }
+      }
+    }
+
+    func testLocatorRejectsACatalogFloorOfAnotherSchema() throws {
+      let root = try makeDirectory()
+      defer { try? FileManager.default.removeItem(at: root) }
+      try writeReleaseIdentity(
+        Curve25519.Signing.PrivateKey().publicKey.rawRepresentation, to: root)
+      try writeCatalogFloor(
+        #"{"schema_version":2,"minimum_sequence":{"testing":7}}"#, to: root)
+
+      XCTAssertThrowsError(
+        try InstallerReleaseConfigurationLocator().load(from: root)
+      ) {
+        XCTAssertEqual(
+          $0 as? InstallerReleaseConfigurationError, .unsupportedSchema(2))
+      }
+    }
+
+    func testLocatorRejectsAnUnsafeCatalogFloor() throws {
+      let floor = InstallerReleaseConfigurationLocator.catalogFloorFileName
+      let valid = #"{"schema_version":1,"minimum_sequence":{"testing":7}}"#
+      let key = Curve25519.Signing.PrivateKey().publicKey.rawRepresentation
+
+      // A symlink, even to a well-formed floor.
+      let linked = try makeDirectory()
+      defer { try? FileManager.default.removeItem(at: linked) }
+      try writeReleaseIdentity(key, to: linked)
+      let external = linked.deletingLastPathComponent().appendingPathComponent(
+        "aurora-external-floor-\(UUID().uuidString.lowercased())"
+      )
+      defer { try? FileManager.default.removeItem(at: external) }
+      try Data(valid.utf8).write(to: external, options: .withoutOverwriting)
+      try FileManager.default.createSymbolicLink(
+        at: linked.appendingPathComponent(floor), withDestinationURL: external)
+
+      // An empty file and one beyond the size bound.
+      let empty = try makeDirectory()
+      defer { try? FileManager.default.removeItem(at: empty) }
+      try writeReleaseIdentity(key, to: empty)
+      try writeCatalogFloor("", to: empty)
+      let oversized = try makeDirectory()
+      defer { try? FileManager.default.removeItem(at: oversized) }
+      try writeReleaseIdentity(key, to: oversized)
+      try writeCatalogFloor(
+        valid
+          + String(
+            repeating: " ",
+            count: InstallerReleaseConfigurationLocator.maximumCatalogFloorBytes),
+        to: oversized)
+
+      // A directory in the file's place.
+      let directory = try makeDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      try writeReleaseIdentity(key, to: directory)
+      try FileManager.default.createDirectory(
+        at: directory.appendingPathComponent(floor), withIntermediateDirectories: false)
+
+      for root in [linked, empty, oversized, directory] {
+        XCTAssertThrowsError(
+          try InstallerReleaseConfigurationLocator().load(from: root)
+        ) {
+          XCTAssertEqual(
+            $0 as? InstallerReleaseConfigurationError,
+            .unsafeReleaseResource("catalog-floor")
+          )
+        }
+      }
+    }
+
+    private func writeCatalogFloor(_ content: String, to root: URL) throws {
+      try Data(content.utf8).write(
+        to: root.appendingPathComponent(
+          InstallerReleaseConfigurationLocator.catalogFloorFileName
+        ),
+        options: .withoutOverwriting
+      )
+    }
+
     private func configuration() throws -> InstallerReleaseConfiguration {
       let key = Curve25519.Signing.PrivateKey().publicKey.rawRepresentation
       return try InstallerReleaseConfigurationLoader().load(
