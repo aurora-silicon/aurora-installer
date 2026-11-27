@@ -10,14 +10,25 @@ final class InstallationSelectionTests: XCTestCase {
     XCTAssertEqual(selection.distribution, .fedora)
     XCTAssertEqual(selection.desktop, .gnome)
     XCTAssertEqual(selection.profileID, "fedora-gnome")
-    XCTAssertEqual(AuroraDistribution.fedora.availableDesktops, [.gnome, .kde, .minimal])
+    XCTAssertEqual(AuroraDistribution.fedora.availableDesktops, [.kde, .gnome, .minimal])
     XCTAssertEqual(AuroraDistribution.arch.availableDesktops, [.kde, .gnome, .minimal])
     XCTAssertEqual(AuroraDistribution.nixos.availableDesktops, [.kde, .gnome, .minimal])
+    XCTAssertEqual(AuroraDistribution.fedora.defaultDesktop, .gnome)
+    XCTAssertEqual(AuroraDistribution.arch.defaultDesktop, .kde)
+    XCTAssertEqual(AuroraDistribution.nixos.defaultDesktop, .kde)
 
     var switched = AuroraInstallationSelection(distribution: .omarchy, desktop: .hyprland)
     switched.selectDistribution(.fedora)
     XCTAssertEqual(switched.desktop, .gnome)
     XCTAssertEqual(switched.profileID, "fedora-gnome")
+  }
+
+  func testEveryDistributionListsKDEThenGNOMEThenMinimal() {
+    for distribution in AuroraDistribution.allCases where distribution != .omarchy {
+      XCTAssertEqual(
+        distribution.availableDesktops, [.kde, .gnome, .minimal], distribution.rawValue)
+      XCTAssertTrue(distribution.availableDesktops.contains(distribution.defaultDesktop))
+    }
   }
 
   func testEachLinuxDesktopHasItsOwnProfile() {

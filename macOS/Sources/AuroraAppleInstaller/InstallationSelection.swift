@@ -23,11 +23,20 @@ public enum AuroraDistribution: String, CaseIterable, Codable, Identifiable, Sen
   /// reinstall still recognize them.
   public static let legacyTitles = ["Fedora Aurora Remix", "Aurora ALARM"]
   public var supportsDesktop: Bool { true }
+  /// The desktops this distribution offers, in the order the chooser shows
+  /// them. Every distribution lists KDE Plasma, GNOME, then Minimal.
   public var availableDesktops: [AuroraDesktop] {
     switch self {
-    case .fedora: [.gnome, .kde, .minimal]
-    case .arch, .nixos: [.kde, .gnome, .minimal]
+    case .fedora, .arch, .nixos: [.kde, .gnome, .minimal]
     case .omarchy: [.hyprland]
+    }
+  }
+  /// The desktop preselected for a new installation. It is independent of
+  /// the list order: Aurora Fedora Remix defaults to GNOME.
+  public var defaultDesktop: AuroraDesktop {
+    switch self {
+    case .fedora: .gnome
+    default: availableDesktops[0]
     }
   }
 }
@@ -53,7 +62,7 @@ public struct AuroraInstallationSelection: Equatable, Codable, Sendable {
 
   public init(distribution: AuroraDistribution = .fedora, desktop: AuroraDesktop? = nil) {
     self.distribution = distribution
-    self.desktop = desktop ?? distribution.availableDesktops[0]
+    self.desktop = desktop ?? distribution.defaultDesktop
   }
 
   public var effectiveDesktop: AuroraDesktop? {
@@ -77,7 +86,7 @@ public struct AuroraInstallationSelection: Equatable, Codable, Sendable {
   public mutating func selectDistribution(_ distribution: AuroraDistribution) {
     self.distribution = distribution
     if !distribution.availableDesktops.contains(desktop) {
-      desktop = distribution.availableDesktops[0]
+      desktop = distribution.defaultDesktop
     }
   }
 
