@@ -339,8 +339,8 @@ struct OnePageInstallerView: View {
       if let notice = session.allocationNotice {
         CautionCallout(text: notice)
       }
-      if let caution = Stage1Caution.thisMac, !plan.preservesStage1 {
-        stage1CautionPanel(caution)
+      if ExperimentalMac.thisMac, !plan.preservesStage1 {
+        experimentalNote
       }
       acknowledgement(acknowledged, plan: plan)
 
@@ -607,35 +607,45 @@ struct OnePageInstallerView: View {
   }
 
   private func acknowledgement(_ acknowledged: Bool, plan: PlanDisplay) -> some View {
-    Toggle(
-      plan.updatesBootLoader
-        ? PlainLanguage.bootLoaderUpdateAcknowledgement
-        : plan.preservesStage1
-          ? PlainLanguage.planPreservedAcknowledgement
-          : PlainLanguage.planAcknowledgement(
-            resizesMacOS: plan.allocationSource != .freeExtent,
-            stage1Caution: Stage1Caution.thisMac != nil),
+    let experimental =
+      ExperimentalMac.thisMac && !plan.updatesBootLoader && !plan.preservesStage1
+    return Toggle(
       isOn: Binding(get: { acknowledged }, set: { session.setAcknowledged($0) })
-    )
+    ) {
+      VStack(alignment: .leading, spacing: Space.xxs) {
+        Text(
+          plan.updatesBootLoader
+            ? PlainLanguage.bootLoaderUpdateAcknowledgement
+            : plan.preservesStage1
+              ? PlainLanguage.planPreservedAcknowledgement
+              : PlainLanguage.planAcknowledgement(
+                resizesMacOS: plan.allocationSource != .freeExtent))
+        if experimental {
+          Text(PlainLanguage.planExperimentalAcknowledgement)
+        }
+      }
+      .fixedSize(horizontal: false, vertical: true)
+    }
     .toggleStyle(.checkbox)
     .controlSize(.regular)
     .font(InstallerTheme.body)
     .disabled(session.isBusy || session.isEditingSize || session.planNeedsCheck)
   }
 
-  private func stage1CautionPanel(_ reason: String) -> some View {
-    VStack(alignment: .leading, spacing: Space.xs + Space.xxs) {
-      Label(PlainLanguage.stage1CautionHeadline, systemImage: "exclamationmark.triangle.fill")
+  /// The one generic line every experimental Mac shows on the plan.
+  private var experimentalNote: some View {
+    VStack(alignment: .leading, spacing: Space.xxs) {
+      Label(PlainLanguage.experimentalTitle, systemImage: "exclamationmark.triangle.fill")
         .font(InstallerTheme.body.weight(.semibold))
         .labelStyle(CautionLabelStyle())
-      Text(reason)
-        .font(InstallerTheme.body)
+      Text(PlainLanguage.experimentalNote)
+        .font(InstallerTheme.detail)
         .fixedSize(horizontal: false, vertical: true)
-      Text(PlainLanguage.stage1CautionRecovery)
-        .font(InstallerTheme.body)
-        .foregroundStyle(InstallerTheme.secondaryText)
-        .fixedSize(horizontal: false, vertical: true)
+      Link(PlainLanguage.experimentalIssuesLink, destination: PlainLanguage.experimentalIssuesURL)
+        .font(InstallerTheme.detail)
+        .disabled(session.isSimulation)
     }
+    .accessibilityElement(children: .contain)
   }
 
   private var helperNote: some View {

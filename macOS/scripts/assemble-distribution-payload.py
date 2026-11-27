@@ -441,8 +441,8 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
     import supported_models
     identifiers, _ = supported_models.load()
     # Every supported Mac is admitted for the common Stage 1. Boards with an
-    # unqualified installer composition stay installable after the owner
-    # acknowledges stage1_caution and the recovery steps.
+    # unqualified installer composition (stage1_caution) stay installable
+    # after the owner acknowledges the installer's experimental note.
     supported_models.stage1_caution()
     # The admitted T6050 policy selects macOS 27.2. The serialized field name
     # qualified_machines is the existing boot-chain contract; admission here

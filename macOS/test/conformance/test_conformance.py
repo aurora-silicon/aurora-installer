@@ -246,12 +246,11 @@ class RuleTests(unittest.TestCase):
 class CautionTests(unittest.TestCase):
     """A stage1_caution board is warned, then goes ahead; any other board is never warned."""
 
-    CAUTION = {'headline': 'Aurora may not start on this Mac yet', 'reason': 'iBoot may refuse it.',
-               'recovery': 'If the Mac shows \u201cmacOS needs to be reinstalled\u201d: choose Always Use, '
-                           'then use Erase Linux.',
-               'acknowledgement': 'I approve the disk layout above, and I understand Aurora may not start on this Mac.',
-               'acknowledgement_resize': 'I approve the disk resize above, and I understand Aurora may not start on '
-                                         'this Mac.'}
+    CAUTION = {'headline': conformance.EXPERIMENTAL_HEADLINE, 'reason': conformance.EXPERIMENTAL_NOTE,
+               'link': conformance.EXPERIMENTAL_LINK,
+               'acknowledgement': 'I have a current backup, and I approve this disk layout.',
+               'acknowledgement_resize': 'I have a current backup, and I approve resizing the disk.',
+               'acknowledgement_experimental': conformance.EXPERIMENTAL_ACKNOWLEDGEMENT}
 
     def dry(self, caution, supported=True, stage1=True):
         row = {'supported': supported, 'boot_chain': {'stage1_member': 'esp/aurora/stage1.bin'} if stage1 else {},
@@ -267,7 +266,15 @@ class CautionTests(unittest.TestCase):
     def test_a_listed_board_is_warned_and_goes_ahead(self):
         result = self.run_check('apple,j316s', self.dry(self.CAUTION))
         self.assertTrue(result['ok'], result)
-        self.assertIn('Always Use', result['detail'])
+        self.assertIn('GitHub Issues', result['detail'])
+
+    def test_a_per_mac_blurb_recovery_steps_or_a_joined_acknowledgement_fail(self):
+        for change in ({'reason': 'Its touchscreen does not work yet.'}, {'recovery': 'Choose Always Use.'},
+                       {'acknowledgement': 'I approve this disk layout, and I understand Aurora may not start.'},
+                       {'acknowledgement_experimental': None}):
+            with self.subTest(change=change):
+                caution = {k: v for k, v in {**self.CAUTION, **change}.items() if v is not None}
+                self.assertFalse(self.run_check('apple,j316s', self.dry(caution))['ok'])
 
     def test_a_listed_board_without_the_warning_or_blocked_fails(self):
         self.assertFalse(self.run_check('apple,j575d', self.dry(None))['ok'])
