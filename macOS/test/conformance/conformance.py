@@ -627,16 +627,20 @@ def confined_stage2_checks(machine, dry, profiles, aura_labels):
                   'payload carries %s from aura %s' % (CONFINED_STAGE2, aura_labels[0]), scope='published')]
 
 
-CAUTION_RECOVERY = ('Always Use', 'Erase Linux', 'macOS needs to be reinstalled')
-CAUTION_ACKNOWLEDGEMENT = ', and I understand Aurora may not start on this Mac.'
+EXPERIMENTAL_HEADLINE = 'Experimental on this Mac'
+EXPERIMENTAL_NOTE = ('Support for this Mac is experimental and may be untested. '
+                     'Please report bugs or successes on GitHub Issues.')
+EXPERIMENTAL_LINK = 'https://github.com/aurora-silicon/aurora-installer/issues'
+EXPERIMENTAL_ACKNOWLEDGEMENT = 'I understand support for this Mac is experimental.'
 
 
 def stage1_caution(machine, dry, context):
-    """The warn-not-block path for a supported board whose iBoot refuses, or may
-    refuse, the common Stage 1 (scripts/supported-models.json stage1_caution):
-    the plan screen must show the warning, its recovery steps and a widened
-    acknowledgement, and the install must still go ahead. None for any other
-    board, unless the dry run warns where the list does not."""
+    """The warn-not-block path for an experimental board (scripts/supported-models.json
+    stage1_caution): the plan screen must show the one generic experimental note
+    with its GitHub Issues link and the checkbox's separate experimental line, and
+    the install must still go ahead. No per-Mac text and no recovery steps: the
+    note is the same for every experimental Mac. None for any other board, unless
+    the dry run warns where the list does not."""
     desktops = tuple(dry)
     listed = context['stage1_caution'].get(machine['device_identifier'])
     shown = {d: dry[d].get('stage1_caution') for d in desktops}
@@ -647,15 +651,18 @@ def stage1_caution(machine, dry, context):
     problems = []
     for desktop, caution in shown.items():
         if not caution:
-            problems.append('%s: no warning on the plan' % desktop)
+            problems.append('%s: no experimental note on the plan' % desktop)
             continue
-        missing = [p for p in CAUTION_RECOVERY if p not in caution['recovery']]
-        if missing:
-            problems.append('%s: the recovery steps lack %s' % (desktop, ', '.join(missing)))
-        if not all(caution[k].endswith(CAUTION_ACKNOWLEDGEMENT) for k in ('acknowledgement', 'acknowledgement_resize')):
-            problems.append('%s: the acknowledgement does not name the risk' % desktop)
-        if not caution['reason'] or not caution['headline']:
-            problems.append('%s: an empty warning' % desktop)
+        if (caution.get('headline'), caution.get('reason'), caution.get('link')) != (
+                EXPERIMENTAL_HEADLINE, EXPERIMENTAL_NOTE, EXPERIMENTAL_LINK):
+            problems.append('%s: not the generic experimental note' % desktop)
+        if 'recovery' in caution:
+            problems.append('%s: the note carries recovery steps' % desktop)
+        if caution.get('acknowledgement_experimental') != EXPERIMENTAL_ACKNOWLEDGEMENT:
+            problems.append('%s: the checkbox lacks its separate experimental line' % desktop)
+        if any(EXPERIMENTAL_ACKNOWLEDGEMENT in caution.get(k, '') or 'may not start' in caution.get(k, '')
+               for k in ('acknowledgement', 'acknowledgement_resize')):
+            problems.append('%s: the experimental line is joined onto the acknowledgement' % desktop)
         # Warn, never block: supported, qualified for Stage 1, and planned.
         chain = dry[desktop].get('boot_chain') or {}
         if not dry[desktop]['supported'] or 'stage1_member' not in chain:
@@ -664,8 +671,8 @@ def stage1_caution(machine, dry, context):
         if machine['disk'] is not None and not any('plan' in c for c in dry[desktop].get('candidates', [])):
             problems.append('%s: no plan to go ahead with' % desktop)
     first = shown[desktops[0]] or {}
-    return check('stage1 caution', not problems, '; '.join(problems) or 'warns, then goes ahead: "%s" %s %s' % (
-        first['headline'], first['reason'], first['recovery']))
+    return check('stage1 caution', not problems, '; '.join(problems) or 'notes, then goes ahead: "%s" %s %s' % (
+        first['headline'], first['reason'], first['link']))
 
 
 def plan_check(machine, mode, result, firmware):

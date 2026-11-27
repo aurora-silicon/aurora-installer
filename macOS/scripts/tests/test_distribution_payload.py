@@ -420,10 +420,11 @@ class DistributionPayloadTests(unittest.TestCase):
                 self.assertFalse(output.exists())
 
     def test_the_installer_warns_about_exactly_the_caution_boards(self):
-        source = (SCRIPT.parents[1] / 'Sources/AuroraInstallerUXCore/Stage1Caution.swift').read_text()
-        table = source[source.index('static let reasons'):]
-        swift = set(re.findall(r'"(apple,[jk][0-9]+[a-z]*)":', table))
-        self.assertEqual(swift, set(supported_models.stage1_caution()))
+        source = (SCRIPT.parents[1] / 'Sources/AuroraInstallerUXCore/ExperimentalMac.swift').read_text()
+        table = source[source.index('static let boards'):source.index('public static func isExperimental')]
+        swift = re.findall(r'"(apple,[jk][0-9]+[a-z]*)",', table)
+        self.assertEqual(len(swift), len(set(swift)))
+        self.assertEqual(set(swift), set(supported_models.stage1_caution()))
 
     def test_public_payload_without_the_neo_stage_two_is_refused(self):
         self.remove_neo_stage_two()

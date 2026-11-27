@@ -60,17 +60,19 @@
         ? "I have a current backup, and I approve resizing the disk."
         : "I have a current backup, and I approve this disk layout."
     }
-    /// Shown on the plan for an M1 Pro, M1 Max or M1 Ultra Mac, whose iBoot
-    /// may refuse the current Stage 1. The owner can still install.
-    public static let stage1CautionHeadline = "Aurora may not start on this Mac yet"
-    public static let stage1CautionRecovery =
-      "If the Mac shows “macOS needs to be reinstalled” or doesn’t start Aurora: shut it down, press and hold the power button until startup options appear, select Macintosh HD and choose Always Use. macOS starts as before. Then open this installer in macOS and use Erase Linux to remove the Aurora installation. macOS and its data are not changed by any of this."
-    public static func planAcknowledgement(resizesMacOS: Bool, stage1Caution: Bool) -> String {
-      stage1Caution
-        ? String(planAcknowledgement(resizesMacOS: resizesMacOS).dropLast())
-          + ", and I understand Aurora may not start on this Mac."
-        : planAcknowledgement(resizesMacOS: resizesMacOS)
-    }
+    /// Shown on the plan for every experimental Mac (ExperimentalMac): one
+    /// title, one sentence and a link, the same for every such Mac. No
+    /// hardware details and no recovery steps here; those stay in the docs.
+    public static let experimentalTitle = "Experimental on this Mac"
+    public static let experimentalNote =
+      "Support for this Mac is experimental and may be untested. Please report bugs or successes on GitHub Issues."
+    public static let experimentalIssuesLink = "GitHub Issues"
+    public static let experimentalIssuesURL = URL(
+      string: "https://github.com/aurora-silicon/aurora-installer/issues")!
+    /// The plan checkbox's own second line on an experimental Mac. Ticking
+    /// the box acknowledges both lines.
+    public static let planExperimentalAcknowledgement =
+      "I understand support for this Mac is experimental."
     public static let planPreservedAcknowledgement =
       "I have a current backup, and I approve erasing Linux. Stage 1 and the partition sizes stay."
     public static let planInstall = "Install"
