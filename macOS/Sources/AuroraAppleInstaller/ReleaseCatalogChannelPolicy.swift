@@ -112,6 +112,8 @@
       let run = String(evidence.dropFirst("image-build-".count))
       guard !run.isEmpty, run.first != "0", run.utf8.allSatisfy({ (48...57).contains($0) })
       else { return false }
+      // Debian has no catalogs from before the channel field; its Testing
+      // catalogs must declare it.
       let repositories = [
         "fedora": "fedora-aurora", "arch": "alarm-aurora",
         "nixos": "nixos-aurora", "omarchy": "omarchy-aurora",

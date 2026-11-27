@@ -50,7 +50,7 @@
       let contracts = [
         "fedora-btrfs-v1": ("fedora", "btrfs"), "alarm-ext4-v1": ("arch", "ext4"),
         "alarm-btrfs-v1": ("arch", "btrfs"), "nixos-ext4-v1": ("nixos", "ext4"),
-        "nixos-btrfs-v1": ("nixos", "btrfs"),
+        "nixos-btrfs-v1": ("nixos", "btrfs"), "debian-btrfs-v1": ("debian", "btrfs"),
       ]
       var icon = PublishedContractNames.legacyVolumeIcon
       var filesystem: String?

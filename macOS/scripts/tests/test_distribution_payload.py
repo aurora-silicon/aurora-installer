@@ -446,7 +446,8 @@ class DistributionPayloadTests(unittest.TestCase):
     def test_all_profiles_use_the_selected_distribution_symbol(self):
         observed = {}
         provenance = json.loads((payload.ROOT / 'Packaging/DistributionIcons/provenance.json').read_text())['icons']
-        for distribution, layout in [('fedora', 'fedora'), ('arch', 'alarm'), ('nixos', 'nixos'), ('omarchy', 'alarm')]:
+        for distribution, layout in [('fedora', 'fedora'), ('arch', 'alarm'), ('nixos', 'nixos'), ('omarchy', 'alarm'),
+                                     ('debian', 'debian')]:
             for desktop in (('hyprland',) if distribution == 'omarchy' else ('kde', 'gnome', 'minimal')):
                 profile = distribution + '-' + desktop
                 self.image.update(installation_profile=profile, layout_kind=layout + '-btrfs-v1')
@@ -467,6 +468,25 @@ class DistributionPayloadTests(unittest.TestCase):
         # Every system's startup volume shows the Aurora mark.
         self.assertEqual(set(provenance), {'aurora'})
         self.assertEqual(len(set(observed.values())), 1)
+
+    def test_debian_profiles_require_the_debian_layout(self):
+        for layout in ('alarm-btrfs-v1', 'fedora-btrfs-v1', 'debian-ext4-v1'):
+            self.image.update(installation_profile='debian-kde', layout_kind=layout)
+            (self.bundle / 'image.json').write_text(json.dumps(self.image))
+            with self.assertRaisesRegex(ValueError, 'incompatible filesystem layout'):
+                payload.assemble(self.bundle, self.app, self.root / layout, release_id='fixture')
+        self.image.update(installation_profile='debian-hyprland', layout_kind='debian-btrfs-v1')
+        (self.bundle / 'image.json').write_text(json.dumps(self.image))
+        with self.assertRaisesRegex(ValueError, 'unknown installation profile'):
+            payload.assemble(self.bundle, self.app, self.root / 'hyprland', release_id='fixture')
+        self.image.update(installation_profile='debian-gnome', layout_kind='debian-btrfs-v1')
+        (self.bundle / 'image.json').write_text(json.dumps(self.image))
+        output = self.root / 'debian-gnome'
+        payload.assemble(self.bundle, self.app, output, release_id='fixture')
+        metadata = json.loads((output / 'installer-data-debian-gnome.json').read_text())['os_list'][0]
+        self.assertEqual(metadata['default_os_name'], 'Aurora, based on Debian testing')
+        self.assertEqual(metadata['name'], 'Aurora, based on Debian testing (gnome)')
+        self.assertEqual(metadata['layout_kind'], 'debian-btrfs-v1')
 
     def test_resume_rejects_an_icon_from_another_distribution(self):
         from unittest.mock import patch

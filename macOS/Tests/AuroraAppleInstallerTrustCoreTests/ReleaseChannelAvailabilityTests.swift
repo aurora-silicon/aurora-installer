@@ -458,6 +458,30 @@
       }
     }
 
+    func testADebianTestingCatalogMustDeclareItsChannel() async throws {
+      // Debian has no Testing catalogs from before the channel field, so the
+      // legacy development lineage never admits one that lacks it.
+      let configuration = try configuration()
+      var object = try XCTUnwrap(
+        JSONSerialization.jsonObject(with: modelCatalog(devices: [thisMac])) as? [String: Any])
+      object["channel"] = nil
+      var models = try XCTUnwrap(object["models"] as? [[String: Any]])
+      models[0]["installationProfile"] = "debian-kde"
+      models[0]["evidenceRevision"] = "image-build-41"
+      models[0]["payloadArtifact"] = [
+        "sourceURL": "https://github.com/aurora-silicon/debian-aurora/releases/download/"
+          + "payload-debian-kde-41/payload.zip",
+        "fileName": "payload.zip", "sizeBytes": 1,
+      ]
+      object["models"] = models
+      let coordinator = coordinator(serving: [
+        configuration.catalogURL(for: .testing): try envelope(
+          JSONSerialization.data(withJSONObject: object))
+      ])
+      let result = await availability(coordinator, configuration, .testing)
+      XCTAssertEqual(result, .checkFailed(.verification))
+    }
+
     func testEachChannelReportsItsOwnStateFromItsSignedCatalog() async throws {
       let configuration = try configuration()
       let coordinator = coordinator(serving: [

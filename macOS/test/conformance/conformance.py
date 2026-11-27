@@ -40,9 +40,10 @@ HERE = Path(__file__).resolve().parent
 MACOS = HERE.parents[1]
 REPO = MACOS.parent
 DISTROS = {'fedora': 'fedora-aurora', 'arch': 'alarm-aurora', 'nixos': 'nixos-aurora'}
-ALL_DISTROS = dict(DISTROS, omarchy='omarchy-aurora')
+ALL_DISTROS = dict(DISTROS, omarchy='omarchy-aurora', debian='debian-aurora')
 DESKTOPS = ('gnome', 'kde', 'minimal')
 DESKTOPS_BY_DISTRO = {distro: DESKTOPS for distro in DISTROS}
+DESKTOPS_BY_DISTRO['debian'] = DESKTOPS
 DESKTOPS_BY_DISTRO['omarchy'] = ('hyprland',)
 MODES = ('fresh', 'side-by-side')
 
@@ -994,7 +995,7 @@ def distro_sources_from(data):
 
 
 def markdown(report):
-    titles = {'fedora': 'Fedora', 'arch': 'Arch', 'nixos': 'NixOS', 'omarchy': 'Omarchy'}
+    titles = {'fedora': 'Fedora', 'arch': 'Arch', 'nixos': 'NixOS', 'omarchy': 'Omarchy', 'debian': 'Debian'}
     columns = ['Machine', 'Mode'] + [titles[d] + ' (today / at pin)' for d in report['built']]
     lines = ['Today: the installer with the signed catalogs it downloads now and live distro branches. At the pin:',
              'the installer against its own pins (checks of today\'s images left out, and floating distro-branch',

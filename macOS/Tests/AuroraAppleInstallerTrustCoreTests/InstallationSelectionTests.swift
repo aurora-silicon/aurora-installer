@@ -33,15 +33,35 @@ final class InstallationSelectionTests: XCTestCase {
 
   func testEachLinuxDesktopHasItsOwnProfile() {
     let optedIn = ProcessInfo.processInfo.environment["AURORA_ENABLE_OMARCHY"] == "1"
-    let distributions: [AuroraDistribution] = [.fedora, .arch, .nixos]
-    XCTAssertEqual(AuroraDistribution.installable, distributions + (optedIn ? [.omarchy] : []))
+    let distributions: [AuroraDistribution] = [.fedora, .arch, .nixos, .debian]
+    XCTAssertEqual(
+      AuroraDistribution.installable,
+      distributions + (optedIn ? [.omarchy] : []))
     var expected: Set<String> = [
       "fedora-kde", "fedora-gnome", "fedora-minimal",
       "arch-kde", "arch-gnome", "arch-minimal",
       "nixos-kde", "nixos-gnome", "nixos-minimal",
+      "debian-kde", "debian-gnome", "debian-minimal",
     ]
     if optedIn { expected.insert("omarchy-hyprland") }
     XCTAssertEqual(AuroraInstallationSelection.allProfileIDs, expected)
+  }
+
+  func testDebianOffersTheStandardDesktops() throws {
+    XCTAssertEqual(AuroraDistribution.debian.availableDesktops, [.kde, .gnome, .minimal])
+    for desktop in AuroraDistribution.debian.availableDesktops {
+      let selection = AuroraInstallationSelection(distribution: .debian, desktop: desktop)
+      XCTAssertEqual(selection.profileID, "debian-" + desktop.rawValue)
+      try selection.requireMatchingProfile(selection.profileID)
+      XCTAssertThrowsError(try selection.requireMatchingProfile("arch-" + desktop.rawValue))
+    }
+    var selection = AuroraInstallationSelection(distribution: .omarchy)
+    selection.selectDistribution(.debian)
+    XCTAssertEqual(selection.profileID, "debian-kde")
+    let invalid = AuroraInstallationSelection(distribution: .debian, desktop: .hyprland)
+    XCTAssertThrowsError(try invalid.requireMatchingProfile(invalid.profileID))
+    let data = try JSONEncoder().encode(invalid)
+    XCTAssertThrowsError(try JSONDecoder().decode(AuroraInstallationSelection.self, from: data))
   }
 
   func testOmarchyOffersOnlyHyprlandAndSwitchingKeepsAValidSelection() throws {
