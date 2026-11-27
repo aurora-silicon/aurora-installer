@@ -370,7 +370,7 @@
         (try? string(storeInfo, "ParentWholeDisk")) == snapshot.disk
       else {
         throw RemovalFailure(
-          message: "The running macOS isn’t the one removal returns the space to.")
+          message: "The macOS you’re running isn’t the one that gets the space back.")
       }
       return try uuid(root, "APFSVolumeGroupID")
     }
@@ -578,7 +578,7 @@
     }
     private func invalid() -> RemovalFailure {
       RemovalFailure(
-        message: "The internal macOS disk layout could not be verified.")
+        message: "Couldn’t verify the macOS disk layout.")
     }
   }
 
