@@ -23,7 +23,7 @@
 
     public var location: String {
       switch self {
-      case .notebook: "The power button is at the top-right of the keyboard."
+      case .notebook: "The power button is at the top right of the keyboard."
       case .desktopRear: "The power button is on the back of your Mac."
       case .desktopUnderside: "The power button is on the underside of your Mac mini."
       case .generic: "Use the power button on your Mac."
