@@ -67,6 +67,12 @@ jobs:
             open -W "$app" --args "${arguments[@]}"
             test -s "$output"
           done
+      - name: Render the whole flow offscreen
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/preview/Aurora Installer.app"
+          open -W "$app" --args "--render-flow=$RUNNER_TEMP/evidence/flow"
+          ls "$RUNNER_TEMP/evidence/flow"
       - name: Require clean source formatting
         if: always()
         run: test '${{ steps.format.outcome }}' = success
