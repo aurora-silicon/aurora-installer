@@ -819,7 +819,7 @@
         failure.technicalDetail,
         String(describing: InstallerReleaseConfigurationError.unexpectedHTTPStatus(404))
       )
-      XCTAssertTrue(try XCTUnwrap(failure.remedy).contains("release channel"))
+      XCTAssertTrue(try XCTUnwrap(failure.remedy).contains("Release channel"))
     }
 
     func testOtherServerFailuresAreDistinctFromAnEmptyChannel() {
@@ -892,8 +892,8 @@
     }
 
     func testPlanAcknowledgementOnlyMentionsAResizeWhenMacOSShrinks() {
-      XCTAssertTrue(PlainLanguage.planAcknowledgement(resizesMacOS: true).contains("resize"))
-      XCTAssertFalse(PlainLanguage.planAcknowledgement(resizesMacOS: false).contains("resize"))
+      XCTAssertTrue(PlainLanguage.planAcknowledgement(resizesMacOS: true).contains("resizing"))
+      XCTAssertFalse(PlainLanguage.planAcknowledgement(resizesMacOS: false).contains("resiz"))
       XCTAssertTrue(PlainLanguage.planAcknowledgement(resizesMacOS: false).contains("backup"))
     }
 

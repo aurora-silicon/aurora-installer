@@ -253,7 +253,7 @@
             XCTAssertTrue(failure.isBlockedModel)
             XCTAssertTrue(failure.plainDetail.contains("apple,j999"), failure.plainDetail)
             let remedy = try XCTUnwrap(failure.remedy)
-            XCTAssertTrue(remedy.contains("(65 models)"), remedy)
+            XCTAssertTrue(remedy.contains("Supported Macs (65)"), remedy)
             XCTAssertTrue(
               remedy.contains("M5: Mac mini, Mac Studio, MacBook Air, MacBook Pro."), remedy)
             XCTAssertTrue(remedy.contains("A18 Pro: MacBook Neo"), remedy)
