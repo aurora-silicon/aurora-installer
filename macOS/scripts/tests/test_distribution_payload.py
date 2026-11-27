@@ -217,6 +217,30 @@ class DistributionPayloadTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'no Mach-O boot object'):
             self.assembled('no-macho')
 
+    def write_secure_stage_one_macho(self, raw=b'secure-head' + b'AURORA-S1-CFG01\0' + bytes(244)
+                                     + b'AURORA-S1-KEY01\0' + bytes(148)):
+        header = bytearray(0x10000)
+        header[:4] = b'\xcf\xfa\xed\xfe'
+        header[12:16] = (12).to_bytes(4, 'little')
+        path = self.bundle / 'esp/aurora/stage1-secure.macho'
+        path.write_bytes(bytes(header) + raw + bytes(0x4000 - len(raw)))
+        return path
+
+    def test_the_secure_stage1_for_owner_keys_is_optional_and_checked(self):
+        (self.bundle / 'esp/m1n1/boot-ctxr.bin').unlink()
+        secure = self.write_secure_stage_one_macho()
+        metadata, output = self.assembled('secure')
+        with zipfile.ZipFile(output / metadata['package']) as archive:
+            self.assertEqual(archive.read('esp/aurora/stage1-secure.macho'), secure.read_bytes())
+        self.write_secure_stage_one_macho(b'secure-head' + b'AURORA-S1-CFG01\0' + bytes(244))
+        with self.assertRaisesRegex(ValueError, 'key block'):
+            self.assembled('secure-no-keys')
+        self.write_secure_stage_one_macho()
+        (self.bundle / 'esp/aurora/stage1.macho').unlink()
+        (self.bundle / 'esp/aurora/stage1.bin').unlink()
+        with self.assertRaisesRegex(ValueError, 'needs esp/aurora/stage1.macho'):
+            self.assembled('secure-alone')
+
     def test_mach_o_files_that_are_present_are_checked(self):
         shared = self.bundle / 'esp/m1n1/boot-ctxr.bin'
         metadata, _ = self.assembled('shared')
@@ -396,10 +420,11 @@ class DistributionPayloadTests(unittest.TestCase):
                 self.assertFalse(output.exists())
 
     def test_the_installer_warns_about_exactly_the_caution_boards(self):
-        source = (SCRIPT.parents[1] / 'Sources/AuroraInstallerUXCore/Stage1Caution.swift').read_text()
-        table = source[source.index('static let reasons'):]
-        swift = set(re.findall(r'"(apple,[jk][0-9]+[a-z]*)":', table))
-        self.assertEqual(swift, set(supported_models.stage1_caution()))
+        source = (SCRIPT.parents[1] / 'Sources/AuroraInstallerUXCore/ExperimentalMac.swift').read_text()
+        table = source[source.index('static let boards'):source.index('public static func isExperimental')]
+        swift = re.findall(r'"(apple,[jk][0-9]+[a-z]*)",', table)
+        self.assertEqual(len(swift), len(set(swift)))
+        self.assertEqual(set(swift), set(supported_models.stage1_caution()))
 
     def test_public_payload_without_the_neo_stage_two_is_refused(self):
         self.remove_neo_stage_two()
@@ -422,7 +447,8 @@ class DistributionPayloadTests(unittest.TestCase):
     def test_all_profiles_use_the_selected_distribution_symbol(self):
         observed = {}
         provenance = json.loads((payload.ROOT / 'Packaging/DistributionIcons/provenance.json').read_text())['icons']
-        for distribution, layout in [('fedora', 'fedora'), ('arch', 'alarm'), ('nixos', 'nixos'), ('omarchy', 'alarm')]:
+        for distribution, layout in [('fedora', 'fedora'), ('arch', 'alarm'), ('nixos', 'nixos'), ('omarchy', 'alarm'),
+                                     ('debian', 'debian')]:
             for desktop in (('hyprland',) if distribution == 'omarchy' else ('kde', 'gnome', 'minimal')):
                 profile = distribution + '-' + desktop
                 self.image.update(installation_profile=profile, layout_kind=layout + '-btrfs-v1')
@@ -443,6 +469,25 @@ class DistributionPayloadTests(unittest.TestCase):
         # Every system's startup volume shows the Aurora mark.
         self.assertEqual(set(provenance), {'aurora'})
         self.assertEqual(len(set(observed.values())), 1)
+
+    def test_debian_profiles_require_the_debian_layout(self):
+        for layout in ('alarm-btrfs-v1', 'fedora-btrfs-v1', 'debian-ext4-v1'):
+            self.image.update(installation_profile='debian-kde', layout_kind=layout)
+            (self.bundle / 'image.json').write_text(json.dumps(self.image))
+            with self.assertRaisesRegex(ValueError, 'incompatible filesystem layout'):
+                payload.assemble(self.bundle, self.app, self.root / layout, release_id='fixture')
+        self.image.update(installation_profile='debian-hyprland', layout_kind='debian-btrfs-v1')
+        (self.bundle / 'image.json').write_text(json.dumps(self.image))
+        with self.assertRaisesRegex(ValueError, 'unknown installation profile'):
+            payload.assemble(self.bundle, self.app, self.root / 'hyprland', release_id='fixture')
+        self.image.update(installation_profile='debian-gnome', layout_kind='debian-btrfs-v1')
+        (self.bundle / 'image.json').write_text(json.dumps(self.image))
+        output = self.root / 'debian-gnome'
+        payload.assemble(self.bundle, self.app, output, release_id='fixture')
+        metadata = json.loads((output / 'installer-data-debian-gnome.json').read_text())['os_list'][0]
+        self.assertEqual(metadata['default_os_name'], 'Aurora, based on Debian testing')
+        self.assertEqual(metadata['name'], 'Aurora, based on Debian testing (gnome)')
+        self.assertEqual(metadata['layout_kind'], 'debian-btrfs-v1')
 
     def test_resume_rejects_an_icon_from_another_distribution(self):
         from unittest.mock import patch

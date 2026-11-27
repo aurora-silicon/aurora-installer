@@ -227,9 +227,9 @@ struct OnePageInstallerView: View {
     ) {
       header
     } content: {
-      VStack(alignment: .leading, spacing: 16) { stage }
+      VStack(alignment: .leading, spacing: Space.l) { stage }
     } actions: {
-      HStack(spacing: 16) { actions }
+      HStack(spacing: Space.l) { actions }
     }
   }
 
@@ -290,7 +290,7 @@ struct OnePageInstallerView: View {
         .foregroundStyle(InstallerTheme.secondaryText)
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
-        .padding(.top, 6)
+        .padding(.top, Space.xs)
 
     case .existingInstallRefused:
       existingInstallRefusedPanel()
@@ -334,14 +334,16 @@ struct OnePageInstallerView: View {
           onChange: { session.setEncryptLinuxDisk($0) }
         )
       } else if selection.distribution.supportsDesktop {
-        Text("Linux will be installed without disk encryption.")
-          .font(InstallerTheme.body).foregroundStyle(InstallerTheme.caution)
+        CautionCallout(text: "The Aurora disk won’t be encrypted.")
       }
       if let notice = session.allocationNotice {
-        Text(notice).font(InstallerTheme.body).foregroundStyle(InstallerTheme.caution)
+        CautionCallout(text: notice)
       }
-      if let caution = Stage1Caution.thisMac, !plan.preservesStage1 {
-        stage1CautionPanel(caution)
+      if let stubNote = plan.stubOverrideNote {
+        CautionCallout(text: stubNote)
+      }
+      if ExperimentalMac.thisMac, !plan.preservesStage1 {
+        experimentalNote
       }
       acknowledgement(acknowledged, plan: plan)
 
@@ -360,8 +362,7 @@ struct OnePageInstallerView: View {
           onChange: { _ in }
         )
       } else if selection.distribution.supportsDesktop {
-        Text("Linux will be installed without disk encryption.")
-          .font(InstallerTheme.body).foregroundStyle(InstallerTheme.caution)
+        CautionCallout(text: "The Aurora disk won’t be encrypted.")
       }
       if !helper.isReady {
         helperNote
@@ -413,25 +414,28 @@ struct OnePageInstallerView: View {
         .keyboardShortcut(.defaultAction)
 
     case .existingInstallRefused(let host):
+      // The erase sits first, away from the default button, and never takes Return.
+      Button("Erase Linux…", role: .destructive, action: onRemoveLinux)
+        .auroraDangerButton()
+        .disabled(session.isBusy)
       if let onChooseSystem {
-        Button("Choose system", action: onChooseSystem)
+        Button("Choose a system", action: onChooseSystem)
           .auroraSecondaryButton()
           .disabled(session.isBusy)
       }
       if host.existingInstalls.count == 1, !host.existingInstalls[0].partial {
-        Button("Reset Linux") {
+        // Reset opens a plan to review; nothing changes until it is approved.
+        Button("Reset Linux…") {
           Task { await session.reinstallPreservingStage1() }
         }
         .auroraPrimaryButton()
         .disabled(!session.canPreparePreservedReinstall)
+        .keyboardShortcut(.defaultAction)
       }
-      Button("Erase Linux", role: .destructive, action: onRemoveLinux)
-        .auroraSecondaryButton()
-        .disabled(session.isBusy)
 
     case .partitions(_, let layout):
       if let onChooseSystem {
-        Button("Choose system", action: onChooseSystem)
+        Button("Choose a system", action: onChooseSystem)
           .auroraSecondaryButton()
           .disabled(session.isBusy)
       }
@@ -452,7 +456,7 @@ struct OnePageInstallerView: View {
         Button("Back", action: session.returnToPartitions).auroraSecondaryButton()
       }
       if session.canCancelPlanPreparation {
-        Button("Cancel check", action: session.cancelPlanPreparation).auroraSecondaryButton()
+        Button("Stop checking", action: session.cancelPlanPreparation).auroraSecondaryButton()
       } else if session.planNeedsCheck {
         Button(plan.preservesStage1 ? "Check again" : "Check size") {
           Task { await session.checkDraftAllocation() }
@@ -489,7 +493,7 @@ struct OnePageInstallerView: View {
     case .installing:
       Text(PlainLanguage.installWarning)
         .font(InstallerTheme.detail.weight(.medium))
-        .foregroundStyle(InstallerTheme.accent)
+        .foregroundStyle(InstallerTheme.secondaryText)
 
     case .awaitingRecovery:
       if !session.isSimulation {
@@ -504,8 +508,9 @@ struct OnePageInstallerView: View {
           .auroraPrimaryButton()
           .keyboardShortcut(.defaultAction)
       } else {
-        Button("Close") { NSApplication.shared.terminate(nil) }
-          .auroraSecondaryButton()
+        Button("Quit") { NSApplication.shared.terminate(nil) }
+          .auroraPrimaryButton()
+          .keyboardShortcut(.defaultAction)
       }
 
     case .failed(let failure):
@@ -546,8 +551,8 @@ struct OnePageInstallerView: View {
     headline: String, detail: String, remedy: String?, technical: String?, isError: Bool,
     retryAvailable: Bool = false
   ) -> some View {
-    VStack(alignment: .leading, spacing: 10) {
-      VStack(alignment: .leading, spacing: 8) {
+    VStack(alignment: .leading, spacing: Space.s) {
+      VStack(alignment: .leading, spacing: Space.s) {
         Text(headline)
           .font(InstallerTheme.heading)
           .foregroundStyle(isError ? InstallerTheme.danger : InstallerTheme.text)
@@ -560,21 +565,22 @@ struct OnePageInstallerView: View {
             .font(InstallerTheme.body)
             .foregroundStyle(InstallerTheme.secondaryText)
             .fixedSize(horizontal: false, vertical: true)
-            .padding(.top, 2)
+            .padding(.top, Space.xxs)
         }
         if let technical {
-          InstallerDetailsButton(title: "Technical details", text: technical).padding(.top, 4)
+          InstallerDetailsButton(title: "Details", text: technical).padding(
+            .top, Space.xs)
         }
         if session.hasExecutionStarted && !retryAvailable {
           Text(
-            "This installation can’t be started again yet. Review the installation record below, and keep this Mac plugged in."
+            "You can’t restart this installation yet. Keep this Mac plugged in, and check Completed steps."
           )
           .font(InstallerTheme.body)
           InstallerDetailsButton(
-            title: "Last verified steps",
+            title: "Completed steps",
             text: ([headline, detail, technical ?? ""]
               + (session.journal.feed.isEmpty
-                ? ["No completed disk step was confirmed. Disk changes may still have started."]
+                ? ["No disk step was confirmed as finished. Disk changes may have started."]
                 : session.journal.feed.map(\.text)))
               .joined(separator: "\n"))
         }
@@ -585,7 +591,7 @@ struct OnePageInstallerView: View {
             .fixedSize(horizontal: false, vertical: true)
         }
       }
-      .padding(.vertical, 2)
+      .padding(.vertical, Space.xxs)
     }
   }
 
@@ -604,65 +610,72 @@ struct OnePageInstallerView: View {
   }
 
   private func acknowledgement(_ acknowledged: Bool, plan: PlanDisplay) -> some View {
-    Toggle(
-      plan.updatesBootLoader
-        ? PlainLanguage.bootLoaderUpdateAcknowledgement
-        : plan.preservesStage1
-          ? PlainLanguage.planPreservedAcknowledgement
-          : PlainLanguage.planAcknowledgement(
-            resizesMacOS: plan.allocationSource != .freeExtent,
-            stage1Caution: Stage1Caution.thisMac != nil),
+    let experimental =
+      ExperimentalMac.thisMac && !plan.updatesBootLoader && !plan.preservesStage1
+    return Toggle(
       isOn: Binding(get: { acknowledged }, set: { session.setAcknowledged($0) })
-    )
+    ) {
+      VStack(alignment: .leading, spacing: Space.xxs) {
+        Text(
+          plan.updatesBootLoader
+            ? PlainLanguage.bootLoaderUpdateAcknowledgement
+            : plan.preservesStage1
+              ? PlainLanguage.planPreservedAcknowledgement
+              : PlainLanguage.planAcknowledgement(
+                resizesMacOS: plan.allocationSource != .freeExtent))
+        if experimental {
+          Text(PlainLanguage.planExperimentalAcknowledgement)
+        }
+      }
+      .fixedSize(horizontal: false, vertical: true)
+    }
     .toggleStyle(.checkbox)
     .controlSize(.regular)
     .font(InstallerTheme.body)
-    .tint(.blue)
     .disabled(session.isBusy || session.isEditingSize || session.planNeedsCheck)
   }
 
-  private func stage1CautionPanel(_ reason: String) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
-      Text(PlainLanguage.stage1CautionHeadline)
+  /// The one generic line every experimental Mac shows on the plan.
+  private var experimentalNote: some View {
+    VStack(alignment: .leading, spacing: Space.xxs) {
+      Label(PlainLanguage.experimentalTitle, systemImage: "exclamationmark.triangle.fill")
         .font(InstallerTheme.body.weight(.semibold))
-        .foregroundStyle(InstallerTheme.caution)
-      Text(reason)
-        .font(InstallerTheme.body)
+        .labelStyle(CautionLabelStyle())
+      Text(PlainLanguage.experimentalNote)
+        .font(InstallerTheme.detail)
         .fixedSize(horizontal: false, vertical: true)
-      Text(PlainLanguage.stage1CautionRecovery)
-        .font(InstallerTheme.body)
-        .foregroundStyle(InstallerTheme.secondaryText)
-        .fixedSize(horizontal: false, vertical: true)
+      Link(PlainLanguage.experimentalIssuesLink, destination: PlainLanguage.experimentalIssuesURL)
+        .font(InstallerTheme.detail)
+        .disabled(session.isSimulation)
     }
+    .accessibilityElement(children: .contain)
   }
 
   private var helperNote: some View {
-    HStack(spacing: 10) {
+    HStack(spacing: Space.s) {
       Image(systemName: "lock.shield")
         .foregroundStyle(InstallerTheme.caution)
+        .accessibilityHidden(true)
       Text(PlainLanguage.helperNotInstalled)
         .auroraHelpText()
       Spacer(minLength: 0)
     }
-    .padding(.horizontal, 4)
+    .padding(.horizontal, Space.xs)
   }
 
   private func recoveryPanel(_ handoff: HandoffDisplay) -> some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(alignment: .leading, spacing: Space.s) {
       Text(handoff.headline)
         .font(InstallerTheme.heading)
-        .padding(.bottom, 4)
+        .padding(.bottom, Space.xs)
       if let warning = handoff.warning {
-        Text(warning)
-          .font(InstallerTheme.body)
-          .foregroundStyle(InstallerTheme.caution)
-          .fixedSize(horizontal: false, vertical: true)
+        CautionCallout(text: warning)
       }
       ForEach(handoff.steps) { step in
         RecoveryStepRow(step: step)
       }
       if let message = session.shutdownMessage {
-        Text(message).font(InstallerTheme.body).foregroundStyle(InstallerTheme.caution)
+        CautionCallout(text: message)
       }
     }
   }
@@ -670,21 +683,21 @@ struct OnePageInstallerView: View {
   @ViewBuilder
   private func donePanel(_ completion: CompletionDisplay) -> some View {
     if completion.nextAction == .verifyInstalledSystem {
-      VStack(spacing: 14) {
+      VStack(spacing: Space.m) {
         AuroraMark().frame(width: 72, height: 72)
         Text(completion.headline)
-          .font(.system(size: 24, weight: .semibold))
-        Text("Restart to start Aurora.")
+          .font(InstallerTheme.title)
+        Text("Restart your Mac to start Aurora.")
           .font(InstallerTheme.body)
           .foregroundStyle(InstallerTheme.secondaryText)
         if let message = session.restartMessage {
-          Text(message).font(InstallerTheme.detail).foregroundStyle(InstallerTheme.caution)
+          CautionCallout(text: message)
         }
       }
       .multilineTextAlignment(.center)
       .frame(maxWidth: .infinity)
     } else {
-      VStack(alignment: .leading, spacing: 8) {
+      VStack(alignment: .leading, spacing: Space.s) {
         Text(completion.headline).font(InstallerTheme.heading)
         Text(completion.subheadline)
           .font(InstallerTheme.body)
@@ -717,8 +730,8 @@ struct PrefetchStrip: View {
 
   var body: some View {
     if showsStrip {
-      VStack(alignment: .leading, spacing: 10) {
-        VStack(alignment: .leading, spacing: 8) {
+      VStack(alignment: .leading, spacing: Space.s) {
+        VStack(alignment: .leading, spacing: Space.s) {
           HStack {
             Text(PlainLanguage.prefetchTitle(for: state))
               .font(InstallerTheme.heading)
@@ -741,7 +754,7 @@ struct PrefetchStrip: View {
           }
         }
       }
-      .padding(.vertical, 8)
+      .padding(.vertical, Space.s)
     }
   }
 
@@ -778,13 +791,13 @@ struct ExistingInstallationContent: View {
   var partial = false
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
+    VStack(alignment: .leading, spacing: Space.m) {
       Text(partial ? PlainLanguage.partialInstallHeadline : PlainLanguage.existingInstallHeadline)
         .font(InstallerTheme.heading)
       Text(
         partial
           ? PlainLanguage.partialInstallDetail
-          : "Reset Linux in its current space while keeping Stage 1, or erase Linux and return its space to macOS."
+          : "Reset Linux in place and keep Stage 1. Or erase Linux and give its space back to macOS."
       )
       .font(InstallerTheme.body)
       .foregroundStyle(InstallerTheme.secondaryText)
@@ -800,7 +813,7 @@ struct EncryptDiskToggle: View {
   let onChange: (Bool) -> Void
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
+    VStack(alignment: .leading, spacing: Space.xs) {
       Toggle(
         PlainLanguage.encryptLinuxDiskTitle,
         isOn: Binding(
@@ -811,12 +824,11 @@ struct EncryptDiskToggle: View {
       .toggleStyle(.checkbox)
       .controlSize(.regular)
       .font(InstallerTheme.body)
-      .tint(.blue)
       .disabled(!enabled)
       // One help paragraph: the password, and that nothing else unlocks the disk.
       Text(PlainLanguage.encryptLinuxDiskPassword + " " + PlainLanguage.encryptLinuxDiskNoRecovery)
         .auroraHelpText()
-        .padding(.leading, 20)
+        .padding(.leading, Space.l)
     }
   }
 }
@@ -831,12 +843,12 @@ struct DownloadPanel: View {
   private var package: AssetProgressRow? { update.rows.first { $0.role == "payload" } }
 
   var body: some View {
-    VStack(spacing: 24) {
-      VStack(spacing: 8) {
-        Text("Preparing your installation").font(.system(size: 20, weight: .medium))
+    VStack(spacing: Space.xl) {
+      VStack(spacing: Space.s) {
+        Text("Preparing to install").font(InstallerTheme.title)
         Text(title).font(InstallerTheme.body).foregroundStyle(.secondary)
       }
-      VStack(spacing: 10) {
+      VStack(spacing: Space.s) {
         ProgressTrack(fraction: fraction)
         HStack {
           if let package, update.stage == .downloading, package.totalBytes > 0 {
@@ -885,13 +897,13 @@ struct DiskSplitPanel: View {
   @State private var showsSizePrompt = false
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 20) {
+    VStack(alignment: .leading, spacing: Space.l) {
       Text(
         plan.updatesBootLoader
           ? PlainLanguage.bootLoaderUpdateReviewTitle
-          : plan.preservesStage1 ? "Review your reset" : "Choose your space"
+          : plan.preservesStage1 ? "Review the reset" : "Choose space for Aurora"
       )
-      .font(.system(size: 22, weight: .semibold))
+      .font(InstallerTheme.title)
       if plan.updatesBootLoader {
         Text(PlainLanguage.bootLoaderUpdateReviewDetail)
           .font(InstallerTheme.body)
@@ -899,7 +911,7 @@ struct DiskSplitPanel: View {
           .fixedSize(horizontal: false, vertical: true)
       } else if plan.preservesStage1 {
         Text(
-          "Stage 1, its startup name and icon, and partition sizes stay. EFI boot files, Linux Boot and Root are replaced, erasing Linux accounts and files."
+          "Kept: Stage 1, the startup name and icon, and partition sizes. Replaced: the EFI boot files, Linux Boot and Root. All Linux accounts and files are erased."
         )
         .font(InstallerTheme.body)
         .foregroundStyle(InstallerTheme.secondaryText)
@@ -938,7 +950,7 @@ struct DiskSplitPanel: View {
         .opacity(isBusy ? 1 : 0)
         .accessibilityHidden(!isBusy)
       ForEach(plan.spaceCautions(for: displayedAuroraBytes), id: \.self) { caution in
-        Text(caution).font(InstallerTheme.body).foregroundStyle(InstallerTheme.caution)
+        CautionCallout(text: caution)
       }
     }
     .sheet(
@@ -960,19 +972,19 @@ struct DiskSplitPanel: View {
   }
 
   private func capacity(_ title: String, bytes: UInt64, highlighted: Bool) -> some View {
-    VStack(alignment: highlighted ? .trailing : .leading, spacing: 5) {
+    VStack(alignment: highlighted ? .trailing : .leading, spacing: Space.xs) {
       Text(title).font(InstallerTheme.detail).foregroundStyle(.secondary)
-      HStack(alignment: .center, spacing: 9) {
+      HStack(alignment: .center, spacing: Space.s) {
         if highlighted && editable {
           Button(action: beginSizeEdit) {
             Image(systemName: "pencil").font(.system(size: 18, weight: .medium))
               .frame(width: 28, height: 28)
           }
           .buttonStyle(.plain).foregroundStyle(.secondary)
-          .accessibilityLabel("Edit Aurora size")
-          .help("Edit Aurora size")
+          .accessibilityLabel("Change Aurora size")
+          .help("Change Aurora size")
         }
-        Text(PlainLanguage.bytes(bytes)).font(.system(size: 28, weight: .medium, design: .rounded))
+        Text(PlainLanguage.bytes(bytes)).font(InstallerTheme.display)
           .monospacedDigit().foregroundStyle(
             highlighted ? InstallerTheme.accent : InstallerTheme.text)
       }
@@ -1034,9 +1046,9 @@ struct DiskSizePrompt: View {
   @FocusState private var focused: Bool
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      Text("Space for Aurora").font(.system(size: 18, weight: .semibold))
-      HStack(spacing: 8) {
+    VStack(alignment: .leading, spacing: Space.l) {
+      Text("Space for Aurora").font(InstallerTheme.sheetTitle)
+      HStack(spacing: Space.s) {
         TextField("Size", text: $input.text)
           .textFieldStyle(.roundedBorder).font(InstallerTheme.control)
           .frame(width: 110).focused($focused).autocorrectionDisabled()
@@ -1046,22 +1058,22 @@ struct DiskSizePrompt: View {
       }
       Text(
         input.validationMessage
-          ?? "From \(PlainLanguage.bytes(minimumBytes)) to \(PlainLanguage.bytes(maximumBytes))"
+          ?? "Between \(PlainLanguage.bytes(minimumBytes)) and \(PlainLanguage.bytes(maximumBytes))"
       )
       .font(InstallerTheme.detail)
       .foregroundStyle(
         input.validationMessage == nil ? InstallerTheme.secondaryText : InstallerTheme.danger
       )
       .fixedSize(horizontal: false, vertical: true)
-      HStack(spacing: 12) {
+      HStack(spacing: Space.m) {
         Spacer()
         Button("Cancel", action: onCancel).auroraSecondaryButton(size: .large).keyboardShortcut(
           .cancelAction)
-        Button("Apply", action: onApply).auroraPrimaryButton(size: .large)
+        Button("Set size", action: onApply).auroraPrimaryButton(size: .large)
           .disabled(input.requestedBytes == nil).keyboardShortcut(.defaultAction)
       }
     }
-    .padding(24).frame(width: 330)
+    .padding(Space.xl).frame(width: 330)
     .foregroundStyle(InstallerTheme.text).background(InstallerTheme.window)
     .task { focused = true }
   }
@@ -1076,21 +1088,24 @@ struct InstallPanel: View {
 
   var body: some View {
     VStack {
-      VStack(alignment: .leading, spacing: 24) {
-        VStack(alignment: .leading, spacing: 8) {
-          Text("Installing Aurora").font(.system(size: 24, weight: .semibold))
+      VStack(alignment: .leading, spacing: Space.xl) {
+        VStack(alignment: .leading, spacing: Space.s) {
+          Text("Installing Aurora").font(InstallerTheme.title)
+            .accessibilityAddTraits(.isHeader)
           Text(stepCount).font(InstallerTheme.body).foregroundStyle(.secondary)
         }
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Space.s + Space.xxs) {
           ForEach(Array(progress.stepLabels.enumerated()), id: \.offset) { index, label in
-            HStack(spacing: 12) {
-              stepMark(index).frame(width: 18, height: 18)
+            HStack(spacing: Space.m) {
+              stepMark(index).frame(width: 18, height: 18).accessibilityHidden(true)
               Text(label).font(
-                .system(size: 13, weight: index == progress.stepIndex ? .medium : .regular)
+                InstallerTheme.body.weight(index == progress.stepIndex ? .medium : .regular)
               )
               .foregroundStyle(
                 index <= progress.stepIndex ? InstallerTheme.text : InstallerTheme.secondaryText)
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityValue(stepState(index))
           }
         }
         TimelineView(.periodic(from: progress.startedAt, by: 1)) { context in
@@ -1101,18 +1116,24 @@ struct InstallPanel: View {
         if progress.degraded {
           Text(PlainLanguage.installDegraded).auroraHelpText()
           InstallerDetailsButton(
-            title: "View activity",
+            title: "Show activity",
             text: progress.feed.isEmpty
-              ? "No activity recorded yet." : progress.feed.map(\.text).joined(separator: "\n"))
+              ? "No activity yet." : progress.feed.map(\.text).joined(separator: "\n"))
         }
       }
-      .padding(.vertical, 12)
+      .padding(.vertical, Space.m)
     }
   }
 
   private var stepCount: String {
     let count = progress.stepLabels.count
     return "Step \(min(progress.stepIndex + 1, count)) of \(count)"
+  }
+
+  /// What VoiceOver says about a step, since the marks are only pictures.
+  private func stepState(_ index: Int) -> String {
+    if done(index) { return "Done" }
+    return index == progress.stepIndex ? "In progress" : "Not started"
   }
 
   private func done(_ index: Int) -> Bool {
@@ -1122,53 +1143,17 @@ struct InstallPanel: View {
   /// Done, under way, or still to come.
   @ViewBuilder private func stepMark(_ index: Int) -> some View {
     if done(index) {
-      Image(systemName: "checkmark.circle.fill").font(.system(size: 16))
+      Image(systemName: "checkmark.circle.fill").imageScale(.large)
         .foregroundStyle(InstallerTheme.success)
     } else if index == progress.stepIndex {
       NativeSpinner().controlSize(.small)
     } else {
-      Image(systemName: "circle").font(.system(size: 16)).foregroundStyle(.tertiary)
+      Image(systemName: "circle").imageScale(.large).foregroundStyle(.tertiary)
     }
   }
 
   private func elapsed(at date: Date) -> String {
     let seconds = max(0, Int(date.timeIntervalSince(progress.startedAt)))
     return String(format: "%d:%02d", seconds / 60, seconds % 60)
-  }
-}
-
-/// Quiet, keyboard-sized actions that share the editor's terminal palette.
-private struct SizeEditButtonStyle: ButtonStyle {
-  let tint: Color
-  @Environment(\.isEnabled) private var isEnabled
-
-  func makeBody(configuration: Configuration) -> some View {
-    SizeEditButtonBody(configuration: configuration, tint: tint, isEnabled: isEnabled)
-  }
-
-  private struct SizeEditButtonBody: View {
-    let configuration: ButtonStyleConfiguration
-    let tint: Color
-    let isEnabled: Bool
-    @State private var isHovered = false
-
-    var body: some View {
-      configuration.label
-        .foregroundStyle(isEnabled ? tint : InstallerTheme.secondaryText.opacity(0.4))
-        .background(
-          RoundedRectangle(cornerRadius: 4)
-            .fill(
-              tint.opacity(
-                isEnabled && configuration.isPressed ? 0.20 : isEnabled && isHovered ? 0.10 : 0))
-        )
-        .overlay(
-          RoundedRectangle(cornerRadius: 4)
-            .strokeBorder(
-              isEnabled && isHovered ? tint.opacity(0.35) : InstallerTheme.separator.opacity(0.5),
-              lineWidth: 1)
-        )
-        .contentShape(Rectangle())
-        .onHover { isHovered = $0 }
-    }
   }
 }

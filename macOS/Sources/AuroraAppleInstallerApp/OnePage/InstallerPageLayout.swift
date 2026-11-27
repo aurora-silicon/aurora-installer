@@ -22,20 +22,20 @@ struct InstallerPageLayout<Header: View, Content: View, Actions: View>: View {
     VStack(spacing: 0) {
       header()
         .inPageColumn()
-        .padding(.top, 20)
-        .padding(.bottom, 16)
+        .padding(.top, Space.l)
+        .padding(.bottom, Space.l)
       if scrollsContent {
         ScrollView(.vertical) {
           content()
             .inPageColumn()
-            .padding(.vertical, 12)
+            .padding(.vertical, Space.m)
         }
         .scrollBounceBehavior(.basedOnSize)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
         content()
           .inPageColumn()
-          .padding(.vertical, 20)
+          .padding(.vertical, Space.l)
           .fixedSize(horizontal: false, vertical: true)
           .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: contentAlignment)
       }
@@ -47,8 +47,8 @@ struct InstallerPageLayout<Header: View, Content: View, Actions: View>: View {
           )
           .padding(.horizontal, Self.columnMargin)
           .frame(maxWidth: .infinity)
-          .padding(.top, 12)
-          .padding(.bottom, 20)
+          .padding(.top, Space.m)
+          .padding(.bottom, Space.l)
           .background(InstallerTheme.window)
       }
     }
@@ -59,7 +59,7 @@ extension View {
   /// The page column shared by the masthead, the content and the footer.
   func inPageColumn(alignment: Alignment = .leading) -> some View {
     frame(maxWidth: 640, alignment: alignment)
-      .padding(.horizontal, 40)
+      .padding(.horizontal, Space.xxl)
       .frame(maxWidth: .infinity)
   }
 }

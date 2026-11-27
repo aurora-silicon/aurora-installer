@@ -212,7 +212,7 @@
       XCTAssertTrue(layout.options.isEmpty)
       XCTAssertEqual(
         layout.noRoomReason,
-        "There’s no free space big enough, and Macintosh HD has 41 GB free. Erase a partition above, or free up space in macOS until it has more than 50 GB free."
+        "No free space is big enough, and Macintosh HD has 41 GB free. Erase a partition above, or free up space in macOS until it has more than 50 GB free."
       )
       XCTAssertNil(LayoutFixture.mixed().display().noRoomReason)
     }
@@ -250,7 +250,7 @@
       XCTAssertEqual(target.freedBytes, 208 * gb)
       XCTAssertEqual(
         EraseSheetText.leaves(target.freedBytes),
-        "Leaves 208 GB of free space you can install into. The macOS you’re running isn’t resized, and its files stay as they are."
+        "Leaves 208 GB free to install into. The macOS you’re running isn’t resized, and its files stay as they are."
       )
       // macOS has no after view: Erase never applies to it.
       XCTAssertNil(layout.afterErasing("disk0s2"))

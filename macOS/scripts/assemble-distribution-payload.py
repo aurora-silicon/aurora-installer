@@ -22,11 +22,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import recovery_payload as aurora_recovery
 
-# Every startup volume shows the Aurora mark: Fedora's, Arch Linux's and
-# NixOS's logos are not used for Aurora releases without their owners' permission.
+# Every startup volume shows the Aurora mark: Fedora's, Arch Linux's, NixOS's and
+# Debian's logos are not used for Aurora releases without their owners' permission.
 DISTRIBUTION_ICONS = {
     distribution: ROOT / 'Packaging/DistributionIcons/aurora.icns'
-    for distribution in ('fedora', 'arch', 'nixos', 'omarchy')
+    for distribution in ('fedora', 'arch', 'nixos', 'omarchy', 'debian')
 }
 
 
@@ -293,6 +293,7 @@ def check_stage1_macho(esp):
     aura's tools/macho_boot_object.py carries the raw image unchanged at the
     start of __TEXT_EXEC, file offset 0x10000, with no __TEXT_BOOT_EXEC.
     """
+    check_secure_stage1_macho(esp)
     path = esp / 'aurora/stage1.macho'
     if not path.exists():
         if (esp / 'aurora/stage1.bin').exists():
@@ -305,13 +306,32 @@ def check_stage1_macho(esp):
         raise ValueError('esp/aurora/stage1.macho is not the Mach-O boot object for esp/aurora/stage1.bin')
 
 
+def check_secure_stage1_macho(esp):
+    """aura's secure-flavour Stage 1 object, which Recovery enrolls when the
+    owner chooses their own key, is optional. When it is there it must be a
+    Mach-O boot object like the common one whose Stage 1 has exactly one
+    configuration block and one key block (aura SECBOOT=audit), and it needs the
+    common object beside it: Recovery copies that object's configuration into it.
+    """
+    path = esp / 'aurora/stage1-secure.macho'
+    if not path.exists():
+        return
+    if not (esp / 'aurora/stage1.macho').exists():
+        raise ValueError('esp/aurora/stage1-secure.macho needs esp/aurora/stage1.macho beside it')
+    obj = regular(path).read_bytes()
+    if (obj[:4] != b'\xcf\xfa\xed\xfe' or int.from_bytes(obj[12:16], 'little') != 12
+            or b'__TEXT_BOOT_EXEC' in obj[:0x8000]
+            or obj.count(b'AURORA-S1-CFG01\0') != 1 or obj.count(b'AURORA-S1-KEY01\0') != 1):
+        raise ValueError('esp/aurora/stage1-secure.macho is not a Mach-O boot object of a Stage 1 with a key block')
+
+
 def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
     release_id = release_id or datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,79}", release_id):
         raise ValueError("invalid delivery release identifier")
     image = json.loads(regular(bundle / 'image.json').read_text())
     profile = image['installation_profile']
-    if not re.fullmatch(r'(?:fedora|arch|nixos)-(?:kde|gnome|minimal)|omarchy-hyprland', profile):
+    if not re.fullmatch(r'(?:fedora|arch|nixos|debian)-(?:kde|gnome|minimal)|omarchy-hyprland', profile):
         raise ValueError('unknown installation profile')
     stage2_members = {}
     manifest_path = bundle / 'stage2.json'
@@ -350,7 +370,8 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
             raise ValueError('the ' + board.upper() + ' requires a current board-specific Stage 2')
     confined = check_confined_stage2(bundle, stage2_members)
     distribution_icon = regular(DISTRIBUTION_ICONS[profile.split('-')[0]])
-    expected_layout = {'fedora': 'fedora', 'arch': 'alarm', 'nixos': 'nixos', 'omarchy': 'alarm'}[profile.split('-')[0]] + '-btrfs-v1'
+    expected_layout = {'fedora': 'fedora', 'arch': 'alarm', 'nixos': 'nixos', 'omarchy': 'alarm',
+                       'debian': 'debian'}[profile.split('-')[0]] + '-btrfs-v1'
     if image['layout_kind'] != expected_layout or image['root_subvolume'] != 'root':
         raise ValueError('incompatible filesystem layout')
     for name in ('boot.img', 'root.img'):
@@ -398,7 +419,8 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
             archive.writestr(prefix + aurora_recovery.MANIFEST_NAME, json.dumps(recovery_manifest, sort_keys=True, indent=2) + '\n')
     with zipfile.ZipFile(payload) as archive:
         aurora_recovery.validate_payload(archive)
-    title = {'fedora': 'Aurora Fedora Remix', 'arch': 'Aurora Alarm', 'nixos': 'Aurora NixOS', 'omarchy': 'Omarchy Aurora'}[profile.split('-')[0]]
+    title = {'fedora': 'Aurora Fedora Remix', 'arch': 'Aurora Alarm', 'nixos': 'Aurora NixOS', 'omarchy': 'Omarchy Aurora',
+             'debian': 'Aurora, based on Debian testing'}[profile.split('-')[0]]
     # omarchy_target and omarchy-native-v1 are the published metadata contract
     # every released installer reads; they predate the Aurora name.
     template = {
@@ -419,8 +441,8 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
     import supported_models
     identifiers, _ = supported_models.load()
     # Every supported Mac is admitted for the common Stage 1. Boards with an
-    # unqualified installer composition stay installable after the owner
-    # acknowledges stage1_caution and the recovery steps.
+    # unqualified installer composition (stage1_caution) stay installable
+    # after the owner acknowledges the installer's experimental note.
     supported_models.stage1_caution()
     # The admitted T6050 policy selects macOS 27.2. The serialized field name
     # qualified_machines is the existing boot-chain contract; admission here

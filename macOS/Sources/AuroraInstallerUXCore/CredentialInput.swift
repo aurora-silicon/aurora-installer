@@ -34,7 +34,7 @@
         return nil
       }
       if username.utf8.count > 255 {
-        return "Account names can contain up to 255 characters."
+        return "Use 255 characters or fewer."
       }
       let allowed = username.utf8.allSatisfy { byte in
         (byte >= 48 && byte <= 57)
@@ -46,7 +46,7 @@
       }
       return allowed
         ? nil
-        : "Use your short macOS account name (letters, numbers, dots, underscores, or hyphens)."
+        : "Use your macOS account name (letters, numbers, dots, underscores or hyphens)."
     }
 
     public var passwordReason: String? {
@@ -55,10 +55,10 @@
       }
       let bytes = Data(password.utf8)
       if bytes.count > 1_024 {
-        return "This password exceeds the supported length."
+        return "This password is too long."
       }
       if bytes.contains(0) || bytes.contains(0x0A) || bytes.contains(0x0D) {
-        return "Enter the password without line breaks or null characters."
+        return "The password can’t contain line breaks or null characters."
       }
       return nil
     }

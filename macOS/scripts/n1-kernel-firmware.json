@@ -1,0 +1,27 @@
+{
+ "schema": 1,
+ "kind": "aurora-n1-kernel-firmware-names",
+ "about": "The file each N1 Mac's Linux driver requests: the T6050 device trees' firmware-name, the T8142/T8152 board table in drivers/net/wireless/apple/centauri/centauri.h. null: no kernel requests one yet (no N1 node or table entry), the installer still writes the model's name. Every N1 identity in restore-image-firmware.json has an entry.",
+ "evidence": {
+  "main": "https://github.com/aurora-silicon/linux/tree/08d502e7138a2dc32d02edb0365bb5f3f3fe8b7b",
+  "k114s_k116c": "https://github.com/aurora-silicon/linux/pull/3337 at 1c71360f65af7a6b576e069463dc99bc685b9da9"
+ },
+ "names": {
+  "j714c": "apple/centauri/j714c-ftab.bin",
+  "j714s": "apple/centauri/j714s-ftab.bin",
+  "j716c": "apple/centauri/j716c-ftab.bin",
+  "j716s": "apple/centauri/j716s-ftab.bin",
+  "j775c": null,
+  "j775d": "apple/centauri/j775d-ftab.bin",
+  "j804": null,
+  "j813": "apple/centauri/j813-ftab.bin",
+  "j815": "apple/centauri/j815-ftab.bin",
+  "j833ct": null,
+  "j873g": "apple/centauri/j873-ftab.bin",
+  "j873s": null,
+  "k114c": "apple/centauri/k114c-ftab.bin",
+  "k114s": "apple/centauri/k114s-ftab.bin",
+  "k116c": "apple/centauri/k116c-ftab.bin",
+  "k116s": "apple/centauri/k116s-ftab.bin"
+ }
+}

@@ -131,7 +131,7 @@
       let firmware = try NativeFirmwareSelection.choose(
         deviceIdentifier: package.deviceIdentifier,
         facts: facts, metadata: NativeInstallationMetadata(data: metadata),
-        policy: NativeInspectionPolicy.sealed())
+        policy: NativeInspectionPolicy.sealed(), stubOverride: package.stubOverride)
       // A restore image or a full update archive. The plan also requires the
       // archive to have the layout its URL names.
       guard NativeRestoreSourceLayout(sourceURL: firmware.sourceURL) != nil else {

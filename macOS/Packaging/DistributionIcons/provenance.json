@@ -21,9 +21,10 @@
         "fedora",
         "arch",
         "nixos",
-        "omarchy"
+        "omarchy",
+        "debian"
       ],
-      "reason": "Fedora, Arch Linux (ARM) and NixOS marks are not used for Aurora releases without their owners\u2019 permission."
+      "reason": "Fedora, Arch Linux (ARM), NixOS and Debian marks are not used for Aurora releases without their owners\u2019 permission."
     }
   },
   "reproduction": "For each recorded size, render the source with rsvg-convert -w SIZE -h SIZE SOURCE; encode the seven PNGs as ICNS records icp4,icp5,icp6,ic07,ic08,ic09,ic10 using big-endian 32-bit record and file lengths. No background is added."

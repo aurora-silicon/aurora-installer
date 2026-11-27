@@ -32,6 +32,10 @@ enum AuraBootMode: String, Codable, CaseIterable {
   /// The filled raw image the object carries. Recovery keeps it to check the
   /// object and for Reset; it is never enrolled.
   static let rawStage1Path = "raw/aura-raw.bin"
+  /// The secure-flavour Stage 1 object, which holds a key block, that a setup
+  /// with the owner's own key enrolls instead of `stage1Path`. Optional: only a
+  /// distribution that ships aura's secure flavour has it.
+  static let ownerKeyStage1Path = "macho/aura-secure-boot.macho"
 
   /// The Recovery payload keeps the Stage 2 this installation chainloads under
   /// one name in both modes. `stage2Path` in its configuration says where it goes.

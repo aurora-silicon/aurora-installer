@@ -28,7 +28,7 @@ struct CredentialSheet: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 16) {
+    VStack(alignment: .leading, spacing: Space.l) {
       Text(isRetry ? PlainLanguage.authorizeRetryTitle : PlainLanguage.authorizeTitle)
         .font(InstallerTheme.sheetTitle)
         .foregroundStyle(InstallerTheme.accent)
@@ -37,21 +37,15 @@ struct CredentialSheet: View {
         isSimulation
           ? "This simulation uses a test account. No real password is needed."
           : context.kind == .updateBootLoader
-            ? "Use a macOS account that is allowed to install on this Mac. Your password lets the installer prepare the new boot loader and choose this installation as the startup disk."
-            : "Use a macOS account that is allowed to install on this Mac. Your password approves the disk changes you reviewed and the final setup."
+            ? "Use a macOS administrator account. Your password lets the installer prepare the boot loader and set this installation as the startup disk."
+            : "Use a macOS administrator account. Your password approves the disk changes you reviewed and the final setup."
       )
       .font(InstallerTheme.body)
       .fixedSize(horizontal: false, vertical: true)
 
       if context.helperSwitchedOff && !isSimulation {
-        HStack(alignment: .top, spacing: 8) {
-          Image(systemName: "switch.2")
-          Text(PlainLanguage.authorizeHelperSwitchedOffNotice)
-        }
-        .font(InstallerTheme.detail)
-        .foregroundStyle(InstallerTheme.caution)
-        .fixedSize(horizontal: false, vertical: true)
-        .accessibilityElement(children: .combine)
+        CautionCallout(
+          text: PlainLanguage.authorizeHelperSwitchedOffNotice, systemImage: "switch.2")
       } else if context.mentionsBackgroundItem && !isSimulation {
         Text(PlainLanguage.authorizeBackgroundItemNotice)
           .font(InstallerTheme.detail)
@@ -81,7 +75,7 @@ struct CredentialSheet: View {
       }
 
       if !context.isVerifying, let message = errorMessage {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: Space.s) {
           Image(systemName: "exclamationmark.triangle")
           Text(message).foregroundStyle(InstallerTheme.danger)
         }
@@ -93,7 +87,7 @@ struct CredentialSheet: View {
         .accessibilityElement(children: .combine)
       }
 
-      HStack(spacing: 12) {
+      HStack(spacing: Space.m) {
         if context.helperSwitchedOff && !isSimulation {
           Button(PlainLanguage.openLoginItems) {
             NSWorkspace.shared.open(PlainLanguage.loginItemsSettingsURL)
@@ -119,9 +113,9 @@ struct CredentialSheet: View {
           .keyboardShortcut(.defaultAction)
           .disabled(!input.isValid)
       }
-      .padding(.top, 8)
+      .padding(.top, Space.s)
     }
-    .padding(24)
+    .padding(Space.xl)
     .frame(width: 456)
     .auroraTypography()
     .foregroundStyle(InstallerTheme.text)
@@ -153,8 +147,8 @@ struct CredentialSheet: View {
       return isRetry
         ? PlainLanguage.authorizeTurnOnAndRetry : PlainLanguage.authorizeTurnOnAndInstall
     }
-    if context.kind == .updateBootLoader { return "Authorize & update" }
-    return isRetry ? "Authorize Recovery" : "Authorize & install"
+    if context.kind == .updateBootLoader { return "Update" }
+    return isRetry ? "Continue" : "Install"
   }
 
   private var errorMessage: String? {
@@ -174,7 +168,7 @@ struct CredentialSheet: View {
     reason: String?,
     @ViewBuilder content: () -> Content
   ) -> some View {
-    VStack(alignment: .leading, spacing: 4) {
+    VStack(alignment: .leading, spacing: Space.xs) {
       Text(label)
         .font(InstallerTheme.control)
         .foregroundStyle(InstallerTheme.secondaryText)

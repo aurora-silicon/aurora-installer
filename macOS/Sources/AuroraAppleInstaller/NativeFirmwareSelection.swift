@@ -22,6 +22,9 @@
     /// The restore image isn't the build the policy pins: its size,
     /// manifest or build number differs.
     case pinnedSourceMismatch(build: String)
+    /// A developer's stub override names no entry this Mac may use, or one
+    /// the release doesn't list.
+    case stubOverride(NativeStubOverrideError)
   }
 
   /// Which minimum of a firmware entry this Mac missed, with both values.
@@ -78,9 +81,15 @@
 
     /// Execution requires usable versions. Inspection's conservative size
     /// fallback is intentionally not an installation admission rule.
+    ///
+    /// `stubOverride` (Developer mode or `--stub-version`) limits the choice
+    /// to that one known entry. It still has to pass the same release and
+    /// boot firmware, macOS and Recovery checks, and an override that names
+    /// no entry for this Mac is refused, never made up. `nil` is the default
+    /// choice, unchanged.
     static func choose(
       deviceIdentifier: String, facts: Facts, metadata: NativeInstallationMetadata,
-      policy: NativeInspectionPolicy
+      policy: NativeInspectionPolicy, stubOverride: StubOverrideChoice? = nil
     ) throws -> Self {
       guard facts.deviceIdentifier == deviceIdentifier else {
         throw NativeFirmwareSelectionError.deviceChanged
@@ -106,9 +115,18 @@
       var pinned: (index: Int, entry: NativeInspectionPolicy.Firmware)?
       var pinnedShortfall: NativeFirmwareShortfall?
       var verdicts = [String]()
+      var overrideKnown = false
       // Preserve source order: the backend chooses the last compatible entry,
       // not the entry with the numerically highest version.
       for (index, entry) in policy.firmware.enumerated() {
+        if let stubOverride {
+          guard entry.stubChoice == stubOverride,
+            try NativeInspectionPolicy.Version.atLeast(entry.version, minimum),
+            entry.models?.contains(board) ?? true,
+            !entry.expert
+          else { continue }
+          overrideKnown = true
+        }
         guard try NativeInspectionPolicy.Version.atLeast(entry.version, minimum),
           target.supportedFirmware?.contains(entry.version) ?? true,
           entry.models?.contains(board) ?? true,
@@ -148,13 +166,24 @@
           pinnedShortfall = entryShortfall
         }
       }
+      if let stubOverride, lowest == nil {
+        guard overrideKnown else {
+          let known =
+            (try? NativeStubOverride.candidates(
+              deviceIdentifier: deviceIdentifier, hardware: facts.hardware, policy: policy)) ?? []
+          throw NativeFirmwareSelectionError.stubOverride(
+            .unknown(requested: stubOverride.title, known: known.map(\.title)))
+        }
+        throw NativeFirmwareSelectionError.stubOverride(.notInRelease(stubOverride.title))
+      }
       // A board admitted to a pinned build doesn't fall back to an older entry
       // because this Mac is below the build's minimums: below its macOS, the
       // owner updates macOS first; already on it, the message names the short
       // boot firmware or Recovery. A release that leaves the build out of
       // `supported_fw`, and every board the build doesn't name, keeps its
-      // older entry.
-      if let pinned, (selected?.index ?? -1) < pinned.index {
+      // older entry. An expert stub override is the owner's explicit choice
+      // and is not stopped here.
+      if stubOverride == nil, let pinned, (selected?.index ?? -1) < pinned.index {
         InstallerLog.error(
           "This Mac is below the pinned boot firmware it is admitted to. "
             + verdicts.joined(separator: "; "))

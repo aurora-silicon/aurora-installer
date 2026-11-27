@@ -104,6 +104,7 @@ public enum RecoveryInstallData {
     ]
     let allowed = required.union([
       "vendorfw/u-boot/asmedia/asm2214a-apple.bin", "macho/aura-boot.macho",
+      "macho/aura-secure-boot.macho",
     ])
     guard required.isSubset(of: files.keys), Set(files.keys).isSubset(of: allowed) else {
       throw AccountSetupFailure("The old Recovery payload inventory is invalid.")
