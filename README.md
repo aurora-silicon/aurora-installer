@@ -2,7 +2,7 @@
 
 A native macOS app for installing Aurora Linux on Apple Silicon Macs.
 
-Choose **Fedora Aurora Remix**, **Aurora ALARM** or **Aurora NixOS**, with **KDE Plasma**, **GNOME** or a **minimal shell** system.
+Choose **Aurora Fedora Remix** (defaulting to **GNOME**), **Aurora ALARM** or **Aurora NixOS**, with **KDE Plasma**, **GNOME** or a **minimal shell** system.
 
 The app and privileged helper use a built-in Swift engine for disk planning, partitioning, image writing, firmware extraction and Recovery setup. Installation runs without a Python runtime or a downloaded engine.
 

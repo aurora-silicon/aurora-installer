@@ -3,41 +3,64 @@ import SwiftUI
 
 // Native macOS appearance, shared with the Aurora Recovery interface.
 enum InstallerTheme {
+  // Colour: system semantic colours plus the system accent. Colour is never
+  // the only signal; warnings and errors also carry an icon or a word.
   static let window = Color(nsColor: .windowBackgroundColor)
   static let card = Color(nsColor: .controlBackgroundColor)
   static let text = Color.primary
   static let secondaryText = Color.secondary
   static let separator = Color(nsColor: .separatorColor)
   static let track = Color.primary.opacity(0.08)
-  static let accent = Color(nsColor: .labelColor)
-  static let accentText = Color(nsColor: .windowBackgroundColor)
+  static let accent = Color.accentColor
+  static let accentText = Color.white
   static let success = Color.green
   static let danger = Color.red
+  /// For icons and tinted backgrounds only, never for running text.
   static let caution = Color.orange
-  static let handle = Color.secondary
-  static let buttonHover = Color.primary.opacity(0.9)
-  static let buttonPressed = Color.primary.opacity(0.75)
-  static let buttonHoverText = Color.primary
-  static let buttonPressedSurface = Color.primary.opacity(0.08)
-  static let cardRadius: CGFloat = 18
-  static let buttonRadius: CGFloat = 8
+
+  // Shape and size.
+  static let cardRadius: CGFloat = 12
+  static let controlRadius: CGFloat = 8
+  static let chipRadius: CGFloat = 4
   static let buttonHeight: CGFloat = 36
-  static let buttonTracking: CGFloat = 0
-  static let helpLineSpacing: CGFloat = 3
-  static let title = Font.system(size: 28, weight: .semibold)
-  static let sheetTitle = Font.system(size: 20, weight: .semibold)
-  static let heading = Font.system(size: 16, weight: .semibold)
-  static let eyebrow = Font.system(size: 12, weight: .medium)
-  static let body = Font.system(size: 14)
-  static let detail = Font.system(size: 12)
-  static let control = Font.system(size: 13)
-  static let button = Font.system(size: 13)
-  static let badge = Font.system(size: 11, weight: .medium)
-  static let technical = Font.system(size: 11, design: .monospaced)
-  static let numeral = Font.system(size: 13, weight: .medium).monospacedDigit()
-  static func mono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-    .system(size: size, weight: weight, design: .monospaced)
-  }
+  static let helpLineSpacing: CGFloat = 2
+
+  // Type: SwiftUI text styles only, so sizes stay consistent and native.
+  /// One per page.
+  static let title = Font.title.weight(.semibold)
+  /// Every sheet title.
+  static let sheetTitle = Font.title3.weight(.semibold)
+  /// Capacity numbers.
+  static let display = Font.system(.largeTitle, design: .rounded).weight(.medium)
+  static let heading = Font.headline
+  /// Card and row names.
+  static let label = Font.body.weight(.medium)
+  /// "Distribution", "Disk" and other section heads.
+  static let sectionLabel = Font.subheadline.weight(.semibold)
+  static let body = Font.body
+  static let detail = Font.callout
+  static let caption = Font.subheadline
+  static let control = Font.body
+  static let badge = Font.subheadline.weight(.medium)
+  static let technical = Font.system(.subheadline, design: .monospaced)
+  static let numeral = Font.body.weight(.medium).monospacedDigit()
+}
+
+/// The spacing scale: a 4-pt base on an 8-pt rhythm. Use these, not literals.
+enum Space {
+  /// Label and value inside one line group.
+  static let xxs: CGFloat = 2
+  static let xs: CGFloat = 4
+  /// Related controls, icon to text.
+  static let s: CGFloat = 8
+  /// Button gap, row padding.
+  static let m: CGFloat = 12
+  /// Between blocks on a page, card padding.
+  static let l: CGFloat = 16
+  /// Sheet padding, section gap, title to content.
+  static let xl: CGFloat = 24
+  /// Page top and bottom.
+  static let xxl: CGFloat = 32
 }
 
 extension View {

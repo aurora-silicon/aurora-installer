@@ -43,7 +43,7 @@ struct InstallerLogView: View {
   var body: some View {
     let visible = InstallerLogFormat.visible(store.entries, filter: filter, search: search)
     VStack(spacing: 0) {
-      HStack(spacing: 10) {
+      HStack(spacing: Space.s) {
         Picker("Show", selection: $filter) {
           ForEach(InstallerLogFilter.allCases) { Text($0.title).tag($0) }
         }
@@ -56,8 +56,8 @@ struct InstallerLogView: View {
         Button("Save…") { save(visible) }
           .disabled(visible.isEmpty)
       }
-      .padding(.horizontal, 12)
-      .padding(.vertical, 8)
+      .padding(.horizontal, Space.m)
+      .padding(.vertical, Space.s)
       Divider()
       InstallerLogTextView(entries: visible, search: search)
       Divider()
@@ -70,7 +70,7 @@ struct InstallerLogView: View {
   }
 
   private func footer(visible: Int) -> some View {
-    HStack(spacing: 8) {
+    HStack(spacing: Space.s) {
       Text(
         visible == store.entries.count
           ? "\(store.entries.count) lines" : "\(visible) of \(store.entries.count) lines")
@@ -93,13 +93,13 @@ struct InstallerLogView: View {
             .truncationMode(.middle)
         }
         .buttonStyle(.link)
-        .help("Show the full log file in Finder")
+        .help("Show the log file in Finder")
       }
     }
-    .font(.system(size: 11))
+    .font(InstallerTheme.caption)
     .foregroundStyle(.secondary)
-    .padding(.horizontal, 12)
-    .padding(.vertical, 5)
+    .padding(.horizontal, Space.m)
+    .padding(.vertical, Space.xs)
   }
 
   /// `Running: helper/diskutil#21 (4 s), aurora.img.zst (1 min 02 s)`.

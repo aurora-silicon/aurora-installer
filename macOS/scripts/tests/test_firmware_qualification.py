@@ -77,7 +77,7 @@ class FirmwareQualificationTests(unittest.TestCase):
                 self.assertEqual(self.policy['devices'][board], {'expert': False, 'minimum': '27.2'})
                 self.assertEqual(proof['qualification'], 'not_hardware_qualified')
                 chip = proof['manifest_identity']['chip_id']
-                self.assertIn(chip, ('0x6050', '0x8142'), board)
+                self.assertIn(chip, ('0x6030', '0x6050', '0x8142'), board)
                 self.assertEqual(proof['device_tree'],
                                  'arch/arm64/boot/dts/apple/t' + chip[2:] + '-' + board + '.dts')
                 self.assertTrue(proof['evidence'].endswith('/' + proof['device_tree']))
@@ -87,9 +87,9 @@ class FirmwareQualificationTests(unittest.TestCase):
                 self.assertRegex(proof['manifest_identity']['board_id'], r'^0x[0-9a-f]{2}$')
 
     def test_experimental_admission_keeps_the_verified_source_pin(self):
-        expected = {'j704': '0x22', 'j714c': '0x0a', 'j714s': '0x08', 'j716c': '0x0e',
-                    'j716s': '0x0c', 'j775c': '0x10', 'j775d': '0x12', 'j813': '0x24',
-                    'j815': '0x26', 'j873s': '0x02'}
+        expected = {'j516s': '0x06', 'j704': '0x22', 'j714c': '0x0a', 'j714s': '0x08',
+                    'j716c': '0x0e', 'j716s': '0x0c', 'j775c': '0x10', 'j775d': '0x12',
+                    'j813': '0x24', 'j815': '0x26', 'j873s': '0x02'}
         record = self.record['pins']['26B123']
         self.assertEqual(record['boards'], {})
         self.assertEqual({board: proof['manifest_identity']['board_id']

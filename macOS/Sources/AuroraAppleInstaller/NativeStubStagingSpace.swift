@@ -335,6 +335,10 @@
           policy: NativeInspectionPolicy.sealed())
       } catch NativeFirmwareSelectionError.macOSUpdateRequired(let version) {
         throw InstallerPlanPreparationError.macOSUpdateRequired(version: version)
+      } catch NativeFirmwareSelectionError.firmwareBelowRelease(let shortfall) {
+        throw InstallerPlanPreparationError.firmwareBelowRelease(
+          version: shortfall.version, check: shortfall.check.rawValue,
+          detected: shortfall.detected, required: shortfall.required)
       } catch NativeFirmwareSelectionError.unsupportedDevice {
         throw InstallerPlanPreparationError.unsupportedDevice(deviceIdentifier)
       } catch is NativeFirmwareSelectionError {

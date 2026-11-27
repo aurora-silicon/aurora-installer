@@ -323,8 +323,8 @@
         erasing: Fixture.auroraStub)
       XCTAssertFalse(result.completed)
       XCTAssertFalse(result.requiresReview)
-      XCTAssertTrue(result.message.contains("eject it first"), result.message)
-      XCTAssertTrue(result.message.hasSuffix("Nothing was changed."), result.message)
+      XCTAssertTrue(result.message.contains("Eject it or quit the apps using it"), result.message)
+      XCTAssertTrue(result.message.hasSuffix("The disk wasn’t changed."), result.message)
       XCTAssertTrue(fixture.disk.operations.isEmpty)
       let records = try FileManager.default.contentsOfDirectory(atPath: root.path)
         .filter { $0.hasPrefix("removal-") }
@@ -642,9 +642,9 @@
           let message = ($0 as? RemovalFailure)?.message ?? ""
           XCTAssertTrue(message.hasPrefix("“disk0s6” is in use"), message)
           if failing.isEmpty {
-            XCTAssertTrue(message.hasSuffix("Nothing was changed."), message)
+            XCTAssertTrue(message.hasSuffix("The disk wasn’t changed."), message)
           } else {
-            XCTAssertFalse(message.contains("Nothing was changed."), message)
+            XCTAssertFalse(message.contains("The disk wasn’t changed."), message)
             XCTAssertTrue(message.contains("still unmounted"), message)
           }
         }
