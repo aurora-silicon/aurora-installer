@@ -190,7 +190,7 @@
         space = "no macOS has more than \(PlainLanguage.bytes(Self.shrinkOfferedFreeBytes)) free"
       }
       return
-        "There’s no free space big enough, and \(space). Erase a partition above, or free up space in macOS until it has more than \(PlainLanguage.bytes(Self.shrinkOfferedFreeBytes)) free."
+        "No free space is big enough, and \(space). Erase a partition above, or free up space in macOS until it has more than \(PlainLanguage.bytes(Self.shrinkOfferedFreeBytes)) free."
     }
 
     /// The same disk once this row is erased, as the removal service does it:
@@ -235,9 +235,9 @@
 
   extension DiskLayoutDisplay {
     public static let eraseUnavailableReason =
-      "Erase isn’t available yet while more than one installation shares the disk with macOS."
+      "Erase isn’t available while more than one installation shares the disk with macOS."
     public static let resetUnavailableReason =
-      "Its partitions don’t match an installation that can be reset."
+      "These partitions don’t match an installation that can be reset."
     public static let partialResetReason = "An unfinished installation can only be erased."
 
     /// Builds the screen from the disk's regions and what the inventory
@@ -284,7 +284,7 @@
               "\(region.name) has \(PlainLanguage.bytes(free)) free and keeps \(PlainLanguage.bytes(Self.macOSKeepsFreeBytes)) of it for updates. You choose the exact size next."
             if let adjacent {
               detail +=
-                " The \(PlainLanguage.bytes(adjacent)) free right after it can’t be added to this space; it stays free."
+                " The \(PlainLanguage.bytes(adjacent)) free right after it can’t be added. It stays free."
             }
             options.append(
               Option(
@@ -341,7 +341,7 @@
             place = "Before \(second)."
           case (nil, nil):
             title = "Use free space"
-            place = "Unallocated space."
+            place = "Free space."
           }
           options.append(
             Option(
@@ -405,7 +405,7 @@
     }
 
     public static func leaves(_ freedBytes: UInt64) -> String {
-      "Leaves \(PlainLanguage.bytes(freedBytes)) of free space you can install into. The macOS you’re running isn’t resized, and its files stay as they are."
+      "Leaves \(PlainLanguage.bytes(freedBytes)) free to install into. The macOS you’re running isn’t resized, and its files stay as they are."
     }
   }
 #endif

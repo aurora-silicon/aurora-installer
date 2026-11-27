@@ -132,26 +132,26 @@
       XCTAssertEqual(PlainLanguage.channelMenuItem(.testing, availability: .available), "Nightly")
       XCTAssertEqual(
         PlainLanguage.channelMenuItem(.stable, availability: .noRelease),
-        "Stable — No Mac release yet")
+        "Stable (No Mac release yet)")
       XCTAssertEqual(
         PlainLanguage.channelMenuItem(
           .rc, availability: .modelUnavailable(supportedDeviceIdentifiers: ["apple,j274"])),
-        "Release candidate — Not available for this Mac")
+        "Release candidate (Not available for this Mac)")
       XCTAssertEqual(
         PlainLanguage.channelMenuItem(.rc, availability: .checkFailed(.network)),
-        "Release candidate — Couldn’t load")
+        "Release candidate (Couldn’t load)")
       XCTAssertEqual(
         PlainLanguage.channelMenuItem(.rc, availability: .checkFailed(.verification)),
-        "Release candidate — Couldn’t verify")
+        "Release candidate (Couldn’t verify)")
     }
 
     func testUnpublishedEdgeIsClearlyNamedAndCannotBeChosen() {
       XCTAssertEqual(
         PlainLanguage.channelMenuItem(.edge, availability: .notPublished),
-        "Edge — No release available")
+        "Edge (No release)")
       XCTAssertEqual(
         PlainLanguage.channelMenuItem(.edge, availability: .noRelease),
-        "Edge — No release available")
+        "Edge (No release)")
       XCTAssertFalse(
         PlainLanguage.channelMenuItemEnabled(
           .edge, selected: .testing, availability: .notPublished))
@@ -199,7 +199,7 @@
         "Check your internet connection and try again, or choose another channel from the "
           + "Release channel menu.")
       let download = PlainLanguage.failure(for: URLError(.networkConnectionLost))
-      XCTAssertEqual(download.headline, "The network request didn’t finish")
+      XCTAssertEqual(download.headline, "The network connection failed")
     }
 
     func testACatalogBelowTheBuildFloorSaysTheInstallerIsNewerThanTheServer() {
@@ -210,7 +210,7 @@
       XCTAssertEqual(failure.headline, "This installer is newer than the release server")
       XCTAssertEqual(
         failure.remedy,
-        "Check again later, or choose another release channel from the menu bar.")
+        "Check again later, or choose another channel from the Release channel menu.")
       XCTAssertEqual(failure.technicalDetail, "belowBuildFloor(floor: 10, candidate: 9)")
       let rollback = PlainLanguage.failure(
         for: SupportCatalogSequenceError.rollback(stored: 10, candidate: 9))
@@ -271,11 +271,11 @@
       XCTAssertEqual(
         PlainLanguage.allocationNotice(
           requestedBytes: 650_000_000_000, actualBytes: 137_438_953_472),
-        "Space for Aurora changed from 650 GB to 137 GB. Review the updated size before installing."
+        "Space for Aurora changed from 650 GB to 137 GB. Check the new size before you install."
       )
       XCTAssertEqual(
         PlainLanguage.allocationNotice(requestedBytes: 70_000_000_000, actualBytes: 80_000_000_000),
-        "Space for Aurora changed from 70 GB to 80 GB. Review the updated size before installing.")
+        "Space for Aurora changed from 70 GB to 80 GB. Check the new size before you install.")
     }
 
     func testApprovedSpaceChangeOffersReplanOnlyWhenTheDiskIsProvenUnchanged() {
@@ -285,7 +285,7 @@
             reason: .approvedSpaceChanged, exitStatus: 1, diskUnchanged: true,
             summary: "aurora_execution.ExecutionAdmissionError: approved extent changed")))
       XCTAssertEqual(unchanged.headline, "The space available for Aurora changed")
-      XCTAssertTrue(unchanged.plainDetail.contains("No disk changes were made."))
+      XCTAssertTrue(unchanged.plainDetail.contains("The disk wasn’t changed."))
       XCTAssertTrue(unchanged.replanAvailable)
       XCTAssertTrue(try XCTUnwrap(unchanged.technicalDetail).contains("approved extent changed"))
 
@@ -293,7 +293,7 @@
         for: EngineXPCSubmissionError.engineFailed(
           EngineFailureNotice(
             reason: .approvedSpaceChanged, exitStatus: 1, diskUnchanged: false, summary: "")))
-      XCTAssertFalse(unknown.plainDetail.contains("No disk changes were made."))
+      XCTAssertFalse(unknown.plainDetail.contains("The disk wasn’t changed."))
       XCTAssertFalse(unknown.replanAvailable)
     }
 
@@ -311,7 +311,7 @@
       XCTAssertEqual(grown.headline, "The space available for Aurora changed")
       XCTAssertTrue(
         grown.plainDetail.contains("macOS can now give up 175.3 GB, less than the 180.0 GB"))
-      XCTAssertTrue(grown.plainDetail.hasSuffix("No disk changes were made."))
+      XCTAssertTrue(grown.plainDetail.hasSuffix("The disk wasn’t changed."))
       let grownRemedy = try XCTUnwrap(grown.remedy)
       XCTAssertFalse(grownRemedy.contains("Time Machine"))
       XCTAssertTrue(grownRemedy.hasPrefix("Choose \(PlainLanguage.replanAction)"))
@@ -325,7 +325,7 @@
       let heldRemedy = try XCTUnwrap(held.remedy)
       XCTAssertTrue(heldRemedy.contains("local Time Machine snapshots"))
       XCTAssertTrue(heldRemedy.contains("Don’t delete system or update snapshots."))
-      XCTAssertTrue(heldRemedy.hasSuffix("then review and approve it."))
+      XCTAssertTrue(heldRemedy.hasSuffix("then review it."))
     }
 
     func testAMacOnOlderFirmwareIsToldWhichMacOSToInstall() throws {
@@ -337,7 +337,7 @@
       XCTAssertEqual(failure.headline, "Update macOS to install Aurora")
       XCTAssertEqual(
         failure.plainDetail,
-        "This Mac’s firmware is older than macOS 26.6.2, which this release needs. No disk changes were made."
+        "This Mac’s firmware is older than macOS 26.6.2, which this release needs. The disk wasn’t changed."
       )
       XCTAssertTrue(
         try XCTUnwrap(failure.remedy).hasPrefix(
@@ -352,7 +352,7 @@
           EngineFailureNotice(
             reason: .macOSUpdateRequired, exitStatus: 1, diskUnchanged: false, summary: summary)))
       XCTAssertEqual(changed.headline, failure.headline)
-      XCTAssertTrue(try XCTUnwrap(changed.remedy).hasPrefix("Save the error details"))
+      XCTAssertTrue(try XCTUnwrap(changed.remedy).hasPrefix("Copy the details"))
       XCTAssertNil(changed.actionURL)
 
       // A summary without a usable version still points to Software Update.
@@ -397,7 +397,7 @@
             technicalDetail: "detail")
           XCTAssertFalse(display.headline.isEmpty)
           XCTAssertEqual(
-            display.plainDetail.contains("No disk changes were made."), unchanged, "\(reason)")
+            display.plainDetail.contains("The disk wasn’t changed."), unchanged, "\(reason)")
           XCTAssertEqual(
             display.replanAvailable,
             unchanged && (reason == .approvedSpaceChanged || reason == .diskLayoutChanged))
@@ -412,7 +412,7 @@
         EngineFailureNotice(
           reason: .reinstallRequired, exitStatus: 1, diskUnchanged: true, summary: summary),
         technicalDetail: "detail")
-      XCTAssertEqual(display.plainDetail, summary + " No disk changes were made.")
+      XCTAssertEqual(display.plainDetail, summary + " The disk wasn’t changed.")
       let remedy = try XCTUnwrap(display.remedy)
       XCTAssertTrue(remedy.contains("Erase Linux"), remedy)
       XCTAssertFalse(remedy.contains("Check again"), remedy)
@@ -427,9 +427,9 @@
           reason: .macOSSpaceRequired, exitStatus: 1, diskUnchanged: true, summary: summary),
         technicalDetail: "detail")
       XCTAssertEqual(display.headline, "macOS needs more free space")
-      XCTAssertEqual(display.plainDetail, summary + " No disk changes were made.")
+      XCTAssertEqual(display.plainDetail, summary + " The disk wasn’t changed.")
       let remedy = try XCTUnwrap(display.remedy)
-      XCTAssertTrue(remedy.contains("Empty the Trash"), remedy)
+      XCTAssertTrue(remedy.contains("empty the Trash"), remedy)
       XCTAssertTrue(remedy.contains("Check again"), remedy)
       XCTAssertFalse(display.replanAvailable)
       // After disk changes, Try again continues from the last completed step.
@@ -486,7 +486,7 @@
         let display = PlainLanguage.engineFailure(
           EngineFailureNotice(reason: reason, exitStatus: 1, diskUnchanged: true, summary: summary),
           technicalDetail: "detail")
-        XCTAssertEqual(display.plainDetail, summary + " No disk changes were made.", "\(reason)")
+        XCTAssertEqual(display.plainDetail, summary + " The disk wasn’t changed.", "\(reason)")
       }
     }
 
@@ -516,7 +516,7 @@
           EngineFailureNotice(
             reason: .recoveryPreparation, exitStatus: 1, diskUnchanged: true, summary: summary),
           technicalDetail: "detail")
-        XCTAssertEqual(display.plainDetail, summary + " No disk changes were made.")
+        XCTAssertEqual(display.plainDetail, summary + " The disk wasn’t changed.")
         let remedy = try XCTUnwrap(display.remedy)
         XCTAssertTrue(remedy.contains("sudo diskutil apfs updatePreboot /"), remedy)
         XCTAssertTrue(remedy.contains("Check again"), remedy)
@@ -548,14 +548,14 @@
       XCTAssertEqual(
         space.plainDetail,
         "macOS needs 12.6 GB free to prepare the installation and has 8.9 GB. "
-          + "Free up 3.7 GB, then try again. The disk has not been changed.")
+          + "Free up 3.7 GB, then try again. The disk wasn’t changed.")
       XCTAssertTrue(try XCTUnwrap(space.remedy).contains("Check again"))
 
       let archive = PlainLanguage.failure(
         for: InstallerPlanPreparationError.firmwareArchiveUnsupported(version: "14.8.3"))
       XCTAssertTrue(archive.plainDetail.contains("macOS 14.8.3"), archive.plainDetail)
-      XCTAssertTrue(archive.plainDetail.contains("update archive"), archive.plainDetail)
-      XCTAssertTrue(archive.plainDetail.hasSuffix("The disk has not been changed."))
+      XCTAssertTrue(archive.plainDetail.contains("can’t unpack"), archive.plainDetail)
+      XCTAssertTrue(archive.plainDetail.hasSuffix("The disk wasn’t changed."))
 
       let update = PlainLanguage.failure(
         for: InstallerPlanPreparationError.macOSUpdateRequired(version: "13.5"))
@@ -563,7 +563,7 @@
       XCTAssertEqual(update.actionURL, PlainLanguage.softwareUpdateSettingsURL)
 
       let firmware = PlainLanguage.failure(for: InstallerPlanPreparationError.firmwareUnavailable)
-      XCTAssertNotEqual(firmware.headline, "An installation plan couldn’t be prepared")
+      XCTAssertNotEqual(firmware.headline, "Couldn’t make an installation plan")
 
       let short = PlainLanguage.failure(
         for: InstallerPlanPreparationError.firmwareBelowRelease(
@@ -571,10 +571,10 @@
           required: "26.2.125.8.0,0"))
       XCTAssertEqual(short.headline, "This Mac’s Recovery is older than Aurora needs")
       XCTAssertFalse(short.headline.contains("Update macOS"))
-      for value in ["26.2.119.8.0,0", "26.2.125.8.0,0", "already runs"] {
+      for value in ["26.2.119.8.0,0", "26.2.125.8.0,0", "Recovery"] {
         XCTAssertTrue(short.plainDetail.contains(value), value)
       }
-      XCTAssertTrue(short.plainDetail.hasSuffix("The disk has not been changed."))
+      XCTAssertTrue(short.plainDetail.hasSuffix("The disk wasn’t changed."))
       XCTAssertEqual(short.actionURL, PlainLanguage.softwareUpdateSettingsURL)
     }
 
@@ -587,12 +587,12 @@
       XCTAssertTrue(display.isBlockedModel)
       XCTAssertEqual(
         display.plainDetail,
-        "This Mac (MacBook Pro 14-inch (M3, 2023) · Mac15,3 · apple,j504) isn’t included in this release."
+        "This release doesn’t support this Mac (MacBook Pro 14-inch (M3, 2023) · Mac15,3 · apple,j504)."
       )
       let remedy = try XCTUnwrap(display.remedy)
       XCTAssertTrue(
         remedy.hasPrefix(
-          "This release supports these Macs (4 models): M1: Mac mini, MacBook Pro. M2: MacBook Pro. also apple,j999."
+          "Supported Macs (4): M1: Mac mini, MacBook Pro. M2: MacBook Pro. also apple,j999."
         ), remedy)
     }
 
@@ -607,7 +607,7 @@
       let unknown = PlainLanguage.unsupportedModel(
         deviceIdentifier: "apple,j999", modelIdentifier: "Mac99,1")
       XCTAssertEqual(
-        unknown.plainDetail, "This Mac (Mac99,1 · apple,j999) isn’t included in this release.")
+        unknown.plainDetail, "This release doesn’t support this Mac (Mac99,1 · apple,j999).")
     }
 
     func testFriendlyNamesCoverEveryModelTheReleaseTemplatesList() throws {
@@ -678,7 +678,7 @@
       }
       XCTAssertNil(PlainLanguage.installPhaseTitle(forEvent: "unknown_event"))
       XCTAssertEqual(
-        PlainLanguage.eventSummary("odd_name"), "Additional installation activity (odd_name)")
+        PlainLanguage.eventSummary("odd_name"), "Other activity (odd_name)")
     }
 
     func testEveryCheckpointHasAPlainSummary() {
@@ -691,7 +691,7 @@
       XCTAssertEqual(Set(summaries).count, identifiers.count)
       XCTAssertTrue(summaries.allSatisfy { !$0.isEmpty })
       XCTAssertEqual(
-        PlainLanguage.checkpointSummary("unknown"), "Additional installation activity (unknown)")
+        PlainLanguage.checkpointSummary("unknown"), "Other activity (unknown)")
     }
 
     func testEveryNextActionHasAMessage() {
@@ -715,10 +715,10 @@
 
       let unknown = PlainLanguage.recoverySteps(for: ["somethingNew"])
       XCTAssertEqual(unknown.count, 1)
-      XCTAssertEqual(unknown.first?.title, "Unsupported Recovery instruction: somethingNew")
+      XCTAssertEqual(unknown.first?.title, "Unknown Recovery step: somethingNew")
       XCTAssertEqual(
         unknown.first?.detail,
-        "Save the installation record and get support before continuing."
+        "Save the Installer Log and get help before you continue."
       )
 
       XCTAssertEqual(PlainLanguage.recoverySteps(for: []), steps)
@@ -767,7 +767,7 @@
       XCTAssertEqual(failure.headline, "This installer is out of date")
       XCTAssertTrue(failure.plainDetail.contains("2.0.0"))
       XCTAssertTrue(failure.plainDetail.contains("1.9.9"))
-      XCTAssertTrue(failure.plainDetail.contains("requires installer"))
+      XCTAssertTrue(failure.plainDetail.contains("needs installer"))
       XCTAssertEqual(failure.actionURL, url)
       XCTAssertEqual(failure.actionTitle, PlainLanguage.downloadInstaller)
       XCTAssertFalse(failure.retryRecoveryAvailable)
@@ -812,14 +812,14 @@
       )
 
       XCTAssertEqual(failure.headline, "This channel’s release list wasn’t found")
-      XCTAssertTrue(failure.plainDetail.contains("can’t tell what the channel offers"))
+      XCTAssertTrue(failure.plainDetail.contains("has no release list for this channel"))
       XCTAssertFalse(failure.plainDetail.contains("404"))
       XCTAssertFalse(failure.headline.contains("404"))
       XCTAssertEqual(
         failure.technicalDetail,
         String(describing: InstallerReleaseConfigurationError.unexpectedHTTPStatus(404))
       )
-      XCTAssertTrue(try XCTUnwrap(failure.remedy).contains("release channel"))
+      XCTAssertTrue(try XCTUnwrap(failure.remedy).contains("Release channel"))
     }
 
     func testOtherServerFailuresAreDistinctFromAnEmptyChannel() {
@@ -892,8 +892,8 @@
     }
 
     func testPlanAcknowledgementOnlyMentionsAResizeWhenMacOSShrinks() {
-      XCTAssertTrue(PlainLanguage.planAcknowledgement(resizesMacOS: true).contains("resize"))
-      XCTAssertFalse(PlainLanguage.planAcknowledgement(resizesMacOS: false).contains("resize"))
+      XCTAssertTrue(PlainLanguage.planAcknowledgement(resizesMacOS: true).contains("resizing"))
+      XCTAssertFalse(PlainLanguage.planAcknowledgement(resizesMacOS: false).contains("resiz"))
       XCTAssertTrue(PlainLanguage.planAcknowledgement(resizesMacOS: false).contains("backup"))
     }
 
@@ -902,7 +902,7 @@
         PlainLanguage.encryptLinuxDiskTitle, "Encrypt the Aurora disk")
       XCTAssertEqual(
         PlainLanguage.encryptLinuxDiskPassword,
-        "The Aurora password you create at first boot will unlock the encrypted disk after installation."
+        "Your Aurora password unlocks the disk. You create it the first time Aurora starts."
       )
       XCTAssertFalse(PlainLanguage.encryptLinuxDiskPassword.lowercased().contains("macos"))
       XCTAssertEqual(

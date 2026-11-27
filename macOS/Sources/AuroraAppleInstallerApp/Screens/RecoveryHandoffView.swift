@@ -24,9 +24,9 @@ struct RecoveryHandoffView: View {
     InstallerPageLayout {
       InstallerMasthead(distribution: selection.distribution, device: device)
     } content: {
-      VStack(alignment: .leading, spacing: 20) {
-        Text("Start in Recovery").font(InstallerTheme.title)
-        HStack(spacing: 22) {
+      VStack(alignment: .leading, spacing: Space.l) {
+        Text("Finish setup in Recovery").font(InstallerTheme.title)
+        HStack(spacing: Space.xl) {
           if let name = guide.assetName,
             let url = Bundle.main.url(forResource: name, withExtension: "png"),
             let image = NSImage(contentsOf: url)
@@ -36,34 +36,36 @@ struct RecoveryHandoffView: View {
               .frame(width: 242, height: 160)
               .accessibilityLabel(guide.location)
           } else {
-            VStack(spacing: 12) {
+            VStack(spacing: Space.m) {
               Image(systemName: "power").font(.system(size: 64, weight: .light))
+                .accessibilityHidden(true)
               Text(guide.location).font(InstallerTheme.detail).multilineTextAlignment(.center)
             }.frame(width: 242, height: 160)
           }
-          VStack(alignment: .leading, spacing: 18) {
-            step(1, "Shut down completely.")
+          VStack(alignment: .leading, spacing: Space.l) {
+            step(1, "Shut down your Mac.")
             step(2, guide.holdInstruction)
-            step(3, "Choose “\(volumeName)” → Finish Installation.")
+            step(3, "Choose “\(volumeName)”, then Finish Installation.")
           }
           .frame(maxWidth: .infinity, alignment: .leading)
         }
-        Text("Don’t restart normally yet: unfinished setup can cause a boot loop.")
-          .font(InstallerTheme.detail).foregroundStyle(InstallerTheme.caution)
-        Text("Have your macOS owner’s password ready. You’ll create your recovery account there.")
-          .font(InstallerTheme.detail).foregroundStyle(InstallerTheme.secondaryText)
+        CautionCallout(text: "Don’t restart normally yet. Unfinished setup can cause a boot loop.")
+        Text(
+          "Have the Mac owner’s macOS password ready. You’ll create your recovery account in Recovery."
+        )
+        .font(InstallerTheme.detail).foregroundStyle(InstallerTheme.secondaryText)
       }.font(InstallerTheme.body)
     } actions: {
-      HStack(spacing: 12) {
+      HStack(spacing: Space.m) {
         if let onReinstall {
-          Button("Reset options…", action: onReinstall)
+          Button("Other options…", action: onReinstall)
             .auroraSecondaryButton()
             .disabled(busy)
         }
         NativeSpinner().controlSize(.small)
           .frame(width: 16, height: 16).opacity(busy ? 1 : 0)
-          .accessibilityHidden(!busy).accessibilityLabel("Preparing shutdown")
-        Button(shutdownConfirmed ? "Yes, I have read, shut down" : "Shut down", action: shutDown)
+          .accessibilityHidden(!busy).accessibilityLabel("Preparing to shut down")
+        Button(shutdownConfirmed ? "Shut down now" : "Shut down", action: shutDown)
           .auroraPrimaryButton().disabled(busy)
       }
     }
@@ -73,31 +75,31 @@ struct RecoveryHandoffView: View {
     } message: {
       Text("The installed flow shuts down here. This simulation keeps your Mac running.")
     }
-    .alert("Couldn’t prepare shutdown", isPresented: $showingFailure) {
-      Button("Show details") { showingDetails = true }
+    .alert("Couldn’t prepare to shut down", isPresented: $showingFailure) {
+      Button("Details") { showingDetails = true }
       Button("OK", role: .cancel) {}
     } message: {
-      Text("The startup setup needs attention before you shut down.")
+      Text("The startup setup needs a fix before you shut down. Don’t shut down yet.")
     }
     .sheet(isPresented: $showingDetails) {
-      VStack(alignment: .leading, spacing: 16) {
-        Text("Shutdown details").font(.headline)
+      VStack(alignment: .leading, spacing: Space.l) {
+        Text("Details").font(.headline)
         Text(failure ?? "").textSelection(.enabled).lineLimit(10).truncationMode(.middle)
           .frame(maxWidth: .infinity, alignment: .leading)
         HStack {
-          Button("Copy details") {
+          Button("Copy") {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(failure ?? "", forType: .string)
           }
           Spacer()
           Button("Done") { showingDetails = false }
         }
-      }.padding(24).frame(width: 520, height: 280)
+      }.padding(Space.xl).frame(width: 520, height: 280)
     }
   }
 
   private func step(_ number: Int, _ text: String) -> some View {
-    HStack(alignment: .firstTextBaseline, spacing: 10) {
+    HStack(alignment: .firstTextBaseline, spacing: Space.s) {
       Text(String(number)).font(InstallerTheme.detail.weight(.semibold))
         .foregroundStyle(InstallerTheme.secondaryText)
       Text(text).fixedSize(horizontal: false, vertical: true)
@@ -120,7 +122,7 @@ struct RecoveryHandoffView: View {
       do {
         let accepted = try await session.prepareRecoveryHandoffAndShutdown()
         if !accepted {
-          failure = "Choose Apple menu → Shut Down after saving your work."
+          failure = "Save your work, then choose Apple menu → Shut Down."
           showingFailure = true
         }
       } catch {

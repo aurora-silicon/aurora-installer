@@ -161,7 +161,18 @@ struct AuroraAppleInstallerApp: App {
   @State private var removalNeedsReview = false
   @State private var removalBusy = false
   /// Command-D. Lives for this launch only; see `DeveloperMode`.
-  @State private var developerMode = false
+  @State private var developerMode = Self.previewsDeveloperMode
+
+  /// Visual previews can show the Developer mode badge; live launches never
+  /// start in Developer mode.
+  private static var previewsDeveloperMode: Bool {
+    #if DEBUG
+      return CommandLine.arguments.contains("--preview-developer-mode")
+        && CommandLine.arguments.contains("--simulate")
+    #else
+      return false
+    #endif
+  }
   /// Changed to read the profile's default channel again, after Developer
   /// mode is turned off while a developer-only channel was in use.
   @State private var channelCheck = UUID()
@@ -234,7 +245,7 @@ struct AuroraAppleInstallerApp: App {
     #else
       if ProcessInfo.processInfo.arguments.contains("--simulate") {
         ContentUnavailableView(
-          "Simulation is available in debug builds only.", systemImage: "lock.shield")
+          "Simulation needs a debug build.", systemImage: "lock.shield")
       } else {
         liveContent
       }
@@ -270,9 +281,9 @@ struct AuroraAppleInstallerApp: App {
         if removalNeedsReview {
           VStack {
             ContentUnavailableView(
-              "Removal needs review", systemImage: "externaldrive.badge.exclamationmark",
+              "Removal needs a check", systemImage: "externaldrive.badge.exclamationmark",
               description: Text(
-                "Check the removal record and disk layout before changing any disks."))
+                "Check the removal record and the disk layout before you change any disk."))
 
           }
         } else {
@@ -282,7 +293,7 @@ struct AuroraAppleInstallerApp: App {
       .id(generation)
       .overlay(alignment: .top) {
         if developerMode {
-          DeveloperModeBadge { setDeveloperMode(false) }.padding(.top, 8)
+          DeveloperModeBadge { setDeveloperMode(false) }.padding(.top, Space.s)
         }
       }
       .task(id: selection.profileID + channelCheck.uuidString) {
@@ -336,7 +347,6 @@ struct AuroraAppleInstallerApp: App {
       .frame(minWidth: 800, maxWidth: .infinity, minHeight: 580, maxHeight: .infinity)
       .ignoresSafeArea(.container, edges: .top)
       .auroraTypography()
-      .tint(.gray)
       // The window itself takes the theme colour, title bar included, so the
       // translucent system title bar never tints from the wallpaper behind.
       .containerBackground(InstallerTheme.window, for: .window)
@@ -361,8 +371,8 @@ struct AuroraAppleInstallerApp: App {
           CommandMenu("Simulation") {
             Picker("Hold Screen", selection: $simulation.heldScreen) {
               Text("Live simulation").tag("")
-              Text("Getting everything ready").tag("loading")
-              Text("Preparing your installation").tag("preparing")
+              Text("Checking this Mac").tag("loading")
+              Text("Preparing to install").tag("preparing")
               Text("Disk allocation").tag("allocation")
             }
             Divider()
@@ -398,14 +408,14 @@ struct AuroraAppleInstallerApp: App {
         }
       #endif
       CommandMenu("Installation") {
-        Button("Choose system") {
+        Button("Choose a System") {
           liveSession?.cancelPrefetchOnQuit()
           liveSession = nil
           choosingSystem = true
           generation = UUID()
         }.disabled(!choosingSystem && liveSession?.canChangeChannel != true)
         Divider()
-        Button("Erase Linux") {
+        Button("Erase Linux…") {
           removalTarget = nil
           showsRemoval = true
         }

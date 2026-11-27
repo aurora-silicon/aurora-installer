@@ -36,7 +36,7 @@ Debug visual fixtures are `--preview-screen=allocation`, `--preview-screen=alloc
 
 Size checks use one session-owned preparation task at a time. A new committed size cancels the current read-only task, replaces the pending draft, and starts only after the previous task finishes its cleanup. Progress, success and failure from superseded generations are ignored. Beginning an edit also cancels an older check so a late result cannot reset the field or drag.
 
-The controls remain usable during checking. Cancel check leaves the chosen draft visible and disables Install until Check size succeeds. Cancelling initial release preparation returns to Welcome. Approval is invalidated at once; the live environment independently verifies generation ownership before publishing its retained plan. These actions never cancel a helper-owned installation or Recovery operation.
+The controls remain usable during checking. Stop checking leaves the chosen draft visible and disables Install until Check size succeeds. Cancelling initial release preparation returns to Welcome. Approval is invalidated at once; the live environment independently verifies generation ownership before publishing its retained plan. These actions never cancel a helper-owned installation or Recovery operation.
 
 Prefetch cancellation reserves a new generation without file I/O. An owned background retirement chain joins prior startup, cancels and joins its writer, and removes only captured private work directories. Successor startup and live host/release space checks await retirement; cancelled startup and stale file promotion are refused. Interactive cancellation returns immediately, while the explicit quit path drains retirement before allowing process exit.
 
@@ -44,4 +44,4 @@ Detached host probes forward cancellation. Read-only commands drain both output 
 
 The `allocation-checking` visual fixture shows responsive sizing controls and the cancellation action. Regression tests include an intentionally cancellation-ignoring worker, late success and failure, latest-size queuing, approval invalidation, initial cancellation, output pressure and process termination.
 
-Installer pages do not scroll. Activity and error details open bounded prompts with a full Copy details action. The removal sheet uses explicit review steps, with a page for each deletion, retained item and note before the final confirmation and credentials. The destructive action is unavailable on earlier pages.
+Installer pages do not scroll. Activity and error details open bounded prompts with a full Copy action. The removal sheet uses explicit review steps, with a page for each deletion, retained item and note before the final confirmation and credentials. The destructive action is unavailable on earlier pages.

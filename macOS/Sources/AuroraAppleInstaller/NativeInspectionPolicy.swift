@@ -15,14 +15,14 @@
     var errorDescription: String? {
       switch self {
       case .metadataChanged:
-        "The installation resources changed. Please prepare the installation again."
-      case .invalidMetadata: "The installation’s space requirements could not be verified."
+        "The installation files changed. Check again to make a new plan."
+      case .invalidMetadata: "Couldn’t verify how much space the installation needs."
       case .invalidPolicy, .invalidFirmwareVersion:
-        "This Mac’s installation requirements could not be verified."
-      case .invalidLayout: "The internal disk layout changed or could not be verified."
-      case .systemVolumeUnreadable: "An existing system volume could not be checked safely."
-      case .queryTimedOut: "macOS took too long to check the disk. Please try again."
-      case .queryFailed: "macOS could not complete the disk check."
+        "Couldn’t verify this Mac’s requirements."
+      case .invalidLayout: "The internal disk changed or couldn’t be verified."
+      case .systemVolumeUnreadable: "Couldn’t safely check a system volume."
+      case .queryTimedOut: "macOS took too long to check the disk. Try again."
+      case .queryFailed: "macOS couldn’t finish the disk check."
       }
     }
   }
