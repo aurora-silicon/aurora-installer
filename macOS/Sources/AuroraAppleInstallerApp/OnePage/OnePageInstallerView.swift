@@ -339,6 +339,9 @@ struct OnePageInstallerView: View {
       if let notice = session.allocationNotice {
         CautionCallout(text: notice)
       }
+      if let stubNote = plan.stubOverrideNote {
+        CautionCallout(text: stubNote)
+      }
       if let caution = Stage1Caution.thisMac, !plan.preservesStage1 {
         stage1CautionPanel(caution)
       }

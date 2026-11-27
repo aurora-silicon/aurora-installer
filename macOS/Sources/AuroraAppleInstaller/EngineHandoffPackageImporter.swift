@@ -26,6 +26,9 @@
     public let deviceIdentifier: String
     public let storeIdentifier: String
     public let installationIntent: ImportedInstallationIntent
+    /// A developer's macOS stub pick for a fresh installation, from
+    /// request.json. Each stage checks it against the sealed policy itself.
+    public let stubOverride: StubOverrideChoice?
 
     public init(
       packageURL: URL,
@@ -40,8 +43,10 @@
       planDigest: String,
       deviceIdentifier: String,
       storeIdentifier: String,
-      installationIntent: ImportedInstallationIntent = .fresh
+      installationIntent: ImportedInstallationIntent = .fresh,
+      stubOverride: StubOverrideChoice? = nil
     ) {
+      self.stubOverride = stubOverride
       self.packageURL = packageURL
       self.manifestURL = manifestURL
       self.requestURL = requestURL
@@ -266,7 +271,8 @@
         planDigest: request.planDigest,
         deviceIdentifier: request.deviceIdentifier,
         storeIdentifier: request.storeIdentifier,
-        installationIntent: intent(for: request)
+        installationIntent: intent(for: request),
+        stubOverride: request.stubOverride
       )
     }
 
@@ -329,7 +335,7 @@
         },
         bindingDigest: identity.bindingDigest, planDigest: request.planDigest,
         deviceIdentifier: request.deviceIdentifier, storeIdentifier: request.storeIdentifier,
-        installationIntent: intent(for: request))
+        installationIntent: intent(for: request), stubOverride: request.stubOverride)
     }
 
     private func readRetainedFile(
@@ -623,17 +629,25 @@
 
     private func decodeRequest(_ data: Data) throws -> ImportedRequest {
       do {
+        let keys: Set<String> = [
+          "format", "operation", "plan_digest", "device_identifier",
+          "store_identifier", "layout_digest", "candidate_kind",
+          "source_identifier", "offset_bytes", "length_bytes",
+          "engine_version", "required_human_steps",
+        ]
+        // Only a fresh installation may carry a developer stub pick.
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         _ = try exactObject(
           data,
-          keys: [
-            "format", "operation", "plan_digest", "device_identifier",
-            "store_identifier", "layout_digest", "candidate_kind",
-            "source_identifier", "offset_bytes", "length_bytes",
-            "engine_version", "required_human_steps",
-          ],
+          keys: object?["stub_override"] == nil ? keys : keys.union(["stub_override"]),
           error: .invalidRequest
         )
         let request = try JSONDecoder().decode(ImportedRequest.self, from: data)
+        if let stubOverride = request.stubOverride {
+          guard stubOverride.isWellFormed, request.operation == "install",
+            ["free", "resize"].contains(request.candidateKind)
+          else { throw EngineHandoffImportError.invalidRequest }
+        }
         guard request.format == 1,
           (request.operation == "install"
             && ["free", "resize", "replace"].contains(request.candidateKind))
@@ -879,6 +893,7 @@
     let lengthBytes: UInt64
     let engineVersion: String
     let requiredHumanSteps: [String]
+    let stubOverride: StubOverrideChoice?
 
     enum CodingKeys: String, CodingKey {
       case format
@@ -893,6 +908,7 @@
       case lengthBytes = "length_bytes"
       case engineVersion = "engine_version"
       case requiredHumanSteps = "required_human_steps"
+      case stubOverride = "stub_override"
     }
   }
 

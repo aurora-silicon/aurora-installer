@@ -23,10 +23,16 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   /// The stub stage's requirement depends only on this Mac and the release
   /// metadata, so a size change reuses it instead of reading the image again.
   private var stagingRequirements = [String: UInt64]()
+  /// The developer's macOS stub override for this session, resolved against
+  /// this Mac's policy entries when the session starts, or why it can't be.
+  private let stubOverride: StubOverrideChoice?
+  private let stubOverrideRefusal: String?
+  /// The override's warning is logged once per session, not per size change.
+  private var loggedStubOverrideWarning: String?
 
   init(
     selection: AuroraInstallationSelection = AuroraInstallationSelection(),
-    inspector: any NativeInstallerInspecting = NativeInstallerInspector(),
+    inspector: (any NativeInstallerInspecting)? = nil,
     inspectHost: @escaping @Sendable () throws -> AppleSiliconHostInspection = {
       try AppleSiliconHostInspector().inspect()
     },
@@ -35,26 +41,53 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       await InstallerHelperSetup.probeDisplay()
     },
     recoveryAccountInspector: (@Sendable () async throws -> RecoveryAccountReply)? = nil,
-    stagingEstimate:
-      @escaping @Sendable (String, StagedInstallerArtifact) async throws -> UInt64 = {
-        try await NativeStubStagingEstimator().requiredFreeBytes(deviceIdentifier: $0, metadata: $1)
-      },
-    startupCheck: @escaping @Sendable (String, StagedInstallerArtifact) throws -> Void = {
-      try NativeStubStagingEstimator().refuseUnstartableMachO(deviceIdentifier: $0, metadata: $1)
-    },
+    stagingEstimate: (@Sendable (String, StagedInstallerArtifact) async throws -> UInt64)? = nil,
+    startupCheck: (@Sendable (String, StagedInstallerArtifact) throws -> Void)? = nil,
     macOSFreeBytes: @escaping @Sendable () throws -> UInt64 = {
       try MacOSStagingVolume.freeBytes()
-    }
+    },
+    stubVersion: String? = DeveloperMode.shared.requestedStubVersion
   ) {
-    self.stagingEstimate = stagingEstimate
-    self.startupCheck = startupCheck
+    let (stub, refusal) = Self.resolveStubOverride(stubVersion)
+    stubOverride = stub
+    stubOverrideRefusal = refusal
+    if let stagingEstimate {
+      self.stagingEstimate = stagingEstimate
+    } else {
+      let estimator = NativeStubStagingEstimator(stubOverride: stub)
+      self.stagingEstimate = { device, metadata in
+        try await estimator.requiredFreeBytes(deviceIdentifier: device, metadata: metadata)
+      }
+    }
+    if let startupCheck {
+      self.startupCheck = startupCheck
+    } else {
+      let estimator = NativeStubStagingEstimator(stubOverride: stub)
+      self.startupCheck = { device, metadata in
+        try estimator.refuseUnstartableMachO(deviceIdentifier: device, metadata: metadata)
+      }
+    }
     self.macOSFreeBytes = macOSFreeBytes
     self.selection = selection
-    self.inspector = inspector
+    self.inspector = inspector ?? NativeInstallerInspector(stubOverride: stub)
     self.inspectHost = inspectHost
     self.prefetch = prefetch
     self.helperProbe = helperProbe
     self.recoveryAccountInspector = recoveryAccountInspector
+  }
+
+  /// A requested stub becomes one of this Mac's known policy entries, or a
+  /// refusal the plan shows. Nothing is made up for an unknown version.
+  static func resolveStubOverride(_ requested: String?) -> (StubOverrideChoice?, String?) {
+    guard let requested else { return (nil, nil) }
+    do {
+      let device = try AppleSiliconHostInspector().inspectIdentity().deviceIdentifier
+      return (try NativeStubOverride.resolve(requested, deviceIdentifier: device), nil)
+    } catch let refusal as NativeStubOverrideError {
+      return (nil, refusal.message)
+    } catch {
+      return (nil, "macOS stub \(requested) can’t be checked against this Mac’s policy (\(error)).")
+    }
   }
 
   private func loadConfiguration() throws -> InstallerReleaseConfiguration {
@@ -554,6 +587,10 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     guard let host, hasTranscript else {
       throw InstallerAppError.inspectionRequired
     }
+    if let stubOverrideRefusal, !preservingStage1 {
+      InstallerLog.error(stubOverrideRefusal)
+      throw InstallerPlanPreparationError.stubOverrideRefused(stubOverrideRefusal)
+    }
     try await prefetch.waitForRetirement()
     try requirePreparation(generation)
 
@@ -754,9 +791,15 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
           candidate: candidate,
           requestedLengthBytes: requestedLengthBytes,
           validationTime: validationTime,
-          previouslyAcceptedCatalog: previouslyAcceptedCatalog
+          previouslyAcceptedCatalog: previouslyAcceptedCatalog,
+          stubOverride: preservingStage1 ? nil : stubOverride
         )
       )
+    let stubWarning =
+      preservingStage1
+      ? nil
+      : stubOverrideWarning(
+        deviceIdentifier: host.identity.deviceIdentifier, metadata: release.assets.metadata)
 
     try lock.withLock {
       guard preparationGeneration == generation, !Task.isCancelled else {
@@ -767,17 +810,37 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       releaseConfiguration = configuration
     }
 
-    return .plan(
-      Self.planDisplay(
-        review: prepared.review, host: freshHost, recommendation: recommendation,
-        reservedBytes: planningReserve,
-        geometry: geometry,
-        sourceName: signedInspection.diskLayout?.regions.first {
-          $0.identifier == prepared.review.plan.sourceIdentifier && $0.kind != .free
-        }?.name,
-        release:
-          "\(PlainLanguage.badge(for: channel)) · \(release.assets.payload.fileURL.lastPathComponent)"
-      ))
+    var display = Self.planDisplay(
+      review: prepared.review, host: freshHost, recommendation: recommendation,
+      reservedBytes: planningReserve,
+      geometry: geometry,
+      sourceName: signedInspection.diskLayout?.regions.first {
+        $0.identifier == prepared.review.plan.sourceIdentifier && $0.kind != .free
+      }?.name,
+      release:
+        "\(PlainLanguage.badge(for: channel)) · \(release.assets.payload.fileURL.lastPathComponent)"
+    )
+    display.stubOverrideNote = stubWarning
+    return .plan(display)
+  }
+
+  /// The override's one warning line, when it picks another entry than the
+  /// default would; logged once per session. The default may not fit this
+  /// Mac at all, which the line then says.
+  private func stubOverrideWarning(deviceIdentifier: String, metadata: StagedInstallerArtifact)
+    -> String?
+  {
+    guard let stubOverride else { return nil }
+    let standard = NativeStubOverride.defaultChoice(
+      deviceIdentifier: deviceIdentifier, metadata: metadata)
+    guard standard != stubOverride else { return nil }
+    let warning = NativeStubOverride.warning(chosen: stubOverride, default: standard)
+    let first = lock.withLock {
+      defer { loggedStubOverrideWarning = warning }
+      return loggedStubOverrideWarning != warning
+    }
+    if first { InstallerLog.progress(warning) }
+    return warning
   }
 
   private func stagingRequirement(

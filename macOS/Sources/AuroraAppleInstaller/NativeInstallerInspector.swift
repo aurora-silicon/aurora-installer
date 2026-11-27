@@ -36,11 +36,14 @@
     private let policy: @Sendable () throws -> NativeInspectionPolicy
     private let hardware: @Sendable () throws -> NativeInspectionHardware
     private let collect: @Sendable (AppleSiliconHostInspection) throws -> NativeCollectedDisk
+    /// A developer's stub override, which sizes the stub it installs.
+    private var stubOverride: StubOverrideChoice?
 
-    public init() {
+    public init(stubOverride: StubOverrideChoice? = nil) {
       policy = { try NativeInspectionPolicy.sealed() }
       hardware = { try NativeInspectionHardware.live() }
       collect = { try NativeDiskCollector().collect(host: $0) }
+      self.stubOverride = stubOverride
     }
 
     init(
@@ -69,7 +72,8 @@
         }
         let metadata =
           try metadata.map(NativeInstallationMetadata.authenticated) ?? policy.baselineMetadata
-        let stub = try policy.stubBytes(device, hardware: hardware, metadata: metadata)
+        let stub = try policy.stubBytes(
+          device, hardware: hardware, metadata: metadata, stubOverride: self.stubOverride)
         let disk = try self.collect(host)
         try Task.checkCancellation()
         let result = try NativeInstallerInspection(

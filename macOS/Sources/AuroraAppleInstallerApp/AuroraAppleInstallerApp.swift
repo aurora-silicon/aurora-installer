@@ -528,7 +528,18 @@ struct AuroraAppleInstallerApp: App {
       get: { stubOverride },
       set: {
         DeveloperMode.shared.stubOverride = $0
-        stubOverride = DeveloperMode.shared.stubOverride
+        let picked = DeveloperMode.shared.stubOverride
+        guard picked != stubOverride else { return }
+        stubOverride = picked
+        InstallerLog.progress(
+          "macOS stub for the next plan: "
+            + (picked?.title ?? PlainLanguage.developerStubDefault))
+        // The plan on screen was made for the other stub: make it again.
+        if !choosingSystem {
+          liveSession?.cancelPrefetchOnQuit()
+          liveSession = nil
+          generation = UUID()
+        }
       })
   }
 
@@ -541,7 +552,14 @@ struct AuroraAppleInstallerApp: App {
     DeveloperMode.shared.isOn = on
     InstallerLog.progress(
       on ? PlainLanguage.developerModeOnLog : PlainLanguage.developerModeOffLog)
-    guard !on else { return }
+    guard !on else {
+      // The engine offers this Mac's known stubs once, when the menu can show.
+      if DeveloperMode.shared.stubOverrideCandidates.isEmpty {
+        DeveloperMode.shared.stubOverrideCandidates = NativeStubOverride.candidatesForThisMac()
+      }
+      return
+    }
+    let usedStubOverride = stubOverride != nil
     stubOverride = nil
     let preference = ReleaseChannelPreference()
     let usedDeveloperChannel = channel.map(DeveloperMode.isDeveloperChannel) ?? false
@@ -549,7 +567,7 @@ struct AuroraAppleInstallerApp: App {
     let regular = DeveloperMode.selectionAfterLeaving(selection)
     let changedSelection = regular != selection
     selection = regular
-    guard usedDeveloperChannel || changedSelection else { return }
+    guard usedDeveloperChannel || changedSelection || usedStubOverride else { return }
     if usedDeveloperChannel { channelCheck = UUID() }
     if !choosingSystem {
       liveSession?.cancelPrefetchOnQuit()

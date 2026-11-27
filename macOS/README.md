@@ -13,6 +13,17 @@ open "/absolute/output/Aurora Installer.app" --args --simulate
 
 The preview uses the in-memory simulator. It does not register a helper, change disks or reboot. See [simulation scenarios](Development/Simulation.md).
 
+## Expert: install another macOS stub
+
+By default each Mac gets the macOS stub the sealed firmware policy chooses for it (macOS 27.2 where that is qualified). To try another stub the policy already lists for this Mac, start the app with `--stub-version`:
+
+```sh
+open "/Applications/Aurora Installer.app" --args --stub-version 26.6
+open "/Applications/Aurora Installer.app" --args --stub-version=25G83
+```
+
+It takes a version or a build. An unknown one, or one the signed release doesn't list for this Mac, is refused on the plan with the known choices; nothing is made up. The chosen entry must still meet its own boot firmware, macOS and Recovery minimums, and its restore image is checked like any other. The plan and the Installer Log then say `macOS stub override: <version> (<build>) instead of the default <version> (<build>); this combination is untested`. Developer mode's Installation > macOS Stub menu sets the same override. See [Developer mode](docs/developer-mode.md).
+
 ## Tests
 
 Portable checks run on Linux or macOS with Bash 5+, Python 3.12+, Git and standard Unix tools:

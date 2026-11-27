@@ -22,6 +22,9 @@
     /// The restore image isn't the build the policy pins: its size,
     /// manifest or build number differs.
     case pinnedSourceMismatch(build: String)
+    /// A developer's stub override names no entry this Mac may use, or one
+    /// the release doesn't list.
+    case stubOverride(NativeStubOverrideError)
   }
 
   /// Which minimum of a firmware entry this Mac missed, with both values.
@@ -78,9 +81,15 @@
 
     /// Execution requires usable versions. Inspection's conservative size
     /// fallback is intentionally not an installation admission rule.
+    ///
+    /// `stubOverride` (Developer mode or `--stub-version`) limits the choice
+    /// to that one known entry. It still has to pass the same release and
+    /// boot firmware, macOS and Recovery checks, and an override that names
+    /// no entry for this Mac is refused, never made up. `nil` is the default
+    /// choice, unchanged.
     static func choose(
       deviceIdentifier: String, facts: Facts, metadata: NativeInstallationMetadata,
-      policy: NativeInspectionPolicy
+      policy: NativeInspectionPolicy, stubOverride: StubOverrideChoice? = nil
     ) throws -> Self {
       guard facts.deviceIdentifier == deviceIdentifier else {
         throw NativeFirmwareSelectionError.deviceChanged
@@ -101,9 +110,18 @@
       var lowest: NativeInspectionPolicy.Firmware?
       var shortfall: NativeFirmwareShortfall?
       var verdicts = [String]()
+      var overrideKnown = false
       // Preserve source order: the backend chooses the last compatible entry,
       // not the entry with the numerically highest version.
       for entry in policy.firmware {
+        if let stubOverride {
+          guard entry.stubChoice == stubOverride,
+            try NativeInspectionPolicy.Version.atLeast(entry.version, minimum),
+            entry.models?.contains(String(deviceIdentifier.dropFirst(6))) ?? true,
+            !entry.expert
+          else { continue }
+          overrideKnown = true
+        }
         guard try NativeInspectionPolicy.Version.atLeast(entry.version, minimum),
           target.supportedFirmware?.contains(entry.version) ?? true,
           entry.models?.contains(String(deviceIdentifier.dropFirst(6))) ?? true,
@@ -134,6 +152,16 @@
             : NativeFirmwareShortfall(
               version: entry.version, check: .boot, detected: boot, required: entry.minimumBoot)
         }
+      }
+      if let stubOverride, lowest == nil {
+        guard overrideKnown else {
+          let known =
+            (try? NativeStubOverride.candidates(
+              deviceIdentifier: deviceIdentifier, hardware: facts.hardware, policy: policy)) ?? []
+          throw NativeFirmwareSelectionError.stubOverride(
+            .unknown(requested: stubOverride.title, known: known.map(\.title)))
+        }
+        throw NativeFirmwareSelectionError.stubOverride(.notInRelease(stubOverride.title))
       }
       guard let selected else {
         // Named once, only when nothing fits: each entry's three checks.

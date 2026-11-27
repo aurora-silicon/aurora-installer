@@ -427,6 +427,9 @@
       "Developer mode is off. Developer-only choices were reset to their defaults."
     public static let developerStubMenuTitle = "macOS Stub"
     public static let developerStubDefault = "Qualified Default"
+    public static let stubOverrideRefusedHeadline = "This macOS stub can’t be used on this Mac"
+    public static let stubOverrideRefusedRemedy =
+      "Choose Qualified Default in Installation → macOS Stub, or start the installer without --stub-version."
 
     public static func badge(for channel: ReleaseChannel) -> String {
       switch channel {
@@ -1110,6 +1113,13 @@
             remedy:
               "Check for a newer \(windowTitle).",
             isBlockedModel: true
+          )
+        case .stubOverrideRefused(let reason):
+          return FailureDisplay(
+            headline: stubOverrideRefusedHeadline,
+            plainDetail: reason + " The disk wasn’t changed.",
+            technicalDetail: technical,
+            remedy: stubOverrideRefusedRemedy
           )
         case .firmwareArchiveUnsupported(let version):
           return FailureDisplay(

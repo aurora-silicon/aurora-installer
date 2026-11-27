@@ -35,7 +35,7 @@
       let firmware = try NativeFirmwareSelection.choose(
         deviceIdentifier: package.deviceIdentifier, facts: facts,
         metadata: NativeInstallationMetadata(data: metadata),
-        policy: NativeInspectionPolicy.sealed())
+        policy: NativeInspectionPolicy.sealed(), stubOverride: package.stubOverride)
       _ = try await NativeBootChain.admit(
         metadata: metadata, archive: archive, deviceIdentifier: package.deviceIdentifier,
         firmware: firmware.version.components(separatedBy: " ")[0],
