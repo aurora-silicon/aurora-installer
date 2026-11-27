@@ -21,7 +21,7 @@ VECTORS = (Path(__file__).resolve().parents[2]
 def delivery_model(profile, run="41"):
     """A model of the published development delivery lineage."""
     repository = {"fedora": "fedora-aurora", "arch": "alarm-aurora", "nixos": "nixos-aurora",
-                  "omarchy": "omarchy-aurora"}[profile.split("-")[0]]
+                  "omarchy": "omarchy-aurora", "debian": "debian-aurora"}[profile.split("-")[0]]
     name = f"{profile}-build-{run}.zip"
     return {"status": "enabled", "installationProfile": profile, "evidenceRevision": f"image-build-{run}",
             "payloadArtifact": {"sourceURL": f"https://github.com/aurora-silicon/{repository}/releases/download/"
@@ -69,7 +69,7 @@ class DistributionReleaseTests(unittest.TestCase):
         (release / "trust-root.ed25519.pub").write_bytes(self.public)
         import hashlib
         fingerprint = "sha256:" + hashlib.sha256(self.public).hexdigest()
-        for profile in module.PROFILES + (module.OMARCHY_PROFILE,):
+        for profile in module.PROFILES + (module.OMARCHY_PROFILE,) + module.DEBIAN_PROFILES:
             directory = self.profiles / profile
             directory.mkdir(parents=True)
             descriptor = {"schema_version": 3, "default_channel": "testing", "trust_root_fingerprint": fingerprint,
@@ -80,8 +80,11 @@ class DistributionReleaseTests(unittest.TestCase):
                                        for channel in ("stable", "rc", "testing", "edge")}}
             (directory / "release.json").write_text(json.dumps(descriptor))
             (directory / "trust-root.ed25519.pub").write_bytes(self.public)
-            (directory / "catalog.json").write_text(json.dumps({"schemaVersion": 5, "sequence": 1,
-                "models": [delivery_model(profile)]}))
+            catalog = {"schemaVersion": 5, "sequence": 1, "models": [delivery_model(profile)]}
+            if profile in module.DEBIAN_PROFILES:
+                # Debian has no catalogs from before the channel field.
+                catalog["channel"] = "testing"
+            (directory / "catalog.json").write_text(json.dumps(catalog))
             self.sign(directory)
         (release / "release.json").write_text(json.dumps(descriptor))
 
@@ -94,12 +97,12 @@ class DistributionReleaseTests(unittest.TestCase):
         with patch.object(module, "ROOT", self.root):
             module.prepare(self.profiles, output, sealed=True)
         self.assertEqual({entry.name for entry in (output / "Profiles").iterdir()},
-                         set(module.PROFILES))
+                         set(module.PROFILES) | set(module.DEBIAN_PROFILES))
         self.assertEqual((output / "catalog.json").read_bytes(),
                          (self.profiles / "fedora-gnome/catalog.json").read_bytes())
 
     def test_complete_native_only_set(self):
-        for profile in module.PROFILES:
+        for profile in module.PROFILES + module.DEBIAN_PROFILES:
             directory = self.profiles / profile
             catalog = json.loads((directory / "catalog.json").read_text())
             catalog["installer"] = {"minimumVersion": "0.1.0", "latestVersion": "0.1.0"}
@@ -109,11 +112,11 @@ class DistributionReleaseTests(unittest.TestCase):
         with patch.object(module, "ROOT", self.root):
             module.prepare(self.profiles, output, sealed=True)
         self.assertEqual({entry.name for entry in (output / "Profiles").iterdir()},
-                         set(module.PROFILES))
+                         set(module.PROFILES) | set(module.DEBIAN_PROFILES))
         self.assertEqual(json.loads((output / "catalog.json").read_text())["schemaVersion"], 5)
 
     def declare(self, channel):
-        for profile in module.PROFILES:
+        for profile in module.PROFILES + module.DEBIAN_PROFILES:
             directory = self.profiles / profile
             catalog = json.loads((directory / "catalog.json").read_text())
             catalog["channel"] = channel
@@ -129,7 +132,8 @@ class DistributionReleaseTests(unittest.TestCase):
 
     def create_stable_catalogs(self):
         tag = "v0.1.0-alpha.23"
-        for profile in module.PROFILES:
+        # Every delivered profile, Debian included, needs its Stable catalog.
+        for profile in module.PROFILES + module.DEBIAN_PROFILES:
             directory = self.profiles / profile
             stable = directory / "channels/stable"
             stable.mkdir(parents=True)
@@ -216,7 +220,7 @@ class DistributionReleaseTests(unittest.TestCase):
 
     def set_default(self, channel):
         for path in [self.root / "Release/release.json"] + [self.profiles / p / "release.json"
-                                                            for p in module.PROFILES]:
+                                                            for p in module.PROFILES + module.DEBIAN_PROFILES]:
             descriptor = json.loads(path.read_text())
             descriptor["default_channel"] = channel
             path.write_text(json.dumps(descriptor))
@@ -257,7 +261,7 @@ class DistributionReleaseTests(unittest.TestCase):
             module.prepare(self.profiles, output, sealed=True)
         self.assertEqual(json.loads((output / "catalog.json").read_text())["channel"], "stable")
 
-    def test_default_accepts_nine_profiles_and_opt_in_requires_omarchy(self):
+    def test_default_accepts_present_profiles_and_opt_in_requires_omarchy(self):
         import shutil
         shutil.rmtree(self.profiles / module.OMARCHY_PROFILE)
         output = self.root / "output"
@@ -268,17 +272,40 @@ class DistributionReleaseTests(unittest.TestCase):
                 self.assertFalse(output.exists())
             module.prepare(self.profiles, output, sealed=True)
         self.assertEqual({entry.name for entry in (output / "Profiles").iterdir()},
-                         set(module.PROFILES))
+                         set(module.PROFILES) | set(module.DEBIAN_PROFILES))
 
     def test_opt_in_adds_the_signed_omarchy_profile(self):
         output = self.root / "output"
         with patch.object(module, "ROOT", self.root), patch.dict(os.environ, {"AURORA_ENABLE_OMARCHY": "1"}):
             module.prepare(self.profiles, output, sealed=True)
         self.assertEqual({entry.name for entry in (output / "Profiles").iterdir()},
-                         set(module.PROFILES) | {module.OMARCHY_PROFILE})
+                         set(module.PROFILES) | set(module.DEBIAN_PROFILES) | {module.OMARCHY_PROFILE})
         for name in ("catalog.json", "catalog.json.sig"):
             self.assertEqual((output / "Profiles" / module.OMARCHY_PROFILE / name).read_bytes(),
                              (self.profiles / module.OMARCHY_PROFILE / name).read_bytes())
+
+    def test_debian_profiles_are_included_when_present_and_require_all_three(self):
+        import shutil
+        output = self.root / "output"
+        with patch.object(module, "ROOT", self.root):
+            module.prepare(self.profiles, output, sealed=True)
+        self.assertEqual({entry.name for entry in (output / "Profiles").iterdir()},
+                         set(module.PROFILES) | set(module.DEBIAN_PROFILES))
+        for profile in module.DEBIAN_PROFILES:
+            for name in ("catalog.json", "catalog.json.sig"):
+                self.assertEqual((output / "Profiles" / profile / name).read_bytes(),
+                                 (self.profiles / profile / name).read_bytes())
+        shutil.rmtree(output)
+        shutil.rmtree(self.profiles / "debian-gnome")
+        with patch.object(module, "ROOT", self.root):
+            with self.assertRaisesRegex(ValueError, "missing debian-gnome"):
+                module.prepare(self.profiles, output, sealed=True)
+        self.assertFalse(output.exists())
+        for profile in ("debian-kde", "debian-minimal"):
+            shutil.rmtree(self.profiles / profile)
+        with patch.object(module, "ROOT", self.root):
+            module.prepare(self.profiles, output, sealed=True)
+        self.assertEqual({entry.name for entry in (output / "Profiles").iterdir()}, set(module.PROFILES))
 
     def test_engine_pinning_catalogs_emit_no_release(self):
         directory = self.profiles / "fedora-kde"

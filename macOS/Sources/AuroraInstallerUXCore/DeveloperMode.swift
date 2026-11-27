@@ -96,9 +96,10 @@
     }
 
     /// Distributions that only Developer mode offers, because they have no
-    /// signed catalog for everyone yet. Aurora, based on Debian testing joins
-    /// this set until its signed catalog is live.
-    public static let developerOnlyDistributions: Set<AuroraDistribution> = []
+    /// signed catalog for everyone yet. Aurora, based on Debian testing stays
+    /// here until its signed catalog is live in aurora-distributions; then
+    /// remove it and everyone sees it.
+    public static let developerOnlyDistributions: Set<AuroraDistribution> = [.debian]
 
     /// The distributions the chooser shows.
     public static func distributions(isOn: Bool) -> [AuroraDistribution] {

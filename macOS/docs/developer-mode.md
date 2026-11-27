@@ -8,7 +8,7 @@ Developer mode shows options that regular users never need. Press **Command-D** 
 | --- | --- | --- |
 | Release channels | Stable, Nightly | Stable, Release candidate, Nightly, Edge |
 | Edge as the launch default where the Mac is family-qualified (#176) | no | yes |
-| Distributions without a signed catalog for everyone (Debian, until its catalog is live) | hidden | shown |
+| Aurora, based on Debian testing (until its signed catalog is live) | hidden | shown |
 | macOS stub override (Installation > macOS Stub) | hidden | shown when the policy knows more than one stub for this Mac |
 
 ## Rules

@@ -1,13 +1,13 @@
 import Foundation
 
 public enum AuroraDistribution: String, CaseIterable, Codable, Identifiable, Sendable {
-  case fedora, arch, nixos, omarchy
+  case fedora, arch, nixos, omarchy, debian
   public static var installable: [Self] {
+    var distributions: [Self] = [.fedora, .arch, .nixos, .debian]
     #if AURORA_ENABLE_OMARCHY
-      allCases
-    #else
-      [.fedora, .arch, .nixos]
+      distributions.append(.omarchy)
     #endif
+    return distributions
   }
 
   public var id: String { rawValue }
@@ -17,6 +17,7 @@ public enum AuroraDistribution: String, CaseIterable, Codable, Identifiable, Sen
     case .arch: "Aurora Alarm"
     case .nixos: "Aurora NixOS"
     case .omarchy: "Omarchy Aurora"
+    case .debian: "Aurora, based on Debian testing"
     }
   }
   /// Names earlier installers gave these installations. Erase Linux and
@@ -27,7 +28,7 @@ public enum AuroraDistribution: String, CaseIterable, Codable, Identifiable, Sen
   /// them. Every distribution lists KDE Plasma, GNOME, then Minimal.
   public var availableDesktops: [AuroraDesktop] {
     switch self {
-    case .fedora, .arch, .nixos: [.kde, .gnome, .minimal]
+    case .fedora, .arch, .nixos, .debian: [.kde, .gnome, .minimal]
     case .omarchy: [.hyprland]
     }
   }

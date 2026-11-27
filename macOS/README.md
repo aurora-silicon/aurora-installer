@@ -54,10 +54,10 @@ The native executor is `NativeInstallerExecutor`. Signed schema-5 catalogs selec
 
 ## Images and releases
 
-The ten distribution/desktop profiles and their payloads are maintained in [aurora-distributions](https://github.com/aurora-silicon/aurora-distributions). Image producers live in [fedora-aurora](https://github.com/aurora-silicon/fedora-aurora), [alarm-aurora](https://github.com/aurora-silicon/alarm-aurora), [nixos-aurora](https://github.com/aurora-silicon/nixos-aurora) and [omarchy-aurora](https://github.com/aurora-silicon/omarchy-aurora).
+The distribution/desktop profiles and their payloads are maintained in [aurora-distributions](https://github.com/aurora-silicon/aurora-distributions). Image producers live in [fedora-aurora](https://github.com/aurora-silicon/fedora-aurora), [alarm-aurora](https://github.com/aurora-silicon/alarm-aurora), [nixos-aurora](https://github.com/aurora-silicon/nixos-aurora), [omarchy-aurora](https://github.com/aurora-silicon/omarchy-aurora) and [debian-aurora](https://github.com/aurora-silicon/debian-aurora).
 
 Catalogs bind the selected profile and exact artifact hashes. Firmware and calibration are collected from the target Mac. Names required by existing installations and released payloads are recorded in `Sources/AuroraAppleInstaller/PublishedContractNames.swift`.
 
 See [DMG release builds](docs/native-dmg-release.md) and [local payload testing](docs/private-local-payload-install.md). Current downloads and hardware qualification belong in the distribution repository.
 
-Omarchy Aurora offers Hyprland only and reuses the signed ALARM Btrfs/GRUB/first-boot contract. Every distribution lists KDE Plasma, GNOME, then minimal. Aurora Fedora Remix preselects GNOME; ALARM and NixOS preselect KDE Plasma.
+Omarchy Aurora offers Hyprland only and reuses the signed ALARM Btrfs/GRUB/first-boot contract. "Aurora, based on Debian testing" follows Debian testing (Debian's marks may not be part of a product name) and has its own `debian-btrfs-v1` layout (see [release inputs](Release/README.md)); until a signed Debian catalog is published it is offered in Developer mode only (see [developer mode](docs/developer-mode.md)). Every distribution lists KDE Plasma, GNOME, then minimal. Aurora Fedora Remix preselects GNOME; the others preselect KDE Plasma.
