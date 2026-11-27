@@ -25,9 +25,9 @@ struct PartitionsPanel: View {
   var onOpenStartupDisk: () -> Void = {}
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      VStack(alignment: .leading, spacing: 4) {
-        Text(PlainLanguage.partitionsTitle).font(.system(size: 22, weight: .semibold))
+    VStack(alignment: .leading, spacing: Space.s) {
+      VStack(alignment: .leading, spacing: Space.xs) {
+        Text(PlainLanguage.partitionsTitle).font(InstallerTheme.title)
         Text(PlainLanguage.partitionsSubtitle)
           .font(InstallerTheme.body).foregroundStyle(InstallerTheme.secondaryText)
       }
@@ -49,8 +49,8 @@ struct PartitionsPanel: View {
       }
       // The rule separates the partitions from the disk overview; it gets
       // equal extra room above and below it beyond the stack's spacing.
-      Divider().padding(.vertical, 8)
-      VStack(alignment: .leading, spacing: 6) {
+      Divider().padding(.vertical, Space.s)
+      VStack(alignment: .leading, spacing: Space.xs) {
         HStack(alignment: .firstTextBaseline) {
           PartitionSectionTitle(text: "Disk", trailing: PlainLanguage.bytes(layout.totalBytes))
             .fixedSize()
@@ -59,7 +59,7 @@ struct PartitionsPanel: View {
         }
         CaptionedPartitionStrip(segments: layout.segments, highlighted: highlightedSegment)
       }
-      VStack(alignment: .leading, spacing: 6) {
+      VStack(alignment: .leading, spacing: Space.xs) {
         PartitionSectionTitle(text: PlainLanguage.partitionsAddHeading)
         if let reason = layout.noRoomReason {
           NoRoomCard(reason: reason)
@@ -104,17 +104,17 @@ struct PartitionRowView: View {
   var onOpenStartupDisk: () -> Void = {}
 
   var body: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: Space.m) {
       InstallationIcon(icon: row.icon, size: 28)
-      VStack(alignment: .leading, spacing: 1) {
-        Text(row.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
-        Text(row.detail).font(.system(size: 11)).foregroundStyle(InstallerTheme.secondaryText)
+      VStack(alignment: .leading, spacing: Space.xxs) {
+        Text(row.name).font(InstallerTheme.label).lineLimit(1)
+        Text(row.detail).font(InstallerTheme.caption).foregroundStyle(InstallerTheme.secondaryText)
           .monospacedDigit()
       }
       Spacer(minLength: 8)
       actions
     }
-    .padding(.horizontal, 12)
+    .padding(.horizontal, Space.m)
     .frame(minHeight: 44)
     .accessibilityElement(children: .contain)
     .overlay(alignment: .topTrailing) {
@@ -163,7 +163,7 @@ struct PartitionRowView: View {
     case .otherLinux, .other:
       if row.kind == .otherLinux {
         Text(PlainLanguage.partitionsNotByAurora)
-          .font(.system(size: 11)).foregroundStyle(InstallerTheme.secondaryText)
+          .font(InstallerTheme.caption).foregroundStyle(InstallerTheme.secondaryText)
       }
       eraseButton
     }
@@ -220,37 +220,41 @@ struct PartitionOptionCard: View {
 
   var body: some View {
     Button(action: onSelect) {
-      HStack(alignment: .top, spacing: 10) {
+      HStack(alignment: .top, spacing: Space.s) {
         Circle()
           .strokeBorder(
             selected ? InstallerTheme.text : InstallerTheme.secondaryText.opacity(0.5),
             lineWidth: selected ? 4.5 : 1.2
           )
           .frame(width: 15, height: 15)
-          .padding(.top, 1)
-        VStack(alignment: .leading, spacing: 2) {
-          HStack(spacing: 6) {
+          .padding(.top, Space.xxs)
+        VStack(alignment: .leading, spacing: Space.xxs) {
+          HStack(spacing: Space.xs) {
             Image(systemName: option.kind == .shrink ? "arrow.left.and.right" : "square.dashed")
               .font(.system(size: 11)).foregroundStyle(InstallerTheme.secondaryText)
-            Text(option.title).font(.system(size: 13, weight: .medium))
+            Text(option.title).font(InstallerTheme.label)
             Spacer(minLength: 8)
-            Text(option.sizeText).font(.system(size: 12, weight: .medium)).monospacedDigit()
+            Text(option.sizeText).font(InstallerTheme.detail.weight(.medium)).monospacedDigit()
           }
-          Text(option.detail).font(.system(size: 11)).foregroundStyle(InstallerTheme.secondaryText)
-            .fixedSize(horizontal: false, vertical: true)
-            .multilineTextAlignment(.leading)
+          Text(option.detail).font(InstallerTheme.caption).foregroundStyle(
+            InstallerTheme.secondaryText
+          )
+          .fixedSize(horizontal: false, vertical: true)
+          .multilineTextAlignment(.leading)
         }
       }
-      .padding(.horizontal, 12).padding(.vertical, 9)
+      .padding(.horizontal, Space.m).padding(.vertical, Space.s)
       .frame(maxWidth: .infinity, alignment: .leading)
-      .background(InstallerTheme.card, in: RoundedRectangle(cornerRadius: 10))
-      .overlay(
-        RoundedRectangle(cornerRadius: 10)
-          .strokeBorder(
-            selected ? InstallerTheme.text.opacity(0.65) : InstallerTheme.text.opacity(0.1),
-            lineWidth: selected ? 1.5 : 1)
+      .background(
+        InstallerTheme.card, in: RoundedRectangle(cornerRadius: InstallerTheme.cardRadius)
       )
-      .contentShape(RoundedRectangle(cornerRadius: 10))
+      .overlay(
+        RoundedRectangle(cornerRadius: InstallerTheme.cardRadius)
+          .strokeBorder(
+            selected ? InstallerTheme.accent : InstallerTheme.separator,
+            lineWidth: selected ? 2 : 1)
+      )
+      .contentShape(RoundedRectangle(cornerRadius: InstallerTheme.cardRadius))
     }
     .buttonStyle(.plain)
     .accessibilityAddTraits(selected ? .isSelected : [])
@@ -261,17 +265,18 @@ struct NoRoomCard: View {
   let reason: String
 
   var body: some View {
-    HStack(alignment: .top, spacing: 10) {
+    HStack(alignment: .top, spacing: Space.s) {
       Image(systemName: "externaldrive.badge.exclamationmark")
-        .font(.system(size: 17)).foregroundStyle(InstallerTheme.secondaryText)
-      VStack(alignment: .leading, spacing: 3) {
-        Text(PlainLanguage.partitionsNoRoomTitle).font(.system(size: 13, weight: .medium))
-        Text(reason).font(.system(size: 11)).foregroundStyle(InstallerTheme.secondaryText)
+        .imageScale(.large).foregroundStyle(InstallerTheme.secondaryText)
+        .accessibilityHidden(true)
+      VStack(alignment: .leading, spacing: Space.xxs) {
+        Text(PlainLanguage.partitionsNoRoomTitle).font(InstallerTheme.label)
+        Text(reason).font(InstallerTheme.caption).foregroundStyle(InstallerTheme.secondaryText)
           .fixedSize(horizontal: false, vertical: true)
       }
       Spacer(minLength: 0)
     }
-    .padding(12)
+    .padding(Space.m)
     .frame(maxWidth: .infinity, alignment: .leading)
     .partitionCard()
   }
@@ -282,12 +287,12 @@ struct PartitionSectionTitle: View {
   var trailing: String?
 
   var body: some View {
-    HStack(spacing: 6) {
-      Text(text).font(.system(size: 12, weight: .semibold))
+    HStack(spacing: Space.xs) {
+      Text(text).font(InstallerTheme.sectionLabel)
         .foregroundStyle(InstallerTheme.secondaryText)
       Spacer(minLength: 0)
       if let trailing {
-        Text(trailing).font(.system(size: 11)).foregroundStyle(InstallerTheme.secondaryText)
+        Text(trailing).font(InstallerTheme.caption).foregroundStyle(InstallerTheme.secondaryText)
       }
     }
   }
@@ -295,14 +300,15 @@ struct PartitionSectionTitle: View {
 
 extension View {
   fileprivate func partitionCard() -> some View {
-    background(InstallerTheme.card, in: RoundedRectangle(cornerRadius: 12))
+    background(InstallerTheme.card, in: RoundedRectangle(cornerRadius: InstallerTheme.cardRadius))
       .overlay(
-        RoundedRectangle(cornerRadius: 12).strokeBorder(InstallerTheme.text.opacity(0.1)))
+        RoundedRectangle(cornerRadius: InstallerTheme.cardRadius)
+          .strokeBorder(InstallerTheme.separator))
   }
 
   /// The compact buttons inside a row.
   func partitionRowButton() -> some View {
-    controlSize(.regular).font(.system(size: 12)).modifier(AuroraButtonChrome())
+    controlSize(.regular).font(InstallerTheme.detail).modifier(AuroraButtonChrome())
   }
 }
 
@@ -345,14 +351,15 @@ struct PartitionStrip: View {
             .frame(width: widths[index])
             .overlay {
               if segment.id == highlighted {
-                RoundedRectangle(cornerRadius: 4).strokeBorder(InstallerTheme.text, lineWidth: 2)
+                RoundedRectangle(cornerRadius: InstallerTheme.chipRadius).strokeBorder(
+                  InstallerTheme.text, lineWidth: 2)
               }
             }
         }
       }
     }
     .frame(height: height)
-    .clipShape(RoundedRectangle(cornerRadius: 10))
+    .clipShape(RoundedRectangle(cornerRadius: InstallerTheme.controlRadius))
     .accessibilityElement(children: .ignore)
     .accessibilityLabel("Disk")
     .accessibilityValue(
@@ -430,12 +437,12 @@ struct PartitionSegmentView: View {
   @ViewBuilder
   private func label(_ name: String, _ detail: String, color: Color) -> some View {
     if width >= PartitionStrip.labelWidth {
-      VStack(alignment: .leading, spacing: 1) {
-        Text(name).font(.system(size: 11, weight: .semibold)).lineLimit(1)
-        Text(detail).font(.system(size: 11)).monospacedDigit().opacity(0.85).lineLimit(1)
+      VStack(alignment: .leading, spacing: Space.xxs) {
+        Text(name).font(InstallerTheme.caption.weight(.semibold)).lineLimit(1)
+        Text(detail).font(InstallerTheme.caption).monospacedDigit().opacity(0.85).lineLimit(1)
       }
       .foregroundStyle(color)
-      .padding(.horizontal, 9)
+      .padding(.horizontal, Space.s)
       .frame(maxWidth: .infinity, alignment: .leading)
     }
   }
@@ -479,7 +486,7 @@ struct CaptionedPartitionStrip: View {
           }
           ForEach(Array(captions.enumerated()), id: \.offset) { index, caption in
             Text(caption.text)
-              .font(.system(size: 11))
+              .font(InstallerTheme.caption)
               .foregroundStyle(caption.muted ? InstallerTheme.secondaryText : InstallerTheme.text)
               .fixedSize()
               .position(x: placed[index], y: 19)
@@ -536,7 +543,7 @@ struct PartitionLegend: View {
   let kinds: Set<DiskLayoutDisplay.SegmentKind>
 
   var body: some View {
-    HStack(spacing: 14) {
+    HStack(spacing: Space.m) {
       if kinds.contains(.macOS) {
         swatch(
           AnyView(
@@ -559,12 +566,13 @@ struct PartitionLegend: View {
       }
       if kinds.contains(.other) { swatch(AnyView(PartitionColors.other), "Other") }
     }
-    .font(.system(size: 11)).foregroundStyle(InstallerTheme.secondaryText)
+    .font(InstallerTheme.caption).foregroundStyle(InstallerTheme.secondaryText)
   }
 
   private func swatch(_ fill: AnyView, _ text: String) -> some View {
-    HStack(spacing: 5) {
-      fill.frame(width: 14, height: 10).clipShape(RoundedRectangle(cornerRadius: 3))
+    HStack(spacing: Space.xs) {
+      fill.frame(width: 14, height: 10).clipShape(
+        RoundedRectangle(cornerRadius: InstallerTheme.chipRadius))
       Text(text)
     }
   }
@@ -581,23 +589,23 @@ struct EraseInstallationSheet: View {
   let onErase: () -> Void
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      HStack(alignment: .top, spacing: 12) {
+    VStack(alignment: .leading, spacing: Space.m) {
+      HStack(alignment: .top, spacing: Space.m) {
         InstallationIcon(icon: row.icon, size: 44)
-        VStack(alignment: .leading, spacing: 3) {
-          Text("Erase \(row.name)?").font(.system(size: 18, weight: .semibold))
+        VStack(alignment: .leading, spacing: Space.xxs) {
+          Text("Erase \(row.name)?").font(InstallerTheme.sheetTitle)
           Text("Everything stored in it is deleted. This can’t be undone.")
-            .font(.system(size: 12)).foregroundStyle(InstallerTheme.secondaryText)
+            .font(InstallerTheme.detail).foregroundStyle(InstallerTheme.secondaryText)
             .fixedSize(horizontal: false, vertical: true)
         }
       }
-      VStack(alignment: .leading, spacing: 6) {
+      VStack(alignment: .leading, spacing: Space.xs) {
         PartitionSectionTitle(text: "Now")
         PartitionStrip(segments: layout.segments, highlighted: row.id)
-        PartitionSectionTitle(text: "After").padding(.top, 6)
+        PartitionSectionTitle(text: "After").padding(.top, Space.xs)
         PartitionStrip(segments: layout.afterErasing(row.id) ?? layout.segments)
       }
-      VStack(alignment: .leading, spacing: 5) {
+      VStack(alignment: .leading, spacing: Space.xs) {
         Label(EraseSheetText.removes(row), systemImage: "trash")
         if let freed = layout.freeBytesAfterErasing(row.id) {
           Label(EraseSheetText.leaves(freed), systemImage: "square.dashed")
@@ -609,18 +617,18 @@ struct EraseInstallationSheet: View {
           "Next, the removal service checks the disk again, lists exactly which partitions it erases, and asks for your password.",
           systemImage: "lock")
       }
-      .font(.system(size: 12)).foregroundStyle(InstallerTheme.secondaryText)
+      .font(InstallerTheme.detail).foregroundStyle(InstallerTheme.secondaryText)
       .fixedSize(horizontal: false, vertical: true)
-      HStack(spacing: 12) {
+      HStack(spacing: Space.m) {
         Spacer()
         Button("Cancel", action: onCancel)
           .auroraSecondaryButton(size: .large).keyboardShortcut(.cancelAction)
         Button("Erase…", role: .destructive, action: onErase)
           .auroraDangerButton(size: .large)
       }
-      .padding(.top, 4)
+      .padding(.top, Space.xs)
     }
-    .padding(24)
+    .padding(Space.xl)
     .frame(width: 560)
     .foregroundStyle(InstallerTheme.text)
     .background(InstallerTheme.window)
@@ -645,41 +653,36 @@ struct ResetInstallationSheet: View {
   let onReset: () -> Void
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      HStack(alignment: .top, spacing: 12) {
+    VStack(alignment: .leading, spacing: Space.m) {
+      HStack(alignment: .top, spacing: Space.m) {
         InstallationIcon(icon: row.icon, size: 44)
-        VStack(alignment: .leading, spacing: 3) {
-          Text("Reset \(row.name)").font(.system(size: 18, weight: .semibold))
+        VStack(alignment: .leading, spacing: Space.xxs) {
+          Text("Reset \(row.name)").font(InstallerTheme.sheetTitle)
           Text(
             "Advanced. Installs a fresh system into the same \(PlainLanguage.bytes(row.bytes)) and keeps its startup volume, so you don’t go through Recovery again."
           )
-          .font(.system(size: 12)).foregroundStyle(InstallerTheme.secondaryText)
+          .font(InstallerTheme.detail).foregroundStyle(InstallerTheme.secondaryText)
           .fixedSize(horizontal: false, vertical: true)
         }
       }
-      VStack(alignment: .leading, spacing: 6) {
+      VStack(alignment: .leading, spacing: Space.xs) {
         PartitionSectionTitle(text: "Installs")
-        Text(systemName).font(.system(size: 13, weight: .medium))
+        Text(systemName).font(InstallerTheme.label)
         Text("To install another system, choose it with Choose system first.")
-          .font(.system(size: 11)).foregroundStyle(InstallerTheme.secondaryText)
+          .font(InstallerTheme.caption).foregroundStyle(InstallerTheme.secondaryText)
       }
-      HStack(alignment: .top, spacing: 8) {
-        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(InstallerTheme.caution)
-        Text("Everything on this installation is erased, including home folders. Back up first.")
-          .font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
-      }
-      .padding(10)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background(InstallerTheme.caution.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
-      HStack(spacing: 12) {
+      CautionCallout(
+        text: "Everything on this installation is erased, including home folders. Back up first.")
+      // Return never starts an erase: Reset has no default shortcut.
+      HStack(spacing: Space.m) {
         Spacer()
         Button("Cancel", action: onCancel)
           .auroraSecondaryButton(size: .large).keyboardShortcut(.cancelAction)
-        Button("Reset…", action: onReset)
-          .auroraPrimaryButton(size: .large).keyboardShortcut(.defaultAction)
+        Button("Reset…", role: .destructive, action: onReset)
+          .auroraDangerButton(size: .large)
       }
     }
-    .padding(24)
+    .padding(Space.xl)
     .frame(width: 560)
     .foregroundStyle(InstallerTheme.text)
     .background(InstallerTheme.window)

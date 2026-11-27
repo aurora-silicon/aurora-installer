@@ -161,7 +161,18 @@ struct AuroraAppleInstallerApp: App {
   @State private var removalNeedsReview = false
   @State private var removalBusy = false
   /// Command-D. Lives for this launch only; see `DeveloperMode`.
-  @State private var developerMode = false
+  @State private var developerMode = Self.previewsDeveloperMode
+
+  /// Visual previews can show the Developer mode badge; live launches never
+  /// start in Developer mode.
+  private static var previewsDeveloperMode: Bool {
+    #if DEBUG
+      return CommandLine.arguments.contains("--preview-developer-mode")
+        && CommandLine.arguments.contains("--simulate")
+    #else
+      return false
+    #endif
+  }
   /// Changed to read the profile's default channel again, after Developer
   /// mode is turned off while a developer-only channel was in use.
   @State private var channelCheck = UUID()
@@ -282,7 +293,7 @@ struct AuroraAppleInstallerApp: App {
       .id(generation)
       .overlay(alignment: .top) {
         if developerMode {
-          DeveloperModeBadge { setDeveloperMode(false) }.padding(.top, 8)
+          DeveloperModeBadge { setDeveloperMode(false) }.padding(.top, Space.s)
         }
       }
       .task(id: selection.profileID + channelCheck.uuidString) {
@@ -336,7 +347,6 @@ struct AuroraAppleInstallerApp: App {
       .frame(minWidth: 800, maxWidth: .infinity, minHeight: 580, maxHeight: .infinity)
       .ignoresSafeArea(.container, edges: .top)
       .auroraTypography()
-      .tint(.gray)
       // The window itself takes the theme colour, title bar included, so the
       // translucent system title bar never tints from the wallpaper behind.
       .containerBackground(InstallerTheme.window, for: .window)

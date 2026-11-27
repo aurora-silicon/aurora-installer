@@ -24,9 +24,9 @@ struct RecoveryHandoffView: View {
     InstallerPageLayout {
       InstallerMasthead(distribution: selection.distribution, device: device)
     } content: {
-      VStack(alignment: .leading, spacing: 20) {
+      VStack(alignment: .leading, spacing: Space.l) {
         Text("Start in Recovery").font(InstallerTheme.title)
-        HStack(spacing: 22) {
+        HStack(spacing: Space.xl) {
           if let name = guide.assetName,
             let url = Bundle.main.url(forResource: name, withExtension: "png"),
             let image = NSImage(contentsOf: url)
@@ -36,25 +36,25 @@ struct RecoveryHandoffView: View {
               .frame(width: 242, height: 160)
               .accessibilityLabel(guide.location)
           } else {
-            VStack(spacing: 12) {
+            VStack(spacing: Space.m) {
               Image(systemName: "power").font(.system(size: 64, weight: .light))
+                .accessibilityHidden(true)
               Text(guide.location).font(InstallerTheme.detail).multilineTextAlignment(.center)
             }.frame(width: 242, height: 160)
           }
-          VStack(alignment: .leading, spacing: 18) {
+          VStack(alignment: .leading, spacing: Space.l) {
             step(1, "Shut down completely.")
             step(2, guide.holdInstruction)
             step(3, "Choose “\(volumeName)” → Finish Installation.")
           }
           .frame(maxWidth: .infinity, alignment: .leading)
         }
-        Text("Don’t restart normally yet: unfinished setup can cause a boot loop.")
-          .font(InstallerTheme.detail).foregroundStyle(InstallerTheme.caution)
+        CautionCallout(text: "Don’t restart normally yet: unfinished setup can cause a boot loop.")
         Text("Have your macOS owner’s password ready. You’ll create your recovery account there.")
           .font(InstallerTheme.detail).foregroundStyle(InstallerTheme.secondaryText)
       }.font(InstallerTheme.body)
     } actions: {
-      HStack(spacing: 12) {
+      HStack(spacing: Space.m) {
         if let onReinstall {
           Button("Reset options…", action: onReinstall)
             .auroraSecondaryButton()
@@ -80,7 +80,7 @@ struct RecoveryHandoffView: View {
       Text("The startup setup needs attention before you shut down.")
     }
     .sheet(isPresented: $showingDetails) {
-      VStack(alignment: .leading, spacing: 16) {
+      VStack(alignment: .leading, spacing: Space.l) {
         Text("Shutdown details").font(.headline)
         Text(failure ?? "").textSelection(.enabled).lineLimit(10).truncationMode(.middle)
           .frame(maxWidth: .infinity, alignment: .leading)
@@ -92,12 +92,12 @@ struct RecoveryHandoffView: View {
           Spacer()
           Button("Done") { showingDetails = false }
         }
-      }.padding(24).frame(width: 520, height: 280)
+      }.padding(Space.xl).frame(width: 520, height: 280)
     }
   }
 
   private func step(_ number: Int, _ text: String) -> some View {
-    HStack(alignment: .firstTextBaseline, spacing: 10) {
+    HStack(alignment: .firstTextBaseline, spacing: Space.s) {
       Text(String(number)).font(InstallerTheme.detail.weight(.semibold))
         .foregroundStyle(InstallerTheme.secondaryText)
       Text(text).fixedSize(horizontal: false, vertical: true)

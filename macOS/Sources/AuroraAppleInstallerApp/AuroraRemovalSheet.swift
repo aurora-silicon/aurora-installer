@@ -91,7 +91,7 @@ struct AuroraRemovalSheet: View {
     VStack(spacing: 0) {
       ScrollView {
         reviewContent
-          .padding(.bottom, 18)
+          .padding(.bottom, Space.l)
           .fixedSize(horizontal: false, vertical: true)
           .onGeometryChange(for: CGFloat.self) {
             $0.size.height
@@ -138,13 +138,13 @@ struct AuroraRemovalSheet: View {
   }
 
   private var reviewContent: some View {
-    VStack(alignment: .leading, spacing: 14) {
+    VStack(alignment: .leading, spacing: Space.m) {
       Text(heading).font(InstallerTheme.sheetTitle)
       Text(ticket != nil && !submitted && !showsApproval ? reviewSummary : message)
         .font(InstallerTheme.body).fixedSize(horizontal: false, vertical: true)
         .accessibilityIdentifier("removal-message")
       if let ticket, !submitted, !showsApproval {
-        VStack(spacing: 8) {
+        VStack(spacing: Space.s) {
           if ticket.kind == .eraseToFreeSpace {
             summaryRow(
               "Free space afterwards", value: PlainLanguage.bytes(ticket.freedBytes ?? 0))
@@ -155,7 +155,7 @@ struct AuroraRemovalSheet: View {
           }
         }
         if let step = ticket.startupDisk {
-          VStack(alignment: .leading, spacing: 6) {
+          VStack(alignment: .leading, spacing: Space.xs) {
             Text(step.title).font(InstallerTheme.heading)
             Text(step.detail).font(InstallerTheme.body).fixedSize(horizontal: false, vertical: true)
           }.accessibilityIdentifier("removal-startup-disk")
@@ -176,7 +176,7 @@ struct AuroraRemovalSheet: View {
   }
 
   private var footer: some View {
-    VStack(alignment: .leading, spacing: 18) {
+    VStack(alignment: .leading, spacing: Space.l) {
       if needsAccountFirst && ticket == nil && !isSimulation {
         accountFields
       }
@@ -192,7 +192,7 @@ struct AuroraRemovalSheet: View {
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityIdentifier("removal-action-error")
         }
-        VStack(alignment: .leading, spacing: 7) {
+        VStack(alignment: .leading, spacing: Space.s) {
           Text("Type this to confirm:")
             .foregroundStyle(InstallerTheme.secondaryText)
           Text(ticket.confirmation)
@@ -218,14 +218,14 @@ struct AuroraRemovalSheet: View {
         }
       }
       if busy {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.s) {
           NativeSpinner().controlSize(.small)
           Text(progressText)
             .font(InstallerTheme.detail)
         }
         .foregroundStyle(InstallerTheme.secondaryText)
       }
-      HStack(spacing: 12) {
+      HStack(spacing: Space.m) {
         Spacer()
         Button(submitted || ticket == nil ? "Close" : "Cancel") {
           password = ""
@@ -233,7 +233,6 @@ struct AuroraRemovalSheet: View {
         }
         .auroraSecondaryButton(size: .large)
         .keyboardShortcut(.cancelAction)
-        .focusEffectDisabled()
         .disabled(busy)
         if needsAccountFirst && ticket == nil && !isSimulation {
           if reenablingHelper {
@@ -241,7 +240,6 @@ struct AuroraRemovalSheet: View {
               NSWorkspace.shared.open(PlainLanguage.loginItemsSettingsURL)
             }
             .auroraSecondaryButton(size: .large)
-            .focusEffectDisabled()
           }
           Button(continueTitle) { Task { await setUpHelperThenScan() } }
             .auroraPrimaryButton(size: .large)
@@ -268,12 +266,12 @@ struct AuroraRemovalSheet: View {
           .reportsFrame("remove-aurora", to: onControlFrame)
         }
       }
-      .padding(.top, 4)
+      .padding(.top, Space.xs)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(.horizontal, 26)
-    .padding(.top, 18)
-    .padding(.bottom, 26)
+    .padding(.horizontal, Space.xl)
+    .padding(.top, Space.l)
+    .padding(.bottom, Space.xl)
   }
 
   private var continueTitle: String {
@@ -286,7 +284,7 @@ struct AuroraRemovalSheet: View {
   }
 
   private var accountFields: some View {
-    VStack(alignment: .leading, spacing: 7) {
+    VStack(alignment: .leading, spacing: Space.s) {
       Text("macOS administrator account").foregroundStyle(InstallerTheme.secondaryText)
       TextField(
         "Account name",
@@ -335,11 +333,11 @@ struct AuroraRemovalSheet: View {
   }
 
   private func planSection(_ title: String, items: [AuroraRemovalItem]) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
+    VStack(alignment: .leading, spacing: Space.xs) {
       Text(title).foregroundStyle(InstallerTheme.secondaryText)
       ForEach(Array(items.enumerated()), id: \.offset) { _, item in
         HStack(alignment: .firstTextBaseline) {
-          VStack(alignment: .leading, spacing: 1) {
+          VStack(alignment: .leading, spacing: Space.xxs) {
             Text(item.title).fixedSize(horizontal: false, vertical: true)
           }
           Spacer()

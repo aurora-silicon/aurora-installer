@@ -16,13 +16,13 @@ struct ConfirmationSheet: View {
       Text(title)
         .font(InstallerTheme.sheetTitle)
         .fixedSize(horizontal: false, vertical: true)
-        .padding(.bottom, 14)
+        .padding(.bottom, Space.m)
       Text(message)
         .font(InstallerTheme.body)
         .foregroundStyle(InstallerTheme.secondaryText)
         .fixedSize(horizontal: false, vertical: true)
-        .padding(.bottom, 34)
-      HStack(spacing: 16) {
+        .padding(.bottom, Space.xxl)
+      HStack(spacing: Space.l) {
         Spacer(minLength: 0)
         Button(PlainLanguage.cancel, action: onCancel)
           .auroraSecondaryButton(size: .large)
@@ -32,7 +32,7 @@ struct ConfirmationSheet: View {
           .keyboardShortcut(.defaultAction)
       }
     }
-    .padding(32)
+    .padding(Space.xxl)
     .frame(width: 520)
     .auroraTypography()
     .foregroundStyle(InstallerTheme.text)

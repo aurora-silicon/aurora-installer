@@ -281,7 +281,6 @@
         .frame(width: size?.width, height: size?.height)
         .environment(\.installerDrawsBorderedButtons, true)
         .auroraTypography()
-        .tint(.gray)
         .foregroundStyle(InstallerTheme.text)
         .background(InstallerTheme.window)
         .environment(\.colorScheme, dark ? .dark : .light)

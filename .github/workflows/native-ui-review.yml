@@ -56,6 +56,17 @@ jobs:
               test -s "$output"
             done
           done
+      - name: Render the Developer mode badge in both appearances
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/preview/Aurora Installer.app"
+          for appearance in light dark; do
+            output="$RUNNER_TEMP/evidence/chooser-developer-mode-$appearance.png"
+            arguments=(--simulate --preview-screen=chooser --preview-developer-mode "--snapshot=$output" --quit-after-snapshot)
+            [[ $appearance != dark ]] || arguments+=(--preview-dark)
+            open -W "$app" --args "${arguments[@]}"
+            test -s "$output"
+          done
       - name: Require clean source formatting
         if: always()
         run: test '${{ steps.format.outcome }}' = success
