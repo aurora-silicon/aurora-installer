@@ -254,12 +254,12 @@ import Foundation
       body.replaceSubrange(8..<(8 + uuid.utf8.count), with: Array(uuid.utf8))
       let p = Array((";" + path).utf8)
       body.replaceSubrange(48..<(48 + p.count), with: p)
-      let crc = Stage1Configuration.crc32(body)
-      return Stage1Configuration.magic + Data(body) + withUnsafeBytes(of: crc.littleEndian) { Data($0) }
+      let crc = withUnsafeBytes(of: Stage1Configuration.crc32(body).littleEndian) { Data($0) }
+      return Stage1Configuration.magic + Data(body) + crc
     }
     let uuid = "0f5c7a52-6d2e-4b8e-9a51-2c6a0d3b9e11"
-    let standard = Data("standard head".utf8) + configBlock(uuid: uuid, path: "m1n1/boot.bin")
-      + Data("tail".utf8)
+    let block = configBlock(uuid: uuid, path: "m1n1/boot.bin")
+    let standard = Data("standard head".utf8) + block + Data("tail".utf8)
     var emptyBody = Data(count: 244)
     emptyBody[0] = 1
     let secure = Data("secure head".utf8) + Stage1Configuration.magic + emptyBody + unfilled
