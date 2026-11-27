@@ -735,16 +735,26 @@ final class InstallerView: NSViewController, NSTextFieldDelegate, NSMenuItemVali
     let body = vertical(spacing: 12)
     body.alignment = .leading
     startupKeyButtons = [:]
+    let ownKeys = model.canHoldOwnKeys
+    let current = ownKeys ? model.startupKeys : .aurora
     for (owner, title, detail) in choices {
       let row = vertical(spacing: 2)
       row.alignment = .leading
       let button = NSButton(
         radioButtonWithTitle: title, target: self, action: #selector(startupKeyChosen(_:)))
       button.font = AuroraTheme.control
-      button.state = owner == model.startupKeys ? .on : .off
+      // Without startup software that holds a key block, only Aurora-managed works.
+      let available = owner == .aurora || ownKeys
+      button.isEnabled = available
+      button.state = owner == current ? .on : .off
       button.identifier = NSUserInterfaceItemIdentifier("startupKeys." + owner.rawValue)
       row.addArrangedSubview(button)
-      let explanation = label(detail, size: 12, alignment: .left)
+      let explanation = label(
+        available
+          ? detail
+          : detail
+            + " This installation’s files have no startup software that can hold your own key.",
+        size: 12, alignment: .left)
       explanation.preferredMaxLayoutWidth = 410
       explanation.widthAnchor.constraint(equalToConstant: 410).isActive = true
       row.addArrangedSubview(explanation)

@@ -28,6 +28,9 @@ final class InstallerModel {
   {
     didSet { changed() }
   }
+  /// Whether this installation's files include startup software that can hold
+  /// the owner's own key; the key choices other than Aurora-managed need it.
+  lazy var canHoldOwnKeys = RecoveryActions.canHoldOwnKeys()
   var password = "" { didSet { changed() } }
   var authorizationOwner: RecoveryOwner? { didSet { changed() } }
   var authorizationUsesSourceOwner = false { didSet { changed() } }

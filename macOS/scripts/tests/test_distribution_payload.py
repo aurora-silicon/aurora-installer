@@ -217,6 +217,30 @@ class DistributionPayloadTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'no Mach-O boot object'):
             self.assembled('no-macho')
 
+    def write_secure_stage_one_macho(self, raw=b'secure-head' + b'AURORA-S1-CFG01\0' + bytes(244)
+                                     + b'AURORA-S1-KEY01\0' + bytes(148)):
+        header = bytearray(0x10000)
+        header[:4] = b'\xcf\xfa\xed\xfe'
+        header[12:16] = (12).to_bytes(4, 'little')
+        path = self.bundle / 'esp/aurora/stage1-secure.macho'
+        path.write_bytes(bytes(header) + raw + bytes(0x4000 - len(raw)))
+        return path
+
+    def test_the_secure_stage1_for_owner_keys_is_optional_and_checked(self):
+        (self.bundle / 'esp/m1n1/boot-ctxr.bin').unlink()
+        secure = self.write_secure_stage_one_macho()
+        metadata, output = self.assembled('secure')
+        with zipfile.ZipFile(output / metadata['package']) as archive:
+            self.assertEqual(archive.read('esp/aurora/stage1-secure.macho'), secure.read_bytes())
+        self.write_secure_stage_one_macho(b'secure-head' + b'AURORA-S1-CFG01\0' + bytes(244))
+        with self.assertRaisesRegex(ValueError, 'key block'):
+            self.assembled('secure-no-keys')
+        self.write_secure_stage_one_macho()
+        (self.bundle / 'esp/aurora/stage1.macho').unlink()
+        (self.bundle / 'esp/aurora/stage1.bin').unlink()
+        with self.assertRaisesRegex(ValueError, 'needs esp/aurora/stage1.macho'):
+            self.assembled('secure-alone')
+
     def test_mach_o_files_that_are_present_are_checked(self):
         shared = self.bundle / 'esp/m1n1/boot-ctxr.bin'
         metadata, _ = self.assembled('shared')

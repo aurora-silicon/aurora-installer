@@ -293,6 +293,7 @@ def check_stage1_macho(esp):
     aura's tools/macho_boot_object.py carries the raw image unchanged at the
     start of __TEXT_EXEC, file offset 0x10000, with no __TEXT_BOOT_EXEC.
     """
+    check_secure_stage1_macho(esp)
     path = esp / 'aurora/stage1.macho'
     if not path.exists():
         if (esp / 'aurora/stage1.bin').exists():
@@ -303,6 +304,25 @@ def check_stage1_macho(esp):
     if (obj[:4] != b'\xcf\xfa\xed\xfe' or int.from_bytes(obj[12:16], 'little') != 12
             or b'__TEXT_BOOT_EXEC' in obj[:0x8000] or obj[0x10000:0x10000 + len(raw)] != raw):
         raise ValueError('esp/aurora/stage1.macho is not the Mach-O boot object for esp/aurora/stage1.bin')
+
+
+def check_secure_stage1_macho(esp):
+    """aura's secure-flavour Stage 1 object, which Recovery enrolls when the
+    owner chooses their own key, is optional. When it is there it must be a
+    Mach-O boot object like the common one whose Stage 1 has exactly one
+    configuration block and one key block (aura SECBOOT=audit), and it needs the
+    common object beside it: Recovery copies that object's configuration into it.
+    """
+    path = esp / 'aurora/stage1-secure.macho'
+    if not path.exists():
+        return
+    if not (esp / 'aurora/stage1.macho').exists():
+        raise ValueError('esp/aurora/stage1-secure.macho needs esp/aurora/stage1.macho beside it')
+    obj = regular(path).read_bytes()
+    if (obj[:4] != b'\xcf\xfa\xed\xfe' or int.from_bytes(obj[12:16], 'little') != 12
+            or b'__TEXT_BOOT_EXEC' in obj[:0x8000]
+            or obj.count(b'AURORA-S1-CFG01\0') != 1 or obj.count(b'AURORA-S1-KEY01\0') != 1):
+        raise ValueError('esp/aurora/stage1-secure.macho is not a Mach-O boot object of a Stage 1 with a key block')
 
 
 def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):

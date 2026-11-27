@@ -244,8 +244,45 @@ import Foundation
     ] {
       precondition(file(path) == nil)
     }
+    // An owner-key setup copies the standard object's configuration into the
+    // secure-flavour object, whose block aura leaves unfilled (version 1, CRC 0).
+    func configBlock(uuid: String, path: String) -> Data {
+      var body = [UInt8](repeating: 0, count: 240)
+      body[0] = 1
+      body[4] = 0xe8
+      body[5] = 0x03
+      body.replaceSubrange(8..<(8 + uuid.utf8.count), with: Array(uuid.utf8))
+      let p = Array((";" + path).utf8)
+      body.replaceSubrange(48..<(48 + p.count), with: p)
+      let crc = Stage1Configuration.crc32(body)
+      return Stage1Configuration.magic + Data(body) + withUnsafeBytes(of: crc.littleEndian) { Data($0) }
+    }
+    let uuid = "0f5c7a52-6d2e-4b8e-9a51-2c6a0d3b9e11"
+    let standard = Data("standard head".utf8) + configBlock(uuid: uuid, path: "m1n1/boot.bin")
+      + Data("tail".utf8)
+    var emptyBody = Data(count: 244)
+    emptyBody[0] = 1
+    let secure = Data("secure head".utf8) + Stage1Configuration.magic + emptyBody + unfilled
+    let copied = try Stage1Configuration.copied(from: standard, into: secure)
+    precondition(copied.count == secure.count)
+    let copiedConfig = try Stage1Configuration.read(copied)
+    precondition(copiedConfig.espUUID == uuid && copiedConfig.stage2Path == "m1n1/boot.bin")
+    precondition(copied.suffix(unfilled.count) == unfilled, "the key block moved")
+    precondition(Stage1KeyBlock.isPresent(in: copied))
+    let ownerKeyed = try StartupKeys.make(.owner, seed: generate).filled(copied)
+    let ownerKeyedConfig = try Stage1Configuration.read(ownerKeyed)
+    precondition(ownerKeyedConfig.stage2Path == "m1n1/boot.bin")
+    fails("copying from an unfilled configuration") {
+      _ = try Stage1Configuration.copied(from: secure, into: secure)
+    }
+    fails("copying into an image without a configuration block") {
+      _ = try Stage1Configuration.copied(from: standard, into: unfilled)
+    }
+    fails("copying into an image with two configuration blocks") {
+      _ = try Stage1Configuration.copied(from: standard, into: secure + secure)
+    }
     print(
-      "PASS Stage 1 key block: byte-identical to aura fill-keys for 1, 2 and 4 keys, floor and enforce; Recovery's Ed25519 matches CryptoKit, aura and RFC 8032; refill, limits and damaged blocks; choice to keys; startup partition hand-off"
+      "PASS Stage 1 key block: byte-identical to aura fill-keys for 1, 2 and 4 keys, floor and enforce; Recovery's Ed25519 matches CryptoKit, aura and RFC 8032; refill, limits and damaged blocks; choice to keys; startup partition hand-off; configuration copied into the secure-flavour object"
     )
   }
 }

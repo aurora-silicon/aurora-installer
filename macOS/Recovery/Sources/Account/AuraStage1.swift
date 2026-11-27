@@ -90,6 +90,27 @@ public enum Stage1Configuration {
     return result
   }
 
+  /// Returns `image` with `source`'s configuration block: the same startup
+  /// partition, Stage 2 path and window. `image` is another aura Stage 1 (the
+  /// secure-flavour object an owner-key setup enrolls) whose block may still be
+  /// unfilled; every other byte stays as it is.
+  public static func copied(from source: Data, into image: Data) throws -> Data {
+    let source = Data(source)
+    let image = Data(image)
+    _ = try read(source)
+    let (_, fields) = try block(in: source)
+    guard let first = image.range(of: magic),
+      image.range(of: magic, in: first.upperBound..<image.endIndex) == nil,
+      first.upperBound + pathRange.upperBound + 4 <= image.endIndex,
+      image[first.upperBound..<(first.upperBound + 4)].elementsEqual([1, 0, 0, 0])
+    else { throw Invalid(reason: "it has no single configuration block") }
+    var result = image
+    result.replaceSubrange(
+      first.upperBound..<(first.upperBound + pathRange.upperBound + 4),
+      with: fields + withUnsafeBytes(of: crc32(fields).littleEndian, Array.init))
+    return result
+  }
+
   /// The block's offset past its magic, and its fields without the CRC.
   private static func block(in image: Data) throws -> (Int, [UInt8]) {
     guard let first = image.range(of: magic),
