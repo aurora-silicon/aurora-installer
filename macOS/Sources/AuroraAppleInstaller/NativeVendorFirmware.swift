@@ -163,13 +163,28 @@
           guard let trackpad = outputs[NeoFirmwareConversions.trackpadName], !trackpad.isEmpty
           else { throw NativeFirmwareInputFailure.invalidSource }
         }
+        // The N1's Wi-Fi and Bluetooth firmware: the image this Mac's build
+        // identity names, with its model's ticket. The fallback archive keeps
+        // both inputs, so a later conversion on Linux makes the same file.
+        let centauri = try InstallerPerformance.measure("vendor_centauri") {
+          try NativeCentauriFirmware.prepare(source) { path, maximum in
+            let copied = restore + path
+            guard sourceRecords.contains(where: { $0.role == "Preboot" && $0.path == copied })
+            else { return nil }
+            return try read("Preboot", copied, maximum: maximum)
+          }
+        }
+        if let centauri {
+          try merge(centauri.package, into: &outputs)
+          try merge(centauri.fallback, into: &fallback)
+        }
         try InstallerPerformance.measure("vendor_kernel") {
           let kernel = try read("Preboot", restore + source.kernel, maximum: 256 << 20)
           let decoded = try FirmwareImage.decode(kernel)
           guard decoded.type == "krnl" else { throw NativeFirmwareInputFailure.invalidSource }
           try merge(FirmwareImage.controllerFirmware(in: decoded.bytes), into: &outputs)
           // The ProRes engine's power-up rows (chips with the T6041 engine),
-          // read from this Mac's own kernel like the rest and never shipped. A
+          // read from the stub's kernel like the rest and never shipped. A
           // kernel the reader does not understand leaves ProRes off.
           if ProResInitFirmware.applies(toChipID: source.chipID) {
             do {

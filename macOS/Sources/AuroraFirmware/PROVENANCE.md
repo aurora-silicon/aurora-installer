@@ -25,3 +25,5 @@ library's existing MIT parsing and rate projection helpers. No GPL producer,
 private driver implementation, Apple executable code, vendor header or blob
 is incorporated. Binding revision zero is a host table archive and has no
 verified LPI firmware command meaning. It is deliberately outside deployment.
+
+`CentauriFirmware` (the N1 Wi-Fi and Bluetooth firmware) is independently written from Aurora's own N1 bring-up on the J873 and J775c: the N1 boot ROM starts the restore image's FTAB only with the model's ticket appended and named in the FTAB header. The input paths come from the restore image's build manifest and file list. The converter reads this Mac's own restore files at install time; no Apple code, firmware or ticket is part of this repository, and its tests use synthetic bytes. `asahi_firmware/centauri.py` is the same conversion.
