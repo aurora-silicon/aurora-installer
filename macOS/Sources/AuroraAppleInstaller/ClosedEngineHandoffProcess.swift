@@ -39,9 +39,12 @@
     private let operation: EngineHandoffOperation
     private let restoreImage: URL
     private let recoveryTemplate: URL?
+    private let stubOverride: StubOverrideChoice?
 
     /// `restoreImage` is the app's signed decoder in its sealed
     /// Contents/Helpers; the helper receives a copy with the package.
+    /// `stubOverride` is a fresh installation's developer stub pick; the
+    /// helper checks it against its own sealed policy again.
     public init(
       assets: PreparedInstallerAssets,
       handoffDirectory: URL,
@@ -50,8 +53,10 @@
       operation: EngineHandoffOperation = .install,
       restoreImage: URL = RestoreImageHelper.bundledURL(),
       recoveryTemplate: URL? = Bundle.main.bundleURL.appendingPathComponent(
-        "Contents/Resources/RecoveryTemplate/" + InstallerProductIdentity.recoveryAppBundleName)
+        "Contents/Resources/RecoveryTemplate/" + InstallerProductIdentity.recoveryAppBundleName),
+      stubOverride: StubOverrideChoice? = nil
     ) {
+      self.stubOverride = stubOverride
       self.assets = assets
       self.handoffDirectory = handoffDirectory
       self.submitter = submitter
@@ -70,6 +75,7 @@
             assets: assets,
             restoreImage: restoreImage,
             recoveryTemplate: recoveryTemplate,
+            stubOverride: stubOverride,
             in: handoffDirectory
           )
         }
@@ -99,6 +105,7 @@
       assets: PreparedInstallerAssets,
       restoreImage: URL,
       recoveryTemplate: URL?,
+      stubOverride: StubOverrideChoice?,
       in handoffDirectory: URL
     ) throws -> PreparedEngineHandoff {
       try validateBindings(invocation: invocation, assets: assets)
@@ -162,7 +169,7 @@
       let identityURL = pending.appendingPathComponent("identity.json")
       let manifestURL = pending.appendingPathComponent("manifest.json")
       try writePrivateJSON(
-        EngineExecutionRequest(invocation: invocation),
+        EngineExecutionRequest(invocation: invocation, stubOverride: stubOverride),
         to: requestURL
       )
       try writePrivateJSON(
@@ -410,8 +417,11 @@
     let lengthBytes: UInt64
     let engineVersion: String
     let requiredHumanSteps: [String]
+    /// Present only for a fresh installation with a developer stub pick, so
+    /// every other request keeps its exact keys.
+    let stubOverride: StubOverrideChoice?
 
-    init(invocation: ClosedEngineInvocation) {
+    init(invocation: ClosedEngineInvocation, stubOverride: StubOverrideChoice?) {
       let plan = invocation.plan
       operation =
         plan.candidateKind == "reinstall"
@@ -426,6 +436,7 @@
       lengthBytes = plan.lengthBytes
       engineVersion = plan.engineVersion
       requiredHumanSteps = plan.requiredHumanSteps
+      self.stubOverride = operation == "install" ? stubOverride : nil
     }
 
     enum CodingKeys: String, CodingKey {
@@ -441,6 +452,7 @@
       case lengthBytes = "length_bytes"
       case engineVersion = "engine_version"
       case requiredHumanSteps = "required_human_steps"
+      case stubOverride = "stub_override"
     }
   }
 

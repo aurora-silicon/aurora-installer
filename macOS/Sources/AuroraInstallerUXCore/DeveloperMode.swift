@@ -41,11 +41,37 @@
       set { lock.withLock { stub = on ? newValue : nil } }
     }
 
-    /// The stubs the engine lets a developer pick for this Mac. Empty until
-    /// the engine offers any; the menu then shows no stub choice at all.
+    /// The stubs the engine lets a developer pick for this Mac
+    /// (`NativeStubOverride.candidates`). Empty when the policy knows fewer
+    /// than two; the menu then shows no stub choice at all.
     public var stubOverrideCandidates: [StubOverrideChoice] {
       get { lock.withLock { stubs } }
       set { lock.withLock { stubs = newValue } }
+    }
+
+    /// The stub a fresh installation asks the engine for: `--stub-version`
+    /// from the command line if given, which works whether or not Developer
+    /// mode is on, else the Developer mode menu's pick (`nil` outside
+    /// Developer mode). A build is asked for by build, so it names one entry.
+    public var requestedStubVersion: String? {
+      Self.stubVersionArgument() ?? stubOverride.map { $0.build.isEmpty ? $0.version : $0.build }
+    }
+
+    /// `--stub-version VERSION-OR-BUILD` or `--stub-version=VERSION-OR-BUILD`.
+    public static func stubVersionArgument(
+      _ arguments: [String] = CommandLine.arguments
+    ) -> String? {
+      for (index, argument) in arguments.enumerated() {
+        if argument.hasPrefix("--stub-version=") {
+          let value = String(argument.dropFirst("--stub-version=".count))
+          return value.isEmpty ? nil : value
+        }
+        if argument == "--stub-version", index + 1 < arguments.count {
+          let value = arguments[index + 1]
+          return value.isEmpty || value.hasPrefix("--") ? nil : value
+        }
+      }
+      return nil
     }
 
     /// The channels everyone sees.
@@ -96,20 +122,6 @@
     }
   }
 
-  /// A macOS stub a developer picked instead of the qualified default. The
-  /// engine decides which stubs it offers and refuses any it doesn't know.
-  public struct StubOverrideChoice: Hashable, Sendable, Identifiable {
-    /// The macOS version, for example "26.6".
-    public let version: String
-    /// The macOS build, for example "25G83".
-    public let build: String
-
-    public init(version: String, build: String) {
-      self.version = version
-      self.build = build
-    }
-
-    public var id: String { build }
-    public var title: String { "macOS \(version) (\(build))" }
-  }
+// StubOverrideChoice lives in the engine (AuroraAppleInstallerTrustCore,
+// NativeStubOverride.swift), so the engine never depends on this module.
 #endif

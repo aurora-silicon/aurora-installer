@@ -63,6 +63,16 @@
       XCTAssertNil(mode.stubOverride, "turning it off forgets the pick")
     }
 
+    func testTheStubVersionArgumentTakesBothForms() {
+      XCTAssertEqual(DeveloperMode.stubVersionArgument(["app", "--stub-version", "26.6"]), "26.6")
+      XCTAssertEqual(DeveloperMode.stubVersionArgument(["app", "--stub-version=25G83"]), "25G83")
+      XCTAssertNil(DeveloperMode.stubVersionArgument(["app", "--stub-version"]))
+      XCTAssertNil(DeveloperMode.stubVersionArgument(["app", "--stub-version", "--simulate"]))
+      XCTAssertNil(DeveloperMode.stubVersionArgument(["app"]))
+      // Outside Developer mode and without the argument nothing is asked for.
+      XCTAssertNil(DeveloperMode().stubOverride)
+    }
+
     func testTheModeIsNeverSaved() {
       XCTAssertFalse(DeveloperMode().isOn)
       let defaults = UserDefaults.standard.dictionaryRepresentation().keys

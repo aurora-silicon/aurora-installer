@@ -196,7 +196,7 @@
       let firmware = try NativeFirmwareSelection.choose(
         deviceIdentifier: package.deviceIdentifier,
         facts: facts, metadata: NativeInstallationMetadata(data: metadata),
-        policy: NativeInspectionPolicy.sealed())
+        policy: NativeInspectionPolicy.sealed(), stubOverride: package.stubOverride)
       let archive = try await IPSWArchive.open(
         NativePayloadRangeReader(package.payloadURL, owner: owner))
       guard

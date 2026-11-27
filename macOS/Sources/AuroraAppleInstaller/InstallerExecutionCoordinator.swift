@@ -113,7 +113,8 @@
         submitter: submitter,
         authorization: machineOwnerAuthorization,
         operation: operation,
-        recoveryTemplate: recoveryTemplate
+        recoveryTemplate: recoveryTemplate,
+        stubOverride: prepared.stubOverride
       )
       return try await execute(
         prepared,

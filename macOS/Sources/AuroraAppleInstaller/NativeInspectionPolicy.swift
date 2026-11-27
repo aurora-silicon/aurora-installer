@@ -220,7 +220,7 @@
 
     func stubBytes(
       _ identifier: String, hardware: NativeInspectionHardware,
-      metadata: NativeInstallationMetadata
+      metadata: NativeInstallationMetadata, stubOverride: StubOverrideChoice? = nil
     ) throws -> UInt64 {
       let small: UInt64 = 2_499_805_184
       let large: UInt64 = 5_999_951_872
@@ -228,6 +228,16 @@
         let device = devices[String(identifier.dropFirst(6))]
       else { throw NativeInspectionError.invalidPolicy }
       if try Version.atLeast(chip, "26.0") { return large }
+      // An override sizes the stub it installs. One that can't be chosen is
+      // refused when the plan is made; size it like the default until then.
+      if let stubOverride,
+        let selection = try? NativeFirmwareSelection.choose(
+          deviceIdentifier: identifier,
+          facts: .init(deviceIdentifier: identifier, hardware: hardware), metadata: metadata,
+          policy: self, stubOverride: stubOverride)
+      {
+        return selection.stubBytes
+      }
       guard let boot = hardware.bootVersion, let macOS = hardware.macOSVersion,
         let recovery = hardware.recoveryVersion
       else { return small }
