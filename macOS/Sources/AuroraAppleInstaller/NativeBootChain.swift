@@ -46,6 +46,9 @@
   enum NativeBootChain {
     static let commonStage1 = "esp/aurora/stage1.bin"
     static let commonStage1MachO = "esp/aurora/stage1.macho"
+    /// aura's secure-flavour Stage 1 object, which holds a key block. Recovery
+    /// enrolls it instead of the common one when the owner chooses their own key.
+    static let secureStage1MachO = "esp/aurora/stage1-secure.macho"
 
     /// What a payload carries for the Mach-O Stage 1, as its metadata declares it
     /// (`aurora_macho_boot`). Older metadata declares nothing.
@@ -346,7 +349,10 @@
         } else if member == confined {
           layout[member] = AuraStage1Format.confinedStage2Path
         } else if (!common
-          && [NativeBootChain.commonStage1, NativeBootChain.commonStage1MachO].contains(member))
+          && [
+            NativeBootChain.commonStage1, NativeBootChain.commonStage1MachO,
+            NativeBootChain.secureStage1MachO,
+          ].contains(member))
           || stage2Variants.contains(member)
           || (selected != standard && member == standard)
           || (member.hasPrefix("esp/m1n1/boot-") && member.hasSuffix(".bin"))
