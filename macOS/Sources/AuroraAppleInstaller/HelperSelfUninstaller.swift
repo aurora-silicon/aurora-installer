@@ -39,9 +39,7 @@
     public init(
       label: String = InstallerProductIdentity.helperIdentifier,
       jobFile: URL = URL(fileURLWithPath: InstallerProductIdentity.systemLaunchDaemonPath),
-      binary: URL = URL(
-        fileURLWithPath: "/Library/PrivilegedHelperTools/"
-          + InstallerProductIdentity.helperIdentifier),
+      binary: URL = URL(fileURLWithPath: InstallerProductIdentity.installedHelperPath),
       delay: Duration = .seconds(2),
       unload: @escaping @Sendable (String) -> Void = LaunchdHelperSelfUninstaller.bootout,
       exitProcess: @escaping @Sendable () -> Void = { exit(0) }
@@ -90,8 +88,9 @@
       }
     }
 
-    /// Asks launchd to unload the helper's own job. launchd then stops this
-    /// process, so the request is started, not waited on.
+    /// Asks launchd to unload the helper's own job, whether the app submitted
+    /// it or a startup job file loaded it. launchd then stops this process,
+    /// so the request is started, not waited on.
     public static func bootout(_ label: String) {
       let process = Process()
       process.executableURL = URL(fileURLWithPath: "/bin/launchctl")

@@ -37,8 +37,8 @@ mkdir "$named"
 [[ $(plist_value "$named/helper-launchd.plist" EnvironmentVariables.OMARCHY_CLIENT_CODE_SIGNING_REQUIREMENT) == 'identifier "client.probe"' ]] ||
   fail "the launchd job gives the helper the client requirement"
 ! /usr/bin/plutil -extract Program raw -o - "$named/helper-launchd.plist" >/dev/null 2>&1 ||
-  fail "the launchd job leaves Program to SMJobBless"
-pass "helper plists declare the helper for SMJobBless"
+  fail "the launchd job leaves Program to the app, which runs the root-owned copy"
+pass "helper plists declare the helper and its launchd job"
 
 # An ad hoc build gets only the version: no authorized clients, no job.
 adhoc=$test_tmp/adhoc
@@ -48,8 +48,8 @@ mkdir "$adhoc"
   fail "an ad hoc helper still carries its build number"
 ! plist_value "$adhoc/helper-info.plist" SMAuthorizedClients >/dev/null ||
   fail "an ad hoc helper authorizes no client"
-[[ ! -e $adhoc/helper-launchd.plist ]] || fail "an ad hoc helper has no SMJobBless job"
-pass "ad hoc helper plists leave no SMJobBless registration"
+[[ ! -e $adhoc/helper-launchd.plist ]] || fail "an ad hoc helper has no launchd job"
+pass "ad hoc helper plists leave no launchd job"
 
 # make-download-zip: exactly the app, and only a stapled one unless told.
 app="$test_tmp/$INSTALLER_APP_NAME.app"
@@ -65,7 +65,7 @@ AURORA_DOWNLOAD_ZIP_UNSTAPLED=1 "$ROOT/Packaging/make-download-zip.sh" "$app" "$
 entries=$(/usr/bin/zipinfo -1 "$test_tmp/download.zip" | awk -F/ '{print $1}' | sort -u)
 [[ $entries == "$INSTALLER_APP_NAME.app" ]] || fail "the zip holds only the app" "$entries"
 /usr/bin/zipinfo -1 "$test_tmp/download.zip" | grep -Fxq "$INSTALLER_APP_NAME.app/Contents/Library/LaunchServices/$helper_id" ||
-  fail "the zip keeps the helper where SMJobBless looks"
+  fail "the zip keeps the helper where the app looks"
 if AURORA_DOWNLOAD_ZIP_UNSTAPLED=1 "$ROOT/Packaging/make-download-zip.sh" "$app" "$test_tmp/download.zip" >/dev/null 2>&1; then
   fail "an existing zip is never overwritten"
 fi

@@ -136,9 +136,6 @@
     public static let authorizeRetryAction = "Authorize"
     public static let authorizeRejected =
       "The user name or password was incorrect."
-    /// Shown on the sheet when authorizing will install the helper.
-    public static let authorizeBackgroundItemNotice =
-      "macOS may show a background item notice while \(windowTitle) makes administrator disk changes. The helper unregisters after a completed installation or Erase; protected recovery records remain."
     public static let authorizeHelperCancelled =
       "The installation service wasn’t set up, so nothing was changed. Try again, and approve the macOS password prompt if it appears."
     public static let authorizeHelperSwitchedOff =

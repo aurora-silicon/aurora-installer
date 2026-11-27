@@ -259,10 +259,6 @@
     /// installed with the credentials the person types.
     public var isReady: Bool { isCurrent || canInstall }
 
-    /// Authorizing will install the helper, so macOS will show a background
-    /// item notice.
-    public var willInstall: Bool { canInstall && !isCurrent }
-
     /// The person switched the helper off in Login Items, and this build can
     /// turn it back on if they choose to.
     public var canTurnBackOn: Bool { canInstall && status == .disabled }
@@ -534,9 +530,6 @@
     /// stays up (fields locked) so a rejection appears in place instead of the
     /// sheet closing, the screen flipping, and the sheet coming back.
     public let isVerifying: Bool
-    /// Authorizing will install the helper, so the sheet says macOS will show
-    /// a background item notice.
-    public let mentionsBackgroundItem: Bool
     /// The helper is switched off in Login Items. The sheet says so, and
     /// authorizing from it turns the helper back on with the typed password;
     /// the person can open Login Items instead.
@@ -547,28 +540,25 @@
       bindingDigest: String,
       error: CredentialSheetError? = nil,
       isVerifying: Bool = false,
-      mentionsBackgroundItem: Bool = false,
       helperSwitchedOff: Bool = false
     ) {
       self.kind = kind
       self.bindingDigest = bindingDigest
       self.error = error
       self.isVerifying = isVerifying
-      self.mentionsBackgroundItem = mentionsBackgroundItem
       self.helperSwitchedOff = helperSwitchedOff
     }
 
     public func verifying() -> CredentialSheetContext {
       CredentialSheetContext(
         kind: kind, bindingDigest: bindingDigest, error: nil, isVerifying: true,
-        mentionsBackgroundItem: mentionsBackgroundItem, helperSwitchedOff: helperSwitchedOff)
+        helperSwitchedOff: helperSwitchedOff)
     }
 
     /// The same sheet, reopened with an error.
     public func failed(_ error: CredentialSheetError) -> CredentialSheetContext {
       CredentialSheetContext(
         kind: kind, bindingDigest: bindingDigest, error: error, isVerifying: false,
-        mentionsBackgroundItem: mentionsBackgroundItem,
         helperSwitchedOff: helperSwitchedOff || error == .helperSwitchedOff)
     }
 
@@ -576,7 +566,7 @@
     public func withHelperSwitchedOff() -> CredentialSheetContext {
       CredentialSheetContext(
         kind: kind, bindingDigest: bindingDigest, error: error, isVerifying: isVerifying,
-        mentionsBackgroundItem: true, helperSwitchedOff: true)
+        helperSwitchedOff: true)
     }
   }
 

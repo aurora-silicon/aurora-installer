@@ -822,8 +822,7 @@
         sheet: .presented(
           CredentialSheetContext(
             kind: plan.updatesBootLoader ? .updateBootLoader : .install,
-            bindingDigest: plan.bindingDigest,
-            mentionsBackgroundItem: helper.willInstall
+            bindingDigest: plan.bindingDigest
           )
         )
       )
@@ -840,8 +839,7 @@
       retrySheet = .presented(
         CredentialSheetContext(
           kind: .retryRecoveryAuthorization,
-          bindingDigest: "",
-          mentionsBackgroundItem: environment.helperStatus.willInstall
+          bindingDigest: ""
         )
       )
     }

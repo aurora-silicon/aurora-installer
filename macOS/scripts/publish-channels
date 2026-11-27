@@ -534,12 +534,12 @@ if not build.isdigit():
     sys.exit("the app has no numeric build number")
 declared = (info.get("SMPrivilegedExecutables") or {}).get(helper)
 if not declared:
-    sys.exit("the app does not declare its helper for SMJobBless, so it cannot install it")
+    sys.exit("the app does not declare its helper, so it cannot start it")
 if declared != helper_requirement:
     sys.exit("the app declares its helper with another signing requirement")
 path = os.path.join(app, "Contents/Library/LaunchServices", helper)
 if os.path.islink(path) or not os.path.isfile(path) or not os.access(path, os.X_OK):
-    sys.exit("the app has no helper where SMJobBless looks for it")
+    sys.exit("the app has no helper where it looks for it")
 with open(path, "rb") as stream:
     binary = stream.read()
 # The helper's Info.plist and launchd job are XML property lists linked into
@@ -553,7 +553,7 @@ for block in re.findall(rb"<\?xml.*?</plist>", binary, re.S):
 helper_info = next((d for d in embedded if d.get("CFBundleIdentifier") == helper), None)
 job = next((d for d in embedded if d.get("Label") == helper), None)
 if helper_info is None or job is None:
-    sys.exit("the app's helper carries no Info.plist and launchd job for SMJobBless")
+    sys.exit("the app's helper carries no Info.plist and launchd job")
 if str(helper_info.get("CFBundleVersion")) != build:
     sys.exit(f"the app's helper is build {helper_info.get('CFBundleVersion')}, not {build}")
 if app_requirement not in (helper_info.get("SMAuthorizedClients") or []):

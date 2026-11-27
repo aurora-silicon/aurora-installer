@@ -25,6 +25,8 @@
         (FakeProbe(registered: true, version: "27"), "28", .outdated),
         (FakeProbe(registered: true, version: nil), "28", .outdated),
         (FakeProbe(registered: true, version: nil), nil, .current),
+        // A copy whose session job ended, as at a restart, is simply missing.
+        (FakeProbe(registered: true, answering: false, startupJob: false), "28", .missing),
       ]
       for (probe, bundled, expected) in cases {
         let status = await provisioner(probe, bundled: bundled).probeStatus()
@@ -94,6 +96,15 @@
       ).ensureCurrent(owner)
       XCTAssertEqual(outcome, .disabled)
       XCTAssertEqual(blesser.calls, [])
+    }
+
+    func testACopyWhoseSessionEndedIsStartedAgain() async {
+      let probe = FakeProbe(
+        registered: true, answering: false, startupJob: false, installsVersion: "28")
+      let blesser = FakeBlesser(silent: .blessed, installing: probe)
+      let outcome = await provisioner(probe, blesser: blesser).ensureCurrent(owner)
+      XCTAssertEqual(outcome, .installedSilently)
+      XCTAssertEqual(blesser.calls, [.silent("owner")])
     }
 
     func testALoadedHelperThatRefusesThisAppIsReplacedNotReportedAsSwitchedOff() async {
@@ -489,6 +500,7 @@
     private var cancelled = 0
     private var version: String?
     private let installsVersion: String?
+    private let startupJob: Bool?
     private var pingCount = 0
 
     /// - Parameter installsVersion: what a successful bless leaves running;
@@ -497,10 +509,13 @@
     ///   not answer; false models a helper switched off in Login Items.
     /// - Parameter slow: a loaded helper that does not answer in time, as when
     ///   busy verifying a payload; otherwise a silent helper refuses at once.
+    /// - Parameter startupJob: whether what is registered is a startup job in
+    ///   /Library/LaunchDaemons; by default it is whenever anything is.
     init(
       registered: Bool, answering: Bool = true, loaded: Bool = false, slow: Bool = false,
-      version: String? = nil, installsVersion: String? = nil, replacement: Bool? = nil,
-      laterReplacement: Bool?? = nil, work: InstallerHelperWorkObservation = .idle
+      startupJob: Bool? = nil, version: String? = nil, installsVersion: String? = nil,
+      replacement: Bool? = nil, laterReplacement: Bool?? = nil,
+      work: InstallerHelperWorkObservation = .idle
     ) {
       // The first answer is for the request; the next, if given, for the
       // check immediately before installing.
@@ -512,11 +527,14 @@
       self.answering = answering && registered
       self.version = version
       self.installsVersion = installsVersion
+      self.startupJob = startupJob
     }
 
     var pings: Int { lock.withLock { pingCount } }
 
     var isRegistered: Bool { lock.withLock { registered } }
+
+    var hasStartupJob: Bool { lock.withLock { startupJob ?? registered } }
 
     func ping() async -> AuthenticatedEngineXPCSubmitter.PingResult {
       lock.withLock {

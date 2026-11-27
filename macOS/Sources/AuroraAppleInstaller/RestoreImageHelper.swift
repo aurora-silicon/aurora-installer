@@ -53,7 +53,7 @@
     /// launchd environment. An explicit `OMARCHY_RESTORE_IMAGE_REQUIREMENT`
     /// (the signing scripts and the ad hoc blesser record it) wins and must
     /// be one of the two forms above. Otherwise a helper whose client is
-    /// pinned to a Developer ID team (an SMJobBless install, whose embedded
+    /// pinned to a Developer ID team (a helper the app started, whose embedded
     /// job carries only that) holds the decoder to the same team. Anything
     /// else has no decoder identity, and installs that need one are refused.
     public static func requirement(environment: [String: String]) -> String? {
