@@ -184,7 +184,7 @@
           guard decoded.type == "krnl" else { throw NativeFirmwareInputFailure.invalidSource }
           try merge(FirmwareImage.controllerFirmware(in: decoded.bytes), into: &outputs)
           // The ProRes engine's power-up rows (chips with the T6041 engine),
-          // read from this Mac's own kernel like the rest and never shipped. A
+          // read from the stub's kernel like the rest and never shipped. A
           // kernel the reader does not understand leaves ProRes off.
           if ProResInitFirmware.applies(toChipID: source.chipID) {
             do {

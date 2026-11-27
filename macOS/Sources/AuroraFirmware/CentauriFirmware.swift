@@ -3,10 +3,10 @@ import Foundation
 
 /// The Apple N1 (Centauri) Wi-Fi and Bluetooth firmware. One FTAB image
 /// serves both radios. The restore image ships one image per N1 generation
-/// and one ticket per Mac model, and the N1's boot ROM starts an image only
-/// with its model's ticket in it: the ticket is appended to the image, and
-/// the image's header names it (its offset at 0x10 and its size at 0x14,
-/// little endian). Inputs are this Mac's own restore files, never shipped.
+/// and one ticket per Mac model and restore variant (the stub copies its own
+/// variant's), and the N1's boot ROM starts an image only with its model's
+/// ticket in it: the ticket is appended to the image, and the image's header
+/// names it (its offset at 0x10 and its size at 0x14, little endian). Inputs are this Mac's own restore files, never shipped.
 /// `asahi_firmware/centauri.py` is the same conversion.
 public enum CentauriFirmware {
   /// The driver loads at most 64 MiB.

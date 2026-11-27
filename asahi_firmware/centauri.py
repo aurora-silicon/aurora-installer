@@ -4,8 +4,8 @@
 The same conversion as the native installer's CentauriFirmware
 (macOS/Sources/AuroraFirmware/CentauriFirmware.swift). One FTAB image serves
 the N1's Wi-Fi and Bluetooth. The restore image ships one image per N1
-generation and one ticket per Mac model, and the N1's boot ROM starts an
-image only with its model's ticket in it: the ticket is appended to the
+generation and one ticket per Mac model and restore variant, and the N1's
+boot ROM starts an image only with its model's ticket in it: the ticket is appended to the
 image, and the image's header names it (its offset at 0x10 and its size at
 0x14, little endian). The installer keeps this Mac's two inputs in
 asahi/all_firmware.tar.gz under centauri/<model>/, so a rebuild
