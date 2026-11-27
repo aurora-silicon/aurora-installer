@@ -107,9 +107,9 @@ public enum AuroraProfileError: LocalizedError {
   public var errorDescription: String? {
     switch self {
     case .selectionMismatch:
-      "The release does not match the selected system and desktop. No installation was started."
+      "The release doesn’t match the system and desktop you chose. Nothing was installed."
     case .unavailable(let title):
-      "An installation image for \(title) is not included in this build."
+      "This build doesn’t include \(title)."
     }
   }
 }
