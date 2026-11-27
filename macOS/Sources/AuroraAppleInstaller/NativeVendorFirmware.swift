@@ -139,6 +139,7 @@
             path: path, maximum: maximum, owner: owner, expected: record.identity)
         }
         let restore = target.group + "/" + plan.restorePath + "/"
+        var touchscreen: Data?
         for item in source.fud {
           let data: Data
           if let existing = fallback["fud_firmware/" + item.member] {
@@ -152,11 +153,11 @@
             guard !converted.isEmpty else { throw NativeFirmwareInputFailure.invalidSource }
             try merge(converted, into: &outputs)
           }
-          // The touchscreen firmware of the OLED MacBook Pros (K114/K116).
-          // How Linux loads it is not specified yet, so the package keeps
-          // this Mac's own copy as macOS ships it, for a later converter.
-          if item.component == "Ap,TouchASICFW", source.machine.hasPrefix("k") {
-            try merge(["apple/kiwi/" + source.machine + ".im4p": data], into: &outputs)
+          // The touchscreen firmware (the MTP's kiwi interface). It is
+          // converted below, once this Mac's calibration has been read.
+          if item.component == "Ap,TouchASICFW" {
+            guard touchscreen == nil else { throw NativeFirmwareInputFailure.invalidSource }
+            touchscreen = data
           }
         }
         if NativePeripheralInputPath.needsPreparation(machine: source.machine) {
@@ -306,6 +307,11 @@
         }
         for (name, data) in factory {
           fallback["com.apple.factorydata/" + name] = data
+        }
+        if let touchscreen {
+          let converted = try KiwiFirmware.convert(
+            touchscreen, machine: source.machine, factory: factory)
+          try merge(converted.files, into: &outputs)
         }
         if usesPreparedPeripherals {
           fallback[NeoFirmwareConversions.alsName] = outputs[NeoFirmwareConversions.alsName]
