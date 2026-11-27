@@ -540,12 +540,14 @@ public struct VerifiedArtifactStager: Sendable {
     )
     defer { try? fileManager.removeItem(at: pending) }
 
-    try assemble(
-      parts: partFileURLs,
-      into: pending,
-      expectedDigest: artifact.expectedDigest,
-      expectedSizeBytes: artifact.expectedSizeBytes
-    )
+    try InstallerPerformance.measure("artifact_assemble", bytes: artifact.expectedSizeBytes) {
+      try assemble(
+        parts: partFileURLs,
+        into: pending,
+        expectedDigest: artifact.expectedDigest,
+        expectedSizeBytes: artifact.expectedSizeBytes
+      )
+    }
 
     do {
       try fileManager.moveItem(at: pending, to: destination)
@@ -608,13 +610,17 @@ public struct VerifiedArtifactStager: Sendable {
       return (destination, .reusedExistingFile, true)
     }
 
-    let downloaded = try await downloader.download(
-      from: url,
-      expectedSizeBytes: expectedSizeBytes,
-      resumeData: stagingDirectory.appendingPathComponent(
-        Self.resumeDataName(for: fileName), isDirectory: false),
-      onBytes: onBytes
-    )
+    let downloaded = try await InstallerPerformance.measuring(
+      "artifact_transfer", bytes: expectedSizeBytes
+    ) {
+      try await downloader.download(
+        from: url,
+        expectedSizeBytes: expectedSizeBytes,
+        resumeData: stagingDirectory.appendingPathComponent(
+          Self.resumeDataName(for: fileName), isDirectory: false),
+        onBytes: onBytes
+      )
+    }
     defer { try? fileManager.removeItem(at: downloaded) }
 
     let pending = stagingDirectory.appendingPathComponent(
@@ -623,16 +629,19 @@ public struct VerifiedArtifactStager: Sendable {
     )
     defer { try? fileManager.removeItem(at: pending) }
 
-    let materialization = try promoter.promote(
-      source: downloaded,
-      pending: pending
-    )
-    try verify(
-      fileName: fileName,
-      expectedDigest: expectedDigest,
-      expectedSizeBytes: expectedSizeBytes,
-      at: pending
-    )
+    let materialization = try InstallerPerformance.measure(
+      "artifact_materialize", bytes: expectedSizeBytes
+    ) {
+      try promoter.promote(source: downloaded, pending: pending)
+    }
+    try InstallerPerformance.measure("artifact_verify", bytes: expectedSizeBytes) {
+      try verify(
+        fileName: fileName,
+        expectedDigest: expectedDigest,
+        expectedSizeBytes: expectedSizeBytes,
+        at: pending
+      )
+    }
 
     do {
       try fileManager.moveItem(at: pending, to: destination)

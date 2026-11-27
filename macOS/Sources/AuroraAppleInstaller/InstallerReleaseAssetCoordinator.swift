@@ -119,22 +119,26 @@
       includePayload: Bool = true
     ) async throws -> PreparedInstallerRelease {
       _ = try assetPreparer.validateHost(request.host)
-      let catalog = try await catalogFetcher.fetch(
-        configuration: request.configuration,
-        channel: request.channel
-      )
+      let catalog = try await InstallerPerformance.measuring("catalog_fetch") {
+        try await catalogFetcher.fetch(
+          configuration: request.configuration, channel: request.channel)
+      }
       let minimumSequence = request.configuration.minimumCatalogSequence[
         request.channel
       ]
-      _ = try AppleInstallerTrustCore().validateSupportCatalog(
-        payload: catalog.payload,
-        signature: catalog.signature,
-        trustRoot: request.configuration.trustRoot,
-        now: request.validationTime,
-        previouslyAccepted: request.previouslyAcceptedCatalog,
-        minimumSequence: minimumSequence
-      )
-      try ReleaseCatalogChannelPolicy.validate(payload: catalog.payload, channel: request.channel)
+      try InstallerPerformance.measure(
+        "catalog_verify", bytes: UInt64(catalog.payload.count + catalog.signature.count)
+      ) {
+        _ = try AppleInstallerTrustCore().validateSupportCatalog(
+          payload: catalog.payload,
+          signature: catalog.signature,
+          trustRoot: request.configuration.trustRoot,
+          now: request.validationTime,
+          previouslyAccepted: request.previouslyAcceptedCatalog,
+          minimumSequence: minimumSequence
+        )
+        try ReleaseCatalogChannelPolicy.validate(payload: catalog.payload, channel: request.channel)
+      }
       let configuration = request.configuration
       InstallerLog.progress(
         ResolvedReleaseSummary(

@@ -349,9 +349,11 @@
       }
       let requirement: NativeStubStagingRequirement
       do {
-        requirement = try await NativeStubStagingRequirement.estimate(
-          source: open(firmware.sourceURL), firmware: firmware,
-          deviceIdentifier: deviceIdentifier, boardID: boardID(), chipID: facts.hardware.chipID)
+        requirement = try await InstallerPerformance.measuring("ipsw_stub_estimate") {
+          try await NativeStubStagingRequirement.estimate(
+            source: open(firmware.sourceURL), firmware: firmware,
+            deviceIdentifier: deviceIdentifier, boardID: boardID(), chipID: facts.hardware.chipID)
+        }
       } catch NativeFirmwareSelectionError.updateArchiveOnly(let version) {
         // An update archive whose Recovery image patches an earlier one.
         throw InstallerPlanPreparationError.firmwareArchiveUnsupported(version: version)

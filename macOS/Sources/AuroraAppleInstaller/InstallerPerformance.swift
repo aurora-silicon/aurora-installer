@@ -1,4 +1,5 @@
 #if os(macOS)
+  import Darwin
   import Foundation
   import OSLog
 
@@ -11,24 +12,36 @@
     @TaskLocal private static var depth = 0
 
     @discardableResult
-    static func measure<T>(_ phase: String, _ action: () throws -> T) rethrows -> T {
+    static func measure<T>(
+      _ phase: String, bytes: UInt64? = nil, _ action: () throws -> T
+    ) rethrows -> T {
       InstallerTimingRecorder.current?.begin(phase)
       let level = started(phase)
       let start = InstallerTimingRecorder.now()
+      let cpuStart = processCPUTime()
       var completed = false
-      defer { finish(phase, start: start, completed: completed, level: level) }
+      defer {
+        finish(
+          phase, start: start, cpuStart: cpuStart, bytes: bytes, completed: completed, level: level)
+      }
       let result = try $depth.withValue(depth + 1) { try action() }
       completed = true
       return result
     }
 
     @discardableResult
-    static func measuring<T>(_ phase: String, _ action: () async throws -> T) async rethrows -> T {
+    static func measuring<T>(
+      _ phase: String, bytes: UInt64? = nil, _ action: () async throws -> T
+    ) async rethrows -> T {
       InstallerTimingRecorder.current?.begin(phase)
       let level = started(phase)
       let start = InstallerTimingRecorder.now()
+      let cpuStart = processCPUTime()
       var completed = false
-      defer { finish(phase, start: start, completed: completed, level: level) }
+      defer {
+        finish(
+          phase, start: start, cpuStart: cpuStart, bytes: bytes, completed: completed, level: level)
+      }
       let result = try await $depth.withValue(depth + 1) { try await action() }
       completed = true
       return result
@@ -41,11 +54,26 @@
       return level
     }
 
+    private static func processCPUTime() -> UInt64? {
+      var time = timespec()
+      guard clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time) == 0 else { return nil }
+      return UInt64(time.tv_sec) * 1_000_000_000 + UInt64(time.tv_nsec)
+    }
+
     private static func finish(
-      _ phase: String, start: UInt64, completed: Bool, level: InstallerLogLevel
+      _ phase: String, start: UInt64, cpuStart: UInt64?, bytes: UInt64?, completed: Bool,
+      level: InstallerLogLevel
     ) {
       let end = InstallerTimingRecorder.now()
-      let seconds = Double(end - min(start, end)) / 1_000_000_000
+      let wall = end - min(start, end)
+      let seconds = Double(wall) / 1_000_000_000
+      var metrics = "phase=\(phase) wall_ns=\(wall) completed=\(completed)"
+      // Concurrent and nested spans can include the same CPU work.
+      if let cpuStart, let cpuEnd = processCPUTime(), cpuEnd >= cpuStart {
+        metrics += " process_cpu_ns=\(cpuEnd - cpuStart)"
+      }
+      if let bytes { metrics += " expected_bytes=\(bytes)" }
+      InstallerLog.record(.debug, source: "performance", metrics)
       logger.notice("phase=\(phase, privacy: .public) seconds=\(seconds) completed=\(completed)")
       InstallerTimingRecorder.current?.step(phase, start: start, end: end, completed: completed)
       let elapsed = InstallerLog.duration(nanoseconds: end - min(start, end))
