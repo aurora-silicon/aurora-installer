@@ -787,7 +787,7 @@
           FailureDisplay(
             headline: PlainLanguage.planChangedBeforeApproval,
             plainDetail:
-              "The plan needs a new disk check. Nothing was authorized.",
+              "The plan needs a new disk check. Nothing was approved.",
             technicalDetail: String(describing: error)
           )
         )
@@ -893,7 +893,7 @@
             FailureDisplay(
               headline: PlainLanguage.approvalUnavailable,
               plainDetail:
-                "Check this Mac and review the plan again. Nothing was authorized."
+                "Check again and review the plan. Nothing was approved."
             )
           )
           return
@@ -906,7 +906,7 @@
             FailureDisplay(
               headline: PlainLanguage.retryCheckpointUnavailable,
               plainDetail:
-                "Authorization wasn’t granted. Installation remains stopped."
+                "Not approved. The installation stays stopped."
             )
           )
           return
@@ -1113,8 +1113,8 @@
           ? "Simulation complete: shutdown would begin now. Your Mac stays on."
           : "Simulated shutdown failed. You can still use the setup steps below.")
         : (accepted
-          ? "Shutdown requested. If another app stops it, save your work and choose Apple menu → Shut Down."
-          : "Your Mac couldn’t shut down. Save your work, then choose Apple menu → Shut Down. Keep the setup steps handy.")
+          ? "Shutting down. If another app stops it, save your work and choose Apple menu → Shut Down."
+          : "Your Mac couldn’t shut down. Save your work, then choose Apple menu → Shut Down. Keep the steps above handy.")
       return accepted
     }
 
@@ -1130,7 +1130,7 @@
         isSimulation
         ? "Simulation complete: restart would begin now. Your Mac stays on."
         : (accepted
-          ? "Restart requested. If another app stops it, save your work and choose Apple menu → Restart."
+          ? "Restarting. If another app stops it, save your work and choose Apple menu → Restart."
           : "Your Mac couldn’t restart. Save your work, then choose Apple menu → Restart.")
       return accepted
     }
@@ -1164,15 +1164,15 @@
         let target = refreshed.target, let ticket = refreshed.ticket
       else {
         throw AccountSetupFailure(
-          "No completed installation is present on disk. Run the installation again before shutting down."
+          "No finished installation is on the disk. Install again before you shut down."
         )
       }
       if let originalTarget, originalTarget != target {
-        throw AccountSetupFailure("The Recovery target changed. Inspect the installation again.")
+        throw AccountSetupFailure("The Recovery target changed. Check this Mac again.")
       }
       let reply = try await environment.prepareRecoveryHandoff(ticket: ticket)
       guard reply.target == target, reply.ticket == ticket else {
-        throw AccountSetupFailure("The Recovery target changed. Inspect the installation again.")
+        throw AccountSetupFailure("The Recovery target changed. Check this Mac again.")
       }
       recoveryAccount = reply
       return environment.requestShutdown()
@@ -1207,7 +1207,7 @@
               recoveryAccount = found
             } else if await environment.probeHelperStatus().isCurrent {
               throw AccountSetupFailure(
-                "The completion record does not match an installation on disk. It may belong to a removed installation. Run the installation again."
+                "The completion record doesn’t match an installation on the disk. It may be from a removed installation. Install again."
               )
             } else {
               // No helper was there to look. Shutting down inspects again.
@@ -1224,9 +1224,9 @@
             recoveryAccount = nil
             phase = .failed(
               FailureDisplay(
-                headline: "Installation could not be verified",
+                headline: "Couldn’t verify the installation",
                 plainDetail: error.localizedDescription,
-                remedy: "Check the disk again before continuing."))
+                remedy: "Choose Check again before you continue."))
           }
         } else {
           phase = .done(completion)
@@ -1236,9 +1236,9 @@
       case .manualRecovery:
         phase = .failed(
           FailureDisplay(
-            headline: "The installer encountered an error",
+            headline: "Something went wrong",
             plainDetail: PlainLanguage.nextActionMessage(.manualRecovery),
-            remedy: "Check the last verified installation step before continuing."
+            remedy: "Check Completed steps before you continue."
           )
         )
       }
