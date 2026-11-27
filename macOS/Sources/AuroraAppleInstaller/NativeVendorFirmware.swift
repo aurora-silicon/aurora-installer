@@ -308,10 +308,16 @@
         for (name, data) in factory {
           fallback["com.apple.factorydata/" + name] = data
         }
+        // A touch image this converter does not understand leaves the touch
+        // screen off; the rest of the firmware is unaffected.
         if let touchscreen {
-          let converted = try KiwiFirmware.convert(
-            touchscreen, machine: source.machine, factory: factory)
-          try merge(converted.files, into: &outputs)
+          do {
+            let converted = try KiwiFirmware.convert(
+              touchscreen, machine: source.machine, factory: factory)
+            try merge(converted.files, into: &outputs)
+          } catch let failure as RestoreFailure {
+            InstallerLog.record(.error, "Touch screen firmware not converted: \(failure.message)")
+          }
         }
         if usesPreparedPeripherals {
           fallback[NeoFirmwareConversions.alsName] = outputs[NeoFirmwareConversions.alsName]
