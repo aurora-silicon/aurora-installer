@@ -4,6 +4,19 @@ Firmware preparation belongs to the installer and runs before partition changes.
 
 Per-model firmware data comes only from Apple's restore image (IPSW), through sealed range recipes (authenticated partial downloads), never from the installed or running macOS and with no fallback to it. Only per-unit values are read from the machine; `NativeMachineUnitInputs` lists them, with the factory-data readers below. Missing restore-image data is an error, never a guessed or locally substituted value.
 
+## Two sources
+
+| What | Where it comes from |
+| --- | --- |
+| Firmware and tuning: Wi-Fi and Bluetooth firmware (Broadcom, MediaTek, the N1), speaker tuning, camera and ISP firmware and setfiles, trackpad, touchscreen and other per-model firmware | Apple's restore image (IPSW). For firmware, the image the stub is built from: the stub's restore copy, its Recovery image, or that image's own ranges. Never the installed or running macOS, whose firmware can be a different build. |
+| Per-unit calibration and secrets: Wi-Fi and Bluetooth calibration and address, speaker calibration and speaker ID, ambient light calibration, Touch ID calibration and its root key and trust bundle | This Mac's own partitions and device tree (the Hardware volume's factory data, the IORegistry). They are unique to the machine and in no IPSW. |
+
+`scripts/restore-image-firmware.json` records what each admitted Mac's build identity carries in each admitted restore image (`scripts/restore_image_firmware.py` writes it from the images; run it again when the policy admits another image or Mac). `scripts/tests/test_restore_image_firmware.py` and `NativeRestoreImageFirmwareTests` fail when the policy admits a Mac the record lacks, or when a class its image carries has no source: the N1 image and ticket under the name its kernel requests (`scripts/n1-kernel-firmware.json`), speaker tuning, the radios of the other Macs.
+
+Known exceptions, listed in that test: speaker tuning comes from the speaker safety stack's pinned 27.2 images whatever the stub's version (the J804 and J833ct have none yet, so their speakers stay muted), and the MacBook Neo's camera and radio firmware comes from the 25G83 recipe also when it gets the 26.6 (25G72) stub.
+
+## Inputs
+
 | Input | Source | Admission and lifetime |
 | --- | --- | --- |
 | Neo camera setfiles | Recipe-pinned partial IPSW downloads | Verify source ranges and output digests; convert natively. Model-wide authenticated raw files may be reused for a retry. |

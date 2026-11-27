@@ -1,0 +1,452 @@
+{
+ "schema": 1,
+ "kind": "aurora-restore-image-firmware",
+ "images": [
+  {
+   "build": "25G72",
+   "url": "https://updates.cdn-apple.com/2026SummerFCS/fullrestores/140-65618/10445B26-DE2C-43EC-9149-0A831602E74B/UniversalMac_26.6_25G72_Restore.ipsw",
+   "manifest_sha256": "3e0c8a53f94faa7d3a34dd9dba2ca12e3db7db14d23275aa209e37ef4ada201a",
+   "identities": {
+    "j700": {
+     "chip_id": "0x8140",
+     "n1_images": 0
+    }
+   }
+  },
+  {
+   "build": "25G83",
+   "url": "https://updates.cdn-apple.com/2026SummerFCS/fullrestores/140-75212/A2A24B94-1FC1-45A3-93F7-C51B02AF1F4D/UniversalMac_26.6.2_25G83_Restore.ipsw",
+   "manifest_sha256": "e8ff2cdd3e8ab3a668132bf9453948b70f1863b849a6185914f54a9ec25356d3",
+   "identities": {
+    "j575c": {
+     "chip_id": "0x6041",
+     "n1_images": 0
+    },
+    "j575d": {
+     "chip_id": "0x6032",
+     "n1_images": 0
+    },
+    "j604": {
+     "chip_id": "0x8132",
+     "n1_images": 0
+    },
+    "j613": {
+     "chip_id": "0x8122",
+     "n1_images": 0
+    },
+    "j614c": {
+     "chip_id": "0x6041",
+     "n1_images": 0
+    },
+    "j614s": {
+     "chip_id": "0x6040",
+     "n1_images": 0
+    },
+    "j615": {
+     "chip_id": "0x8122",
+     "n1_images": 0
+    },
+    "j616c": {
+     "chip_id": "0x6041",
+     "n1_images": 0
+    },
+    "j616s": {
+     "chip_id": "0x6040",
+     "n1_images": 0
+    },
+    "j623": {
+     "chip_id": "0x8132",
+     "n1_images": 0
+    },
+    "j624": {
+     "chip_id": "0x8132",
+     "n1_images": 0
+    },
+    "j700": {
+     "chip_id": "0x8140",
+     "n1_images": 0
+    },
+    "j713": {
+     "chip_id": "0x8132",
+     "n1_images": 0
+    },
+    "j715": {
+     "chip_id": "0x8132",
+     "n1_images": 0
+    },
+    "j773g": {
+     "chip_id": "0x8132",
+     "n1_images": 0
+    },
+    "j773s": {
+     "chip_id": "0x6040",
+     "n1_images": 0
+    }
+   }
+  },
+  {
+   "build": "26A428",
+   "url": "https://updates.cdn-apple.com/2026FallFCS/afcfc88e-bbe6-44bf-a5da-07c56eebc06c/UniversalMac_27.0_26A428_Restore.ipsw",
+   "manifest_sha256": "22949db91be2ddd0009a0047ceba37336452b76af3ff915f496d842b85cce6a7",
+   "identities": {
+    "j873g": {
+     "chip_id": "0x8152",
+     "n1_images": 1,
+     "n1_ticket": true
+    }
+   }
+  },
+  {
+   "build": "26B7124",
+   "url": "https://updates.cdn-apple.com/2026FallFCS/04f50f4e-1485-4efb-bd81-f3d743fdff4a/UniversalMac_27.2_26B7124_Restore.ipsw",
+   "manifest_sha256": "dae2da742c988127b02cd5273c0ac070d89779bb738fb7331dfef5a9874fc6e3",
+   "identities": {
+    "j804": {
+     "chip_id": "0x8152",
+     "n1_images": 1,
+     "n1_ticket": true
+    },
+    "j833ct": {
+     "chip_id": "0x8152",
+     "n1_images": 1,
+     "n1_ticket": true
+    }
+   }
+  },
+  {
+   "build": "26B8125",
+   "url": "https://updates.cdn-apple.com/2026FallFCS/b83bb963-ebd8-4608-8b5d-fdc70cb24927/UniversalMac_27.2_26B8125_Restore.ipsw",
+   "manifest_sha256": "9316576826c0fc69beb12b45fffa5657f003b63b4a9d44248634fc042cecd5a2",
+   "identities": {
+    "k114c": {
+     "chip_id": "0x6050",
+     "n1_images": 1,
+     "n1_ticket": true
+    },
+    "k114s": {
+     "chip_id": "0x6050",
+     "n1_images": 1,
+     "n1_ticket": true
+    },
+    "k116c": {
+     "chip_id": "0x6050",
+     "n1_images": 1,
+     "n1_ticket": true
+    },
+    "k116s": {
+     "chip_id": "0x6050",
+     "n1_images": 1,
+     "n1_ticket": true
+    }
+   }
+  },
+  {
+   "build": "21E258",
+   "url": "https://updates.cdn-apple.com/2022SpringFCS/fullrestores/002-79219/851BEDF0-19DB-4040-B765-0F4089D1530D/UniversalMac_12.3.1_21E258_Restore.ipsw",
+   "manifest_sha256": "4057e3dde484d736e1e01e5445cb32beab9322d1c94f0471f9e20e39a8905b10",
+   "identities": {
+    "j274": {
+     "chip_id": "0x8103",
+     "n1_images": 0
+    },
+    "j293": {
+     "chip_id": "0x8103",
+     "n1_images": 0
+    },
+    "j313": {
+     "chip_id": "0x8103",
+     "n1_images": 0
+    },
+    "j314c": {
+     "chip_id": "0x6001",
+     "n1_images": 0
+    },
+    "j314s": {
+     "chip_id": "0x6000",
+     "n1_images": 0
+    },
+    "j316c": {
+     "chip_id": "0x6001",
+     "n1_images": 0
+    },
+    "j316s": {
+     "chip_id": "0x6000",
+     "n1_images": 0
+    },
+    "j375c": {
+     "chip_id": "0x6001",
+     "n1_images": 0
+    },
+    "j375d": {
+     "chip_id": "0x6002",
+     "n1_images": 0
+    },
+    "j456": {
+     "chip_id": "0x8103",
+     "n1_images": 0
+    },
+    "j457": {
+     "chip_id": "0x8103",
+     "n1_images": 0
+    }
+   }
+  },
+  {
+   "build": "21E230",
+   "url": "https://updates.cdn-apple.com/2022SpringFCS/fullrestores/071-08757/74A4F2A1-C747-43F9-A22A-C0AD5FB4ECB6/UniversalMac_12.3_21E230_Restore.ipsw",
+   "manifest_sha256": "ee274f065d7904b5ec6c2430cb184d031e920789c4c693eb0a6dc955bc96a4db",
+   "identities": {
+    "j274": {
+     "chip_id": "0x8103",
+     "n1_images": 0
+    },
+    "j293": {
+     "chip_id": "0x8103",
+     "n1_images": 0
+    },
+    "j313": {
+     "chip_id": "0x8103",
+     "n1_images": 0
+    },
+    "j314c": {
+     "chip_id": "0x6001",
+     "n1_images": 0
+    },
+    "j314s": {
+     "chip_id": "0x6000",
+     "n1_images": 0
+    },
+    "j316c": {
+     "chip_id": "0x6001",
+     "n1_images": 0
+    },
+    "j316s": {
+     "chip_id": "0x6000",
+     "n1_images": 0
+    },
+    "j375c": {
+     "chip_id": "0x6001",
+     "n1_images": 0
+    },
+    "j375d": {
+     "chip_id": "0x6002",
+     "n1_images": 0
+    },
+    "j456": {
+     "chip_id": "0x8103",
+     "n1_images": 0
+    },
+    "j457": {
+     "chip_id": "0x8103",
+     "n1_images": 0
+    }
+   }
+  },
+  {
+   "build": "22G74",
+   "url": "https://updates.cdn-apple.com/2023SummerFCS/fullrestores/032-69606/D3E05CDF-E105-434C-A4A1-4E3DC7668DD0/UniversalMac_13.5_22G74_Restore.ipsw",
+   "manifest_sha256": "09e3d094f126bbc8d530aa230159b8d3077f3e193520a8e2b3b273e799d63834",
+   "identities": {
+    "j180d": {
+     "chip_id": "0x6022",
+     "n1_images": 0
+    },
+    "j274": {
+     "chip_id": "0x8103",
+     "n1_images": 0
+    },
+    "j293": {
+     "chip_id": "0x8103",
+     "n1_images": 0
+    },
+    "j313": {
+     "chip_id": "0x8103",
+     "n1_images": 0
+    },
+    "j314c": {
+     "chip_id": "0x6001",
+     "n1_images": 0
+    },
+    "j314s": {
+     "chip_id": "0x6000",
+     "n1_images": 0
+    },
+    "j316c": {
+     "chip_id": "0x6001",
+     "n1_images": 0
+    },
+    "j316s": {
+     "chip_id": "0x6000",
+     "n1_images": 0
+    },
+    "j375c": {
+     "chip_id": "0x6001",
+     "n1_images": 0
+    },
+    "j375d": {
+     "chip_id": "0x6002",
+     "n1_images": 0
+    },
+    "j413": {
+     "chip_id": "0x8112",
+     "n1_images": 0
+    },
+    "j414c": {
+     "chip_id": "0x6021",
+     "n1_images": 0
+    },
+    "j414s": {
+     "chip_id": "0x6020",
+     "n1_images": 0
+    },
+    "j415": {
+     "chip_id": "0x8112",
+     "n1_images": 0
+    },
+    "j416c": {
+     "chip_id": "0x6021",
+     "n1_images": 0
+    },
+    "j416s": {
+     "chip_id": "0x6020",
+     "n1_images": 0
+    },
+    "j456": {
+     "chip_id": "0x8103",
+     "n1_images": 0
+    },
+    "j457": {
+     "chip_id": "0x8103",
+     "n1_images": 0
+    },
+    "j473": {
+     "chip_id": "0x8112",
+     "n1_images": 0
+    },
+    "j474s": {
+     "chip_id": "0x6020",
+     "n1_images": 0
+    },
+    "j475c": {
+     "chip_id": "0x6021",
+     "n1_images": 0
+    },
+    "j475d": {
+     "chip_id": "0x6022",
+     "n1_images": 0
+    },
+    "j493": {
+     "chip_id": "0x8112",
+     "n1_images": 0
+    }
+   }
+  },
+  {
+   "build": "23J220",
+   "url": "https://updates.cdn-apple.com/2025FallFCS/patches/089-71124/49AD260A-D47F-4B5E-A793-30446187196E/com_apple_MobileAsset_MacSoftwareUpdate/f6d1ac9149f6a06401ff87fae5b262c420bfc5f7.zip",
+   "manifest_sha256": "9928478d94e929eced64f432a4f707b6ac392eb603f549e3c83c771093a733dd",
+   "identities": {
+    "j433": {
+     "chip_id": "0x8122",
+     "n1_images": 0
+    },
+    "j434": {
+     "chip_id": "0x8122",
+     "n1_images": 0
+    },
+    "j504": {
+     "chip_id": "0x8122",
+     "n1_images": 0
+    },
+    "j514c": {
+     "chip_id": "0x6031",
+     "n1_images": 0
+    },
+    "j514m": {
+     "chip_id": "0x6034",
+     "n1_images": 0
+    },
+    "j514s": {
+     "chip_id": "0x6030",
+     "n1_images": 0
+    },
+    "j516c": {
+     "chip_id": "0x6031",
+     "n1_images": 0
+    },
+    "j516m": {
+     "chip_id": "0x6034",
+     "n1_images": 0
+    },
+    "j613": {
+     "chip_id": "0x8122",
+     "n1_images": 0
+    },
+    "j615": {
+     "chip_id": "0x8122",
+     "n1_images": 0
+    }
+   }
+  },
+  {
+   "build": "26B123",
+   "url": "https://updates.cdn-apple.com/2026FallFCS/c9671975-52db-4fb5-9af2-00217169ba8d/UniversalMac_27.2_26B123_Restore.ipsw",
+   "manifest_sha256": "0fbfae04175cde81ef36d273aa280d39ffe5a54eacba8494b45a59daca462510",
+   "identities": {
+    "j516s": {
+     "chip_id": "0x6030",
+     "n1_images": 0
+    },
+    "j704": {
+     "chip_id": "0x8142",
+     "n1_images": 0
+    },
+    "j714c": {
+     "chip_id": "0x6050",
+     "n1_images": 1,
+     "n1_ticket": true
+    },
+    "j714s": {
+     "chip_id": "0x6050",
+     "n1_images": 1,
+     "n1_ticket": true
+    },
+    "j716c": {
+     "chip_id": "0x6050",
+     "n1_images": 1,
+     "n1_ticket": true
+    },
+    "j716s": {
+     "chip_id": "0x6050",
+     "n1_images": 1,
+     "n1_ticket": true
+    },
+    "j775c": {
+     "chip_id": "0x6050",
+     "n1_images": 1,
+     "n1_ticket": true
+    },
+    "j775d": {
+     "chip_id": "0x6050",
+     "n1_images": 1,
+     "n1_ticket": true
+    },
+    "j813": {
+     "chip_id": "0x8142",
+     "n1_images": 1,
+     "n1_ticket": true
+    },
+    "j815": {
+     "chip_id": "0x8142",
+     "n1_images": 1,
+     "n1_ticket": true
+    },
+    "j873s": {
+     "chip_id": "0x6050",
+     "n1_images": 1,
+     "n1_ticket": true
+    }
+   }
+  }
+ ]
+}
