@@ -69,7 +69,8 @@
       }
       let roots = names.filter { $0.hasPrefix("MSRk-") }
       guard roots.count == 1, let root = roots.first,
-        NativeHandoffEvidence.safeRelative(root), !root.contains("/"), root.utf8.count <= 255,
+        NativeHandoffEvidence.safeRelative(root), !root.utf8.contains(UInt8(ascii: "/")),
+        root.utf8.count <= 255,
         root.count > 5
       else { throw NativePeripheralInputError.sensorRootKeyMissing }
       // The enclave refuses the factory records as stored: it loads their
@@ -86,7 +87,8 @@
       } else {
         guard calibrations.count == 1, let name = calibrations.first,
           String(name.dropFirst(5)) == String(root.dropFirst(5)),
-          NativeHandoffEvidence.safeRelative(name), !name.contains("/"), name.utf8.count <= 255
+          NativeHandoffEvidence.safeRelative(name), !name.utf8.contains(UInt8(ascii: "/")),
+          name.utf8.count <= 255
         else { throw NativePeripheralInputError.sensorCalibrationMissing }
         let bytes = try factoryRead(name)
         found = try SignedSensorInputs.calibration(in: bytes)
@@ -110,7 +112,8 @@
       seal: Data, trust: Data
     ) {
       func admitted(_ name: String) -> Bool {
-        NativeHandoffEvidence.safeRelative(name) && !name.contains("/") && name.utf8.count <= 255
+        NativeHandoffEvidence.safeRelative(name) && !name.utf8.contains(UInt8(ascii: "/"))
+          && name.utf8.count <= 255
       }
       let seals = names.filter { $0.hasPrefix("seal-") }
       let bundles = names.filter { $0.hasPrefix("trustobject-") && $0 != "trustobject-current" }

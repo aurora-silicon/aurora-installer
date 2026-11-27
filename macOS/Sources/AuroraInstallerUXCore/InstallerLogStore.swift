@@ -14,9 +14,9 @@
 
     public var title: String {
       switch self {
-      case .errorsOnly: "Show Errors Only"
-      case .errorsAndProgress: "Show Errors and Progress"
-      case .all: "Show All Logs"
+      case .errorsOnly: "Errors only"
+      case .errorsAndProgress: "Errors and progress"
+      case .all: "Everything"
       }
     }
 

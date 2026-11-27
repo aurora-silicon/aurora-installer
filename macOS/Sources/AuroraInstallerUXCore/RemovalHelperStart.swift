@@ -91,28 +91,28 @@
       let result =
         freeSpace
         ? "The free space is now part of macOS."
-        : "Aurora and its data have been removed. The freed space is now part of macOS."
+        : "Aurora and its data are removed. macOS has its space back."
       return result
-        + " The removal service finished and removed itself before this window heard back, as can happen if the Mac sleeps."
+        + " (The removal service finished before this window heard back. This can happen if the Mac sleeps.)"
     }
 
     public static let removalCredentialsFirst =
-      "To look for Aurora on this Mac, enter your macOS administrator account. It sets up the removal service and approves the removal you’ll review next. macOS will show a notice that \(windowTitle) added a background item."
+      "Enter a macOS administrator name and password to look for Aurora. This sets up the removal service and approves the removal you review next. macOS will say \(windowTitle) added a background item."
     public static let removalContinue = "Continue"
     public static let removalNotStarted =
-      "The removal service didn’t answer, so removal didn’t start. No disk changes were made. Close this window and try again."
+      "The removal service didn’t answer. The disk wasn’t changed. Close this window and try again."
     public static let removalServiceBusy =
-      "The removal service is busy with another request. Close this window and try again when it finishes. If it stays busy, an installation or removal may still be running, perhaps in another user’s session: let it finish, and don’t restart or shut down this Mac while it runs. No disk changes were made."
+      "The removal service is busy. The disk wasn’t changed. Close this window and try again when it finishes. If it stays busy, an installation or removal may be running, maybe for another user. Let it finish, and don’t restart or shut down this Mac."
     public static let removalBlockedModel =
-      "Removal is not supported on this Mac model. No disk changes were made."
+      "Removal isn’t supported on this Mac model. The disk wasn’t changed."
     public static let removalSwitchedOff =
-      "The removal service is switched off in Login Items, and it’s needed to look for Aurora. Enter your macOS administrator account and choose Turn On & Continue to switch it back on, or switch it on in Login Items yourself and reopen this window."
-    public static let removalTurnOnAndContinue = "Turn On & Continue"
+      "The removal service is off in Login Items. Enter an administrator name and password and choose Turn on and continue. Or turn it on in Login Items and open this window again."
+    public static let removalTurnOnAndContinue = "Turn on and continue"
     /// Builds that cannot install the helper, when the package has not.
     public static let removalServiceMissing =
-      "The removal service isn’t available. Run the downloaded \(installerPackage) again, then try again. No disk changes were made."
+      "The removal service isn’t installed. Open \(installerPackage) again, then try again. The disk wasn’t changed."
     public static let removalServiceNotResponding =
-      "The removal service didn’t respond. Close this window and try again. No disk changes were made."
+      "The removal service didn’t respond. The disk wasn’t changed. Close this window and try again."
 
     /// What the removal sheet says when setting up the helper failed.
     public static func removalHelperSetupMessage(for error: any Error) -> String {
@@ -120,24 +120,24 @@
         submission == .machineOwnerCredentialsRejected
       {
         return
-          "The macOS account or password was not accepted. Use a macOS administrator account. No disk changes were made."
+          "Incorrect name or password, or not an administrator. The disk wasn’t changed."
       }
       switch error as? InstallerHelperSetupError {
       case .cancelled:
         return
-          "The removal service wasn’t set up. Try again, and approve the macOS password prompt if it appears. No disk changes were made."
+          "The removal service wasn’t set up. The disk wasn’t changed. Try again and approve the macOS password prompt."
       case .switchedOff:
         return
-          "The removal service is switched off. In System Settings, open General → Login Items & Extensions, switch it on under Allow in the Background, then try again. No disk changes were made."
+          "The removal service is off. In System Settings → General → Login Items & Extensions, turn it on under Allow in the Background, then try again. The disk wasn’t changed."
       case .unavailable:
         return removalServiceMissing
       case .busy:
         return removalServiceBusy
       case .notAdministrator:
         return
-          "This account isn’t a macOS administrator, and setting up the removal service needs one. Use an administrator account. No disk changes were made."
+          "This account isn’t an administrator. Use a macOS administrator account. The disk wasn’t changed."
       case .failed, nil:
-        return "The removal service couldn’t be set up. Try again. No disk changes were made."
+        return "The removal service couldn’t be set up. The disk wasn’t changed. Try again."
       }
     }
   }

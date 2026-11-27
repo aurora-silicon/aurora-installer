@@ -51,8 +51,18 @@ public struct FirmwareExtractionPlan: Sendable {
     UInt64(recipe.files.reduce(1_048_576) { $0 + (($1.size + 4095) / 4096) * 4096 })
   }
 
+  /// The Mac the sealed recipe compiled into this build was made for
+  /// (Resources/j700-25G83-ranges.json): its restore image, pinned by size
+  /// and digest, is the only one this build extracts firmware from.
+  static let bundledDeviceIdentifier = "apple,j700"
+
+  /// Whether this build carries a sealed recipe for the Mac.
+  public static func hasBundledRecipe(for deviceIdentifier: String) -> Bool {
+    deviceIdentifier == bundledDeviceIdentifier
+  }
+
   public static func bundled(for deviceIdentifier: String) throws -> Self {
-    guard deviceIdentifier == "apple,j700" else {
+    guard hasBundledRecipe(for: deviceIdentifier) else {
       throw RestoreFailure("No native firmware recipe is qualified for this Mac.")
     }
     let bytes = EmbeddedFirmwareRecipe.bytes
@@ -66,11 +76,10 @@ public struct FirmwareExtractionPlan: Sendable {
 /// Runs directly in the Swift installer process: Foundation range transport,
 /// CryptoKit/CommonCrypto authentication and native Compression decoding.
 /// It never starts Python, a shell, a decoder executable or a whole-IPSW fetch.
+/// Every file comes from the image's authenticated ranges; nothing is read
+/// from the running macOS.
 public struct FirmwareExtractor: Sendable {
-  private let preferLivePolicyTables: Bool
-  public init(preferLivePolicyTables: Bool = true) {
-    self.preferLivePolicyTables = preferLivePolicyTables
-  }
+  public init() {}
 
   /// Continue the same job after a process interruption. A published tree is
   /// reused only after every admitted output is verified again.
@@ -124,17 +133,8 @@ public struct FirmwareExtractor: Sendable {
     } else {
       cache = nil
     }
-    let policyNames = Set(NeoRegulatoryPolicy.inputSHA256.keys.map { "sunrise/" + $0 })
-    let preferred: [String: Data]
-    if preferLivePolicyTables, policyNames.isSubset(of: Set(plan.outputs.map(\.name))),
-      let local = try NeoRegulatoryPolicy.liveInputs()
-    {
-      preferred = Dictionary(uniqueKeysWithValues: local.map { ("sunrise/" + $0.key, $0.value) })
-    } else {
-      preferred = [:]
-    }
     let rangeBytes = try await extractFirmwareRecipe(
-      plan.recipe, output: output, cache: cache, progress: progress, preferred: preferred)
+      plan.recipe, output: output, cache: cache, progress: progress)
     try await cache?.retire(plan.recipe.rangeRecords)
     return FirmwareExtractionReceipt(
       deviceIdentifier: plan.deviceIdentifier, sourceURL: plan.sourceURL,

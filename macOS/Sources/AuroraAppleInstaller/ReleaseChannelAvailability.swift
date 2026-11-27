@@ -58,7 +58,7 @@
         return
       }
       switch error as? InstallerReleaseConfigurationError {
-      case .unexpectedHTTPStatus:
+      case .unexpectedHTTPStatus, .catalogUnreachable:
         self = .network
       default:
         self = .verification
@@ -66,7 +66,53 @@
     }
   }
 
+  /// What one profile's Edge catalog says about this Mac when choosing the
+  /// default channel. Being listed makes Edge selectable on a Mac; being
+  /// family-qualified (the Mac's chip family passed the Edge rows on a named
+  /// machine) makes Edge its default.
+  public struct EdgeCatalogCheck: Equatable, Sendable {
+    public let availability: ReleaseChannelAvailability
+    /// The verified catalog admits this Mac and lists it as family-qualified
+    /// in `edgeQualification.devices`.
+    public let qualifiesThisMac: Bool
+
+    public init(availability: ReleaseChannelAvailability, qualifiesThisMac: Bool = false) {
+      self.availability = availability
+      self.qualifiesThisMac = availability == .available && qualifiesThisMac
+    }
+  }
+
   extension InstallerReleaseAssetCoordinator {
+    /// Reads one profile's Edge catalog once and says both what it offers this
+    /// Mac and whether this Mac is family-qualified. Read-only, like
+    /// `availability`.
+    public func edgeCheck(
+      configuration: InstallerReleaseConfiguration,
+      deviceIdentifier: String,
+      validationTime: Date,
+      previouslyAcceptedCatalog: AcceptedCatalogIdentity?
+    ) async -> EdgeCatalogCheck {
+      do {
+        let catalog = try await verifiedCatalog(
+          configuration: configuration,
+          channel: .edge,
+          validationTime: validationTime,
+          previouslyAcceptedCatalog: previouslyAcceptedCatalog
+        )
+        return EdgeCatalogCheck(
+          availability: ReleaseChannelAvailability(
+            admittedDeviceIdentifiers: catalog.deviceIdentifiers,
+            deviceIdentifier: deviceIdentifier
+          ),
+          qualifiesThisMac: ReleaseCatalogChannelPolicy.qualifiedDeviceIdentifiers(
+            edgePayload: catalog.payload
+          ).contains(deviceIdentifier)
+        )
+      } catch {
+        return EdgeCatalogCheck(availability: ReleaseChannelAvailability(checkError: error))
+      }
+    }
+
     /// Reads one channel's signed catalog and says what it offers this Mac.
     /// Read-only: it checks the rollback floor but records nothing.
     public func availability(

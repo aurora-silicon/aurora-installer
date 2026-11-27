@@ -20,6 +20,9 @@
     var executeWindow = false
     /// That object's whole size once padded.
     var expandedStage1Bytes: UInt64? = nil
+    /// aura's secure-flavour Stage 1 object, which holds a key block, when the
+    /// payload ships one. Recovery enrolls it for the owner's own key.
+    var secureStage1MachO: Data? = nil
     let windowMilliseconds: UInt32
     let firmware: String
     let usesLegacyStage1: Bool
@@ -47,6 +50,7 @@
         allowsLegacyStage1: legacyStage1 != nil)
       let bytes: Data
       var machO: Data?
+      var secureMachO: Data?
       let legacy: Bool
       if let source = boot.stage1Member {
         guard let stage = archive.members.first(where: { $0.name == source }) else {
@@ -58,6 +62,11 @@
             throw NativeBootChainError.missingStage1
           }
           machO = try await archive.read(object, maximumBytes: 64 << 20)
+          if let secure = archive.members.first(where: {
+            $0.name == NativeBootChain.secureStage1MachO && !$0.isDirectory
+          }) {
+            secureMachO = try await archive.read(secure, maximumBytes: 64 << 20)
+          }
         }
         legacy = false
       } else {
@@ -100,7 +109,8 @@
       return Self(
         archive: archive, entries: entries, icon: icon, stage1: bytes, stage1MachO: machO,
         executeWindow: boot.executeWindow, expandedStage1Bytes: boot.expandedStage1Bytes,
-        windowMilliseconds: boot.windowMilliseconds, firmware: firmware, usesLegacyStage1: legacy)
+        secureStage1MachO: secureMachO, windowMilliseconds: boot.windowMilliseconds,
+        firmware: firmware, usesLegacyStage1: legacy)
     }
 
     static func safeFATPath(_ path: String) -> Bool {

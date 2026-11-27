@@ -25,22 +25,29 @@
 // SOFTWARE.
 
 #if os(macOS)
+  import AuroraFirmware
   import Darwin
   import Foundation
-  import IOKit
 
-  /// This Mac's own speaker tuning, read only from the running macOS.
+  /// This Mac's speaker tuning: the model's tuning from Apple's pinned
+  /// restore image, with this unit's own calibration.
   ///
   /// The device tree's audio node names the tuning folder (`acoustic-id`
   /// 35 selects `AID35`) and, on Macs with speaker calibration, carries the
-  /// per-unit `speaker-thiele-small` record. Both are copied unchanged into
-  /// the per-machine vendor firmware, beside Wi-Fi, Bluetooth and camera
-  /// firmware, for the Linux speaker protection to read. Nothing here is
-  /// shipped by the installer: the data comes from the user's own system
-  /// volume and stays on the user's own ESP.
+  /// per-unit `speaker-thiele-small` record (`NativeMachineUnitInputs`). The
+  /// folder, the selection files and the AudioDSP component are read only
+  /// from the restore image of the speaker safety stack's pinned macOS
+  /// release that carries this Mac's board (`SpeakerTuningRestoreImages`),
+  /// by authenticated ranges, whatever macOS the Mac runs: never from the
+  /// running macOS. Without that image's data there is no bundle, and Linux
+  /// keeps the speakers muted. Everything goes into the per-machine vendor
+  /// firmware, beside Wi-Fi, Bluetooth and camera firmware, for the Linux
+  /// speaker protection to read. Nothing here is shipped by the installer:
+  /// the files are fetched on the user's Mac and stay on the user's ESP.
   enum NativeAudioTuningInputs {
-    /// Where the tuning folders live on the sealed system volume.
-    static let tuningsPrefix = "System/Library/Audio/Tunings"
+    /// Where the tuning folders live in the image's System volume, and so
+    /// in the extracted tree.
+    static let tuningsPrefix = SpeakerTuningSource.tuningsPath
     /// Names in the firmware package (`/lib/firmware/vendor/` on Linux).
     static let packagePrefix = "apple/audio-tuning/"
     /// Names in the raw fallback archive (`asahi/all_firmware.tar.gz`).
@@ -61,7 +68,7 @@
       var thieleSmall: Data?
       /// Files of the `AID<n>` folder, by path relative to it.
       var files: [String: Data]
-      /// The macOS build the files came from, e.g. 25G83.
+      /// The restore image build the files came from, e.g. 26B123.
       var build: String
       /// The machine's selection data from the Tunings root, by bundle path:
       /// `DeviceDSPDatabase.plist` holding only this Mac's `AID<n>` entry
@@ -85,7 +92,7 @@
       var sharedFiles: [String: Data] = [:]
       /// `DRC/loudness-manager.plist`, only when it lists this AID.
       var loudnessManager: Data? = nil
-      /// The lsm2 masker's bucket lattice from this Mac's AudioDSP
+      /// The lsm2 masker's bucket lattice from the restore image's AudioDSP
       /// component (`NativeLSM2Lattice`). Required: without it there is no
       /// bundle.
       var maskLattice: Data? = nil
@@ -97,13 +104,14 @@
       /// when unknown; Linux then does not use the calibration.
       var unitID: String? = nil
       /// The lsm2 parameter fill for short presets (`NativeLSM2Fill`), read
-      /// back from this Mac's running lsm2 unit. Nil when no preset is short
-      /// or the readback failed; short presets then stay muted on Linux.
+      /// back from this Mac's lsm2 unit only when its AudioDSP component is
+      /// byte for byte the restore image's. Nil when no preset is short or
+      /// there is no such readback; short presets then stay muted on Linux.
       var paramFill: Data? = nil
     }
 
-    /// What the device tree, the IORegistry and the kernel say about this
-    /// Mac, read once by `live`.
+    /// This unit (`NativeMachineUnitInputs`) and the restore image build
+    /// its tuning is read from.
     struct Device: Sendable, Equatable {
       var acousticID: UInt32
       var thieleSmall: Data?
@@ -277,7 +285,7 @@
       guard let first = path.split(separator: "/", omittingEmptySubsequences: false).first,
         sharedRoots.contains(String(first))
       else { return false }
-      return path.contains("/")
+      return path.utf8.contains(UInt8(ascii: "/"))
     }
 
     /// The paths below `AID<n>/` (relative to it) and the shared paths
@@ -322,7 +330,7 @@
     }
 
     /// The selection data from the Tunings root, read through `tree` below
-    /// `prefix` (`System/Library/Audio/Tunings` on the system volume), as
+    /// `prefix` (`System/Library/Audio/Tunings` in the image's tree), as
     /// the Python collector reads it: the folder's own
     /// `AID<n>/DSP/DSPDatabase.plist` when it exists (macOS 27), else the
     /// shared `DeviceDSPDatabase.plist`. A per-folder database that already
@@ -408,19 +416,6 @@
       value.range(of: #"\A[0-9a-f]{64}\z"#, options: .regularExpression) != nil
     }
 
-    /// `(board, unit ID)` from the device tree root, read only; either is
-    /// nil when unknown, which never fails the collection.
-    static func identity() -> (String?, String?) {
-      let root = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/")
-      guard root != 0 else { return (nil, nil) }
-      defer { IOObjectRelease(root) }
-      func data(_ key: String) -> Data? {
-        IORegistryEntryCreateCFProperty(root, key as CFString, kCFAllocatorDefault, 0)?
-          .takeRetainedValue() as? Data
-      }
-      return (data("target-type").flatMap(board), data("serial-number").flatMap(unitID))
-    }
-
     /// The device tree stores `acoustic-id` as one little-endian 32-bit word.
     static func acousticID(_ bytes: Data) -> UInt32? {
       guard bytes.count == 4 else { return nil }
@@ -442,42 +437,39 @@
       }
     }
 
-    /// The live snapshot, or nil on a Mac without an audio node or without a
-    /// tuning folder for it.
-    static func live(owner: uid_t) throws -> Snapshot? {
-      guard let (acoustic, thieleSmall) = try properties(),
-        let acousticID = acousticID(acoustic)
-      else { return nil }
-      let root = URL(fileURLWithPath: "/", isDirectory: true)
-      let prefix = tuningsPrefix + "/" + folder(acousticID)
-      var info = stat()
-      guard lstat(root.appendingPathComponent(prefix).path, &info) == 0,
-        info.st_mode & S_IFMT == S_IFDIR
-      else { return nil }
-      let tree = try NativeHandoffFileTree(
-        root, protected: true, owner: owner, readOnlyVolume: true)
-      let descriptor = try tree.fileDescriptor(prefix)
-      defer { close(descriptor) }
-      guard NativeHandoffFileTree.isReadOnly(descriptor) else {
+    /// The snapshot for this Mac, or nil on a Mac without an audio node.
+    /// The model's files are extracted from the pinned restore image that
+    /// carries this Mac's board into `workingDirectory` (authenticated
+    /// ranges, kept for a retry like other sealed recipes); only this
+    /// unit's values come from the machine. Every failure is an error:
+    /// there is no other source.
+    static func live(owner: uid_t, workingDirectory: URL) async throws -> Snapshot? {
+      guard var device = try NativeMachineUnitInputs.audio() else { return nil }
+      guard let board = device.board else {
         throw NativeFirmwareInputFailure.invalidSource
       }
-      let (board, unit) = identity()
-      let device = Device(
-        acousticID: acousticID, thieleSmall: thieleSmall, build: build(),
-        speakerID: liveSpeakerID(), board: board, unitID: unit)
+      let source = try SpeakerTuningRestoreImages.source(
+        board: board, acousticID: device.acousticID)
+      device.build = source.build
+      let root = try await NativeFirmwarePreparer(expectedOwnerID: owner).extract(
+        source.plan, in: workingDirectory)
+      let tree = try NativeHandoffFileTree(root, protected: true, owner: owner)
       var readback: NativeLSM2Fill.Reader = { _, _, _ in
         throw NativeLSM2Fill.Failure("no readback worker in this process")
       }
       if let worker = NativeLSM2Fill.workerExecutable {
         readback = NativeLSM2Fill.isolated(worker)
       }
-      return try snapshot(root: root, tree: tree, owner: owner, device: device, readback: readback)
+      return try snapshot(
+        root: root, tree: tree, owner: owner, device: device,
+        readback: NativeLSM2Fill.pinned(readback, componentSHA256: source.componentSHA256))
     }
 
-    /// The snapshot for `device` from the system volume at `root`, read
-    /// through `tree`: the `AID<n>` folder under `tuningsPrefix`, the
-    /// selection data, the lsm2 masker lattice from the AudioDSP component
-    /// and, for short lsm2 presets, the parameter fill from `readback`.
+    /// The snapshot for `device` from the restore image's files at `root`
+    /// (the System volume layout), read through `tree`: the `AID<n>` folder
+    /// under `tuningsPrefix`, the selection data, the lsm2 masker lattice
+    /// from the AudioDSP component and, for short lsm2 presets, the
+    /// parameter fill from `readback`.
     /// Nil when the folder is absent. The same steps, in the same order, as
     /// the Python collector's `AudioTuningFWCollection.load`.
     static func snapshot(
@@ -510,8 +502,9 @@
         throw NativeLSM2Lattice.Failure.malformed("cannot read it: \(error)")
       }
       let lattice = try NativeLSM2Lattice.extract(component)
-      // Only this Mac's running unit can fill a short preset; a failure
-      // leaves the fill out and the short presets muted on Linux.
+      // Only a unit whose code is the restore image's can fill a short
+      // preset (`NativeLSM2Fill.pinned`); otherwise the fill is left out
+      // and the short presets stay muted on Linux.
       var fill: Data?
       do {
         var capture = [String: Data]()
@@ -525,8 +518,7 @@
       } catch {
         InstallerLog.record(
           .progress,
-          "lsm2 fill not collected: \(error); short presets remain muted; collect again on "
-            + "this Mac's running macOS")
+          "lsm2 fill not collected: \(error); the short lsm2 presets stay muted on Linux")
       }
       return Snapshot(
         acousticID: acousticID, thieleSmall: device.thieleSmall, files: files,
@@ -560,37 +552,10 @@
 
     /// The live speaker ID. `read` returns the registry entries; it is a
     /// parameter so tests need no IOKit. Absence never fails collection.
-    static func liveSpeakerID(_ read: () -> [[String: Any]] = speakerServices) -> UInt32? {
+    static func liveSpeakerID(
+      _ read: () -> [[String: Any]] = NativeMachineUnitInputs.speakerServices
+    ) -> UInt32? {
       speakerID(read())
-    }
-
-    /// `device UID` and `speakerID` of every `AppleEmbeddedAudioDevice` in
-    /// the service plane. Read only: no user client is opened and nothing
-    /// is written. Empty on any failure.
-    static func speakerServices() -> [[String: Any]] {
-      guard let matching = IOServiceMatching(speakerServiceClass) else { return [] }
-      var iterator: io_iterator_t = 0
-      guard
-        IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iterator) == KERN_SUCCESS
-      else { return [] }
-      defer { IOObjectRelease(iterator) }
-      var services = [[String: Any]]()
-      while true {
-        let entry = IOIteratorNext(iterator)
-        if entry == 0 { break }
-        defer { IOObjectRelease(entry) }
-        guard services.count < 256 else { return [] }
-        var properties = [String: Any]()
-        for key in ["device UID", "speakerID"] {
-          if let value = IORegistryEntryCreateCFProperty(
-            entry, key as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
-          {
-            properties[key] = value
-          }
-        }
-        services.append(properties)
-      }
-      return services
     }
 
     /// The folder's admitted files, with each admitted link kept as a copy
@@ -617,65 +582,6 @@
         count += 1
       }
       return (files, count)
-    }
-
-    /// `acoustic-id` and `speaker-thiele-small` of the one device-tree audio
-    /// node that carries an acoustic ID. Nil when there is none; two such
-    /// nodes leave the folder ambiguous, as for the Python collector
-    /// (`ioreg -n audio -k acoustic-id` must list exactly one).
-    static func properties() throws -> (Data, Data?)? {
-      func read(_ entry: io_registry_entry_t) -> (Data, Data?)? {
-        guard
-          let acoustic = IORegistryEntryCreateCFProperty(
-            entry, "acoustic-id" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
-            as? Data
-        else { return nil }
-        let spts =
-          IORegistryEntryCreateCFProperty(
-            entry, "speaker-thiele-small" as CFString, kCFAllocatorDefault, 0)?
-          .takeRetainedValue() as? Data
-        return (acoustic, spts)
-      }
-      var iterator: io_iterator_t = 0
-      guard
-        IORegistryCreateIterator(
-          kIOMainPortDefault, kIODeviceTreePlane, IOOptionBits(kIORegistryIterateRecursively),
-          &iterator) == KERN_SUCCESS
-      else { return nil }
-      defer { IOObjectRelease(iterator) }
-      var found: (Data, Data?)?
-      var count = 0
-      while true {
-        try Task.checkCancellation()
-        let entry = IOIteratorNext(iterator)
-        if entry == 0 { break }
-        defer { IOObjectRelease(entry) }
-        count += 1
-        guard count <= 65_536 else { return nil }
-        var name = [CChar](repeating: 0, count: 128)
-        guard IORegistryEntryGetNameInPlane(entry, kIODeviceTreePlane, &name) == KERN_SUCCESS,
-          String(decoding: name.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-            == "audio",
-          let properties = read(entry)
-        else { continue }
-        // Two audio nodes with acoustic IDs leave the folder ambiguous.
-        guard found == nil else { throw NativePeripheralInputError.localInput }
-        found = properties
-      }
-      return found
-    }
-
-    static func build() -> String {
-      var size = 0
-      guard sysctlbyname("kern.osversion", nil, &size, nil, 0) == 0, size > 0, size < 64 else {
-        return "unknown"
-      }
-      var bytes = [CChar](repeating: 0, count: size)
-      guard sysctlbyname("kern.osversion", &bytes, &size, nil, 0) == 0 else { return "unknown" }
-      let value = String(
-        decoding: bytes.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-      return value.range(of: #"\A[0-9A-Za-z]{1,16}\z"#, options: .regularExpression) == nil
-        ? "unknown" : value
     }
 
     /// The package files for a snapshot, under `prefix`: the folder's files
@@ -805,8 +711,8 @@
       return result
     }
 
-    /// Collection never stops an installation: Linux falls back to its
-    /// family profiles without it. A cancellation still ends the step. A
+    /// Collection never stops an installation: without a bundle Linux keeps
+    /// the speakers muted. A cancellation still ends the step. A
     /// failure is recorded in the Installer Log, as an error when the lsm2
     /// masker lattice is what failed.
     static func collect(

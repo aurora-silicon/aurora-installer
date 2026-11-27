@@ -96,6 +96,9 @@
     /// What each channel offers this Mac, for the channel menu. Empty until
     /// the first check finishes; a channel missing here was not checked.
     public private(set) var channelAvailability = [ReleaseChannel: ReleaseChannelAvailability]()
+    /// Edge's part of the same read, with its proof for this Mac, so Check
+    /// Channels Again decides the default from what the menu shows.
+    public private(set) var edgeCheck: EdgeCatalogCheck?
     private var channelAvailabilityRequest = 0
 
     /// Re-reads every channel's signed catalog. Separate from `inspect()` so
@@ -104,10 +107,16 @@
     public func refreshChannelAvailability() async {
       channelAvailabilityRequest += 1
       let request = channelAvailabilityRequest
-      let availability = await environment.channelAvailability()
+      let report = await environment.channelReport()
       guard request == channelAvailabilityRequest else { return }
-      channelAvailability = availability
+      channelAvailability = report.availability
+      edgeCheck = report.edge
     }
+
+    /// The channel the plan on screen reads when it is a Reset or boot loader
+    /// update of an existing installation: the one it came from, not this
+    /// launch's default for new installations. `nil` otherwise.
+    public private(set) var existingInstallationChannel: ReleaseChannel?
 
     public var isSimulation: Bool { environment.isSimulation }
     public var canInspect: Bool {
@@ -370,6 +379,7 @@
       planTarget = nil
       preservedSource = nil
       updatingBootLoader = false
+      existingInstallationChannel = nil
       await preparePlan(host: host)
     }
 
@@ -401,6 +411,7 @@
       planTarget = target
       preservedSource = nil
       updatingBootLoader = false
+      existingInstallationChannel = nil
       await preparePlan(host: host)
     }
 
@@ -416,6 +427,8 @@
       planTarget = nil
       preservedSource = rowID
       updatingBootLoader = false
+      existingInstallationChannel = environment.existingInstallationChannel(
+        sourceIdentifier: rowID)
       await preparePlan(host: host)
     }
 
@@ -431,6 +444,8 @@
       planTarget = nil
       preservedSource = rowID
       updatingBootLoader = true
+      existingInstallationChannel = environment.existingInstallationChannel(
+        sourceIdentifier: rowID)
       await preparePlan(host: host)
     }
 
@@ -462,6 +477,7 @@
       preservedSource = nil
       preservingStage1 = false
       updatingBootLoader = false
+      existingInstallationChannel = nil
       phase = partitions
     }
 
@@ -479,6 +495,8 @@
       else { return }
       preservingStage1 = true
       updatingBootLoader = false
+      existingInstallationChannel = environment.existingInstallationChannel(
+        sourceIdentifier: nil)
       recoveryAccount = nil
       await preparePlan(host: host)
     }
@@ -769,7 +787,7 @@
           FailureDisplay(
             headline: PlainLanguage.planChangedBeforeApproval,
             plainDetail:
-              "The plan needs a new disk check. Nothing was authorized.",
+              "The plan needs a new disk check. Nothing was approved.",
             technicalDetail: String(describing: error)
           )
         )
@@ -875,7 +893,7 @@
             FailureDisplay(
               headline: PlainLanguage.approvalUnavailable,
               plainDetail:
-                "Check this Mac and review the plan again. Nothing was authorized."
+                "Check again and review the plan. Nothing was approved."
             )
           )
           return
@@ -888,7 +906,7 @@
             FailureDisplay(
               headline: PlainLanguage.retryCheckpointUnavailable,
               plainDetail:
-                "Authorization wasn’t granted. Installation remains stopped."
+                "Not approved. The installation stays stopped."
             )
           )
           return
@@ -1095,8 +1113,8 @@
           ? "Simulation complete: shutdown would begin now. Your Mac stays on."
           : "Simulated shutdown failed. You can still use the setup steps below.")
         : (accepted
-          ? "Shutdown requested. If another app stops it, save your work and choose Apple menu → Shut Down."
-          : "Your Mac couldn’t shut down. Save your work, then choose Apple menu → Shut Down. Keep the setup steps handy.")
+          ? "Shutting down. If another app stops it, save your work and choose Apple menu → Shut Down."
+          : "Your Mac couldn’t shut down. Save your work, then choose Apple menu → Shut Down. Keep the steps above handy.")
       return accepted
     }
 
@@ -1112,7 +1130,7 @@
         isSimulation
         ? "Simulation complete: restart would begin now. Your Mac stays on."
         : (accepted
-          ? "Restart requested. If another app stops it, save your work and choose Apple menu → Restart."
+          ? "Restarting. If another app stops it, save your work and choose Apple menu → Restart."
           : "Your Mac couldn’t restart. Save your work, then choose Apple menu → Restart.")
       return accepted
     }
@@ -1146,15 +1164,15 @@
         let target = refreshed.target, let ticket = refreshed.ticket
       else {
         throw AccountSetupFailure(
-          "No completed installation is present on disk. Run the installation again before shutting down."
+          "No finished installation is on the disk. Install again before you shut down."
         )
       }
       if let originalTarget, originalTarget != target {
-        throw AccountSetupFailure("The Recovery target changed. Inspect the installation again.")
+        throw AccountSetupFailure("The Recovery target changed. Check this Mac again.")
       }
       let reply = try await environment.prepareRecoveryHandoff(ticket: ticket)
       guard reply.target == target, reply.ticket == ticket else {
-        throw AccountSetupFailure("The Recovery target changed. Inspect the installation again.")
+        throw AccountSetupFailure("The Recovery target changed. Check this Mac again.")
       }
       recoveryAccount = reply
       return environment.requestShutdown()
@@ -1189,7 +1207,7 @@
               recoveryAccount = found
             } else if await environment.probeHelperStatus().isCurrent {
               throw AccountSetupFailure(
-                "The completion record does not match an installation on disk. It may belong to a removed installation. Run the installation again."
+                "The completion record doesn’t match an installation on the disk. It may be from a removed installation. Install again."
               )
             } else {
               // No helper was there to look. Shutting down inspects again.
@@ -1206,9 +1224,9 @@
             recoveryAccount = nil
             phase = .failed(
               FailureDisplay(
-                headline: "Installation could not be verified",
+                headline: "Couldn’t verify the installation",
                 plainDetail: error.localizedDescription,
-                remedy: "Check the disk again before continuing."))
+                remedy: "Choose Check again before you continue."))
           }
         } else {
           phase = .done(completion)
@@ -1218,9 +1236,9 @@
       case .manualRecovery:
         phase = .failed(
           FailureDisplay(
-            headline: "The installer encountered an error",
+            headline: "Something went wrong",
             plainDetail: PlainLanguage.nextActionMessage(.manualRecovery),
-            remedy: "Check the last verified installation step before continuing."
+            remedy: "Check Completed steps before you continue."
           )
         )
       }
@@ -1374,6 +1392,7 @@
       planTarget = nil
       preservedSource = nil
       updatingBootLoader = false
+      existingInstallationChannel = nil
       refusedPlan = nil
       encryptLinuxDisk = allowsEncryption
       environment.setEncryptLinuxDisk(allowsEncryption)

@@ -217,6 +217,30 @@ class DistributionPayloadTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'no Mach-O boot object'):
             self.assembled('no-macho')
 
+    def write_secure_stage_one_macho(self, raw=b'secure-head' + b'AURORA-S1-CFG01\0' + bytes(244)
+                                     + b'AURORA-S1-KEY01\0' + bytes(148)):
+        header = bytearray(0x10000)
+        header[:4] = b'\xcf\xfa\xed\xfe'
+        header[12:16] = (12).to_bytes(4, 'little')
+        path = self.bundle / 'esp/aurora/stage1-secure.macho'
+        path.write_bytes(bytes(header) + raw + bytes(0x4000 - len(raw)))
+        return path
+
+    def test_the_secure_stage1_for_owner_keys_is_optional_and_checked(self):
+        (self.bundle / 'esp/m1n1/boot-ctxr.bin').unlink()
+        secure = self.write_secure_stage_one_macho()
+        metadata, output = self.assembled('secure')
+        with zipfile.ZipFile(output / metadata['package']) as archive:
+            self.assertEqual(archive.read('esp/aurora/stage1-secure.macho'), secure.read_bytes())
+        self.write_secure_stage_one_macho(b'secure-head' + b'AURORA-S1-CFG01\0' + bytes(244))
+        with self.assertRaisesRegex(ValueError, 'key block'):
+            self.assembled('secure-no-keys')
+        self.write_secure_stage_one_macho()
+        (self.bundle / 'esp/aurora/stage1.macho').unlink()
+        (self.bundle / 'esp/aurora/stage1.bin').unlink()
+        with self.assertRaisesRegex(ValueError, 'needs esp/aurora/stage1.macho'):
+            self.assembled('secure-alone')
+
     def test_mach_o_files_that_are_present_are_checked(self):
         shared = self.bundle / 'esp/m1n1/boot-ctxr.bin'
         metadata, _ = self.assembled('shared')
@@ -352,8 +376,8 @@ class DistributionPayloadTests(unittest.TestCase):
         t6050 = {'apple,' + board for board in payload.T6050_STAGE2_REQUIRED}
         self.assertEqual(set(caution), t6050 | {'apple,j575d', 'apple,j614s', 'apple,j604', 'apple,j623',
                                         'apple,j624', 'apple,j715', 'apple,j773g', 'apple,j614c',
-                                        'apple,j616c', 'apple,j773s', 'apple,j575c', 'apple,j813', 'apple,j873g',
-                                        'apple,j704', 'apple,j815', 'apple,j804', 'apple,j833ct'})
+                                        'apple,j616c', 'apple,j773s', 'apple,j575c', 'apple,j516s', 'apple,j813',
+                                        'apple,j873g', 'apple,j704', 'apple,j815', 'apple,j804', 'apple,j833ct'})
         for identifier in list(caution) + ['apple,j314s', 'apple,j316s', 'apple,j314c', 'apple,j316c',
                                            'apple,j375c', 'apple,j375d']:
             self.assertIn(identifier.removeprefix('apple,') + 'ap', qualified)
@@ -363,12 +387,15 @@ class DistributionPayloadTests(unittest.TestCase):
         self.assertIn('j616sap', qualified)
         # The M6 Mac mini's stub is macOS 27.0, the firmware aura was brought up on.
         self.assertIn('27.0', qualified['j873gap'])
-        self.assertIn('26.6.2', qualified['j813ap'])
         # The M6 MacBook Pro and iMac shipped with macOS 27.2 (26B7124), their only firmware.
         self.assertIn('27.2', qualified['j804ap'])
         self.assertIn('27.2', qualified['j833ctap'])
-        self.assertIn('26.6.2', qualified['j704ap'])
-        self.assertIn('26.6.2', qualified['j815ap'])
+        # The 16-inch M3 Pro and 14-inch M5 MacBook Pros' and the M5 MacBook Airs' stub
+        # is the pinned macOS 27.2 (26B123), their device minimum.
+        self.assertIn('27.2', qualified['j516sap'])
+        self.assertIn('27.2', qualified['j704ap'])
+        self.assertIn('27.2', qualified['j813ap'])
+        self.assertIn('27.2', qualified['j815ap'])
         # Every admitted T6050 board selects only the matching 27.2 firmware.
         for identifier in t6050:
             self.assertEqual(qualified[identifier.removeprefix('apple,') + 'ap'], ['27.2'])

@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: MIT
 
 #if os(macOS)
+  import AuroraFirmware
   import Foundation
 
-  /// The lsm2 masker's bucket lattice, read from this Mac's own macOS.
+  /// The lsm2 masker's bucket lattice, read from the AudioDSP component of
+  /// the pinned restore image the speaker tuning comes from.
   ///
   /// The lsm2 speaker protection unit reduces a 640-point spectrum to 100
   /// buckets. The bucket edges are a table inside macOS's AudioDSP
   /// component, not something a formula reproduces, so the installer reads
-  /// it from the user's own system volume, as it does the speaker tuning,
-  /// and never ships it.
+  /// it from that image's component (`SpeakerTuningRestoreImages`), never
+  /// from the running macOS, and never ships it.
   ///
   /// The table is found by its structure alone, with no offset, hash or
   /// symbol: in every Mach-O slice of the component, at naturally aligned
@@ -21,9 +23,9 @@
   /// error: there is no fallback table. The Python collector
   /// (`asahi_firmware/lsm2_lattice.py`) applies the same rule.
   enum NativeLSM2Lattice {
-    /// The component, relative to the root of the system volume.
-    static let componentPath =
-      "System/Library/Components/AudioDSP.component/Contents/MacOS/AudioDSP"
+    /// The component, relative to the root of the image's System volume
+    /// (and of the extracted tree).
+    static let componentPath = SpeakerTuningSource.componentPath
     /// About 17 MB on macOS 26 and 27.
     static let maximumComponentBytes = 256 << 20
     static let entries = 100

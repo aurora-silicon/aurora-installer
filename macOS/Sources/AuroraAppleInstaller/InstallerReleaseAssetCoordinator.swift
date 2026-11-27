@@ -32,6 +32,19 @@
   public struct PreparedInstallerRelease: Sendable {
     public let assets: PreparedInstallerAssets
     public let catalogDocuments: InstallerReleaseCatalogDocuments
+    /// The build's floor that `catalogDocuments` was checked against, carried
+    /// so planning re-validates the same catalog against the same floor.
+    public let minimumCatalogSequence: UInt64?
+
+    init(
+      assets: PreparedInstallerAssets,
+      catalogDocuments: InstallerReleaseCatalogDocuments,
+      minimumCatalogSequence: UInt64? = nil
+    ) {
+      self.assets = assets
+      self.catalogDocuments = catalogDocuments
+      self.minimumCatalogSequence = minimumCatalogSequence
+    }
   }
 
   public struct InstallerReleaseAssetCoordinator: Sendable {
@@ -67,6 +80,22 @@
       validationTime: Date,
       previouslyAcceptedCatalog: AcceptedCatalogIdentity?
     ) async throws -> [String] {
+      try await verifiedCatalog(
+        configuration: configuration,
+        channel: channel,
+        validationTime: validationTime,
+        previouslyAcceptedCatalog: previouslyAcceptedCatalog
+      ).deviceIdentifiers
+    }
+
+    /// One channel's catalog, after its signature, rollback floor (the stored
+    /// one and the build's own) and channel policy are verified.
+    func verifiedCatalog(
+      configuration: InstallerReleaseConfiguration,
+      channel: ReleaseChannel,
+      validationTime: Date,
+      previouslyAcceptedCatalog: AcceptedCatalogIdentity?
+    ) async throws -> (payload: Data, deviceIdentifiers: [String]) {
       let documents = try await catalogFetcher.fetch(
         configuration: configuration,
         channel: channel
@@ -76,10 +105,11 @@
         signature: documents.signature,
         trustRoot: configuration.trustRoot,
         now: validationTime,
-        previouslyAccepted: previouslyAcceptedCatalog
+        previouslyAccepted: previouslyAcceptedCatalog,
+        minimumSequence: configuration.minimumCatalogSequence[channel]
       )
       try ReleaseCatalogChannelPolicy.validate(payload: documents.payload, channel: channel)
-      return support.deviceIdentifiers
+      return (documents.payload, support.deviceIdentifiers)
     }
 
     public func prepareRelease(
@@ -93,14 +123,27 @@
         configuration: request.configuration,
         channel: request.channel
       )
+      let minimumSequence = request.configuration.minimumCatalogSequence[
+        request.channel
+      ]
       _ = try AppleInstallerTrustCore().validateSupportCatalog(
         payload: catalog.payload,
         signature: catalog.signature,
         trustRoot: request.configuration.trustRoot,
         now: request.validationTime,
-        previouslyAccepted: request.previouslyAcceptedCatalog
+        previouslyAccepted: request.previouslyAcceptedCatalog,
+        minimumSequence: minimumSequence
       )
       try ReleaseCatalogChannelPolicy.validate(payload: catalog.payload, channel: request.channel)
+      let configuration = request.configuration
+      InstallerLog.progress(
+        ResolvedReleaseSummary(
+          payload: catalog.payload, channel: request.channel,
+          sealed: configuration.sealedCatalogDocuments != nil
+            && request.channel == configuration.defaultChannel,
+          feed: configuration.catalogURL(for: request.channel), minimumSequence: minimumSequence,
+          deviceIdentifier: request.host.identity.deviceIdentifier
+        ).logLine)
       let assets = try await assetPreparer.prepare(
         InstallerAssetPreparationRequest(
           host: request.host,
@@ -115,7 +158,8 @@
           installerVersion: request.configuration.sealedCatalogDocuments != nil
             && request.channel == request.configuration.defaultChannel
             ? nil : request.installerVersion,
-          stagingDirectory: request.stagingDirectory
+          stagingDirectory: request.stagingDirectory,
+          minimumCatalogSequence: minimumSequence
         ),
         progress: progress,
         previouslyPrepared: previouslyPrepared,
@@ -123,7 +167,8 @@
       )
       return PreparedInstallerRelease(
         assets: assets,
-        catalogDocuments: catalog
+        catalogDocuments: catalog,
+        minimumCatalogSequence: minimumSequence
       )
     }
   }

@@ -10,6 +10,9 @@
     public let previouslyAcceptedCatalog: AcceptedCatalogIdentity?
     public let installerVersion: InstallerVersion?
     public let stagingDirectory: URL
+    /// The build's own floor for the catalog's channel; see
+    /// `InstallerReleaseConfiguration.minimumCatalogSequence`.
+    public let minimumCatalogSequence: UInt64?
 
     public init(
       host: AppleSiliconHostInspection,
@@ -19,7 +22,8 @@
       validationTime: Date,
       previouslyAcceptedCatalog: AcceptedCatalogIdentity? = nil,
       installerVersion: InstallerVersion? = nil,
-      stagingDirectory: URL
+      stagingDirectory: URL,
+      minimumCatalogSequence: UInt64? = nil
     ) {
       self.host = host
       self.catalogPayload = catalogPayload
@@ -29,6 +33,7 @@
       self.previouslyAcceptedCatalog = previouslyAcceptedCatalog
       self.installerVersion = installerVersion
       self.stagingDirectory = stagingDirectory
+      self.minimumCatalogSequence = minimumCatalogSequence
     }
   }
 
@@ -131,7 +136,8 @@
         signature: request.catalogSignature,
         trustRoot: request.trustRoot,
         now: request.validationTime,
-        previouslyAccepted: request.previouslyAcceptedCatalog
+        previouslyAccepted: request.previouslyAcceptedCatalog,
+        minimumSequence: request.minimumCatalogSequence
       )
       if let compatibility = catalog.installerCompatibility,
         let current = request.installerVersion,

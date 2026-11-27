@@ -114,7 +114,11 @@
         let systems = volumes.filter { $0.roles == ["System"] }
         let data = volumes.filter { $0.roles == ["Data"] }
         guard !systems.isEmpty, !data.isEmpty else { return .foreign }
-        guard stubSizes.contains(where: { $0.contains(part.size) }), volumes.count == 4,
+        // macOS 27.2 can give a new startup container an Update volume.
+        let updates = volumes.filter { $0.roles == ["Update"] }
+        guard stubSizes.contains(where: { $0.contains(part.size) }),
+          volumes.count - updates.count == 4, updates.count <= 1,
+          updates.allSatisfy({ $0.group == nil }),
           systems.count == 1,
           data.count == 1, let group = systems[0].group, data[0].group == group,
           volumes.filter({ $0.roles == ["Preboot"] }).count == 1,
@@ -390,26 +394,26 @@
     }
 
     static func inconsistent(_ parts: [RemovalPartition], _ snapshot: RemovalSnapshot) -> String {
-      "The internal disk’s partition map couldn’t be read consistently. Found: \(list(parts, snapshot)). Nothing was changed."
+      "Couldn’t read the disk’s partition map reliably. Found: \(list(parts, snapshot)). The disk wasn’t changed."
     }
 
     static func unexpectedFrame(_ parts: [RemovalPartition], _ snapshot: RemovalSnapshot)
       -> String
     {
-      "The internal disk doesn’t have the layout removal expects: Apple’s system container first, the running macOS next and Apple Recovery last. Found: \(list(parts, snapshot)). Nothing was changed."
+      "The disk isn’t laid out as removal expects (Apple system container, then macOS, then Apple Recovery last). Found: \(list(parts, snapshot)). The disk wasn’t changed."
     }
 
     static func nothingFound(gap: UInt64) -> String {
       if gap == 0 {
         return
-          "No Aurora installation, or other installation made with the Asahi installer, was found, and there’s no unallocated space after macOS. Nothing was changed."
+          "No Aurora or Asahi installation found, and there’s no free space after macOS. The disk wasn’t changed."
       }
       return
-        "No Aurora installation, or other installation made with the Asahi installer, was found. \(size(gap)) directly after macOS is unallocated; that’s too little to return, so it was left as it is. Nothing was changed."
+        "No Aurora or Asahi installation found. The \(size(gap)) free after macOS is too small to give back. The disk wasn’t changed."
     }
 
     static func otherSystem(_ parts: [RemovalPartition], _ snapshot: RemovalSnapshot) -> String {
-      "Found another system: \(list(parts, snapshot)). It looks like another macOS installation, and removal never deletes one."
+      "Found another system: \(list(parts, snapshot)). It looks like another macOS, and removal never deletes macOS."
     }
 
     static func foreign(_ parts: [RemovalPartition], _ snapshot: RemovalSnapshot) -> String {
@@ -417,15 +421,15 @@
     }
 
     static func several(_ parts: [RemovalPartition], _ snapshot: RemovalSnapshot) -> String {
-      "Found more than one installation: \(list(parts, snapshot)). Removal handles a single installation, so it stopped."
+      "Found more than one installation: \(list(parts, snapshot)). Removal handles one at a time, so it stopped."
     }
 
     static func partial(_ parts: [RemovalPartition], _ snapshot: RemovalSnapshot) -> String {
-      "Found \(list(parts, snapshot)) without the startup container every installation made with the Asahi installer has. This looks like a partly removed installation, which needs a manual review."
+      "Found \(list(parts, snapshot)) without a startup container. This looks like a partly removed installation and needs a manual check."
     }
 
     static func shape(_ parts: [RemovalPartition], _ snapshot: RemovalSnapshot) -> String {
-      "Found a startup container, but the partitions with it don’t match one installation (startup container, EFI partition, then up to two Linux partitions, side by side): \(list(parts, snapshot))."
+      "Found a startup container, but its partitions don’t match one installation: \(list(parts, snapshot))."
     }
 
     static func members(_ installation: RemovalInstallation) -> String {
@@ -433,11 +437,11 @@
     }
 
     static func unconfirmed(_ installation: RemovalInstallation, reason: String) -> String {
-      "Found the installation “\(installation.name)” (\(members(installation))), but \(reason). It can’t be confirmed as one installation, so nothing was changed."
+      "Found “\(installation.name)” (\(members(installation))), but \(reason). It can’t be confirmed as one installation. The disk wasn’t changed."
     }
 
     static func unreadable(_ installation: RemovalInstallation, detail: String) -> String {
-      "Found the installation “\(installation.name)” (\(members(installation))), but its files couldn’t be checked: \(detail) Nothing was changed."
+      "Found “\(installation.name)” (\(members(installation))), but couldn’t check its files: \(detail) The disk wasn’t changed."
     }
 
     static func growthLimited(free: UInt64, limit: UInt64) -> String {
@@ -455,12 +459,12 @@
     }
 
     static let eraseTargetGone =
-      "The partitions you chose to erase aren’t on the disk as they were, or they can’t be erased. Check the disk again and choose what to erase. Nothing was changed."
+      "The partitions you chose changed or can’t be erased. Check again and choose what to erase. The disk wasn’t changed."
     /// A volume in use when Erase unmounts it, without force.
     static func busy(_ volume: String, stillUnmounted left: [String]) -> String {
-      "“\(volume)” is in use and couldn’t be unmounted: eject it first, or quit the apps using it, then try again. "
+      "“\(volume)” is in use. Eject it or quit the apps using it, then try again. "
         + (left.isEmpty
-          ? "Nothing was changed." : stillUnmounted(left) + " Nothing else was changed.")
+          ? "The disk wasn’t changed." : stillUnmounted(left) + " Nothing else was changed.")
     }
 
     static func stillUnmounted(_ names: [String]) -> String {
@@ -481,7 +485,7 @@
     }
 
     static let eraseUnreadable =
-      "The disk’s partitions couldn’t be read consistently, so nothing can be erased. Nothing was changed."
+      "Couldn’t read the disk’s partitions reliably. The disk wasn’t changed."
 
     /// One line of an erase plan: what the partition is, by type and the
     /// volumes it holds, so the person sees exactly what goes.
@@ -514,7 +518,7 @@
     }
 
     static let startupChanged =
-      "Your Mac’s startup disk changed since you reviewed removal. Close this window and review removal again."
+      "The startup disk changed since you reviewed removal. Close this window and review removal again."
 
     static func startupRefused(_ name: String, reason: String?) -> String {
       "macOS didn’t set “\(name)” as the startup disk\(reported(reason)). Nothing was deleted."

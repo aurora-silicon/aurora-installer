@@ -69,7 +69,7 @@ final class NeoFirmwareConversionTests: XCTestCase, @unchecked Sendable {
   func testConvertersMatchTheLockedReferenceBytesAndRejections() throws {
     let fixture = try fixture()
     XCTAssertEqual(fixture.vectors.count, 41)
-    // The reference refuses an LSCI record with a non-positive gain; the
+    // The reference refuses an LSCI record with a zero gain; the
     // installer goes ahead without the ALS file instead (issue #170).
     let uncalibrated = Set(stride(from: 58, through: 68, by: 2).map { "bad-lsci-\($0)" })
     var leftUncalibrated = Set<String>()
@@ -112,6 +112,26 @@ final class NeoFirmwareConversionTests: XCTestCase, @unchecked Sendable {
       XCTAssertEqual(accepted, vector.success, vector.name)
     }
     XCTAssertEqual(leftUncalibrated, uncalibrated)
+  }
+
+  func testLSCIGainsAboveSigned16BitRangeAreConverted() throws {
+    var lsci = try XCTUnwrap(fixture().local["lsci"])
+    // Gains from the MacBook Neo reported in omacom/omarchy-mac-installer#214.
+    let offsets = [58, 62, 66, 60, 64, 68]
+    let gains = [2026, 4111, 32460, 2040, 4143, 32793]
+    for (offset, gain) in zip(offsets, gains) {
+      lsci.replaceSubrange(offset..<(offset + 2), with: littleBytes(gain, count: 2))
+    }
+
+    let calibration = try XCTUnwrap(NeoFirmwareConversions.alsCalibration(lsci))
+    XCTAssertEqual(calibration.count, 80)
+    let expected: [Float] = [
+      1, 2026 / 255, 4111 / 255, 32460 / 255, 1, 2040 / 255, 4143 / 255, 32793 / 255,
+    ]
+    let ratios = try expected.indices.map { index in
+      Float(bitPattern: UInt32(try calibration.little(40 + index * 4, 4)))
+    }
+    XCTAssertEqual(ratios, expected)
   }
 
   func testCompleteRadioOutputPreservesEveryRequiredCalibrationAndAddressByte() throws {

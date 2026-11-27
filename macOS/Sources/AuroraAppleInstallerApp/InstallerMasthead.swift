@@ -36,7 +36,12 @@ struct InstallerMasthead: View {
   var distribution: AuroraDistribution? = nil
   let device: MacHeaderDisplay
   var channel: ReleaseChannel? = nil
+  /// The plan on screen is a Reset or boot loader update, which names its
+  /// channel whichever it is.
+  var existingInstallation = false
   private static let markSpacing: CGFloat = 10
+  private static let titleSize: CGFloat = 17
+  private static let channelSpacing: CGFloat = 8
   private static let deviceSymbolSpacing: CGFloat = 14
   private static let markSize: CGFloat = 32
   /// AuroraLogo.png's artwork starts 164 of 1024 pixels in; pulling the mark
@@ -44,15 +49,24 @@ struct InstallerMasthead: View {
   private static let markInset = markSize * 164 / 1024
 
   var body: some View {
-    HStack(spacing: 16) {
+    HStack(spacing: Space.l) {
       HStack(spacing: Self.markSpacing) {
         AuroraMark().frame(width: Self.markSize, height: Self.markSize)
-        Text(distribution?.title ?? "Aurora").font(.system(size: 17, weight: .semibold))
-          .lineLimit(1)
-        if channel == .testing {
-          Text(PlainLanguage.channelNightly)
-            .font(.caption)
-            .foregroundStyle(.secondary)
+        HStack(alignment: .firstTextBaseline, spacing: Self.channelSpacing) {
+          Text(distribution?.title ?? "Aurora")
+            .font(.system(size: Self.titleSize, weight: .semibold))
+            .lineLimit(1)
+          if let label = PlainLanguage.mastheadChannelLabel(
+            channel, existingInstallation: existingInstallation)
+          {
+            // The title's size in the secondary colour, on its baseline. A long
+            // title truncates before the channel name does.
+            Text(label)
+              .font(.system(size: Self.titleSize))
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+              .fixedSize(horizontal: true, vertical: false)
+          }
         }
       }
       .padding(.leading, -Self.markInset)
@@ -61,10 +75,10 @@ struct InstallerMasthead: View {
         Image(systemName: device.symbol).font(.system(size: 23, weight: .regular))
           .frame(width: 30, height: 30)
           .accessibilityHidden(true)
-        VStack(alignment: .leading, spacing: 2) {
-          Text(device.name).font(.system(size: 12, weight: .medium))
+        VStack(alignment: .leading, spacing: Space.xxs) {
+          Text(device.name).font(InstallerTheme.detail.weight(.medium))
           if let chip = device.chip {
-            Text(chip).font(.system(size: 11)).foregroundStyle(.secondary)
+            Text(chip).font(InstallerTheme.caption).foregroundStyle(.secondary)
           }
         }
       }

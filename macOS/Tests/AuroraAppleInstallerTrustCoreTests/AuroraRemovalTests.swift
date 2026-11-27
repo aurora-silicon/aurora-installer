@@ -188,7 +188,7 @@
       XCTAssertEqual(plan.reclaimBytes, 32_800_505_856)
       XCTAssertEqual(
         plan.summary,
-        "Found “Asahi Alarm Minimal”. Removal permanently deletes it and everything stored in it, then returns its space to macOS."
+        "Found “Asahi Alarm Minimal”. Removal permanently deletes it and everything in it, then gives its space back to macOS."
       )
       let ticket = plan.ticket(id: UUID())
       XCTAssertEqual(ticket.confirmation, "erase linux and its data")
@@ -224,7 +224,7 @@
       XCTAssertEqual(
         plan.ticket(id: UUID()).notes,
         [
-          "This installation has no Linux partitions of its own. If a Linux system elsewhere, for example on an external disk, starts through it, that system won’t start after removal. Its data isn’t touched."
+          "This installation has no Linux partitions of its own. A Linux system that starts through it (for example from an external disk) won’t start after removal. Its data isn’t touched."
         ])
     }
 
@@ -235,7 +235,7 @@
       XCTAssertEqual(plan.reclaimBytes, 32_800_505_856)
       XCTAssertEqual(
         plan.summary,
-        "No installation was found, but 32.8 GB directly after macOS is unallocated. macOS can take it back. Nothing will be deleted."
+        "No installation found, but 32.8 GB after macOS is free. macOS can take it back. Nothing is deleted."
       )
       let ticket = plan.ticket(id: UUID())
       XCTAssertEqual(ticket.confirmation, "return free space to macos")
@@ -260,11 +260,11 @@
     func testSmallOrNoGapIsReportedAsNothingToDo() {
       assertRefusal(
         FakeRemovalDisk(F.snapshot(macOSSize: 400_000_000_000, [.free(500_000_000)]), install: nil),
-        "No Aurora installation, or other installation made with the Asahi installer, was found. 500.0 MB directly after macOS is unallocated; that’s too little to return, so it was left as it is. Nothing was changed."
+        "No Aurora or Asahi installation found. The 500.0 MB free after macOS is too small to give back. The disk wasn’t changed."
       )
       assertRefusal(
         FakeRemovalDisk(F.snapshot(macOSSize: 400_000_000_000, []), install: nil),
-        "No Aurora installation, or other installation made with the Asahi installer, was found, and there’s no unallocated space after macOS. Nothing was changed."
+        "No Aurora or Asahi installation found, and there’s no free space after macOS. The disk wasn’t changed."
       )
     }
 
@@ -287,14 +287,14 @@
     func testSecondMacOSIsRefused() {
       assertRefusal(
         FakeRemovalDisk(F.secondMacOS(), install: nil),
-        "Found another system: disk0s3 (APFS container, 80.0 GB, volumes “Macintosh HD 2”, “Macintosh HD 2 - Data”, “Preboot”, “Recovery”, “VM”). It looks like another macOS installation, and removal never deletes one. Nothing was changed."
+        "Found another system: disk0s3 (APFS container, 80.0 GB, volumes “Macintosh HD 2”, “Macintosh HD 2 - Data”, “Preboot”, “Recovery”, “VM”). It looks like another macOS, and removal never deletes macOS. Nothing was changed."
       )
     }
 
     func testFreeSpaceBehindAnotherPartitionIsRefusedAndExplained() {
       assertRefusal(
         FakeRemovalDisk(F.nonContiguousFree(), install: nil),
-        "Found disk0s3 (Linux partition, 10.0 GB) without the startup container every installation made with the Asahi installer has. This looks like a partly removed installation, which needs a manual review. 32.8 GB of unallocated space isn’t directly after macOS: disk0s3 sits between them, so macOS can’t grow into it. Nothing was changed."
+        "Found disk0s3 (Linux partition, 10.0 GB) without a startup container. This looks like a partly removed installation and needs a manual check. 32.8 GB of unallocated space isn’t directly after macOS: disk0s3 sits between them, so macOS can’t grow into it. Nothing was changed."
       )
     }
 
@@ -327,7 +327,7 @@
         ], installs: [F.alarmInstall, F.uefiInstall])
       assertRefusal(
         FakeRemovalDisk(snapshot, install: F.alarmInstall),
-        "Found more than one installation: disk0s3 (APFS container, 2.5 GB, volumes “Asahi Alarm Minimal”, “Asahi Alarm Minimal - Data”, “Preboot”, “Recovery”); disk0s6 (APFS container, 2.5 GB, volumes “UEFI boot”, “UEFI boot - Data”, “Preboot”, “Recovery”). Removal handles a single installation, so it stopped. Nothing was changed."
+        "Found more than one installation: disk0s3 (APFS container, 2.5 GB, volumes “Asahi Alarm Minimal”, “Asahi Alarm Minimal - Data”, “Preboot”, “Recovery”); disk0s6 (APFS container, 2.5 GB, volumes “UEFI boot”, “UEFI boot - Data”, “Preboot”, “Recovery”). Removal handles one at a time, so it stopped. Nothing was changed."
       )
     }
 
@@ -341,7 +341,7 @@
         ])
       assertRefusal(
         FakeRemovalDisk(snapshot, install: nil),
-        "Found disk0s3 (EFI partition, “EFI - ASAHI”, 524.3 MB); disk0s4 (Linux partition, 29.8 GB) without the startup container every installation made with the Asahi installer has. This looks like a partly removed installation, which needs a manual review. Nothing was changed."
+        "Found disk0s3 (EFI partition, “EFI - ASAHI”, 524.3 MB); disk0s4 (Linux partition, 29.8 GB) without a startup container. This looks like a partly removed installation and needs a manual check. Nothing was changed."
       )
     }
 
@@ -458,7 +458,7 @@
       let ticket = plan.ticket(id: UUID())
       XCTAssertEqual(ticket.confirmation, AuroraRemovalTicket.confirmation)
       XCTAssertEqual(ticket.deletions.map(\.title), ["Startup container “Aurora”"])
-      XCTAssertTrue(plan.summary.contains("The installer’s own record shows it created it."))
+      XCTAssertTrue(plan.summary.contains("left by an installation that didn’t finish."))
 
       var phases = [String]()
       try AuroraRemovalExecutor(disks: disk, journals: journals).execute(plan) {
@@ -478,7 +478,7 @@
         XCTAssertThrowsError(try AuroraRemovalPlan(disks: disk, journals: journals)) { error in
           XCTAssertTrue(
             (error as? RemovalFailure)?.message.hasPrefix(
-              "Found a startup container, but the partitions with it don’t match one installation")
+              "Found a startup container, but its partitions don’t match one installation")
               == true, "\(error)")
         }
         XCTAssertTrue(disk.operations.isEmpty)
@@ -528,7 +528,7 @@
         XCTAssertThrowsError(try AuroraRemovalPlan(disks: disk)) { error in
           XCTAssertTrue(
             (error as? RemovalFailure)?.message.hasPrefix(
-              "Found a startup container, but the partitions with it don’t match one installation")
+              "Found a startup container, but its partitions don’t match one installation")
               == true, "\(error)")
         }
         XCTAssertEqual(disk.evidenceReads, 0)
@@ -577,18 +577,39 @@
         FakeRemovalDisk(snapshot, install: F.alarmInstall), "Found another system:")
     }
 
+    /// macOS 27.2 can give a new startup container an Update volume.
+    func testAStubWithTheUpdateVolumeMacOS27AddsIsStillTheInstallations() throws {
+      func update(_ number: Int, group: String? = nil) -> RemovalVolume {
+        RemovalVolume(uuid: F.id(number), name: "Update", roles: ["Update"], group: group)
+      }
+      var snapshot = F.alarm()
+      let index = snapshot.containers.firstIndex { $0.storeUUID == F.alarmInstall.stub }!
+      let stub = snapshot.containers[index]
+      snapshot.containers[index] = RemovalContainer(
+        uuid: stub.uuid, storeUUID: stub.storeUUID, volumes: stub.volumes + [update(997)])
+      let plan = try AuroraRemovalPlan(disks: FakeRemovalDisk(snapshot, install: F.alarmInstall))
+      XCTAssertEqual(plan.installation?.name, "Asahi Alarm Minimal")
+      XCTAssertEqual(plan.members.map(\.identifier), ["disk0s3", "disk0s4", "disk0s5"])
+      for extra in [[update(997), update(996)], [update(997, group: F.id(999))]] {
+        snapshot.containers[index] = RemovalContainer(
+          uuid: stub.uuid, storeUUID: stub.storeUUID, volumes: stub.volumes + extra)
+        assertRefusalPrefix(
+          FakeRemovalDisk(snapshot, install: F.alarmInstall), "Found another system:")
+      }
+    }
+
     func testFrameMustBeISCThenBootedMacOSThenRecovery() {
       for index in [0, 1, 6] {
         var snapshot = F.converged()
         snapshot.partitions.remove(at: index)
-        assertRefusalPrefix(FakeRemovalDisk(snapshot), "The internal disk doesn’t have the layout")
+        assertRefusalPrefix(FakeRemovalDisk(snapshot), "The disk isn’t laid out as removal expects")
       }
       let original = F.converged()
       let booted = RemovalSnapshot(
         disk: original.disk, devicePath: original.devicePath, diskSize: original.diskSize,
         macOSStoreUUID: F.convergedInstall.stub, macOSContainerUUID: F.id(800),
         partitions: original.partitions, containers: original.containers)
-      assertRefusalPrefix(FakeRemovalDisk(booted), "The internal disk doesn’t have the layout")
+      assertRefusalPrefix(FakeRemovalDisk(booted), "The disk isn’t laid out as removal expects")
     }
 
     func testOverlappingOrDuplicatedPartitionsAreRefused() {
@@ -597,10 +618,10 @@
       overlap.partitions[3] = RemovalPartition(
         identifier: esp.identifier, uuid: esp.uuid, type: esp.type, offset: esp.offset - 4096,
         size: esp.size, name: esp.name)
-      assertRefusalPrefix(FakeRemovalDisk(overlap), "The internal disk’s partition map")
+      assertRefusalPrefix(FakeRemovalDisk(overlap), "Couldn’t read the disk’s partition map")
       var duplicate = F.converged()
       duplicate.partitions.append(duplicate.partitions[3])
-      assertRefusalPrefix(FakeRemovalDisk(duplicate), "The internal disk’s partition map")
+      assertRefusalPrefix(FakeRemovalDisk(duplicate), "Couldn’t read the disk’s partition map")
     }
 
     // MARK: Evidence from the installation's files
@@ -615,7 +636,7 @@
         ], installs: [F.uefiInstall])
       assertRefusal(
         FakeRemovalDisk(snapshot, install: F.uefiInstall),
-        "Found the installation “UEFI boot” (disk0s3, disk0s4, disk0s5), but the installer record on its EFI partition doesn’t match the disk: disk0s5 wasn’t created by that installer. It can’t be confirmed as one installation, so nothing was changed."
+        "Found “UEFI boot” (disk0s3, disk0s4, disk0s5), but the installer record on its EFI partition doesn’t match the disk: disk0s5 wasn’t created by that installer. It can’t be confirmed as one installation. The disk wasn’t changed."
       )
     }
 
@@ -693,7 +714,7 @@
         change(&disk.files!)
         assertRefusal(
           disk,
-          "Found the installation “Asahi Alarm Minimal” (disk0s3, disk0s4, disk0s5), but \(reason). It can’t be confirmed as one installation, so nothing was changed."
+          "Found “Asahi Alarm Minimal” (disk0s3, disk0s4, disk0s5), but \(reason). It can’t be confirmed as one installation. The disk wasn’t changed."
         )
       }
     }
@@ -746,7 +767,7 @@
       disk.files = nil
       assertRefusal(
         disk,
-        "Found the installation “Asahi Alarm Minimal” (disk0s3, disk0s4, disk0s5), but its files couldn’t be checked: disk0s4 couldn’t be read without mounting it. Nothing was changed."
+        "Found “Asahi Alarm Minimal” (disk0s3, disk0s4, disk0s5), but couldn’t check its files: disk0s4 couldn’t be read without mounting it. The disk wasn’t changed."
       )
     }
 
@@ -771,7 +792,7 @@
         XCTAssertEqual(ticket.deletions.count, 3)
         XCTAssertEqual(
           plan.summary,
-          "Found “Asahi Alarm Minimal”. Removal first sets macOS as the startup disk, then permanently deletes “Asahi Alarm Minimal” and everything stored in it and returns its space to macOS."
+          "Found “Asahi Alarm Minimal”. Removal sets macOS as the startup disk, then permanently deletes “Asahi Alarm Minimal” and everything in it, and gives its space back to macOS."
         )
         XCTAssertTrue(disk.startupWrites.isEmpty, "planning is read-only")
       }
@@ -1266,7 +1287,7 @@
         _ = try await service.removal(ticketID: nil, confirmation: "", authorization: nil)
         XCTFail("There is no more Linux installation to erase")
       } catch let error as RemovalFailure {
-        XCTAssertTrue(error.message.contains("No Aurora installation"), error.message)
+        XCTAssertTrue(error.message.contains("No Aurora or Asahi installation"), error.message)
       }
 
     }
@@ -1468,7 +1489,7 @@
         authorization: authorization())
       XCTAssertFalse(result.completed)
       XCTAssertTrue(result.message.contains("“Aurora” was removed"))
-      XCTAssertFalse(result.message.contains("No disk changes"))
+      XCTAssertFalse(result.message.contains("The disk wasn’t changed"))
       let files = try FileManager.default.contentsOfDirectory(
         at: root, includingPropertiesForKeys: nil)
       let data = try Data(contentsOf: XCTUnwrap(files.first))
@@ -1549,7 +1570,10 @@
       XCTAssertThrowsError(try AuroraRemovalPlan(disks: disk), file: file, line: line) { error in
         let message = (error as? RemovalFailure)?.message ?? "\(error)"
         XCTAssertTrue(message.hasPrefix(prefix), message, file: file, line: line)
-        XCTAssertTrue(message.hasSuffix("Nothing was changed."), message, file: file, line: line)
+        XCTAssertTrue(
+          message.hasSuffix("Nothing was changed.")
+            || message.hasSuffix("The disk wasn’t changed."),
+          message, file: file, line: line)
       }
     }
 

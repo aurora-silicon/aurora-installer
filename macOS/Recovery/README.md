@@ -52,6 +52,10 @@ A fresh installation on an execute-window chip gets both files on its ESP. The p
 
 Before any change, Recovery checks the object's layout, rejecting any non-empty `__TEXT_BOOT_EXEC`, checks that this Mac's chip uses Mach-O, and checks that the object chainloads the configured path. A Mach-O configuration that names `m1n1/boot.bin` is refused when Recovery reads it.
 
+## Startup security keys
+
+Setup's Startup Security Keys… choice decides which Ed25519 keys Stage 1 accepts for Stage 2: Aurora-managed (the default), My own key, or Both. A Stage 1 can hold keys only when aura built it with signature checks, which adds the `AURORA-S1-KEY01` key block. The common object (`macho/aura-boot.macho`) has none, so for My own key and Both Recovery enrolls the secure-flavour object `macho/aura-secure-boot.macho` instead. It copies the common object's configuration (startup partition, Stage 2 path) into it, fills the keys and enrolls it as it would the common one. The native installer puts that object in the payload from the distribution's `esp/aurora/stage1-secure.macho`; a distribution that doesn't ship one offers only Aurora-managed, and the other two choices are shown disabled. Setup writes the owner key to `aurora/secboot/` on the startup partition and Linux's `aurora-secboot-adopt.service` moves it into the encrypted root at first boot. The keys are checked and recorded, not enforced. Update Boot Loader enrolls the same object kind with the recorded keys.
+
 ## Updating Stage 1
 
 An existing installation can get a newer Stage 1 without being erased: M1 to M3 the unpadded Mach-O object (also for installations an earlier installer enrolled raw), M4 and later the padded one, including installations an earlier installer enrolled unpadded and loading `m1n1/boot.bin`. Stage 2 on the ESP is left to the distributions, and Linux and its partitions are not touched.

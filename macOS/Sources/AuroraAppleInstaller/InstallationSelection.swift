@@ -23,8 +23,21 @@ public enum AuroraDistribution: String, CaseIterable, Codable, Identifiable, Sen
   /// reinstall still recognize them.
   public static let legacyTitles = ["Fedora Aurora Remix", "Aurora ALARM"]
   public var supportsDesktop: Bool { true }
+  /// The desktops this distribution offers, in the order the chooser shows
+  /// them. Every distribution lists KDE Plasma, GNOME, then Minimal.
   public var availableDesktops: [AuroraDesktop] {
-    self == .omarchy ? [.hyprland] : [.kde, .gnome, .minimal]
+    switch self {
+    case .fedora, .arch, .nixos: [.kde, .gnome, .minimal]
+    case .omarchy: [.hyprland]
+    }
+  }
+  /// The desktop preselected for a new installation. It is independent of
+  /// the list order: Aurora Fedora Remix defaults to GNOME.
+  public var defaultDesktop: AuroraDesktop {
+    switch self {
+    case .fedora: .gnome
+    default: availableDesktops[0]
+    }
   }
 }
 
@@ -49,7 +62,7 @@ public struct AuroraInstallationSelection: Equatable, Codable, Sendable {
 
   public init(distribution: AuroraDistribution = .fedora, desktop: AuroraDesktop? = nil) {
     self.distribution = distribution
-    self.desktop = desktop ?? distribution.availableDesktops[0]
+    self.desktop = desktop ?? distribution.defaultDesktop
   }
 
   public var effectiveDesktop: AuroraDesktop? {
@@ -73,7 +86,7 @@ public struct AuroraInstallationSelection: Equatable, Codable, Sendable {
   public mutating func selectDistribution(_ distribution: AuroraDistribution) {
     self.distribution = distribution
     if !distribution.availableDesktops.contains(desktop) {
-      desktop = distribution.availableDesktops[0]
+      desktop = distribution.defaultDesktop
     }
   }
 
@@ -103,9 +116,9 @@ public enum AuroraProfileError: LocalizedError {
   public var errorDescription: String? {
     switch self {
     case .selectionMismatch:
-      "The release does not match the selected system and desktop. No installation was started."
+      "The release doesn’t match the system and desktop you chose. Nothing was installed."
     case .unavailable(let title):
-      "An installation image for \(title) is not included in this build."
+      "This build doesn’t include \(title)."
     }
   }
 }

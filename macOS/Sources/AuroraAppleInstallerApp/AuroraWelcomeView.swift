@@ -6,63 +6,68 @@ struct AuroraWelcomeView: View {
   @Binding var selection: AuroraInstallationSelection
   var device: MacHeaderDisplay = .unknown
   var channel: ReleaseChannel? = nil
+  /// Developer mode may add distributions that aren't ready for everyone.
+  var distributions: [AuroraDistribution] = AuroraDistribution.installable
   var onContinue: () -> Void
-  private let columns = Array(repeating: GridItem(.flexible(minimum: 0), spacing: 18), count: 3)
-  private let distributionColumns = Array(
-    repeating: GridItem(.flexible(minimum: 0), spacing: 18),
-    count: AuroraDistribution.installable.count)
+  private let columns = Array(
+    repeating: GridItem(.flexible(minimum: 0), spacing: Space.l), count: 3)
+  private var distributionColumns: [GridItem] {
+    Array(
+      repeating: GridItem(.flexible(minimum: 0), spacing: Space.l),
+      count: max(distributions.count, 1))
+  }
 
   var body: some View {
     VStack(spacing: 0) {
       // The same column as every other page: the logo's left edge to the
       // device identity's right edge.
-      InstallerMasthead(device: device, channel: channel).inPageColumn().padding(.top, 20)
-      Text("Choose your distribution and desktop.")
-        .font(.system(size: 20, weight: .medium))
-        .inPageColumn().padding(.top, 28)
-      VStack(alignment: .leading, spacing: 10) {
+      InstallerMasthead(device: device, channel: channel).inPageColumn().padding(.top, Space.l)
+      Text("Choose what to install")
+        .font(InstallerTheme.title)
+        .inPageColumn().padding(.top, Space.xl)
+      VStack(alignment: .leading, spacing: Space.s) {
         sectionTitle("Distribution")
-        LazyVGrid(columns: distributionColumns, spacing: 18) {
-          ForEach(AuroraDistribution.installable) { distribution in
+        LazyVGrid(columns: distributionColumns, spacing: Space.l) {
+          ForEach(distributions) { distribution in
             SelectionCard(
               selected: selection.distribution == distribution, label: distribution.title
             ) {
               selection.selectDistribution(distribution)
             } content: {
-              Text(distribution.title).font(.system(size: 13, weight: .medium))
+              Text(distribution.title).font(InstallerTheme.label)
                 .lineLimit(1).minimumScaleFactor(0.85)
                 .frame(maxWidth: .infinity).frame(height: 66)
             }
           }
         }
-        sectionTitle("Desktop environment").padding(.top, 12)
+        sectionTitle("Desktop").padding(.top, Space.m)
         if selection.distribution.supportsDesktop {
-          LazyVGrid(columns: columns, spacing: 18) {
+          LazyVGrid(columns: columns, spacing: Space.l) {
             ForEach(selection.distribution.availableDesktops) { desktop in
               SelectionCard(selected: selection.desktop == desktop, label: desktop.title) {
                 selection.desktop = desktop
               } content: {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: Space.s) {
                   DesktopPreview(desktop: desktop).clipShape(RoundedRectangle(cornerRadius: 9))
-                  Text(desktop.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
-                  Text(desktopDescription(desktop)).font(.system(size: 11)).foregroundStyle(
+                  Text(desktop.title).font(InstallerTheme.label).lineLimit(1)
+                  Text(desktopDescription(desktop)).font(InstallerTheme.caption).foregroundStyle(
                     .secondary)
-                }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                }.padding(Space.m).frame(maxWidth: .infinity, alignment: .leading)
               }
             }
           }
         }
-      }.inPageColumn().padding(.top, 26)
+      }.inPageColumn().padding(.top, Space.xl)
       Spacer(minLength: 18)
       Text(Self.notice(for: selection.distribution))
-        .font(.system(size: 11)).foregroundStyle(.secondary)
+        .font(InstallerTheme.caption).foregroundStyle(.secondary)
         .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-        .inPageColumn(alignment: .center).padding(.bottom, 2)
+        .inPageColumn(alignment: .center).padding(.bottom, Space.xxs)
       Button("Continue", action: onContinue)
         .auroraPrimaryButton()
         .frame(minHeight: InstallerTheme.buttonHeight)
         .inPageColumn(alignment: .trailing)
-        .padding(.top, 12).padding(.bottom, 20)
+        .padding(.top, Space.m).padding(.bottom, Space.l)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(Color(nsColor: .windowBackgroundColor))
@@ -93,15 +98,15 @@ struct AuroraWelcomeView: View {
   }
 
   private func sectionTitle(_ text: String) -> some View {
-    Text(text).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+    Text(text).font(InstallerTheme.sectionLabel).foregroundStyle(.secondary)
   }
 
   private func desktopDescription(_ desktop: AuroraDesktop) -> String {
     switch desktop {
     case .kde: "Familiar and customizable"
     case .gnome: "Clean and focused"
-    case .minimal: "A lightweight shell"
-    case .hyprland: "Omarchy's tiling desktop"
+    case .minimal: "Lightweight shell"
+    case .hyprland: "Omarchy’s tiling desktop"
     }
   }
 }
@@ -116,24 +121,28 @@ private struct SelectionCard<Content: View>: View {
   var body: some View {
     Button(action: action) {
       content()
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 14))
+        .background(
+          InstallerTheme.card, in: RoundedRectangle(cornerRadius: InstallerTheme.cardRadius)
+        )
         .overlay {
-          RoundedRectangle(cornerRadius: 14)
+          RoundedRectangle(cornerRadius: InstallerTheme.cardRadius)
             .strokeBorder(
-              selected ? Color.primary.opacity(0.65) : Color.primary.opacity(hovered ? 0.25 : 0.10),
-              lineWidth: selected ? 1.5 : 1)
+              selected
+                ? InstallerTheme.accent
+                : (hovered ? Color.primary.opacity(0.25) : InstallerTheme.separator),
+              lineWidth: selected ? 2 : 1)
         }
         .overlay(alignment: .topTrailing) {
           if selected {
             Image(systemName: "checkmark.circle.fill")
-              .font(.system(size: 15, weight: .medium))
+              .imageScale(.large)
               .symbolRenderingMode(.palette)
-              .foregroundStyle(Color(nsColor: .windowBackgroundColor), Color.primary)
-              .padding(8)
+              .foregroundStyle(.white, InstallerTheme.accent)
+              .padding(Space.s)
+              .accessibilityHidden(true)
           }
         }
-        .shadow(color: .black.opacity(selected ? 0.055 : 0.025), radius: 5, y: 2)
-        .contentShape(RoundedRectangle(cornerRadius: 14))
+        .contentShape(RoundedRectangle(cornerRadius: InstallerTheme.cardRadius))
     }
     .buttonStyle(.plain).onHover { hovered = $0 }
     .accessibilityLabel(label).accessibilityAddTraits(selected ? .isSelected : [])
@@ -153,5 +162,5 @@ struct BrandImage: View {
 }
 
 struct AuroraMark: View {
-  var body: some View { BrandImage("AuroraLogo").accessibilityLabel("Aurora Silicon") }
+  var body: some View { BrandImage("AuroraLogo").accessibilityLabel("Aurora") }
 }

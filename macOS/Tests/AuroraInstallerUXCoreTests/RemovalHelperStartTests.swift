@@ -22,7 +22,7 @@
             .blockedModel, "\(status) canInstall=\(canInstall)")
         }
       }
-      XCTAssertTrue(PlainLanguage.removalBlockedModel.hasSuffix("No disk changes were made."))
+      XCTAssertTrue(PlainLanguage.removalBlockedModel.hasSuffix("The disk wasn’t changed."))
     }
 
     func testABusyHelperIsLeftToFinish() {
@@ -60,8 +60,8 @@
           reclaimBytes: 0), .unknown)
       XCTAssertTrue(
         PlainLanguage.removalCompletedWithoutReply(freeSpace: false).hasPrefix(
-          "Aurora and its data have been removed."))
-      XCTAssertTrue(PlainLanguage.removalNotStarted.contains("No disk changes were made."))
+          "Aurora and its data are removed."))
+      XCTAssertTrue(PlainLanguage.removalNotStarted.contains("The disk wasn’t changed."))
     }
 
     func testACurrentHelperScansRightAway() {
@@ -104,13 +104,13 @@
       ]
       for error in errors {
         XCTAssertTrue(
-          PlainLanguage.removalHelperSetupMessage(for: error).hasSuffix(
-            "No disk changes were made."), "\(error)")
+          PlainLanguage.removalHelperSetupMessage(for: error).contains(
+            "The disk wasn’t changed."), "\(error)")
       }
       XCTAssertTrue(
         PlainLanguage.removalHelperSetupMessage(
           for: EngineXPCSubmissionError.machineOwnerCredentialsRejected
-        ).contains("not accepted"))
+        ).contains("Incorrect name or password"))
       XCTAssertTrue(
         PlainLanguage.removalHelperSetupMessage(for: InstallerHelperSetupError.switchedOff)
           .contains("Login Items"))

@@ -28,7 +28,7 @@
         InstallerLogFormat.visible(entries, filter: .all, search: "").map(\.sequence), [1, 2, 3])
       XCTAssertEqual(
         InstallerLogFilter.allCases.map(\.title),
-        ["Show Errors Only", "Show Errors and Progress", "Show All Logs"])
+        ["Errors only", "Errors and progress", "Everything"])
     }
 
     func testSearchMatchesMessageOrSourceIgnoringCase() {
@@ -54,7 +54,7 @@
           options: .regularExpression) != nil, line)
       let document = InstallerLogFormat.document(
         [entry(1, .progress)], filter: .errorsAndProgress, search: "x")
-      XCTAssertTrue(document.contains("Filter: Show Errors and Progress, matching “x”"))
+      XCTAssertTrue(document.contains("Filter: Errors and progress, matching “x”"))
       XCTAssertTrue(document.hasSuffix(" info  Installer: line\n"))
     }
 

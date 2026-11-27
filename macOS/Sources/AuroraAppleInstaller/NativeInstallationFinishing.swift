@@ -37,13 +37,15 @@
       else {
         throw NativeFirmwareInputFailure.invalidSource
       }
-      if source.machine == "j700" {
+      let usesPreparedPeripherals = NativePeripheralInputPath.needsPreparation(
+        machine: source.machine)
+      if usesPreparedPeripherals {
         guard peripherals != nil, source.fud.contains(where: { $0.component == "Multitouch" })
         else { throw NativeFirmwareInputFailure.invalidSource }
       } else if peripherals != nil {
         throw NativeFirmwareInputFailure.invalidSource
       }
-      let ambientLight = try source.machine == "j700" ? nil : collectAmbientLight()
+      let ambientLight = try usesPreparedPeripherals ? nil : collectAmbientLight()
       return NativeInstallationFinishingExecution(
         package: package, approved: approved, stub: stub, peripherals: peripherals,
         owner: owner, environment: environment, disks: disks, ambientLight: ambientLight)

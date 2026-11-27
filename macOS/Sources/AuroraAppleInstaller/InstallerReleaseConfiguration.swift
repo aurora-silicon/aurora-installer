@@ -19,6 +19,9 @@
     case edgeAlphaUnavailable
     case invalidCatalogChannel
     case invalidEdgeQualification
+    /// The release list could not be downloaded: the network request itself
+    /// failed (its `URLError` code).
+    case catalogUnreachable(Int)
   }
 
   /// The release channels a build can read: the same four Aurora offers,
@@ -57,6 +60,10 @@
     public let helperCodeSigningRequirement: String
     public let sealedCatalogDocuments: InstallerReleaseCatalogDocuments?
     public let legacyDevelopmentChannel: Bool
+    /// The sequence of the catalog this app was built with, per channel. A
+    /// channel's catalog below it is refused even when no accepted catalog is
+    /// stored yet. A channel the build had no catalog for has no entry.
+    public let minimumCatalogSequence: [ReleaseChannel: UInt64]
 
     public init(
       channels: ReleaseChannelEndpoints,
@@ -65,7 +72,8 @@
       helperMachServiceName: String,
       helperCodeSigningRequirement: String,
       sealedCatalogDocuments: InstallerReleaseCatalogDocuments? = nil,
-      legacyDevelopmentChannel: Bool = false
+      legacyDevelopmentChannel: Bool = false,
+      minimumCatalogSequence: [ReleaseChannel: UInt64] = [:]
     ) {
       self.channels = channels
       self.defaultChannel = defaultChannel
@@ -74,6 +82,7 @@
       self.helperCodeSigningRequirement = helperCodeSigningRequirement
       self.sealedCatalogDocuments = sealedCatalogDocuments
       self.legacyDevelopmentChannel = legacyDevelopmentChannel
+      self.minimumCatalogSequence = minimumCatalogSequence
     }
 
     public func catalogURL(for channel: ReleaseChannel) -> URL {
@@ -214,6 +223,8 @@
     public static let trustRootFileName = "trust-root.ed25519.pub"
     public static let sealedCatalogFileName = "catalog.json"
     public static let sealedCatalogSignatureFileName = "catalog.json.sig"
+    public static let catalogFloorFileName = "catalog-floor.json"
+    public static let maximumCatalogFloorBytes = 4_096
 
     public init() {}
 
@@ -260,8 +271,51 @@
         helperCodeSigningRequirement:
           configuration.helperCodeSigningRequirement,
         sealedCatalogDocuments: sealedCatalogDocuments,
-        legacyDevelopmentChannel: configuration.legacyDevelopmentChannel
+        legacyDevelopmentChannel: configuration.legacyDevelopmentChannel,
+        minimumCatalogSequence: try loadMinimumCatalogSequence(
+          from: releaseDirectory
+        )
       )
+    }
+
+    /// `catalog-floor.json` is written at build time beside the descriptor,
+    /// inside the signed app. A build without one has no floor; one that is
+    /// present must be exactly what the build writes.
+    private func loadMinimumCatalogSequence(
+      from releaseDirectory: URL
+    ) throws -> [ReleaseChannel: UInt64] {
+      let url = releaseDirectory.appendingPathComponent(
+        Self.catalogFloorFileName
+      )
+      guard try resourceExists(url, role: "catalog-floor") else {
+        return [:]
+      }
+      let data = try readRegularFile(
+        url,
+        maximumBytes: Self.maximumCatalogFloorBytes,
+        role: "catalog-floor"
+      )
+      guard let object = try? JSONSerialization.jsonObject(with: data),
+        let dictionary = object as? [String: Any],
+        Set(dictionary.keys)
+          == Set(CatalogFloor.CodingKeys.allCases.map(\.rawValue)),
+        let decoded = try? JSONDecoder().decode(CatalogFloor.self, from: data)
+      else {
+        throw InstallerReleaseConfigurationError.invalidDescriptor
+      }
+      guard decoded.schemaVersion == 1 else {
+        throw InstallerReleaseConfigurationError.unsupportedSchema(
+          decoded.schemaVersion
+        )
+      }
+      var minimumSequence = [ReleaseChannel: UInt64]()
+      for (name, sequence) in decoded.minimumSequence {
+        guard let channel = ReleaseChannel(rawValue: name), sequence > 0 else {
+          throw InstallerReleaseConfigurationError.invalidDescriptor
+        }
+        minimumSequence[channel] = sequence
+      }
+      return minimumSequence
     }
 
     private func loadSealedCatalogDocuments(
@@ -428,6 +482,11 @@
         {
           throw InstallerReleaseConfigurationError.edgeAlphaUnavailable
         }
+        // Named apart from a failed payload download, so the failure can
+        // point at the Release channel menu. Cancellation stays itself.
+        if let urlError = error as? URLError, urlError.code != .cancelled {
+          throw InstallerReleaseConfigurationError.catalogUnreachable(urlError.code.rawValue)
+        }
         throw error
       }
       return try SignedCatalogEnvelope.decode(envelope)
@@ -544,6 +603,16 @@
       case trustRootFingerprint = "trust_root_fingerprint"
       case helperMachServiceName = "helper_mach_service_name"
       case helperCodeSigningRequirement = "helper_code_signing_requirement"
+    }
+  }
+
+  private struct CatalogFloor: Decodable {
+    let schemaVersion: Int
+    let minimumSequence: [String: UInt64]
+
+    enum CodingKeys: String, CodingKey, CaseIterable {
+      case schemaVersion = "schema_version"
+      case minimumSequence = "minimum_sequence"
     }
   }
 

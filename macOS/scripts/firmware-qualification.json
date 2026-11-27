@@ -8,6 +8,46 @@
       "manifest_sha256": "sha256:0fbfae04175cde81ef36d273aa280d39ffe5a54eacba8494b45a59daca462510",
       "boards": {},
       "experimental_boards": {
+        "j516s": {
+          "device_tree": "arch/arm64/boot/dts/apple/t6030-j516s.dts",
+          "evidence": "https://github.com/aurora-silicon/linux/blob/4925fc23681e06d1371c4c3f26b1da35a9f79233/arch/arm64/boot/dts/apple/t6030-j516s.dts",
+          "manifest_identity": {
+            "device_class": "j516sap",
+            "chip_id": "0x6030",
+            "board_id": "0x06"
+          },
+          "qualification": "not_hardware_qualified"
+        },
+        "j704": {
+          "device_tree": "arch/arm64/boot/dts/apple/t8142-j704.dts",
+          "evidence": "https://github.com/aurora-silicon/linux/blob/b241e354955f2caf95f57c0045f98e0613899d2d/arch/arm64/boot/dts/apple/t8142-j704.dts",
+          "manifest_identity": {
+            "device_class": "j704ap",
+            "chip_id": "0x8142",
+            "board_id": "0x22"
+          },
+          "qualification": "not_hardware_qualified"
+        },
+        "j813": {
+          "device_tree": "arch/arm64/boot/dts/apple/t8142-j813.dts",
+          "evidence": "https://github.com/aurora-silicon/linux/blob/9125b31475836ce0a6634df45b539c6d604f36a5/arch/arm64/boot/dts/apple/t8142-j813.dts",
+          "manifest_identity": {
+            "device_class": "j813ap",
+            "chip_id": "0x8142",
+            "board_id": "0x24"
+          },
+          "qualification": "not_hardware_qualified"
+        },
+        "j815": {
+          "device_tree": "arch/arm64/boot/dts/apple/t8142-j815.dts",
+          "evidence": "https://github.com/aurora-silicon/linux/blob/b241e354955f2caf95f57c0045f98e0613899d2d/arch/arm64/boot/dts/apple/t8142-j815.dts",
+          "manifest_identity": {
+            "device_class": "j815ap",
+            "chip_id": "0x8142",
+            "board_id": "0x26"
+          },
+          "qualification": "not_hardware_qualified"
+        },
         "j714c": {
           "device_tree": "arch/arm64/boot/dts/apple/t6050-j714c.dts",
           "evidence": "https://github.com/aurora-silicon/linux/blob/677be395b9d2e15d98696107ebf88191f08efbf9/arch/arm64/boot/dts/apple/t6050-j714c.dts",

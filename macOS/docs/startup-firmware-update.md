@@ -20,14 +20,14 @@ The 26B123 entry (`UniversalMac_27.2_26B123_Restore.ipsw`, 25,595,669,503 bytes)
 
 `scripts/firmware-qualification.json` separates hardware-qualified `boards` from `experimental_boards`. A qualified board records the kernel release, distributions and hardware result. An experimental board records its kernel device tree and matching restore-image identity, remains explicitly not hardware-qualified, and must have an installer caution with recovery guidance. The entry's `models` is exactly the union of these two lists; a null list is refused. Both paths retain the same source-size, manifest and build checks.
 
-The experimental 26B123 admissions are J714c, J714s, J716c, J716s, J775c, J775d and J873s. Their Customer identities in the pinned BuildManifest all use T6050, with board IDs recorded separately. These Macs use this universal image rather than the OLED-only 26B8125 image. The existing system-firmware, macOS and Recovery floors still apply: admitting a board does not equate an older `iBoot` version with the required `mBoot` version or prove an installation on that board.
+The experimental 26B123 admissions are J714c, J714s, J716c, J716s, J775c, J775d and J873s, whose Customer identities in the pinned BuildManifest all use T6050; the T8142 boards J704 (chip `0x8142`, board `0x22`), J813 (chip `0x8142`, board `0x24`) and J815 (chip `0x8142`, board `0x26`); and the T6030 board J516s (chip `0x6030`, board `0x06`). Board IDs are recorded separately. The J516s's, J704's, J813's and J815's device minimum is macOS 27.2: below it they are asked to update macOS instead of falling back to an older stub. Everything the J815 runs is 27.2 firmware, and the J704 has been installed only on the 27.2 stub; its GPU and built-in display need aurora-silicon/linux#2093, which is not in the published distribution kernel yet. On the J813's 27.2 stub, the published distribution kernel brings up neither its GPU nor its display driver yet. The other M3 Pro and M3 Max MacBook Pros (J514s, J514c, J514m, J516c, J516m) keep the 14.8.3 stub. The J516s has booted Linux directly from the 27.2 stub. The 27.2 AOP and multitouch, G15S graphics and DCP changes are in Linux main (aurora-silicon/linux#3131, #3132 and #3133), and the matching handoff changes are in aura main (aurora-silicon/aura#519 and #523). The published installer payloads still need those updates and a fresh-install check, so the J516s stays experimental. These Macs use this universal image rather than the OLED-only 26B8125 image. The existing system-firmware, macOS and Recovery floors still apply: admitting a board does not equate an older `iBoot` version with the required `mBoot` version or prove an installation on that board.
 
 Release templates don't set `supported_fw`, so the model list is the only gate. A release that wants to hold a board back can still list older versions in `supported_fw`.
 
 ### Checks
 
 - `NativeStartupFirmwareTests` covers the sealed entry, selection for a listed and an unlisted board, the macOS floor, a renamed source, and the 26B131 size, manifest and build refusals.
-- `AURORA_LIVE_FIRMWARE_PIN=1 swift test --filter testOptInLivePinnedImagePlansEveryLabBoard` reads Apple's image (size, directory, manifest; about 35 MB) and plans the stub for the M1 Pro, M2, M4 Pro and MacBook Neo identities with the pin in force. It writes nothing.
+- `AURORA_LIVE_FIRMWARE_PIN=1 swift test --filter testOptInLivePinnedImagePlansEveryLabBoard` reads Apple's image (size, directory, manifest; about 35 MB) and plans the stub for the M1 Pro, M2, M3 Pro (J516s), M4 Pro and MacBook Neo identities with the pin in force. It writes nothing.
 
 ## Slots
 
@@ -50,7 +50,7 @@ The vendor firmware on the EFI partition (`vendorfw/`, `asahi/all_firmware.tar.g
 
 ### What the owner does
 
-The same as after a fresh install: shut down, hold the power button until the startup options appear, choose the slot's volume ("Aurora Fedora Remix 27.2"), and let its Recovery enroll Stage 1 with the owner's password (`bputil` and `kmutil configure-boot`, as the installation's own Recovery does). The Mac then starts the slot. To go back, choose the old volume in the startup options, or run `asahi-bless` from Linux.
+The same as after a fresh install: shut down, hold the power button until the startup options appear, choose the slot's volume ("Aurora Fedora Remix 27.2"), and let its Recovery enroll Stage 1 with the owner's password (`bputil` and `kmutil configure-boot`, as the installation's own Recovery does). The Mac then starts the slot. To go back, choose the old volume in the startup options, or run `aurora-bless` from Linux.
 
 ### Not built yet
 

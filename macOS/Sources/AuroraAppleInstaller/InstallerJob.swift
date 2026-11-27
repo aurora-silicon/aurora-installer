@@ -15,15 +15,15 @@
     public var errorDescription: String? {
       switch self {
       case .interrupted:
-        "The installer helper stopped before it could confirm completion. Your installation has been preserved. Inspect its saved record before continuing."
+        "The helper stopped before it confirmed the result. Your installation is kept. Check its record before you continue."
       case .unavailable:
-        "The saved installation could not be reached. Reopen this version of Aurora Installer to reconnect."
+        "Couldn’t reach the saved installation. Open this version of Aurora Installer again."
       case .historyFull:
-        "The installer’s saved records need maintenance before another installation can start."
+        "The installer’s saved records need cleanup before another installation can start."
       case .notAdmitted:
-        "The helper did not start this installation. Try again when it is ready."
+        "The helper didn’t start this installation. Try again in a moment."
       case .invalidRequest, .identityMismatch, .unsafeState:
-        "The saved installation could not be verified. No new installation was started."
+        "Couldn’t verify the saved installation. Nothing new was started."
       }
     }
   }
@@ -882,7 +882,7 @@
   }
 
   /// Descriptor-relative, private atomic storage shared by root records and GUI hints.
-  private final class PrivateInstallerJobFiles {
+  final class PrivateInstallerJobFiles {
     private let fd: Int32
 
     init(directory: URL) throws {

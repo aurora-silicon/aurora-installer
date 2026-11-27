@@ -85,7 +85,8 @@
       }
       let info = try environment.disk(target.system.identifier)
       guard let name = info["VolumeName"] as? String, (1...80).contains(name.count),
-        !name.contains("/"), name.unicodeScalars.allSatisfy({ $0.value >= 32 && $0.value != 127 }),
+        !name.utf8.contains(UInt8(ascii: "/")),
+        name.unicodeScalars.allSatisfy({ $0.value >= 32 && $0.value != 127 }),
         (info["VolumeUUID"] as? String)?.uppercased() == target.system.uuid.uppercased(),
         (info["APFSVolumeGroupID"] as? String)?.uppercased() == target.group.uppercased(),
         info["MountPoint"] as? String == systemRoot.path
@@ -105,6 +106,16 @@
       files["raw/aura-raw.bin"] = espReceipt.stage1
       files["raw/boot.bin"] = stage2
       files["macho/aura-boot.macho"] = machO
+      // The secure-flavour Stage 1 a setup with the owner's own key enrolls, when
+      // the distribution ships one. Recovery copies this installation's
+      // configuration into it.
+      let secureStage1 = String(NativeBootChain.secureStage1MachO.dropFirst(4))
+      if let entry = espReceipt.files.first(where: { $0.path == secureStage1 }) {
+        guard try esp.identity(secureStage1, maximum: 64 << 20) == entry.identity else {
+          throw NativeHandoffValidationError.changedContent
+        }
+        files["macho/aura-secure-boot.macho"] = entry.identity
+      }
       var manifest: [String: Any] = [
         "schema": 2, "defaultMode": bootMode,
         "modes": [bootMode: ["espPath": stage2Path]],
@@ -148,9 +159,11 @@
                 ? NativeESPFilesExecution.stage1Path : NativeESPFilesExecution.stage1MachOPath,
               identity: identity, at: "AuraPayloads/" + path)
           } else {
+            let source =
+              path == "raw/boot.bin"
+              ? stage2Path : path == "macho/aura-secure-boot.macho" ? secureStage1 : path
             _ = try await store.file(
-              esp.tree, path: path == "raw/boot.bin" ? stage2Path : path,
-              identity: identity, at: "AuraPayloads/" + path)
+              esp.tree, path: source, identity: identity, at: "AuraPayloads/" + path)
           }
         }
         try verifyData(candidate, expected: expected)
