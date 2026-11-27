@@ -6,11 +6,14 @@ struct AuroraWelcomeView: View {
   @Binding var selection: AuroraInstallationSelection
   var device: MacHeaderDisplay = .unknown
   var channel: ReleaseChannel? = nil
+  /// Developer mode may add distributions that aren't ready for everyone.
+  var distributions: [AuroraDistribution] = AuroraDistribution.installable
   var onContinue: () -> Void
   private let columns = Array(repeating: GridItem(.flexible(minimum: 0), spacing: 18), count: 3)
-  private let distributionColumns = Array(
-    repeating: GridItem(.flexible(minimum: 0), spacing: 18),
-    count: AuroraDistribution.installable.count)
+  private var distributionColumns: [GridItem] {
+    Array(
+      repeating: GridItem(.flexible(minimum: 0), spacing: 18), count: max(distributions.count, 1))
+  }
 
   var body: some View {
     VStack(spacing: 0) {
@@ -23,7 +26,7 @@ struct AuroraWelcomeView: View {
       VStack(alignment: .leading, spacing: 10) {
         sectionTitle("Distribution")
         LazyVGrid(columns: distributionColumns, spacing: 18) {
-          ForEach(AuroraDistribution.installable) { distribution in
+          ForEach(distributions) { distribution in
             SelectionCard(
               selected: selection.distribution == distribution, label: distribution.title
             ) {
