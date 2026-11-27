@@ -31,6 +31,13 @@
       var components: [String: Any] = [
         "KernelCache": ["Info": ["Path": "kernelcache.release.synthetic"]]
       ]
+      // A Mac that prepares its peripheral inputs (the MacBook Neo) needs its
+      // trackpad firmware in the identity, as the plan requires.
+      if NativePeripheralInputPath.needsPreparation(machine: machine) {
+        components["Multitouch"] = [
+          "Info": ["Path": "Firmware/synthetic/multitouch.im4p", "IsFUDFirmware": true]
+        ]
+      }
       for index in 0..<images {
         components["Wireless1,Synthetic\(index)"] = [
           "Info": ["Path": "Firmware/synthetic\(index)/ftab.bin"]
