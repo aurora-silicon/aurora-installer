@@ -229,9 +229,10 @@ public enum ArtifactStageError: Error, Equatable, Sendable {
 /// Stages pinned artifacts into a private directory, accepting bytes only when
 /// the whole-file size and digest match the signed catalog.
 ///
-/// Multi-part payloads download up to `partsInFlight` parts at a time, then are
-/// streamed together into a single pending file whose SHA-256 is computed in
-/// the same pass. Assembly therefore needs about twice the payload size on disk
+/// Multi-part payloads download up to `partsInFlight` parts at a time. Verified
+/// parts stream in order into a single pending file while later parts download.
+/// The whole-file SHA-256 is computed in the same pass. Assembly needs about
+/// twice the payload size on disk
 /// until the parts are deleted. A verified part is kept until the payload is
 /// assembled, and an interrupted part resumes from the bytes it already
 /// received when the server allows it.
@@ -474,6 +475,28 @@ public struct VerifiedArtifactStager: Sendable {
     let missing = parts.indices.filter { stagedParts[$0] == nil }
     log?.downloading(
       from: artifact.sourceURL, parts: parts.count, kept: parts.count - missing.count)
+    let pending = stagingDirectory.appendingPathComponent(
+      ".pending-\(UUID().uuidString.lowercased())", isDirectory: false)
+    defer { try? fileManager.removeItem(at: pending) }
+    var assembler: PartAssembler?
+    var nextToAppend = 0
+    var assemblyFailure: (any Error)?
+    func appendVerifiedPrefix() {
+      guard assemblyFailure == nil, nextToAppend < stagedParts.count,
+        stagedParts[nextToAppend] != nil
+      else { return }
+      do {
+        let output = try assembler ?? PartAssembler(pending: pending)
+        assembler = output
+        while nextToAppend < stagedParts.count, let part = stagedParts[nextToAppend] {
+          try output.append(part)
+          nextToAppend += 1
+        }
+      } catch {
+        // A write error still leaves the downloaded, verified parts for retry.
+        assemblyFailure = error
+      }
+    }
     // A failed part stops new parts from starting, but the ones in flight
     // finish, so a retry keeps every part that was verified.
     var failure: (any Error)?
@@ -507,6 +530,7 @@ public struct VerifiedArtifactStager: Sendable {
         }
       }
       while next < min(Self.partsInFlight, missing.count) { start() }
+      appendVerifiedPrefix()
       while let result = await group.nextResult() {
         switch result {
         case .success(let (index, fileURL)):
@@ -516,15 +540,18 @@ public struct VerifiedArtifactStager: Sendable {
               Self.progressEvent(
                 artifact, phase: .downloading, partIndex: index, bytesCompleted: completed))
           }
-          if failure == nil, next < missing.count { start() }
+          if failure == nil {
+            if next < missing.count { start() }
+            appendVerifiedPrefix()
+          }
         case .failure(let error):
           if failure == nil { failure = error }
         }
       }
     }
     if let failure { throw failure }
-    let partFileURLs = stagedParts.compactMap { $0 }
-    guard partFileURLs.count == parts.count else { throw CancellationError() }
+    if let assemblyFailure { throw assemblyFailure }
+    guard let assembler, nextToAppend == parts.count else { throw CancellationError() }
     let completedBytes = parts.reduce(UInt64(0)) { $0 + $1.expectedSizeBytes }
 
     report(
@@ -534,18 +561,8 @@ public struct VerifiedArtifactStager: Sendable {
       bytesCompleted: completedBytes
     )
 
-    let pending = stagingDirectory.appendingPathComponent(
-      ".pending-\(UUID().uuidString.lowercased())",
-      isDirectory: false
-    )
-    defer { try? fileManager.removeItem(at: pending) }
-
-    try assemble(
-      parts: partFileURLs,
-      into: pending,
-      expectedDigest: artifact.expectedDigest,
-      expectedSizeBytes: artifact.expectedSizeBytes
-    )
+    try assembler.finish(
+      expectedDigest: artifact.expectedDigest, expectedSizeBytes: artifact.expectedSizeBytes)
 
     do {
       try fileManager.moveItem(at: pending, to: destination)
@@ -560,9 +577,7 @@ public struct VerifiedArtifactStager: Sendable {
       }
     }
 
-    for partFileURL in partFileURLs {
-      try? fileManager.removeItem(at: partFileURL)
-    }
+    removeParts(of: artifact, in: stagingDirectory, fileManager: fileManager)
     report(
       progress,
       artifact: artifact,
@@ -655,61 +670,45 @@ public struct VerifiedArtifactStager: Sendable {
     return (destination, materialization, false)
   }
 
-  private func assemble(
-    parts: [URL],
-    into destination: URL,
-    expectedDigest: String,
-    expectedSizeBytes: UInt64
-  ) throws {
-    let fileManager = FileManager.default
-    guard
-      fileManager.createFile(
-        atPath: destination.path,
-        contents: nil,
-        attributes: [.posixPermissions: 0o600]
-      )
-    else {
-      throw ArtifactStageError.unsafeStagedFile(destination.lastPathComponent)
+  private final class PartAssembler {
+    private let writer: FileHandle
+    private var hasher = SHA256()
+    private var size: UInt64 = 0
+
+    init(pending: URL) throws {
+      guard
+        FileManager.default.createFile(
+          atPath: pending.path, contents: nil, attributes: [.posixPermissions: 0o600])
+      else { throw ArtifactStageError.unsafeStagedFile(pending.lastPathComponent) }
+      writer = try FileHandle(forWritingTo: pending)
     }
 
-    let writer = try FileHandle(forWritingTo: destination)
-    var hasher = SHA256()
-    var size: UInt64 = 0
+    deinit { try? writer.close() }
 
-    do {
-      for part in parts {
-        let reader = try FileHandle(forReadingFrom: part)
-        defer { try? reader.close() }
-        while let chunk = try reader.read(upToCount: Self.chunkBytes),
-          !chunk.isEmpty
-        {
-          try writer.write(contentsOf: chunk)
-          hasher.update(data: chunk)
-          let total = size.addingReportingOverflow(UInt64(chunk.count))
-          guard !total.overflow else {
-            throw ArtifactStageError.invalidExpectedSize
-          }
-          size = total.partialValue
-        }
+    func append(_ part: URL) throws {
+      let reader = try FileHandle(forReadingFrom: part)
+      defer { try? reader.close() }
+      while let chunk = try reader.read(upToCount: VerifiedArtifactStager.chunkBytes),
+        !chunk.isEmpty
+      {
+        try Task.checkCancellation()
+        try writer.write(contentsOf: chunk)
+        hasher.update(data: chunk)
+        let total = size.addingReportingOverflow(UInt64(chunk.count))
+        guard !total.overflow else { throw ArtifactStageError.invalidExpectedSize }
+        size = total.partialValue
       }
-      try writer.close()
-    } catch {
-      try? writer.close()
-      throw error
     }
 
-    guard size == expectedSizeBytes else {
-      throw ArtifactStageError.sizeMismatch(
-        expected: expectedSizeBytes,
-        actual: size
-      )
-    }
-    let digest = SHA256Digest.prefixedHex(hasher.finalize())
-    guard digest == expectedDigest else {
-      throw ArtifactStageError.digestMismatch(
-        expected: expectedDigest,
-        actual: digest
-      )
+    func finish(expectedDigest: String, expectedSizeBytes: UInt64) throws {
+      try writer.close()
+      guard size == expectedSizeBytes else {
+        throw ArtifactStageError.sizeMismatch(expected: expectedSizeBytes, actual: size)
+      }
+      let digest = SHA256Digest.prefixedHex(hasher.finalize())
+      guard digest == expectedDigest else {
+        throw ArtifactStageError.digestMismatch(expected: expectedDigest, actual: digest)
+      }
     }
   }
 
