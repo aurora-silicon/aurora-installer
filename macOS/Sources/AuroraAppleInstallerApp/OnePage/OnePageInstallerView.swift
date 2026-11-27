@@ -334,7 +334,7 @@ struct OnePageInstallerView: View {
           onChange: { session.setEncryptLinuxDisk($0) }
         )
       } else if selection.distribution.supportsDesktop {
-        CautionCallout(text: "Linux will be installed without disk encryption.")
+        CautionCallout(text: "The Aurora disk won’t be encrypted.")
       }
       if let notice = session.allocationNotice {
         CautionCallout(text: notice)
@@ -359,7 +359,7 @@ struct OnePageInstallerView: View {
           onChange: { _ in }
         )
       } else if selection.distribution.supportsDesktop {
-        CautionCallout(text: "Linux will be installed without disk encryption.")
+        CautionCallout(text: "The Aurora disk won’t be encrypted.")
       }
       if !helper.isReady {
         helperNote
@@ -412,17 +412,17 @@ struct OnePageInstallerView: View {
 
     case .existingInstallRefused(let host):
       // The erase sits first, away from the default button, and never takes Return.
-      Button("Erase Linux", role: .destructive, action: onRemoveLinux)
+      Button("Erase Linux…", role: .destructive, action: onRemoveLinux)
         .auroraDangerButton()
         .disabled(session.isBusy)
       if let onChooseSystem {
-        Button("Choose system", action: onChooseSystem)
+        Button("Choose a system", action: onChooseSystem)
           .auroraSecondaryButton()
           .disabled(session.isBusy)
       }
       if host.existingInstalls.count == 1, !host.existingInstalls[0].partial {
         // Reset opens a plan to review; nothing changes until it is approved.
-        Button("Reset Linux") {
+        Button("Reset Linux…") {
           Task { await session.reinstallPreservingStage1() }
         }
         .auroraPrimaryButton()
@@ -432,7 +432,7 @@ struct OnePageInstallerView: View {
 
     case .partitions(_, let layout):
       if let onChooseSystem {
-        Button("Choose system", action: onChooseSystem)
+        Button("Choose a system", action: onChooseSystem)
           .auroraSecondaryButton()
           .disabled(session.isBusy)
       }
@@ -453,7 +453,7 @@ struct OnePageInstallerView: View {
         Button("Back", action: session.returnToPartitions).auroraSecondaryButton()
       }
       if session.canCancelPlanPreparation {
-        Button("Cancel check", action: session.cancelPlanPreparation).auroraSecondaryButton()
+        Button("Stop checking", action: session.cancelPlanPreparation).auroraSecondaryButton()
       } else if session.planNeedsCheck {
         Button(plan.preservesStage1 ? "Check again" : "Check size") {
           Task { await session.checkDraftAllocation() }
@@ -505,7 +505,7 @@ struct OnePageInstallerView: View {
           .auroraPrimaryButton()
           .keyboardShortcut(.defaultAction)
       } else {
-        Button("Close") { NSApplication.shared.terminate(nil) }
+        Button("Quit") { NSApplication.shared.terminate(nil) }
           .auroraPrimaryButton()
           .keyboardShortcut(.defaultAction)
       }
@@ -565,19 +565,19 @@ struct OnePageInstallerView: View {
             .padding(.top, Space.xxs)
         }
         if let technical {
-          InstallerDetailsButton(title: "Technical details", text: technical).padding(
+          InstallerDetailsButton(title: "Details", text: technical).padding(
             .top, Space.xs)
         }
         if session.hasExecutionStarted && !retryAvailable {
           Text(
-            "This installation can’t be started again yet. Review the installation record below, and keep this Mac plugged in."
+            "You can’t restart this installation yet. Keep this Mac plugged in, and check Completed steps."
           )
           .font(InstallerTheme.body)
           InstallerDetailsButton(
-            title: "Last verified steps",
+            title: "Completed steps",
             text: ([headline, detail, technical ?? ""]
               + (session.journal.feed.isEmpty
-                ? ["No completed disk step was confirmed. Disk changes may still have started."]
+                ? ["No disk step was confirmed as finished. Disk changes may have started."]
                 : session.journal.feed.map(\.text)))
               .joined(separator: "\n"))
         }
@@ -674,7 +674,7 @@ struct OnePageInstallerView: View {
         AuroraMark().frame(width: 72, height: 72)
         Text(completion.headline)
           .font(InstallerTheme.title)
-        Text("Restart to start Aurora.")
+        Text("Restart your Mac to start Aurora.")
           .font(InstallerTheme.body)
           .foregroundStyle(InstallerTheme.secondaryText)
         if let message = session.restartMessage {
@@ -784,7 +784,7 @@ struct ExistingInstallationContent: View {
       Text(
         partial
           ? PlainLanguage.partialInstallDetail
-          : "Reset Linux in its current space while keeping Stage 1, or erase Linux and return its space to macOS."
+          : "Reset Linux in place and keep Stage 1. Or erase Linux and give its space back to macOS."
       )
       .font(InstallerTheme.body)
       .foregroundStyle(InstallerTheme.secondaryText)
@@ -832,7 +832,7 @@ struct DownloadPanel: View {
   var body: some View {
     VStack(spacing: Space.xl) {
       VStack(spacing: Space.s) {
-        Text("Preparing your installation").font(InstallerTheme.title)
+        Text("Preparing to install").font(InstallerTheme.title)
         Text(title).font(InstallerTheme.body).foregroundStyle(.secondary)
       }
       VStack(spacing: Space.s) {
@@ -888,7 +888,7 @@ struct DiskSplitPanel: View {
       Text(
         plan.updatesBootLoader
           ? PlainLanguage.bootLoaderUpdateReviewTitle
-          : plan.preservesStage1 ? "Review your reset" : "Choose your space"
+          : plan.preservesStage1 ? "Review the reset" : "Choose space for Aurora"
       )
       .font(InstallerTheme.title)
       if plan.updatesBootLoader {
@@ -898,7 +898,7 @@ struct DiskSplitPanel: View {
           .fixedSize(horizontal: false, vertical: true)
       } else if plan.preservesStage1 {
         Text(
-          "Stage 1, its startup name and icon, and partition sizes stay. EFI boot files, Linux Boot and Root are replaced, erasing Linux accounts and files."
+          "Kept: Stage 1, the startup name and icon, and partition sizes. Replaced: the EFI boot files, Linux Boot and Root. All Linux accounts and files are erased."
         )
         .font(InstallerTheme.body)
         .foregroundStyle(InstallerTheme.secondaryText)
@@ -968,8 +968,8 @@ struct DiskSplitPanel: View {
               .frame(width: 28, height: 28)
           }
           .buttonStyle(.plain).foregroundStyle(.secondary)
-          .accessibilityLabel("Edit Aurora size")
-          .help("Edit Aurora size")
+          .accessibilityLabel("Change Aurora size")
+          .help("Change Aurora size")
         }
         Text(PlainLanguage.bytes(bytes)).font(InstallerTheme.display)
           .monospacedDigit().foregroundStyle(
@@ -1045,7 +1045,7 @@ struct DiskSizePrompt: View {
       }
       Text(
         input.validationMessage
-          ?? "From \(PlainLanguage.bytes(minimumBytes)) to \(PlainLanguage.bytes(maximumBytes))"
+          ?? "Between \(PlainLanguage.bytes(minimumBytes)) and \(PlainLanguage.bytes(maximumBytes))"
       )
       .font(InstallerTheme.detail)
       .foregroundStyle(
@@ -1056,7 +1056,7 @@ struct DiskSizePrompt: View {
         Spacer()
         Button("Cancel", action: onCancel).auroraSecondaryButton(size: .large).keyboardShortcut(
           .cancelAction)
-        Button("Apply", action: onApply).auroraPrimaryButton(size: .large)
+        Button("Set size", action: onApply).auroraPrimaryButton(size: .large)
           .disabled(input.requestedBytes == nil).keyboardShortcut(.defaultAction)
       }
     }
@@ -1103,9 +1103,9 @@ struct InstallPanel: View {
         if progress.degraded {
           Text(PlainLanguage.installDegraded).auroraHelpText()
           InstallerDetailsButton(
-            title: "View activity",
+            title: "Show activity",
             text: progress.feed.isEmpty
-              ? "No activity recorded yet." : progress.feed.map(\.text).joined(separator: "\n"))
+              ? "No activity yet." : progress.feed.map(\.text).joined(separator: "\n"))
         }
       }
       .padding(.vertical, Space.m)

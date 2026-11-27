@@ -51,11 +51,11 @@
             }
           } actions: {
             if screen == "existing" {
-              Button("Erase Linux", role: .destructive, action: {}).auroraSecondaryButton()
+              Button("Erase Linux…", role: .destructive, action: {}).auroraSecondaryButton()
             } else if screen.hasPrefix("allocation") {
               HStack(spacing: Space.l) {
                 if screen == "allocation-checking" {
-                  Button("Cancel check", action: {}).auroraSecondaryButton()
+                  Button("Stop checking", action: {}).auroraSecondaryButton()
                 }
                 Button("Install Aurora", action: {}).auroraPrimaryButton()
                   .disabled(screen != "allocation-ready").keyboardShortcut(.defaultAction)

@@ -25,7 +25,7 @@ struct RecoveryHandoffView: View {
       InstallerMasthead(distribution: selection.distribution, device: device)
     } content: {
       VStack(alignment: .leading, spacing: Space.l) {
-        Text("Start in Recovery").font(InstallerTheme.title)
+        Text("Finish setup in Recovery").font(InstallerTheme.title)
         HStack(spacing: Space.xl) {
           if let name = guide.assetName,
             let url = Bundle.main.url(forResource: name, withExtension: "png"),
@@ -43,27 +43,29 @@ struct RecoveryHandoffView: View {
             }.frame(width: 242, height: 160)
           }
           VStack(alignment: .leading, spacing: Space.l) {
-            step(1, "Shut down completely.")
+            step(1, "Shut down your Mac.")
             step(2, guide.holdInstruction)
-            step(3, "Choose “\(volumeName)” → Finish Installation.")
+            step(3, "Choose “\(volumeName)”, then Finish Installation.")
           }
           .frame(maxWidth: .infinity, alignment: .leading)
         }
-        CautionCallout(text: "Don’t restart normally yet: unfinished setup can cause a boot loop.")
-        Text("Have your macOS owner’s password ready. You’ll create your recovery account there.")
-          .font(InstallerTheme.detail).foregroundStyle(InstallerTheme.secondaryText)
+        CautionCallout(text: "Don’t restart normally yet. Unfinished setup can cause a boot loop.")
+        Text(
+          "Have the Mac owner’s macOS password ready. You’ll create your recovery account in Recovery."
+        )
+        .font(InstallerTheme.detail).foregroundStyle(InstallerTheme.secondaryText)
       }.font(InstallerTheme.body)
     } actions: {
       HStack(spacing: Space.m) {
         if let onReinstall {
-          Button("Reset options…", action: onReinstall)
+          Button("Other options…", action: onReinstall)
             .auroraSecondaryButton()
             .disabled(busy)
         }
         NativeSpinner().controlSize(.small)
           .frame(width: 16, height: 16).opacity(busy ? 1 : 0)
-          .accessibilityHidden(!busy).accessibilityLabel("Preparing shutdown")
-        Button(shutdownConfirmed ? "Yes, I have read, shut down" : "Shut down", action: shutDown)
+          .accessibilityHidden(!busy).accessibilityLabel("Preparing to shut down")
+        Button(shutdownConfirmed ? "Shut down now" : "Shut down", action: shutDown)
           .auroraPrimaryButton().disabled(busy)
       }
     }
@@ -73,19 +75,19 @@ struct RecoveryHandoffView: View {
     } message: {
       Text("The installed flow shuts down here. This simulation keeps your Mac running.")
     }
-    .alert("Couldn’t prepare shutdown", isPresented: $showingFailure) {
-      Button("Show details") { showingDetails = true }
+    .alert("Couldn’t prepare to shut down", isPresented: $showingFailure) {
+      Button("Details") { showingDetails = true }
       Button("OK", role: .cancel) {}
     } message: {
-      Text("The startup setup needs attention before you shut down.")
+      Text("The startup setup needs a fix before you shut down. Don’t shut down yet.")
     }
     .sheet(isPresented: $showingDetails) {
       VStack(alignment: .leading, spacing: Space.l) {
-        Text("Shutdown details").font(.headline)
+        Text("Details").font(.headline)
         Text(failure ?? "").textSelection(.enabled).lineLimit(10).truncationMode(.middle)
           .frame(maxWidth: .infinity, alignment: .leading)
         HStack {
-          Button("Copy details") {
+          Button("Copy") {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(failure ?? "", forType: .string)
           }
@@ -120,7 +122,7 @@ struct RecoveryHandoffView: View {
       do {
         let accepted = try await session.prepareRecoveryHandoffAndShutdown()
         if !accepted {
-          failure = "Choose Apple menu → Shut Down after saving your work."
+          failure = "Save your work, then choose Apple menu → Shut Down."
           showingFailure = true
         }
       } catch {

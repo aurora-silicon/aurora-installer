@@ -245,7 +245,7 @@ struct AuroraAppleInstallerApp: App {
     #else
       if ProcessInfo.processInfo.arguments.contains("--simulate") {
         ContentUnavailableView(
-          "Simulation is available in debug builds only.", systemImage: "lock.shield")
+          "Simulation needs a debug build.", systemImage: "lock.shield")
       } else {
         liveContent
       }
@@ -281,9 +281,9 @@ struct AuroraAppleInstallerApp: App {
         if removalNeedsReview {
           VStack {
             ContentUnavailableView(
-              "Removal needs review", systemImage: "externaldrive.badge.exclamationmark",
+              "Removal needs a check", systemImage: "externaldrive.badge.exclamationmark",
               description: Text(
-                "Check the removal record and disk layout before changing any disks."))
+                "Check the removal record and the disk layout before you change any disk."))
 
           }
         } else {
@@ -371,8 +371,8 @@ struct AuroraAppleInstallerApp: App {
           CommandMenu("Simulation") {
             Picker("Hold Screen", selection: $simulation.heldScreen) {
               Text("Live simulation").tag("")
-              Text("Getting everything ready").tag("loading")
-              Text("Preparing your installation").tag("preparing")
+              Text("Checking this Mac").tag("loading")
+              Text("Preparing to install").tag("preparing")
               Text("Disk allocation").tag("allocation")
             }
             Divider()
@@ -408,14 +408,14 @@ struct AuroraAppleInstallerApp: App {
         }
       #endif
       CommandMenu("Installation") {
-        Button("Choose system") {
+        Button("Choose a System") {
           liveSession?.cancelPrefetchOnQuit()
           liveSession = nil
           choosingSystem = true
           generation = UUID()
         }.disabled(!choosingSystem && liveSession?.canChangeChannel != true)
         Divider()
-        Button("Erase Linux") {
+        Button("Erase Linux…") {
           removalTarget = nil
           showsRemoval = true
         }

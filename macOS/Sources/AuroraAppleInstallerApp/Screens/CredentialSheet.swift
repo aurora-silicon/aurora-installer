@@ -37,8 +37,8 @@ struct CredentialSheet: View {
         isSimulation
           ? "This simulation uses a test account. No real password is needed."
           : context.kind == .updateBootLoader
-            ? "Use a macOS account that is allowed to install on this Mac. Your password lets the installer prepare the new boot loader and choose this installation as the startup disk."
-            : "Use a macOS account that is allowed to install on this Mac. Your password approves the disk changes you reviewed and the final setup."
+            ? "Use a macOS administrator account. Your password lets the installer prepare the boot loader and set this installation as the startup disk."
+            : "Use a macOS administrator account. Your password approves the disk changes you reviewed and the final setup."
       )
       .font(InstallerTheme.body)
       .fixedSize(horizontal: false, vertical: true)
@@ -147,8 +147,8 @@ struct CredentialSheet: View {
       return isRetry
         ? PlainLanguage.authorizeTurnOnAndRetry : PlainLanguage.authorizeTurnOnAndInstall
     }
-    if context.kind == .updateBootLoader { return "Authorize & update" }
-    return isRetry ? "Authorize Recovery" : "Authorize & install"
+    if context.kind == .updateBootLoader { return "Update" }
+    return isRetry ? "Continue" : "Install"
   }
 
   private var errorMessage: String? {

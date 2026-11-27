@@ -39,7 +39,7 @@
       save(await page(session, selection), "partitions")
       save(await page(session, selection, dark: true), "partitions-dark")
 
-      // Shrink macOS → size → password → installing → Start in Recovery.
+      // Shrink macOS → size → password → installing → Finish setup in Recovery.
       if let shrink = layout.options.first(where: { $0.kind == .shrink }) {
         save(await page(session, selection, option: shrink.id), "partitions-shrink-selected")
         await session.install(into: shrink.target)

@@ -22,7 +22,7 @@ struct AuroraWelcomeView: View {
       // The same column as every other page: the logo's left edge to the
       // device identity's right edge.
       InstallerMasthead(device: device, channel: channel).inPageColumn().padding(.top, Space.l)
-      Text("Choose your distribution and desktop.")
+      Text("Choose what to install")
         .font(InstallerTheme.title)
         .inPageColumn().padding(.top, Space.xl)
       VStack(alignment: .leading, spacing: Space.s) {
@@ -40,7 +40,7 @@ struct AuroraWelcomeView: View {
             }
           }
         }
-        sectionTitle("Desktop environment").padding(.top, Space.m)
+        sectionTitle("Desktop").padding(.top, Space.m)
         if selection.distribution.supportsDesktop {
           LazyVGrid(columns: columns, spacing: Space.l) {
             ForEach(selection.distribution.availableDesktops) { desktop in
@@ -105,8 +105,8 @@ struct AuroraWelcomeView: View {
     switch desktop {
     case .kde: "Familiar and customizable"
     case .gnome: "Clean and focused"
-    case .minimal: "A lightweight shell"
-    case .hyprland: "Omarchy's tiling desktop"
+    case .minimal: "Lightweight shell"
+    case .hyprland: "Omarchy’s tiling desktop"
     }
   }
 }
@@ -162,5 +162,5 @@ struct BrandImage: View {
 }
 
 struct AuroraMark: View {
-  var body: some View { BrandImage("AuroraLogo").accessibilityLabel("Aurora Silicon") }
+  var body: some View { BrandImage("AuroraLogo").accessibilityLabel("Aurora") }
 }

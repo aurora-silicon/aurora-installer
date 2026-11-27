@@ -93,7 +93,7 @@ struct InstallerLogView: View {
             .truncationMode(.middle)
         }
         .buttonStyle(.link)
-        .help("Show the full log file in Finder")
+        .help("Show the log file in Finder")
       }
     }
     .font(InstallerTheme.caption)

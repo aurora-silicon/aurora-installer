@@ -18,7 +18,7 @@ struct InstallerDetailsButton: View {
             .lineLimit(12).truncationMode(.middle)
             .frame(maxWidth: .infinity, alignment: .leading)
           HStack(spacing: Space.m) {
-            Button("Copy details") {
+            Button("Copy") {
               NSPasteboard.general.clearContents()
               NSPasteboard.general.setString(text, forType: .string)
             }.auroraSecondaryButton(size: .large)

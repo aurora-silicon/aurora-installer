@@ -174,7 +174,7 @@ struct PartitionRowView: View {
     return Button("Erase…") { onErase(row) }
       .partitionRowButton()
       .disabled(!enabled || !erase.isAvailable)
-      .help(erase.reason ?? "Erase \(row.name), leaving its space free to install into.")
+      .help(erase.reason ?? "Erase \(row.name) and leave its space free.")
   }
 }
 
@@ -203,9 +203,9 @@ enum PartitionRowMenu {
         title: PlainLanguage.bootLoaderUpdateMenuItem, systemImage: "arrow.down.circle",
         action: .updateBootLoader, enabled: reset.isAvailable,
         help: reset.reason
-          ?? "Install this release’s boot loader for this installation. Linux and its files stay."),
+          ?? "Install this release’s boot loader. Linux and its files stay."),
       Item(
-        title: "Open Startup Disk", systemImage: "externaldrive", action: .openStartupDisk,
+        title: "Open Startup Disk Settings", systemImage: "externaldrive", action: .openStartupDisk,
         enabled: true, separatorBefore: true),
     ]
   }
@@ -549,7 +549,7 @@ struct PartitionLegend: View {
           AnyView(
             InstallerTheme.track.overlay(alignment: .leading) {
               PartitionColors.macOSUsed.frame(width: 7)
-            }), "macOS (used / free)")
+            }), "macOS (used, free)")
       }
       if kinds.contains(.aurora) { swatch(AnyView(InstallerTheme.accent), "Aurora") }
       if kinds.contains(.otherLinux) { swatch(AnyView(PartitionColors.otherLinux), "Other Linux") }
@@ -559,7 +559,7 @@ struct PartitionLegend: View {
             ZStack {
               InstallerTheme.track.opacity(0.4)
               PartitionHatch()
-            }), "Unallocated")
+            }), "Free")
       }
       if kinds.contains(.appleSystem) {
         swatch(AnyView(PartitionColors.appleSystem), "Apple system")
@@ -594,7 +594,7 @@ struct EraseInstallationSheet: View {
         InstallationIcon(icon: row.icon, size: 44)
         VStack(alignment: .leading, spacing: Space.xxs) {
           Text("Erase \(row.name)?").font(InstallerTheme.sheetTitle)
-          Text("Everything stored in it is deleted. This can’t be undone.")
+          Text("Everything in it is deleted. This can’t be undone.")
             .font(InstallerTheme.detail).foregroundStyle(InstallerTheme.secondaryText)
             .fixedSize(horizontal: false, vertical: true)
         }
@@ -614,7 +614,7 @@ struct EraseInstallationSheet: View {
           Label(keptText, systemImage: "checkmark.circle")
         }
         Label(
-          "Next, the removal service checks the disk again, lists exactly which partitions it erases, and asks for your password.",
+          "Next, the removal service checks the disk again, shows exactly what it erases, and asks for your password.",
           systemImage: "lock")
       }
       .font(InstallerTheme.detail).foregroundStyle(InstallerTheme.secondaryText)
@@ -641,7 +641,7 @@ struct EraseInstallationSheet: View {
     let list =
       others.count == 1
       ? others[0] : others.dropLast().joined(separator: ", ") + " and " + others[others.count - 1]
-    return "\(list) \(others.count == 1 ? "isn’t" : "aren’t") touched."
+    return "\(list) \(others.count == 1 ? "stays as it is" : "stay as they are")."
   }
 }
 
@@ -657,9 +657,9 @@ struct ResetInstallationSheet: View {
       HStack(alignment: .top, spacing: Space.m) {
         InstallationIcon(icon: row.icon, size: 44)
         VStack(alignment: .leading, spacing: Space.xxs) {
-          Text("Reset \(row.name)").font(InstallerTheme.sheetTitle)
+          Text("Reset \(row.name)?").font(InstallerTheme.sheetTitle)
           Text(
-            "Advanced. Installs a fresh system into the same \(PlainLanguage.bytes(row.bytes)) and keeps its startup volume, so you don’t go through Recovery again."
+            "Installs a fresh system in the same \(PlainLanguage.bytes(row.bytes)). The startup volume stays, so you don’t need Recovery again."
           )
           .font(InstallerTheme.detail).foregroundStyle(InstallerTheme.secondaryText)
           .fixedSize(horizontal: false, vertical: true)
@@ -668,7 +668,7 @@ struct ResetInstallationSheet: View {
       VStack(alignment: .leading, spacing: Space.xs) {
         PartitionSectionTitle(text: "Installs")
         Text(systemName).font(InstallerTheme.label)
-        Text("To install another system, choose it with Choose system first.")
+        Text("To install a different system, use Choose a system first.")
           .font(InstallerTheme.caption).foregroundStyle(InstallerTheme.secondaryText)
       }
       CautionCallout(

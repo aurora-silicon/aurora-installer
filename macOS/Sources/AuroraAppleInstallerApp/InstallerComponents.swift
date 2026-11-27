@@ -189,7 +189,7 @@ struct DiskBar: View {
     .accessibilityElement(children: .combine)
     .accessibilityLabel("Disk space")
     .accessibilityValue(
-      "macOS \(PlainLanguage.bytes(macOSBytes)), Aurora \(PlainLanguage.bytes(auroraBytes)), unallocated \(PlainLanguage.bytes(unallocatedBytes))"
+      "macOS \(PlainLanguage.bytes(macOSBytes)), Aurora \(PlainLanguage.bytes(auroraBytes)), free \(PlainLanguage.bytes(unallocatedBytes))"
         + (otherAllocatedBytes > 0
           ? ", other storage \(PlainLanguage.bytes(otherAllocatedBytes))" : "")
         + (macOSSpaceCaution.map { ". " + $0 } ?? "")
@@ -376,7 +376,7 @@ extension View {
 struct PreparationStatusPanel: View {
   var body: some View {
     VStack(spacing: Space.l) {
-      Text("Getting everything ready").font(InstallerTheme.title)
+      Text(PlainLanguage.inspectingHeadline).font(InstallerTheme.title)
       NativeSpinner().controlSize(.regular)
     }
     .frame(maxWidth: .infinity)
