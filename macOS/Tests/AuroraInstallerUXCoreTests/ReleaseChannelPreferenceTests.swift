@@ -369,7 +369,7 @@
         contentsOf: app.appendingPathComponent("OnePage/OnePageInstallerView.swift"),
         encoding: .utf8)
       // Wiring guard only; the resolver's behaviour is tested above.
-      XCTAssertTrue(scene.contains(".task(id: selection.profileID)"))
+      XCTAssertTrue(scene.contains(".task(id: selection.profileID + channelCheck.uuidString)"))
       XCTAssertTrue(
         scene.contains(
           "let decided = await LiveInstallerEnvironment.releaseChannel(for: selection)"))

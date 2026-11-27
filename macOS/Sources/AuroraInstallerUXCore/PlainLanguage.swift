@@ -414,6 +414,20 @@
     public static let channelUnverified = "Couldn’t verify"
     public static let channelMenuCheckAgain = "Check Channels Again"
 
+    // MARK: Developer mode
+
+    public static let developerModeMenuItem = "Developer Mode"
+    public static let developerModeBadge = "Developer mode"
+    public static let developerModeLeave = "Turn Off"
+    public static let developerModeBadgeHelp =
+      "Shows Edge, release candidates and other expert options. Press Command-D to turn it off."
+    public static let developerModeOnLog =
+      "Developer mode is on. Edge, release candidates and expert options are shown."
+    public static let developerModeOffLog =
+      "Developer mode is off. Developer-only choices were reset to their defaults."
+    public static let developerStubMenuTitle = "macOS Stub"
+    public static let developerStubDefault = "Qualified Default"
+
     public static func badge(for channel: ReleaseChannel) -> String {
       switch channel {
       case .stable: channelStable

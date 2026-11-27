@@ -160,6 +160,11 @@ struct AuroraAppleInstallerApp: App {
   @State private var removalTarget: DiskLayoutDisplay.EraseTarget?
   @State private var removalNeedsReview = false
   @State private var removalBusy = false
+  /// Command-D. Lives for this launch only; see `DeveloperMode`.
+  @State private var developerMode = false
+  /// Changed to read the profile's default channel again, after Developer
+  /// mode is turned off while a developer-only channel was in use.
+  @State private var channelCheck = UUID()
   #if DEBUG
     @State private var simulation = SimulationControls()
   #endif
@@ -201,7 +206,8 @@ struct AuroraAppleInstallerApp: App {
       #endif
       AuroraWelcomeView(
         selection: $selection, device: .inspect(isSimulation: isSimulation),
-        channel: selectedChannel
+        channel: selectedChannel,
+        distributions: DeveloperMode.distributions(isOn: developerMode)
       ) {
         choosingSystem = false
         generation = UUID()
@@ -274,7 +280,12 @@ struct AuroraAppleInstallerApp: App {
         }
       }
       .id(generation)
-      .task(id: selection.profileID) {
+      .overlay(alignment: .top) {
+        if developerMode {
+          DeveloperModeBadge { setDeveloperMode(false) }.padding(.top, 8)
+        }
+      }
+      .task(id: selection.profileID + channelCheck.uuidString) {
         guard !isSimulation else { return }
         // Another profile's channel says nothing about this one.
         channel = nil
@@ -399,12 +410,27 @@ struct AuroraAppleInstallerApp: App {
           showsRemoval = true
         }
         .disabled(removalNeedsReview || showsRemoval || liveSession?.canChangeChannel != true)
+        Divider()
+        Toggle(PlainLanguage.developerModeMenuItem, isOn: developerModeBinding)
+          .keyboardShortcut("d", modifiers: .command)
+          .disabled(!canToggleDeveloperMode)
+        if developerMode, !DeveloperMode.shared.stubOverrideCandidates.isEmpty {
+          Picker(PlainLanguage.developerStubMenuTitle, selection: stubOverrideBinding) {
+            Text(PlainLanguage.developerStubDefault).tag(StubOverrideChoice?.none)
+            ForEach(DeveloperMode.shared.stubOverrideCandidates) { choice in
+              Text(choice.title).tag(StubOverrideChoice?.some(choice))
+            }
+          }
+          .disabled(liveSession?.canChangeChannel != true && !choosingSystem)
+        }
       }
       if InstallerBuildProfile.current.showsReleaseChannels {
         CommandMenu(PlainLanguage.channelMenuTitle) {
           // One toggle per channel rather than an inline picker, so a channel
           // with nothing for this Mac can be shown but not chosen.
-          ForEach(ReleaseChannel.allCases, id: \.self) { option in
+          ForEach(
+            DeveloperMode.menuChannels(isOn: developerMode, inUse: shownChannel), id: \.self
+          ) { option in
             let availability = liveSession?.channelAvailability[option]
             Toggle(
               PlainLanguage.channelMenuItem(option, availability: availability),
@@ -472,6 +498,54 @@ struct AuroraAppleInstallerApp: App {
   /// for Reset and Update Boot Loader, otherwise the selected profile's.
   private var shownChannel: ReleaseChannel? {
     liveSession?.existingInstallationChannel ?? channel
+  }
+
+  /// Developer mode can be turned on or off while the user is choosing a
+  /// system or reviewing a plan, never while an installation or removal runs.
+  private var canToggleDeveloperMode: Bool {
+    !removalNeedsReview && !showsRemoval && !removalBusy
+      && (choosingSystem || liveSession?.canChangeChannel == true)
+  }
+
+  private var developerModeBinding: Binding<Bool> {
+    Binding(get: { developerMode }, set: { setDeveloperMode($0) })
+  }
+
+  @State private var stubOverride: StubOverrideChoice?
+
+  private var stubOverrideBinding: Binding<StubOverrideChoice?> {
+    Binding(
+      get: { stubOverride },
+      set: {
+        DeveloperMode.shared.stubOverride = $0
+        stubOverride = DeveloperMode.shared.stubOverride
+      })
+  }
+
+  /// Turning Developer mode on only shows more options; nothing on screen
+  /// changes. Turning it off drops a developer-only channel, distribution or
+  /// stub, and the plan on screen starts again from the regular defaults.
+  private func setDeveloperMode(_ on: Bool) {
+    guard on != developerMode, canToggleDeveloperMode else { return }
+    developerMode = on
+    DeveloperMode.shared.isOn = on
+    InstallerLog.progress(
+      on ? PlainLanguage.developerModeOnLog : PlainLanguage.developerModeOffLog)
+    guard !on else { return }
+    stubOverride = nil
+    let preference = ReleaseChannelPreference()
+    let usedDeveloperChannel = channel.map(DeveloperMode.isDeveloperChannel) ?? false
+    preference.select(DeveloperMode.choiceAfterLeaving(preference.stored))
+    let regular = DeveloperMode.selectionAfterLeaving(selection)
+    let changedSelection = regular != selection
+    selection = regular
+    guard usedDeveloperChannel || changedSelection else { return }
+    if usedDeveloperChannel { channelCheck = UUID() }
+    if !choosingSystem {
+      liveSession?.cancelPrefetchOnQuit()
+      liveSession = nil
+      generation = UUID()
+    }
   }
 
   private func channelBinding(_ option: ReleaseChannel) -> Binding<Bool> {
