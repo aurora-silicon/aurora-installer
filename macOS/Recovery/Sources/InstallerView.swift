@@ -178,8 +178,10 @@ final class InstallerView: NSViewController, NSTextFieldDelegate, NSMenuItemVali
 
   private var stageTitle: String {
     switch model.stage {
+    case .welcome where upgrading: return "Update startup firmware"
     case .welcome where updating: return "Update startup software"
     case .welcome: return model.recoveryInterface ? "Repair startup" : "Finish setup"
+    case .installing where upgrading: return "Updating startup firmware"
     case .installing where updating: return "Updating startup software"
     case .installing:
       return model.recoveryInterface ? "Restoring startup software" : "Setting up Aurora Linux"
@@ -193,7 +195,9 @@ final class InstallerView: NSViewController, NSTextFieldDelegate, NSMenuItemVali
   }
 
   /// A staged Stage 1 replaces Restore: setup's checks, then only enrollment.
-  private var updating: Bool { model.stage1Update != nil }
+  private var updating: Bool { model.stage1Update != nil || upgrading }
+  /// A staged startup firmware upgrade: Update startup software's screens, its own words.
+  private var upgrading: Bool { model.stubUpgrade != nil }
 
   private var primaryInputs: RecoveryPrimaryAction.Inputs {
     RecoveryPrimaryAction.Inputs(
@@ -233,20 +237,25 @@ final class InstallerView: NSViewController, NSTextFieldDelegate, NSMenuItemVali
   private func buildWelcome() {
     let stack = vertical(spacing: 9)
     let (heading, detail) =
-      updating
+      upgrading
       ? (
-        "Update the startup software for your Mac.",
-        "This installs the startup software the Aurora installer\nprepared. Linux and its files stay as they are."
+        "Update the startup firmware for your Mac.",
+        "This replaces this volume's startup firmware with Apple's\nmacOS \(model.stubUpgrade?.target.version ?? "") and installs the new Stage 1. Join Wi-Fi first.\nLinux and its files stay as they are."
       )
-      : model.recoveryInterface
+      : updating
         ? (
-          "Restore the startup software for your Mac.",
-          "Use the saved recovery files to repair your\nstartup software."
+          "Update the startup software for your Mac.",
+          "This installs the startup software the Aurora installer\nprepared. Linux and its files stay as they are."
         )
-        : (
-          "Finish setting up Aurora Linux on your Mac.",
-          "The final step installs the startup software for your\nselected Aurora volume."
-        )
+        : model.recoveryInterface
+          ? (
+            "Restore the startup software for your Mac.",
+            "Use the saved recovery files to repair your\nstartup software."
+          )
+          : (
+            "Finish setting up Aurora Linux on your Mac.",
+            "The final step installs the startup software for your\nselected Aurora volume."
+          )
     stack.addArrangedSubview(label(heading, size: 15))
     stack.addArrangedSubview(label(detail, size: 13))
     let icon = volumeIcon()

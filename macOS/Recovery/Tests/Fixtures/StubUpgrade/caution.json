@@ -1,0 +1,40 @@
+{
+  "board": "j413",
+  "chip": "0x8112",
+  "current": {
+    "build": "20G75",
+    "device": "/dev/nvme0n1p3",
+    "group": "6A1E2B3C-4D5E-4F60-8172-8394A5B6C7D8",
+    "version": "13.5"
+  },
+  "esp_partuuid": "1b2c3d4e-5f60-4172-8394-a5b6c7d8e9f0",
+  "mode": "in-place",
+  "plan_sha256": "316accc759d544487ba9061e523c93762868bafa13aee4db3ee8ec627222d05b",
+  "schema": 1,
+  "space": {
+    "container": 2499805184,
+    "new_boot_files": 120000000,
+    "new_recovery_image": 1310000000,
+    "peak": 2841875000,
+    "preboot": 220000000,
+    "recovery_image": 810000000,
+    "used": 1050000000
+  },
+  "stage1": {
+    "path": "stage1/aura-boot.macho",
+    "sha256": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+    "version": "1.0.0b17"
+  },
+  "system_firmware": "iBoot-13822.41.1",
+  "target": {
+    "build": "26B123",
+    "caution": "Touch ID \u2014 not yet on 27.2 \ud83d\udd12 \"quoted\" \\ tab\there",
+    "manifest_sha256": "sha256:abababababababababababababababababababababababababababababababab",
+    "minimum_boot": "iBoot-13822.41.1",
+    "minimum_recovery": "26.2.123.0.0,0",
+    "source_bytes": 19000000000,
+    "stub_bytes": 5999951872,
+    "url": "https://updates.cdn-apple.com/fixture/UniversalMac_27.2_26B123_Restore.ipsw",
+    "version": "27.2"
+  }
+}

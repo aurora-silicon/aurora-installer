@@ -1,0 +1,727 @@
+import Foundation
+import RecoveryCompression
+
+#if canImport(Darwin)
+  import Darwin
+#else
+  import Glibc
+#endif
+
+// RestoreImageDirectory.stream and RestoreImageStubFiles against the images in
+// Fixtures/RestoreImageStubFiles (generate.py, member SHA-256s from Python's
+// zipfile) and the admitted images of Fixtures/RestoreImageStubPlan: every
+// written file holds its member's bytes, links their targets, and a second run
+// adopts the first; a changed file, a link or a writable directory in the way,
+// and a body that doesn't decode to its declared bytes stop the run with
+// nothing published. With an archive key, the Apple Encrypted Archives of the
+// aea-* images are decoded to their plain bytes (lengths and SHA-256s from
+// generate.py), the Recovery image kept compressed (decmpfs on macOS); a
+// wrong key, a changed segment or a Recovery image without a disk image
+// trailer stops the run with no Recovery image published. On macOS the
+// Recovery image must also be decmpfs type 12 whose resource fork decodes to
+// the bytes read back through the file system.
+@main struct Check {
+  nonisolated(unsafe) static var failures = 0
+  static func expect(_ condition: Bool, _ what: String) {
+    if !condition {
+      failures += 1
+      print("FAIL: \(what)")
+    }
+  }
+
+  static let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+  static let files = here.appendingPathComponent("Fixtures/RestoreImageStubFiles")
+  static let plans = here.appendingPathComponent("Fixtures/RestoreImageStubPlan")
+  static let group = "6A1E2B3C-4D5E-4F60-8172-8394A5B6C7D8"
+
+  struct Image {
+    let bytes: [UInt8]
+    let directory: RestoreImageDirectory
+    init(_ url: URL) throws {
+      bytes = [UInt8](try Data(contentsOf: url))
+      let copy = bytes
+      directory = try RestoreImageDirectory.read(archiveSize: copy.count) {
+        Data(copy[$0..<($0 + $1)])
+      }
+    }
+    func read(_ offset: Int, _ count: Int) throws -> Data { Data(bytes[offset..<(offset + count)]) }
+    func entry(_ name: String) -> RestoreImageDirectory.Entry {
+      directory.entries.first { $0.name == name }!
+    }
+    func plan(_ expected: [String: Any]) throws -> RestoreImageStubPlan {
+      let manifest = try directory.contents(entry("BuildManifest.plist"), read: read)
+      return try RestoreImageStubPlan(
+        directory: directory, read: read, productVersion: expected["version"] as! String,
+        deviceClass: expected["device_class"] as! String,
+        boardID: UInt64(expected["board"] as! Int), chipID: UInt64(expected["chip"] as! Int),
+        pin: .init(
+          sourceBytes: bytes.count, manifestSHA256: RecoveryDigest.sha256(manifest),
+          build: expected["build"] as! String),
+        sha256: RecoveryDigest.sha256)
+    }
+  }
+
+  /// Fresh System, Preboot and Recovery roots.
+  /// The group APFS gives a volume root, admin (80); a check run by an
+  /// owner that can't give a folder to it uses its own group.
+  static func volumeRoot(_ url: URL) {
+    chmod(url.path, 0o775)
+    if chown(url.path, geteuid(), 80) != 0 { chown(url.path, geteuid(), getegid()) }
+  }
+
+  /// Fresh System, Preboot and Recovery roots, as APFS makes them: 0775,
+  /// group admin.
+  static func roots() throws -> (URL, [String: URL]) {
+    let base = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "stub-files-" + UUID().uuidString)
+    var roots = [String: URL]()
+    for role in RestoreImageStubFiles.roles {
+      let root = base.appendingPathComponent(role)
+      try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+      volumeRoot(root)
+      roots[role] = root
+    }
+    chmod(base.path, 0o755)
+    return (base, roots)
+  }
+
+  static func sha(_ url: URL) -> String? {
+    (try? Data(contentsOf: url)).map(RecoveryDigest.sha256)
+  }
+
+  #if canImport(Darwin)
+    /// The SHA-256 of a decmpfs type 12 file's bytes as its resource fork holds
+    /// them (every LZFSE block decoded), if its decmpfs header says type 12
+    /// and its own length. Once UF_COMPRESSED is set, APFS hides both
+    /// attributes unless XATTR_SHOWCOMPRESSION asks for them.
+    static func compressedForm(_ url: URL) -> String? {
+      let options = XATTR_NOFOLLOW | XATTR_SHOWCOMPRESSION
+      func attribute(_ name: String) -> [UInt8]? {
+        let size = getxattr(url.path, name, nil, 0, 0, options)
+        guard size > 0 else { return nil }
+        var value = [UInt8](repeating: 0, count: size)
+        guard getxattr(url.path, name, &value, size, 0, options) == size else { return nil }
+        return value
+      }
+      var info = stat()
+      guard lstat(url.path, &info) == 0, info.st_flags & UInt32(UF_COMPRESSED) != 0,
+        let header = attribute("com.apple.decmpfs"), header.count == 16,
+        header[0..<8] == [0x66, 0x70, 0x6d, 0x63, 12, 0, 0, 0],
+        header[8..<16].reversed().reduce(0, { $0 << 8 | Int($1) }) == Int(info.st_size),
+        let fork = attribute("com.apple.ResourceFork")
+      else { return nil }
+      let blocks = (Int(info.st_size) + 65535) / 65536
+      guard fork.count >= (blocks + 1) * 4 else { return nil }
+      let offsets = (0...blocks).map { index in
+        fork[(index * 4)..<(index * 4 + 4)].reversed().reduce(0) { $0 << 8 | Int($1) }
+      }
+      guard offsets.first == (blocks + 1) * 4, offsets.last == fork.count,
+        zip(offsets, offsets.dropFirst()).allSatisfy({ $0 < $1 })
+      else { return nil }
+      var plain = Data()
+      for index in 0..<blocks {
+        let block = Array(fork[offsets[index]..<offsets[index + 1]])
+        var out = [UInt8](repeating: 0, count: 65537)
+        let count = block.withUnsafeBufferPointer { source in
+          out.withUnsafeMutableBufferPointer { target in
+            aurora_lzfse_decode(
+              target.baseAddress!, target.count, source.baseAddress!, source.count)
+          }
+        }
+        guard count == min(65536, Int(info.st_size) - index * 65536) else { return nil }
+        plain += out.prefix(count)
+      }
+      return RecoveryDigest.sha256(plain)
+    }
+  #endif
+
+  /// Every name under `url` that is a leftover temporary file.
+  static func leftovers(_ url: URL) -> [String] {
+    (FileManager.default.subpaths(atPath: url.path) ?? []).filter {
+      $0.split(separator: "/").last?.hasPrefix(".aurora-stub-") == true
+    }
+  }
+
+  static func write(
+    _ image: Image, _ plan: RestoreImageStubPlan, _ roots: [String: URL], chunk: Int = 65536,
+    group: String = group, key: Data? = nil
+  ) -> Result<RestoreImageStubFiles, Error> {
+    Result {
+      try RestoreImageStubFiles(
+        plan: plan, directory: image.directory, read: image.read, roots: roots, group: group,
+        chunkBytes: chunk,
+        archiveKey: key.map { key in
+          { entry, metadata in
+            // The key closure gets the member and its archive's metadata.
+            expect(
+              metadata["com.apple.wkms.fcs-key-url"] != nil
+                && image.directory.entries.contains(entry),
+              "archive key asked for \(entry.name) with its metadata")
+            return key
+          }
+        })
+    }
+  }
+
+  struct Decoded {
+    let bytes: Int
+    let sha256: String
+  }
+
+  /// The written stub agrees with the plan and the members' bytes, and what
+  /// it leaves pending would complete the receipts in the main installer's order.
+  static func verify(
+    _ name: String, _ image: Image, _ plan: RestoreImageStubPlan,
+    _ files: RestoreImageStubFiles, _ roots: [String: URL], sha256: [String: String],
+    decoded: [String: Decoded] = [:]
+  ) {
+    var wanted = [(String, String, String?, String?)]()  // role, path, data name, member
+    for copy in plan.copies {
+      // A link's receipt has no installer data name, as in the main installer.
+      let link = plan.linkTargets[copy.member] != nil
+      wanted.append((copy.role, copy.path, link ? nil : copy.installerDataName, copy.member))
+    }
+    wanted.append(
+      ("Preboot", plan.restorePath + "/BuildManifest.plist", "BuildManifest.plist", nil))
+    wanted.append(
+      ("Recovery", RestoreImageStubFiles.recoveryImagePath, nil, plan.recoveryMember.name))
+    wanted.append(("System", RestoreImageStubFiles.systemVersionPath, "SystemVersion.plist", nil))
+    // Each pending file goes where `position` (installed receipts before it)
+    // says: the merged list is then the main installer's full order.
+    var merged = [(RestoreImageStubFiles.Installed?, RestoreImageStubFiles.Pending?)]()
+    var installed = files.installed[...]
+    var pending = files.pending.sorted(by: { $0.position < $1.position })[...]
+    while !installed.isEmpty || !pending.isEmpty {
+      if let next = pending.first, next.position == files.installed.count - installed.count {
+        merged.append((nil, next))
+        pending = pending.dropFirst()
+      } else if let next = installed.first {
+        merged.append((next, nil))
+        installed = installed.dropFirst()
+      } else {
+        expect(false, "\(name): pending position past the end")
+        break
+      }
+    }
+    expect(merged.count == wanted.count, "\(name): \(merged.count) receipts, want \(wanted.count)")
+    for ((done, left), want) in zip(merged, wanted) {
+      let full = want.0 == "System" ? want.1 : group + "/" + want.1
+      if let left {
+        expect(
+          left.role == want.0 && left.path == want.1 && left.member == want.3
+            && left.installerDataName == want.2,
+          "\(name): pending \(left.path) in order, want \(want.1)")
+        expect(
+          !FileManager.default.fileExists(atPath: roots[want.0]!.appendingPathComponent(full).path),
+          "\(name): pending \(full) was written")
+        continue
+      }
+      guard let installed = done else { continue }
+      expect(
+        installed.role == want.0 && installed.path == full && installed.installerDataName == want.2,
+        "\(name): \(installed.path) in order, want \(full)")
+      let url = roots[want.0]!.appendingPathComponent(full)
+      if let member = want.3, let target = plan.linkTargets[member] {
+        let on = try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)
+        expect(
+          on == target && installed.linkTarget == target, "\(name): link \(full) -> \(on ?? "-")")
+        expect(
+          installed.identity.sha256 == RecoveryDigest.sha256(Data(target.utf8)),
+          "\(name): link identity")
+        continue
+      }
+      let digest = sha(url)
+      expect(digest == installed.identity.sha256, "\(name): \(full) on disk matches its identity")
+      if let member = want.3, let plain = decoded[member] {
+        expect(digest == plain.sha256, "\(name): \(full) holds \(member)'s decoded bytes")
+        expect(installed.identity.bytes == plain.bytes, "\(name): \(full) decoded size")
+      } else if let member = want.3 {
+        expect(digest == sha256[member], "\(name): \(full) holds \(member)'s bytes")
+        expect(installed.identity.bytes == image.entry(member).size, "\(name): \(full) size")
+      } else if want.1.hasSuffix("BuildManifest.plist") {
+        expect(digest == RecoveryDigest.sha256(plan.manifest), "\(name): manifest")
+      } else {
+        expect(digest == RecoveryDigest.sha256(plan.systemVersion), "\(name): system version")
+      }
+      var info = stat()
+      expect(
+        lstat(url.path, &info) == 0 && info.st_mode & 0o7777 == 0o644 && info.st_nlink == 1,
+        "\(name): \(full) is 0644 with one name")
+      #if canImport(Darwin)
+        // Only the Recovery image is stored compressed, as decmpfs type 12.
+        let compressed = info.st_flags & UInt32(UF_COMPRESSED) != 0
+        expect(
+          compressed == (want.0 == "Recovery"), "\(name): \(full) compressed: \(compressed)")
+        if want.0 == "Recovery" {
+          expect(
+            compressedForm(url) == installed.identity.sha256,
+            "\(name): \(full) is decmpfs type 12 holding its bytes")
+        }
+      #endif
+    }
+    // Every directory the writer made is 0755, whatever the umask.
+    for (_, root) in roots {
+      for path in FileManager.default.subpaths(atPath: root.path) ?? [] {
+        var info = stat()
+        guard lstat(root.appendingPathComponent(path).path, &info) == 0,
+          info.st_mode & S_IFMT == S_IFDIR
+        else { continue }
+        expect(info.st_mode & 0o7777 == 0o755, "\(name): directory \(path) is not 0755")
+      }
+    }
+  }
+
+  static func pending(_ list: [[String: Any]]) -> [RestoreImageStubFiles.Pending] {
+    list.map {
+      RestoreImageStubFiles.Pending(
+        member: $0["member"] as! String, role: $0["role"] as! String,
+        path: $0["path"] as! String, installerDataName: $0["installer_data"] as? String,
+        appleEncrypted: $0["aea"] as! Bool, compressed: $0["compressed"] as! Bool,
+        position: $0["position"] as! Int)
+    }
+  }
+
+  static func main() throws {
+    // Directories must come out 0755 whatever the umask.
+    umask(0o077)
+    let planExpected =
+      try JSONSerialization.jsonObject(
+        with: Data(contentsOf: plans.appendingPathComponent("expected.json"))) as! [String: Any]
+    let expected =
+      try JSONSerialization.jsonObject(
+        with: Data(contentsOf: files.appendingPathComponent("expected.json"))) as! [String: Any]
+    var written = 0
+
+    // This directory's images and, as "plan/<name>", every plan image that
+    // admits a plan; member SHA-256s from Python's zipfile.
+    var cases = [(String, URL, [String: String], [RestoreImageStubFiles.Pending])]()
+    var keyed = [String: (key: Data, decoded: [String: Decoded], refuse: String?)]()
+    for (name, value) in expected.sorted(by: { $0.key < $1.key }) {
+      guard let value = value as? [String: Any] else { continue }
+      let url =
+        name.hasPrefix("plan/")
+        ? plans.appendingPathComponent(String(name.dropFirst(5)) + ".zip")
+        : files.appendingPathComponent(name + ".zip")
+      cases.append(
+        (
+          name, url, value["sha256"] as! [String: String],
+          pending(value["pending"] as! [[String: Any]])
+        ))
+      if let key = value["key"] as? String {
+        let bytes = stride(from: 0, to: key.count, by: 2).map {
+          UInt8(key.dropFirst($0).prefix(2), radix: 16)!
+        }
+        let decoded = (value["decoded"] as? [String: [String: Any]] ?? [:]).mapValues {
+          Decoded(bytes: $0["bytes"] as! Int, sha256: $0["sha256"] as! String)
+        }
+        keyed[name] = (Data(bytes), decoded, value["refuse"] as? String)
+      }
+    }
+    expect(keyed.count == 3, "keyed cases: \(keyed.count)")
+    let admitted = (planExpected["cases"] as! [String: Any]).merging(
+      planExpected["recovery_only"] as! [String: Any]
+    ) { a, _ in a }.filter { $0.value is [String: Any] }.keys.sorted()
+    expect(
+      Set(cases.map(\.0).filter { $0.hasPrefix("plan/") }) == Set(admitted.map { "plan/" + $0 }),
+      "every admitted plan image is a case")
+    expect(cases.count >= 4, "cases: \(cases.count)")
+
+    for (name, url, sums, pendingFiles) in cases {
+      let image = try Image(url)
+      let plan = try image.plan(planExpected)
+      // Streaming in any chunk size gives the member's bytes.
+      for entry in image.directory.entries where !entry.isDirectory && !entry.isSymbolicLink {
+        for chunk in [1, 4096, 65536, RestoreImageDirectory.streamChunk]
+        where chunk > 1 || entry.size <= 4096 {
+          var hash = RecoveryDigest.Stream()
+          var largest = 0
+          do {
+            try image.directory.stream(entry, chunkBytes: chunk, read: image.read) {
+              largest = max(largest, $0.count)
+              hash.update($0)
+            }
+            expect(hash.finish() == sums[entry.name], "\(name): \(entry.name) streamed at \(chunk)")
+            expect(largest <= chunk, "\(name): \(entry.name) chunk \(largest) > \(chunk)")
+          } catch {
+            expect(false, "\(name): \(entry.name) at \(chunk): \(error)")
+          }
+        }
+      }
+      for chunk in [4096, RestoreImageDirectory.streamChunk] {
+        let (base, roots) = try roots()
+        defer { try? FileManager.default.removeItem(at: base) }
+        guard case .success(let files) = write(image, plan, roots, chunk: chunk) else {
+          expect(false, "\(name): write at \(chunk): \(write(image, plan, roots))")
+          continue
+        }
+        written += 1
+        verify(name, image, plan, files, roots, sha256: sums)
+        expect(files.pending == pendingFiles, "\(name): pending \(files.pending)")
+        expect(leftovers(base).isEmpty, "\(name): temporary files left: \(leftovers(base))")
+        // A second run adopts every file and link.
+        if case .success(let again) = write(image, plan, roots, chunk: chunk) {
+          expect(
+            again.installed == files.installed && again.pending == files.pending,
+            "\(name): second run differs")
+        } else {
+          expect(false, "\(name): second run refused")
+        }
+      }
+      // With the archive key: decoded, or refused with no Recovery image.
+      guard let (key, decoded, refuse) = keyed[name].map({ ($0.key, $0.decoded, $0.refuse) })
+      else { continue }
+      for chunk in [4096, RestoreImageDirectory.streamChunk] {
+        let (base, roots) = try roots()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let recovery = roots["Recovery"]!.appendingPathComponent(
+          group + "/" + RestoreImageStubFiles.recoveryImagePath)
+        switch (write(image, plan, roots, chunk: chunk, key: key), refuse) {
+        case (.success(let files), nil):
+          written += 1
+          verify(name, image, plan, files, roots, sha256: sums, decoded: decoded)
+          expect(files.pending.isEmpty, "\(name): keyed run left \(files.pending)")
+          expect(leftovers(base).isEmpty, "\(name): keyed run left temporary files")
+          let again = write(image, plan, roots, chunk: chunk, key: key)
+          expect(
+            (try? again.get())?.installed == files.installed, "\(name): keyed rerun: \(again)")
+          // Another key opens none of them; what is published stays as it was.
+          let other = write(image, plan, roots, chunk: chunk, key: Data(key.map { $0 ^ 0x80 }))
+          if case .failure(let error) = other {
+            expect("\(error)" == "authentication", "\(name): another key: \(error)")
+          } else {
+            expect(false, "\(name): another key decoded")
+          }
+          expect(
+            sha(recovery) == decoded[plan.recoveryMember.name]?.sha256,
+            "\(name): Recovery image kept")
+        case (.failure(let error), let refuse?):
+          expect("\(error)" == refuse, "\(name): keyed run \(error), want \(refuse)")
+          expect(!FileManager.default.fileExists(atPath: recovery.path), "\(name): published")
+          expect(leftovers(base).isEmpty, "\(name): refused run left temporary files")
+        case (let result, _):
+          expect(false, "\(name): keyed run \(result), want \(refuse ?? "success")")
+        }
+      }
+      // Another key on a fresh stub publishes no decoded file.
+      do {
+        let (base, roots) = try roots()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let result = write(image, plan, roots, key: Data(key.map { $0 ^ 0x80 }))
+        expect((try? result.get()) == nil, "\(name): another key")
+        for copy in plan.copies where decoded[copy.member] != nil {
+          expect(
+            !FileManager.default.fileExists(
+              atPath: roots[copy.role]!.appendingPathComponent(group + "/" + copy.path).path),
+            "\(name): \(copy.path) published under another key")
+        }
+        expect(leftovers(base).isEmpty, "\(name): another key left temporary files")
+      }
+    }
+
+    // Faults, on ok.zip.
+    let image = try Image(plans.appendingPathComponent("ok.zip"))
+    let plan = try image.plan(planExpected)
+    let kernel = group + "/Restore/kernelcache.release.mac14j"
+    func fault(
+      _ what: String, _ want: RestoreImageStubFiles.Failure,
+      group: String = group, roles: [String]? = nil, left: Int = 0,
+      _ setup: (URL, [String: URL]) throws -> Void = { _, _ in }
+    ) throws {
+      let (base, all) = try roots()
+      defer { try? FileManager.default.removeItem(at: base) }
+      try setup(base, all)
+      let roots = roles.map { kept in all.filter { kept.contains($0.key) } } ?? all
+      let result = write(image, plan, roots, group: group)
+      if case .failure(let error as RestoreImageStubFiles.Failure) = result {
+        expect(error == want, "\(what): \(error), want \(want)")
+      } else {
+        expect(false, "\(what): \(result), want \(want)")
+      }
+      expect(leftovers(base).count == left, "\(what): temporary files left")
+    }
+    try fault("group not a UUID", .invalidPlan, group: "Restore")
+    try fault("group in lower case", .invalidPlan, group: group.lowercased())
+    try fault("no Recovery root", .invalidPlan, roles: ["System", "Preboot"])
+    // Only the three stub volumes: another root is not one this pass writes.
+    do {
+      let (base, roots) = try roots()
+      defer { try? FileManager.default.removeItem(at: base) }
+      var more = roots
+      more["Data"] = roots["System"]!
+      let result = write(image, plan, more)
+      if case .failure(let error as RestoreImageStubFiles.Failure) = result {
+        expect(error == .invalidPlan, "a fourth root: \(error)")
+      } else {
+        expect(false, "a fourth root: \(result)")
+      }
+    }
+    // A destination that holds other bytes stops the run and survives.
+    do {
+      let (base, roots) = try roots()
+      defer { try? FileManager.default.removeItem(at: base) }
+      let url = roots["Preboot"]!.appendingPathComponent(kernel)
+      try FileManager.default.createDirectory(
+        at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+      try Data("other".utf8).write(to: url)
+      chmod(url.path, 0o644)
+      let result = write(image, plan, roots)
+      if case .failure(let error as RestoreImageStubFiles.Failure) = result {
+        expect(error == .changedFile, "a changed file: \(error)")
+      } else {
+        expect(false, "a changed file: \(result)")
+      }
+      expect(sha(url) == RecoveryDigest.sha256(Data("other".utf8)), "a changed file is kept")
+      expect(leftovers(base).isEmpty, "a changed file: temporary files left")
+    }
+    let bootcaches = "usr/standalone/bootcaches.plist"
+    let temporary = RestoreImageStubFiles.Tree.temporaryName(namespace: group, path: bootcaches)
+    let kernelTemporary = RestoreImageStubFiles.Tree.temporaryName(namespace: group, path: kernel)
+    // A run stopped after naming a file and before removing its private name.
+    do {
+      let (base, roots) = try roots()
+      defer { try? FileManager.default.removeItem(at: base) }
+      _ = try write(image, plan, roots).get()
+      let url = roots["Preboot"]!.appendingPathComponent(kernel)
+      let stale = url.deletingLastPathComponent().appendingPathComponent(kernelTemporary)
+      expect(link(url.path, stale.path) == 0, "hard link the private name")
+      let again = write(image, plan, roots)
+      var info = stat()
+      expect(
+        (try? again.get()) != nil && leftovers(base).isEmpty && lstat(url.path, &info) == 0
+          && info.st_nlink == 1,
+        "an interrupted run runs again: \(again)")
+    }
+    // A private name that shares a file with something other than its
+    // destination is not ours to remove.
+    do {
+      let (base, roots) = try roots()
+      defer { try? FileManager.default.removeItem(at: base) }
+      let parent = roots["System"]!.appendingPathComponent("usr/standalone")
+      try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+      chmod(parent.path, 0o755)
+      chmod(parent.deletingLastPathComponent().path, 0o755)
+      let outside = base.appendingPathComponent("outside")
+      try Data("keep".utf8).write(to: outside)
+      chmod(outside.path, 0o644)
+      expect(link(outside.path, parent.appendingPathComponent(temporary).path) == 0, "link outside")
+      // The destination exists, as its own file: only the inode check tells them apart.
+      let destination = parent.appendingPathComponent("bootcaches.plist")
+      try image.directory.contents(image.entry(bootcaches), read: image.read).write(to: destination)
+      chmod(destination.path, 0o644)
+      let result = write(image, plan, roots)
+      if case .failure(let error as RestoreImageStubFiles.Failure) = result {
+        expect(error == .unsafeFile, "a private name shared elsewhere: \(error)")
+      } else {
+        expect(false, "a private name shared elsewhere: \(result)")
+      }
+      var info = stat()
+      expect(
+        lstat(outside.path, &info) == 0 && info.st_nlink == 2, "the shared private name is kept")
+    }
+    // A destination with a second name elsewhere is not adopted.
+    try fault("a destination with two names", .unsafeFile) { base, roots in
+      let url = roots["System"]!.appendingPathComponent(bootcaches)
+      try FileManager.default.createDirectory(
+        at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+      chmod(url.deletingLastPathComponent().path, 0o755)
+      chmod(url.deletingLastPathComponent().deletingLastPathComponent().path, 0o755)
+      try image.directory.contents(image.entry(bootcaches), read: image.read).write(to: url)
+      chmod(url.path, 0o644)
+      _ = link(url.path, base.appendingPathComponent("second").path)
+    }
+    // Things of another user's in the way (only root can make them).
+    if geteuid() == 0 {
+      try fault("a directory of another user's", .unsafeFile) { _, roots in
+        let url = roots["Preboot"]!.appendingPathComponent(group)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        chmod(url.path, 0o755)
+        chown(url.path, 1234, 1234)
+      }
+      try fault("an identical file of another user's", .unsafeFile) { _, roots in
+        let url = roots["System"]!.appendingPathComponent(bootcaches)
+        try FileManager.default.createDirectory(
+          at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        chmod(url.deletingLastPathComponent().path, 0o755)
+        chmod(url.deletingLastPathComponent().deletingLastPathComponent().path, 0o755)
+        try image.directory.contents(image.entry(bootcaches), read: image.read).write(to: url)
+        chmod(url.path, 0o644)
+        chown(url.path, 1234, 1234)
+      }
+      try fault("a link of another user's", .changedFile) { _, roots in
+        var path = roots["Preboot"]!
+        for part in [group, "Restore", "Bootability", "Frameworks", "Boot.framework", "Versions"] {
+          path = path.appendingPathComponent(part)
+          try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
+          chmod(path.path, 0o755)
+        }
+        let url = path.appendingPathComponent("Current")
+        try FileManager.default.createSymbolicLink(atPath: url.path, withDestinationPath: "A")
+        lchown(url.path, 1234, 1234)
+      }
+    }
+    try fault("a link for a directory", .unsafeFile) { base, roots in
+      let elsewhere = base.appendingPathComponent("elsewhere")
+      try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+      chmod(elsewhere.path, 0o755)
+      try FileManager.default.createSymbolicLink(
+        at: roots["Preboot"]!.appendingPathComponent(group), withDestinationURL: elsewhere)
+    }
+    try fault("a link for a file", .unsafeFile) { base, roots in
+      let url = roots["System"]!.appendingPathComponent("usr/standalone/bootcaches.plist")
+      try FileManager.default.createDirectory(
+        at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+      try Data().write(to: base.appendingPathComponent("target"))
+      try FileManager.default.createSymbolicLink(
+        at: url, withDestinationURL: base.appendingPathComponent("target"))
+    }
+    try fault("a link with another target", .changedFile) { _, roots in
+      let url = roots["Preboot"]!.appendingPathComponent(
+        group + "/Restore/Bootability/Frameworks/Boot.framework/Versions/Current")
+      try FileManager.default.createDirectory(
+        at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+      try FileManager.default.createSymbolicLink(atPath: url.path, withDestinationPath: "B")
+    }
+    try fault("a directory others can write", .unsafeFile) { _, roots in
+      let url = roots["Preboot"]!.appendingPathComponent(group)
+      try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+      chmod(url.path, 0o777)
+    }
+    try fault("a System root others can write", .unsafeFile) { _, roots in
+      chmod(roots["System"]!.path, 0o777)
+    }
+    try fault("a Preboot root others can write", .unsafeFile) { _, roots in
+      chmod(roots["Preboot"]!.path, 0o777)
+    }
+    try fault("an inner directory its group can write", .unsafeFile) { _, roots in
+      let url = roots["Recovery"]!.appendingPathComponent(group)
+      try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+      chmod(url.path, 0o775)
+    }
+    if geteuid() == 0 {
+      try fault("a root another group can write", .unsafeFile) { _, roots in
+        chown(roots["Preboot"]!.path, 0, 20)
+      }
+      try fault("a System root another group can write", .unsafeFile) { _, roots in
+        chown(roots["System"]!.path, 0, 20)
+      }
+      try fault("a root of another user's", .unsafeFile) { _, roots in
+        chown(roots["Recovery"]!.path, 1234, 80)
+      }
+    }
+    // A written stub's System root is the owner's alone (0755, group wheel
+    // for root); Preboot and Recovery keep APFS's 0775 admin roots.
+    do {
+      let (base, roots) = try roots()
+      defer { try? FileManager.default.removeItem(at: base) }
+      _ = try write(image, plan, roots).get()
+      func mode(_ role: String) -> (mode_t, gid_t) {
+        var info = stat()
+        lstat(roots[role]!.path, &info)
+        return (info.st_mode & 0o7777, info.st_gid)
+      }
+      expect(
+        mode("System").0 == 0o755 && (geteuid() != 0 || mode("System").1 == 0),
+        "the System root is made 0755: \(mode("System"))")
+      expect(
+        mode("Preboot").0 == 0o775 && mode("Recovery").0 == 0o775,
+        "Preboot and Recovery roots are kept")
+    }
+    try fault("a file where a directory goes", .unsafeFile) { _, roots in
+      try Data().write(to: roots["Preboot"]!.appendingPathComponent(group))
+    }
+    try fault("a stale temporary link", .unsafeFile, left: 1) { base, roots in
+      let parent = roots["System"]!.appendingPathComponent("usr/standalone")
+      try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+      chmod(parent.path, 0o755)
+      chmod(parent.deletingLastPathComponent().path, 0o755)
+      try FileManager.default.createSymbolicLink(
+        atPath: parent.appendingPathComponent(temporary).path, withDestinationPath: base.path)
+    }
+
+    // A stale temporary file of ours is replaced.
+    do {
+      let (base, roots) = try roots()
+      defer { try? FileManager.default.removeItem(at: base) }
+      let parent = roots["System"]!.appendingPathComponent("usr/standalone")
+      try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+      chmod(parent.path, 0o755)
+      chmod(parent.deletingLastPathComponent().path, 0o755)
+      try Data("half".utf8).write(to: parent.appendingPathComponent(temporary))
+      expect(
+        (try? write(image, plan, roots).get()) != nil && leftovers(base).isEmpty,
+        "a stale temporary file is replaced")
+    }
+
+    // Bodies that don't decode to their declared bytes: no file of theirs appears.
+    let llb = "Firmware/all_flash/LLB.j314s.RELEASE.im4p"
+    let trust = "BootabilityBundle/Restore/Firmware/Bootability.dmg.trustcache"
+    for (name, member) in [
+      ("deflate-trailing", llb), ("deflate-long", llb), ("deflate-short", llb),
+      ("deflate-truncated", llb), ("deflate-short-crc", llb), ("stored-crc", trust),
+    ] {
+      expect(expected[name] as? String == "refuse", "\(name) is a refusing case")
+      let bad = try Image(files.appendingPathComponent(name + ".zip"))
+      for chunk in [1, 7, 4096, RestoreImageDirectory.streamChunk] {
+        // Never more than the declared bytes reach the sink.
+        var delivered = 0
+        do {
+          try bad.directory.stream(bad.entry(member), chunkBytes: chunk, read: bad.read) {
+            delivered += $0.count
+          }
+          expect(false, "\(name): streamed at \(chunk)")
+        } catch {
+          expect(delivered <= bad.entry(member).size, "\(name): \(delivered) bytes delivered")
+          expect(error as? RestoreImageDirectory.Failure == .invalidArchive, "\(name): \(error)")
+        }
+      }
+      let badPlan = try bad.plan(planExpected)
+      let (base, roots) = try roots()
+      defer { try? FileManager.default.removeItem(at: base) }
+      let result = write(bad, badPlan, roots)
+      if case .success = result { expect(false, "\(name): stub written") }
+      let copy = badPlan.copies.first { $0.member == member }!
+      let path = (copy.role == "System" ? "" : group + "/") + copy.path
+      expect(
+        !FileManager.default.fileExists(
+          atPath: roots[copy.role]!.appendingPathComponent(path).path),
+        "\(name): \(path) published")
+      expect(leftovers(base).isEmpty, "\(name): temporary files left")
+    }
+
+    // An input budget: a body that needs more input than it allows is refused.
+    do {
+      let big = try Image(files.appendingPathComponent("big.zip"))
+      let iboot = big.entry("Firmware/all_flash/iBoot.j314s.RELEASE.im4p")
+      expect(iboot.method == 8 && iboot.compressedSize > 4 * 4096, "big.zip iBoot is deflated")
+      for (budget, admits) in [(iboot.compressedSize, true), (iboot.compressedSize - 1, false)] {
+        let result = Result {
+          try big.directory.stream(iboot, chunkBytes: 4096, maximumInput: budget, read: big.read) {
+            _ in
+          }
+        }
+        expect(
+          ((try? result.get()) != nil) == admits,
+          "input budget \(budget) of \(iboot.compressedSize)")
+      }
+    }
+
+    // Bad chunk sizes are refused before any read.
+    for chunk in [0, -1, (64 << 20) + 1] {
+      var reads = 0
+      let counted: RestoreImageDirectory.Read = {
+        reads += 1
+        return try image.read($0, $1)
+      }
+      expect(
+        (try? image.directory.stream(image.entry("Restore.plist"), chunkBytes: chunk, read: counted)
+        { _ in }) == nil && reads == 0,
+        "chunk \(chunk) refused before any read (\(reads))")
+    }
+
+    if failures > 0 {
+      print("RestoreImageStubFiles: \(failures) failures")
+      exit(1)
+    }
+    print("RestoreImageStubFiles: \(cases.count) images written (\(written) runs), faults OK")
+  }
+}

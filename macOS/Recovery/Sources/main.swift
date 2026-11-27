@@ -15,10 +15,20 @@ final class InstallerModel {
   var stage1Update: Stage1Reenrollment? =
     RecoveryActions.isPreview && CommandLine.arguments.contains("--preview-update")
     ? Stage1Reenrollment(mode: .macho, stage1SHA256: "", stage2Path: "m1n1/boot-ctxr.bin")
-    : RecoveryActions.inRecovery ? RecoveryActions.pendingStage1Update() : nil
+    : RecoveryActions.inRecovery && RecoveryActions.pendingStubUpgrade() == nil
+      ? RecoveryActions.pendingStage1Update() : nil
   {
     didSet { changed() }
   }
+  /// A startup firmware upgrade Linux staged (aurora-upgrade): Recovery
+  /// replaces the stub's firmware in place, then enrolls the new Stage 1.
+  var stubUpgrade: StubUpgradeRequest? =
+    RecoveryActions.inRecovery ? RecoveryActions.pendingStubUpgrade() : nil
+  {
+    didSet { changed() }
+  }
+  /// The upgrade finished; Restart starts Linux on the new firmware.
+  var stubUpgraded = false { didSet { changed() } }
   /// The staged Stage 1 is enrolled; Restart skips setup's Stage 2 comparison.
   var stage1Updated = false { didSet { changed() } }
   /// Who signs Stage 2 on this Mac (Utilities on the setup screen). The
@@ -110,6 +120,7 @@ final class InstallerModel {
   func resumeAccountSetup() {
     // A staged Stage 1 keeps its own screen; the account step would replace it.
     guard RecoveryActions.inRecovery, RecoveryActions.recovering, stage1Update == nil,
+      stubUpgrade == nil,
       !creatingAccount, !restartingWithoutAccount, !checkingAccount
     else { return }
     checkingAccount = true
@@ -293,15 +304,26 @@ final class InstallerModel {
     }
     checkingEnvironment = true
     InstallerLog.shared.beginAttempt()
+    let upgrading = stubUpgrade != nil
     DispatchQueue.global(qos: .userInitiated).async {
       do {
-        try RecoveryActions.requireEnrollmentEnvironment()
-        InstallerLog.shared.append(
-          "Recovery environment verified. Resolving the installation owner.")
-        let owner = try RecoveryActions.resolveOwner()
-        let sourceOwner =
-          (try RecoveryActions.configuration.get()).bootstrap?.ownerUUIDs.contains(
-            owner.uuid.uuidString) == true
+        let owner: RecoveryOwner
+        let sourceOwner: Bool
+        if upgrading {
+          // A stub another installer made has no install-config.json.
+          owner = try RecoveryActions.checkStubUpgradeEnvironment()
+          sourceOwner =
+            (try? RecoveryActions.configuration.get())?.bootstrap?.ownerUUIDs.contains(
+              owner.uuid.uuidString) == true
+        } else {
+          try RecoveryActions.requireEnrollmentEnvironment()
+          InstallerLog.shared.append(
+            "Recovery environment verified. Resolving the installation owner.")
+          owner = try RecoveryActions.resolveOwner()
+          sourceOwner =
+            (try RecoveryActions.configuration.get()).bootstrap?.ownerUUIDs.contains(
+              owner.uuid.uuidString) == true
+        }
         DispatchQueue.main.async {
           self.checkingEnvironment = false
           self.authorizationOwner = owner
@@ -357,21 +379,27 @@ final class InstallerModel {
   }
 
   var steps: [String] {
-    stage1Update != nil
+    stubUpgrade != nil
       ? [
-        "Verifying the new startup software", "Authorizing the boot environment",
-        "Installing the startup software", "Finishing the update",
+        "Checking the startup firmware upgrade", "Writing the new startup firmware",
+        "Approving the new startup firmware", "Authorizing the boot environment",
+        "Installing the startup software", "Finishing the upgrade",
       ]
-      : recoveryInterface
+      : stage1Update != nil
         ? [
-          "Verifying the recovery files", "Checking the startup partition",
-          "Restoring the startup software", "Verifying the restored files",
+          "Verifying the new startup software", "Authorizing the boot environment",
+          "Installing the startup software", "Finishing the update",
         ]
-        : [
-          "Verifying the installation files", "Checking the selected startup volume",
-          "Authorizing the boot environment", "Installing the startup software",
-          "Selecting the startup volume", "Finishing installation",
-        ]
+        : recoveryInterface
+          ? [
+            "Verifying the recovery files", "Checking the startup partition",
+            "Restoring the startup software", "Verifying the restored files",
+          ]
+          : [
+            "Verifying the installation files", "Checking the selected startup volume",
+            "Authorizing the boot environment", "Installing the startup software",
+            "Selecting the startup volume", "Finishing installation",
+          ]
   }
 
   func restore() {
@@ -424,6 +452,10 @@ final class InstallerModel {
       let keys = startupKeys
       stage = .installing
       operations = []
+      if stubUpgrade != nil {
+        upgradeStub(owner: owner, password: credential)
+        return
+      }
       if stage1Update != nil {
         updateStage1(owner: owner, password: credential)
         return
@@ -494,6 +526,39 @@ final class InstallerModel {
     }
   }
 
+  /// Upgrades the startup firmware in place and enrolls the new Stage 1, then offers Restart.
+  private func upgradeStub(owner: RecoveryOwner, password credential: String) {
+    DispatchQueue.global(qos: .userInitiated).async {
+      do {
+        try RecoveryActions.upgradeStub(owner: owner, password: credential) {
+          amount, operation in
+          DispatchQueue.main.async {
+            self.progress = amount
+            self.currentOperation = operation
+            self.operations.append(operation)
+          }
+        }
+        DispatchQueue.main.async {
+          self.accountOptional = false
+          self.accountNeedsAuthorization = false
+          self.stubUpgraded = true
+          self.stage = .complete
+        }
+      } catch {
+        InstallerLog.shared.append(
+          "Startup firmware upgrade failed: " + error.localizedDescription, level: .error)
+        DispatchQueue.main.async {
+          if let issue = error as? EnrollmentGateIssue {
+            self.environmentIssue = issue
+          } else {
+            self.failure = error.localizedDescription
+          }
+          self.stage = .welcome
+        }
+      }
+    }
+  }
+
   /// Enrolls the staged Stage 1, then offers Restart.
   private func updateStage1(owner: RecoveryOwner, password credential: String) {
     DispatchQueue.global(qos: .userInitiated).async {
@@ -541,8 +606,14 @@ final class InstallerModel {
       guard !restartingCompletedSetup else { return }
       restartingCompletedSetup = true
       let updated = stage1Updated
+      let upgradedGroup = stubUpgraded ? stubUpgrade?.group : nil
       DispatchQueue.global(qos: .userInitiated).async {
         do {
+          if let upgradedGroup {
+            // The upgrade's bless made this volume the startup disk.
+            try RecoveryActions.restartAfterStubUpgrade(group: upgradedGroup)
+            return
+          }
           // Another default volume is not an error: let the person choose
           // this installation in Startup Disk, which restarts from there.
           guard try RecoveryActions.targetIsDefaultBoot() else {
@@ -733,7 +804,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     installMenus()
     LaunchTrace.mark("menus.installed")
     if renderPreviewIfRequested(window) { return }
-    if model.stage1Update != nil {
+    if model.stage1Update != nil || model.stubUpgrade != nil {
       // Updating Stage 1 changes boot policy, so it checks this Recovery first.
       model.startLaunchCheck()
     } else if model.recoveryInterface && RecoveryActions.inRecovery {

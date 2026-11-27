@@ -90,6 +90,52 @@
           })
       }
     }
+    /// Recovery's RestoreImageStubPlan ports this plan for recoveryOS; both
+    /// must select the same files from the same restore images.
+    func testRestorePlanMatchesRecoverysReferenceImages() async throws {
+      let fixtures = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().appendingPathComponent(
+          "../../Recovery/Tests/Fixtures/RestoreImageStubPlan")
+      let reference =
+        try JSONSerialization.jsonObject(
+          with: Data(contentsOf: fixtures.appendingPathComponent("expected.json")))
+        as! [String: Any]
+      let cases = reference["cases"] as! [String: Any]
+      XCTAssertGreaterThanOrEqual(cases.count, 25)
+      for (name, want) in cases.sorted(by: { $0.key < $1.key }) {
+        let bytes = try Data(contentsOf: fixtures.appendingPathComponent(name + ".zip"))
+        let result: NativeStubFilePlan
+        do {
+          let archive = try await IPSWArchive.open(Source(bytes: bytes))
+          result = try await NativeStubFilePlan(
+            archive: archive,
+            source: NativeFirmwareSelection(
+              version: reference["version"] as! String,
+              sourceURL: URL(string: "https://updates.cdn-apple.com/test.ipsw")!,
+              stubBytes: 6_000_000_000),
+            deviceClass: reference["device_class"] as! String,
+            boardID: UInt64(reference["board"] as! Int), chipID: UInt64(reference["chip"] as! Int))
+        } catch {
+          XCTAssertEqual(want as? String, "refuse", "\(name): \(error)")
+          continue
+        }
+        guard let want = want as? [String: Any] else {
+          XCTFail("\(name): admitted, the reference refuses")
+          continue
+        }
+        XCTAssertEqual(
+          result.copies.map { [$0.member, $0.role, $0.path, $0.installerDataName ?? "-"] },
+          (want["copies"] as! [[String: Any]]).map {
+            [
+              $0["member"] as! String, $0["role"] as! String, $0["path"] as! String,
+              $0["installerDataName"] as? String ?? "-",
+            ]
+          }, name)
+        XCTAssertEqual(result.linkTargets, want["links"] as! [String: String], name)
+        XCTAssertEqual(result.restorePath, want["restorePath"] as! String, name)
+        XCTAssertEqual(result.recoveryMember.name, want["recovery"] as! String, name)
+      }
+    }
     func testFrameworkLinksAreAdmittedBeforeWritesAndResumeWithoutFollowingThem() async throws {
       let fixture = try ExecutionFixture()
       defer { try? FileManager.default.removeItem(at: fixture.directory) }

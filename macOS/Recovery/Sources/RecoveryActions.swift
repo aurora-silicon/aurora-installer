@@ -134,12 +134,16 @@ enum RecoveryActions {
     #endif
   }
   static func requireEnrollmentEnvironment() throws {
+    try requireEnrollmentEnvironment(group: groupUUID, verify: verifyVolume)
+  }
+  /// The same check for volume group `group`, whose volume `verify` checks.
+  static func requireEnrollmentEnvironment(group: String, verify: () throws -> Void) throws {
     // Check cheap prerequisites before querying a target policy.
     if !inRecovery { throw EnrollmentGateIssue.notRecovery }
     if geteuid() != 0 { throw EnrollmentGateIssue.rootRequired }
-    try verifyVolume()
+    try verify()
     let report: Data
-    do { report = try run("/usr/bin/bputil", ["-d", "-v", groupUUID]) } catch {
+    do { report = try run("/usr/bin/bputil", ["-d", "-v", group]) } catch {
       throw EnrollmentGateIssue.cannotVerify
     }
     if let issue = EnrollmentGate.issue(
@@ -331,9 +335,17 @@ enum RecoveryActions {
   }
   static func recoveryOnly() throws {
     try check(inRecovery && geteuid() == 0, "Open Aurora Installer in its paired Recovery.")
-    try verifyVolume()
+    // A stub another installer made has no install-config.json; while an
+    // upgrade is staged on it, its request names the volume instead.
+    if (try? configuration.get()) == nil, pendingStubUpgrade() != nil {
+      _ = try stubUpgradeVolume()
+    } else {
+      try verifyVolume()
+    }
   }
-  static func esp() throws -> URL {
+  static func esp() throws -> URL { try esp(espUUID) }
+  /// The EFI partition with GPT partition UUID `espUUID` (upper case), mounted.
+  static func esp(_ espUUID: String) throws -> URL {
     var info = try disk(espUUID)
     try check(
       (info["DiskUUID"] as? String)?.uppercased() == espUUID
@@ -706,7 +718,8 @@ enum RecoveryActions {
       wasPresent: journal.iscVarWasPresent)
   }
 
-  static func targetIsDefaultBoot() throws -> Bool {
+  static func targetIsDefaultBoot() throws -> Bool { try isDefaultBoot(group: groupUUID) }
+  static func isDefaultBoot(group groupUUID: String) throws -> Bool {
     let bytes = try run("/usr/sbin/bless", ["--getBoot", "--plist"])
     guard
       let info = try PropertyListSerialization.propertyList(from: bytes, format: nil)
@@ -920,6 +933,11 @@ extension RecoveryActions {
   }
   static func cli(_ arguments: [String]) throws {
     try recoveryOnly()
+    if arguments == ["upgrade", "--dry-run"] {
+      // Every check, the plan, nothing written (read-only mounts only).
+      print(try stubUpgradeDryRun())
+      return
+    }
     try run("/sbin/mount", ["-u", "-w", volume.path])
     switch arguments {
     case ["recover"]:
@@ -963,7 +981,7 @@ extension RecoveryActions {
       print("Aura \(arguments[0]) \(arguments[1]) for the next boot.")
     default:
       throw RecoveryFailure(
-        message: "Usage: aura [recover | debug on/off | proxy on/off]")
+        message: "Usage: aura [recover | debug on/off | proxy on/off | upgrade --dry-run]")
     }
   }
   static func installCommand() throws {

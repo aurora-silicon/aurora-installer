@@ -1,5 +1,11 @@
-import Darwin
 import Foundation
+
+#if canImport(Darwin)
+  import Darwin
+#else
+  // The Linux fixture checks (Tests/Linux) give it chflags and st_flags.
+  import Glibc
+#endif
 
 /// A durable snapshot of explicitly selected regular files. It never restores
 /// boot policy or enclave state. Callers supply the same trusted paths on resume.
