@@ -388,6 +388,12 @@ enum RecoveryActions {
     )
     return result
   }
+  /// The key choice setup starts with: the installer's configuration, else
+  /// Aurora-managed, and Aurora-managed when the files can't hold an owner key.
+  static func defaultStartupKeys() -> StartupKeyOwner {
+    let configured = (try? configuration.get().secureBootKeys) ?? .aurora
+    return configured == .aurora || canHoldOwnKeys() ? configured : .aurora
+  }
   /// Whether this installation's files can hold the owner's own key, for the
   /// setup screen. Outside Recovery (previews) the choice stays open.
   static func canHoldOwnKeys() -> Bool {
@@ -503,11 +509,13 @@ enum RecoveryActions {
     // object when aura built it with one, else the secure-flavour object the
     // payload carries for this. One without it checks Stage 2 with its built-in
     // key, if at all.
+    // A resumed setup follows its recorded choice, checked once the record is read.
+    let resuming = FileManager.default.fileExists(atPath: pendingInstallation.path)
     let ownerStage1: Data? =
-      try choice == .aurora
+      try choice == .aurora || resuming
       ? nil : ownerKeyStage1(manifest: m, configuredLike: stage1, mode: selection.mode)
     try check(
-      ownerStage1 != nil || choice == .aurora,
+      ownerStage1 != nil || choice == .aurora || resuming,
       "This startup software can't hold your own key. Choose Aurora-managed keys, or use a newer Aurora installer. Nothing was changed."
     )
     // A successful setup must retain a usable per-device repair baseline.

@@ -23,9 +23,7 @@ final class InstallerModel {
   var stage1Updated = false { didSet { changed() } }
   /// Who signs Stage 2 on this Mac (Utilities on the setup screen). The
   /// installer's configuration sets the default, else Aurora-managed.
-  var startupKeys: StartupKeyOwner =
-    (try? RecoveryActions.configuration.get().secureBootKeys) ?? .aurora
-  {
+  var startupKeys: StartupKeyOwner = RecoveryActions.defaultStartupKeys() {
     didSet { changed() }
   }
   /// Whether this installation's files include startup software that can hold
