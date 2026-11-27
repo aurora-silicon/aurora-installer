@@ -251,7 +251,7 @@
       ) {
         XCTAssertEqual(
           ($0 as? RemovalFailure)?.message,
-          "The running macOS isn’t the one removal returns the space to.")
+          "The macOS you’re running isn’t the one that gets the space back.")
       }
       XCTAssertTrue(fake.blessed.isEmpty)
     }

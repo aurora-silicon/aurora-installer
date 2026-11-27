@@ -86,17 +86,17 @@
     func testTheThreeChannelStatesPreviewDistinctly() async throws {
       let expected: [(InstallerSimulationScenario, ReleaseChannelAvailability, String, String)] = [
         (
-          .noMacRelease, .noRelease, "Nightly — No Mac release yet",
+          .noMacRelease, .noRelease, "Nightly (No Mac release yet)",
           "No Mac release on this channel yet"
         ),
         (
           .modelNotOnChannel,
           .modelUnavailable(
             supportedDeviceIdentifiers: InstallerSimulationEnvironment.simulatedCatalogDevices),
-          "Nightly — Not available for this Mac", PlainLanguage.blockedHeadline
+          "Nightly (Not available for this Mac)", PlainLanguage.blockedHeadline
         ),
         (
-          .channelUnreachable, .checkFailed(.network), "Nightly — Couldn’t load",
+          .channelUnreachable, .checkFailed(.network), "Nightly (Couldn’t load)",
           "This channel’s release list wasn’t found"
         ),
       ]
@@ -137,22 +137,22 @@
         // Listed but not family-qualified: selectable, not the default.
         (EdgeCatalogCheck(availability: .available), .testing, "Edge", true),
         (
-          EdgeCatalogCheck(availability: .noRelease), .testing, "Edge — No release available",
+          EdgeCatalogCheck(availability: .noRelease), .testing, "Edge (No release)",
           false
         ),
         (
           EdgeCatalogCheck(
             availability: .modelUnavailable(supportedDeviceIdentifiers: ["apple,j700"])),
-          .testing, "Edge — Not available for this Mac", false
+          .testing, "Edge (Not available for this Mac)", false
         ),
         // A failed check is not "unsupported": Edge stays chosen and selectable.
         (
-          EdgeCatalogCheck(availability: .checkFailed(.network)), .edge, "Edge — Couldn’t load",
+          EdgeCatalogCheck(availability: .checkFailed(.network)), .edge, "Edge (Couldn’t load)",
           true
         ),
         (
           EdgeCatalogCheck(availability: .checkFailed(.verification)), .edge,
-          "Edge — Couldn’t verify", true
+          "Edge (Couldn’t verify)", true
         ),
       ]
       for (edge, channel, menuItem, edgeSelectable) in expected {
@@ -375,7 +375,7 @@
         if scenario == .spaceChanged {
           guard case .failed(let failure) = session.phase else { return XCTFail(scenario.title) }
           XCTAssertTrue(failure.replanAvailable)
-          XCTAssertTrue(failure.plainDetail.contains("No disk changes were made."))
+          XCTAssertTrue(failure.plainDetail.contains("The disk wasn’t changed."))
           XCTAssertFalse(session.hasExecutionStarted)
           XCTAssertTrue(session.canInspect)
           await session.replanAfterEngineRefusal()
@@ -387,7 +387,7 @@
           XCTAssertFalse(environment.hasApprovedPlan)
           XCTAssertEqual(
             session.allocationNotice,
-            "Space for Aurora changed from 137 GB to 133 GB. Review the updated size before installing."
+            "Space for Aurora changed from 137 GB to 133 GB. Check the new size before you install."
           )
           session.setAcknowledged(true)
           session.approve()

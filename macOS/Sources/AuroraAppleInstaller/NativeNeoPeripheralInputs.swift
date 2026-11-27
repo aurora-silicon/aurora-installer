@@ -82,7 +82,7 @@
         "Touch ID is present, but this Mac’s signed sensor root-key record is missing or ambiguous."
       case .sensorCalibrationMissing:
         "Touch ID is present, but its factory calibration cannot be paired with its root-key record."
-      default: "Required device firmware inputs could not be verified."
+      default: "Couldn’t verify this Mac’s device firmware."
       }
     }
   }

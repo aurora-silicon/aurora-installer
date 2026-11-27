@@ -28,7 +28,7 @@
       guard case .failed(let failure) = session.phase else {
         return XCTFail("Expected pre-submission failure")
       }
-      XCTAssertTrue(failure.plainDetail.contains("No disk changes"))
+      XCTAssertTrue(failure.plainDetail.contains("the disk wasn’t changed"))
     }
 
     func testPendingJobResumesBeforeFreshInspectionAndNeverExecutesAgain() async throws {
@@ -450,7 +450,7 @@
       guard case .failed(let failure) = session.phase else {
         return XCTFail("A historical completion must not show the Recovery handoff")
       }
-      XCTAssertEqual(failure.headline, "Installation could not be verified")
+      XCTAssertEqual(failure.headline, "Couldn’t verify the installation")
       XCTAssertFalse(session.shutDown())
       XCTAssertEqual(environment.requestShutdownCount, 0)
     }
@@ -497,7 +497,7 @@
       guard case .failed(let failure) = other.phase else {
         return XCTFail("Expected the account failure, got \(other.phase)")
       }
-      XCTAssertEqual(failure.headline, "Installation could not be verified")
+      XCTAssertEqual(failure.headline, "Couldn’t verify the installation")
     }
 
     func testHappyPathFollowsTheTransitionTable() async throws {
@@ -606,7 +606,7 @@
         failure.headline, "Free up at least 4 GB to install Aurora")
       XCTAssertEqual(
         failure.remedy,
-        "Remove files you no longer need in macOS and empty the Trash, then choose Check again. If this Mac already has a Linux installation you no longer need, Erase Linux returns its space to macOS first. The installer will check the available space again before allowing installation."
+        "Delete files you don’t need in macOS and empty the Trash, then choose Check again. If an old Linux installation is on this Mac, Erase Linux gives its space back."
       )
 
       await session.continueToPlan()

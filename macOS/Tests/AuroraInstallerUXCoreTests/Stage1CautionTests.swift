@@ -85,7 +85,7 @@
       let text = PlainLanguage.planAcknowledgement(resizesMacOS: false, stage1Caution: true)
       XCTAssertEqual(
         text,
-        "I have a current backup and approve the disk layout above, and I understand Aurora may not start on this Mac."
+        "I have a current backup, and I approve this disk layout, and I understand Aurora may not start on this Mac."
       )
       XCTAssertEqual(
         PlainLanguage.planAcknowledgement(resizesMacOS: true, stage1Caution: false),
