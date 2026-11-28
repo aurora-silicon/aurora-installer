@@ -75,7 +75,70 @@ struct AccountSetupFailure: Error {
     try newTransaction.commit()
     let newStatus = try Data(contentsOf: newSnapshot.appendingPathComponent("status"))
     precondition(newStatus == Data("committed\n".utf8))
+    // Metadata reaches the opened file, never what its name has become.
+    let other = root.appendingPathComponent("other.plist")
+    let linked = root.appendingPathComponent("linked.plist")
+    try Data("other".utf8).write(to: other)
+    precondition(chmod(other.path, 0o644) == 0)
+    try fm.createSymbolicLink(at: linked, withDestinationURL: other)
+    do {
+      try RecoveryFileTransaction.setMetadata(linked, mode: 0o600, flags: UInt32(UF_NODUMP))
+      preconditionFailure("Metadata followed a symbolic link")
+    } catch {}
+    precondition(lstat(other.path, &info) == 0 && (info.st_mode & 0o7777) == 0o644)
+    precondition(info.st_flags & UInt32(UF_NODUMP) == 0)
+    try fm.removeItem(at: linked)
+    precondition(link(other.path, linked.path) == 0)
+    do {
+      try RecoveryFileTransaction.setMetadata(linked, mode: 0o600, singleName: true)
+      preconditionFailure("Metadata reached a file with another name")
+    } catch {}
+    precondition(lstat(other.path, &info) == 0 && (info.st_mode & 0o7777) == 0o644)
+    try fm.removeItem(at: linked)
+    try RecoveryFileTransaction.setMetadata(other, mode: 0o600, singleName: true)
+    precondition(lstat(other.path, &info) == 0 && (info.st_mode & 0o7777) == 0o600)
+    // A protected file is 0600 from its creation, whatever the umask, and
+    // replaces its name, never what a link there points at.
+    let written = root.appendingPathComponent("written.plist")
+    let previous = umask(0)
+    try RecoveryFileTransaction.write(Data("first".utf8), to: written)
+    precondition(lstat(written.path, &info) == 0 && (info.st_mode & 0o7777) == 0o600)
+    precondition(info.st_mode & S_IFMT == S_IFREG && info.st_nlink == 1)
+    let first = try Data(contentsOf: written)
+    precondition(first == Data("first".utf8))
+    try RecoveryFileTransaction.write(Data(), to: written)
+    let empty = try Data(contentsOf: written)
+    precondition(empty.isEmpty)
+    let target = root.appendingPathComponent("link-target.plist")
+    try Data("target".utf8).write(to: target)
+    precondition(chmod(target.path, 0o644) == 0)
+    try fm.removeItem(at: written)
+    try fm.createSymbolicLink(at: written, withDestinationURL: target)
+    try RecoveryFileTransaction.write(Data("replaced".utf8), to: written)
+    precondition(lstat(written.path, &info) == 0 && info.st_mode & S_IFMT == S_IFREG)
+    precondition((info.st_mode & 0o7777) == 0o600)
+    let replaced = try Data(contentsOf: written)
+    let untouched = try Data(contentsOf: target)
+    precondition(replaced == Data("replaced".utf8) && untouched == Data("target".utf8))
+    precondition(lstat(target.path, &info) == 0 && (info.st_mode & 0o7777) == 0o644)
+    _ = umask(0o022)
+    let plain = root.appendingPathComponent("unprotected.plist")
+    try RecoveryFileTransaction.write(Data("plain".utf8), to: plain, protect: false)
+    precondition(lstat(plain.path, &info) == 0 && (info.st_mode & 0o7777) == 0o644)
+    _ = umask(previous)
+    // A folder under the name is not replaced, and no temporary file is left.
+    let folder = root.appendingPathComponent("folder.plist")
+    try fm.createDirectory(at: folder, withIntermediateDirectories: false)
+    try fm.createDirectory(
+      at: folder.appendingPathComponent("inside"), withIntermediateDirectories: false)
+    do {
+      try RecoveryFileTransaction.write(Data("x".utf8), to: folder)
+      preconditionFailure("A folder was replaced")
+    } catch {}
+    let names = try fm.contentsOfDirectory(atPath: root.path)
+    precondition(names.allSatisfy { !$0.hasSuffix(".tmp") })
     print(
-      "PASS file rollback bytes, original absence, mode, interruption resume and target binding")
+      "PASS file rollback bytes, original absence, mode, interruption resume, target binding, "
+        + "metadata through the opened file and protected creation")
   }
 }

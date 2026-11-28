@@ -363,7 +363,7 @@
       }
     }
 
-    func testProtectedFilenameTransitionsAcceptMountRootModeButRejectLinksAndWritableChildren()
+    func testProtectedFilenameTransitionsProtectTheMountRootAndRejectLinksAndWritableChildren()
       throws
     {
       for fault in ["none", "directory", "symlink", "both-versions", "wrong-device"] {
@@ -384,15 +384,20 @@
         do {
           let tree = try NativeHandoffFileTree(
             fixture.system, protected: true, owner: geteuid(),
-            volumeRoot: true, volumeDevice: "disk8s1",
+            volumeRoot: true, ownedVolumeRoot: true, volumeDevice: "disk8s1",
             verifyMount: fixture.environment().verifyMount)
           try tree.prepareForRecovery()
           try tree.prepareForAuthorization()
           if fault != "none" { XCTFail("Expected refusal: \(fault)") }
         } catch { if fault == "none" { throw error } }
+        // The fixture's root starts 0775. It is changed only after the mount
+        // is verified as the volume's own.
+        var status = stat()
+        XCTAssertEqual(lstat(fixture.system.path, &status), 0)
+        XCTAssertEqual(status.st_mode & 0o7777, fault == "wrong-device" ? 0o775 : 0o755, fault)
       }
     }
-    func testDisabledMediaNameIsRestoredAndMountRootExceptionRequiresVolumeVerification() throws {
+    func testDisabledMediaNameIsRestoredAndAMountRootRequiresVolumeVerification() throws {
       let fixture = try NativeRecoveryHandoffFixture()
       defer { fixture.remove() }
       XCTAssertThrowsError(
@@ -400,6 +405,18 @@
       XCTAssertThrowsError(
         try NativeHandoffFileTree(
           fixture.system, protected: true, owner: geteuid(), volumeRoot: true))
+      XCTAssertThrowsError(
+        try NativeHandoffFileTree(
+          fixture.system, protected: true, owner: geteuid(), volumeRoot: true,
+          ownedVolumeRoot: true))
+      // An owned root is a verified volume root, never a plain folder.
+      XCTAssertThrowsError(
+        try NativeHandoffFileTree(
+          fixture.system, protected: true, owner: geteuid(), ownedVolumeRoot: true,
+          volumeDevice: "disk8s1", verifyMount: fixture.environment().verifyMount))
+      var status = stat()
+      XCTAssertEqual(lstat(fixture.system.path, &status), 0)
+      XCTAssertEqual(status.st_mode & 0o7777, 0o775)
       let inactive = fixture.system.appendingPathComponent("IAPhysicalMedia-disabled.plist")
       let active = fixture.system.appendingPathComponent(".IAPhysicalMedia")
       try FileManager.default.moveItem(at: active, to: inactive)
@@ -536,7 +553,8 @@
       for (path, bytes) in vector["espFiles"] as! [String: String] {
         try write(Data(base64Encoded: bytes)!, esp.appendingPathComponent(path))
       }
-      // Normal mounted System roots may be root:admin 0775.
+      // APFS creates volume roots root:admin 0775. The installer leaves its
+      // own System root 0755 when it opens it; macOS's volumes stay as they are.
       XCTAssertEqual(chmod(system.path, 0o775), 0)
       XCTAssertEqual(chmod(sourcePreboot.path, 0o775), 0)
     }

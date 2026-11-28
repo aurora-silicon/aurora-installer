@@ -285,13 +285,13 @@
     }
 
     /// Publishes only the app entry; the System volume itself is never replaced.
-    /// A volume root is created root:admin 0775, so when the parent is one it
-    /// is held to the volume-root rule of the installer's file trees: no
-    /// write by others. The caller has already verified it as that volume's
-    /// mount point when it opened the volume's tree.
+    /// The parent is held to the rule of every protected folder, also when it
+    /// is the System volume's root: owned by `owner`, no write by group or
+    /// others. APFS creates a volume root root:admin 0775; the caller has
+    /// already verified it as that volume's mount point and made it
+    /// root-owned 0755 when it opened the volume's tree for writing.
     static func publishApp(
       _ prepared: PreparedNativeRecoveryTemplate, to destination: URL, owner: uid_t,
-      parentIsVolumeRoot: Bool = false,
       verify: (URL) throws -> Void,
       flushTree: (URL) throws -> Void = RecoveryFileTransaction.flushTree,
       flushDirectory: (URL) throws -> Void = RecoveryFileTransaction.flushDirectory
@@ -300,11 +300,7 @@
         throw NativeRecoveryTemplateError.unsafeTemplate
       }
       let parent = destination.deletingLastPathComponent()
-      if parentIsVolumeRoot {
-        try requireVolumeRoot(parent, owner: owner)
-      } else {
-        try requireSafe(parent, directory: true, owner: owner)
-      }
+      try requireSafe(parent, directory: true, owner: owner)
       let expected = try inventory(prepared.app, owner: owner)
       try verify(prepared.app)
       if FileManager.default.fileExists(atPath: destination.path) {
@@ -359,13 +355,6 @@
       guard client.hasPrefix(prefix), client.hasSuffix("\"") else { return nil }
       let team = String(client.dropFirst(prefix.count).dropLast())
       return team.range(of: "\\A[A-Z0-9]{10}\\z", options: .regularExpression) != nil ? team : nil
-    }
-
-    private static func requireVolumeRoot(_ url: URL, owner: uid_t) throws {
-      var status = stat()
-      guard lstat(url.path, &status) == 0, status.st_uid == owner, status.st_mode & 0o002 == 0,
-        status.st_mode & S_IFMT == S_IFDIR
-      else { throw NativeRecoveryTemplateError.unsafeTemplate }
     }
 
     private static func requireSafe(_ url: URL, directory: Bool, owner: uid_t?) throws {

@@ -60,6 +60,43 @@
       } + [system.appendingPathComponent(".IAPhysicalMedia")]
     }
 
+    /// Every folder the Recovery app update reaches by path below the ones
+    /// on the way to it, relative to the System volume root.
+    static var appUpdateFolders: Set<String> {
+      let payloads = ["", "/raw", "/vendorfw", "/vendorfw/u-boot/asmedia", "/macho"]
+      let apps = [
+        "Aurora Installer.app", InstallerProductIdentity.recoveryAppBundleName,
+        "Finish Installation.app",
+      ]
+      var folders: Set<String> = [
+        "Aurora/Recovery/State", "Aurora/Recovery/AppBackups", "System/Library/CoreServices",
+      ]
+      for base in [RecoveryInstallData.relativePath] + apps.map({ $0 + "/Contents/Resources" }) {
+        for payload in payloads { folders.insert(base + "/AuraPayloads" + payload) }
+      }
+      return folders
+    }
+
+    /// The files the update reads, moves or replaces by path, including
+    /// every name at the top of the volume that Recovery starts from.
+    static let appUpdateEntries = [
+      ".IAPhysicalMedia", "IAPhysicalMedia-disabled.plist", "aura",
+      "System/Library/CoreServices/SystemVersion.plist",
+      "System/Library/CoreServices/SystemVersion-disabled.plist",
+      "Aurora/Recovery/State/app-update.pending.json", "Aurora/Recovery/State/installation.json",
+      RecoveryInstallData.relativePath + "/install-config.json",
+    ]
+
+    /// Before the update works by path: every entry on its paths, from the
+    /// protected volume root down, is root's alone (`requireProtected`).
+    /// Entries made while the root was writable by its group are refused
+    /// here, not followed.
+    static func requireProtectedAppUpdatePaths(_ tree: NativeHandoffFileTree) throws {
+      let folders = appUpdateFolders
+      try tree.requireProtected(
+        folders.sorted() + appUpdateEntries.filter { !folders.contains($0) }, folders: folders)
+    }
+
     static func resumeAppUpdate(
       system: URL, target: RecoveryAccountTarget,
       read: (URL, Int) throws -> Data = RecoveryAccountInstaller.protectedRead
@@ -133,6 +170,19 @@
       }
       _ = try AccountNativeCommand.checked("/sbin/mount", ["-u", "-w", mount])
       let system = URL(fileURLWithPath: mount, isDirectory: true)
+      // The steps below add and rename entries at the top of this volume by
+      // path. Verify the mount point as this volume's root and leave it
+      // root-owned 0755 first, so no one else can rename them meanwhile,
+      // then check what was left on their paths while it was not.
+      guard let device = info["DeviceIdentifier"] as? String,
+        let tree = try? NativeHandoffFileTree(
+          system, protected: true, volumeRoot: true, ownedVolumeRoot: true,
+          volumeDevice: device),
+        (try? requireProtectedAppUpdatePaths(tree)) != nil
+      else {
+        throw AccountSetupFailure(
+          "The installation's System volume could not be protected before the Recovery update.")
+      }
       let destination = system.appendingPathComponent("Aurora Installer.app", isDirectory: true)
       try resumeAppUpdate(system: system, target: target)
       let configuration = try installationConfiguration(system: system)

@@ -37,7 +37,7 @@
       else { throw NativeHandoffValidationError.invalidTarget }
       let tree = try NativeHandoffFileTree(
         systemURL, protected: true, owner: owner,
-        volumeRoot: true, volumeDevice: system.identifier,
+        volumeRoot: true, ownedVolumeRoot: true, volumeDevice: system.identifier,
         verifyMount: environment.verifyMount)
       try verifyStage1(tree)
       do {
@@ -68,7 +68,7 @@
       try verifySystemInfo(system, target: target, mount: systemURL)
       let tree = try NativeHandoffFileTree(
         systemURL, protected: true, owner: owner,
-        volumeRoot: true, volumeDevice: system.identifier,
+        volumeRoot: true, ownedVolumeRoot: true, volumeDevice: system.identifier,
         verifyMount: environment.verifyMount)
       try verifyStage1(tree)
       let selected = try environment.command("/usr/sbin/bless", ["--getBoot", "--plist"])

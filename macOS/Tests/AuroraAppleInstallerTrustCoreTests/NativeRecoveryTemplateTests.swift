@@ -57,30 +57,34 @@
       XCTAssertEqual(try Data(contentsOf: executable), Data("changed signature bytes".utf8))
     }
 
-    func testAVolumeRootMayBeGroupWritableButNotWorldWritable() throws {
+    func testAGroupWritableVolumeRootIsRefusedUntilItsTreeHasProtectedIt() throws {
       let (root, app) = try fixture()
       defer { try? FileManager.default.removeItem(at: root) }
       let prepared = try NativeRecoveryTemplate.prepare(
         source: app, in: root, owner: geteuid(), requirement: "fixture", verify: { _ in })
       defer { prepared.remove() }
-      // macOS creates a volume root root:admin 0775.
+      // APFS creates a volume root root:admin 0775.
       let system = root.appendingPathComponent("System")
       try FileManager.default.createDirectory(
         at: system, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o775])
-      try FileManager.default.setAttributes([.posixPermissions: 0o775], ofItemAtPath: system.path)
+      XCTAssertEqual(chmod(system.path, 0o775), 0)
       let destination = system.appendingPathComponent(
         InstallerProductIdentity.recoveryAppBundleName)
       XCTAssertThrowsError(
         try NativeRecoveryTemplate.publishApp(
           prepared, to: destination, owner: geteuid(), verify: { _ in }))
+      XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+      // Opening the volume's tree for writing leaves the root 0755, as the
+      // installation does before it publishes the app.
+      _ = try NativeHandoffFileTree(
+        system, protected: true, owner: geteuid(), volumeRoot: true, ownedVolumeRoot: true,
+        volumeDevice: "disk8s1", verifyMount: { _, _, _ in })
+      var status = stat()
+      XCTAssertEqual(lstat(system.path, &status), 0)
+      XCTAssertEqual(status.st_mode & 0o7777, 0o755)
       try NativeRecoveryTemplate.publishApp(
-        prepared, to: destination, owner: geteuid(), parentIsVolumeRoot: true, verify: { _ in })
+        prepared, to: destination, owner: geteuid(), verify: { _ in })
       XCTAssertTrue(FileManager.default.fileExists(atPath: destination.path))
-      try FileManager.default.removeItem(at: destination)
-      try FileManager.default.setAttributes([.posixPermissions: 0o777], ofItemAtPath: system.path)
-      XCTAssertThrowsError(
-        try NativeRecoveryTemplate.publishApp(
-          prepared, to: destination, owner: geteuid(), parentIsVolumeRoot: true, verify: { _ in }))
     }
 
     func testSnapshotBindsCompleteInventoryAndDoesNotChangeSource() throws {

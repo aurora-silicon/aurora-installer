@@ -70,7 +70,7 @@
         let systemURL = try systemMounts.mounted(system.identifier, uuid: system.uuid)
         let systemTree = try NativeHandoffFileTree(
           systemURL, protected: true, owner: owner,
-          volumeRoot: true, volumeDevice: system.identifier,
+          volumeRoot: true, ownedVolumeRoot: true, volumeDevice: system.identifier,
           verifyMount: environment.verifyMount)
         return try systemTree.read(
           "Finish Installation.app/Contents/Resources/boot.bin", maximum: 64 << 20)

@@ -335,7 +335,7 @@
         let root = try mounts.mounted(volume.identifier, uuid: volume.uuid, writable: true)
         let tree = try NativeHandoffFileTree(
           root, protected: true, owner: owner,
-          volumeRoot: true, volumeDevice: volume.identifier,
+          volumeRoot: true, ownedVolumeRoot: role == "System", volumeDevice: volume.identifier,
           verifyMount: platform.environment.verifyMount)
         roots[role] = root
         stores[role] = NativeStubFileStore(tree: tree, owner: owner, namespace: approved.planDigest)

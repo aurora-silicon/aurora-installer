@@ -524,7 +524,7 @@
       let mounts = NativeHandoffMounts(environment)
       let systemURL = try mounts.mounted(volumes.system.identifier, uuid: volumes.system.uuid)
       let system = try NativeHandoffFileTree(
-        systemURL, protected: true, owner: owner, volumeRoot: true,
+        systemURL, protected: true, owner: owner, volumeRoot: true, ownedVolumeRoot: true,
         volumeDevice: volumes.system.identifier, verifyMount: environment.verifyMount)
       let staging = NativeStage1UpdateStaging(system: system, systemRoot: systemURL, owner: owner)
       let records: NativeStage1UpdateRecords
