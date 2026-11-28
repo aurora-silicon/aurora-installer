@@ -99,6 +99,21 @@ The first-stage engine reads back the selected APFS volume group after `bless`. 
 
 The welcome screen retains a small text attribution without an Aurora logo. The Aurora banner and Kanagawa volume artwork are independent. AppKit owns the outer rounding with hidden title bar and standard window controls; Command-Q quits.
 
+## Setup from a shell
+
+The `aura` command reaches setup without the window, for Recovery Terminal or a remote shell in paired Recovery on a Mac nobody is sitting at. Opening the app once installs the command. The app's own executable with `--aura-command` works too, before that.
+
+```sh
+printf '%s\n' "$OWNER_PASSWORD" | aura setup
+aura restart
+```
+
+`aura setup` runs Continue's setup for a fresh installation, with the configured startup keys (Aurora-managed unless the installer set others). `aura update` enrolls the Stage 1 update the macOS installer staged, as Update does. The command line names the change: `aura setup` refuses while an update is staged, and `aura update` refuses when none is, both before anything is written. Once setup has finished, `aura setup` refuses too, as the window then offers only Restore (`aura recover`); an interrupted setup, whose journal is still pending, runs again and resumes. No refusal remounts the volume. Before the first write, either one prints and logs what it is about to do: the volume, the boot mode, the startup keys (for `aura update`, the recorded ones it keeps) and the SHA-256 of the Stage 1 the manifest lists. Right before kmutil, the log names the SHA-256 of the Stage 1 actually enrolled, with the startup keys filled in when it holds a key block. Both then resolve the owner as the window does and repeat every environment and owner check before their first write. Progress is printed one step per line. A failure keeps the same journal the window keeps, so either can resume it.
+
+The password of the installation's owner is the first line of standard input. Pipe or redirect it into `aura` itself, as above. It never comes from the command line, so it stays out of `ps` and shell history. It never comes from a terminal, which would echo it: typed in Recovery Terminal, setup refuses and points to the window. Don't let `aura` inherit standard input from a script piped into `sh`, such as a remote one-liner: it would read the script's next line as the password. An empty line, or one with a NUL or a carriage return inside it, changes nothing.
+
+`aura restart` is Restart on the last screen. A recovery account that doesn't exist yet is deferred, as "Skip, Restart Now" does, and the window offers it the next time Recovery opens the app. An account waiting for authorization in Startup Disk needs that window, so `aura restart` refuses and changes nothing. Otherwise it checks the receipt, the startup bundle and the startup disk, and restarts. While a Stage 1 update waits, it refuses too. After `aura update`, restart the Mac as usual: like the window, that doesn't compare the ESP's Stage 2 with Recovery's copy. Creating the recovery account and choosing another startup disk stay in the window.
+
 ## Per-install firmware recovery baseline
 
 The stager requires the actual finalized ESP `vendorfw/firmware.tar`, `vendorfw/firmware.cpio` and `vendorfw/manifest.txt`. It also retains `vendorfw/u-boot/asmedia/asm2214a-apple.bin` when present. These files are read from this installation’s ESP and stored in `Aurora/Recovery/InstallData/AuraPayloads` beside the signed app; they are never inserted into either app bundle. The original signature, hardened runtime and entitlements remain unchanged. All are nonempty, with 256 MiB limits for the archive files, 1 MiB for the manifest, and 16 MiB for the optional U-Boot firmware. Missing required inputs stop staging.
