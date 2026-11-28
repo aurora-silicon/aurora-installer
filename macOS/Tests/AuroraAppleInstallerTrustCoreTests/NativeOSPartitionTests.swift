@@ -135,9 +135,10 @@
     {
       let fixture = try Fixture()
       defer { fixture.remove() }
-      fixture.stop = 2
+      fixture.cancelAfterFirstReceipt = true
       XCTAssertThrowsError(try fixture.prepare())
-      fixture.stop = nil
+      XCTAssertEqual(fixture.commands.count, 2)
+      fixture.cancelAfterFirstReceipt = false
       let stubIndex = try XCTUnwrap(
         fixture.snapshot.containers.firstIndex { $0.storeUUID != fixture.snapshot.macOSStoreUUID })
       let stub = fixture.snapshot.containers[stubIndex]
