@@ -177,6 +177,20 @@ def has_n1(dt=DT):
     return False
 
 
+def mac_chip(dt=DT):
+    """This Mac's SoC (0x6050) from the device tree's compatible
+    ("apple,t6050"), or None."""
+    try:
+        values = (dt / "compatible").read_bytes().split(b"\0")
+    except OSError:
+        return None
+    for v in values:
+        m = re.fullmatch(rb"apple,t([0-9]{4})", v)
+        if m:
+            return int(m[1], 16)
+    return None
+
+
 def os_fw_version(dt=DT):
     """The macOS version of this Mac's stub (OS) firmware, as the boot chain
     reports it (/chosen/asahi,os-fw-version, e.g. 26.6.2)."""
@@ -500,11 +514,18 @@ class CentauriN1(Part):
     a rebuild (asahi-fwupdate) gives the same file."""
     key, label = "centauri", "Apple N1 Wi-Fi and Bluetooth"
     VARIANT = "macOS Customer"
+    BEHAVIOR = "Erase"
     SOURCE = "centauri"
     PREFIX = "centauri/"
+    # The N1's Wi-Fi interface, from the T8142/T8152 or the T6050 driver. It
+    # must come up after a change even where it was down before: an install
+    # without N1 firmware never had it.
+    NET = "net:apple_centauri|apple_centauri_t6050"
+    probes = (NET,)
+    always = (NET,)
 
-    def __init__(self, model, open_zip=None):
-        self.model = model
+    def __init__(self, model, open_zip=None, chip=None):
+        self.model, self.chip = model, chip
         self.sources = ((self.SOURCE, self.PREFIX, None),)
         self.open_zip = open_zip or remotezip.RemoteZip
         self._inputs = None
@@ -528,15 +549,37 @@ class CentauriN1(Part):
             raise Refused(f"the macOS {macos.build} restore image does not read: {e}")
         if bm.get("ProductBuildVersion") != macos.build:
             raise Refused(f"the restore image is {bm.get('ProductBuildVersion')}, not {macos.build}")
+        # The identity the native installer's stub plan selects
+        # (NativeStubFilePlan): this board, its chip, an Erase restore of the
+        # macOS Customer variant. The device tree carries no board ID, so the
+        # board is its device class, which must name one board ID throughout
+        # the manifest, and exactly one identity may match.
+        device = f"{self.model}ap"
+        same = [bi for bi in bm.get("BuildIdentities", [])
+                if (bi.get("Info") or {}).get("DeviceClass") == device]
+        if len({bi.get("ApBoardID") for bi in same}) > 1:
+            raise Refused(f"the restore image names {device} with more than one board ID")
+        chosen = [bi for bi in same if (bi.get("Info") or {}).get("Variant") == self.VARIANT
+                  and (bi.get("Info") or {}).get("RestoreBehavior") == self.BEHAVIOR]
+        if not chosen:
+            self._inputs = "no N1 image for this board"
+            return self._inputs
+        if len(chosen) > 1:
+            raise Refused(f"the restore image has {len(chosen)} {self.VARIANT} identities for {device}")
+        identity = chosen[0]
+        chip = self.chip if self.chip is not None else mac_chip()
+        try:
+            got_chip = int(str(identity.get("ApChipID")), 16)
+        except ValueError:
+            got_chip = None
+        if chip is None or got_chip != chip:
+            raise Refused(f"the restore image's {device} identity is chip {identity.get('ApChipID')}, "
+                          f"not this Mac's ({'unknown' if chip is None else hex(chip)})")
         paths = set()
-        for bi in bm.get("BuildIdentities", []):
-            info = bi.get("Info", {})
-            if info.get("DeviceClass") != f"{self.model}ap" or info.get("Variant") != self.VARIANT:
-                continue
-            for comp, entry in (bi.get("Manifest") or {}).items():
-                path = ((entry or {}).get("Info") or {}).get("Path")
-                if comp.startswith("Wireless1,") and isinstance(path, str) and path:
-                    paths.add(path)
+        for comp, entry in (identity.get("Manifest") or {}).items():
+            path = ((entry or {}).get("Info") or {}).get("Path")
+            if comp.startswith("Wireless1,") and isinstance(path, str) and path:
+                paths.add(path)
         if not paths:
             self._inputs = "no N1 image for this board"
             return self._inputs
@@ -1356,16 +1399,17 @@ def hci_up(index):
 
 def radio_probe(name, text, sys_root=None, up=hci_up):
     """brcmfmac: it reported a running firmware. net:<driver>: a network
-    interface of that driver exists. link:<driver>: one is associated
+    interface of that driver exists (<driver> may list alternatives, a|b). link:<driver>: one is associated
     (operstate up). hci:<driver>: a Bluetooth controller of that driver is up."""
     if name == "brcmfmac":
         return UP.search(text) is not None
     kind, _, driver = name.partition(":")
+    drivers = driver.split("|")     # any of these drivers
     root = pathlib.Path(sys_root or SYS) / "class" / {"net": "net", "link": "net",
                                                      "hci": "bluetooth"}[kind]
     with contextlib.suppress(OSError):
         for dev in sorted(root.iterdir()):
-            if os.path.basename(os.path.realpath(dev / "device" / "driver")) != driver:
+            if os.path.basename(os.path.realpath(dev / "device" / "driver")) not in drivers:
                 continue
             if kind == "net":
                 return True

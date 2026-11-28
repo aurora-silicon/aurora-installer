@@ -32,7 +32,12 @@ and the board's ticket beside it; they are joined as the native installer's
 `CentauriFirmware` does (`asahi_firmware/centauri.py`) and kept in
 `asahi/all_firmware.tar.gz` under `centauri/<board>/`, so a later
 `asahi-fwupdate` gives the same file. A restore image that names more than
-one N1 image, lacks the ticket or is not the build it is listed as refuses.
+one N1 image, lacks the ticket or is not the build it is listed as refuses. The
+identity is the one the native installer's stub plan uses: this board's device
+class (one board ID throughout the manifest), the device tree's chip, an Erase
+restore of the macOS Customer variant, and exactly one such identity. After a
+change the next boot requires the N1 Wi-Fi interface (`apple_centauri` or
+`apple_centauri_t6050`) to come up, or it reverts.
 
 ```sh
 sudo aurora-wifi-firmware status    # board, ESP and running firmware, the restore image used

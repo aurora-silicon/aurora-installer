@@ -34,15 +34,18 @@ class FakeMember:
         return self.data[:limit]
 
 
-def identity(device, variant, paths):
-    return {"Info": {"DeviceClass": device, "Variant": variant},
+def identity(device, variant, paths, behavior="Erase", chip="0x6050", board="0x14"):
+    return {"ApChipID": chip, "ApBoardID": board,
+            "Info": {"DeviceClass": device, "Variant": variant, "RestoreBehavior": behavior},
             "Manifest": {f"Wireless1,Part{n}": {"Info": {"Path": p}} for n, p in enumerate(paths)}}
 
 
 def restore_zip(build=BUILD, identities=None, members=None):
     if identities is None:
         identities = [identity("k114sap", "macOS Customer", [IMAGE_PATH, IMAGE_PATH]),
-                      identity("k114sap", "Customer Erase Install (IPSW)", ["Firmware/other.bin"])]
+                      identity("k114sap", "Customer Erase Install (IPSW)", ["Firmware/other.bin"]),
+                      identity("k114sap", "macOS Customer", ["Firmware/update.bin"], "Update"),
+                      identity("k114cap", "macOS Customer", ["Firmware/k114c.bin"], board="0x04")]
     files = {IMAGE_PATH: IMAGE, TICKET_PATH: TICKET} if members is None else members
     files["BuildManifest.plist"] = plistlib.dumps(
         {"ProductBuildVersion": build, "ProductVersion": "27.2", "BuildIdentities": identities})
@@ -74,12 +77,13 @@ def members(path):
 
 
 class N1UpdateTest(Case):
-    def run_update(self, esp, z, **kw):
+    def run_update(self, esp, z, chip=0x6050, **kw):
         mac = awf.MacOS(f"UniversalMac_27.2_{BUILD}_Restore.ipsw", FakeVol({}), BUILD, "27.2",
                         MODEL, url="https://example.invalid/r.ipsw")
         kw.setdefault("probe", lambda name, text: False)
         with mock.patch.object(awf, "has_n1", lambda dt=None: True), \
                 mock.patch.object(awf, "mac_board", lambda dt=None: MODEL), \
+                mock.patch.object(awf, "mac_chip", lambda dt=None: chip), \
                 mock.patch.object(awf.remotezip, "RemoteZip", lambda url: z):
             return awf.update(esp, mac, None, backup_root=self.backups, state_dir=self.state,
                               out=self.out.append, swap=lambda a, b: False, log_text="", **kw)
@@ -99,6 +103,8 @@ class N1UpdateTest(Case):
         st = awf.read_state(self.state)
         self.assertEqual(st["pending"]["parts"], ["centauri"])
         self.assertEqual(set(st["pending"]["expect"]), {NAME})
+        # The N1 interface must come up at the next boot, though it was down.
+        self.assertEqual(st["pending"]["probes"], [awf.CentauriN1.NET])
         self.assertEqual(self.run_update(esp, restore_zip()), "identical")
 
     def test_a_rebuild_from_all_firmware_gives_the_same_file(self):
@@ -124,6 +130,34 @@ class N1UpdateTest(Case):
             self.run_update(esp, z)
         self.assertIn("no N1 image for this board", "\n".join(self.out))
 
+    def test_another_chips_identity_is_refused(self):
+        esp = n1_esp(self.root)
+        with self.assertRaisesRegex(awf.Refused, "chip 0x6050, not this Mac's \\(0x6040\\)"):
+            self.run_update(esp, restore_zip(), chip=0x6040)
+        with self.assertRaisesRegex(awf.Refused, "unknown"):
+            self.run_update(esp, restore_zip(), chip=None)
+
+    def test_only_an_update_identity_is_no_source(self):
+        esp = n1_esp(self.root)
+        z = restore_zip(identities=[identity("k114sap", "macOS Customer", [IMAGE_PATH], "Update")])
+        with self.assertRaisesRegex(awf.Refused, "ships none"):
+            self.run_update(esp, z)
+
+    def test_two_matching_identities_are_refused(self):
+        esp = n1_esp(self.root)
+        z = restore_zip(identities=[identity("k114sap", "macOS Customer", [IMAGE_PATH]),
+                                    identity("k114sap", "macOS Customer", [IMAGE_PATH])])
+        with self.assertRaisesRegex(awf.Refused, "2 macOS Customer identities"):
+            self.run_update(esp, z)
+
+    def test_a_device_class_with_two_board_ids_is_refused(self):
+        esp = n1_esp(self.root)
+        z = restore_zip(identities=[
+            identity("k114sap", "macOS Customer", [IMAGE_PATH]),
+            identity("k114sap", "Customer Erase Install (IPSW)", [IMAGE_PATH], board="0x15")])
+        with self.assertRaisesRegex(awf.Refused, "more than one board ID"):
+            self.run_update(esp, z)
+
     def test_two_n1_images_are_refused(self):
         esp = n1_esp(self.root)
         z = restore_zip(identities=[identity("k114sap", "macOS Customer",
@@ -143,6 +177,57 @@ class N1UpdateTest(Case):
             self.run_update(esp, restore_zip(members={IMAGE_PATH: b"not ftab" * 8,
                                                       TICKET_PATH: TICKET}))
         self.assertEqual(awf.tree_hashes(esp), before)
+
+    def changed(self):
+        esp = n1_esp(self.root)
+        self.old = awf.tree_hashes(esp)
+        self.run_update(esp, restore_zip())
+        st = awf.read_state(self.state)
+        st["pending"]["boot_id"] = "an earlier boot"
+        return esp, st
+
+    def verify(self, esp, st, text="", probe=lambda n, t: True, wait=0, sleep=lambda s: None):
+        return awf.verify(st, esp, out=self.out.append, log_text=text, wait=wait, sleep=sleep,
+                          unpacked_sha=lambda n: st["pending"]["expect"][n], probe=probe,
+                          state_dir=self.state, swap=lambda a, b: False)
+
+    def test_the_n1_interface_up_is_verified(self):
+        esp, st = self.changed()
+        seen = []
+        self.assertEqual(self.verify(esp, st, probe=lambda n, t: seen.append(n) or True), "ok")
+        self.assertEqual(seen, [awf.CentauriN1.NET])
+        self.assertEqual(awf.read_state(self.state)["result"], "verified")
+
+    def test_no_n1_interface_reverts(self):
+        esp, st = self.changed()
+        self.assertEqual(self.verify(esp, st, probe=lambda n, t: False), "reverted")
+        self.assertEqual(awf.tree_hashes(esp), self.old)
+        self.assertIn(awf.CentauriN1.NET + " did not come up", self.out[-2])
+
+    def test_a_late_n1_interface_is_waited_for(self):
+        esp, st = self.changed()
+        calls = []
+        probe = lambda n, t: calls.append(n) or len(calls) >= 3  # noqa: E731
+        self.assertEqual(self.verify(esp, st, probe=probe, wait=60), "ok")
+        self.assertEqual(len(calls), 3)
+
+    def test_a_firmware_load_failure_reverts(self):
+        esp, st = self.changed()
+        text = "apple_centauri_t6050 0000:01:00.0: Direct firmware load for apple/centauri/k114s-ftab.bin failed with error -2\n"
+        self.assertEqual(self.verify(esp, st, text), "reverted")
+        self.assertEqual(awf.tree_hashes(esp), self.old)
+
+    def test_the_probe_takes_either_n1_driver(self):
+        for driver in ("apple_centauri", "apple_centauri_t6050"):
+            with tempfile.TemporaryDirectory() as tmp:
+                sysfs = pathlib.Path(tmp)
+                drv = sysfs / "bus" / "pci" / "drivers" / driver
+                drv.mkdir(parents=True)
+                dev = sysfs / "class" / "net" / "wlp1s0f0" / "device"
+                dev.mkdir(parents=True)
+                (dev / "driver").symlink_to(drv)
+                self.assertTrue(awf.radio_probe(awf.CentauriN1.NET, "", sys_root=sysfs), driver)
+                self.assertFalse(awf.radio_probe("net:brcmfmac_x", "", sys_root=sysfs))
 
     def test_a_firmware_load_failure_is_a_failure(self):
         text = "centauri 0000:01:00.0: Direct firmware load for apple/centauri/k114s-ftab.bin failed"
