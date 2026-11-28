@@ -78,15 +78,31 @@ def main():
     install(source / 'conf/apple/j700.conf', root, 'usr/share/speakerguardd/apple/j700.conf')
     install(source / '95-speakerguardd.rules', root, 'usr/lib/udev/rules.d/95-speakerguardd.rules')
     install(source / 'LICENSE', root, 'usr/share/licenses/speakerguardd/LICENSE')
-    # The capture-only AOP card can enumerate first. Bind this J700 service to
-    # the speaker card instead of the daemon's first-Apple-card default.
-    unit = (source / 'speakerguardd.service').read_text()
-    unit = unit.replace('ExecStart=/usr/bin/speakerguardd -c /usr/share/speakerguardd',
-                        'ExecStart=/usr/bin/speakerguardd -c /usr/share/speakerguardd -C AppleJ700')
-    unit = unit.replace('Description=Speaker Protection Daemon (feed-forward)',
-                        'Description=Speaker Protection Daemon (feed-forward)\nStartLimitIntervalSec=60\nStartLimitBurst=10')
+    # speakerguardd#197 and later ship the per-card template unit: the udev
+    # rule wants speakerguardd@<card id> for every macaudio card, and the
+    # instance's start condition runs it only for a card with a profile here
+    # and none from speakersafetyd.  It names its card from the instance, so
+    # it is installed as it is, with the image's start limit.
+    template = source / 'speakerguardd@.service'
+    if template.exists():
+        unit = template.read_text()
+        for line in ('ExecCondition=/usr/bin/speakerguardd -c /usr/share/speakerguardd -C %I --owns-card',
+                     'ExecStart=/usr/bin/speakerguardd -c /usr/share/speakerguardd -C %I --wait-for-card 30'):
+            assert line in unit.splitlines(), line
+        name = 'speakerguardd@.service'
+    else:
+        # Older pins: one unit. The capture-only AOP card can enumerate
+        # first, so bind it to the speaker card instead of the daemon's
+        # first-Apple-card default.
+        unit = (source / 'speakerguardd.service').read_text()
+        unit = unit.replace('ExecStart=/usr/bin/speakerguardd -c /usr/share/speakerguardd',
+                            'ExecStart=/usr/bin/speakerguardd -c /usr/share/speakerguardd -C AppleJ700')
+        name = 'speakerguardd.service'
+    unit = unit.replace('StartLimitIntervalSec=60\nStartLimitBurst=5\n', '')
     unit = unit.replace('StartLimitInterval=60\nStartLimitBurst=10\n', '')
-    path = root / 'usr/lib/systemd/system/speakerguardd.service'
+    unit = unit.replace('[Unit]\n', '[Unit]\nStartLimitIntervalSec=60\nStartLimitBurst=10\n', 1)
+    assert unit.count('StartLimitBurst=') == 1, 'one start limit'
+    path = root / 'usr/lib/systemd/system' / name
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(unit)
     # Keep the feedback daemon available on other supported Macs; only J700
