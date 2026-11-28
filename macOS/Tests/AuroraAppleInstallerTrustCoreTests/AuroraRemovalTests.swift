@@ -1537,7 +1537,8 @@
         XCTFail("Concurrent removal accepted")
       } catch { XCTAssertEqual(error as? ClosedEngineHelperError, .busy) }
       do {
-        _ = try await service.submit(packageDirectory: .standardInput, authorization: auth)
+        _ = try await service.submit(
+          packageDirectory: .standardInput, bindingDigest: "", authorization: auth)
         XCTFail("Concurrent install accepted")
       } catch { XCTAssertEqual(error as? ClosedEngineHelperError, .busy) }
       disk.resume.signal()

@@ -27,7 +27,7 @@
       )
 
       let result = try await server.submit(
-        packageDirectory: source,
+        packageDirectory: source, bindingDigest: fixture.bindingDigest,
         authorization: try machineOwnerAuthorization(),
         progress: sink
       )
@@ -60,7 +60,7 @@
       )
 
       let result = try await server.submit(
-        packageDirectory: source,
+        packageDirectory: source, bindingDigest: fixture.bindingDigest,
         authorization: try machineOwnerAuthorization()
       )
 
@@ -87,7 +87,7 @@
 
       do {
         _ = try await server.submit(
-          packageDirectory: source,
+          packageDirectory: source, bindingDigest: fixture.bindingDigest,
           authorization: try machineOwnerAuthorization(),
           progress: sink
         )
@@ -155,7 +155,15 @@
         ],
         prefix: ""
       )
-      let bindingDigest = digest(Data("binding".utf8))
+      // The digest the app computes for this plan; the helper recomputes it.
+      let bindingDigest = lengthPrefixedDigest(
+        [
+          "omarchy.apple.candidate-bound-plan", "1", digest(Data("root".utf8)), "40",
+          digest(Data("catalog".utf8)), planDigest, "apple,j314s", "disk0", layoutDigest, "free",
+          "disk0s3", "447750000000", "107374182400", engineDigest, metadataDigest, payloadDigest,
+        ],
+        prefix: "sha256:"
+      )
       let decoder = Data("decoder".utf8)
       try writePrivate(decoder, to: source.appendingPathComponent(RestoreImageHelper.fileName))
       let manifest = Data(

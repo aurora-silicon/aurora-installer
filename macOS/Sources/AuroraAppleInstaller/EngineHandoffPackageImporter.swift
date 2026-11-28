@@ -166,9 +166,13 @@
         repairManifestDigest: nil, requiredHumanSteps: request.requiredHumanSteps)
     }
 
+    /// `expectedBindingDigest`, when given, is the digest the caller approved
+    /// outside the package; a package carrying another one is refused right
+    /// after its control files are read, before any artifact is copied.
     public func prepare(
       from packageDirectory: FileHandle,
-      in destinationDirectory: URL
+      in destinationDirectory: URL,
+      expectedBindingDigest: String? = nil
     ) throws -> ImportedEngineHandoffPackage {
       let sourceDescriptor = packageDirectory.fileDescriptor
       try validateSourceDirectory(sourceDescriptor)
@@ -194,6 +198,9 @@
         request: request,
         identity: identity
       )
+      if let expectedBindingDigest, identity.bindingDigest != expectedBindingDigest {
+        throw EngineHandoffImportError.bindingMismatch
+      }
       // Older packages carried an engine archive or a repair manifest for the
       // retired engine. A new submission must name only native execution.
       guard manifest.format == 2, manifest.engine == nil, manifest.repairManifest == nil,
@@ -766,7 +773,25 @@
         : manifest.format == 2 && manifest.engine == nil
           && identity.engineDigest == NativeExecutionIdentity.digest
           && request.engineVersion == NativeExecutionIdentity.version
+      // The binding digest is recomputed, not only compared between the files:
+      // the value the app approved then fixes every field it covers.
+      let bindingDigest = CandidateBoundPlanIdentity.makeBindingDigest(
+        trustRootFingerprint: identity.trustRootFingerprint,
+        catalogSequence: identity.catalogSequence,
+        catalogPayloadDigest: identity.catalogPayloadDigest,
+        planDigest: request.planDigest,
+        deviceIdentifier: request.deviceIdentifier,
+        storeIdentifier: request.storeIdentifier,
+        layoutDigest: request.layoutDigest,
+        candidateKind: request.candidateKind,
+        sourceIdentifier: request.sourceIdentifier,
+        offsetBytes: request.offsetBytes,
+        lengthBytes: request.lengthBytes,
+        engineDigest: identity.engineDigest,
+        metadataDigest: identity.metadataDigest,
+        payloadDigest: identity.payloadDigest)
       guard manifest.bindingDigest == identity.bindingDigest,
+        identity.bindingDigest == bindingDigest,
         request.planDigest == identity.planDigest,
         request.planDigest == lengthPrefixedDigest(planFields),
         engineBound,

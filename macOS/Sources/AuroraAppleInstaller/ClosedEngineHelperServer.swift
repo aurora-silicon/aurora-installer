@@ -463,8 +463,16 @@
     /// `progress` is optional and advisory: when a connected app exports the
     /// journal callback, the helper tails the run's journal and forwards whole
     /// lines. Passing nil reproduces the previous behavior exactly.
+    /// `bindingDigest` is the digest the caller approved; a package that
+    /// carries another one is refused before any artifact is copied. The
+    /// digest and the package directory come from the same caller in one
+    /// call, so this binds the package to what that caller approved and
+    /// stops the directory's contents from changing after approval; it does
+    /// not stop the caller itself from submitting an older self-consistent
+    /// package with that package's own digest.
     public func submit(
       packageDirectory: FileHandle,
+      bindingDigest: String,
       authorization: MachineOwnerAuthorization,
       operation: EngineHandoffOperation = .install,
       progress: (any EngineJournalProgressSink)? = nil
@@ -475,7 +483,7 @@
       return try await InstallerTimingRecorder.attempt(operation.rawValue) {
         try await executeSubmittedPackage(
           packageDirectory: packageDirectory, authorization: authorization, operation: operation,
-          progress: progress, jobIdentifier: nil, installConf: nil)
+          progress: progress, admission: .bindingDigest(bindingDigest), installConf: nil)
       }.0
     }
 
@@ -496,10 +504,15 @@
         try await InstallerTimingRecorder.attempt(operation.rawValue, observe: observe) {
           try await executeSubmittedPackage(
             packageDirectory: packageDirectory, authorization: authorization,
-            operation: operation, progress: nil, jobIdentifier: identifier,
+            operation: operation, progress: nil, admission: .job(identifier),
             installConf: installConf)
         }
       }
+    }
+
+    private enum SubmittedPackageAdmission {
+      case job(UUID)
+      case bindingDigest(String)
     }
 
     private func executeSubmittedPackage(
@@ -507,7 +520,7 @@
       authorization: MachineOwnerAuthorization,
       operation: EngineHandoffOperation,
       progress: (any EngineJournalProgressSink)?,
-      jobIdentifier: UUID?,
+      admission: SubmittedPackageAdmission,
       installConf: InstallConf?
     ) async throws -> (Data, InstallConfHandoff) {
       try requireNoInterruptedRemoval()
@@ -520,17 +533,31 @@
         throw ClosedEngineHelperError.invalidMachineOwnerCredentials
       }
 
+      let expectedBindingDigest: String? =
+        switch admission {
+        case .job: nil
+        case .bindingDigest(let approved): approved
+        }
       let package = try InstallerPerformance.measure("helper_import") {
-        try importer.prepare(from: packageDirectory, in: workingDirectory)
+        try importer.prepare(
+          from: packageDirectory, in: workingDirectory,
+          expectedBindingDigest: expectedBindingDigest)
       }
       var registeredPackage = false
       defer {
         if !registeredPackage { try? FileManager.default.removeItem(at: package.packageURL) }
       }
 
-      if let jobIdentifier {
+      // Either way the package must carry the binding digest its caller sent
+      // outside the package: in the job's ticket, or with a direct submission.
+      switch admission {
+      case .job(let jobIdentifier):
         try jobs.admitted(jobIdentifier, package: package)
         registeredPackage = true
+      case .bindingDigest(let approved):
+        guard package.bindingDigest == approved else {
+          throw EngineHandoffImportError.bindingMismatch
+        }
       }
 
       return try await executeImportedPackage(
@@ -922,6 +949,7 @@
 
     public func submit(
       packageDirectory: FileHandle,
+      bindingDigest: String,
       operation: String,
       machineOwner: String,
       password: Data,
@@ -949,6 +977,7 @@
           )
           let response = try await server.submit(
             packageDirectory: packageDirectory,
+            bindingDigest: bindingDigest,
             authorization: authorization,
             operation: operation,
             progress: sink

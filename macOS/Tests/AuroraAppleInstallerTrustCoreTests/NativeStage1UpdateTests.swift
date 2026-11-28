@@ -459,6 +459,7 @@
       do {
         _ = try await server.submit(
           packageDirectory: directory,
+          bindingDigest: "sha256:" + String(repeating: "0", count: 64),
           authorization: MachineOwnerAuthorization(username: "owner", password: Data("pw".utf8)),
           operation: .updateStage1)
         XCTFail("a rejected password reached the update")

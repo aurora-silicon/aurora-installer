@@ -481,7 +481,13 @@
           try FileManager.default.createDirectory(
             at: path, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         }
-        let binding = "sha256:" + String(repeating: "b", count: 64)
+        // The control files below must carry the digest that follows from them.
+        let binding = CandidateBoundPlanIdentity(
+          plan: approved,
+          catalogIdentity: try AcceptedCatalogIdentity(
+            sequence: 1, payloadDigest: "sha256:" + String(repeating: "a", count: 64)),
+          trustRootFingerprint: "sha256:" + String(repeating: "a", count: 64)
+        ).bindingDigest
         journal = journals.appendingPathComponent(String(binding.dropFirst(7)) + ".jsonl")
         evidence = URL(fileURLWithPath: journal.path + ".apfs-target-prepared.evidence")
         package = ImportedEngineHandoffPackage(
