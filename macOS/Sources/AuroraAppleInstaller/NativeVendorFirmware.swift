@@ -315,6 +315,7 @@
             calibration: ambientLight(), factory: factory)
           try merge(calibration, into: &outputs)
           try merge(calibration, into: &fallback)
+          try merge(NativeBluetoothCalibrationInputs.files(factory: factory), into: &outputs)
         }
         // The speaker protection's parameters: the model's Apple tuning from
         // the pinned restore image and this unit's calibration, stored like

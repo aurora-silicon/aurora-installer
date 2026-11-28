@@ -182,7 +182,9 @@ public enum NeoFirmwareConversions {
     return Element(tag: tag, start: cursor, end: cursor + length)
   }
 
-  public static func factoryFields(_ data: Data) throws -> [String: Data] {
+  /// The named fields of a factory IMG4 record whose IM4P type is `type`: the
+  /// Neo's radio calibration (BWC2) or an M3/M4 Mac's Bluetooth/Wi-Fi one (BWCl).
+  public static func factoryFields(_ data: Data, type: String = "BWC2") throws -> [String: Data] {
     try require(
       data.startIndex == 0 && !data.isEmpty && data.count <= 32 << 20,
       "Factory input exceeds its budget.")
@@ -208,7 +210,7 @@ public enum NeoFirmwareConversions {
     let payload = try children(outer[1].start, outer[1].end)
     try require(payload.count >= 4, "Incomplete factory payload.")
     try require(
-      try bytes(payload[0]) == Data("IM4P".utf8) && bytes(payload[1]) == Data("BWC2".utf8)
+      try bytes(payload[0]) == Data("IM4P".utf8) && bytes(payload[1]) == Data(type.utf8)
         && payload[3].tag == 4, "Invalid factory payload type.")
     var pending = [(payload[3].start, payload[3].end, 0)]
     var fields = [Data: Data]()
