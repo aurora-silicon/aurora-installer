@@ -99,6 +99,28 @@
       }
     }
 
+    /// A board the pinned 27.2 entry names is stopped below 27.2 by default,
+    /// but an expert override to one of its older entries is the owner's
+    /// explicit choice and selects that entry.
+    func testAnOverrideIsNotStoppedByThePinnedBoardRule() throws {
+      let policy = try NativeInspectionPolicy.sealed()
+      let j615 = NativeInspectionHardware(
+        chipID: 0x8122, bootVersion: "mBoot-18000.161.10", macOSVersion: "26.6.2",
+        recoveryVersion: "25.7.83.0.0,0")
+      func choose(_ override: StubOverrideChoice?) throws -> NativeFirmwareSelection {
+        try NativeFirmwareSelection.choose(
+          deviceIdentifier: "apple,j615",
+          facts: .init(deviceIdentifier: "apple,j615", hardware: j615),
+          metadata: metadata(supported: nil), policy: policy, stubOverride: override)
+      }
+      XCTAssertThrowsError(try choose(nil)) {
+        XCTAssertEqual(
+          $0 as? NativeFirmwareSelectionError, .macOSUpdateRequired(version: "27.2"))
+      }
+      let older = try XCTUnwrap(policy.firmware.first { $0.version == "14.8.3" }).stubChoice
+      XCTAssertEqual(try choose(older).version, "14.8.3")
+    }
+
     func testResolveTakesAVersionOrABuildAndRefusesTheRest() throws {
       let policy = try NativeInspectionPolicy.sealed()
       func resolve(_ text: String) throws -> StubOverrideChoice {

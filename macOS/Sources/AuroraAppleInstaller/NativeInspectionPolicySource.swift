@@ -8,7 +8,9 @@
   // digest. Its models are the qualified and explicitly experimental boards
   // in scripts/firmware-qualification.json. Experimental admission requires
   // a kernel device tree, a matching restore identity and an owner caution.
-  // It does not claim a hardware qualification result.
+  // It does not claim a hardware qualification result. A board a pinned
+  // entry names must meet that entry's floors: below them the owner is told
+  // to update macOS rather than given an older entry.
   enum NativeInspectionPolicySource {
     static let json = #"""
       {
@@ -467,7 +469,9 @@
             "minimumRecovery": "26.2.123.0.0,0",
             "models": [
               "j516s",
+              "j615",
               "j704",
+              "j713",
               "j714c",
               "j714s",
               "j716c",

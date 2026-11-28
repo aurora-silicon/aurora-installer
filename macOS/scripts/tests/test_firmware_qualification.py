@@ -91,7 +91,7 @@ class FirmwareQualificationTests(unittest.TestCase):
                     'j716c': '0x0e', 'j716s': '0x0c', 'j775c': '0x10', 'j775d': '0x12',
                     'j813': '0x24', 'j815': '0x26', 'j873s': '0x02'}
         record = self.record['pins']['26B123']
-        self.assertEqual(record['boards'], {})
+        self.assertEqual(set(record['boards']), {'j615', 'j713'})
         self.assertEqual({board: proof['manifest_identity']['board_id']
                           for board, proof in record['experimental_boards'].items()}, expected)
         pin = self.pinned['26B123']['pin']

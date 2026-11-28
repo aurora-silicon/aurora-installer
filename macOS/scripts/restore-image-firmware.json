@@ -397,8 +397,16 @@
      "chip_id": "0x6030",
      "n1_images": 0
     },
+    "j615": {
+     "chip_id": "0x8122",
+     "n1_images": 0
+    },
     "j704": {
      "chip_id": "0x8142",
+     "n1_images": 0
+    },
+    "j713": {
+     "chip_id": "0x8132",
      "n1_images": 0
     },
     "j714c": {

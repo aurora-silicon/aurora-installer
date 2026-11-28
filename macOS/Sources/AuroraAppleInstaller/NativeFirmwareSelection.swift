@@ -106,25 +106,30 @@
       let minimum =
         try NativeInspectionPolicy.Version.atLeast(chip, device.minimum)
         ? chip : device.minimum
-      var selected: NativeInspectionPolicy.Firmware?
+      let board = String(deviceIdentifier.dropFirst(6))
+      var selected: (index: Int, entry: NativeInspectionPolicy.Firmware)?
       var lowest: NativeInspectionPolicy.Firmware?
       var shortfall: NativeFirmwareShortfall?
+      // The last pinned build that names this board, and what this Mac lacks
+      // for it when it already runs that build's macOS.
+      var pinned: (index: Int, entry: NativeInspectionPolicy.Firmware)?
+      var pinnedShortfall: NativeFirmwareShortfall?
       var verdicts = [String]()
       var overrideKnown = false
       // Preserve source order: the backend chooses the last compatible entry,
       // not the entry with the numerically highest version.
-      for entry in policy.firmware {
+      for (index, entry) in policy.firmware.enumerated() {
         if let stubOverride {
           guard entry.stubChoice == stubOverride,
             try NativeInspectionPolicy.Version.atLeast(entry.version, minimum),
-            entry.models?.contains(String(deviceIdentifier.dropFirst(6))) ?? true,
+            entry.models?.contains(board) ?? true,
             !entry.expert
           else { continue }
           overrideKnown = true
         }
         guard try NativeInspectionPolicy.Version.atLeast(entry.version, minimum),
           target.supportedFirmware?.contains(entry.version) ?? true,
-          entry.models?.contains(String(deviceIdentifier.dropFirst(6))) ?? true,
+          entry.models?.contains(board) ?? true,
           !entry.expert
         else { continue }
         // The lowest version this Mac and release may use at all names the
@@ -138,19 +143,27 @@
           "Firmware \(entry.version)\(entry.pin.map { " (\($0.build))" } ?? ""): boot \(boot) >= "
             + "\(entry.minimumBoot) \(bootOK), macOS \(macOS) >= \(entry.minimumMacOS) \(macOSOK), "
             + "Recovery \(recovery) >= \(entry.minimumRecovery) \(recoveryOK)")
+        var entryShortfall: NativeFirmwareShortfall?
         if bootOK, macOSOK, recoveryOK {
-          selected = entry
+          selected = (index, entry)
         } else if macOSOK, try NativeInspectionPolicy.Version.atLeast(macOS, entry.version) {
           // This Mac already runs this entry's macOS, so updating to it can't
           // help: say which of its other minimums is short. Below the entry's
           // version, installing that macOS brings its firmware and Recovery.
-          shortfall =
+          entryShortfall =
             bootOK
             ? NativeFirmwareShortfall(
               version: entry.version, check: .recovery, detected: recovery,
               required: entry.minimumRecovery)
             : NativeFirmwareShortfall(
               version: entry.version, check: .boot, detected: boot, required: entry.minimumBoot)
+          shortfall = entryShortfall
+        }
+        // A pinned build that names this board is the startup firmware the
+        // board is admitted to.
+        if entry.pin != nil, entry.models?.contains(board) == true {
+          pinned = (index, entry)
+          pinnedShortfall = entryShortfall
         }
       }
       if let stubOverride, lowest == nil {
@@ -163,7 +176,23 @@
         }
         throw NativeFirmwareSelectionError.stubOverride(.notInRelease(stubOverride.title))
       }
-      guard let selected else {
+      // A board admitted to a pinned build doesn't fall back to an older entry
+      // because this Mac is below the build's minimums: below its macOS, the
+      // owner updates macOS first; already on it, the message names the short
+      // boot firmware or Recovery. A release that leaves the build out of
+      // `supported_fw`, and every board the build doesn't name, keeps its
+      // older entry. An expert stub override is the owner's explicit choice
+      // and is not stopped here.
+      if stubOverride == nil, let pinned, (selected?.index ?? -1) < pinned.index {
+        InstallerLog.error(
+          "This Mac is below the pinned boot firmware it is admitted to. "
+            + verdicts.joined(separator: "; "))
+        if let pinnedShortfall {
+          throw NativeFirmwareSelectionError.firmwareBelowRelease(pinnedShortfall)
+        }
+        throw NativeFirmwareSelectionError.macOSUpdateRequired(version: pinned.entry.version)
+      }
+      guard let selected = selected?.entry else {
         // Named once, only when nothing fits: each entry's three checks.
         if !verdicts.isEmpty {
           InstallerLog.error("No boot firmware fits this Mac. " + verdicts.joined(separator: "; "))

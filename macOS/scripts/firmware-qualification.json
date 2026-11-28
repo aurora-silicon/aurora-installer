@@ -6,7 +6,22 @@
       "source_url": "https://updates.cdn-apple.com/2026FallFCS/c9671975-52db-4fb5-9af2-00217169ba8d/UniversalMac_27.2_26B123_Restore.ipsw",
       "source_bytes": 25595669503,
       "manifest_sha256": "sha256:0fbfae04175cde81ef36d273aa280d39ffe5a54eacba8494b45a59daca462510",
-      "boards": {},
+      "boards": {
+        "j615": {
+          "kernel": "linux main with linux#3133 (27.2 DCP, carries #1832) and linux#2576 (trackpad); aura 1.0.0b15 or later (aura#227); 27.2 GPU acceleration needs linux#3163",
+          "distributions": [
+            "Aurora Fedora Remix"
+          ],
+          "evidence": "https://github.com/aurora-silicon/aura/pull/227"
+        },
+        "j713": {
+          "kernel": "linux main with linux#2533 (27.2 CPU clocks) and linux#2189; aura#299 and aura#305; the 27.2 internal panel needs linux#2541, #2818 and #2673",
+          "distributions": [
+            "Aurora Fedora Remix"
+          ],
+          "evidence": "https://github.com/aurora-silicon/aura/pull/305"
+        }
+      },
       "experimental_boards": {
         "j516s": {
           "device_tree": "arch/arm64/boot/dts/apple/t6030-j516s.dts",
