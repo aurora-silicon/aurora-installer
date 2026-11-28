@@ -178,19 +178,29 @@
       let buffer = InstallerLogBuffer(capacity: 100)
       await InstallerLog.logging(into: buffer) {
         InstallerPerformance.measure("apfs_preflight") {
-          InstallerPerformance.measure("apfs_collect") {}
+          InstallerPerformance.measure("apfs_collect", bytes: 4096) {}
         }
         _ = try? await InstallerPerformance.measuring("stub_files") { () async throws -> Void in
           throw Refusal()
         }
       }
-      let lines = buffer.snapshot().map { "\($0.level.label) \($0.message)" }
+      let entries = buffer.snapshot()
+      let lines = entries.filter { $0.source != "performance" }.map {
+        "\($0.level.label) \($0.message)"
+      }
       XCTAssertEqual(lines[0], "info Started apfs_preflight (preflight: APFS container)")
       XCTAssertEqual(lines[1], "debug Started apfs_collect")
       XCTAssertTrue(lines[2].hasPrefix("debug Finished apfs_collect in "))
       XCTAssertTrue(lines[3].hasPrefix("info Finished apfs_preflight in "))
       XCTAssertEqual(lines[4], "info Started stub_files (changing the disk: stub files)")
       XCTAssertTrue(lines[5].hasPrefix("error Stopped stub_files after "))
+      let metrics = entries.filter { $0.source == "performance" }
+      XCTAssertEqual(metrics.count, 3)
+      XCTAssertTrue(metrics.allSatisfy { $0.level == .debug && $0.message.contains("wall_ns=") })
+      XCTAssertTrue(metrics[0].message.contains("phase=apfs_collect"))
+      XCTAssertTrue(metrics[0].message.contains("process_cpu_ns="))
+      XCTAssertTrue(metrics[0].message.contains("expected_bytes=4096"))
+      XCTAssertTrue(metrics[2].message.contains("completed=false"))
     }
 
     func testDownloadLinesShowHostSizeRateAndVerification() throws {

@@ -127,9 +127,13 @@
           }
           try verify(partition)
         } else {
-          identity = try await NativeRawImageWriter.write(
-            archive: archive, member: member,
-            partition: partition, platform: platform.writer, verify: verify)
+          identity = try await InstallerPerformance.measuring(
+            "payload_image_write", bytes: UInt64(member.sizeBytes)
+          ) {
+            try await NativeRawImageWriter.write(
+              archive: archive, member: member,
+              partition: partition, platform: platform.writer, verify: verify)
+          }
           try file.publishEvidence(encode(identity), identifier: name)
         }
       }
