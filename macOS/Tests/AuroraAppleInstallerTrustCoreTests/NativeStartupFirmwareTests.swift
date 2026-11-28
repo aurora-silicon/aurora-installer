@@ -114,6 +114,23 @@
       XCTAssertEqual(entry.minimumRecovery, "26.2.125.8.0,0")
     }
 
+    /// The OLED MacBook Pros' macOS 27.2.1 is their own device build 26B8132
+    /// (Recovery 26.2.132.8.0,0), not 26B131. A K board that has updated to it
+    /// still gets the 26B8125 stub, never a 27.2.1 or generic 27.2 image.
+    func testAnOLEDMacOn2721TakesThe26B8125Stub() throws {
+      let sealed = try NativeInspectionPolicy.sealed()
+      let updated = NativeInspectionHardware(
+        chipID: 0x6050, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2.1",
+        recoveryVersion: "26.2.132.8.0,0")
+      for board in ["k114c", "k114s", "k116c", "k116s"] {
+        XCTAssertTrue(sealed.supports("apple," + board, hardware: updated), board)
+        let selection = try choose("apple," + board, updated, policy: sealed)
+        XCTAssertEqual(selection.version, "27.2", board)
+        XCTAssertEqual(
+          selection.sourceURL.lastPathComponent, "UniversalMac_27.2_26B8125_Restore.ipsw", board)
+      }
+    }
+
     /// A Mac already on macOS 27.2 whose Recovery is older than its entry is
     /// told which check is short, never to update to the macOS it runs.
     func testAMacOn272WithAnOlderRecoveryIsToldWhatIsShort() throws {
