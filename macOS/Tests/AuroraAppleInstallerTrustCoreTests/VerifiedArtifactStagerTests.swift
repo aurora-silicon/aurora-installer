@@ -542,6 +542,40 @@ final class VerifiedArtifactStagerTests: XCTestCase {
     XCTAssertEqual(totals.last, UInt64(data.count))
   }
 
+  func testVerifiedPrefixIsAssembledBeforeTheLastPartFinishes() async throws {
+    let data = Data((0..<5000).map { UInt8(truncatingIfNeeded: $0 &* 13) })
+    let fixture = try partsFixture(data: data, count: 2)
+    let directory = temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let firstPart = directory.appendingPathComponent(fixture.artifact.parts[0].fileName)
+    let finalPart = fixture.artifact.parts[1]
+    let destination = directory.appendingPathComponent(fixture.artifact.fileName)
+    let downloader = RoutedFixtureDownloader(responses: fixture.responses) { url in
+      guard url == finalPart.sourceURL else { return }
+      let clock = ContinuousClock()
+      let deadline = clock.now + .seconds(5)
+      while clock.now < deadline {
+        let files = try FileManager.default.contentsOfDirectory(
+          at: directory, includingPropertiesForKeys: [.fileSizeKey])
+        let prefixExists = try files.contains {
+          guard $0.lastPathComponent.hasPrefix(".pending-") else { return false }
+          return try $0.resourceValues(forKeys: [.fileSizeKey]).fileSize == data.count / 2
+        }
+        if prefixExists && FileManager.default.fileExists(atPath: firstPart.path) {
+          XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+          return
+        }
+        try await Task.sleep(for: .milliseconds(10))
+      }
+      XCTFail("The verified first part was not assembled while the final transfer was pending.")
+      throw URLError(.timedOut)
+    }
+
+    let result = try await VerifiedArtifactStager(downloader: downloader).stage(
+      fixture.artifact, in: directory)
+    XCTAssertEqual(try Data(contentsOf: result.fileURL), data)
+  }
+
   func testAFailedPartLetsThePartsInFlightFinishAndStartsNoMore() async throws {
     let data = Data((0..<4000).map { UInt8(truncatingIfNeeded: $0 &* 7) })
     let fixture = try partsFixture(data: data, count: 5)
@@ -956,11 +990,15 @@ private actor FixtureArtifactDownloader: ArtifactDownloading {
 
 private actor RoutedFixtureDownloader: ArtifactDownloading {
   private let responses: [URL: Data]
+  private let beforeDownload: (@Sendable (URL) async throws -> Void)?
   private(set) var downloadCount = 0
   private(set) var requestedURLs = [URL]()
 
-  init(responses: [URL: Data]) {
+  init(
+    responses: [URL: Data], beforeDownload: (@Sendable (URL) async throws -> Void)? = nil
+  ) {
     self.responses = responses
+    self.beforeDownload = beforeDownload
   }
 
   func download(from sourceURL: URL) async throws -> URL {
@@ -979,6 +1017,7 @@ private actor RoutedFixtureDownloader: ArtifactDownloading {
     guard let data = responses[sourceURL] else {
       throw URLError(.fileDoesNotExist)
     }
+    try await beforeDownload?(sourceURL)
     downloadCount += 1
     requestedURLs.append(sourceURL)
     if let onBytes {
