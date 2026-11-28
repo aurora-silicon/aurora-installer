@@ -557,7 +557,10 @@ class CentauriN1(Part):
         device = f"{self.model}ap"
         same = [bi for bi in bm.get("BuildIdentities", [])
                 if (bi.get("Info") or {}).get("DeviceClass") == device]
-        if len({bi.get("ApBoardID") for bi in same}) > 1:
+        boards = {bi.get("ApBoardID") for bi in same}
+        if any(not (isinstance(b, str) and re.fullmatch(r"0x[0-9a-fA-F]{1,8}", b)) for b in boards):
+            raise Refused(f"the restore image names {device} without a valid board ID")
+        if len({int(b, 16) for b in boards}) > 1:
             raise Refused(f"the restore image names {device} with more than one board ID")
         chosen = [bi for bi in same if (bi.get("Info") or {}).get("Variant") == self.VARIANT
                   and (bi.get("Info") or {}).get("RestoreBehavior") == self.BEHAVIOR]

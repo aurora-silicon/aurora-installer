@@ -158,6 +158,19 @@ class N1UpdateTest(Case):
         with self.assertRaisesRegex(awf.Refused, "more than one board ID"):
             self.run_update(esp, z)
 
+    def test_an_identity_without_a_valid_board_id_is_refused(self):
+        for board in (None, "", "14", "0xzz"):
+            esp = n1_esp(pathlib.Path(self.root) / str(board))
+            before = awf.tree_hashes(esp)
+            ident = identity("k114sap", "macOS Customer", [IMAGE_PATH])
+            if board is None:
+                del ident["ApBoardID"]
+            else:
+                ident["ApBoardID"] = board
+            with self.assertRaisesRegex(awf.Refused, "without a valid board ID"):
+                self.run_update(esp, restore_zip(identities=[ident]))
+            self.assertEqual(awf.tree_hashes(esp), before, board)
+
     def test_two_n1_images_are_refused(self):
         esp = n1_esp(self.root)
         z = restore_zip(identities=[identity("k114sap", "macOS Customer",
