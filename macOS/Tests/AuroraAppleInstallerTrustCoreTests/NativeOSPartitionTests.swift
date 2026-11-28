@@ -130,6 +130,57 @@
       XCTAssertEqual(fixture.commands.count, 4)
     }
 
+    func testALateUpdateVolumeInTheStartupContainerDoesNotStopPartitionCreationOrAdmitOtherChanges()
+      throws
+    {
+      let fixture = try Fixture()
+      defer { fixture.remove() }
+      fixture.cancelAfterFirstReceipt = true
+      XCTAssertThrowsError(try fixture.prepare())
+      XCTAssertEqual(fixture.commands.count, 2)
+      fixture.cancelAfterFirstReceipt = false
+      let stubIndex = try XCTUnwrap(
+        fixture.snapshot.containers.firstIndex { $0.storeUUID != fixture.snapshot.macOSStoreUUID })
+      let stub = fixture.snapshot.containers[stubIndex]
+      let update = RemovalVolume(
+        uuid: "00000000-0000-0000-0000-000000000470", name: "Update",
+        roles: ["Update"], identifier: "disk8s5")
+      fixture.snapshot.containers[stubIndex] = RemovalContainer(
+        uuid: stub.uuid, storeUUID: stub.storeUUID, volumes: stub.volumes + [update])
+      try fixture.prepare()
+      XCTAssertEqual(fixture.commands.count, 4)
+
+      // Refusals: a second Update volume, grouped Update, unrelated volume, or other container.
+      let secondUpdate = RemovalVolume(
+        uuid: "00000000-0000-0000-0000-000000000471", name: "Update",
+        roles: ["Update"], identifier: "disk8s6")
+      let groupedUpdate = RemovalVolume(
+        uuid: "00000000-0000-0000-0000-000000000472", name: "Update",
+        roles: ["Update"], group: stub.volumes.first(where: { $0.group != nil })?.group,
+        identifier: "disk8s5")
+      let unrelated = RemovalVolume(
+        uuid: "00000000-0000-0000-0000-000000000473", name: "VM",
+        roles: ["VM"], identifier: "disk8s5")
+      for extra in [[update, secondUpdate], [groupedUpdate], [unrelated]] {
+        fixture.snapshot.containers[stubIndex] = RemovalContainer(
+          uuid: stub.uuid, storeUUID: stub.storeUUID, volumes: stub.volumes + extra)
+        XCTAssertThrowsError(try fixture.prepare())
+      }
+      fixture.snapshot.containers[stubIndex] = RemovalContainer(
+        uuid: stub.uuid, storeUUID: stub.storeUUID, volumes: stub.volumes + [update])
+      let macIndex = try XCTUnwrap(
+        fixture.snapshot.containers.firstIndex { $0.storeUUID == fixture.snapshot.macOSStoreUUID })
+      let mac = fixture.snapshot.containers[macIndex]
+      fixture.snapshot.containers[macIndex] = RemovalContainer(
+        uuid: mac.uuid, storeUUID: mac.storeUUID,
+        volumes: mac.volumes + [
+          RemovalVolume(
+            uuid: "00000000-0000-0000-0000-000000000474", name: "Update",
+            roles: ["Update"], identifier: "disk3s9")
+        ])
+      XCTAssertThrowsError(try fixture.prepare())
+    }
+
     func testForeignPartitionChangedOwnerOrUnexpectedDiskChangesStopWrites() throws {
       for fault in ["foreign", "owner", "offset", "size", "unrelated", "replaced"] {
         let fixture = try Fixture()

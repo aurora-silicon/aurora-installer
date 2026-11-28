@@ -18,7 +18,7 @@
 
     static func matches(
       _ live: RemovalSnapshot, recorded: RemovalSnapshot,
-      espUUID: String, label: String?
+      espUUID: String, label: String?, stubStoreUUID: String? = nil
     ) -> Bool {
       guard let index = recorded.partitions.firstIndex(where: { $0.uuid == espUUID }),
         recorded.partitions.filter({ $0.uuid == espUUID }).count == 1,
@@ -27,6 +27,10 @@
       else { return false }
       var admitted = recorded
       admitted.partitions[index] = current
+      if let stubStoreUUID {
+        return NativeUpdateVolumeAdmission.matches(
+          live, recorded: admitted, stubStoreUUID: stubStoreUUID)
+      }
       return admitted == live
     }
   }

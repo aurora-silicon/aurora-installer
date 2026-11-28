@@ -323,7 +323,8 @@
       guard
         try NativeSourceOwnerAdmission(environment: platform.environment).check(
           package: package, authorization: authorization, layout: snapshot) == sourceBootstrap,
-        try platform.environment.snapshot() == snapshot
+        NativeUpdateVolumeAdmission.matches(
+          try platform.environment.snapshot(), recorded: snapshot, stubStoreUUID: target.uuid)
       else { throw NativeHandoffValidationError.invalidOwner }
       let mounts = NativeHandoffMounts(platform.environment)
       let liveVolumes = snapshot.containers.first(where: { $0.storeUUID == target.uuid })!.volumes

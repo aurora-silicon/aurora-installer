@@ -34,7 +34,8 @@
       let matches = snapshot.containers.filter { $0.storeUUID == target.uuid }
       guard planDigest == plan, partitionUUID == target.uuid,
         matches.count == 1, let container = matches.first,
-        container.uuid == containerUUID, container.volumes == volumes
+        container.uuid == containerUUID,
+        NativeUpdateVolumeAdmission.matches(container.volumes, recorded: volumes)
       else { throw NativeStubVolumeError.changedVolumes }
       try Self.validateComplete(container, label: label)
     }
@@ -84,8 +85,14 @@
         let fresh = try platform.snapshot()
         let before = try container(fresh)
         let previous = try container(current)
-        guard fresh == current,
-          zip(before.volumes, previous.volumes).allSatisfy({ $0.0.identifier == $0.1.identifier })
+        let kept = before.volumes.filter { item in
+          previous.volumes.contains { $0.uuid == item.uuid }
+        }
+        guard
+          NativeUpdateVolumeAdmission.matches(
+            fresh, recorded: current, stubStoreUUID: target.uuid),
+          kept.count == previous.volumes.count,
+          zip(kept, previous.volumes).allSatisfy({ $0.0.identifier == $0.1.identifier })
         else { throw NativeAPFSError.changedLayout }
         try platform.verifyPartition(target, current.disk)
         if arguments.prefix(2) == ["apfs", "addVolume"] {
@@ -104,7 +111,8 @@
         guard outside == expected else { throw NativeAPFSError.changedLayout }
         // diskutil can fail at mounting after successfully creating a volume.
         // Admit only the exact requested graph change; never replay a command.
-        do { try admit(before, observed) } catch { throw commandError ?? error }
+        let admitted = Self.strippingLateUpdate(observed, comparedTo: before)
+        do { try admit(before, admitted) } catch { throw commandError ?? error }
         current = after
       }
       func replacing(
@@ -168,6 +176,22 @@
       return Self(
         planDigest: plan, partitionUUID: target.uuid, containerUUID: completed.uuid,
         label: label, volumes: completed.volumes)
+    }
+
+    private static func strippingLateUpdate(
+      _ observed: RemovalContainer, comparedTo before: RemovalContainer
+    ) -> RemovalContainer {
+      guard !before.volumes.contains(where: { $0.roles == ["Update"] }) else { return observed }
+      let known = Set(before.volumes.map(\.uuid))
+      let addedUpdates = observed.volumes.filter {
+        !known.contains($0.uuid) && $0.roles == ["Update"]
+      }
+      guard addedUpdates.count == 1, let update = addedUpdates.first,
+        NativeUpdateVolumeAdmission.isUpdateVolume(update)
+      else { return observed }
+      return RemovalContainer(
+        uuid: observed.uuid, storeUUID: observed.storeUUID,
+        volumes: observed.volumes.filter { $0.uuid != update.uuid })
     }
 
     private static func validPartition(_ value: String) -> Bool {

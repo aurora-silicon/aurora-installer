@@ -78,7 +78,8 @@
         receipt.layout.parts.count == 3,
         NativeESPLabelAdmission.matches(
           baseline, recorded: recordedLayout,
-          espUUID: receipt.partitions[0].uuid, label: receipt.layout.parts[0].fatLabel)
+          espUUID: receipt.partitions[0].uuid, label: receipt.layout.parts[0].fatLabel,
+          stubStoreUUID: receipt.stubUUID)
       else { throw NativeOSPartitionError.changedLayout }
       let end = try NativeInspectionMath.add(approved.offsetBytes, approved.lengthBytes)
       guard baseline.disk == approved.storeIdentifier,
@@ -102,7 +103,10 @@
       // before each image is checked or written.
       try platform.disks.verifySourceOwner(package, authorization, sourceBootstrap, baseline)
       let verify: @Sendable (RemovalPartition) throws -> Void = { partition in
-        guard try self.platform.disks.snapshot() == baseline else {
+        guard
+          NativeUpdateVolumeAdmission.matches(
+            try self.platform.disks.snapshot(), recorded: baseline, stubStoreUUID: receipt.stubUUID)
+        else {
           throw NativeOSPartitionError.changedLayout
         }
         try self.platform.disks.verifyPartition(partition, baseline.disk)

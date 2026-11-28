@@ -188,6 +188,29 @@
       XCTAssertEqual(try Data(contentsOf: fixture.receipt), receipt)
     }
 
+    func testALateUpdateVolumeInTheStartupContainerPreservesTheApprovedLayout() async throws {
+      let fixture = try await Fixture()
+      let update = RemovalVolume(
+        uuid: "00000000-0000-0000-0000-000000000470", name: "Update",
+        roles: ["Update"], identifier: "disk8s5")
+      fixture.images.extraStubVolumes = [update]
+      try await fixture.prepare()
+      let receipt = try Data(contentsOf: fixture.receipt)
+      try await fixture.prepare()
+      XCTAssertEqual(try Data(contentsOf: fixture.receipt), receipt)
+
+      fixture.images.extraStubVolumes = [
+        update,
+        RemovalVolume(
+          uuid: "00000000-0000-0000-0000-000000000471", name: "Update",
+          roles: ["Update"], identifier: "disk8s6"),
+      ]
+      do {
+        try await fixture.prepare()
+        XCTFail("Duplicate Update volume was accepted")
+      } catch {}
+    }
+
     func testChangedESPContentsOrRecordedLayoutCannotBeAdoptedOnRetry() async throws {
       for fault in ["contents", "layout", "owner"] {
         let fixture = try await Fixture()

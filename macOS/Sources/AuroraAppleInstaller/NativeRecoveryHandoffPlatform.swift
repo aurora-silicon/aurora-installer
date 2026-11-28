@@ -326,7 +326,10 @@
           }
         }
       }
-      guard try environment.snapshot() == before else {
+      guard
+        NativeUpdateVolumeAdmission.matches(
+          try environment.snapshot(), recorded: before, stubStoreUUID: container.storeUUID)
+      else {
         throw NativeHandoffValidationError.changedLayout
       }
       return NativePreparedRecoveryHandoff(
