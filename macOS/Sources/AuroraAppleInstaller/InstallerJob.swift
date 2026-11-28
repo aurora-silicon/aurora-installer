@@ -742,6 +742,23 @@
 
     func canRetryNow(_ identity: InstallerJobPlanIdentity) -> Bool { retryEligibility(identity) }
 
+    /// The accounts that started a job for this binding which got past the
+    /// credential check; empty when none did, and nil when the job history
+    /// cannot be read. A job is admitted, and its record given the plan it
+    /// runs, only after its credentials validated and its package imported,
+    /// and before it changes any disk. A job refused before then, such as one
+    /// with a wrong password, names no account here. Every helper version
+    /// has recorded the plan at that point, so a record without one is never
+    /// a job that ran.
+    func initiatingUIDs(bindingDigest: String) -> Set<UInt32>? {
+      lock.withLock {
+        guard (try? load()) != nil else { return nil }
+        return Set(
+          records.values.filter { $0.bindingDigest == bindingDigest && $0.plan != nil }
+            .map(\.initiatingUID))
+      }
+    }
+
     /// Imported packages hold a full payload. Before any request, keep only
     /// those a job can still retry or inspect: a finished job that can no
     /// longer be retried gives up its package, and a package no job names is

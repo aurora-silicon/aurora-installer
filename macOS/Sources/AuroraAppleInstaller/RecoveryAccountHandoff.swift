@@ -354,13 +354,17 @@
       return true
     }
 
+    /// - Parameter preferring: of several journals for the one live target,
+    ///   the bindings to take first, such as those the asking account's jobs
+    ///   installed. Otherwise the lowest binding is taken.
     static func discover(
       in workingDirectory: URL, binding: String? = nil, owner: uid_t = 0,
       read: (URL, Int) throws -> Data = RecoveryAccountInstaller.protectedRead,
       partitions: () throws -> [String: Any] = RecoveryAccountHandoff.partitionList,
       liveTarget: (String, String) throws -> RecoveryAccountTarget =
         RecoveryAccountHandoff.liveTarget(group:esp:),
-      finished: (RecoveryAccountTarget) -> Bool = RecoveryAccountHandoff.recoveryFinished(_:)
+      finished: (RecoveryAccountTarget) -> Bool = RecoveryAccountHandoff.recoveryFinished(_:),
+      preferring: (String) -> Bool = { _ in false }
     ) throws -> CompletedRecoveryInstallation? {
       let directory = workingDirectory.appendingPathComponent(
         "execution-journals", isDirectory: true)
@@ -424,7 +428,9 @@
         throw AccountSetupFailure(
           "Choose which completed installation should receive a recovery account.")
       }
-      return found.first
+      // Never directory order: the caller checks who owns the binding taken.
+      let ordered = found.sorted { $0.binding < $1.binding }
+      return ordered.first { preferring($0.binding) } ?? ordered.first
     }
 
     /// Recovery has finished when its receipt says so, no startup setup is

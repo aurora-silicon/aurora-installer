@@ -1211,7 +1211,8 @@
         try service.work.beginJob(), "new disk work must wait for helper removal")
       // A retiring helper says so: the app then treats it as gone.
       XCTAssertTrue(service.isRetiring)
-      let endpoint = ClosedEngineXPCServiceEndpoint(server: service, version: "28")
+      let endpoint = ClosedEngineXPCServiceEndpoint(
+        server: service, version: "28", initiatingUID: 501)
       let ping = await withCheckedContinuation { c in endpoint.ping { c.resume(returning: $0) } }
       XCTAssertFalse(ping)
     }
@@ -1224,7 +1225,8 @@
         workingDirectory: root, executor: UnusedRemovalHandoffExecutor(),
         credentialValidator: RemovalCredentials(reject: false), removalDisks: FakeRemovalDisk(),
         removalAdminValidator: { _ in }, selfUninstaller: uninstaller)
-      let endpoint = ClosedEngineXPCServiceEndpoint(server: service, version: "28")
+      let endpoint = ClosedEngineXPCServiceEndpoint(
+        server: service, version: "28", initiatingUID: 501)
       let inspection = try await service.removal(
         ticketID: nil, confirmation: "", authorization: nil)
       let ticket = try XCTUnwrap(inspection.ticket)
@@ -1258,7 +1260,8 @@
         workingDirectory: root, executor: UnusedRemovalHandoffExecutor(),
         credentialValidator: RemovalCredentials(reject: false), removalDisks: FakeRemovalDisk(),
         removalAdminValidator: { _ in }, selfUninstaller: RecordingSelfUninstaller())
-      let endpoint = ClosedEngineXPCServiceEndpoint(server: service, version: "28")
+      let endpoint = ClosedEngineXPCServiceEndpoint(
+        server: service, version: "28", initiatingUID: 501)
       let inspection = try await service.removal(
         ticketID: nil, confirmation: "", authorization: nil)
       let ticket = try XCTUnwrap(inspection.ticket)

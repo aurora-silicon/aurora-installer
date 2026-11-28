@@ -18,6 +18,8 @@ set -euo pipefail
 PKG_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../identity.conf
 source "$PKG_DIR/../identity.conf"
+# shellcheck source=../client-requirement.sh
+source "$PKG_DIR/../client-requirement.sh"
 APP="" PLIST="" VERSION="" OUT=""
 INSTALLER_ID="$INSTALLER_PKG_SIGNING_IDENTITY"
 PKG_IDENTIFIER="$INSTALLER_PKG_IDENTIFIER"
@@ -72,6 +74,8 @@ prog="$(/usr/bin/plutil -extract Program raw -o - "$daemon_plist" 2>/dev/null ||
 # that never comes. The repo template carries a placeholder that build-app.sh
 # replaces in the app's embedded copy; a pkg built from the template itself
 # shipped exactly that failure once, so refuse anything but a real requirement.
+# The helper also refuses, the same way, any text outside the forms it accepts
+# (client-requirement.sh), even one that compiles, so check that form here too.
 requirement="$(/usr/bin/plutil -extract EnvironmentVariables.OMARCHY_CLIENT_CODE_SIGNING_REQUIREMENT raw -o - "$daemon_plist" 2>/dev/null || true)"
 case "$requirement" in
   "never")
@@ -83,6 +87,10 @@ case "$requirement" in
     exit 65
     ;;
 esac
+installer_client_requirement_form "$requirement" "$INSTALLER_APP_IDENTIFIER" >/dev/null || {
+  echo "build-pkg.sh: the helper refuses this client requirement at launch (got '$requirement'); it accepts only the Developer ID Application form for a team, the earlier team-only form, an exact identifier and cdhash pin of $INSTALLER_APP_IDENTIFIER, or never" >&2
+  exit 65
+}
 /usr/bin/install -m 0644 "$daemon_plist" "$root/Library/LaunchDaemons/$DAEMON_PLIST_NAME"
 echo "daemon client requirement: $requirement"
 echo "daemon Program: $prog"

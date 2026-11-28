@@ -7,6 +7,7 @@ fail() { echo "build-developer-pkg: $*" >&2; exit 1; }
 directory="$(cd "$(dirname "$0")" && pwd -P)"
 source "$directory/identity.conf"
 source "$directory/code-identity.sh"
+source "$directory/client-requirement.sh"
 app="$(cd "$1" && pwd -P)"
 output="$2"
 [[ $output == /* ]] || output="$PWD/$output"
@@ -31,6 +32,8 @@ requirement="$(/usr/bin/plutil -extract EnvironmentVariables.OMARCHY_CLIENT_CODE
 # resources would change that hash and create a signing dependency cycle.
 requirement=$(installer_code_requirement "$staged_app" "$INSTALLER_APP_IDENTIFIER") \
   || fail "cannot determine the exact signed app identity"
+[[ $(installer_client_requirement_form "$requirement" "$INSTALLER_APP_IDENTIFIER") == cdhash ]] \
+  || fail "the helper would refuse the client requirement at launch: $requirement"
 /usr/bin/plutil -replace EnvironmentVariables.OMARCHY_CLIENT_CODE_SIGNING_REQUIREMENT \
   -string "$requirement" "$plist"
 /usr/bin/codesign --verify --strict -R="$requirement" "$staged_app"

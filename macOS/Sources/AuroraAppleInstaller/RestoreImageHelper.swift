@@ -84,15 +84,7 @@
     }
 
     static func teamIdentifier(inClientRequirement client: String) -> String? {
-      let prefix =
-        "anchor apple generic and identifier \"\(InstallerProductIdentity.appIdentifier)\""
-        + " and certificate leaf[subject.OU] = \""
-      guard client.hasPrefix(prefix), client.hasSuffix("\"") else { return nil }
-      let team = String(client.dropFirst(prefix.count).dropLast())
-      guard team.range(of: "\\A[A-Z0-9]{10}\\z", options: .regularExpression) != nil else {
-        return nil
-      }
-      return team
+      HelperClientRequirement.teamIdentifier(in: client)
     }
 
     /// Checks the signature of `file` against `requirement` with codesign, strictly.

@@ -172,7 +172,10 @@
     private nonisolated let retirement = HelperRetirementFlag()
     private var completedInstallPlan: CompletedEngineInstallPlan?
     private var installConfConsumed = false
-    private var recoveryAccountTargets: [String: (CompletedRecoveryInstallation, Date)] = [:]
+    /// Each inspected target, until when it may be used, and the account
+    /// that inspected it.
+    private var recoveryAccountTargets: [String: (CompletedRecoveryInstallation, Date, UInt32)] =
+      [:]
     private var removalPlan: (ticket: AuroraRemovalTicket, plan: AuroraRemovalPlan, expires: Date)?
 
     public init(
@@ -241,9 +244,13 @@
       selfUninstaller.uninstallAfterRemoval()
     }
 
+    /// Only the account that started the installation's job may set up its
+    /// recovery account: `initiatingUID` is the connecting app's user, and a
+    /// target whose job it did not start, or that no job started, is not
+    /// offered. A ticket is used only by the account that inspected it.
     public func recoveryAccount(
       action: String, ticket: String, username: String, password: Data,
-      recoveryTemplate: Data
+      recoveryTemplate: Data, initiatingUID: UInt32
     )
       async throws -> RecoveryAccountReply
     {
@@ -259,20 +266,26 @@
       defer { work.endJob() }
       let directory = workingDirectory
       if action == "inspect" {
+        // With several journals for the target, take one this account's
+        // job installed.
         guard
           let completed = try await Task.detached(operation: {
-            try RecoveryAccountHandoff.discover(in: directory)
+            try RecoveryAccountHandoff.discover(
+              in: directory, preferring: { self.startedInstallation($0, uid: initiatingUID) })
           }).value
+        else { return RecoveryAccountReply() }
+        guard startedInstallation(completed.binding, uid: initiatingUID)
         else { return RecoveryAccountReply() }
         let id = UUID().uuidString
         recoveryAccountTargets = recoveryAccountTargets.filter { $0.value.1 > Date() }
-        recoveryAccountTargets[id] = (completed, Date().addingTimeInterval(1800))
+        recoveryAccountTargets[id] = (completed, Date().addingTimeInterval(1800), initiatingUID)
         let record = try await Task.detached {
           try RecoveryAccountInstaller.inspect(completed.target)
         }.value
         return RecoveryAccountReply(ticket: id, target: completed.target, record: record)
       }
-      guard let (approved, expiry) = recoveryAccountTargets[ticket], expiry > Date(),
+      guard let (approved, expiry, inspector) = recoveryAccountTargets[ticket], expiry > Date(),
+        inspector == initiatingUID,
         let observed = try await Task.detached(operation: {
           try RecoveryAccountHandoff.discover(in: directory, binding: approved.binding)
         }).value,
@@ -297,8 +310,18 @@
         }
         return try RecoveryAccountInstaller.finalize(observed.target, password: password)
       }.value
-      recoveryAccountTargets[ticket] = (observed, Date().addingTimeInterval(1800))
+      recoveryAccountTargets[ticket] = (observed, Date().addingTimeInterval(1800), inspector)
       return RecoveryAccountReply(ticket: ticket, target: observed.target, record: record)
+    }
+
+    /// True when `uid` started every job admitted for the journal `binding`
+    /// names, and at least one was. A job refused before admission, such as
+    /// one with a wrong password, counts for no account.
+    nonisolated func startedInstallation(_ binding: String, uid: UInt32) -> Bool {
+      guard let digest = SHA256Digest(hexadecimal: binding),
+        let owners = jobs.initiatingUIDs(bindingDigest: digest.rawValue)
+      else { return false }
+      return owners == [uid]
     }
 
     /// - Parameter erasing: Erase on the Partitions screen: the chosen row's
@@ -693,27 +716,9 @@
       return (result, handoff)
     }
 
-    public func writeInstallConf(
-      document: Data,
-      storeIdentifier: String,
-      offsetBytes: UInt64,
-      lengthBytes: UInt64,
-      authorization: MachineOwnerAuthorization
-    ) async throws {
-      guard !isRetiring else { throw ClosedEngineHelperError.retiring }
-      try work.beginJob()
-      defer { work.endJob() }
-      do {
-        try credentialValidator.validate(authorization)
-      } catch {
-        throw ClosedEngineHelperError.invalidMachineOwnerCredentials
-      }
-      try await recordInstallConf(
-        document: document, storeIdentifier: storeIdentifier, offsetBytes: offsetBytes,
-        lengthBytes: lengthBytes)
-    }
-
-    private func recordInstallConf(
+    /// Writes install.conf to the ESP of the plan the last job completed,
+    /// once. Only a job reaches it; the app has no call of its own.
+    func recordInstallConf(
       document: Data, storeIdentifier: String, offsetBytes: UInt64, lengthBytes: UInt64
     ) async throws {
       guard let completed = completedInstallPlan else {
@@ -778,10 +783,12 @@
     private let version: String
     private let retirement: PackageInstalledAppRetirement
     private let mayRetirePackageApps: Bool
-    private let initiatingUID: UInt32?
+    private let initiatingUID: UInt32
 
     /// - Parameter version: the helper's build version, or empty when it
     ///   carries none.
+    /// - Parameter initiatingUID: the connecting app's effective user; jobs
+    ///   and the recovery-account step are bound to it.
     /// - Parameter mayRetirePackageApps: only a helper SMJobBless installed,
     ///   running from PrivilegedHelperTools, removes the package's app. An
     ///   ad hoc build's helper runs from inside that app and accepts any
@@ -790,7 +797,7 @@
       server: ClosedEngineHelperServer, version: String = "",
       retirement: PackageInstalledAppRetirement = PackageInstalledAppRetirement(),
       mayRetirePackageApps: Bool = ClosedEngineXPCServiceEndpoint.runsFromPrivilegedHelperTools(),
-      initiatingUID: UInt32? = nil
+      initiatingUID: UInt32
     ) {
       self.server = server
       self.version = version
@@ -822,11 +829,12 @@
       reply: @escaping @Sendable (Data?, NSError?) -> Void
     ) {
       let server = server
+      let initiatingUID = initiatingUID
       Task {
         do {
           let result = try await server.recoveryAccount(
             action: action, ticket: ticket, username: username, password: password,
-            recoveryTemplate: recoveryTemplate)
+            recoveryTemplate: recoveryTemplate, initiatingUID: initiatingUID)
           reply(try JSONEncoder().encode(result), nil)
         } catch let error as ClosedEngineHelperError {
           // A busy, retiring or replaced helper says so, so the app can tell
@@ -966,7 +974,7 @@
     ) {
       var registered = false
       do {
-        guard let initiatingUID, request.count <= 65_536, !server.isRetiring else {
+        guard request.count <= 65_536, !server.isRetiring else {
           throw InstallerJobError.invalidRequest
         }
         let request = try JSONDecoder().decode(InstallerJobStartRequest.self, from: request)
@@ -1012,7 +1020,7 @@
 
     public func jobStatus(request: Data, reply: @escaping @Sendable (Data?, NSError?) -> Void) {
       do {
-        guard let initiatingUID, request.count <= 65_536 else {
+        guard request.count <= 65_536 else {
           throw InstallerJobError.invalidRequest
         }
         let request = try JSONDecoder().decode(InstallerJobStatusRequest.self, from: request)
@@ -1029,7 +1037,7 @@
 
     public func abandonJob(request: Data, reply: @escaping @Sendable (Data?, NSError?) -> Void) {
       do {
-        guard let initiatingUID, request.count <= 65_536 else {
+        guard request.count <= 65_536 else {
           throw InstallerJobError.invalidRequest
         }
         let request = try JSONDecoder().decode(InstallerJobAbandonRequest.self, from: request)
@@ -1052,7 +1060,7 @@
     ) {
       var registered = false
       do {
-        guard let initiatingUID, request.count <= 65_536, !server.isRetiring else {
+        guard request.count <= 65_536, !server.isRetiring else {
           throw InstallerJobError.invalidRequest
         }
         let request = try JSONDecoder().decode(InstallerJobRecoveryRequest.self, from: request)
@@ -1084,42 +1092,6 @@
         reply(
           nil, InstallerJobXPCCodec.serviceError(registered ? error : InstallerJobError.notAdmitted)
         )
-      }
-    }
-
-    public func writeInstallConf(
-      document: Data,
-      storeIdentifier: String,
-      offsetBytes: UInt64,
-      lengthBytes: UInt64,
-      machineOwner: String,
-      password: Data,
-      reply: @escaping @Sendable (Data?, NSError?) -> Void
-    ) {
-      let server = server
-      Task {
-        do {
-          let authorization = try MachineOwnerAuthorization(
-            username: machineOwner,
-            password: password
-          )
-          try await server.writeInstallConf(
-            document: document,
-            storeIdentifier: storeIdentifier,
-            offsetBytes: offsetBytes,
-            lengthBytes: lengthBytes,
-            authorization: authorization
-          )
-          let (data, error) = InstallConfXPCCodec.encodeReply(error: nil, encrypt: true)
-          reply(data, error)
-        } catch {
-          let encrypt = (try? InstallConf.parse(document))?.encrypt ?? true
-          let (data, nsError) = InstallConfXPCCodec.encodeReply(
-            error: error,
-            encrypt: encrypt
-          )
-          reply(data, nsError)
-        }
       }
     }
   }
@@ -1192,6 +1164,8 @@
     NSObject, NSXPCListenerDelegate
   {
     private let clientCodeSigningRequirement: String
+    /// What every connection is held to; see `HelperClientRequirement`.
+    var enforcedClientRequirement: String { clientCodeSigningRequirement }
     private let server: ClosedEngineHelperServer
     private let helperVersion: String
 
@@ -1202,14 +1176,15 @@
       server: ClosedEngineHelperServer,
       helperVersion: String = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
     ) throws {
+      // Only the accepted forms are enforced; see `HelperClientRequirement`.
       guard
-        EngineCodeSigningRequirement.isValid(
-          clientCodeSigningRequirement
-        )
+        let enforced = HelperClientRequirement.enforced(for: clientCodeSigningRequirement),
+        EngineCodeSigningRequirement.isValid(enforced)
       else {
+        HelperClientRequirement.logRefusal(of: clientCodeSigningRequirement)
         throw ClosedEngineHelperError.invalidClientRequirement
       }
-      self.clientCodeSigningRequirement = clientCodeSigningRequirement
+      self.clientCodeSigningRequirement = enforced
       self.server = server
       self.helperVersion = helperVersion
     }

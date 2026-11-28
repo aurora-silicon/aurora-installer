@@ -455,7 +455,7 @@ make_app_zip() {
 import plistlib, sys, zipfile
 out, app, filler, extra, version, build, declares, helper, app_id, team = sys.argv[1:11]
 helper_req = f'anchor apple generic and identifier "{helper}" and certificate leaf[subject.OU] = "{team}"'
-app_req = f'anchor apple generic and identifier "{app_id}" and certificate leaf[subject.OU] = "{team}"'
+app_req = f'anchor apple generic and identifier "{app_id}" and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = "{team}"'
 info = {"CFBundleShortVersionString": version, "CFBundleVersion": build}
 if declares == "1":
     info["SMPrivilegedExecutables"] = {helper: helper_req}
@@ -489,7 +489,7 @@ grep -q "\"source\": \".*/installer/2.0.0/$INSTALLER_FILE_STEM-2.0.0.zip\"" \
   fail "the pointer names the immutable zip" "$(cat "$STREAM_DIR/installer/stable/installer.json")"
 grep -q "^xcrun stapler validate .*/unpacked/$INSTALLER_APP_NAME.app" "$CALLS" ||
   fail "the app inside the zip is checked for a stapled ticket" "$(grep stapler "$CALLS")"
-grep -qF -- "-R=anchor apple generic and identifier \"$INSTALLER_APP_IDENTIFIER\" and certificate leaf[subject.OU] = \"$INSTALLER_TEAM_ID\"" "$CALLS" ||
+grep -qF -- "-R=anchor apple generic and identifier \"$INSTALLER_APP_IDENTIFIER\" and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = \"$INSTALLER_TEAM_ID\"" "$CALLS" ||
   fail "the app is checked against the team's signing requirement" "$(grep codesign "$CALLS")"
 grep -q '"build_number": 1' "$STREAM_DIR/installer/stable/installer.json" ||
   fail "the pointer records the build number" "$(cat "$STREAM_DIR/installer/stable/installer.json")"
