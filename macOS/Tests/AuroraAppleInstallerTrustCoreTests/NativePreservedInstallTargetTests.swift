@@ -127,6 +127,30 @@
           try fixture(title: "Unknown Linux"), sourceIdentifier: "disk0s4"))
     }
 
+    /// Rewriting Boot and Root can't reset a Root that SteamOS's first boot
+    /// replaced with its own partitions.
+    func testRootReplacedByTheInstalledSystemsPartitionsIsNotReset() throws {
+      let disk = try fixture(title: AuroraDistribution.steamos.title)
+      XCTAssertNoThrow(
+        try NativePreservedInstallTarget.recognize(disk, sourceIdentifier: "disk0s4"))
+      var snapshot = disk.snapshot
+      let index = try XCTUnwrap(snapshot.partitions.firstIndex { $0.identifier == "disk0s7" })
+      let half = snapshot.partitions[index].size / 2 / 4096 * 4096
+      snapshot.partitions[index].size = half
+      snapshot.partitions.append(
+        RemovalPartition(
+          identifier: "disk0s10", uuid: UUID().uuidString, type: "Linux Filesystem",
+          offset: snapshot.partitions[index].end, size: half, name: ""))
+      snapshot.partitions.sort { $0.offset < $1.offset }
+      XCTAssertThrowsError(
+        try NativePreservedInstallTarget.recognize(
+          NativeCollectedDisk(snapshot: snapshot, containers: disk.containers),
+          sourceIdentifier: "disk0s4")
+      ) { error in
+        XCTAssertEqual(error as? NativePreservedInstallError, .unavailable)
+      }
+    }
+
     func testRejectsChangedLayoutWrongProfileAndOversizedImageBeforeWrite() throws {
       let disk = try fixture()
       let boot = try XCTUnwrap(

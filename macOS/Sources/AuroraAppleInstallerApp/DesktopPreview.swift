@@ -12,7 +12,7 @@ struct DesktopPreview: View {
       switch desktop {
       case .kde: screenshot("KDE-Desktop")
       case .gnome: screenshot("GNOME-Desktop")
-      case .minimal, .hyprland: IllustratedDesktop(desktop: desktop)
+      case .minimal, .hyprland, .gamemode: IllustratedDesktop(desktop: desktop)
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -50,6 +50,7 @@ private struct IllustratedDesktop: View {
       case .gnome: drawTopBarDesktop(in: &context)
       case .minimal: drawShell(in: &context)
       case .hyprland: drawTilingDesktop(in: &context)
+      case .gamemode: drawGameLibrary(in: &context)
       }
     }
     .aspectRatio(1.6, contentMode: .fit)
@@ -66,6 +67,19 @@ private struct IllustratedDesktop: View {
     box(&c, 200, 116, 112, 76, Color(white: 0.13), radius: 5)
     label(&c, "❯", 18, 44, size: 11, color: .green)
     label(&c, "omarchy", 34, 44, size: 10, color: .white.opacity(0.9))
+  }
+
+  /// A generic full-screen game library, not a copy of Steam's interface.
+  private func drawGameLibrary(in c: inout GraphicsContext) {
+    box(&c, 0, 0, 320, 200, Color(red: 0.07, green: 0.09, blue: 0.13))
+    label(&c, "Library", 16, 14, size: 10, color: .white)
+    label(&c, "10:30", 276, 14, size: 8, color: .white.opacity(0.8))
+    for column in 0..<4 {
+      let x = 16 + CGFloat(column) * 74
+      box(&c, x, 40, 66, 92, Color(white: column == 0 ? 0.30 : 0.17), radius: 4)
+    }
+    box(&c, 16, 146, 288, 6, Color(white: 0.14), radius: 3)
+    box(&c, 16, 146, 96, 6, Color(white: 0.45), radius: 3)
   }
 
   private func box(

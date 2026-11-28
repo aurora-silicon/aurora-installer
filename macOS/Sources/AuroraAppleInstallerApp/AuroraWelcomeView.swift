@@ -89,6 +89,10 @@ struct AuroraWelcomeView: View {
     case .omarchy:
       "Omarchy Aurora combines Omarchy with Aurora's Arch Linux ARM hardware stack and is not "
         + "provided or endorsed by the Omarchy project."
+    case .steamos:
+      "SteamOS (unofficial, Aurora) downloads Valve's SteamOS for ARM from Valve on first boot "
+        + "and adds Aurora's hardware support. It is not provided, endorsed or supported by "
+        + "Valve. SteamOS and Steam are trademarks of Valve Corporation."
     case .debian:
       "Aurora, based on Debian testing, is not provided or endorsed by the Debian project. "
         + "Debian is a registered trademark owned by Software in the Public Interest, Inc."
@@ -110,6 +114,7 @@ struct AuroraWelcomeView: View {
     case .gnome: "Clean and focused"
     case .minimal: "Lightweight shell"
     case .hyprland: "Omarchy’s tiling desktop"
+    case .gamemode: "Steam’s full-screen interface"
     }
   }
 }

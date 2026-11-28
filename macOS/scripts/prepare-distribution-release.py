@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PROFILES = tuple(f"{distribution}-{desktop}" for distribution in ("fedora", "arch", "nixos")
                  for desktop in ("kde", "gnome", "minimal"))
 OMARCHY_PROFILE = "omarchy-hyprland"
+STEAMOS_PROFILE = "steamos-gamemode"
 DEBIAN_PROFILES = tuple(f"debian-{desktop}" for desktop in ("kde", "gnome", "minimal"))
 # The development delivery lineage the app reads as Testing when a catalog
 # declares no channel. This is ReleaseCatalogChannelPolicy.isLegacyDevelopment
@@ -22,7 +23,8 @@ DEBIAN_PROFILES = tuple(f"debian-{desktop}" for desktop in ("kde", "gnome", "min
 # cases by Tests/AuroraAppleInstallerTrustCoreTests/Fixtures/
 # legacy-testing-catalog-vectors.json.
 LEGACY_REPOSITORIES = {"fedora": "fedora-aurora", "arch": "alarm-aurora",
-                       "nixos": "nixos-aurora", "omarchy": "omarchy-aurora"}
+                       "nixos": "nixos-aurora", "omarchy": "omarchy-aurora",
+                       "steamos": "steamos-aurora"}
 LEGACY_EVIDENCE_PREFIX = "image-build-"
 
 
@@ -71,13 +73,15 @@ def check_bundled_default(catalog, default_channel, profiles, name):
 
 
 def prepare(source, output, sealed=False, signing_team=None, stable_release_tag=None):
-    omarchy = os.environ.get("AURORA_ENABLE_OMARCHY", "0")
-    if omarchy not in ("0", "1"):
-        raise ValueError("AURORA_ENABLE_OMARCHY must be 0 or 1")
     has_debian = any((source / profile).exists() or (source / profile).is_symlink()
                      for profile in DEBIAN_PROFILES)
-    profiles = (PROFILES + ((OMARCHY_PROFILE,) if omarchy == "1" else ())
-                + (DEBIAN_PROFILES if has_debian else ()))
+    profiles = PROFILES + (DEBIAN_PROFILES if has_debian else ())
+    for variable, profile in (("AURORA_ENABLE_OMARCHY", OMARCHY_PROFILE),
+                              ("AURORA_ENABLE_STEAMOS", STEAMOS_PROFILE)):
+        enabled = os.environ.get(variable, "0")
+        if enabled not in ("0", "1"):
+            raise ValueError(f"{variable} must be 0 or 1")
+        profiles += (profile,) if enabled == "1" else ()
     if signing_team is not None and not re.fullmatch(r"[A-Z0-9]{10}", signing_team):
         raise ValueError("invalid release signing team")
     if stable_release_tag is not None and not re.fullmatch(

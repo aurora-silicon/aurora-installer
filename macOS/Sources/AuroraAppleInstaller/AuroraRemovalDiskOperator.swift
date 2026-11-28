@@ -164,7 +164,8 @@
         (
           try tree.read(["m1n1", "boot.bin"], limit: 64 << 20),
           try tree.read(["asahi", "stub_info.json"], limit: 1 << 20),
-          try tree.read(["asahi", "installer.log"], limit: 32 << 20)
+          try tree.read(["asahi", "installer.log"], limit: 32 << 20),
+          try tree.read(["aurora", "replaced-root.json"], limit: 64 << 10)
         )
       }
       let stub = try withVolume(installation.system.identifier, uuid: installation.system.uuid) {
@@ -183,7 +184,7 @@
       return RemovalEvidence(
         files: RemovalInstallFiles(
           espBootObject: esp.0, stubInfo: esp.1, installerLog: esp.2, stubHasLibrary: stub.0,
-          stubBootObject: stub.1))
+          stubBootObject: stub.1, replacedRoot: esp.3))
     }
 
     /// Reads an EFI partition in place when macOS already mounted it, otherwise

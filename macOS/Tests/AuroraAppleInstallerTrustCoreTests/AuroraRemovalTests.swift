@@ -358,9 +358,10 @@
       func creator(of stub: RemovalPartition, in snapshot: RemovalSnapshot) throws -> String? {
         creators[stub.uuid]
       }
-      func installer(of installation: RemovalInstallation, in snapshot: RemovalSnapshot) throws
-        -> String?
-      { installers[installation.stub.uuid] }
+      func installer(
+        of installation: RemovalInstallation, in snapshot: RemovalSnapshot,
+        replacedRoot: RemovalReplacedRoot?
+      ) throws -> String? { installers[installation.stub.uuid] }
     }
 
     // MARK: Native installations
@@ -408,6 +409,71 @@
           "erase:\(F.convergedInstall.linux[0])", "erase:\(F.convergedInstall.linux[1])",
           "grow:\(F.mac)",
         ])
+    }
+
+    /// SteamOS's first boot replaced Root with its own A/B partitions. Its
+    /// journal, checked with the ESP's record of them, proves every one.
+    func testANativeSteamOSInstallIsRemovedWithThePartitionsThatReplacedRoot() throws {
+      let disk = FakeRemovalDisk(F.steamOS(), install: F.steamOSInstall)
+      disk.files?.installerLog = nil
+      disk.files?.stubBootObject = nil
+      let record = try JSONSerialization.data(
+        withJSONObject: [
+          "schema": 1, "root": UUID().uuidString,
+          "partitions": Array(F.steamOSInstall.linux.dropFirst()),
+        ] as [String: Any])
+      disk.files?.replacedRoot = record
+      let binding = String(repeating: "f", count: 64)
+      let journals = FakeJournals([:], installers: [F.steamOSInstall.stub: binding])
+      let plan = try AuroraRemovalPlan(disks: disk, journals: journals)
+      XCTAssertEqual(plan.nativeJournal, binding)
+      XCTAssertEqual(plan.evidence?.replacedRoot, RemovalReplacedRoot(json: record))
+      XCTAssertEqual(
+        plan.members.map(\.uuid),
+        [F.steamOSInstall.stub, F.steamOSInstall.esp] + F.steamOSInstall.linux)
+      try AuroraRemovalExecutor(disks: disk, journals: journals).execute(plan) { _ in }
+      XCTAssertEqual(
+        disk.operations,
+        ["container:\(F.steamOSInstall.stub)", "erase:\(F.steamOSInstall.esp)"]
+          + F.steamOSInstall.linux.map { "erase:\($0)" } + ["grow:\(F.mac)"])
+    }
+
+    func testMorePartitionsThanAnInstallationHoldsAreRefused() {
+      let disk = FakeRemovalDisk(F.steamOS(extra: [F.id(43)]), install: F.steamOSInstall)
+      let journals = FakeJournals([:], installers: [F.steamOSInstall.stub: "f"])
+      XCTAssertThrowsError(try AuroraRemovalPlan(disks: disk, journals: journals))
+    }
+
+    func testTheReplacedRootRecordIsStrict() throws {
+      let root = UUID().uuidString
+      let part = UUID().uuidString
+      func parse(_ object: Any) throws -> RemovalReplacedRoot? {
+        RemovalReplacedRoot(json: try JSONSerialization.data(withJSONObject: object))
+      }
+      let valid = try XCTUnwrap(
+        parse(
+          ["schema": 1, "root": root.lowercased(), "partitions": [part.lowercased()]]
+            as [String: Any]))
+      XCTAssertEqual(valid.root, root)
+      XCTAssertEqual(valid.partitions, [part])
+      let invalid: [Any] = [
+        ["schema": true, "root": root, "partitions": [part]] as [String: Any],
+        ["schema": 2, "root": root, "partitions": [part]] as [String: Any],
+        ["schema": 1, "root": root, "partitions": [part], "extra": 1] as [String: Any],
+        ["schema": 1, "root": root, "partitions": [String]()] as [String: Any],
+        ["schema": 1, "root": root, "partitions": [root]] as [String: Any],
+        ["schema": 1, "root": root, "partitions": [part, part]] as [String: Any],
+        ["schema": 1, "root": "root", "partitions": [part]] as [String: Any],
+        ["schema": 1, "root": root, "partitions": ["part"]] as [String: Any],
+        [
+          "schema": 1, "root": root, "partitions": (0..<8).map { _ in UUID().uuidString },
+        ] as [String: Any],
+        [part],
+      ]
+      for object in invalid {
+        XCTAssertNil(try parse(object), "\(object)")
+      }
+      XCTAssertNil(RemovalReplacedRoot(json: Data("not json".utf8)))
     }
 
     /// The journal is checked again before anything is deleted.
@@ -507,14 +573,6 @@
           .part(F.alarmInstall.stub, "Apple_APFS", 2_499_805_184), .free(100_000_000),
           .part(F.alarmInstall.esp, "EFI", 524_288_000),
         ],
-        // Three Linux partitions.
-        [
-          .part(F.alarmInstall.stub, "Apple_APFS", 2_499_805_184),
-          .part(F.alarmInstall.esp, "EFI", 524_288_000),
-          .part(F.id(5), "Linux Filesystem", 1_000_000_000),
-          .part(F.id(6), "Linux Filesystem", 1_000_000_000),
-          .part(F.id(7), "Linux Filesystem", 1_000_000_000),
-        ],
         // ESP larger than 1 GiB.
         [
           .part(F.alarmInstall.stub, "Apple_APFS", 2_499_805_184),
@@ -532,6 +590,24 @@
               == true, "\(error)")
         }
         XCTAssertEqual(disk.evidenceReads, 0)
+      }
+      // Three Linux partitions are one installation's shape, since an installed
+      // system may split Root (SteamOS), but nothing here proves them.
+      let split = FakeRemovalDisk(
+        F.snapshot(
+          macOSSize: 400_000_000_000,
+          [
+            .part(F.alarmInstall.stub, "Apple_APFS", 2_499_805_184),
+            .part(F.alarmInstall.esp, "EFI", 524_288_000),
+            .part(F.id(5), "Linux Filesystem", 1_000_000_000),
+            .part(F.id(6), "Linux Filesystem", 1_000_000_000),
+            .part(F.id(7), "Linux Filesystem", 1_000_000_000),
+          ], installs: [F.alarmInstall]),
+        install: nil)
+      XCTAssertThrowsError(try AuroraRemovalPlan(disks: split)) { error in
+        XCTAssertTrue(
+          (error as? RemovalFailure)?.message.hasPrefix("Found “\(F.alarmInstall.name)” (") == true,
+          "\(error)")
       }
     }
 

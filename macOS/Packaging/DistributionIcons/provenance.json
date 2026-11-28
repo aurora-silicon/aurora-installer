@@ -22,7 +22,8 @@
         "arch",
         "nixos",
         "omarchy",
-        "debian"
+        "debian",
+        "steamos"
       ],
       "reason": "Fedora, Arch Linux (ARM), NixOS and Debian marks are not used for Aurora releases without their owners\u2019 permission."
     }

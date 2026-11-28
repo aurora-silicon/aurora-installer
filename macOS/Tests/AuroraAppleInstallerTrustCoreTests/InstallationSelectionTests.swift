@@ -32,11 +32,13 @@ final class InstallationSelectionTests: XCTestCase {
   }
 
   func testEachLinuxDesktopHasItsOwnProfile() {
-    let optedIn = ProcessInfo.processInfo.environment["AURORA_ENABLE_OMARCHY"] == "1"
+    let environment = ProcessInfo.processInfo.environment
+    let optedIn = environment["AURORA_ENABLE_OMARCHY"] == "1"
+    let steamOS = environment["AURORA_ENABLE_STEAMOS"] == "1"
     let distributions: [AuroraDistribution] = [.fedora, .arch, .nixos, .debian]
     XCTAssertEqual(
       AuroraDistribution.installable,
-      distributions + (optedIn ? [.omarchy] : []))
+      distributions + (optedIn ? [.omarchy] : []) + (steamOS ? [.steamos] : []))
     var expected: Set<String> = [
       "fedora-kde", "fedora-gnome", "fedora-minimal",
       "arch-kde", "arch-gnome", "arch-minimal",
@@ -44,7 +46,31 @@ final class InstallationSelectionTests: XCTestCase {
       "debian-kde", "debian-gnome", "debian-minimal",
     ]
     if optedIn { expected.insert("omarchy-hyprland") }
+    if steamOS { expected.insert("steamos-gamemode") }
     XCTAssertEqual(AuroraInstallationSelection.allProfileIDs, expected)
+  }
+
+  func testSteamOSOffersOnlyGameModeAndNoEncryption() throws {
+    var selection = AuroraInstallationSelection()
+    selection.selectDistribution(.steamos)
+    XCTAssertEqual(selection.desktop, .gamemode)
+    XCTAssertEqual(selection.profileID, "steamos-gamemode")
+    XCTAssertFalse(AuroraDistribution.steamos.supportsEncryption)
+    XCTAssertEqual(
+      AuroraDistribution.allCases.filter { !$0.supportsEncryption }, [AuroraDistribution.steamos])
+    if ProcessInfo.processInfo.environment["AURORA_ENABLE_STEAMOS"] == "1" {
+      try selection.requireMatchingProfile("steamos-gamemode")
+    } else {
+      XCTAssertThrowsError(try selection.requireMatchingProfile("steamos-gamemode"))
+    }
+    selection.selectDistribution(.fedora)
+    XCTAssertEqual(selection.profileID, "fedora-kde")
+    for pair in [(AuroraDistribution.steamos, AuroraDesktop.kde), (.arch, .gamemode)] {
+      let invalid = AuroraInstallationSelection(distribution: pair.0, desktop: pair.1)
+      XCTAssertThrowsError(try invalid.requireMatchingProfile(invalid.profileID))
+      let data = try JSONEncoder().encode(invalid)
+      XCTAssertThrowsError(try JSONDecoder().decode(AuroraInstallationSelection.self, from: data))
+    }
   }
 
   func testDebianOffersTheStandardDesktops() throws {

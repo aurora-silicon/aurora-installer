@@ -118,6 +118,16 @@ class CatalogGeneratorTests(unittest.TestCase):
             document = dict(self.inputs, installation_profile=profile)
             self.assertRejected(document, "not an Aurora installer profile")
 
+    def test_steamos_has_only_its_game_mode_profile(self):
+        self.inputs["installation_profile"] = "steamos-gamemode"
+        result = self.generate()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        catalog = json.loads((self.directory / "catalog.json").read_text())
+        self.assertTrue(all(m["installationProfile"] == "steamos-gamemode" for m in catalog["models"]))
+        for profile in ("steamos-kde", "steamos-hyprland", "arch-gamemode", "fedora-gamemode"):
+            document = dict(self.inputs, installation_profile=profile)
+            self.assertRejected(document, "not an Aurora installer profile")
+
     def test_debian_has_the_three_standard_desktop_profiles(self):
         for desktop in ("kde", "gnome", "minimal"):
             profile = "debian-" + desktop

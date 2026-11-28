@@ -116,7 +116,7 @@
       // catalogs must declare it.
       let repositories = [
         "fedora": "fedora-aurora", "arch": "alarm-aurora",
-        "nixos": "nixos-aurora", "omarchy": "omarchy-aurora",
+        "nixos": "nixos-aurora", "omarchy": "omarchy-aurora", "steamos": "steamos-aurora",
       ]
       guard
         AuroraInstallationSelection.allProfileIDs.contains(where: {

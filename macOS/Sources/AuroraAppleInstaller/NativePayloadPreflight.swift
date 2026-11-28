@@ -51,13 +51,17 @@
         "fedora-btrfs-v1": ("fedora", "btrfs"), "alarm-ext4-v1": ("arch", "ext4"),
         "alarm-btrfs-v1": ("arch", "btrfs"), "nixos-ext4-v1": ("nixos", "ext4"),
         "nixos-btrfs-v1": ("nixos", "btrfs"), "debian-btrfs-v1": ("debian", "btrfs"),
+        // Boot holds the SteamOS first-boot installer. Root is a placeholder
+        // it replaces with SteamOS's own A/B partitions in the same extent.
+        "steamos-ab-v1": ("steamos", "ext4"),
       ]
       var icon = PublishedContractNames.legacyVolumeIcon
       var filesystem: String?
       if let layout = template["layout_kind"], !(layout is NSNull) {
         guard let layout = layout as? String, let contract = contracts[layout],
           let profile = template["installation_profile"] as? String,
-          (["kde", "gnome", "minimal"].map({ contract.0 + "-" + $0 })
+          let distribution = AuroraDistribution(rawValue: contract.0),
+          (distribution.availableDesktops.map({ contract.0 + "-" + $0.rawValue })
             + (layout == "alarm-btrfs-v1" ? ["omarchy-hyprland"] : [])).contains(profile),
           AuroraInstallationSelection.allProfileIDs.contains(profile)
         else { throw NativePayloadPreflightError.invalidMetadata }

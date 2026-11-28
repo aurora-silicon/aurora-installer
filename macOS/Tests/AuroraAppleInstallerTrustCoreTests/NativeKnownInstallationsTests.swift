@@ -66,6 +66,35 @@
       XCTAssertEqual(NativeKnownInstallations.espLabel(for: "Aurora NixOS"), "EFI - AUROR")
     }
 
+    /// SteamOS's first boot replaces Root with its own partitions; the
+    /// installation reaches as far as they directly follow one another.
+    func testPartitionsThatReplacedRootBelongToTheInstallation() throws {
+      let disk = try fixture(AuroraDistribution.steamos.title)
+      let stub = try XCTUnwrap(disk.snapshot.partitions.first { $0.identifier == "disk0s4" })
+      let root = try XCTUnwrap(disk.snapshot.partitions.first { $0.identifier == "disk0s7" })
+      let piece: UInt64 = 4 << 30
+      func split(gap: UInt64) -> NativeCollectedDisk {
+        var snapshot = disk.snapshot
+        snapshot.partitions.removeAll { $0.identifier == "disk0s7" }
+        for number in 0..<3 {
+          snapshot.partitions.append(
+            RemovalPartition(
+              identifier: "disk0s1\(number)", uuid: UUID().uuidString, type: "Linux Filesystem",
+              offset: root.offset + UInt64(number) * piece + (number == 2 ? gap : 0), size: piece,
+              name: ""))
+        }
+        snapshot.partitions.sort { $0.offset < $1.offset }
+        return NativeCollectedDisk(snapshot: snapshot, containers: disk.containers)
+      }
+      XCTAssertEqual(
+        try NativeKnownInstallations.recognize(split(gap: 0)).map(\.lengthBytes),
+        [root.offset + 3 * piece - stub.offset])
+      // Free space ends the installation: what follows isn't part of it.
+      XCTAssertEqual(
+        try NativeKnownInstallations.recognize(split(gap: 1 << 30)).map(\.lengthBytes),
+        [root.offset + 2 * piece - stub.offset])
+    }
+
     func testNormalMacOSUnrelatedLinuxAndIncompleteLayoutsDoNotMatch() throws {
       for disk in [
         try fixture("Macintosh HD"), try fixture("Fedora Aurora Remix", stub: false),

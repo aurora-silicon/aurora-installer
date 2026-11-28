@@ -1,11 +1,14 @@
 import Foundation
 
 public enum AuroraDistribution: String, CaseIterable, Codable, Identifiable, Sendable {
-  case fedora, arch, nixos, omarchy, debian
+  case fedora, arch, nixos, omarchy, debian, steamos
   public static var installable: [Self] {
     var distributions: [Self] = [.fedora, .arch, .nixos, .debian]
     #if AURORA_ENABLE_OMARCHY
       distributions.append(.omarchy)
+    #endif
+    #if AURORA_ENABLE_STEAMOS
+      distributions.append(.steamos)
     #endif
     return distributions
   }
@@ -18,18 +21,23 @@ public enum AuroraDistribution: String, CaseIterable, Codable, Identifiable, Sen
     case .nixos: "Aurora NixOS"
     case .omarchy: "Omarchy Aurora"
     case .debian: "Aurora, based on Debian testing"
+    case .steamos: "SteamOS (unofficial, Aurora)"
     }
   }
   /// Names earlier installers gave these installations. Erase Linux and
   /// reinstall still recognize them.
   public static let legacyTitles = ["Fedora Aurora Remix", "Aurora ALARM"]
   public var supportsDesktop: Bool { true }
+  /// SteamOS keeps its own A/B system partitions, which first boot does not encrypt.
+  public var supportsEncryption: Bool { self != .steamos }
   /// The desktops this distribution offers, in the order the chooser shows
-  /// them. Every distribution lists KDE Plasma, GNOME, then Minimal.
+  /// them: KDE Plasma, GNOME, then Minimal, or the one desktop Omarchy and
+  /// SteamOS each ship.
   public var availableDesktops: [AuroraDesktop] {
     switch self {
     case .fedora, .arch, .nixos, .debian: [.kde, .gnome, .minimal]
     case .omarchy: [.hyprland]
+    case .steamos: [.gamemode]
     }
   }
   /// The desktop preselected for a new installation. It is independent of
@@ -43,7 +51,7 @@ public enum AuroraDistribution: String, CaseIterable, Codable, Identifiable, Sen
 }
 
 public enum AuroraDesktop: String, CaseIterable, Codable, Identifiable, Sendable {
-  case kde, gnome, minimal, hyprland
+  case kde, gnome, minimal, hyprland, gamemode
   public var id: String { rawValue }
   public var title: String {
     switch self {
@@ -51,6 +59,7 @@ public enum AuroraDesktop: String, CaseIterable, Codable, Identifiable, Sendable
     case .gnome: "GNOME"
     case .minimal: "Minimal (shell)"
     case .hyprland: "Hyprland"
+    case .gamemode: "Game Mode"
     }
   }
 }

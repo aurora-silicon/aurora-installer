@@ -21,6 +21,9 @@
       2_300_000_000...2_700_000_000, 5_800_000_000...6_200_000_000,
     ]
     static let maximumESP: UInt64 = 1 << 30
+    /// The startup container, ESP and Boot, and in Root's place up to seven
+    /// partitions an installed system made (SteamOS's A/B layout).
+    static let maximumMembers = 10
 
     static func recognize(_ snapshot: RemovalSnapshot) throws -> RemovalLayout {
       let parts = snapshot.partitions.sorted { $0.offset < $1.offset }
@@ -83,7 +86,7 @@
       let stubs = zip(installationParts, installationKinds).filter { $0.1 == .stub }.map(\.0)
       if stubs.count > 1 { throw refuse(RemovalText.several(stubs, snapshot)) }
       if stubs.isEmpty { throw refuse(RemovalText.partial(middle, snapshot)) }
-      guard installationParts.count >= 2, installationParts.count <= 4,
+      guard installationParts.count >= 2, installationParts.count <= maximumMembers,
         installationKinds[0] == .stub, installationKinds[1] == .esp,
         installationKinds.dropFirst(2).allSatisfy({ $0 == .linux }),
         installationParts[1].size <= maximumESP,
@@ -160,6 +163,35 @@
     var installerLog: Data?
     var stubHasLibrary: Bool
     var stubBootObject: Data?
+    var replacedRoot: Data? = nil
+  }
+
+  /// What an installed system's first boot recorded on its ESP, in
+  /// `aurora/replaced-root.json`, when it replaced the installer's Root
+  /// partition with partitions of its own, as SteamOS's A/B layout does:
+  /// `{"schema": 1, "root": "<Root's UUID>", "partitions": ["<UUID>", ...]}`.
+  struct RemovalReplacedRoot: Codable, Equatable, Sendable {
+    /// Uppercase UUIDs.
+    let root: String
+    let partitions: [String]
+
+    init?(json: Data) {
+      guard
+        let object = try? JSONSerialization.jsonObject(with: json) as? [String: Any],
+        Set(object.keys) == ["schema", "root", "partitions"],
+        let schema = object["schema"] as? NSNumber, CFGetTypeID(schema) == CFNumberGetTypeID(),
+        schema.intValue == 1,
+        let root = (object["root"] as? String).flatMap(UUID.init(uuidString:)),
+        let raw = object["partitions"] as? [String], !raw.isEmpty,
+        raw.count <= RemovalLayout.maximumMembers - 3
+      else { return nil }
+      let partitions = raw.compactMap(UUID.init(uuidString:)).map(\.uuidString)
+      guard partitions.count == raw.count, Set(partitions).count == partitions.count,
+        !partitions.contains(root.uuidString)
+      else { return nil }
+      self.root = root.uuidString
+      self.partitions = partitions
+    }
   }
 
   /// What the files prove, without keeping their contents (stub_info.json names
@@ -175,6 +207,7 @@
     /// aura or legacy m1n1, from the startup container boot object's version marker.
     let stubBootLoader: BootLoaderVersion?
     let stubEFIPartitions: [String]?
+    let replacedRoot: RemovalReplacedRoot?
 
     init(files: RemovalInstallFiles) {
       espBootObject = files.espBootObject.map(SHA256Digest.init(hashing:))
@@ -190,6 +223,7 @@
       stubBootObject = files.stubBootObject.map(SHA256Digest.init(hashing:))
       stubBootLoader = files.stubBootObject.flatMap(BootLoaderVersion.find(in:))
       stubEFIPartitions = files.stubBootObject.flatMap(Self.efiPartitions(bootObject:))
+      replacedRoot = files.replacedRoot.flatMap(RemovalReplacedRoot.init(json:))
     }
 
     /// nil when every check passes; otherwise the first check that failed, as a phrase.

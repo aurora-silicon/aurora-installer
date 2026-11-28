@@ -279,7 +279,10 @@
         // step-2 object; its own journal is the proof for what it installed.
         var nativeJournal: String?
         if let reason = evidence.problem(for: found) {
-          guard let journals, let journal = try journals.installer(of: found, in: snapshot) else {
+          guard let journals,
+            let journal = try journals.installer(
+              of: found, in: snapshot, replacedRoot: evidence.replacedRoot)
+          else {
             throw RemovalFailure(message: RemovalText.unconfirmed(found, reason: reason))
           }
           nativeJournal = journal
@@ -615,7 +618,10 @@
           try disks.evidence(for: live, disk: first.disk) == plan.evidence
         else { throw changed }
         if let journal = plan.nativeJournal {
-          guard let journals, try journals.installer(of: live, in: first) == journal else {
+          guard let journals,
+            try journals.installer(
+              of: live, in: first, replacedRoot: plan.evidence?.replacedRoot) == journal
+          else {
             throw changed
           }
         }

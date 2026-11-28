@@ -21,7 +21,8 @@ VECTORS = (Path(__file__).resolve().parents[2]
 def delivery_model(profile, run="41"):
     """A model of the published development delivery lineage."""
     repository = {"fedora": "fedora-aurora", "arch": "alarm-aurora", "nixos": "nixos-aurora",
-                  "omarchy": "omarchy-aurora", "debian": "debian-aurora"}[profile.split("-")[0]]
+                  "omarchy": "omarchy-aurora", "debian": "debian-aurora",
+                  "steamos": "steamos-aurora"}[profile.split("-")[0]]
     name = f"{profile}-build-{run}.zip"
     return {"status": "enabled", "installationProfile": profile, "evidenceRevision": f"image-build-{run}",
             "payloadArtifact": {"sourceURL": f"https://github.com/aurora-silicon/{repository}/releases/download/"
@@ -49,7 +50,7 @@ class LegacyTestingVectorTests(unittest.TestCase):
 
 class DistributionReleaseTests(unittest.TestCase):
     def setUp(self):
-        mode = patch.dict(os.environ, {"AURORA_ENABLE_OMARCHY": "0"})
+        mode = patch.dict(os.environ, {"AURORA_ENABLE_OMARCHY": "0", "AURORA_ENABLE_STEAMOS": "0"})
         mode.start()
         self.addCleanup(mode.stop)
         self.temporary = tempfile.TemporaryDirectory()
@@ -69,7 +70,7 @@ class DistributionReleaseTests(unittest.TestCase):
         (release / "trust-root.ed25519.pub").write_bytes(self.public)
         import hashlib
         fingerprint = "sha256:" + hashlib.sha256(self.public).hexdigest()
-        for profile in module.PROFILES + (module.OMARCHY_PROFILE,) + module.DEBIAN_PROFILES:
+        for profile in module.PROFILES + (module.OMARCHY_PROFILE, module.STEAMOS_PROFILE) + module.DEBIAN_PROFILES:
             directory = self.profiles / profile
             directory.mkdir(parents=True)
             descriptor = {"schema_version": 3, "default_channel": "testing", "trust_root_fingerprint": fingerprint,
@@ -307,6 +308,21 @@ class DistributionReleaseTests(unittest.TestCase):
             module.prepare(self.profiles, output, sealed=True)
         self.assertEqual({entry.name for entry in (output / "Profiles").iterdir()}, set(module.PROFILES))
 
+    def test_opt_in_adds_the_signed_steamos_profile(self):
+        output = self.root / "output"
+        with patch.object(module, "ROOT", self.root), patch.dict(os.environ, {"AURORA_ENABLE_STEAMOS": "1"}):
+            module.prepare(self.profiles, output, sealed=True)
+        self.assertEqual({entry.name for entry in (output / "Profiles").iterdir()},
+                         set(module.PROFILES) | set(module.DEBIAN_PROFILES) | {module.STEAMOS_PROFILE})
+        for name in ("catalog.json", "catalog.json.sig"):
+            self.assertEqual((output / "Profiles" / module.STEAMOS_PROFILE / name).read_bytes(),
+                             (self.profiles / module.STEAMOS_PROFILE / name).read_bytes())
+
+    def test_profile_opt_ins_accept_only_0_or_1(self):
+        for variable in ("AURORA_ENABLE_OMARCHY", "AURORA_ENABLE_STEAMOS"):
+            with patch.object(module, "ROOT", self.root), patch.dict(os.environ, {variable: "yes"}):
+                with self.assertRaisesRegex(ValueError, variable + " must be 0 or 1"):
+                    module.prepare(self.profiles, self.root / "output", sealed=True)
     def test_engine_pinning_catalogs_emit_no_release(self):
         directory = self.profiles / "fedora-kde"
         catalog = json.loads((directory / "catalog.json").read_text())

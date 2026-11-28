@@ -26,7 +26,7 @@ import recovery_payload as aurora_recovery
 # Debian's logos are not used for Aurora releases without their owners' permission.
 DISTRIBUTION_ICONS = {
     distribution: ROOT / 'Packaging/DistributionIcons/aurora.icns'
-    for distribution in ('fedora', 'arch', 'nixos', 'omarchy', 'debian')
+    for distribution in ('fedora', 'arch', 'nixos', 'omarchy', 'debian', 'steamos')
 }
 
 
@@ -331,7 +331,7 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
         raise ValueError("invalid delivery release identifier")
     image = json.loads(regular(bundle / 'image.json').read_text())
     profile = image['installation_profile']
-    if not re.fullmatch(r'(?:fedora|arch|nixos|debian)-(?:kde|gnome|minimal)|omarchy-hyprland', profile):
+    if not re.fullmatch(r'(?:fedora|arch|nixos|debian)-(?:kde|gnome|minimal)|omarchy-hyprland|steamos-gamemode', profile):
         raise ValueError('unknown installation profile')
     stage2_members = {}
     manifest_path = bundle / 'stage2.json'
@@ -370,14 +370,26 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
             raise ValueError('the ' + board.upper() + ' requires a current board-specific Stage 2')
     confined = check_confined_stage2(bundle, stage2_members)
     distribution_icon = regular(DISTRIBUTION_ICONS[profile.split('-')[0]])
-    expected_layout = {'fedora': 'fedora', 'arch': 'alarm', 'nixos': 'nixos', 'omarchy': 'alarm',
-                       'debian': 'debian'}[profile.split('-')[0]] + '-btrfs-v1'
-    if image['layout_kind'] != expected_layout or image['root_subvolume'] != 'root':
+    distribution = profile.split('-')[0]
+    expected_layout = {'fedora': 'fedora-btrfs-v1', 'arch': 'alarm-btrfs-v1', 'nixos': 'nixos-btrfs-v1',
+                       'omarchy': 'alarm-btrfs-v1', 'debian': 'debian-btrfs-v1',
+                       'steamos': 'steamos-ab-v1'}[distribution]
+    # SteamOS's Root is an ext4 placeholder its first-boot installer replaces; it has no subvolume.
+    expected_subvolume = None if distribution == 'steamos' else 'root'
+    if image['layout_kind'] != expected_layout or image.get('root_subvolume') != expected_subvolume:
         raise ValueError('incompatible filesystem layout')
     for name in ('boot.img', 'root.img'):
         path = regular(bundle / name)
         if image['images'][name] != {'bytes': path.stat().st_size, 'sha256': digest(path)}:
             raise ValueError('filesystem image identity mismatch: ' + name)
+    # Root's least size: its image, or more when the system that replaces Root
+    # on first boot needs it (SteamOS's A/B partitions). The installer then
+    # never offers less, and writes the image at the start of the partition.
+    root_bytes = image['images']['root.img']['bytes']
+    if 'root_bytes' in image:
+        if type(image['root_bytes']) is not int or image['root_bytes'] < root_bytes or image['root_bytes'] % 4096:
+            raise ValueError('root_bytes must be a 4 KiB multiple no smaller than root.img')
+        root_bytes = image['root_bytes']
     recovery_manifest = aurora_recovery.app_inventory(recovery)
     info = plistlib.loads(regular(recovery / 'Contents/Info.plist').read_bytes())
     if info.get('OmarchyRecoveryBuildMode') != 'recovery' or info.get('OmarchyRecoveryDataLayout') != 'external-install-data-v1':
@@ -420,7 +432,7 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
     with zipfile.ZipFile(payload) as archive:
         aurora_recovery.validate_payload(archive)
     title = {'fedora': 'Aurora Fedora Remix', 'arch': 'Aurora Alarm', 'nixos': 'Aurora NixOS', 'omarchy': 'Omarchy Aurora',
-             'debian': 'Aurora, based on Debian testing'}[profile.split('-')[0]]
+             'debian': 'Aurora, based on Debian testing', 'steamos': 'SteamOS (unofficial, Aurora)'}[profile.split('-')[0]]
     # omarchy_target and omarchy-native-v1 are the published metadata contract
     # every released installer reads; they predate the Aurora name.
     template = {
@@ -434,7 +446,7 @@ def assemble(bundle, recovery, output, reuse_payload=False, release_id=None):
              'copy_firmware': True, 'copy_installer_data': True, 'source': 'esp',
              'volume_id': '0x' + image['efi_volume_id']},
             {'name': 'Boot', 'type': 'Linux', 'size': str(image['images']['boot.img']['bytes']) + 'B', 'image': 'boot.img'},
-            {'name': 'Root', 'type': 'Linux', 'size': str(image['images']['root.img']['bytes']) + 'B', 'image': 'root.img', 'expand': True},
+            {'name': 'Root', 'type': 'Linux', 'size': str(root_bytes) + 'B', 'image': 'root.img', 'expand': True},
         ],
     }
     # The manifest uses apple,jXXX identifiers; Stage 1 qualification uses jXXXap classes.

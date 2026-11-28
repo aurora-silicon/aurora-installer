@@ -51,7 +51,7 @@ struct OnePageInstallerView: View {
     _session = State(
       initialValue: InstallerSession(
         environment: environment,
-        allowsEncryption: selection.distribution.supportsDesktop
+        allowsEncryption: selection.distribution.supportsEncryption
           && InstallerBuildProfile.current.allowsEncryption
       ))
     self.device = MacHeaderDisplay.inspect(isSimulation: environment.isSimulation)

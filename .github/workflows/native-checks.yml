@@ -68,6 +68,7 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
       XCODEBUILDMCP_SENTRY_DISABLED: 'true'
       AURORA_ENABLE_OMARCHY: '0'
+      AURORA_ENABLE_STEAMOS: '0'
       NATIVE_TEST_FILTER: ${{ inputs.test-filter }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -185,6 +186,14 @@ jobs:
           xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug \
             --filter 'InstallationSelectionTests|NativePayloadPreflightTests.testOmarchy' \
             2>&1 | tee "$RUNNER_TEMP/installer-ci/swift-omarchy.log"
+      - name: Test the explicit SteamOS opt-in
+        env:
+          AURORA_ENABLE_STEAMOS: '1'
+        run: |
+          set -euo pipefail
+          xcodebuildmcp swift-package test --package-path "$PWD" --configuration debug \
+            --filter 'InstallationSelectionTests|NativePayloadPreflightTests.testSteamOS' \
+            2>&1 | tee "$RUNNER_TEMP/installer-ci/swift-steamos.log"
       - name: Build the native preview
         run: bash Packaging/build-aurora-preview.sh "$RUNNER_TEMP/aurora-preview"
       - name: Check exact developer app and helper requirements
