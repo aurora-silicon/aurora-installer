@@ -132,7 +132,7 @@ class N1UpdateTest(Case):
 
     def test_another_chips_identity_is_refused(self):
         esp = n1_esp(self.root)
-        with self.assertRaisesRegex(awf.Refused, "chip 0x6050, not this Mac's \\(0x6040\\)"):
+        with self.assertRaisesRegex(awf.Refused, "chip '0x6050', not this Mac's \\(0x6040\\)"):
             self.run_update(esp, restore_zip(), chip=0x6040)
         with self.assertRaisesRegex(awf.Refused, "unknown"):
             self.run_update(esp, restore_zip(), chip=None)
@@ -159,7 +159,7 @@ class N1UpdateTest(Case):
             self.run_update(esp, z)
 
     def test_an_identity_without_a_valid_board_id_is_refused(self):
-        for board in (None, "", "14", "0xzz"):
+        for board in (None, "", "14", "0xzz", ["0x14"], {"a": 1}, 20):
             esp = n1_esp(pathlib.Path(self.root) / str(board))
             before = awf.tree_hashes(esp)
             ident = identity("k114sap", "macOS Customer", [IMAGE_PATH])
@@ -170,6 +170,24 @@ class N1UpdateTest(Case):
             with self.assertRaisesRegex(awf.Refused, "without a valid board ID"):
                 self.run_update(esp, restore_zip(identities=[ident]))
             self.assertEqual(awf.tree_hashes(esp), before, board)
+
+    def test_malformed_manifest_values_refuse_or_skip(self):
+        esp = n1_esp(self.root)
+        good = identity("k114sap", "macOS Customer", [IMAGE_PATH])
+        for idents, why in (([good, "x", 3], None), ([dict(good, Info=["x"])], "ships none"),
+                            ([dict(good, Manifest=[1])], "ships none"),
+                            ([dict(good, ApChipID=["0x6050"])], "chip"),
+                            ([dict(good, Manifest={"Wireless1,A": ["x"]})], "ships none")):
+            if why is None:
+                self.assertEqual(self.run_update(esp, restore_zip(identities=idents)), "updated")
+            else:
+                with self.assertRaisesRegex(awf.Refused, why):
+                    self.run_update(esp, restore_zip(identities=idents))
+        z = restore_zip()
+        z.members["BuildManifest.plist"] = FakeMember(plistlib.dumps(
+            {"ProductBuildVersion": BUILD, "BuildIdentities": {"a": 1}}))
+        with self.assertRaisesRegex(awf.Refused, "ships none"):
+            self.run_update(n1_esp(pathlib.Path(self.root) / "m"), z)
 
     def test_two_n1_images_are_refused(self):
         esp = n1_esp(self.root)

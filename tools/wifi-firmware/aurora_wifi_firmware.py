@@ -555,15 +555,18 @@ class CentauriN1(Part):
         # board is its device class, which must name one board ID throughout
         # the manifest, and exactly one identity may match.
         device = f"{self.model}ap"
-        same = [bi for bi in bm.get("BuildIdentities", [])
-                if (bi.get("Info") or {}).get("DeviceClass") == device]
-        boards = {bi.get("ApBoardID") for bi in same}
-        if any(not (isinstance(b, str) and re.fullmatch(r"0x[0-9a-fA-F]{1,8}", b)) for b in boards):
+        d = lambda v: v if isinstance(v, dict) else {}  # noqa: E731
+        identities = bm.get("BuildIdentities")
+        identities = [bi for bi in identities if isinstance(bi, dict)] \
+            if isinstance(identities, list) else []
+        same = [bi for bi in identities if d(bi.get("Info")).get("DeviceClass") == device]
+        valid = lambda b: isinstance(b, str) and re.fullmatch(r"0x[0-9a-fA-F]{1,8}", b)  # noqa: E731
+        if not all(valid(bi.get("ApBoardID")) for bi in same):
             raise Refused(f"the restore image names {device} without a valid board ID")
-        if len({int(b, 16) for b in boards}) > 1:
+        if len({int(bi["ApBoardID"], 16) for bi in same}) > 1:
             raise Refused(f"the restore image names {device} with more than one board ID")
-        chosen = [bi for bi in same if (bi.get("Info") or {}).get("Variant") == self.VARIANT
-                  and (bi.get("Info") or {}).get("RestoreBehavior") == self.BEHAVIOR]
+        chosen = [bi for bi in same if d(bi.get("Info")).get("Variant") == self.VARIANT
+                  and d(bi.get("Info")).get("RestoreBehavior") == self.BEHAVIOR]
         if not chosen:
             self._inputs = "no N1 image for this board"
             return self._inputs
@@ -571,17 +574,16 @@ class CentauriN1(Part):
             raise Refused(f"the restore image has {len(chosen)} {self.VARIANT} identities for {device}")
         identity = chosen[0]
         chip = self.chip if self.chip is not None else mac_chip()
-        try:
-            got_chip = int(str(identity.get("ApChipID")), 16)
-        except ValueError:
-            got_chip = None
+        got = identity.get("ApChipID")
+        got_chip = int(got, 16) if valid(got) else None
         if chip is None or got_chip != chip:
-            raise Refused(f"the restore image's {device} identity is chip {identity.get('ApChipID')}, "
+            raise Refused(f"the restore image's {device} identity is chip {got!r}, "
                           f"not this Mac's ({'unknown' if chip is None else hex(chip)})")
         paths = set()
-        for comp, entry in (identity.get("Manifest") or {}).items():
-            path = ((entry or {}).get("Info") or {}).get("Path")
-            if comp.startswith("Wireless1,") and isinstance(path, str) and path:
+        for comp, entry in d(identity.get("Manifest")).items():
+            path = d(d(entry).get("Info")).get("Path")
+            if isinstance(comp, str) and comp.startswith("Wireless1,") \
+                    and isinstance(path, str) and path:
                 paths.add(path)
         if not paths:
             self._inputs = "no N1 image for this board"
