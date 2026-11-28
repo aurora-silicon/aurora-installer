@@ -43,17 +43,19 @@ if [[ -f "$PLIST" ]]; then
   # failure through the installer instead of hiding it: PackageKit records
   # this script's output in /var/log/install.log and fails the package.
   /bin/launchctl bootout system/"$LABEL" 2>/dev/null || true
-  bootstrap_succeeded=false
-  for bootstrap_attempt in {1..10}; do
-    if bootstrap_error="$(/bin/launchctl bootstrap system "$PLIST" 2>&1)"; then
-      bootstrap_succeeded=true
-      break
-    fi
-    # Transient EIO has occurred while replacing the registration. Retry
-    # this same verified plist for at most 1.8 seconds, then report failure.
-    if (( bootstrap_attempt < 10 )); then /bin/sleep 0.2; fi
+  # launchd can still be tearing the old service down when bootout returns,
+  # and a bootstrap that lands then fails with EIO. Wait until launchd no
+  # longer knows the label (at most 10 seconds), then bootstrap once.
+  for bootout_check in {1..100}; do
+    /bin/launchctl print system/"$LABEL" >/dev/null 2>&1 || break
+    /bin/sleep 0.1
   done
-  if [[ "$bootstrap_succeeded" != true ]]; then
+  if /bin/launchctl print system/"$LABEL" >/dev/null 2>&1; then
+    echo "postinstall: the previous $LABEL is still registered after bootout" >&2
+    /usr/bin/logger -t aurora-installer-pkg "previous $LABEL still registered after bootout" || true
+    exit 1
+  fi
+  if ! bootstrap_error="$(/bin/launchctl bootstrap system "$PLIST" 2>&1)"; then
     echo "postinstall: failed to load $LABEL from $PLIST: $bootstrap_error" >&2
     /usr/bin/logger -t aurora-installer-pkg "failed to load $LABEL: $bootstrap_error" || true
     exit 1
