@@ -606,7 +606,7 @@
         install: nil)
       XCTAssertThrowsError(try AuroraRemovalPlan(disks: split)) { error in
         XCTAssertTrue(
-          (error as? RemovalFailure)?.message.hasPrefix("Found the installation") == true,
+          (error as? RemovalFailure)?.message.hasPrefix("Found “\(F.alarmInstall.name)” (") == true,
           "\(error)")
       }
     }
