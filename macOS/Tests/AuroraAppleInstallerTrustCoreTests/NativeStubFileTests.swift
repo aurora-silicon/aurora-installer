@@ -228,6 +228,41 @@
           })
       }
       XCTAssertTrue(created(stub))
+      // A single ungrouped Update volume added later by macOS 27 is accepted;
+      // duplicate, grouped, or unrelated additions still prove nothing.
+      let lateUpdate = RemovalVolume(
+        uuid: "00000000-0000-0000-0000-000000000470", name: "Update",
+        roles: ["Update"], identifier: "disk8s5")
+      var withLateUpdate = fixture.snapshot
+      withLateUpdate.containers[1] = RemovalContainer(
+        uuid: container.uuid, storeUUID: container.storeUUID,
+        volumes: container.volumes + [lateUpdate])
+      XCTAssertTrue(created(stub, snapshot: withLateUpdate))
+      for extra in [
+        [
+          lateUpdate,
+          RemovalVolume(
+            uuid: "00000000-0000-0000-0000-000000000471", name: "Update",
+            roles: ["Update"], identifier: "disk8s6"),
+        ],
+        [
+          RemovalVolume(
+            uuid: "00000000-0000-0000-0000-000000000472", name: "Update",
+            roles: ["Update"], group: container.volumes.first(where: { $0.group != nil })?.group,
+            identifier: "disk8s5")
+        ],
+        [
+          RemovalVolume(
+            uuid: "00000000-0000-0000-0000-000000000473", name: "VM",
+            roles: ["VM"], identifier: "disk8s5")
+        ],
+      ] {
+        var changed = fixture.snapshot
+        changed.containers[1] = RemovalContainer(
+          uuid: container.uuid, storeUUID: container.storeUUID,
+          volumes: container.volumes + extra)
+        XCTAssertFalse(created(stub, snapshot: changed))
+      }
       // Another partition, changed evidence, changed volumes or a journal that
       // went further prove nothing.
       let macOS = try XCTUnwrap(

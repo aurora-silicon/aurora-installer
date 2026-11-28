@@ -274,7 +274,7 @@
         parts.layout.parts.count == 3,
         NativeESPLabelAdmission.matches(
           snapshot, recorded: expected, espUUID: parts.partitions[0].uuid,
-          label: parts.layout.parts[0].fatLabel),
+          label: parts.layout.parts[0].fatLabel, stubStoreUUID: parts.stubUUID),
         snapshot.disk == approved.storeIdentifier,
         let stub = snapshot.partitions.first(where: { $0.uuid == parts.stubUUID }),
         let esp = snapshot.partitions.first(where: { $0.uuid == parts.partitions[0].uuid }),
@@ -301,7 +301,7 @@
       guard
         NativeESPLabelAdmission.matches(
           try disks.snapshot(), recorded: snapshot, espUUID: esp.uuid,
-          label: parts.layout.parts[0].fatLabel)
+          label: parts.layout.parts[0].fatLabel, stubStoreUUID: stub.uuid)
       else { throw NativeOSPartitionError.changedLayout }
       let mounts = NativeHandoffMounts(environment)
       let espURL = try mounts.mounted(
@@ -364,7 +364,7 @@
       guard
         NativeESPLabelAdmission.matches(
           try disks.snapshot(), recorded: snapshot, espUUID: esp.uuid,
-          label: parts.layout.parts[0].fatLabel)
+          label: parts.layout.parts[0].fatLabel, stubStoreUUID: stub.uuid)
       else { throw NativeOSPartitionError.changedLayout }
       try disks.verifyPartition(esp, snapshot.disk)
       try file.publishEvidence(

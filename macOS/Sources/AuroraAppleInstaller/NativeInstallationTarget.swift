@@ -42,7 +42,7 @@
         parts.layout.parts.count == 3,
         NativeESPLabelAdmission.matches(
           snapshot, recorded: expected, espUUID: parts.partitions[0].uuid,
-          label: parts.layout.parts[0].fatLabel),
+          label: parts.layout.parts[0].fatLabel, stubStoreUUID: parts.stubUUID),
         snapshot.disk == approved.storeIdentifier,
         let stub = snapshot.partitions.first(where: { $0.uuid == parts.stubUUID }),
         let esp = snapshot.partitions.first(where: { $0.uuid == parts.partitions[0].uuid }),
@@ -62,7 +62,10 @@
       // The owner is resolved from this pass's layout, read again right after.
       try disks.verifySourceOwner(package, authorization, bootstrap, snapshot)
       try disks.verifyPartition(esp, snapshot.disk)
-      guard try disks.snapshot() == snapshot else {
+      guard
+        NativeUpdateVolumeAdmission.matches(
+          try disks.snapshot(), recorded: snapshot, stubStoreUUID: stub.uuid)
+      else {
         throw NativeHandoffValidationError.changedLayout
       }
       self.snapshot = snapshot
@@ -101,7 +104,10 @@
     }
 
     func verifyUnchanged() throws {
-      guard try disks.snapshot() == snapshot else {
+      guard
+        NativeUpdateVolumeAdmission.matches(
+          try disks.snapshot(), recorded: snapshot, stubStoreUUID: partitions.stubUUID)
+      else {
         throw NativeHandoffValidationError.changedLayout
       }
       try disks.verifyPartition(esp, snapshot.disk)

@@ -208,7 +208,10 @@
       try volumes.validate(plan: approved.planDigest, target: stub, snapshot: current)
       // The owner is resolved from this pass's layout, read again right after.
       try platform.disks.verifySourceOwner(package, authorization, sourceBootstrap, current)
-      guard try platform.disks.snapshot() == current else {
+      guard
+        NativeUpdateVolumeAdmission.matches(
+          try platform.disks.snapshot(), recorded: current, stubStoreUUID: stub.uuid)
+      else {
         throw NativeOSPartitionError.changedLayout
       }
       let baselineName = "native-os-partition-baseline"
@@ -246,14 +249,19 @@
           expected.partitions.sort { $0.offset < $1.offset }
           continue
         }
-        guard current == expected else { throw NativeOSPartitionError.changedLayout }
+        guard
+          NativeUpdateVolumeAdmission.matches(current, recorded: expected, stubStoreUUID: stub.uuid)
+        else { throw NativeOSPartitionError.changedLayout }
         let intent = receiptName + "-intent"
         guard try !file.containsEvidence(intent) else {
           throw NativeOSPartitionError.ambiguousMutation
         }
         let predecessor = created.last ?? stub
         try platform.disks.verifyPartition(predecessor, current.disk)
-        guard try platform.disks.snapshot() == current else {
+        guard
+          NativeUpdateVolumeAdmission.matches(
+            try platform.disks.snapshot(), recorded: current, stubStoreUUID: stub.uuid)
+        else {
           throw NativeOSPartitionError.changedLayout
         }
         try Task.checkCancellation()
@@ -275,7 +283,10 @@
         else { throw NativeOSPartitionError.changedLayout }
         var remainder = after
         remainder.partitions.removeAll { $0.uuid == new.uuid }
-        guard remainder == current else { throw NativeOSPartitionError.changedLayout }
+        guard
+          NativeUpdateVolumeAdmission.matches(
+            remainder, recorded: current, stubStoreUUID: stub.uuid)
+        else { throw NativeOSPartitionError.changedLayout }
         try platform.disks.verifyPartition(new, after.disk)
         if let label = part.fatLabel {
           try Task.checkCancellation()
@@ -290,7 +301,10 @@
           else { throw NativeOSPartitionError.changedLayout }
           remainder = after
           remainder.partitions.removeAll { $0.uuid == new.uuid }
-          guard remainder == current else { throw NativeOSPartitionError.changedLayout }
+          guard
+            NativeUpdateVolumeAdmission.matches(
+              remainder, recorded: current, stubStoreUUID: stub.uuid)
+          else { throw NativeOSPartitionError.changedLayout }
         }
         let completed = after.partitions.first { $0.uuid == new.uuid }!
         try file.publishEvidence(encode(completed), identifier: receiptName)
@@ -298,8 +312,12 @@
         expected = after
         current = after
       }
-      guard current == expected, created.count == layout.parts.count,
-        created.last?.end == end, try platform.disks.snapshot() == current
+      guard
+        NativeUpdateVolumeAdmission.matches(current, recorded: expected, stubStoreUUID: stub.uuid),
+        created.count == layout.parts.count,
+        created.last?.end == end,
+        NativeUpdateVolumeAdmission.matches(
+          try platform.disks.snapshot(), recorded: current, stubStoreUUID: stub.uuid)
       else { throw NativeOSPartitionError.changedLayout }
       if try file.containsEvidence("native-os-partitions") {
         let saved = try JSONDecoder().decode(

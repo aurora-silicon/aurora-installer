@@ -523,13 +523,21 @@
         else { throw RemovalFailure(message: "macOS did not reclaim the expected space.") }
         expected[index].size = actual.size
       }
+      let expectedContainers = snapshot.containers.filter({ !removed.contains($0.storeUUID) })
+        .sorted(by: { $0.uuid < $1.uuid })
+      let currentContainers = current.containers.sorted(by: { $0.uuid < $1.uuid })
+      let stubStoreUUID = installation?.stub.uuid ?? partial?.stub.uuid
+      let containersMatch =
+        expectedContainers.count == currentContainers.count
+        && zip(currentContainers, expectedContainers).allSatisfy { live, saved in
+          saved.storeUUID == stubStoreUUID
+            ? NativeUpdateVolumeAdmission.matches(live, recorded: saved)
+            : live == saved
+        }
       guard
         expected.sorted(by: { $0.offset < $1.offset })
           == current.partitions.sorted(by: { $0.offset < $1.offset }),
-        snapshot.containers.filter({ !removed.contains($0.storeUUID) }).sorted(by: {
-          $0.uuid < $1.uuid
-        })
-          == current.containers.sorted(by: { $0.uuid < $1.uuid })
+        containersMatch
       else {
         throw RemovalFailure(message: "The disk changed. Removal stopped.")
       }

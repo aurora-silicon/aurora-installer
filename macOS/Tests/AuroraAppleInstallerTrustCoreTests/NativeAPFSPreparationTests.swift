@@ -364,6 +364,68 @@
       XCTAssertEqual(fixture.commands.count, 6)
     }
 
+    func testALateUpdateVolumeInTheStartupContainerIsAcceptedOnResumeAndDuringPreparation() throws {
+      let update = RemovalVolume(
+        uuid: "00000000-0000-0000-0000-000000000470", name: "Update",
+        roles: ["Update"], identifier: "disk8s5")
+      let secondUpdate = RemovalVolume(
+        uuid: "00000000-0000-0000-0000-000000000471", name: "Update",
+        roles: ["Update"], identifier: "disk8s6")
+      let groupedUpdate = RemovalVolume(
+        uuid: "00000000-0000-0000-0000-000000000472", name: "Update",
+        roles: ["Update"], group: "00000000-0000-0000-0000-000000000900", identifier: "disk8s5")
+      let unrelated = RemovalVolume(
+        uuid: "00000000-0000-0000-0000-000000000473", name: "VM",
+        roles: ["VM"], identifier: "disk8s5")
+
+      // Appears after APFS preparation recorded the container's volumes.
+      let resumeFixture = try InputFixture(kind: "free")
+      defer { resumeFixture.remove() }
+      try resumeFixture.prepare()
+      let index = try XCTUnwrap(
+        resumeFixture.snapshot.containers.firstIndex { $0.storeUUID.hasSuffix("000009") })
+      let base = resumeFixture.snapshot.containers[index]
+      resumeFixture.snapshot.containers[index] = RemovalContainer(
+        uuid: base.uuid, storeUUID: base.storeUUID, volumes: base.volumes + [update])
+      try resumeFixture.prepare()
+      XCTAssertEqual(resumeFixture.commands.count, 6)
+
+      // Refusals: two Update volumes, a grouped Update volume, or an unrelated volume.
+      for extra in [[update, secondUpdate], [groupedUpdate], [unrelated]] {
+        resumeFixture.snapshot.containers[index] = RemovalContainer(
+          uuid: base.uuid, storeUUID: base.storeUUID, volumes: base.volumes + extra)
+        XCTAssertThrowsError(try resumeFixture.prepare())
+        XCTAssertEqual(resumeFixture.commands.count, 6)
+      }
+
+      // Appears mid-preparation (between mutate calls, or during a mutate command).
+      for fault in ["late-update-before-mutate", "late-update-during-mutate"] {
+        let fixture = try InputFixture(kind: "free")
+        defer { fixture.remove() }
+        fixture.fault = fault
+        try fixture.prepare()
+        XCTAssertEqual(fixture.commands.count, 6)
+        let receipt = try NativeStubVolumes.read(
+          Data(
+            contentsOf: URL(
+              fileURLWithPath: fixture.journal.path + ".native-stub-volumes.evidence")))
+        XCTAssertEqual(receipt.volumes.count, 5, fault)
+        XCTAssertEqual(receipt.volumes.filter { $0.roles == ["Update"] }.map(\.group), [nil], fault)
+      }
+
+      // Refusals mid-preparation: grouped or duplicate Update volume.
+      for fault in ["late-grouped-update-during-mutate", "late-duplicate-update-during-mutate"] {
+        let fixture = try InputFixture(kind: "free")
+        defer { fixture.remove() }
+        fixture.fault = fault
+        XCTAssertThrowsError(try fixture.prepare(), fault)
+        XCTAssertTrue(
+          try AppleInstallerTrustCore().validateEngineTranscript(
+            Data(contentsOf: fixture.journal)
+          ).checkpoints.isEmpty, fault)
+      }
+    }
+
     func testWrongVolumeGraphAndUnrelatedChangesCannotPublishAnAPFSCheckpoint() throws {
       for fault in [
         "duplicate-preboot", "wrong-group", "unrelated-volume", "renumber-before-command",
@@ -578,20 +640,35 @@
                 snapshot: snapshot, containers: self.original.disk.containers))
           },
           snapshot: {
-            if self.commands.count == 1 && self.fault == "renumber-before-command" {
+            if self.commands.count == 1
+              && (self.fault == "renumber-before-command"
+                || self.fault == "late-update-before-mutate")
+            {
               self.targetReadbacks += 1
               if self.targetReadbacks > 1 {
                 let index = try XCTUnwrap(
                   self.snapshot.containers.firstIndex { $0.storeUUID.hasSuffix("000009") })
                 let old = self.snapshot.containers[index]
-                self.snapshot.containers[index] = RemovalContainer(
-                  uuid: old.uuid,
-                  storeUUID: old.storeUUID,
-                  volumes: old.volumes.map {
-                    RemovalVolume(
-                      uuid: $0.uuid, name: $0.name, roles: $0.roles,
-                      group: $0.group, identifier: "disk99s1")
-                  })
+                if self.fault == "late-update-before-mutate" {
+                  if !old.volumes.contains(where: { $0.roles == ["Update"] }) {
+                    self.snapshot.containers[index] = RemovalContainer(
+                      uuid: old.uuid, storeUUID: old.storeUUID,
+                      volumes: old.volumes + [
+                        RemovalVolume(
+                          uuid: "00000000-0000-0000-0000-000000000470", name: "Update",
+                          roles: ["Update"], identifier: "disk8s5")
+                      ])
+                  }
+                } else {
+                  self.snapshot.containers[index] = RemovalContainer(
+                    uuid: old.uuid,
+                    storeUUID: old.storeUUID,
+                    volumes: old.volumes.map {
+                      RemovalVolume(
+                        uuid: $0.uuid, name: $0.name, roles: $0.roles,
+                        group: $0.group, identifier: "disk99s1")
+                    })
+                }
               }
             }
             return self.snapshot
@@ -674,6 +751,26 @@
               if arguments.prefix(2) == ["apfs", "addVolume"], arguments[6] == "S" {
                 if self.fault == "system-mount-error" { throw NativeStubVolumeError.changedVolumes }
                 if self.fault == "unrelated-volume" { self.snapshot.partitions[0].size -= 4096 }
+                if let updates = [
+                  "late-update-during-mutate": 1,
+                  "late-grouped-update-during-mutate": 1,
+                  "late-duplicate-update-during-mutate": 2,
+                ][self.fault ?? ""] {
+                  let index = try XCTUnwrap(
+                    self.snapshot.containers.firstIndex { $0.storeUUID.hasSuffix("000009") })
+                  let old = self.snapshot.containers[index]
+                  self.snapshot.containers[index] = RemovalContainer(
+                    uuid: old.uuid, storeUUID: old.storeUUID,
+                    volumes: old.volumes
+                      + (0..<updates).map {
+                        RemovalVolume(
+                          uuid: "00000000-0000-0000-0000-00000000047" + String($0),
+                          name: "Update", roles: ["Update"],
+                          group: self.fault == "late-grouped-update-during-mutate"
+                            ? "00000000-0000-0000-0000-000000000900" : nil,
+                          identifier: "disk8s" + String(8 + $0))
+                      })
+                }
               }
             }
           }, containerReference: { _, _ in "disk8" })

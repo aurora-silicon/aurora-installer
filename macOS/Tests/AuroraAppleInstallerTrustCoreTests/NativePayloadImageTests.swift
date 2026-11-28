@@ -16,6 +16,8 @@
       var changedOwner = false
       var changedSnapshot = false
       var espLabel: String?
+      var extraStubVolumes = [RemovalVolume]()
+      var extraMacVolumes = [RemovalVolume]()
       init(deviceIdentifier: String = "apple,j700") async throws {
         let base = try NativeStubFileTests.ExecutionFixture(deviceIdentifier: deviceIdentifier)
         self.base = base
@@ -67,6 +69,26 @@
                 snapshot.partitions[index] = RemovalPartition(
                   identifier: old.identifier, uuid: old.uuid, type: old.type,
                   offset: old.offset, size: old.size, name: label)
+              }
+              if !self.extraStubVolumes.isEmpty,
+                let index = snapshot.containers.firstIndex(where: {
+                  $0.storeUUID != snapshot.macOSStoreUUID
+                })
+              {
+                let old = snapshot.containers[index]
+                snapshot.containers[index] = RemovalContainer(
+                  uuid: old.uuid, storeUUID: old.storeUUID,
+                  volumes: old.volumes + self.extraStubVolumes)
+              }
+              if !self.extraMacVolumes.isEmpty,
+                let index = snapshot.containers.firstIndex(where: {
+                  $0.storeUUID == snapshot.macOSStoreUUID
+                })
+              {
+                let old = snapshot.containers[index]
+                snapshot.containers[index] = RemovalContainer(
+                  uuid: old.uuid, storeUUID: old.storeUUID,
+                  volumes: old.volumes + self.extraMacVolumes)
               }
               if self.changedSnapshot { snapshot.partitions[1].size -= 4096 }
               return snapshot
@@ -138,6 +160,51 @@
       do {
         try await fixture.prepare()
         XCTFail("Foreign ESP name was accepted")
+      } catch {}
+      XCTAssertEqual(fixture.opened, 2)
+    }
+
+    func testALateUpdateVolumeInTheStartupContainerDoesNotStopOrRewriteImages() async throws {
+      let fixture = try await Fixture()
+      try await fixture.prepare()
+      let update = RemovalVolume(
+        uuid: "00000000-0000-0000-0000-000000000470", name: "Update",
+        roles: ["Update"], identifier: "disk8s5")
+      fixture.espLabel = "EFI - FEDOR"
+      fixture.extraStubVolumes = [update]
+      try await fixture.prepare()
+      XCTAssertEqual(fixture.opened, 2)
+
+      let stub = try XCTUnwrap(
+        fixture.base.snapshot.containers.first {
+          $0.storeUUID != fixture.base.snapshot.macOSStoreUUID
+        })
+      let secondUpdate = RemovalVolume(
+        uuid: "00000000-0000-0000-0000-000000000471", name: "Update",
+        roles: ["Update"], identifier: "disk8s6")
+      let groupedUpdate = RemovalVolume(
+        uuid: "00000000-0000-0000-0000-000000000472", name: "Update",
+        roles: ["Update"], group: stub.volumes.first(where: { $0.group != nil })?.group,
+        identifier: "disk8s5")
+      let unrelated = RemovalVolume(
+        uuid: "00000000-0000-0000-0000-000000000473", name: "VM",
+        roles: ["VM"], identifier: "disk8s5")
+      for extra in [[update, secondUpdate], [groupedUpdate], [unrelated]] {
+        fixture.extraStubVolumes = extra
+        do {
+          try await fixture.prepare()
+          XCTFail("Unexpected volume addition was accepted")
+        } catch {}
+      }
+      fixture.extraStubVolumes = [update]
+      fixture.extraMacVolumes = [
+        RemovalVolume(
+          uuid: "00000000-0000-0000-0000-000000000474", name: "Update",
+          roles: ["Update"], identifier: "disk3s9")
+      ]
+      do {
+        try await fixture.prepare()
+        XCTFail("Update volume in unrelated container was accepted")
       } catch {}
       XCTAssertEqual(fixture.opened, 2)
     }
