@@ -1,0 +1,24 @@
+[Unit]
+Description=Add the space macOS had to the root file system (after Recovery removed macOS)
+Documentation=https://github.com/aurora-silicon/aurora-distributions/blob/main/docs/whole-disk.md
+# Recovery's `aura remove-macos` leaves aurora/whole-disk/removed.json on the
+# EFI partition. Without it this does nothing. When
+# aurora-whole-disk-move.service moved the partitions, this moves the root
+# onto one partition (btrfs device add + remove, online); otherwise it adds
+# the space as a second btrfs device.
+ConditionPathExists=|/boot/efi/aurora/whole-disk/removed.json
+ConditionPathExists=|/boot/aurora/whole-disk/removed.json
+ConditionPathExists=|/efi/aurora/whole-disk/removed.json
+After=local-fs.target aurora-whole-disk-move.service
+
+[Service]
+# Type=exec: the boot doesn't wait for it. Moving the root takes as long as
+# copying its data; it is online and continues after a restart. A failure
+# marks this unit failed and the boot goes on; when btrfs device remove
+# fails twice the root stays on two devices and the claim ends.
+Type=exec
+ExecStart=/usr/bin/aurora-whole-disk claim --yes
+StandardOutput=journal+console
+
+[Install]
+WantedBy=multi-user.target

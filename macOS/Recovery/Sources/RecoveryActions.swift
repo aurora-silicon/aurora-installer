@@ -1028,9 +1028,11 @@ extension RecoveryActions {
       try run("/usr/sbin/nvram", ["boot-args=" + after])
       try check(try readBootArguments() == after, "Firmware boot arguments did not verify.")
       print("Aura \(arguments[0]) \(arguments[1]) for the next boot.")
+    case ["remove-macos"], ["remove-macos", "--dry-run"]:
+      try removeMacOS(dryRun: arguments.count == 2)
     default:
       throw RecoveryFailure(
-        message: "Usage: aura [recover | debug on/off | proxy on/off]")
+        message: "Usage: aura [recover | debug on/off | proxy on/off | remove-macos [--dry-run]]")
     }
   }
   static func installCommand() throws {
