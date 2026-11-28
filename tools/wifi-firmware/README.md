@@ -15,14 +15,24 @@ installed macOS: updating or erasing macOS changes nothing here.
 | Broadcom Bluetooth | `/usr/share/firmware/bluetooth` | `brcm/brcmbt*` |
 | MediaTek MT7932 Wi-Fi | `AppleSunriseWLAN.dext/IZUBA`: patch, RAM, power profile, configuration | `mediatek/mt7932/` |
 | MediaTek MT7932 Bluetooth | `/usr/share/firmware/bluetooth/MT7932*` | `mediatek/MT7932*`, `mediatek/mt7932/bt-*` |
+| Apple N1 Wi-Fi and Bluetooth | restore image members: the board's `Wireless1,*` image (macOS Customer) and `Firmware/Manifests/restore/macOS Customer/centauri/centauri.<board>ap.im4m` | `apple/centauri/<board>-ftab.bin` |
 
 A Mac follows the radios its ESP package carries today. The MT7932's
 calibration (`oca2`, `wcal`, `btcal`), its Bluetooth address and the
 regulatory policies are this Mac's own records; they stay as the installer
-wrote them. The N1 firmware of the M5 and later Macs
-(`apple/centauri/*-ftab.bin`) is not refreshed here either: the installer
-makes it from the startup firmware's restore files, the kernel driver speaks
-that firmware's protocol, and the file stays as the installer wrote it.
+wrote them.
+
+The N1 (M5 and later Macs) is followed when the device tree describes one
+(`apple,centauri-platform-id`, a `*-centauri-control` compatible or an N1
+`firmware-name`), even when the ESP has no N1 file yet: installs made before
+installer alpha 26 have none, and the boot service adds it. Its two inputs
+are read from the restore image itself, not its System volume: the one image
+this board's build identity (macOS Customer variant) names for `Wireless1,*`,
+and the board's ticket beside it; they are joined as the native installer's
+`CentauriFirmware` does (`asahi_firmware/centauri.py`) and kept in
+`asahi/all_firmware.tar.gz` under `centauri/<board>/`, so a later
+`asahi-fwupdate` gives the same file. A restore image that names more than
+one N1 image, lacks the ticket or is not the build it is listed as refuses.
 
 ```sh
 sudo aurora-wifi-firmware status    # board, ESP and running firmware, the restore image used
@@ -130,13 +140,13 @@ make -C tools/wifi-firmware check
 ```
 
 installs the launcher, the tool, the `asahi_firmware` modules it needs
-(`__init__`, `core`, `cpio`, `wifi`, `bluetooth`, `mt7932`, and the
+(`__init__`, `core`, `cpio`, `wifi`, `bluetooth`, `mt7932`, `centauri`, and the
 restore image reader `ipsw`, `aea_ro`, `udif_ro`, `apfs_ro`, `remotezip`
 with `restore-images.json`), and `aurora-wifi-firmware.service` (enable
 it). Run-time needs: python3-cryptography (AEA keys), liblzfse, network
 access to Apple's CDN and key service.
 
 Tests: `tests/test_wifi_firmware_refresh.py`,
-`tests/test_wifi_firmware_radios.py`, `tests/test_wifi_firmware_apfs_bounds.py`
+`tests/test_wifi_firmware_radios.py`, `tests/test_wifi_firmware_n1.py`, `tests/test_wifi_firmware_apfs_bounds.py`
 and `tests/test_ipsw_source.py` (synthetic trees and the native
 converter's test vectors, no Apple files).
