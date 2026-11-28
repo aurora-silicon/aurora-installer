@@ -324,7 +324,7 @@
           if let erasing {
             return try AuroraRemovalPlan(erasing: erasing, disks: disks, collect: collect)
           }
-          return try AuroraRemovalPlan(disks: disks, journals: journals)
+          return try AuroraRemovalPlan(disks: disks, journals: journals, collect: collect)
         }.value
         let ticket = plan.ticket(id: UUID())
         removalPlan = (ticket, plan, Date().addingTimeInterval(300))

@@ -248,12 +248,29 @@
     let startup: RemovalStartup?
     /// Erase to free space only: the row the person chose.
     var erased: RemovalErasedRegion? = nil
+    /// Stores of other operating systems' containers (iOS) on the disk,
+    /// kept as they are. Nil when there are none.
+    var preservedStores: [String]? = nil
 
     /// Read-only. Every check that can refuse happens here, before a ticket exists.
-    init(disks: any RemovalDiskOperating, journals: (any RemovalInstallJournals)? = nil) throws {
+    /// - Parameter collect: inspection's read-only scan, which names another
+    ///   operating system's container from its own System volume.
+    init(
+      disks: any RemovalDiskOperating, journals: (any RemovalInstallJournals)? = nil,
+      collect: (() throws -> NativeCollectedDisk)? = nil
+    ) throws {
       let snapshot = try disks.snapshot()
       self.snapshot = snapshot
-      switch try RemovalLayout.recognize(snapshot) {
+      // Only a scan of this exact layout counts. When it fails, nothing is
+      // preserved by name and recognition refuses the container as before.
+      var preserved = Set<String>()
+      if let collect, RemovalLayout.hasOtherSystem(snapshot), let disk = try? collect(),
+        disk.snapshot == snapshot
+      {
+        preserved = disk.preservedForeignStores
+      }
+      preservedStores = preserved.isEmpty ? nil : preserved.sorted()
+      switch try RemovalLayout.recognize(snapshot, preserved: preserved) {
       case .freeSpace(let macOS, let target):
         let limit = try disks.growLimit(macOS, disk: snapshot.disk)
         guard limit.addingReportingOverflow(1_048_576).partialValue >= target else {
@@ -393,6 +410,10 @@
 
     var reclaimBytes: UInt64 { targetMacOSBytes - macOS.size }
 
+    /// False when another operating system's container sits between macOS
+    /// and the installation: its space then stays unallocated.
+    var growsMacOS: Bool { targetMacOSBytes > macOS.size }
+
     var summary: String {
       if let erased {
         let first = startup == nil ? "" : "Erase first sets macOS as the startup disk. "
@@ -403,6 +424,12 @@
         let first = startup == nil ? "" : "Removal first sets macOS as the startup disk. "
         return
           "Found “\(partial.name)”, left by an installation that didn’t finish. \(first)Removal permanently deletes it and gives its space back to macOS."
+      }
+      if let installation, !growsMacOS {
+        let first = startup == nil ? "" : "Removal first sets macOS as the startup disk, then "
+        let deletes = startup == nil ? "Removal permanently deletes" : "permanently deletes"
+        return
+          "Found “\(installation.name)”. \(first)\(deletes) it and everything stored in it. Another operating system’s container sits between it and macOS, so its space is left unallocated and macOS isn’t resized."
       }
       if let installation {
         if startup != nil {
@@ -465,7 +492,7 @@
       var kept = [
         AuroraRemovalItem(
           title: "macOS “\(macOSName)”",
-          detail: erased == nil
+          detail: growsMacOS
             ? "\(macOS.identifier) · grows to \(RemovalText.size(targetMacOSBytes))"
             : "\(macOS.identifier) · not resized",
           bytes: macOS.size),
@@ -482,6 +509,18 @@
         let name =
           snapshot.containers.first { $0.storeUUID == part.uuid }?.volumes
           .first { $0.roles == ["System"] }?.name ?? part.name
+        if preservedStores?.contains(part.uuid) == true {
+          kept.append(
+            AuroraRemovalItem(
+              title: "Another operating system “\(name)”", detail: part.identifier,
+              bytes: part.size))
+          if erased == nil {
+            notes.append(
+              "“\(name)” holds another operating system (iOS) and is always kept. macOS never grows across it."
+            )
+          }
+          continue
+        }
         kept.append(
           AuroraRemovalItem(
             title: "Separate startup container “\(name)”", detail: part.identifier, bytes: part.size
@@ -743,8 +782,9 @@
         removed.insert(member.uuid)
         try plan.validate(disks.snapshot(), removed: removed)
       }
-      // Erase leaves the extent unallocated: nothing grows into it.
-      if plan.kind == .eraseToFreeSpace {
+      // Erase leaves the extent unallocated: nothing grows into it. Neither
+      // does macOS grow across another operating system's container.
+      if plan.kind == .eraseToFreeSpace || !plan.growsMacOS {
         try plan.validate(disks.snapshot(), removed: removed)
         try record("complete")
         return
