@@ -339,6 +339,78 @@ final class InstallerViewStateTests: XCTestCase {
     XCTAssertTrue(action.spinner.isHidden)
   }
 
+  func testFinishingWithAnUnownedAccountNeverSendsThePersonToStartupDisk() throws {
+    let model = InstallerModel()
+    let (_, controller) = show(model)
+    // The completion screen without an account.
+    model.stage = .complete
+    var shown = labels(in: controller.view)
+    XCTAssertTrue(shown.contains("Restart to start using Aurora Linux."), "\(shown)")
+    XCTAssertFalse(shown.contains { $0.contains("startup owner") }, "\(shown)")
+    // The account is created but isn't an owner: the same screen, rebuilt
+    // in place, says Aurora starts without it.
+    model.accountNeedsAuthorization = true
+    shown = labels(in: controller.view)
+    XCTAssertTrue(shown.contains("Restart to start using Aurora Linux."), "\(shown)")
+    XCTAssertTrue(shown.contains { $0.contains("isn’t a startup owner yet") }, "\(shown)")
+    XCTAssertEqual(try primary(controller).button.title, "Restart")
+    // The account screen, new and resumed, asks for nothing beyond the account.
+    for started in [false, true] {
+      model.accountAlreadyStarted = started
+      model.stage = .account
+      shown = labels(in: controller.view)
+      XCTAssertTrue(
+        shown.contains { $0.contains("Aurora Linux starts without it") }, "\(started): \(shown)")
+      model.stage = .complete
+    }
+    // No screen of this flow, and no title, mentions authorizing users in
+    // Startup Disk.
+    for stage in [Stage.account, .complete] {
+      model.stage = stage
+      for text in labels(in: controller.view) + [controller.view.window?.title ?? ""] {
+        XCTAssertFalse(text.contains("Authorize"), "\(stage): \(text)")
+        XCTAssertFalse(text.contains("Startup Disk"), "\(stage): \(text)")
+      }
+    }
+  }
+
+  func testPreviewAccountCreationFinishesOnTheRestartScreen() throws {
+    let model = InstallerModel()
+    let (_, controller) = show(model)
+    model.stage = .account
+    model.accountUsername = "aurora-owner"
+    model.accountPassword = "secret"
+    model.accountConfirmation = "secret"
+    try primary(controller).button.performClick(nil)
+    wait("the completion screen") { model.stage == .complete }
+    XCTAssertTrue(model.accountNeedsAuthorization)
+    XCTAssertEqual(try primary(controller).button.title, "Restart")
+    XCTAssertTrue(
+      labels(in: controller.view).contains { $0.contains("isn’t a startup owner yet") })
+    // Restart in the preview simulates restarting into Aurora; it opens no
+    // Startup Disk notice.
+    try primary(controller).button.performClick(nil)
+    let notice = try XCTUnwrap(model.previewNotice, "Restart shows the preview's notice")
+    XCTAssertEqual(notice.title, "Restart simulated")
+    XCTAssertTrue(notice.message.contains("deferred"), notice.message)
+    XCTAssertEqual(model.stage, .complete)
+  }
+
+  func testRepairScreenReachesAnUnfinishedAccount() throws {
+    let model = InstallerModel()
+    _ = show(model)
+    // Recovery opened again stays on the repair screen; with no account to
+    // set up, Utilities → Create Recovery Account… changes nothing.
+    model.stage = .welcome
+    model.showRecoveryAccountSetup()
+    XCTAssertEqual(model.stage, .welcome)
+    // A creation that stopped part way is set up again from there.
+    model.accountUnfinished = true
+    XCTAssertTrue(model.accountResumable)
+    model.showRecoveryAccountSetup()
+    XCTAssertEqual(model.stage, .account)
+  }
+
   func testAccountFormExplainsADisabledCreateAccount() throws {
     let model = InstallerModel()
     let (_, controller) = show(model)

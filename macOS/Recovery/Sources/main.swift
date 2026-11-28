@@ -68,6 +68,11 @@ final class InstallerModel {
   /// yet. It stays out of the way: Restart defers it, and holding Shift on
   /// Restart or Utilities → Create Recovery Account… opens its setup.
   var accountOptional = false { didSet { changed() } }
+  /// The account's creation stopped part way; Utilities → Create Recovery
+  /// Account… sets it up again.
+  var accountUnfinished = false { didSet { changed() } }
+  /// The account can be set up from here: not started, or stopped part way.
+  var accountResumable: Bool { accountOptional || accountUnfinished }
   var previewNotice: (title: String, message: String)? { didSet { changed() } }
   private var checkingAccount = false
   private var awaitingStartupDiskReturn = false
@@ -88,22 +93,28 @@ final class InstallerModel {
       && (try? RecoveryAccountInstaller.validatePassword(Data(accountPassword.utf8))) != nil
   }
 
-  private func showAccountStep(_ record: RecoveryAccountRecord?, required: Bool = true) {
+  private func showAccountStep(
+    _ record: RecoveryAccountRecord?, required: Bool = true,
+    moment: RecoveryAccountStep.Moment = .finished
+  ) {
+    let step = RecoveryAccountStep.resolve(
+      required: required, phase: record?.phase, moment: moment)
     accountUsername = record?.username ?? ""
     accountAlreadyStarted = record != nil
     accountPassword = ""
     accountConfirmation = ""
-    // Not started yet: finish without it unless the person asks for it. An
-    // account that was started resumes directly.
-    accountOptional = required && record == nil
-    accountNeedsAuthorization = required && record != nil && record?.phase != "finalized"
-    stage = accountNeedsAuthorization ? .account : .complete
+    // Not started yet: finish without it unless the person asks for it.
+    accountOptional = step.accountOptional
+    accountNeedsAuthorization = step.accountNeedsAuthorization
+    accountUnfinished = step.accountUnfinished
+    if let next = step.stage { stage = next }
   }
 
-  /// Opens the optional recovery account setup from the completion screen.
+  /// Opens the recovery account setup, not started or stopped part way, from
+  /// the completion screen or the repair screen Recovery opens on.
   func showRecoveryAccountSetup() {
-    guard accountOptional, stage == .complete, !restartingWithoutAccount,
-      !restartingCompletedSetup
+    guard accountResumable, stage == .complete || stage == .welcome, !restartingWithoutAccount,
+      !restartingCompletedSetup, !creatingAccount, !checkingAccount
     else { return }
     stage = .account
   }
@@ -120,7 +131,10 @@ final class InstallerModel {
         let record = required ? try RecoveryActions.recoveryAccount() : nil
         DispatchQueue.main.async {
           self.checkingAccount = false
-          if required { self.showAccountStep(record) }
+          // Recovery opened again: the repair screen stays; this only reads
+          // the account's state for Utilities → Create Recovery Account….
+          guard self.stage == .welcome || self.stage == .complete else { return }
+          self.showAccountStep(record, required: required, moment: .reopened)
         }
       } catch {
         DispatchQueue.main.async {
@@ -148,6 +162,7 @@ final class InstallerModel {
       creatingAccount = false
       accountAlreadyStarted = true
       accountOptional = false
+      accountUnfinished = false
       accountNeedsAuthorization = true
       stage = .complete
       return
@@ -158,11 +173,13 @@ final class InstallerModel {
         InstallerLog.shared.append(
           record.phase == "finalized"
             ? "Recovery account ownership and metadata verified."
-            : "Recovery account prepared. Startup Disk authorization is still required.")
+            : "Recovery account prepared. It isn’t a startup owner yet; Aurora Linux starts without it."
+        )
         DispatchQueue.main.async {
           self.creatingAccount = false
           self.accountAlreadyStarted = true
           self.accountOptional = false
+          self.accountUnfinished = false
           self.accountNeedsAuthorization = record.phase != "finalized"
           self.stage = .complete
         }
@@ -183,6 +200,12 @@ final class InstallerModel {
     else {
       return
     }
+    restartDeferringAccount()
+  }
+
+  /// Restarts into this installation and leaves the recovery account as it
+  /// is, recorded as deferred. Aurora starts without the account.
+  private func restartDeferringAccount() {
     accountPassword = ""
     accountConfirmation = ""
     if RecoveryActions.isPreview {
@@ -534,50 +557,50 @@ final class InstallerModel {
       skipRecoveryAccountAndRestart()
       return
     }
-    if !accountNeedsAuthorization {
-      if RecoveryActions.isPreview {
-        previewNotice = ("Restart simulated", "This preview does not restart your Mac.")
-        return
-      }
-      guard !restartingCompletedSetup else { return }
-      restartingCompletedSetup = true
-      let updated = stage1Updated
-      DispatchQueue.global(qos: .userInitiated).async {
-        do {
-          // Another default volume is not an error: let the person choose
-          // this installation in Startup Disk, which restarts from there.
-          guard try RecoveryActions.targetIsDefaultBoot() else {
-            InstallerLog.shared.append(
-              "This installation is not the startup disk. Opening Startup Disk.")
-            DispatchQueue.main.async {
-              self.restartingCompletedSetup = false
-              self.openStartupDisk()
-            }
-            return
-          }
-          if updated {
-            try RecoveryActions.restartAfterStage1Update()
-          } else {
-            try RecoveryActions.restartCompletedSetup()
-          }
-        } catch {
-          InstallerLog.shared.append("Restart failed: " + error.localizedDescription, level: .error)
-          DispatchQueue.main.async {
-            self.restartingCompletedSetup = false
-            self.failure = error.localizedDescription
-          }
-        }
-      }
+    // An account that isn't a volume owner yet is deferred the same way.
+    // Setup never sends the person to Startup Disk to authorize it: there,
+    // Authorize Users asks for the macOS owner and then the new account over
+    // and over, and nothing else here needs the account. This installation
+    // is already the startup disk after setup, so Restart starts Aurora.
+    if accountNeedsAuthorization {
+      guard stage == .complete, !creatingAccount, !checkingAccount, !restartingWithoutAccount
+      else { return }
+      restartDeferringAccount()
       return
     }
     if RecoveryActions.isPreview {
-      previewNotice = (
-        "Choose your startup disk",
-        "In Recovery, this opens Startup Disk. Select \(DestinationVolume.name), click Restart, and authorize your recovery account when asked."
-      )
+      previewNotice = ("Restart simulated", "This preview does not restart your Mac.")
       return
     }
-    openStartupDisk()
+    guard !restartingCompletedSetup else { return }
+    restartingCompletedSetup = true
+    let updated = stage1Updated
+    DispatchQueue.global(qos: .userInitiated).async {
+      do {
+        // Another default volume is not an error: let the person choose
+        // this installation in Startup Disk, which restarts from there.
+        guard try RecoveryActions.targetIsDefaultBoot() else {
+          InstallerLog.shared.append(
+            "This installation is not the startup disk. Opening Startup Disk.")
+          DispatchQueue.main.async {
+            self.restartingCompletedSetup = false
+            self.openStartupDisk()
+          }
+          return
+        }
+        if updated {
+          try RecoveryActions.restartAfterStage1Update()
+        } else {
+          try RecoveryActions.restartCompletedSetup()
+        }
+      } catch {
+        InstallerLog.shared.append("Restart failed: " + error.localizedDescription, level: .error)
+        DispatchQueue.main.async {
+          self.restartingCompletedSetup = false
+          self.failure = error.localizedDescription
+        }
+      }
+    }
   }
 
   private func openStartupDisk() {
@@ -875,7 +898,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   @objc func validateMenuItem(_ item: NSMenuItem) -> Bool {
     guard item.action == #selector(createRecoveryAccount(_:)) else { return true }
-    return model.accountOptional && model.stage == .complete
+    return model.accountResumable && (model.stage == .complete || model.stage == .welcome)
   }
 
   @objc private func openTerminal(_ sender: Any?) {
@@ -908,7 +931,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     alert.informativeText =
       RecoveryActions.inRecovery
       ? "Install or restore Aurora startup software. The aura command is available in Recovery Terminal after opening this app."
-      : "This preview demonstrates the Recovery installation flow. Enter any text in the preview password field. No startup software, boot policy, or disk content is changed. Restart previews the Startup Disk handoff. Utilities → Terminal opens the real Terminal app."
+      : "This preview demonstrates the Recovery installation flow. Enter any text in the preview password field. No startup software, boot policy, or disk content is changed. Restart previews restarting into Aurora Linux. Utilities → Terminal opens the real Terminal app."
     alert.runModal()
   }
 

@@ -9,7 +9,15 @@ final class InstallerView: NSViewController, NSTextFieldDelegate, NSMenuItemVali
   private var titleWidthConstraint: NSLayoutConstraint?
   private let content = NSView()
   private let footer = NSView()
-  private var renderedStage: Stage?
+  /// What the current screen was built from. The completion screen's text
+  /// depends on the account too, so a change there rebuilds it.
+  private var rendered: RenderedScreen?
+  private struct RenderedScreen: Equatable {
+    let stage: Stage
+    let accountOptional: Bool
+    let accountNeedsAuthorization: Bool
+    let accountAlreadyStarted: Bool
+  }
   /// Continue or Restore, Create Account, or Restart, with its spinner slot.
   private var primaryAction: RecoveryBusyAction?
   private var shiftHeld = false
@@ -120,8 +128,12 @@ final class InstallerView: NSViewController, NSTextFieldDelegate, NSMenuItemVali
       return
     }
     guard isViewLoaded else { return }
-    if renderedStage != model.stage {
-      renderedStage = model.stage
+    let screen = RenderedScreen(
+      stage: model.stage, accountOptional: model.accountOptional,
+      accountNeedsAuthorization: model.accountNeedsAuthorization,
+      accountAlreadyStarted: model.accountAlreadyStarted)
+    if rendered != screen {
+      rendered = screen
       buildStage()
     }
     titleLabel.stringValue = stageTitle
@@ -186,7 +198,6 @@ final class InstallerView: NSViewController, NSTextFieldDelegate, NSMenuItemVali
     case .account:
       return model.accountAlreadyStarted ? "Resume recovery setup" : "Create a recovery account"
     case .complete:
-      if model.accountNeedsAuthorization { return "Authorize recovery account" }
       if updating { return "Update complete" }
       return model.recoveryInterface ? "Recovery complete" : "Installation complete"
     }
@@ -295,8 +306,8 @@ final class InstallerView: NSViewController, NSTextFieldDelegate, NSMenuItemVali
     stack.alignment = .leading
     let message =
       model.accountAlreadyStarted
-      ? "Verify your recovery account’s password to resume authorization.\n\nYour Linux login is separate."
-      : "Create a separate recovery account for your Linux volume. Next, authorize it as a volume owner to manage Linux boot settings independently of your macOS account.\n\nYour Linux login is separate."
+      ? "Verify your recovery account’s password to finish creating it. Setup doesn’t need it: Aurora Linux starts without it.\n\nYour Linux login is separate."
+      : "Create a separate recovery account for your Linux volume, to manage Linux boot settings independently of your macOS account. Setup doesn’t need it: Aurora Linux starts without it.\n\nYour Linux login is separate."
     let explanation = label(message, size: 12, alignment: .left)
     explanation.maximumNumberOfLines = 0
     explanation.preferredMaxLayoutWidth = 380
@@ -347,21 +358,16 @@ final class InstallerView: NSViewController, NSTextFieldDelegate, NSMenuItemVali
     let subject = "Aurora Linux"
     stack.addArrangedSubview(
       label(
-        model.accountNeedsAuthorization
-          ? subject + " is ready for authorization."
-          : subject + " is ready to start.", size: 15))
+        subject + " is ready to start.", size: 15))
     stack.setCustomSpacing(39, after: stack.arrangedSubviews[0])
     let icon = volumeIcon()
     stack.addArrangedSubview(icon)
     stack.setCustomSpacing(28, after: icon)
     if model.accountNeedsAuthorization {
+      stack.addArrangedSubview(label("Restart to start using Aurora Linux.", size: 12))
       stack.addArrangedSubview(
         label(
-          "Select “" + DestinationVolume.name + "”, click “Restart…”, then “Authorize Users…”.",
-          size: 12))
-      stack.addArrangedSubview(
-        label(
-          "Enter the credentials for your macOS account and the recovery account you just created.",
+          "Your recovery account is saved. Aurora Linux starts without it; it isn’t a startup owner yet.",
           size: 12))
     } else {
       stack.addArrangedSubview(label("Restart to start using Aurora Linux.", size: 12))

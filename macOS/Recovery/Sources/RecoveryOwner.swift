@@ -86,8 +86,7 @@ enum RecoveryOwnerResolver {
       return pendingAccount
     }
     do {
-      // Before Apple's final Startup Disk handoff, the newly created account
-      // has no ownership. Initial enrollment uses only the explicitly bound
+      // A newly created account isn't a volume owner yet. Initial enrollment uses only the explicitly bound
       // source owner; another target account must not silently replace it.
       if pendingAccount != nil { throw RecoveryOwnerError.noOwner }
       return try resolve(admins: admins, cryptoUsers: targetUsers)

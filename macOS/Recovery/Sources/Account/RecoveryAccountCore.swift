@@ -739,7 +739,7 @@ public enum RecoveryAccountInstaller {
     let ctx = try context(target, writable: true)
     try resumeFinalization(ctx, target: target)
     guard var record = try inspect(target) else {
-      throw AccountSetupFailure("Create the recovery account before authorizing it.")
+      throw AccountSetupFailure("Create the recovery account before finishing it.")
     }
     guard try authenticate(ctx, record.username, password),
       (try user(ctx, record.username))["generateduid"] as? [String] == [record.generatedUID]
@@ -923,7 +923,7 @@ public enum RecoveryAccountInstaller {
       })
     else {
       throw AccountSetupFailure(
-        "Authorize \(record.username) in Startup Disk first. Select \(record.target.volumeName), click Restart, and choose Authorize Users."
+        "\(record.username) isn’t an owner of \(record.target.volumeName)’s startup security, so it can’t be used for this."
       )
     }
   }

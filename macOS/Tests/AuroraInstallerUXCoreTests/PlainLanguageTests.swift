@@ -550,6 +550,32 @@
         "macOS needs 12.6 GB free to prepare the installation and has 8.9 GB. "
           + "Free up 3.7 GB, then try again. The disk wasn’t changed.")
       XCTAssertTrue(try XCTUnwrap(space.remedy).contains("Check again"))
+      XCTAssertFalse(try XCTUnwrap(space.remedy).contains("resizeContainer"))
+
+      // Erase left 145 GB unused right after macOS (a J473 on 2026-11-22):
+      // the remedy gives that space back to macOS instead of asking the
+      // person to delete files.
+      let afterErase = PlainLanguage.failure(
+        for: MacOSFreeSpaceShortfall(
+          requiredBytes: 28_343_084_044, availableBytes: 14_541_205_504,
+          freeSpaceAfterMacOSBytes: 145_000_000_000, macOSStoreIdentifier: "disk0s2"))
+      XCTAssertEqual(afterErase.headline, "macOS needs more free space")
+      XCTAssertTrue(afterErase.plainDetail.contains("145 GB of unused space right after macOS"))
+      XCTAssertTrue(
+        afterErase.plainDetail.hasPrefix(
+          "macOS needs 28.4 GB free to prepare the installation and has 14.5 GB. The disk has"),
+        afterErase.plainDetail)
+      XCTAssertFalse(afterErase.plainDetail.contains("Free up"), afterErase.plainDetail)
+      let grow = try XCTUnwrap(afterErase.remedy)
+      XCTAssertTrue(grow.contains("sudo diskutil apfs resizeContainer disk0s2 0"), grow)
+      XCTAssertTrue(grow.contains("Check again"), grow)
+      XCTAssertFalse(grow.contains("Empty the Trash"), grow)
+      // No usable space after macOS (planning records none): the usual remedy.
+      let none = PlainLanguage.failure(
+        for: MacOSFreeSpaceShortfall(
+          requiredBytes: 28_343_084_044, availableBytes: 14_541_205_504,
+          freeSpaceAfterMacOSBytes: 0, macOSStoreIdentifier: "disk0s2"))
+      XCTAssertTrue(try XCTUnwrap(none.remedy).contains("Empty the Trash"))
 
       let archive = PlainLanguage.failure(
         for: InstallerPlanPreparationError.firmwareArchiveUnsupported(version: "14.8.3"))

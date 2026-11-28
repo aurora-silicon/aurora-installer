@@ -804,7 +804,17 @@
     public static func macOSSpaceShortfall(
       _ shortfall: MacOSFreeSpaceShortfall, technicalDetail: String
     ) -> FailureDisplay {
-      FailureDisplay(
+      if shortfall.growingMacOSIsEnough, let store = shortfall.macOSStoreIdentifier {
+        return FailureDisplay(
+          headline: "macOS needs more free space",
+          plainDetail:
+            "\(shortfall.need) The disk has \(bytes(shortfall.freeSpaceAfterMacOSBytes)) of unused space right after macOS, but the installer prepares its files inside macOS first. The disk has not been changed.",
+          technicalDetail: technicalDetail,
+          remedy:
+            "Give that space back to macOS: in Terminal, run sudo diskutil apfs resizeContainer \(store) 0 and enter your password. Wait until it finishes, then choose Check again. The installer then takes Aurora’s space from macOS, and checks the space again before it changes anything."
+        )
+      }
+      return FailureDisplay(
         headline: "macOS needs more free space",
         plainDetail: "\(shortfall.summary) The disk wasn’t changed.",
         technicalDetail: technicalDetail,
