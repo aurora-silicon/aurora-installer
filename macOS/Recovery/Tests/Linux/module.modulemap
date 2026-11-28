@@ -1,0 +1,11 @@
+module CommonCrypto [system] {
+  header "CommonCrypto.h"
+  export *
+}
+
+// zlib is a Darwin SDK module; on Linux the system header stands in.
+module zlib [system] {
+  header "/usr/include/zlib.h"
+  link "z"
+  export *
+}

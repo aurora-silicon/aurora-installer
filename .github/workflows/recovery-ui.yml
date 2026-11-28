@@ -45,6 +45,8 @@ jobs:
           set -euo pipefail
           bash Recovery/build-preview.sh "$RUNNER_TEMP/recovery-preview" 2>&1 | tee "$RUNNER_TEMP/evidence/preview-build.log"
           bash Recovery/build-recovery.sh "$RUNNER_TEMP/recovery-template" 2>&1 | tee "$RUNNER_TEMP/evidence/recovery-build.log"
+          # The restore image key tool, built for macOS 13, for runs inside recoveryOS.
+          cp "$RUNNER_TEMP/recovery-template/checks/aurora-restore-key" "$RUNNER_TEMP/evidence/"
       - name: Run window-level Recovery state tests
         run: |
           set -euo pipefail
