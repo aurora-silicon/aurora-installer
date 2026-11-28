@@ -313,6 +313,37 @@ final class ProResInitFirmwareTests: XCTestCase {
     XCTAssertThrowsError(try ProResInitFirmware.extract(from: Data([1, 2, 3])))
   }
 
+  /// The __text section header of `image`: its address, then its size.
+  static let textSectionAddress = 32 + 72 + 32
+
+  private static func replacing(_ image: Data, at offset: Int, with value: UInt64) -> Data {
+    var changed = image
+    var bytes = Data()
+    put64(&bytes, value)
+    changed.replaceSubrange(offset..<(offset + 8), with: bytes)
+    return changed
+  }
+
+  func testFunctionEndingPastTheAddressSpaceIsNotASelector() throws {
+    // The only selector's function ends where its section does, and that end
+    // wraps: it is far longer than any selector, as asahi_firmware/prores.py
+    // (test_section_past_the_address_space) finds too.
+    let selector = Selector(family: "prores", number: 5, table: 1)
+    let image = Self.replacing(
+      Self.image(Self.standard(), [selector]), at: Self.textSectionAddress + 8,
+      with: UInt64.max - 0x1000)
+    XCTAssertNil(try ProResInitFirmware.extract(from: image))
+  }
+
+  func testCodeFurtherIntoASectionThanAnyFileOffsetIsNotRead() throws {
+    // A section from address 0 that spans the whole address space places the
+    // selectors more than Int.max bytes in, outside any input.
+    var image = Self.image(Self.standard(), Self.standardSelectors)
+    image = Self.replacing(image, at: Self.textSectionAddress, with: 0)
+    image = Self.replacing(image, at: Self.textSectionAddress + 8, with: UInt64.max)
+    XCTAssertNil(try ProResInitFirmware.extract(from: image))
+  }
+
   func testFailuresCarryNoRowData() {
     var tables = Self.standard()
     tables[0].rows[0].value = 0x1234_5678

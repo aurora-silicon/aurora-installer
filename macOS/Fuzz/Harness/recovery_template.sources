@@ -1,0 +1,4 @@
+# Installer sources compiled into this harness (relative to macOS/).
+Sources/AuroraAppleInstaller/NativeRecoveryTemplate.swift
+Sources/AuroraAppleInstaller/PublishedContractNames.swift
+Sources/AuroraAppleInstaller/InstallerProductIdentity.swift

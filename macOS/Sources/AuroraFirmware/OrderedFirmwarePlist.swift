@@ -62,8 +62,18 @@ indirect enum FirmwarePlist {
       parser.parse() && !delegate.failed && delegate.stack.isEmpty && delegate.root != nil,
       "Malformed firmware property list.")
     var ids = [String: FirmwareXMLParser.Node]()
+    // A reference resolves to the value its target already decoded to, so a
+    // target named by many references is decoded, and its data held, once.
+    // Every node is then decoded at most once; a reference to a target that is
+    // still being decoded is a cycle, which the active set refuses.
+    var resolved = [ObjectIdentifier: Self]()
     var budget = 100000
     func value(_ node: FirmwareXMLParser.Node, active: Set<ObjectIdentifier>) throws -> Self {
+      let decoded = try decodeNode(node, active: active)
+      if node.attributes["ID"] != nil { resolved[ObjectIdentifier(node)] = decoded }
+      return decoded
+    }
+    func decodeNode(_ node: FirmwareXMLParser.Node, active: Set<ObjectIdentifier>) throws -> Self {
       budget -= 1
       try require(
         budget >= 0 && !active.contains(ObjectIdentifier(node)),
@@ -78,7 +88,7 @@ indirect enum FirmwarePlist {
         guard let target = ids[ref], target.tag == node.tag, node.children.isEmpty else {
           throw RestoreFailure("Unknown firmware property reference.")
         }
-        return try value(target, active: active)
+        return try resolved[ObjectIdentifier(target)] ?? value(target, active: active)
       }
       switch node.tag {
       case "plist":

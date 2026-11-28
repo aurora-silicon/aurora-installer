@@ -129,6 +129,7 @@ public enum MultitouchFirmware {
 
   private static func touchbar(_ source: FirmwarePlist) throws -> Data {
     guard let records = source.array else { throw RestoreFailure("Invalid Touch Bar firmware.") }
+    let budget = 16 << 20
     var output = Data("Z2FW".utf8) + littleBytes(1, count: 4)
     func number(_ record: FirmwarePlist, _ key: String) throws -> Int {
       guard let value = record[key]?.integer else {
@@ -145,13 +146,16 @@ public enum MultitouchFirmware {
       guard let initData = record["Config"]?["SPI Config"]?["Init Payload"]?.data else {
         throw RestoreFailure("Missing Touch Bar initialization payload.")
       }
+      // Records can share one payload through IDREF, so the budget counts
+      // each copy the output would hold.
+      try require(initData.count <= budget - output.count, "Touch Bar firmware exceeds its budget.")
       command(0, initData.count)
       output.append(initData)
       pad(initData.count)
     }
     for record in records {
       try Task.checkCancellation()
-      try require(output.count <= 16 << 20, "Touch Bar firmware exceeds its budget.")
+      try require(output.count <= budget, "Touch Bar firmware exceeds its budget.")
       switch record["Type"]?.string {
       case "Binary":
         guard let bytes = record["Payload"]?.data, bytes.count <= 262140 else {

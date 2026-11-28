@@ -70,6 +70,72 @@ final class GenericFirmwareConversionTests: XCTestCase {
     XCTAssertThrowsError(try FirmwarePlist.decode(Data(wrongType.utf8)))
   }
 
+  func testReferencesShareTheirTargetsDecodedData() throws {
+    // One 64 KiB payload named once and referenced by thousands of records,
+    // directly and through a dictionary: a reader that decodes the target
+    // again for every reference holds a copy per reference before any
+    // consumer can check its budget.
+    let references = 4096
+    let payload = Data((0..<(64 << 10)).map { UInt8(truncatingIfNeeded: $0 &* 31) })
+    let xml =
+      "<plist><array><data ID='d'>\(payload.base64EncodedString())</data>"
+      + "<dict ID='r'><key>Payload</key><data IDREF='d'/></dict>"
+      + String(repeating: "<data IDREF='d'/><dict IDREF='r'/>", count: references)
+      + "</array></plist>"
+    let decoded = try XCTUnwrap(FirmwarePlist.decode(Data(xml.utf8)).array)
+    XCTAssertEqual(decoded.count, 2 + 2 * references)
+    let values = try decoded.map { try XCTUnwrap($0.data ?? $0["Payload"]?.data) }
+    func storage(_ data: Data) -> UnsafeRawPointer? { data.withUnsafeBytes { $0.baseAddress } }
+    XCTAssertEqual(values[0], payload)
+    XCTAssertTrue(values.allSatisfy { $0.count == payload.count })
+    let copies = values.filter { storage($0) != storage(values[0]) }.count
+    XCTAssertEqual(copies, 0, "references holding their own copy of the payload")
+  }
+
+  private func der(_ tag: UInt8, _ content: Data) -> Data {
+    var out = Data([tag])
+    if content.count < 128 {
+      out.append(UInt8(content.count))
+    } else {
+      let length = withUnsafeBytes(of: UInt32(content.count).bigEndian) { Array($0) }
+        .drop(while: { $0 == 0 })
+      out.append(0x80 | UInt8(length.count))
+      out.append(contentsOf: length)
+    }
+    out.append(content)
+    return out
+  }
+
+  func testTouchBarPayloadsSharedThroughReferencesStopAtTheBudget() throws {
+    // One 256 KiB payload, named once and referenced by more Config records:
+    // a small input whose output would hold a copy for every reference. The
+    // last record has no payload, so a reader that copies every reference
+    // before checking its budget reports that record instead.
+    let payload = Data(repeating: 0x7e, count: 256 << 10).base64EncodedString()
+    let record =
+      "<dict ID='r'><key>Type</key><string>Config</string><key>Config</key><dict>"
+      + "<key>SPI Config</key><dict><key>Init Payload</key><data>\(payload)</data>"
+      + "</dict></dict></dict>"
+    let incomplete = "<dict><key>Type</key><string>Config</string></dict>"
+    func image(_ references: Int) -> Data {
+      let xml =
+        "<plist><dict><key>C1FB</key><array>" + record
+        + String(repeating: "<dict IDREF='r'/>", count: references) + incomplete
+        + "</array></dict></plist>"
+      return der(
+        0x30,
+        der(0x16, Data("IM4P".utf8)) + der(0x16, Data("mtfw".utf8))
+          + der(0x16, Data("synthetic".utf8)) + der(0x04, Data(xml.utf8)))
+    }
+    XCTAssertThrowsError(try MultitouchFirmware.convert(image(1), machine: "j293")) {
+      XCTAssertEqual(
+        ($0 as? RestoreFailure)?.message, "Missing Touch Bar initialization payload.")
+    }
+    XCTAssertThrowsError(try MultitouchFirmware.convert(image(70), machine: "j293")) {
+      XCTAssertEqual(($0 as? RestoreFailure)?.message, "Touch Bar firmware exceeds its budget.")
+    }
+  }
+
   func testRadioAliasesReadTheirTargetAndCountOnce() throws {
     // Each alias reads its target, as following the image's link would.
     let firmware = Data(repeating: 0x5a, count: 60 << 20)

@@ -227,18 +227,29 @@ public enum ProResInitFirmware {
       where section.address <= address && address - section.address <= section.size
         && UInt64(size) <= section.size - (address - section.address)
       {
-        let offset = section.offset + Int(address - section.address)
-        return offset >= 0 && offset <= bytes.count - size ? offset : nil
+        // A section can be larger than the input, so its distance can exceed Int.
+        guard let distance = Int(exactly: address - section.address) else { return nil }
+        let (offset, overflow) = section.offset.addingReportingOverflow(distance)
+        return !overflow && offset >= 0 && offset <= bytes.count - size ? offset : nil
       }
       return nil
     }
 
-    /// Where the function at `symbol` ends: the next symbol in its section.
-    func end(of symbol: Symbol) -> UInt64? {
+    /// How long the function at `symbol` is: it ends at the next symbol in its
+    /// section, or where the section does. Nil when it ends at or before its
+    /// start. A section's end can lie past the address space, so the length
+    /// is taken from the section's size and never from an end address.
+    func length(of symbol: Symbol) -> UInt64? {
       let later = symbols.lazy.filter { $0.section == symbol.section && $0.value > symbol.value }
         .map(\.value).min()
-      if let later { return later }
-      return sections.first { $0.index == symbol.section }.map { $0.address + $0.size }
+      if let later { return later - symbol.value }
+      guard let section = sections.first(where: { $0.index == symbol.section }) else { return nil }
+      if symbol.value >= section.address {
+        let distance = symbol.value - section.address
+        return distance < section.size ? section.size - distance : nil
+      }
+      let (length, overflow) = section.size.addingReportingOverflow(section.address - symbol.value)
+      return overflow ? nil : length
     }
 
     /// The `fig` entries by address: register offset, mask, value, getter.
@@ -386,11 +397,10 @@ public enum ProResInitFirmware {
     var found = [UInt64: [Row]]()
     for function in image.symbols
     where matches(function.name, family: block.family, suffix: "_apply_to") {
-      guard let end = image.end(of: function), end > function.value,
-        end - function.value <= UInt64(maximumFunctionBytes),
-        let start = image.fileOffset(function.value, Int(end - function.value))
+      guard let length = image.length(of: function), length <= UInt64(maximumFunctionBytes),
+        let start = image.fileOffset(function.value, Int(length))
       else { continue }
-      let code = image.bytes[start..<(start + Int(end - function.value))]
+      let code = image.bytes[start..<(start + Int(length))]
       guard movz(code, soc) else { continue }
       selectors += 1
       for address in references(code, at: function.value) {

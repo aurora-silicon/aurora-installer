@@ -1,0 +1,3 @@
+# Installer sources compiled into this harness (relative to macOS/).
+Sources/AuroraAppleInstaller/AuroraRemovalFATVolume.swift
+Sources/AuroraAppleInstaller/InstallConf.swift
