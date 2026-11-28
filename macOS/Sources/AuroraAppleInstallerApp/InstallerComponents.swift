@@ -40,10 +40,10 @@ struct Panel<Content: View>: View {
   @ViewBuilder var content: Content
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(alignment: .leading, spacing: Space.m) {
       content
     }
-    .padding(20)
+    .padding(Space.l + Space.xs)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(
       RoundedRectangle(cornerRadius: InstallerTheme.cardRadius)
@@ -51,7 +51,7 @@ struct Panel<Content: View>: View {
     )
     .overlay(
       RoundedRectangle(cornerRadius: InstallerTheme.cardRadius)
-        .strokeBorder(InstallerTheme.separator.opacity(0.45), lineWidth: 0.5)
+        .strokeBorder(InstallerTheme.separator, lineWidth: 1)
     )
   }
 }
@@ -61,9 +61,9 @@ struct FactGrid: View {
   var labelWidth: CGFloat = 118
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
+    VStack(alignment: .leading, spacing: Space.s) {
       ForEach(rows) { row in
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
+        HStack(alignment: .firstTextBaseline, spacing: Space.m) {
           Text(row.label)
             .font(InstallerTheme.body)
             .foregroundStyle(InstallerTheme.secondaryText)
@@ -89,12 +89,11 @@ struct StatusBadge: View {
   var body: some View {
     Text(text)
       .font(InstallerTheme.badge)
-      .tracking(InstallerTheme.buttonTracking)
       .foregroundStyle(
         kind == .ok ? InstallerTheme.secondaryText : InstallerTheme.danger
       )
-      .padding(.horizontal, 9)
-      .padding(.vertical, 4)
+      .padding(.horizontal, Space.s)
+      .padding(.vertical, Space.xxs)
       .background(
         Capsule().fill(
           kind == .ok ? InstallerTheme.track : InstallerTheme.danger.opacity(0.1)
@@ -152,15 +151,19 @@ struct DiskBar: View {
             name: "Aurora", bytes: auroraBytes, width: auroraWidth,
             background: InstallerTheme.accent, foreground: InstallerTheme.accentText)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .clipShape(RoundedRectangle(cornerRadius: InstallerTheme.cardRadius))
         if onAdjustAuroraFraction != nil {
           Image(systemName: "arrow.left.and.right")
-            .font(.system(size: 10, weight: .semibold))
+            .font(.caption.weight(.semibold))
             .foregroundStyle(Color.primary.opacity(0.7))
+            .accessibilityHidden(true)
             .frame(width: 26, height: 34)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .background(
+              .regularMaterial, in: RoundedRectangle(cornerRadius: InstallerTheme.controlRadius)
+            )
             .overlay(
-              RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.35), lineWidth: 1)
+              RoundedRectangle(cornerRadius: InstallerTheme.controlRadius).strokeBorder(
+                .white.opacity(0.35), lineWidth: 1)
             )
             .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
             .offset(x: min(max(0, width - auroraWidth - 13), width - 26))
@@ -186,7 +189,7 @@ struct DiskBar: View {
     .accessibilityElement(children: .combine)
     .accessibilityLabel("Disk space")
     .accessibilityValue(
-      "macOS \(PlainLanguage.bytes(macOSBytes)), Aurora \(PlainLanguage.bytes(auroraBytes)), unallocated \(PlainLanguage.bytes(unallocatedBytes))"
+      "macOS \(PlainLanguage.bytes(macOSBytes)), Aurora \(PlainLanguage.bytes(auroraBytes)), free \(PlainLanguage.bytes(unallocatedBytes))"
         + (otherAllocatedBytes > 0
           ? ", other storage \(PlainLanguage.bytes(otherAllocatedBytes))" : "")
         + (macOSSpaceCaution.map { ". " + $0 } ?? "")
@@ -218,10 +221,10 @@ struct DiskBar: View {
       background
       if width >= 68 {
         Text(name)
-          .font(.system(size: 12, weight: .medium))
+          .font(InstallerTheme.detail.weight(.medium))
           .foregroundStyle(foreground)
           .lineLimit(1)
-          .padding(.horizontal, 8)
+          .padding(.horizontal, Space.s)
       }
     }
     .frame(width: max(0, width))
@@ -234,7 +237,7 @@ struct ProgressTrack: View {
 
   var body: some View {
     ProgressView(value: fraction.map { min(1, max(0, $0)) })
-      .progressViewStyle(.linear).controlSize(.small).tint(.blue)
+      .progressViewStyle(.linear).controlSize(.small)
       .frame(height: height)
   }
 }
@@ -243,13 +246,14 @@ struct RecoveryStepRow: View {
   let step: RecoveryStep
 
   var body: some View {
-    HStack(alignment: .center, spacing: 13) {
+    HStack(alignment: .center, spacing: Space.m) {
       Text("\(step.number)")
         .font(InstallerTheme.numeral)
         .foregroundStyle(InstallerTheme.accentText)
         .frame(width: 24, height: 24)
         .background(Circle().fill(InstallerTheme.accent))
-      VStack(alignment: .leading, spacing: 3) {
+        .accessibilityHidden(true)
+      VStack(alignment: .leading, spacing: Space.xxs) {
         Text(step.title)
           .font(InstallerTheme.heading)
         if let detail = step.detail {
@@ -259,8 +263,8 @@ struct RecoveryStepRow: View {
       }
       Spacer(minLength: 0)
     }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 10)
+    .padding(.horizontal, Space.m)
+    .padding(.vertical, Space.s + Space.xxs)
     .background(
       RoundedRectangle(cornerRadius: InstallerTheme.cardRadius)
         .fill(InstallerTheme.card)
@@ -269,6 +273,46 @@ struct RecoveryStepRow: View {
       RoundedRectangle(cornerRadius: InstallerTheme.cardRadius)
         .strokeBorder(InstallerTheme.separator, lineWidth: 1)
     )
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel(Text("Step \(step.number). \(step.title)"))
+  }
+}
+
+/// A caution headline: orange icon, primary-colour text.
+struct CautionLabelStyle: LabelStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+      configuration.icon.foregroundStyle(InstallerTheme.caution).accessibilityHidden(true)
+      configuration.title.foregroundStyle(InstallerTheme.text)
+    }
+  }
+}
+
+/// A warning the user must read: an icon, primary-colour text and a tinted
+/// background. Orange text alone fails contrast in the light appearance.
+struct CautionCallout: View {
+  let text: String
+  var systemImage = "exclamationmark.triangle.fill"
+
+  var body: some View {
+    HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+      Image(systemName: systemImage)
+        .foregroundStyle(InstallerTheme.caution)
+        .accessibilityHidden(true)
+      Text(text)
+        .font(InstallerTheme.detail)
+        .foregroundStyle(InstallerTheme.text)
+        .fixedSize(horizontal: false, vertical: true)
+      Spacer(minLength: 0)
+    }
+    .padding(.horizontal, Space.m)
+    .padding(.vertical, Space.s)
+    .background(
+      RoundedRectangle(cornerRadius: InstallerTheme.controlRadius)
+        .fill(InstallerTheme.caution.opacity(0.10))
+    )
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel(Text("Warning: \(text)"))
   }
 }
 
@@ -282,10 +326,10 @@ struct TechnicalDetailText: View {
       .foregroundStyle(InstallerTheme.secondaryText)
       .textSelection(.enabled)
       .fixedSize(horizontal: false, vertical: true)
-      .padding(10)
+      .padding(Space.s + Space.xxs)
       .frame(maxWidth: .infinity, alignment: .leading)
       .background(
-        RoundedRectangle(cornerRadius: 8).fill(InstallerTheme.window)
+        RoundedRectangle(cornerRadius: InstallerTheme.controlRadius).fill(InstallerTheme.window)
       )
   }
 }
@@ -296,13 +340,21 @@ extension EnvironmentValues {
   @Entry var installerDrawsBorderedButtons = false
 }
 
-/// Glass on macOS 26, bordered before it.
+/// Glass on macOS 26, bordered before it. A prominent button is the one
+/// default action on its page or sheet, filled with the accent colour.
 struct AuroraButtonChrome: ViewModifier {
+  var prominent = false
   @Environment(\.installerDrawsBorderedButtons) private var bordered
 
   func body(content: Content) -> some View {
     if #available(macOS 26.0, *), !bordered {
-      content.buttonStyle(.glass)
+      if prominent {
+        content.buttonStyle(.glassProminent)
+      } else {
+        content.buttonStyle(.glass)
+      }
+    } else if prominent {
+      content.buttonStyle(.borderedProminent)
     } else {
       content.buttonStyle(.bordered)
     }
@@ -311,11 +363,10 @@ struct AuroraButtonChrome: ViewModifier {
 
 extension View {
   func auroraPrimaryButton(size: ControlSize = .extraLarge) -> some View {
-    controlSize(size).tint(.gray).font(.system(size: 15, weight: .medium))
-      .modifier(AuroraButtonChrome())
+    controlSize(size).modifier(AuroraButtonChrome(prominent: true))
   }
   func auroraSecondaryButton(size: ControlSize = .extraLarge) -> some View {
-    controlSize(size).font(.system(size: 15, weight: .medium)).modifier(AuroraButtonChrome())
+    controlSize(size).modifier(AuroraButtonChrome())
   }
   func auroraDangerButton(size: ControlSize = .extraLarge) -> some View {
     auroraSecondaryButton(size: size).tint(.red)
@@ -324,8 +375,8 @@ extension View {
 
 struct PreparationStatusPanel: View {
   var body: some View {
-    VStack(spacing: 18) {
-      Text("Getting everything ready").font(.system(size: 20, weight: .medium))
+    VStack(spacing: Space.l) {
+      Text(PlainLanguage.inspectingHeadline).font(InstallerTheme.title)
       NativeSpinner().controlSize(.regular)
     }
     .frame(maxWidth: .infinity)

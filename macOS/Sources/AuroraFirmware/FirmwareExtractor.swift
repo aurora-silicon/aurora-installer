@@ -76,11 +76,10 @@ public struct FirmwareExtractionPlan: Sendable {
 /// Runs directly in the Swift installer process: Foundation range transport,
 /// CryptoKit/CommonCrypto authentication and native Compression decoding.
 /// It never starts Python, a shell, a decoder executable or a whole-IPSW fetch.
+/// Every file comes from the image's authenticated ranges; nothing is read
+/// from the running macOS.
 public struct FirmwareExtractor: Sendable {
-  private let preferLivePolicyTables: Bool
-  public init(preferLivePolicyTables: Bool = true) {
-    self.preferLivePolicyTables = preferLivePolicyTables
-  }
+  public init() {}
 
   /// Continue the same job after a process interruption. A published tree is
   /// reused only after every admitted output is verified again.
@@ -134,17 +133,8 @@ public struct FirmwareExtractor: Sendable {
     } else {
       cache = nil
     }
-    let policyNames = Set(NeoRegulatoryPolicy.inputSHA256.keys.map { "sunrise/" + $0 })
-    let preferred: [String: Data]
-    if preferLivePolicyTables, policyNames.isSubset(of: Set(plan.outputs.map(\.name))),
-      let local = try NeoRegulatoryPolicy.liveInputs()
-    {
-      preferred = Dictionary(uniqueKeysWithValues: local.map { ("sunrise/" + $0.key, $0.value) })
-    } else {
-      preferred = [:]
-    }
     let rangeBytes = try await extractFirmwareRecipe(
-      plan.recipe, output: output, cache: cache, progress: progress, preferred: preferred)
+      plan.recipe, output: output, cache: cache, progress: progress)
     try await cache?.retire(plan.recipe.rangeRecords)
     return FirmwareExtractionReceipt(
       deviceIdentifier: plan.deviceIdentifier, sourceURL: plan.sourceURL,

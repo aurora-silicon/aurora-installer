@@ -149,6 +149,8 @@
     public var preservesStage1: Bool { allocationSource == .preservedInstall }
     /// This plan's installation gets only a new boot loader; nothing is reinstalled.
     public private(set) var updatesBootLoader = false
+    /// One line while a developer's macOS stub override is in effect.
+    public var stubOverrideNote: String?
 
     /// The same reset plan, used to update only the installation's boot loader.
     public func forBootLoaderUpdate() -> PlanDisplay {

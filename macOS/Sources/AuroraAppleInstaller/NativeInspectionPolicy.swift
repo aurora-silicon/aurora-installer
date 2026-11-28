@@ -15,14 +15,14 @@
     var errorDescription: String? {
       switch self {
       case .metadataChanged:
-        "The installation resources changed. Please prepare the installation again."
-      case .invalidMetadata: "The installation’s space requirements could not be verified."
+        "The installation files changed. Check again to make a new plan."
+      case .invalidMetadata: "Couldn’t verify how much space the installation needs."
       case .invalidPolicy, .invalidFirmwareVersion:
-        "This Mac’s installation requirements could not be verified."
-      case .invalidLayout: "The internal disk layout changed or could not be verified."
-      case .systemVolumeUnreadable: "An existing system volume could not be checked safely."
-      case .queryTimedOut: "macOS took too long to check the disk. Please try again."
-      case .queryFailed: "macOS could not complete the disk check."
+        "Couldn’t verify this Mac’s requirements."
+      case .invalidLayout: "The internal disk changed or couldn’t be verified."
+      case .systemVolumeUnreadable: "Couldn’t safely check a system volume."
+      case .queryTimedOut: "macOS took too long to check the disk. Try again."
+      case .queryFailed: "macOS couldn’t finish the disk check."
       }
     }
   }
@@ -220,7 +220,7 @@
 
     func stubBytes(
       _ identifier: String, hardware: NativeInspectionHardware,
-      metadata: NativeInstallationMetadata
+      metadata: NativeInstallationMetadata, stubOverride: StubOverrideChoice? = nil
     ) throws -> UInt64 {
       let small: UInt64 = 2_499_805_184
       let large: UInt64 = 5_999_951_872
@@ -228,6 +228,16 @@
         let device = devices[String(identifier.dropFirst(6))]
       else { throw NativeInspectionError.invalidPolicy }
       if try Version.atLeast(chip, "26.0") { return large }
+      // An override sizes the stub it installs. One that can't be chosen is
+      // refused when the plan is made; size it like the default until then.
+      if let stubOverride,
+        let selection = try? NativeFirmwareSelection.choose(
+          deviceIdentifier: identifier,
+          facts: .init(deviceIdentifier: identifier, hardware: hardware), metadata: metadata,
+          policy: self, stubOverride: stubOverride)
+      {
+        return selection.stubBytes
+      }
       guard let boot = hardware.bootVersion, let macOS = hardware.macOSVersion,
         let recovery = hardware.recoveryVersion
       else { return small }
@@ -240,7 +250,7 @@
             target.supportedFirmware?.contains(entry.version) ?? true,
             entry.models?.contains(String(identifier.dropFirst(6))) ?? true,
             !entry.expert,
-            try Version.atLeast(boot, entry.minimumBoot),
+            try Version.bootAtLeast(boot, entry.minimumBoot),
             try Version.atLeast(macOS, entry.minimumMacOS),
             try Version.atLeast(recovery, entry.minimumRecovery)
           {
@@ -277,6 +287,28 @@
         }
         self.parts = parts
       }
+      /// Boot firmware versions are one numbered train whatever Apple calls
+      /// the loader: macOS 27 reports `mBoot-20457.41.3` where older releases
+      /// said `iBoot-…`, and the policy carries both. Compare the numbers
+      /// only, so the name can never decide the result (`iBoot` sorts before
+      /// `mBoot` as text).
+      static func bootAtLeast(_ lhs: String, _ rhs: String) throws -> Bool {
+        try atLeast(bootNumber(lhs), bootNumber(rhs))
+      }
+
+      static func bootNumber(_ value: String) throws -> String {
+        var number = Substring(value)
+        if let dash = value.firstIndex(of: "-"), value[..<dash].hasSuffix("Boot") {
+          number = value[value.index(after: dash)...]
+        }
+        guard !number.isEmpty,
+          number.split(separator: ".", omittingEmptySubsequences: false).allSatisfy({
+            !$0.isEmpty && $0.utf8.count <= 9 && $0.utf8.allSatisfy { (48...57).contains($0) }
+          })
+        else { throw NativeInspectionError.invalidFirmwareVersion }
+        return String(number)
+      }
+
       static func atLeast(_ lhs: String, _ rhs: String) throws -> Bool {
         let left = try Version(lhs)
         let right = try Version(rhs)

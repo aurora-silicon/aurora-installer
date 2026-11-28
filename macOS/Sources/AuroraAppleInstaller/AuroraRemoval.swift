@@ -405,18 +405,18 @@
       if let partial {
         let first = startup == nil ? "" : "Removal first sets macOS as the startup disk. "
         return
-          "Found “\(partial.name)”, a startup container an installation left when it stopped before finishing. The installer’s own record shows it created it. \(first)Removal permanently deletes it and returns its space to macOS."
+          "Found “\(partial.name)”, left by an installation that didn’t finish. \(first)Removal permanently deletes it and gives its space back to macOS."
       }
       if let installation {
         if startup != nil {
           return
-            "Found “\(installation.name)”. Removal first sets macOS as the startup disk, then permanently deletes “\(installation.name)” and everything stored in it and returns its space to macOS."
+            "Found “\(installation.name)”. Removal sets macOS as the startup disk, then permanently deletes “\(installation.name)” and everything in it, and gives its space back to macOS."
         }
         return
-          "Found “\(installation.name)”. Removal permanently deletes it and everything stored in it, then returns its space to macOS."
+          "Found “\(installation.name)”. Removal permanently deletes it and everything in it, then gives its space back to macOS."
       }
       return
-        "No installation was found, but \(RemovalText.size(reclaimBytes)) directly after macOS is unallocated. macOS can take it back. Nothing will be deleted."
+        "No installation found, but \(RemovalText.size(reclaimBytes)) after macOS is free. macOS can take it back. Nothing is deleted."
     }
 
     func ticket(id: UUID) -> AuroraRemovalTicket {
@@ -430,8 +430,8 @@
         let size = members.reduce(UInt64(0)) { $0 + $1.size }
         notes.append(
           erased.freedBytes > size
-            ? "Its \(RemovalText.size(size)) joins the free space next to it: \(RemovalText.size(erased.freedBytes)) of unallocated space in all. macOS isn’t resized."
-            : "Its \(RemovalText.size(erased.freedBytes)) is left as unallocated space. macOS isn’t resized."
+            ? "Its \(RemovalText.size(size)) joins the free space next to it, for \(RemovalText.size(erased.freedBytes)) free in all. macOS isn’t resized."
+            : "Its \(RemovalText.size(erased.freedBytes)) is left free. macOS isn’t resized."
         )
       } else if let installation {
         deletions.append(
@@ -449,7 +449,7 @@
         }
         if installation.linux.isEmpty {
           notes.append(
-            "This installation has no Linux partitions of its own. If a Linux system elsewhere, for example on an external disk, starts through it, that system won’t start after removal. Its data isn’t touched."
+            "This installation has no Linux partitions of its own. A Linux system that starts through it (for example from an external disk) won’t start after removal. Its data isn’t touched."
           )
         }
       } else if let partial {
@@ -459,7 +459,7 @@
             detail: "\(partial.stub.identifier) · APFS · left by an unfinished installation",
             bytes: partial.stub.size))
         notes.append(
-          "The installation stopped after it created this startup container. Nothing else of it is on the disk, and nothing else is deleted."
+          "The installation stopped after it made this startup container. Nothing else is deleted."
         )
       } else {
         notes.append(
@@ -534,13 +534,13 @@
         })
           == current.containers.sorted(by: { $0.uuid < $1.uuid })
       else {
-        throw RemovalFailure(message: "The disk layout changed unexpectedly. Removal stopped.")
+        throw RemovalFailure(message: "The disk changed. Removal stopped.")
       }
     }
 
     func live(_ part: RemovalPartition, in current: RemovalSnapshot) throws -> RemovalPartition {
       guard let found = current.partitions.first(where: { $0 == part }) else {
-        throw RemovalFailure(message: "The disk layout changed unexpectedly. Removal stopped.")
+        throw RemovalFailure(message: "The disk changed. Removal stopped.")
       }
       return found
     }
@@ -695,7 +695,7 @@
           }
           guard let authorization else {
             throw RemovalFailure(
-              message: "A macOS administrator account is needed to set the startup disk.")
+              message: "Setting the startup disk needs a macOS administrator account.")
           }
           try setMacOSStartup(plan, snapshot: first, authorization: authorization)
           var recorded = false

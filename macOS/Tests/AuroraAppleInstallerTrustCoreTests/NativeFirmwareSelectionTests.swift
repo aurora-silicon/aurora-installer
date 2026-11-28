@@ -112,6 +112,28 @@
             chipID: vector.hardware.chipID, bootVersion: entry.minimumBoot,
             macOSVersion: version, recoveryVersion: entry.minimumRecovery)
           XCTAssertNoThrow(try choose(updated), vector.name)
+        } catch NativeFirmwareSelectionError.firmwareBelowRelease(let shortfall) {
+          // macOS already meets the entry: only the named boot firmware or
+          // Recovery is short, and meeting it makes the entry selectable.
+          named += 1
+          XCTAssertNotEqual(shortfall.check, .macOS, vector.name)
+          let entry = try XCTUnwrap(
+            policy.firmware.last {
+              $0.version == shortfall.version
+                && ($0.minimumBoot == shortfall.required
+                  || $0.minimumRecovery == shortfall.required)
+            }, vector.name)
+          XCTAssertEqual(
+            shortfall.detected,
+            shortfall.check == .boot
+              ? vector.hardware.bootVersion : vector.hardware.recoveryVersion, vector.name)
+          let updated = NativeInspectionHardware(
+            chipID: vector.hardware.chipID,
+            bootVersion: shortfall.check == .boot ? entry.minimumBoot : vector.hardware.bootVersion,
+            macOSVersion: vector.hardware.macOSVersion,
+            recoveryVersion: shortfall.check == .recovery
+              ? entry.minimumRecovery : vector.hardware.recoveryVersion)
+          XCTAssertNoThrow(try choose(updated), vector.name)
         } catch NativeFirmwareSelectionError.noCompatibleFirmware {
           // No macOS update helps when the release offers this Mac nothing.
           let newest = NativeInspectionHardware(
@@ -214,26 +236,28 @@
       // The M6 MacBook Pro (J804) and iMac (J833ct) are only in 27.2 (26B7124).
       let m6 = NativeInspectionHardware(
         chipID: 0x8152, bootVersion: "mBoot-20457.1.29", macOSVersion: "27.2",
-        recoveryVersion: "26.2.7124.0.0,0")
+        recoveryVersion: "26.2.124.7.0,0")
+      let m6on2721 = NativeInspectionHardware(
+        chipID: 0x8152, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2.1",
+        recoveryVersion: "26.2.131.7.0,0")
       for device in ["apple,j804", "apple,j833ct"] {
-        XCTAssertTrue(policy.supports(device, hardware: m6), device)
-        let selection = try choose(device, m6)
-        XCTAssertEqual(selection.version, "27.2", device)
-        XCTAssertEqual(
-          selection.sourceURL.lastPathComponent, "UniversalMac_27.2_26B7124_Restore.ipsw", device)
+        for hardware in [m6, m6on2721] {
+          XCTAssertTrue(policy.supports(device, hardware: hardware), device)
+          let selection = try choose(device, hardware)
+          XCTAssertEqual(selection.version, "27.2", device)
+          XCTAssertEqual(
+            selection.sourceURL.lastPathComponent, "UniversalMac_27.2_26B7124_Restore.ipsw", device)
+        }
       }
       // The 27.2 entry is theirs alone: the M6 Mac mini keeps its 27.0 stub.
       XCTAssertEqual(try choose("apple,j873g", m6).version, "27.0")
-      // The 13-inch M5 MacBook Air (J813) is in the universal 26.6.2 (25G83) image.
+      // The 14-inch M5 MacBook Pro (J704) and both M5 MacBook Airs (J813, J815)
+      // run only on the pinned macOS 27.2 stub: on 26.6.2 they are asked to
+      // update macOS first.
       let m5 = NativeInspectionHardware(
         chipID: 0x8142, bootVersion: "mBoot-18000.161.10", macOSVersion: "26.6.2",
         recoveryVersion: "25.7.83.0.0,0")
-      XCTAssertTrue(policy.supports("apple,j813", hardware: m5))
-      XCTAssertEqual(try choose("apple,j813", m5).version, "26.6.2")
-      // The 14-inch M5 MacBook Pro (J704) and 15-inch M5 MacBook Air (J815) run
-      // only on the pinned macOS 27.2 stub: on 26.6.2 they are asked to update
-      // macOS first.
-      for device in ["apple,j704", "apple,j815"] {
+      for device in ["apple,j704", "apple,j813", "apple,j815"] {
         XCTAssertThrowsError(try choose(device, m5), device) { error in
           XCTAssertEqual(
             error as? NativeFirmwareSelectionError, .macOSUpdateRequired(version: "27.2"), device)
@@ -242,7 +266,7 @@
       let m5on272 = NativeInspectionHardware(
         chipID: 0x8142, bootVersion: "mBoot-20457.41.3", macOSVersion: "27.2.1",
         recoveryVersion: "26.2.123.0.0,0")
-      for device in ["apple,j704", "apple,j815"] {
+      for device in ["apple,j704", "apple,j813", "apple,j815"] {
         XCTAssertTrue(policy.supports(device, hardware: m5on272), device)
         let selection = try choose(device, m5on272)
         XCTAssertEqual(selection.version, "27.2", device)
@@ -265,7 +289,7 @@
       func choose(_ device: String, chip: UInt64, boot: String) throws -> NativeFirmwareSelection {
         let hardware = NativeInspectionHardware(
           chipID: chip, bootVersion: boot, macOSVersion: "27.2",
-          recoveryVersion: "26.2.8125.0.0,0")
+          recoveryVersion: "26.2.125.8.0,0")
         return try NativeFirmwareSelection.choose(
           deviceIdentifier: device, facts: .init(deviceIdentifier: device, hardware: hardware),
           metadata: metadata, policy: policy)
@@ -312,14 +336,21 @@
           selected.sourceURL.lastPathComponent, "UniversalMac_27.2_26B123_Restore.ipsw")
         XCTAssertEqual(selected.pin?.build, "26B123", board)
         XCTAssertEqual(selected.pin?.sourceBytes, 25_595_669_503, board)
-        // Admission does not lower the existing system-firmware floor or
-        // treat iBoot branding as proof of an equivalent mBoot release.
-        for boot in ["mBoot-20457.41.2", "iBoot-13822.120.5"] {
+        // Admission does not lower the existing system-firmware floor: boot
+        // firmware below it is refused by number, whatever the loader name.
+        // This Mac already runs 27.2, so it is told its boot firmware is
+        // short rather than to install the macOS it runs.
+        for boot in ["mBoot-20457.41.2", "iBoot-13822.120.5", "iBoot-20457.41.2"] {
           XCTAssertThrowsError(try choose(device, boot: boot)) { error in
             XCTAssertEqual(
-              error as? NativeFirmwareSelectionError, .macOSUpdateRequired(version: "27.2"), board)
+              error as? NativeFirmwareSelectionError,
+              .firmwareBelowRelease(
+                NativeFirmwareShortfall(
+                  version: "27.2", check: .boot, detected: boot, required: "mBoot-20457.41.3")),
+              board)
           }
         }
+        XCTAssertEqual(try choose(device, boot: "iBoot-20457.41.3").pin?.build, "26B123", board)
       }
     }
 

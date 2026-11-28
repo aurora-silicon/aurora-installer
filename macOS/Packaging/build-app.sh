@@ -41,6 +41,8 @@ export AURORA_ENABLE_STEAMOS="${AURORA_ENABLE_STEAMOS-0}"
 # Local payload support is compiled only in an explicitly requested debug test
 # build. Release configuration always compiles it out.
 build_configuration=release
+# Empty outside local payload test builds; /bin/bash 3.2 (macOS) treats an
+# empty array as unbound under set -u, so it is expanded with ${a[@]+...}.
 swift_test_arguments=()
 if [[ ${AURORA_LOCAL_PAYLOAD_TEST_BUILD:-0} == "1" ]]; then
   [[ ${AURORA_DEVELOPER_BUILD:-0} == "1" ]] \
@@ -242,7 +244,7 @@ swift_tool="$(xcrun --find swift)"
   cd "$package_directory"
   "$swift_tool" build \
     --configuration "$build_configuration" \
-    "${swift_test_arguments[@]}" \
+    ${swift_test_arguments[@]+"${swift_test_arguments[@]}"} \
     --jobs "$build_jobs"
 )
 binary_directory="$({
@@ -278,7 +280,7 @@ fi
   cd "$package_directory"
   "$swift_tool" build \
     --configuration "$build_configuration" \
-    "${swift_test_arguments[@]}" \
+    ${swift_test_arguments[@]+"${swift_test_arguments[@]}"} \
     --jobs "$build_jobs" \
     --product AuroraAppleInstallerHelper \
     "${helper_link_arguments[@]}"

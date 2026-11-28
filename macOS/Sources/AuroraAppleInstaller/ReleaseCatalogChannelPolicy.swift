@@ -45,6 +45,7 @@
         qualification.imageRunID > 0,
         SHA256Digest(rawValue: qualification.payloadDigest) != nil,
         SHA256Digest(rawValue: qualification.evidenceDigest) != nil,
+        qualification.hasKnownSourceBranches,
         qualification.linux.isValid(repository: "aurora-silicon/linux"),
         qualification.mesa.isValid(repository: "aurora-silicon/mesa"),
         models.allSatisfy({ $0["payloadDigest"] as? String == qualification.payloadDigest })
@@ -111,6 +112,8 @@
       let run = String(evidence.dropFirst("image-build-".count))
       guard !run.isEmpty, run.first != "0", run.utf8.allSatisfy({ (48...57).contains($0) })
       else { return false }
+      // Debian has no catalogs from before the channel field; its Testing
+      // catalogs must declare it.
       let repositories = [
         "fedora": "fedora-aurora", "arch": "alarm-aurora",
         "nixos": "nixos-aurora", "omarchy": "omarchy-aurora", "steamos": "steamos-aurora",
@@ -152,6 +155,11 @@
       let evidenceDigest: String
       let linux: Source
       let mesa: Source
+
+      var hasKnownSourceBranches: Bool {
+        (linux.branch == "main" && mesa.branch == "aurora-wip")
+          || (linux.branch == "aurora-edge" && mesa.branch == "aurora-edge")
+      }
     }
 
     private struct Source: Decodable {
@@ -161,8 +169,7 @@
       let tree: String
 
       func isValid(repository expected: String) -> Bool {
-        repository == expected && branch == "aurora-edge"
-          && isRevision(revision) && isRevision(tree)
+        repository == expected && isRevision(revision) && isRevision(tree)
       }
 
       private func isRevision(_ value: String) -> Bool {

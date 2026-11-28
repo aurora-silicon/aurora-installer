@@ -21,7 +21,7 @@ struct AuroraRemovalSheet: View {
   @State private var busy = false
   @State private var submitted = false
   @State private var completed = false
-  @State private var message = "Checking for an existing Aurora installation…"
+  @State private var message = "Looking for Aurora on this Mac…"
   @State private var actionError: String?
   @State private var client: AuthenticatedEngineXPCSubmitter?
   /// No helper is installed yet: the account is asked for first, to set it
@@ -91,7 +91,7 @@ struct AuroraRemovalSheet: View {
     VStack(spacing: 0) {
       ScrollView {
         reviewContent
-          .padding(.bottom, 18)
+          .padding(.bottom, Space.l)
           .fixedSize(horizontal: false, vertical: true)
           .onGeometryChange(for: CGFloat.self) {
             $0.size.height
@@ -138,30 +138,30 @@ struct AuroraRemovalSheet: View {
   }
 
   private var reviewContent: some View {
-    VStack(alignment: .leading, spacing: 14) {
+    VStack(alignment: .leading, spacing: Space.m) {
       Text(heading).font(InstallerTheme.sheetTitle)
       Text(ticket != nil && !submitted && !showsApproval ? reviewSummary : message)
         .font(InstallerTheme.body).fixedSize(horizontal: false, vertical: true)
         .accessibilityIdentifier("removal-message")
       if let ticket, !submitted, !showsApproval {
-        VStack(spacing: 8) {
+        VStack(spacing: Space.s) {
           if ticket.kind == .eraseToFreeSpace {
             summaryRow(
-              "Free space afterwards", value: PlainLanguage.bytes(ticket.freedBytes ?? 0))
+              "Free space after", value: PlainLanguage.bytes(ticket.freedBytes ?? 0))
             summaryRow("macOS", value: "Not resized")
           } else {
-            summaryRow("Space returned to macOS", value: PlainLanguage.bytes(ticket.reclaimBytes))
+            summaryRow("Space given back to macOS", value: PlainLanguage.bytes(ticket.reclaimBytes))
             summaryRow("macOS after removal", value: PlainLanguage.bytes(ticket.macOSBytesAfter))
           }
         }
         if let step = ticket.startupDisk {
-          VStack(alignment: .leading, spacing: 6) {
+          VStack(alignment: .leading, spacing: Space.xs) {
             Text(step.title).font(InstallerTheme.heading)
             Text(step.detail).font(InstallerTheme.body).fixedSize(horizontal: false, vertical: true)
           }.accessibilityIdentifier("removal-startup-disk")
         }
         if !ticket.deletions.isEmpty {
-          planSection("Erased", items: ticket.deletions)
+          planSection("Will be erased", items: ticket.deletions)
             .reportsFrame("removal-deletions", to: onControlFrame)
         }
         planSection("Kept", items: ticket.kept)
@@ -176,7 +176,7 @@ struct AuroraRemovalSheet: View {
   }
 
   private var footer: some View {
-    VStack(alignment: .leading, spacing: 18) {
+    VStack(alignment: .leading, spacing: Space.l) {
       if needsAccountFirst && ticket == nil && !isSimulation {
         accountFields
       }
@@ -184,7 +184,7 @@ struct AuroraRemovalSheet: View {
         Text(
           ticket.kind == .freeSpace
             ? "Your macOS files stay as they are."
-            : "Everything in the erased partitions is permanently lost. Files in the macOS you’re running stay as they are."
+            : "Everything in these partitions is permanently deleted. Files in the macOS you’re running stay as they are."
         )
         .font(InstallerTheme.body).fixedSize(horizontal: false, vertical: true)
         if let actionError {
@@ -192,8 +192,8 @@ struct AuroraRemovalSheet: View {
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityIdentifier("removal-action-error")
         }
-        VStack(alignment: .leading, spacing: 7) {
-          Text("Type this to confirm:")
+        VStack(alignment: .leading, spacing: Space.s) {
+          Text("To confirm, type:")
             .foregroundStyle(InstallerTheme.secondaryText)
           Text(ticket.confirmation)
             .font(InstallerTheme.heading)
@@ -218,14 +218,14 @@ struct AuroraRemovalSheet: View {
         }
       }
       if busy {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.s) {
           NativeSpinner().controlSize(.small)
           Text(progressText)
             .font(InstallerTheme.detail)
         }
         .foregroundStyle(InstallerTheme.secondaryText)
       }
-      HStack(spacing: 12) {
+      HStack(spacing: Space.m) {
         Spacer()
         Button(submitted || ticket == nil ? "Close" : "Cancel") {
           password = ""
@@ -233,7 +233,6 @@ struct AuroraRemovalSheet: View {
         }
         .auroraSecondaryButton(size: .large)
         .keyboardShortcut(.cancelAction)
-        .focusEffectDisabled()
         .disabled(busy)
         if needsAccountFirst && ticket == nil && !isSimulation {
           if reenablingHelper {
@@ -241,7 +240,6 @@ struct AuroraRemovalSheet: View {
               NSWorkspace.shared.open(PlainLanguage.loginItemsSettingsURL)
             }
             .auroraSecondaryButton(size: .large)
-            .focusEffectDisabled()
           }
           Button(continueTitle) { Task { await setUpHelperThenScan() } }
             .auroraPrimaryButton(size: .large)
@@ -268,12 +266,12 @@ struct AuroraRemovalSheet: View {
           .reportsFrame("remove-aurora", to: onControlFrame)
         }
       }
-      .padding(.top, 4)
+      .padding(.top, Space.xs)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(.horizontal, 26)
-    .padding(.top, 18)
-    .padding(.bottom, 26)
+    .padding(.horizontal, Space.xl)
+    .padding(.top, Space.l)
+    .padding(.bottom, Space.xl)
   }
 
   private var continueTitle: String {
@@ -286,10 +284,10 @@ struct AuroraRemovalSheet: View {
   }
 
   private var accountFields: some View {
-    VStack(alignment: .leading, spacing: 7) {
-      Text("macOS administrator account").foregroundStyle(InstallerTheme.secondaryText)
+    VStack(alignment: .leading, spacing: Space.s) {
+      Text("macOS administrator").foregroundStyle(InstallerTheme.secondaryText)
       TextField(
-        "Account name",
+        "User name",
         text: Binding(
           get: { username },
           set: {
@@ -301,7 +299,7 @@ struct AuroraRemovalSheet: View {
       .textContentType(.username)
       .autocorrectionDisabled()
       SecureField(
-        "macOS password",
+        "Password",
         text: Binding(
           get: { password },
           set: {
@@ -318,16 +316,16 @@ struct AuroraRemovalSheet: View {
 
   private var reviewSummary: String {
     switch ticket?.kind {
-    case .freeSpace: "Return the unused space to macOS."
+    case .freeSpace: "Give the free space back to macOS."
     case .eraseToFreeSpace:
-      "Erase “\(eraseTarget?.name ?? "these partitions")” and leave its space free to install into."
-    default: "Erase the Linux installation and return its space to macOS."
+      "Erase “\(eraseTarget?.name ?? "these partitions")” and leave its space free."
+    default: "Erase Linux and give its space back to macOS."
     }
   }
 
   private var heading: String {
     if showsApproval && !submitted {
-      return ticket?.kind == .freeSpace ? "Approve space return" : "Approve erasure"
+      return ticket?.kind == .freeSpace ? "Return the space?" : "Erase for good?"
     }
     if ticket?.kind == .freeSpace { return completed ? "Space returned" : "Return free space" }
     if let eraseTarget { return completed ? "Erased" : "Erase \(eraseTarget.name)" }
@@ -335,11 +333,11 @@ struct AuroraRemovalSheet: View {
   }
 
   private func planSection(_ title: String, items: [AuroraRemovalItem]) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
+    VStack(alignment: .leading, spacing: Space.xs) {
       Text(title).foregroundStyle(InstallerTheme.secondaryText)
       ForEach(Array(items.enumerated()), id: \.offset) { _, item in
         HStack(alignment: .firstTextBaseline) {
-          VStack(alignment: .leading, spacing: 1) {
+          VStack(alignment: .leading, spacing: Space.xxs) {
             Text(item.title).fixedSize(horizontal: false, vertical: true)
           }
           Spacer()
@@ -450,7 +448,7 @@ struct AuroraRemovalSheet: View {
       authorization = try MachineOwnerAuthorization(
         username: username, password: Data(password.utf8))
     } catch {
-      message = "Enter a valid macOS administrator account and password."
+      message = "Enter a macOS administrator name and password."
       return
     }
     busy = true
@@ -479,7 +477,7 @@ struct AuroraRemovalSheet: View {
         isSimulation
         ? nil : try MachineOwnerAuthorization(username: username, password: Data(password.utf8))
     } catch {
-      message = "Enter a valid macOS administrator account and password."
+      message = "Enter a macOS administrator name and password."
       actionError = message
       return
     }
@@ -494,8 +492,8 @@ struct AuroraRemovalSheet: View {
     } else {
       message =
         ticket.startupDisk == nil
-        ? "Removing Aurora, then returning its space to macOS…"
-        : "Setting macOS as the startup disk, removing Aurora, then returning its space to macOS…"
+        ? "Erasing Aurora, then giving its space back to macOS…"
+        : "Setting macOS as the startup disk, erasing Aurora, then giving its space back to macOS…"
     }
     defer { busy = false }
     #if DEBUG
@@ -553,7 +551,7 @@ struct AuroraRemovalSheet: View {
   private func connectionLost() {
     onRequiresReview()
     message =
-      "The connection to the removal service was lost. Removal may still be running. Don’t restart removal or turn off this Mac. Check the removal record before continuing."
+      "Lost the connection to the removal service. Removal may still be running. Don’t start removal again, and don’t turn off this Mac. Check the removal record before you continue."
   }
 }
 
@@ -700,7 +698,7 @@ private struct RemovalSheetHeightCapReader: NSViewRepresentable {
             notes: [
               "macOS takes all the unallocated space directly after it, whatever put it there."
             ]),
-          "No installation was found, but 32.8 GB directly after macOS is unallocated. macOS can take it back. Nothing will be deleted."
+          "No installation found, but 32.8 GB after macOS is free. macOS can take it back. Nothing is deleted."
         )
       case .asahi:
         return (
@@ -715,7 +713,7 @@ private struct RemovalSheetHeightCapReader: NSViewRepresentable {
               AuroraRemovalItem(
                 title: "Linux partition", detail: "disk0s5", bytes: 29_776_412_672),
             ], recovery: "disk0s6"),
-          "Found “Arch Linux ARM”. Removal permanently deletes it and everything stored in it, then returns its space to macOS."
+          "Found “Arch Linux ARM”. Removal permanently deletes it and everything in it, then gives its space back to macOS."
         )
       default:
         let startsUpFromAurora = [.startupDisk, .startupFailed].contains(self)
@@ -737,8 +735,8 @@ private struct RemovalSheetHeightCapReader: NSViewRepresentable {
                 title: "Set macOS “Macintosh HD” as the startup disk",
                 detail: "Your Mac starts up from “Aurora” now", bytes: 0) : nil),
           startsUpFromAurora
-            ? "Found “Aurora”. Removal first sets macOS as the startup disk, then permanently deletes “Aurora” and everything stored in it and returns its space to macOS."
-            : "Found “Aurora”. Removal permanently deletes it and everything stored in it, then returns its space to macOS."
+            ? "Found “Aurora”. Removal sets macOS as the startup disk, then permanently deletes “Aurora” and everything in it, and gives its space back to macOS."
+            : "Found “Aurora”. Removal permanently deletes it and everything in it, then gives its space back to macOS."
         )
       }
     }
@@ -755,9 +753,9 @@ private struct RemovalSheetHeightCapReader: NSViewRepresentable {
       case .startupFailed:
         "macOS didn’t set “Macintosh HD” as the startup disk. It reported: “Failed to authenticate owner”. Nothing was deleted."
       case .none:
-        "No Aurora installation, or other installation made with the Asahi installer, was found, and there’s no unallocated space after macOS. Nothing was changed."
+        "No installation made with Aurora or the Asahi installer was found, and there’s no free space after macOS. The disk wasn’t changed."
       case .ambiguous:
-        "Found disk0s4 (EFI partition, “EFI - ARCH”, 524.3 MB); disk0s5 (Linux partition, 29.8 GB) without the startup container every installation made with the Asahi installer has. This looks like a partly removed installation, which needs a manual review. Nothing was changed."
+        "Found disk0s4 (EFI partition, “EFI - ARCH”, 524.3 MB); disk0s5 (Linux partition, 29.8 GB) without a startup container. This looks like a partly removed installation and needs a manual check. Nothing was changed."
       case .helperUnavailable:
         PlainLanguage.removalServiceNotResponding
       case .credentials:
@@ -769,7 +767,7 @@ private struct RemovalSheetHeightCapReader: NSViewRepresentable {
       case .reclaimFailed:
         "Aurora was removed, but the installer couldn’t confirm its space went back to macOS. The space may still be unallocated. Don’t start removal again; the removal record was kept for recovery."
       case .disconnected:
-        "The connection to the removal service was lost. Removal may still be running. Don’t restart removal or turn off this Mac. Check the removal record before continuing."
+        "Lost the connection to the removal service. Removal may still be running. Don’t start removal again, and don’t turn off this Mac. Check the removal record before you continue."
       }
     }
   }
@@ -789,7 +787,7 @@ private struct RemovalSheetHeightCapReader: NSViewRepresentable {
               ? "1 partition" : "\(target.memberUUIDs.count) partitions", bytes: target.bytes)
         ],
         notes: [
-          "Its \(PlainLanguage.bytes(target.bytes)) is left as unallocated space. macOS isn’t resized."
+          "Its \(PlainLanguage.bytes(target.freedBytes)) is left free. macOS isn’t resized."
         ], erasedPartitionUUIDs: target.memberUUIDs, freedBytes: target.freedBytes)
       return (
         ticket,

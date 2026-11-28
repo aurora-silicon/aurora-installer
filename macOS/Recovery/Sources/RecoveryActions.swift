@@ -365,6 +365,46 @@ enum RecoveryActions {
     try RecoveryBaseline.asset(
       name, manifest: manifest, root: payloadRoot())
   }
+  /// The Stage 1 that can hold the owner's key for this installation: the
+  /// standard object `configured` when it has a key block, else the payload's
+  /// secure-flavour object with `configured`'s configuration (startup partition
+  /// and Stage 2) copied in. Nil when the payload has neither.
+  static func ownerKeyStage1(
+    manifest: [String: Any], configuredLike configured: Data, mode: AuraBootMode
+  ) throws -> Data? {
+    if Stage1KeyBlock.isPresent(in: configured) { return configured }
+    guard (manifest["files"] as? [String: Any])?[AuraBootMode.ownerKeyStage1Path] != nil else {
+      return nil
+    }
+    let object = try asset(AuraBootMode.ownerKeyStage1Path, manifest: manifest)
+    try verifyMachOStage1(object, mode: mode)
+    try check(
+      Stage1KeyBlock.isPresent(in: object),
+      "The startup software for your own key has no key block. Nothing was changed.")
+    let result = try Stage1Configuration.copied(from: configured, into: object)
+    try check(
+      try Stage1Configuration.read(result) == Stage1Configuration.read(configured),
+      "The startup software for your own key doesn't load this installation's Stage 2. Nothing was changed."
+    )
+    return result
+  }
+  /// The key choice setup starts with: the installer's configuration, else
+  /// Aurora-managed, and Aurora-managed when the files can't hold an owner key.
+  static func defaultStartupKeys() -> StartupKeyOwner {
+    let configured = (try? configuration.get().secureBootKeys) ?? .aurora
+    return configured == .aurora || canHoldOwnKeys() ? configured : .aurora
+  }
+  /// Whether this installation's files can hold the owner's own key, for the
+  /// setup screen. Outside Recovery (previews) the choice stays open.
+  static func canHoldOwnKeys() -> Bool {
+    guard inRecovery else { return true }
+    guard let m = try? manifest(), let config = try? configuration.get(),
+      let mode = AuraBootMode(recorded: config.bootMode),
+      let files = m["files"] as? [String: Any]
+    else { return false }
+    if files[AuraBootMode.ownerKeyStage1Path] != nil { return true }
+    return (try? asset(mode.stage1Path, manifest: m)).map(Stage1KeyBlock.isPresent(in:)) ?? false
+  }
   static func atomic(_ bytes: Data, to target: URL) throws {
     let fm = FileManager.default
     try fm.createDirectory(
@@ -465,11 +505,17 @@ enum RecoveryActions {
       (try? Stage1Configuration.read(stage1).stage2Path) == config.stage2Path,
       "The startup software in these files doesn't load this installation's Stage 2. Run the Aurora installer again."
     )
-    // Only a Stage 1 with a key block can hold the owner's key. One without it
-    // checks Stage 2 with its built-in key, if at all.
-    let holdsKeys = Stage1KeyBlock.isPresent(in: stage1)
+    // Only a Stage 1 with a key block can hold the owner's key: the standard
+    // object when aura built it with one, else the secure-flavour object the
+    // payload carries for this. One without it checks Stage 2 with its built-in
+    // key, if at all.
+    // A resumed setup follows its recorded choice, checked once the record is read.
+    let resuming = FileManager.default.fileExists(atPath: pendingInstallation.path)
+    let ownerStage1: Data? =
+      try choice == .aurora || resuming
+      ? nil : ownerKeyStage1(manifest: m, configuredLike: stage1, mode: selection.mode)
     try check(
-      holdsKeys || choice == .aurora,
+      ownerStage1 != nil || choice == .aurora || resuming,
       "This startup software can't hold your own key. Choose Aurora-managed keys, or use a newer Aurora installer. Nothing was changed."
     )
     // A successful setup must retain a usable per-device repair baseline.
@@ -563,14 +609,35 @@ enum RecoveryActions {
     } else {
       keys = nil
     }
+    // A setup with the owner's key enrolls the Stage 1 that holds it; an
+    // Aurora-managed one keeps the standard object. A resumed setup follows the
+    // recorded choice.
+    let keyed: Data?
+    if keys.map({ $0.owner != .aurora }) == true {
+      keyed =
+        try ownerStage1
+        ?? ownerKeyStage1(manifest: m, configuredLike: stage1, mode: selection.mode)
+    } else {
+      keyed = stage1
+    }
+    guard let keyed else {
+      throw RecoveryFailure(
+        message:
+          "This startup software can't hold your own key. Choose Aurora-managed keys, or use a newer Aurora installer. Nothing was changed."
+      )
+    }
+    let holdsKeys = Stage1KeyBlock.isPresent(in: keyed)
+    let secureNote =
+      keyed == stage1
+      ? "" : " Enrolling the secure-flavour startup software, which holds the key."
     if let keys {
       InstallerLog.shared.append(
         holdsKeys
-          ? keys.summary
+          ? keys.summary + secureNote
           : "Startup security keys: aurora-managed (aurora). This startup software has no key block, so it keeps its built-in key."
       )
     }
-    let enrolledStage1 = try (holdsKeys ? keys?.filled(stage1) : nil) ?? stage1
+    let enrolledStage1 = try (holdsKeys ? keys?.filled(keyed) : nil) ?? keyed
     try record(journal.phase)
     InstallerLog.shared.persist(to: operation.appendingPathComponent("installer.log"))
     let stage1Path = operation.appendingPathComponent("stage1")
@@ -1077,12 +1144,16 @@ extension RecoveryActions {
         message:
           "This installation's startup security keys are recorded wrongly. Nothing was changed.")
     }
-    let holdsKeys = Stage1KeyBlock.isPresent(in: stage1)
-    try check(
-      holdsKeys || keys.map({ $0.owner == .aurora }) ?? true,
-      "The new startup software can't hold this Mac's own key. Nothing was changed.")
+    let ownKey = keys.map({ $0.owner != .aurora }) == true
+    let keyed: Data? =
+      try ownKey ? ownerKeyStage1(manifest: m, configuredLike: stage1, mode: mode) : stage1
+    guard let keyed else {
+      throw RecoveryFailure(
+        message: "The new startup software can't hold this Mac's own key. Nothing was changed.")
+    }
+    let holdsKeys = Stage1KeyBlock.isPresent(in: keyed)
     if let keys, holdsKeys { InstallerLog.shared.append(keys.summary) }
-    let enrolledStage1 = try (holdsKeys ? keys?.filled(stage1) : nil) ?? stage1
+    let enrolledStage1 = try (holdsKeys ? keys?.filled(keyed) : nil) ?? keyed
     progress(0.15, "Checking the recovery environment")
     try run("/sbin/mount", ["-u", "-w", volume.path])
     let fm = FileManager.default

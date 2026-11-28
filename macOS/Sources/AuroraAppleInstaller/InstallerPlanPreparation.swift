@@ -15,6 +15,10 @@
     /// This Mac's boot firmware is older than every OS firmware the release
     /// allows; it must update to this macOS version first.
     case macOSUpdateRequired(version: String)
+    /// This Mac runs the macOS the release needs, but its boot firmware or
+    /// Recovery is older than the release's entry: `check` names which, with
+    /// the version this Mac has and the one needed.
+    case firmwareBelowRelease(version: String, check: String, detected: String, required: String)
     /// No compatible boot firmware could be selected for this Mac.
     case firmwareUnavailable
     /// The firmware this Mac needs comes only as an OTA update archive this
@@ -24,6 +28,8 @@
     /// This Mac boots a Mach-O Stage 1, and the release's metadata says its
     /// images don't carry one, or the Stage 2 it loads, for this Mac.
     case releaseLacksMachOStartup
+    /// A developer's macOS stub override can't be used on this Mac.
+    case stubOverrideRefused(String)
   }
 
   public protocol InstallerPlanExecuting: Sendable {
@@ -43,6 +49,9 @@
     public let requestedLengthBytes: UInt64
     public let validationTime: Date
     public let previouslyAcceptedCatalog: AcceptedCatalogIdentity?
+    /// A developer's macOS stub pick for a fresh installation, or `nil` for
+    /// the policy's default.
+    public let stubOverride: StubOverrideChoice?
 
     public init(
       host: AppleSiliconHostInspection,
@@ -52,8 +61,10 @@
       candidate: ValidatedEngineCandidate,
       requestedLengthBytes: UInt64,
       validationTime: Date,
-      previouslyAcceptedCatalog: AcceptedCatalogIdentity? = nil
+      previouslyAcceptedCatalog: AcceptedCatalogIdentity? = nil,
+      stubOverride: StubOverrideChoice? = nil
     ) {
+      self.stubOverride = stubOverride
       self.host = host
       self.release = release
       self.configuration = configuration
@@ -68,13 +79,17 @@
   public struct PreparedInstallerPlanExecution: Sendable {
     public let review: InstallerPlanReview
     public let candidateRequest: ClosedEngineCandidateRequest
+    /// The developer stub pick the plan was made with; the handoff carries it.
+    public let stubOverride: StubOverrideChoice?
 
     fileprivate init(
       review: InstallerPlanReview,
-      candidateRequest: ClosedEngineCandidateRequest
+      candidateRequest: ClosedEngineCandidateRequest,
+      stubOverride: StubOverrideChoice? = nil
     ) {
       self.review = review
       self.candidateRequest = candidateRequest
+      self.stubOverride = stubOverride
     }
   }
 
@@ -153,11 +168,13 @@
         catalogSignature: request.release.catalogDocuments.signature,
         trustRoot: request.configuration.trustRoot,
         validationTime: request.validationTime,
-        previouslyAcceptedCatalog: request.previouslyAcceptedCatalog
+        previouslyAcceptedCatalog: request.previouslyAcceptedCatalog,
+        minimumCatalogSequence: request.release.minimumCatalogSequence
       )
       return PreparedInstallerPlanExecution(
         review: review,
-        candidateRequest: candidateRequest
+        candidateRequest: candidateRequest,
+        stubOverride: planRequest.candidateKind == "reinstall" ? nil : request.stubOverride
       )
     }
   }

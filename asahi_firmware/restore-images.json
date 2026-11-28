@@ -1,0 +1,55 @@
+{
+  "comment": "Public addresses of Apple's macOS restore images, by version and build: the stub firmware the installer admits (macOS/Sources/AuroraAppleInstaller/NativeInspectionPolicySource.swift, kept in step by tests/test_ipsw_source.py). Addresses only, no Apple data. Apple's own IPSW feed is asked for versions not listed here.",
+  "restore_images": [
+    {
+      "version": "26.6",
+      "build": "25G72",
+      "url": "https://updates.cdn-apple.com/2026SummerFCS/fullrestores/140-65618/10445B26-DE2C-43EC-9149-0A831602E74B/UniversalMac_26.6_25G72_Restore.ipsw"
+    },
+    {
+      "version": "26.6.2",
+      "build": "25G83",
+      "url": "https://updates.cdn-apple.com/2026SummerFCS/fullrestores/140-75212/A2A24B94-1FC1-45A3-93F7-C51B02AF1F4D/UniversalMac_26.6.2_25G83_Restore.ipsw"
+    },
+    {
+      "version": "27.0",
+      "build": "26A428",
+      "url": "https://updates.cdn-apple.com/2026FallFCS/afcfc88e-bbe6-44bf-a5da-07c56eebc06c/UniversalMac_27.0_26A428_Restore.ipsw"
+    },
+    {
+      "version": "27.2",
+      "build": "26B7124",
+      "url": "https://updates.cdn-apple.com/2026FallFCS/04f50f4e-1485-4efb-bd81-f3d743fdff4a/UniversalMac_27.2_26B7124_Restore.ipsw"
+    },
+    {
+      "version": "27.2",
+      "build": "26B8125",
+      "url": "https://updates.cdn-apple.com/2026FallFCS/b83bb963-ebd8-4608-8b5d-fdc70cb24927/UniversalMac_27.2_26B8125_Restore.ipsw"
+    },
+    {
+      "version": "12.3.1",
+      "build": "21E258",
+      "url": "https://updates.cdn-apple.com/2022SpringFCS/fullrestores/002-79219/851BEDF0-19DB-4040-B765-0F4089D1530D/UniversalMac_12.3.1_21E258_Restore.ipsw"
+    },
+    {
+      "version": "12.3",
+      "build": "21E230",
+      "url": "https://updates.cdn-apple.com/2022SpringFCS/fullrestores/071-08757/74A4F2A1-C747-43F9-A22A-C0AD5FB4ECB6/UniversalMac_12.3_21E230_Restore.ipsw"
+    },
+    {
+      "version": "13.5",
+      "build": "22G74",
+      "url": "https://updates.cdn-apple.com/2023SummerFCS/fullrestores/032-69606/D3E05CDF-E105-434C-A4A1-4E3DC7668DD0/UniversalMac_13.5_22G74_Restore.ipsw"
+    },
+    {
+      "version": "27.2",
+      "build": "26B123",
+      "url": "https://updates.cdn-apple.com/2026FallFCS/c9671975-52db-4fb5-9af2-00217169ba8d/UniversalMac_27.2_26B123_Restore.ipsw"
+    },
+    {
+      "version": "27.2.1",
+      "build": "26B131",
+      "url": "https://updates.cdn-apple.com/2026FallFCS/c202a724-db7e-4d56-917b-110aa0226507/UniversalMac_27.2.1_26B131_Restore.ipsw"
+    }
+  ]
+}

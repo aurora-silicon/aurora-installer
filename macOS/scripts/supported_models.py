@@ -10,10 +10,11 @@ board that stays out and why. `developer` names each board only a developer
 build's sealed catalog may add, with its own image; channel catalogs never
 carry one, so check-catalog rejects it like any unknown board.
 `stage1_caution` names supported boards whose startup code or installer
-composition has not been qualified.
-They stay supported and installable: the installer warns the owner, with the
-recovery steps, and lets them continue. The installer's Swift table
-(Sources/AuroraInstallerUXCore/Stage1Caution.swift) must name the same boards.
+composition has not been qualified, with a maintainer note on each.
+They stay supported and installable: the installer shows the owner one
+generic "Experimental on this Mac" note (never the per-board text) and lets
+them continue. The installer's Swift set
+(Sources/AuroraInstallerUXCore/ExperimentalMac.swift) must name the same boards.
 
 Usage:
   supported_models.py check-catalog FILE   exit 1 unless FILE covers every Mac

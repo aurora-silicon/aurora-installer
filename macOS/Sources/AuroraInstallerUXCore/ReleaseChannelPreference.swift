@@ -4,7 +4,8 @@
 
   /// Holds which release channel this run of the app reads.
   ///
-  /// A choice from the Release channel menu wins. Otherwise each distribution
+  /// A choice from the Release channel menu wins. Otherwise, in Developer mode
+  /// only, each distribution
   /// profile's default for a new installation is decided once per launch from
   /// that profile's verified Edge catalog: Edge where it admits this Mac and
   /// lists it as family-qualified (its chip family passed the Edge rows on a
@@ -92,8 +93,14 @@
     private let store: Store
     private let deviceIdentifier: String?
 
+    /// Edge is a developer channel: outside Developer mode no Mac's Edge
+    /// support decides the default, so a new installation reads the bundled
+    /// default (Nightly) unless a developer picks another channel.
     public init(store: Store = processStore) {
-      self.init(store: store, deviceIdentifier: Self.processDeviceIdentifier)
+      self.init(
+        store: store,
+        deviceIdentifier: DeveloperMode.edgeDecidingDevice(
+          Self.processDeviceIdentifier, isOn: DeveloperMode.shared.isOn))
     }
 
     public init(store: Store, deviceIdentifier: String?) {

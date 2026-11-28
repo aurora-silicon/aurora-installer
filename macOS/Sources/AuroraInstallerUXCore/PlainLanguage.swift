@@ -15,7 +15,7 @@
     // MARK: Screen A — Check
 
     public static let checkSubheadline =
-      "Aurora installs next to macOS. You can select either one by holding the power button when the Mac starts."
+      "Aurora installs next to macOS. To switch between them, hold the power button when your Mac starts."
     public static let checkContinue = "Continue"
     public static let checkAgain = "Check again"
     public static let inspectingHeadline = "Checking this Mac…"
@@ -24,21 +24,21 @@
 
     // MARK: Screen A2 — Existing install
 
-    public static let existingInstallHeadline = "Linux is already installed"
+    public static let existingInstallHeadline = "Linux is already on this Mac"
     public static let closeInstaller = "Close"
 
     // MARK: Partitions on this Mac
 
     public static let partitionsTitle = "Partitions on this Mac"
     public static let partitionsSubtitle =
-      "Erase a partition to free up space, or shrink a macOS partition."
-    public static let partitionsAddHeading = "Add a new installation"
+      "To make room, erase a partition or shrink macOS."
+    public static let partitionsAddHeading = "Where to install"
     public static let partitionsNoRoomTitle = "No room for another installation"
     public static let partitionsNotByAurora = "Not installed by Aurora"
     /// The removal service's scan found another installation than the row
     /// the person chose to erase.
     public static let removalTargetMismatch =
-      "The removal service found a different installation than the one you chose, so nothing can be erased here. Nothing was changed."
+      "The removal service found a different installation than the one you chose. The disk wasn’t changed."
 
     // MARK: Screen B — Plan
 
@@ -49,7 +49,7 @@
       // Disk alignment changes bytes without changing the whole GB the user chose.
       guard requested != actual else { return nil }
       return
-        "Space for Aurora changed from \(requested) GB to \(actual) GB. Review the updated size before installing."
+        "Space for Aurora changed from \(requested) GB to \(actual) GB. Check the new size before you install."
     }
 
     public static let replanning = "Checking the new size…"
@@ -57,39 +57,41 @@
     /// shrinks macOS asks to approve a resize.
     public static func planAcknowledgement(resizesMacOS: Bool) -> String {
       resizesMacOS
-        ? "I have a current backup and approve the disk resize above."
-        : "I have a current backup and approve the disk layout above."
+        ? "I have a current backup, and I approve resizing the disk."
+        : "I have a current backup, and I approve this disk layout."
     }
-    /// Shown on the plan for an M1 Pro, M1 Max or M1 Ultra Mac, whose iBoot
-    /// may refuse the current Stage 1. The owner can still install.
-    public static let stage1CautionHeadline = "Aurora may not start on this Mac yet"
-    public static let stage1CautionRecovery =
-      "If the Mac shows “macOS needs to be reinstalled” or doesn’t start Aurora: shut it down, press and hold the power button until startup options appear, select Macintosh HD and choose Always Use. macOS starts as before. Then open this installer in macOS and use Erase Linux to remove the Aurora installation. macOS and its data are not changed by any of this."
-    public static func planAcknowledgement(resizesMacOS: Bool, stage1Caution: Bool) -> String {
-      stage1Caution
-        ? String(planAcknowledgement(resizesMacOS: resizesMacOS).dropLast())
-          + ", and I understand Aurora may not start on this Mac."
-        : planAcknowledgement(resizesMacOS: resizesMacOS)
-    }
+    /// Shown on the plan for every experimental Mac (ExperimentalMac): one
+    /// title, one sentence and a link, the same for every such Mac. No
+    /// hardware details and no recovery steps here; those stay in the docs.
+    public static let experimentalTitle = "Experimental on this Mac"
+    public static let experimentalNote =
+      "Support for this Mac is experimental and may be untested. Please report bugs or successes on GitHub Issues."
+    public static let experimentalIssuesLink = "GitHub Issues"
+    public static let experimentalIssuesURL = URL(
+      string: "https://github.com/aurora-silicon/aurora-installer/issues")!
+    /// The plan checkbox's own second line on an experimental Mac. Ticking
+    /// the box acknowledges both lines.
+    public static let planExperimentalAcknowledgement =
+      "I understand support for this Mac is experimental."
     public static let planPreservedAcknowledgement =
-      "I have a current backup and approve erasing Linux while keeping Stage 1 and the partition sizes."
+      "I have a current backup, and I approve erasing Linux. Stage 1 and the partition sizes stay."
     public static let planInstall = "Install"
     public static let downloadingPackagesTitle = "Downloading Aurora"
     public static let encryptLinuxDiskTitle = "Encrypt the Aurora disk"
     public static let encryptLinuxDiskPassword =
-      "The Aurora password you create at first boot will unlock the encrypted disk after installation."
+      "Your Aurora password unlocks the disk. You create it the first time Aurora starts."
     public static let encryptLinuxDiskNoRecovery =
-      "There is no separate recovery key, so keep the password somewhere safe."
+      "There’s no recovery key, so keep the password somewhere safe."
     public static let encryptionChoiceNotRecorded =
       "The encryption choice wasn’t saved, so Aurora will encrypt its disk at first boot."
     public static let encryptionOptOutRecorded =
       "Disk encryption is off, and that choice was saved."
     public static let encryptionChoiceUnconfirmed =
-      "Encryption was recorded, but the installer could not confirm the disk was unmounted."
+      "Encryption was saved, but the installer couldn’t confirm the disk was unmounted."
     public static let prefetchWaitingForNetwork = "Waiting for Wi-Fi or Ethernet…"
     public static let prefetchPaused = "Download paused"
-    public static let prefetchVerifying = "Verifying the download…"
-    public static let prefetchFailed = "The download failed or didn’t pass verification."
+    public static let prefetchVerifying = "Verifying download…"
+    public static let prefetchFailed = "Download failed"
     public static let prefetchRetry = "Try again"
 
     public static func prefetchTitle(for state: PayloadPrefetchState) -> String {
@@ -115,7 +117,7 @@
       _ stage: AssetProgressUpdate.Stage
     ) -> String {
       switch stage {
-      case .fetchingCatalog: "Checking the release signature…"
+      case .fetchingCatalog: "Verifying the release…"
       case .downloading: "Downloading Aurora…"
       case .inspectingEngine: "Checking disk compatibility…"
       case .planning: "Planning the disk layout…"
@@ -125,29 +127,29 @@
     // MARK: Screen C — Authorize
 
     public static let authorizeTitle =
-      "Authorize installation"
-    public static let authorizeRetryTitle = "Authorize the Recovery step"
-    public static let authorizeUsernameLabel = "macOS user"
+      "Approve installation"
+    public static let authorizeRetryTitle = "Approve the Recovery step"
+    public static let authorizeUsernameLabel = "User name"
     public static let authorizeChecking = "Checking your macOS account…"
     public static let authorizeStillWorking =
       "This can take a few minutes. Once your account is confirmed, the installer prepares Aurora’s files."
-    public static let authorizePasswordLabel = "macOS password"
+    public static let authorizePasswordLabel = "Password"
     public static let authorizeCancel = "Cancel"
     public static let authorizeRetryAction = "Authorize"
     public static let authorizeRejected =
-      "The user name or password was incorrect."
+      "The user name or password is incorrect."
     /// Shown on the sheet when authorizing will install the helper.
     public static let authorizeBackgroundItemNotice =
-      "macOS may show a background item notice while \(windowTitle) makes administrator disk changes. The helper unregisters after a completed installation or Erase; protected recovery records remain."
+      "macOS may say \(windowTitle) added a background item. That is the helper that changes the disk. It removes itself when the installation or Erase finishes. Its recovery records stay."
     public static let authorizeHelperCancelled =
-      "The installation service wasn’t set up, so nothing was changed. Try again, and approve the macOS password prompt if it appears."
+      "The installation service wasn’t set up. The disk wasn’t changed. Try again and approve the macOS password prompt."
     public static let authorizeHelperSwitchedOff =
-      "The installation service is switched off in Login Items. Turn it back on here with your password, or switch it on in Login Items and try again."
+      "The installation service is off in Login Items. Enter your password to turn it on, or turn it on in Login Items and try again."
     /// Shown on the sheet when the person switched the helper off.
     public static let authorizeHelperSwitchedOffNotice =
-      "You switched the installation service off in Login Items, and \(windowTitle) needs it to change your disk. Authorizing turns it back on with the password you enter here; it’s removed along with Aurora. You can switch it on in Login Items yourself instead."
-    public static let authorizeTurnOnAndInstall = "Turn On & Install"
-    public static let authorizeTurnOnAndRetry = "Turn On & Authorize"
+      "The installation service is off in Login Items, and the installer needs it to change the disk. Your password turns it back on. It’s removed with Aurora."
+    public static let authorizeTurnOnAndInstall = "Turn on and install"
+    public static let authorizeTurnOnAndRetry = "Turn on and continue"
     public static let openLoginItems = "Open Login Items"
     /// System Settings → General → Login Items & Extensions.
     public static let loginItemsSettingsURL = URL(
@@ -158,35 +160,35 @@
       string: "x-apple.systempreferences:com.apple.Software-Update-Settings.extension")!
     public static let helperBeingReplacedHeadline = "The installation service is being updated"
     public static let helperBeingReplacedDetail =
-      "Another copy of the installer is replacing the installation service, so this request didn't start and nothing was changed. Try again in a moment."
-    public static let helperRetiringHeadline = "The installation service was just removed"
+      "Another copy of the installer is updating the service. The disk wasn’t changed. Try again in a moment."
+    public static let helperRetiringHeadline = "The installation service was removed a moment ago"
     public static let helperRetiringDetail =
-      "Aurora's removal finished and its installation service is removing itself. Nothing was changed. Try again in a moment; the app sets the service up again with your password."
+      "Aurora was removed, and its installation service is removing itself. The disk wasn’t changed. Try again in a moment. Your password sets the service up again."
     public static let authorizeNotAdministrator =
-      "This account isn’t a macOS administrator, and setting up the installation service needs one. Use an administrator account."
+      "This account isn’t an administrator. Use a macOS administrator account."
     public static let authorizeHelperBusy =
-      "The installation service is busy with another request, so nothing was changed. Try again when it finishes. If it stays busy, an installation or removal may still be running, perhaps in another user’s session: let it finish, and don’t restart or shut down this Mac while it runs."
+      "The installation service is busy. The disk wasn’t changed. Try again when it finishes. If it stays busy, an installation or removal may be running, maybe for another user. Let it finish, and don’t restart or shut down this Mac."
     public static let authorizeHelperFailed =
-      "The installation service couldn’t be set up, so nothing was changed. Try again."
+      "The installation service couldn’t be set up. The disk wasn’t changed. Try again."
 
     // MARK: Confirmation dialogs (preserved verbatim)
 
     public static let recoveryRetryConfirmationTitle =
       "Continue the interrupted installation?"
     public static let recoveryRetryConfirmationBody =
-      "The installer rechecks the original plan, disk location, saved files and last completed step. It continues in the space you already approved. macOS won’t be resized again."
+      "The installer checks the plan, the disk and the saved files again, then continues in the space you approved. macOS isn’t resized again."
     public static let recoveryRetryConfirmationAction =
-      "Continue installation"
+      "Continue"
     public static let partialInstallHeadline = "An unfinished installation is on this Mac"
     public static let partialInstallDetail =
-      "An installation stopped after it created its startup container. Erase Linux deletes that container and returns its space, with any unallocated space after it, to macOS. Then you can install again."
+      "An earlier installation stopped partway. Erase Linux deletes its startup container and gives that space, and any free space after it, back to macOS. Then you can install again."
     public static let startOverConfirmationTitle =
-      "Set this installation aside?"
+      "Start over?"
     public static let startOverConfirmationBody =
-      "The installer stops trying to finish it and lets you choose a system again. Its record and diagnostics are kept. The Linux partitions keep whatever this attempt wrote, so Linux may not start until you install or reset it again."
+      "The installer stops this installation and lets you choose a system again. Its record and diagnostics are kept. The Linux partitions stay as this attempt left them, so Linux may not start until you install or reset it again."
     public static let startOverConfirmationAction = "Start over"
     public static let startOverFailed =
-      "The installation couldn’t be set aside. Nothing was changed. If it is still running, let it finish."
+      "Couldn’t start over. The disk wasn’t changed. If the installation is still running, let it finish."
     public static let cancel = "Cancel"
 
     // MARK: Screen D — Install
@@ -194,7 +196,7 @@
     public static let installWarning =
       "Keep this Mac open and plugged in."
     public static let installDegraded =
-      "Live progress isn’t available. The installer will check the installation record when complete."
+      "Live progress isn’t available. The installer checks the result when it finishes."
     public static let installPreparing = "Preparing the installation…"
     /// What the Install screen lists: a few plain steps, the same from the
     /// first moment to the last. The checks before any disk change are the
@@ -282,7 +284,7 @@
       case "stub-and-esp-installed": "Boot files written"
       case "recovery-handoff-prepared": "Ready to finish setup"
       case "preserved-install-written": "Linux and boot files replaced"
-      default: "Additional installation activity (\(identifier))"
+      default: "Other activity (\(identifier))"
       }
     }
 
@@ -293,17 +295,17 @@
       case "stub_and_esp_started": "Started writing boot files"
       case "recovery_handoff_started": "Started preparing final setup"
       case "preserved_reinstall_started": "Started resetting Linux"
-      default: "Additional installation activity (\(name))"
+      default: "Other activity (\(name))"
       }
     }
 
     // MARK: Screen E — Recovery
 
-    public static let recoveryHeadline = "Finish setup"
+    public static let recoveryHeadline = "Finish setup in Recovery"
     public static let recoveryShutDown = "Shut down"
-    public static let shutdownConfirmationTitle = "Shut down this Mac now?"
+    public static let shutdownConfirmationTitle = "Shut down now?"
     public static let shutdownConfirmationBody =
-      "Save your work first. When this Mac is off, press and hold the power button until “Loading startup options” appears. Choose Aurora → Finish Installation, then sign in with your macOS account."
+      "Save your work first. When the Mac is off, hold the power button until “Loading startup options” appears. Choose Aurora, then Finish Installation, and sign in with your macOS account."
     public static let shutdownConfirmationAction = "Shut down"
     public static let mediaHeadline = "Connect the installation media"
 
@@ -319,16 +321,16 @@
         number += 1
       }
       func enterRecovery() {
-        append("Shut down this Mac", "Save your work first.")
+        append("Shut down your Mac", "Save your work first.")
         append(
           "Hold the power button",
-          "When this Mac is off, press and hold the power button until “Loading startup options” appears."
+          "When the Mac is off, hold the power button until “Loading startup options” appears."
         )
       }
       func authenticate() {
         append(
           "Finish installation",
-          "Choose Aurora → Finish Installation, then sign in with your macOS account.")
+          "Choose Aurora, then Finish Installation, and sign in with your macOS account.")
       }
       for token in requiredHumanSteps {
         switch token {
@@ -338,8 +340,8 @@
           authenticate()
         default:
           append(
-            "Unsupported Recovery instruction: \(token)",
-            "Save the installation record and get support before continuing.")
+            "Unknown Recovery step: \(token)",
+            "Save the Installer Log and get help before you continue.")
         }
       }
       if steps.isEmpty {
@@ -351,36 +353,36 @@
 
     // MARK: Boot loader update
 
-    public static let bootLoaderUpdateAction = "Update Boot Loader"
+    public static let bootLoaderUpdateAction = "Update boot loader"
     public static let bootLoaderUpdateMenuItem = "Update Boot Loader…"
     public static let bootLoaderUpdateRemedy =
-      "On the Partitions screen, choose Update Boot Loader… in this installation’s ⋯ menu and finish the update in Recovery. Then reset it."
+      "In Partitions on this Mac, choose Update Boot Loader… from this installation’s ⋯ menu. Finish the update in Recovery, then reset it."
     /// Shaped like `resetSteps`: the two checks, then one stage for Recovery.
     public static let bootLoaderUpdateSteps = [
       "Getting ready", "Checking your Mac", "Preparing the boot loader",
     ]
     public static let bootLoaderUpdateReviewTitle = "Review the boot loader update"
     public static let bootLoaderUpdateReviewDetail =
-      "Installs this release’s boot loader (Stage 1) for this installation. Linux, its files, its partitions and the EFI partition stay as they are. You finish the update in Recovery with your macOS password."
+      "Installs this release’s boot loader (Stage 1). Linux, its files, its partitions and the EFI partition stay as they are. You finish the update in Recovery with your macOS password."
     public static let bootLoaderUpdateAcknowledgement =
-      "I’ll finish the update in this installation’s Recovery"
+      "I’ll finish the update in Recovery."
     public static let bootLoaderUpdateHeadline = "Finish the update in Recovery"
     public static let bootLoaderUpToDateHeadline = "The boot loader is up to date"
     public static let bootLoaderUpToDateMessage =
-      "This installation already has this release’s boot loader. Nothing was changed."
+      "This installation already has this release’s boot loader. The disk wasn’t changed."
     public static let bootLoaderShutdownBody =
-      "Save your work first. When this Mac is off, press and hold the power button until “Loading startup options” appears. Choose Aurora, then enter your macOS password in Aurora Installer."
+      "Save your work first. When the Mac is off, hold the power button until “Loading startup options” appears. Choose Aurora, then enter your macOS password in Aurora Installer."
 
     /// Steps after the update is staged. Recovery enrolls the boot loader.
     public static func bootLoaderUpdateRecoverySteps(volumeName: String = "Aurora")
       -> [RecoveryStep]
     {
       [
-        RecoveryStep(number: 1, title: "Shut down this Mac", detail: "Save your work first."),
+        RecoveryStep(number: 1, title: "Shut down your Mac", detail: "Save your work first."),
         RecoveryStep(
           number: 2, title: "Hold the power button",
           detail:
-            "When this Mac is off, press and hold the power button until “Loading startup options” appears."
+            "When the Mac is off, hold the power button until “Loading startup options” appears."
         ),
         RecoveryStep(
           number: 3, title: "Update the boot loader",
@@ -392,27 +394,44 @@
 
     static func bootLoaderUpdateState(unchanged: Bool) -> String {
       unchanged
-        ? "No disk changes were made."
-        : "Linux, its partitions and the EFI partition weren’t changed, but the installation’s Recovery files may have been."
+        ? "The disk wasn’t changed."
+        : "Linux, its partitions and the EFI partition weren’t changed. The installation’s Recovery files may have been."
     }
 
     // MARK: Screen F — Boot / completion
 
     public static let doneHeadline = "Aurora is installed"
     public static let startOver = "Start over"
-    public static let downloadInstaller = "Download the installer"
+    public static let downloadInstaller = "Download installer"
     public static let rcBadge = "Release candidate"
     public static let channelMenuTitle = "Release channel"
     public static let channelStable = "Stable"
     public static let channelRC = "Release candidate"
     public static let channelNightly = "Nightly"
     public static let channelEdge = "Edge"
-    public static let channelEdgeNotPublished = "No release available"
+    public static let channelEdgeNotPublished = "No release"
     public static let channelNoMacRelease = "No Mac release yet"
     public static let channelModelUnavailable = "Not available for this Mac"
     public static let channelUnreachable = "Couldn’t load"
     public static let channelUnverified = "Couldn’t verify"
     public static let channelMenuCheckAgain = "Check Channels Again"
+
+    // MARK: Developer mode
+
+    public static let developerModeMenuItem = "Developer Mode"
+    public static let developerModeBadge = "Developer mode"
+    public static let developerModeLeave = "Turn off"
+    public static let developerModeBadgeHelp =
+      "Shows Edge, release candidates and other expert options. Press Command-D to turn it off."
+    public static let developerModeOnLog =
+      "Developer mode is on. Edge, release candidates and expert options are shown."
+    public static let developerModeOffLog =
+      "Developer mode is off. Developer-only choices were reset to their defaults."
+    public static let developerStubMenuTitle = "macOS Stub"
+    public static let developerStubDefault = "Qualified Default"
+    public static let stubOverrideRefusedHeadline = "This macOS stub can’t be used on this Mac"
+    public static let stubOverrideRefusedRemedy =
+      "Choose Qualified Default in Installation → macOS Stub, or start the installer without --stub-version."
 
     public static func badge(for channel: ReleaseChannel) -> String {
       switch channel {
@@ -453,7 +472,7 @@
         case .checkFailed(.verification): channelUnverified
         }
       guard let state else { return name }
-      return "\(name) — \(state)"
+      return "\(name) (\(state))"
     }
 
     /// Whether the channel menu lets this item be chosen. The channel in use
@@ -499,16 +518,16 @@
       let base: String
       switch action {
       case .continueInstallation:
-        base = "Your approved plan was accepted. Installation is continuing."
+        base = "Your plan was accepted. The installation continues."
       case .enterRecovery:
         base =
-          "Aurora’s files are in place. Finish setup at startup so this Mac can start Aurora."
+          "Aurora’s files are in place. Finish setup in Recovery so this Mac can start Aurora."
       case .attachInstallationMedia:
-        base = "Preparation is complete. Connect the verified installation media to continue."
+        base = "Ready. Connect the installation media to continue."
       case .verifyInstalledSystem:
         base = "Installation is complete. Start Aurora and check that it works."
       case .manualRecovery:
-        base = "Installation needs manual recovery before it can continue."
+        base = "The installation needs manual recovery before it can continue."
       }
       if let warning = installConfWarning(installConf) {
         return base + " " + warning
@@ -522,7 +541,7 @@
     public static let blockedSubheadline =
       "This Mac model has not been approved for this release."
     public static let blockedExplainer =
-      "Aurora releases include Macs with kernel device trees. Experimental boards show a warning and recovery guidance before installation. New models need an updated installer and catalog."
+      "Each release supports the Macs it has device trees for. Newer models need a newer installer."
     public static let blockedBadge = "Not supported"
     public static let notReadyHeadline = "This Mac isn’t ready yet"
     public static let notReadyDetail =
@@ -556,14 +575,14 @@
         let summary = MacModelNames.supportedFamiliesSummary(supported)
       {
         remedy =
-          "This release supports these Macs (\(supported.count) models): \(summary). "
+          "Supported Macs (\(supported.count)): \(summary). "
           + blockedExplainer
       } else {
         remedy = blockedExplainer
       }
       return FailureDisplay(
         headline: blockedHeadline,
-        plainDetail: "This Mac (\(mac)) isn’t included in this release.",
+        plainDetail: "This release doesn’t support this Mac (\(mac)).",
         technicalDetail: technicalDetail,
         remedy: remedy,
         isBlockedModel: true
@@ -576,7 +595,7 @@
       FailureDisplay(
         headline: "No Mac release on this channel yet",
         plainDetail:
-          "This release channel is verified but doesn’t offer Aurora for any Mac yet. No installation files were downloaded and the disk has not been changed.",
+          "This channel doesn’t offer Aurora for any Mac yet. Nothing was downloaded, and the disk wasn’t changed.",
         technicalDetail: technicalDetail,
         remedy: "Choose another channel from the Release channel menu, or check again later."
       )
@@ -594,7 +613,7 @@
 
     public static let replanAction = "Check available space"
     public static let engineDiagnosticsLocation =
-      "Choose Copy error details to keep them. A copy is usually saved in ~/Library/Logs/\(EngineFailureUserLog.directoryName)."
+      "To keep the details, open Details and choose Copy. A copy is also saved in ~/Library/Logs/\(EngineFailureUserLog.directoryName)."
 
     /// Plain wording for a typed engine failure. The disk-unchanged sentence
     /// appears only when the helper proved it from the installation journal.
@@ -605,7 +624,7 @@
       let unchanged = notice.diskUnchanged
       let diskState =
         unchanged
-        ? "No disk changes were made."
+        ? "The disk wasn’t changed."
         : "The installer couldn’t confirm whether disk changes started."
       // The helper's summary names the check that stopped and why. It is
       // already one printable line; a blank one leaves only the disk state.
@@ -617,35 +636,35 @@
         let measured = ApprovedSpaceShortfall.isSummary(notice.summary)
         let snapshots =
           ApprovedSpaceShortfall.namesSnapshots(notice.summary)
-          ? "To get that space back, back up your Mac, then let macOS remove its local Time Machine snapshots or follow Apple’s local-snapshot guidance. Don’t delete system or update snapshots. "
+          ? "To get that space back, back up your Mac, then let macOS remove its local Time Machine snapshots (see Apple’s guide). Don’t delete system or update snapshots. "
           : ""
         return FailureDisplay(
           headline: "The space available for Aurora changed",
           plainDetail: measured
-            ? "macOS needs more of the disk than when you approved the plan, so the installer stopped before using it. \(notice.summary) \(diskState)"
-            : "The size you approved no longer fits the space this Mac can provide now, so the installer stopped before using it. \(diskState)",
+            ? "macOS now needs more of the disk than when you approved the plan, so the installer stopped. \(notice.summary) \(diskState)"
+            : "The size you approved no longer fits, so the installer stopped. \(diskState)",
           technicalDetail: technicalDetail,
           remedy: unchanged
-            ? "\(snapshots)Choose \(replanAction) to prepare a new plan with the space available now, then review and approve it."
-            : "Save the error details and check the verified installation record before trying again. \(engineDiagnosticsLocation)",
+            ? "\(snapshots)Choose \(replanAction) to make a new plan, then review it."
+            : "Copy the details and check Completed steps before you try again. \(engineDiagnosticsLocation)",
           replanAvailable: unchanged
         )
       case .diskLayoutChanged:
         return FailureDisplay(
           headline: "The disk changed after you approved the plan",
           plainDetail:
-            "The disk layout no longer matches the approved plan, so the installer stopped. \(diskState)",
+            "The disk no longer matches the plan you approved, so the installer stopped. \(diskState)",
           technicalDetail: technicalDetail,
           remedy: unchanged
-            ? "Choose \(replanAction) to prepare a new plan for the disk as it is now, then review and approve it."
-            : "Save the error details and check the verified installation record before trying again. \(engineDiagnosticsLocation)",
+            ? "Choose \(replanAction) to make a new plan, then review it."
+            : "Copy the details and check Completed steps before you try again. \(engineDiagnosticsLocation)",
           replanAvailable: unchanged
         )
       case .deviceUnsupported:
         return FailureDisplay(
           headline: blockedHeadline,
           plainDetail: notice.summary.isEmpty
-            ? "The installer engine doesn’t support this Mac model. \(diskState)" : cause,
+            ? "The installer doesn’t support this Mac model. \(diskState)" : cause,
           technicalDetail: technicalDetail,
           remedy: blockedExplainer,
           isBlockedModel: true
@@ -654,11 +673,11 @@
         return FailureDisplay(
           headline: "The installation plan failed a safety check",
           plainDetail: notice.summary.isEmpty
-            ? "The installer engine refused the plan at a safety check. \(diskState)" : cause,
+            ? "The plan failed a safety check. \(diskState)" : cause,
           technicalDetail: technicalDetail,
           remedy: unchanged
-            ? "Choose Check again to inspect this Mac and prepare a new plan. \(engineDiagnosticsLocation)"
-            : "Save the error details and check the verified installation record before trying again. \(engineDiagnosticsLocation)"
+            ? "Choose Check again to make a new plan. \(engineDiagnosticsLocation)"
+            : "Copy the details and check Completed steps before you try again. \(engineDiagnosticsLocation)"
         )
       case .firmwarePreparation:
         return FailureDisplay(
@@ -666,8 +685,8 @@
           plainDetail: cause,
           technicalDetail: technicalDetail,
           remedy: unchanged
-            ? "Check your internet connection and free space, then choose Check again. Verified downloads will be reused."
-            : "Save the error details and check the verified installation record before trying again."
+            ? "Check your internet connection and free space, then choose Check again. Finished downloads are reused."
+            : "Copy the details and check Completed steps before you try again."
         )
       case .peripheralInputs:
         return FailureDisplay(
@@ -675,8 +694,8 @@
           plainDetail: cause,
           technicalDetail: technicalDetail,
           remedy: unchanged
-            ? "The downloads finished, so the connection and free space aren’t the cause, and checking again gives the same result. Save the error details and report them. \(engineDiagnosticsLocation)"
-            : "Save the error details and check the verified installation record before trying again."
+            ? "This isn’t a network or disk space problem, and checking again won’t help. Copy the details and report them on GitHub Issues. \(engineDiagnosticsLocation)"
+            : "Copy the details and check Completed steps before you try again."
         )
       case .macOSUpdateRequired:
         let required = EngineFailureReason.requiredMacOSVersion(inSummary: notice.summary)
@@ -689,7 +708,7 @@
           technicalDetail: technicalDetail,
           remedy: unchanged
             ? "Install \(update) in System Settings → General → Software Update, then open \(windowTitle) again."
-            : "Save the error details and check the verified installation record before trying again. \(engineDiagnosticsLocation)",
+            : "Copy the details and check Completed steps before you try again. \(engineDiagnosticsLocation)",
           actionURL: unchanged ? softwareUpdateSettingsURL : nil,
           actionTitle: unchanged ? openSoftwareUpdate : nil
         )
@@ -697,11 +716,11 @@
         return FailureDisplay(
           headline: "The download was interrupted",
           plainDetail:
-            "The connection to Apple’s servers was lost while the installer was downloading, and retrying didn’t get through. \(diskState)",
+            "The connection to Apple’s servers dropped during the download. \(diskState)",
           technicalDetail: technicalDetail,
           remedy: unchanged
             ? "Check your internet connection, then choose Check again."
-            : "Check your internet connection, then choose \(retry) to continue from the last completed step. What already downloaded is reused."
+            : "Check your internet connection, then choose \(retry). The installer picks up where it stopped and reuses what it downloaded."
         )
       case .recoveryPreparation:
         return FailureDisplay(
@@ -709,7 +728,7 @@
           plainDetail: cause,
           technicalDetail: technicalDetail,
           remedy: !unchanged
-            ? "Save the error details and check the verified installation record before trying again."
+            ? "Copy the details and check Completed steps before you try again."
             : NativeInstallerExecutor.isPrebootAdminListSummary(notice.summary)
               ? prebootAdminListRemedy : "Update the installer and choose Check again."
         )
@@ -719,7 +738,7 @@
           plainDetail: cause,
           technicalDetail: technicalDetail,
           remedy:
-            "\(bootLoaderUpdateRemedy) To start over instead, choose Erase Linux, then install Aurora again. \(engineDiagnosticsLocation)"
+            "\(bootLoaderUpdateRemedy) Or choose Erase Linux and install again. \(engineDiagnosticsLocation)"
         )
       case .bootLoaderUpdateRefused:
         return FailureDisplay(
@@ -729,38 +748,38 @@
             : "\(notice.summary) \(bootLoaderUpdateState(unchanged: unchanged))",
           technicalDetail: technicalDetail,
           remedy: unchanged
-            ? "Choose Check again, then Update Boot Loader once what’s described is fixed. \(engineDiagnosticsLocation)"
-            : "Choose Check again, then Update Boot Loader again to finish. \(engineDiagnosticsLocation)"
+            ? "Fix the problem above, then choose Check again and Update boot loader. \(engineDiagnosticsLocation)"
+            : "Choose Check again, then Update boot loader again to finish. \(engineDiagnosticsLocation)"
         )
       case .startOverRequired:
         return FailureDisplay(
           headline: "This installation can’t be continued",
           plainDetail:
-            "An earlier version of \(windowTitle) started it with an installation method this version no longer includes. \(diskState)",
+            "An older version of \(windowTitle) started it in a way this version can’t continue. \(diskState)",
           technicalDetail: technicalDetail,
           remedy: unchanged
             ? "Choose Check again to start over."
-            : "Remove the incomplete Linux installation, then choose Check again to start over. \(engineDiagnosticsLocation)"
+            : "Erase the unfinished Linux installation, then choose Check again. \(engineDiagnosticsLocation)"
         )
       case .macOSSpaceRequired:
         return FailureDisplay(
           headline: "macOS needs more free space",
           plainDetail: MacOSFreeSpaceShortfall.isSummary(notice.summary)
             ? cause
-            : "macOS doesn’t have the free space the installation needs on it. \(diskState)",
+            : "macOS doesn’t have enough free space for the installation. \(diskState)",
           technicalDetail: technicalDetail,
           remedy: unchanged
             ? "\(freeMacOSSpace) Then choose Check again. \(purgeableSpaceNote)"
-            : "\(freeMacOSSpace) Then choose \(retry) to continue from the last completed step. \(purgeableSpaceNote)"
+            : "\(freeMacOSSpace) Then choose \(retry) to pick up where it stopped. \(purgeableSpaceNote)"
         )
       case .unclassified:
         return FailureDisplay(
-          headline: "The installer engine stopped with an error",
+          headline: "The installer stopped with an error",
           plainDetail: cause,
           technicalDetail: technicalDetail,
           remedy: unchanged
             ? "Choose Check again to start over. \(engineDiagnosticsLocation)"
-            : "Save the error details and check the verified installation record before trying again. \(engineDiagnosticsLocation)"
+            : "Copy the details and check Completed steps before you try again. \(engineDiagnosticsLocation)"
         )
       }
     }
@@ -770,15 +789,15 @@
     public static let retry = "Try again"
 
     static let freeMacOSSpace =
-      "Empty the Trash and delete or move large files you no longer need in macOS."
+      "In macOS, empty the Trash and delete or move large files you don’t need."
     /// The helper counts only space macOS has already freed. Finder can also
     /// count purgeable space, such as iCloud files it can download again.
     static let purgeableSpaceNote =
-      "Finder may count purgeable space that macOS hasn’t freed yet, so free a little more than the figure shown."
+      "Finder may count space macOS hasn’t freed yet, so free a little more than shown."
     /// macOS writes its Preboot list of Recovery administrators from its
     /// accounts, and rewrites it on request. Nothing of the installer's runs.
     static let prebootAdminListRemedy =
-      "Have macOS rebuild that list: in Terminal, run sudo diskutil apfs updatePreboot / and enter your password, then choose Check again. If it still stops here, save the Installer Log (Command-L) and share it with the Aurora team."
+      "Have macOS rebuild that list. In Terminal, run sudo diskutil apfs updatePreboot / and enter your password, then choose Check again. If it still stops, save the Installer Log (Command-L) and share it on GitHub Issues."
 
     /// Planning found that macOS can't hold what the installation stages on
     /// it, before anything was approved.
@@ -787,30 +806,30 @@
     ) -> FailureDisplay {
       FailureDisplay(
         headline: "macOS needs more free space",
-        plainDetail: "\(shortfall.summary) The disk has not been changed.",
+        plainDetail: "\(shortfall.summary) The disk wasn’t changed.",
         technicalDetail: technicalDetail,
         remedy:
-          "\(freeMacOSSpace) Then choose Check again. \(purgeableSpaceNote) The installer checks the space again before it changes anything."
+          "\(freeMacOSSpace) Then choose Check again. \(purgeableSpaceNote)"
       )
     }
 
     /// Shown only by builds that cannot install the helper themselves, when
     /// the installer package has not put it in place.
     public static let helperNotInstalled =
-      "Aurora couldn’t start its administrator process. Reopen Aurora Installer and try again."
+      "The installer helper didn’t start. Quit Aurora Installer, open it again, and try again."
 
     public static let engineUnavailable =
       "This build is missing the required validation engine. Installation is unavailable."
     public static let engineIdentityMismatch =
       "The validation engine failed an identity check. Installation is unavailable."
     public static let releaseResourcesUnavailable =
-      "This build is missing a verified production release identity. Installation is unavailable."
+      "This build is missing its release identity, so it can’t install."
     public static let planChangedBeforeApproval =
-      "The installation plan changed. Prepare and review the new plan before continuing."
+      "The plan changed. Review the new plan before you continue."
     public static let approvalUnavailable =
-      "The approved plan or installation service is no longer available. Prepare and review the plan again."
+      "The approved plan or the installation service is gone. Review the plan again."
     public static let retryCheckpointUnavailable =
-      "The verified checkpoint needed to retry Recovery authorization is unavailable. Installation remains stopped."
+      "The checkpoint needed to retry the Recovery step is missing. The installation stays stopped."
     public static let inspectionRequired =
       "Complete the Mac and disk checks before continuing."
 
@@ -825,10 +844,10 @@
 
       if let initial = error as? InstallerPreSubmissionFailure, !retryRecoveryAvailable {
         return FailureDisplay(
-          headline: "Installation could not start",
-          plainDetail: "The installation request was not sent. No disk changes were made.",
+          headline: "Installation didn’t start",
+          plainDetail: "Nothing was sent, and the disk wasn’t changed.",
           technicalDetail: String(describing: initial.underlying),
-          remedy: "Reopen the latest installer and review the installation again.")
+          remedy: "Open the latest installer and review the installation again.")
       }
 
       if retryRecoveryAvailable {
@@ -846,10 +865,10 @@
         return FailureDisplay(
           headline: "Installation paused",
           plainDetail:
-            "The last verified step is saved. Aurora will check the disk and installed files before continuing.",
+            "Progress is saved. Aurora checks the disk and files before it continues.",
           technicalDetail: technical,
           remedy:
-            "Enter the authorized macOS account password to continue the installation.",
+            "Enter the macOS password you used before to continue.",
           retryRecoveryAvailable: true
         )
       }
@@ -860,35 +879,35 @@
           return FailureDisplay(
             headline: authorizeRejected,
             plainDetail:
-              "Your credentials were rejected before this request could change the disk.",
+              "The disk wasn’t changed.",
             technicalDetail: technical,
             remedy:
-              "Enter the account name and password of a macOS account authorized to install on this Mac."
+              "Enter the name and password of a macOS administrator."
           )
         case .recoveryAuthorizationFailed:
           return FailureDisplay(
-            headline: "Recovery authorization didn’t complete",
+            headline: "The Recovery step didn’t finish",
             plainDetail:
-              "Disk preparation and file installation were verified. Recovery authorization is still required.",
+              "The disk and files are ready. The Recovery step still needs your approval.",
             technicalDetail: technical,
-            remedy: "Retry only the Recovery authorization step."
+            remedy: "Choose Try again to redo only the Recovery step."
           )
         case .helperUnresponsive:
           return FailureDisplay(
             headline: "The installation service isn’t responding",
             plainDetail:
-              "The app couldn’t get a response from the installation service. Installation has not started.",
+              "Installation hasn’t started.",
             technicalDetail: technical,
-            remedy: "Quit \(windowTitle), open it again, and try once more."
+            remedy: "Quit \(windowTitle), open it again, and try again."
           )
         case .connectionFailed:
           return FailureDisplay(
-            headline: "Connection to the installation service was lost",
+            headline: "Lost connection to the installation service",
             plainDetail:
-              "Disk changes may have started. The app cannot yet confirm the installation result.",
+              "Disk changes may have started. The result isn’t known yet.",
             technicalDetail: technical,
             remedy:
-              "Keep your Mac connected to power. Save the error details and check the verified installation record before trying again."
+              "Keep your Mac plugged in. Copy the details and check Completed steps before you try again."
           )
         case .engineFailed(let notice):
           return engineFailure(notice, technicalDetail: technical)
@@ -914,26 +933,26 @@
             return FailureDisplay(
               headline: "An installation may already be running",
               plainDetail:
-                "Keep your Mac powered on. An installation may still be running; check its installation record before starting another attempt.",
+                "Keep your Mac on. Check the running installation’s record before you start another.",
               technicalDetail: technical
             )
           }
           return FailureDisplay(
             headline: "The installation service couldn’t complete the request",
             plainDetail:
-              "The service returned an error. The app cannot confirm whether disk changes have started.",
+              "The service returned an error. Disk changes may have started.",
             technicalDetail: technical,
             remedy:
-              "Save the error details and check the verified installation record before trying again."
+              "Copy the details and check Completed steps before you try again."
           )
         default:
           return FailureDisplay(
             headline: "The installation result is unknown",
             plainDetail:
-              "The installation service did not return a verified result. Disk changes may have started.",
+              "The installation service didn’t return a result. Disk changes may have started.",
             technicalDetail: technical,
             remedy:
-              "Save the error details and check the verified installation record before trying again."
+              "Copy the details and check Completed steps before you try again."
           )
         }
       }
@@ -960,13 +979,13 @@
           return FailureDisplay(
             headline: "An installation may already be running",
             plainDetail:
-              "Keep your Mac powered on. Check the existing installation before trying again.",
+              "Keep your Mac on. Check the running installation before you try again.",
             technicalDetail: technical
           )
         case .invalidMachineOwnerCredentials:
           return FailureDisplay(
             headline: authorizeRejected,
-            plainDetail: "This request did not change the disk.",
+            plainDetail: "The disk wasn’t changed.",
             technicalDetail: technical
           )
         case .unsupportedDevice(let identifier):
@@ -975,10 +994,10 @@
           return FailureDisplay(
             headline: "The installation service reported an error",
             plainDetail:
-              "Check the last verified installation step to see what completed.",
+              "Check Completed steps to see what finished.",
             technicalDetail: technical,
             remedy:
-              "Save the error details and check the verified installation record before trying again."
+              "Copy the details and check Completed steps before you try again."
           )
         }
       }
@@ -988,21 +1007,21 @@
         case .snapshotConstrained(let constraint):
           let detail =
             constraint == .timeMachine
-            ? "macOS reports that a local Time Machine snapshot limits how far the APFS container can shrink."
-            : "macOS reports that an APFS snapshot limits how far the container can shrink. It was not identified as a local Time Machine snapshot."
+            ? "A local Time Machine snapshot limits how far macOS can shrink."
+            : "An APFS snapshot limits how far macOS can shrink. It isn’t a Time Machine snapshot."
           let remedy =
             constraint == .timeMachine
-            ? "Back up your Mac first. Local snapshots are restore points on the startup disk, separate from backups on an external disk. You can wait for automatic cleanup or follow Apple’s local-snapshot guidance. Removing local snapshots removes those local restore points. Restore your automatic backup schedule afterward, then choose Check again."
-            : "Back up your Mac first. A system, update, or other snapshot may be involved. Let any pending macOS update finish, then restart and choose Check again. Do not manually delete system or update snapshots. Apple’s local-snapshot guidance applies to Time Machine snapshots only."
+            ? "Back up your Mac first. Local snapshots are restore points on this disk, not your backups. Wait for macOS to clear them, or follow Apple’s guide. Then choose Check again."
+            : "Back up your Mac first. Let any pending macOS update finish, restart, then choose Check again. Don’t delete system or update snapshots."
           return FailureDisplay(
-            headline: "Snapshots limit the space available for installation",
+            headline: "Snapshots limit the space for Aurora",
             plainDetail:
-              "\(detail) Free space shown in macOS is not necessarily space that can be released for a new partition. The disk has not been changed.",
+              "\(detail) Free space in macOS isn’t always space that can become a partition. The disk wasn’t changed.",
             technicalDetail: technical,
             remedy:
-              "\(remedy) Snapshot cleanup may still leave too little space to meet the installation and macOS reserve requirements. The installer does not delete snapshots.",
+              "\(remedy) The installer never deletes snapshots.",
             actionURL: URL(string: "https://support.apple.com/en-us/102154"),
-            actionTitle: "Apple’s local-snapshot guidance"
+            actionTitle: "Open Apple’s guide"
           )
         case .insufficientSpace(let required, let available):
           let shortfall = bytesRoundedUp(required - min(required, available))
@@ -1010,19 +1029,19 @@
             headline:
               "Free up at least \(shortfall) to install Aurora",
             plainDetail:
-              "Aurora needs \(bytes(required)); only \(bytes(available)) can be made available within the current safety limits. Free space shown in macOS is not necessarily space available for installation. The disk has not been changed.",
+              "Aurora needs \(bytes(required)). Only \(bytes(available)) can be freed safely. The disk wasn’t changed.",
             technicalDetail: technical,
             remedy:
-              "Remove files you no longer need in macOS and empty the Trash, then choose Check again. If this Mac already has a Linux installation you no longer need, Erase Linux returns its space to macOS first. The installer will check the available space again before allowing installation."
+              "Delete files you don’t need in macOS and empty the Trash, then choose Check again. If an old Linux installation is on this Mac, Erase Linux gives its space back."
           )
         case .noEligibleCandidate:
           return FailureDisplay(
             headline: "There isn’t enough usable disk space",
             plainDetail:
-              "The installer couldn’t find a disk allocation that meets its requirements. Free space shown in macOS is not necessarily space that can be released for a new partition. The disk has not been changed.",
+              "The installer couldn’t find space that meets its requirements. The disk wasn’t changed.",
             technicalDetail: technical,
             remedy:
-              "Back up your Mac first. Check available storage and any pending macOS updates, then choose Check again. Local snapshots can also limit resizing, but the installer could not confirm that cause. Freeing files alone may not make partition space available."
+              "Back up your Mac first. Check free storage and pending macOS updates, then choose Check again. Local snapshots may also limit resizing."
           )
         }
       }
@@ -1031,8 +1050,8 @@
       }
       if error is URLError {
         return FailureDisplay(
-          headline: "The network request didn’t finish",
-          plainDetail: "Check your internet connection before continuing.",
+          headline: "The network connection failed",
+          plainDetail: "The installer couldn’t reach the server.",
           technicalDetail: technical, remedy: "Check your internet connection, then try again.")
       }
 
@@ -1042,65 +1061,83 @@
           return unsupportedModel(deviceIdentifier: identifier, technicalDetail: technical)
         case .preservedReinstallUnavailable:
           return FailureDisplay(
-            headline: "This installation cannot be reset yet",
+            headline: "This installation can’t be reset",
             plainDetail:
-              "Choose the installed Aurora distribution and check this Mac again. The startup setup and disk were not changed.",
+              "The startup setup and disk weren’t changed.",
             technicalDetail: technical,
-            remedy: "Select the installed distribution, then check this Mac again."
+            remedy: "Choose a system, pick the one that’s installed, then check again."
           )
         case .targetUnavailable:
           return FailureDisplay(
             headline: "The space you chose changed",
             plainDetail:
-              "The disk no longer matches what this Mac’s check found. Nothing was changed.",
+              "The disk no longer matches the last check. The installer didn’t change it.",
             technicalDetail: technical,
-            remedy: "Check this Mac again, then choose where to install."
+            remedy: "Check again, then choose where to install."
           )
         case .macOSUpdateRequired(let version):
           return FailureDisplay(
             headline: "Update macOS to install Aurora",
             plainDetail:
-              "This Mac’s firmware is older than macOS \(version), which this release needs. The disk has not been changed.",
+              "This Mac’s firmware is older than macOS \(version), which this release needs. The disk wasn’t changed.",
             technicalDetail: technical,
             remedy:
               "Install macOS \(version) or later in System Settings → General → Software Update, then open \(windowTitle) again.",
             actionURL: softwareUpdateSettingsURL,
             actionTitle: openSoftwareUpdate
           )
-        case .firmwareUnavailable:
+        case .firmwareBelowRelease(let version, let check, let detected, let required):
           return FailureDisplay(
-            headline: "Boot firmware for this Mac couldn’t be selected",
+            headline: "This Mac’s \(check) is older than Aurora needs",
             plainDetail:
-              "The release lists no boot firmware this Mac can use with its current macOS and firmware versions. The disk has not been changed.",
+              "This Mac’s \(check) is \(detected). Aurora needs \(required) or later. The disk wasn’t changed.",
             technicalDetail: technical,
             remedy:
-              "Update macOS, then choose Check again. If this keeps happening, save the error details."
+              "Install any update in System Settings → General → Software Update, then open \(windowTitle) again. If there’s none, reinstall macOS \(version) from Recovery.",
+            actionURL: softwareUpdateSettingsURL,
+            actionTitle: openSoftwareUpdate
+          )
+        case .firmwareUnavailable:
+          return FailureDisplay(
+            headline: "No boot firmware fits this Mac",
+            plainDetail:
+              "The release has no boot firmware for this Mac’s macOS and firmware versions. The disk wasn’t changed.",
+            technicalDetail: technical,
+            remedy:
+              "Update macOS, then choose Check again."
           )
         case .releaseLacksMachOStartup:
           return FailureDisplay(
             headline: blockedHeadline,
             plainDetail:
-              "This Mac needs startup software that this release’s images don’t include yet. The disk has not been changed.",
+              "This release doesn’t include the startup software this Mac needs yet. The disk wasn’t changed.",
             technicalDetail: technical,
             remedy:
-              "Check for a newer \(windowTitle) release. Nothing on this Mac needs to change.",
+              "Check for a newer \(windowTitle).",
             isBlockedModel: true
+          )
+        case .stubOverrideRefused(let reason):
+          return FailureDisplay(
+            headline: stubOverrideRefusedHeadline,
+            plainDetail: reason + " The disk wasn’t changed.",
+            technicalDetail: technical,
+            remedy: stubOverrideRefusedRemedy
           )
         case .firmwareArchiveUnsupported(let version):
           return FailureDisplay(
-            headline: "This Mac can’t be installed with this installer yet",
+            headline: "This installer can’t install on this Mac yet",
             plainDetail:
-              "This Mac needs boot firmware from macOS \(version), which Apple ships only as an update archive. This installer can’t prepare that archive yet. The disk has not been changed.",
+              "This Mac needs boot firmware from macOS \(version), which this installer can’t unpack yet. The disk wasn’t changed.",
             technicalDetail: technical,
-            remedy: "Check for a newer \(windowTitle). Nothing on this Mac needs to change."
+            remedy: "Check for a newer \(windowTitle)."
           )
         default:
           return FailureDisplay(
-            headline: "An installation plan couldn’t be prepared",
+            headline: "Couldn’t make an installation plan",
             plainDetail:
-              "The installer couldn’t prepare a valid disk plan. Installation has not started.",
+              "Nothing was installed.",
             technicalDetail: technical,
-            remedy: "Review the error details, then check this Mac again."
+            remedy: "Open Details, then choose Check again."
           )
         }
       }
@@ -1111,7 +1148,7 @@
           return FailureDisplay(
             headline: "This installer is out of date",
             plainDetail:
-              "This release requires installer \(minimum) or later. You’re using \(current).",
+              "This release needs installer \(minimum) or later. You have \(current).",
             technicalDetail: technical,
             remedy:
               "Download the latest \(windowTitle) and open it.",
@@ -1140,7 +1177,7 @@
           return FailureDisplay(
             headline: "Installation files aren’t listed for this Mac",
             plainDetail:
-              "The signed release supports this Mac but doesn’t provide its installation file details. Installation cannot continue.",
+              "The release supports this Mac but lists no installation files for it. Installation can’t continue.",
             technicalDetail: technical,
             remedy: "Check again later."
           )
@@ -1154,16 +1191,16 @@
           return FailureDisplay(
             headline: "An installation file couldn’t be verified",
             plainDetail:
-              "The file did not pass verification. Installation cannot continue.",
+              "A downloaded file failed verification. Installation can’t continue.",
             technicalDetail: technical,
-            remedy: "Try downloading the installation files again."
+            remedy: "Choose Check again to download it again."
           )
         default:
           return FailureDisplay(
             headline: "The installation files couldn’t be prepared",
             plainDetail: "Installation has not started.",
             technicalDetail: technical,
-            remedy: "Review the error details, then try again."
+            remedy: "Open Details, then try again."
           )
         }
       }
@@ -1173,13 +1210,13 @@
         case .edgeAlphaUnavailable:
           return FailureDisplay(
             headline: "Edge isn’t available yet",
-            plainDetail: "An Edge release is not available. Installation has not started.",
+            plainDetail: "There’s no Edge release yet. Nothing was installed.",
             technicalDetail: technical,
             remedy: "Choose Nightly from the Release channel menu, or check Edge again later."
           )
         case .releaseResourcesUnavailable:
           return FailureDisplay(
-            headline: "Installation is unavailable in this build",
+            headline: "This build can’t install",
             plainDetail: releaseResourcesUnavailable,
             technicalDetail: technical
           )
@@ -1187,23 +1224,23 @@
           return FailureDisplay(
             headline: "This channel’s release list wasn’t found",
             plainDetail:
-              "The release server has no signed release list at this channel’s address, so the installer can’t tell what the channel offers. Installation has not started.",
+              "The release server has no release list for this channel. Nothing was installed.",
             technicalDetail: technical,
             remedy:
-              "Check again later, or choose another release channel from the menu bar."
+              "Check again later, or choose another channel from the Release channel menu."
           )
         case .unexpectedHTTPStatus:
           return FailureDisplay(
             headline: "The release server returned an error",
             plainDetail: "Installation has not started.",
             technicalDetail: technical,
-            remedy: "Review the error details, then try again."
+            remedy: "Open Details, then try again."
           )
         case .catalogUnreachable:
           return FailureDisplay(
             headline: "The release list couldn’t be downloaded",
             plainDetail:
-              "The installer couldn’t reach the release server to check this channel. Installation has not started.",
+              "The installer couldn’t reach the release server. Nothing was installed.",
             technicalDetail: technical,
             remedy:
               "Check your internet connection and try again, or choose another channel from the Release channel menu."
@@ -1213,7 +1250,7 @@
           return FailureDisplay(
             headline: "The release couldn’t be verified",
             plainDetail:
-              "The server response did not pass release verification. Installation cannot continue.",
+              "The server’s answer failed verification. Installation can’t continue.",
             technicalDetail: technical,
             remedy: "Check again later."
           )
@@ -1222,38 +1259,48 @@
             headline: "The release is unavailable",
             plainDetail: "Installation has not started.",
             technicalDetail: technical,
-            remedy: "Review the error details, then try again."
+            remedy: "Open Details, then try again."
           )
         }
+      }
+
+      if case SupportCatalogSequenceError.belowBuildFloor = error {
+        return FailureDisplay(
+          headline: "This installer is newer than the release server",
+          plainDetail:
+            "This channel’s release list is older than this installer expects. The server hasn’t caught up yet. Nothing was installed.",
+          technicalDetail: technical,
+          remedy: "Check again later, or choose another channel from the Release channel menu."
+        )
       }
 
       if case SupportCatalogError.nativeEngineRequired = error {
         return FailureDisplay(
           headline: "This channel isn’t ready for this installer",
           plainDetail:
-            "Its signed release list was published for an older installer, so this version can’t use it. Installation has not started.",
+            "Its release list is for an older installer, so this version can’t use it. Nothing was installed.",
           technicalDetail: technical,
-          remedy: "Choose another release channel from the menu bar, or check again later."
+          remedy: "Choose another channel from the Release channel menu, or check again later."
         )
       }
 
       if let catalog = error as? SupportCatalogError {
         return FailureDisplay(
-          headline: "The support catalog couldn’t be verified",
+          headline: "The release list couldn’t be verified",
           plainDetail:
-            "The catalog did not meet the installer’s signature or version requirements. Installation cannot continue.",
+            "Its signature or version doesn’t match what this installer needs. Installation can’t continue.",
           technicalDetail: String(describing: catalog),
           remedy: "Try again later, or download the latest installer."
         )
       }
 
       return FailureDisplay(
-        headline: "The installer encountered an error",
+        headline: "Something went wrong",
         plainDetail:
-          "Review the last verified installation step before continuing.",
+          "Check Completed steps before you continue.",
         technicalDetail: technical,
         remedy:
-          "If installation has started, keep your Mac connected to power and check the verified installation record before trying again."
+          "If the installation started, keep your Mac plugged in and check Completed steps before you try again."
       )
     }
 
@@ -1267,30 +1314,30 @@
         FailureDisplay(
           headline: "The installer helper isn’t answering",
           plainDetail:
-            "The saved installation is kept. Right after the installer is updated, its helper can take a little while to start.",
+            "Your saved installation is safe. After an update, the helper can take a moment to start.",
           technicalDetail: technicalDetail,
-          remedy: "Quit \(windowTitle) and open it again to reconnect to the saved installation.")
+          remedy: "Quit \(windowTitle) and open it again.")
       case .identityMismatch:
         FailureDisplay(
           headline: "The saved installation doesn’t match this installer",
           plainDetail:
-            "It was recorded for another installer helper or release channel. Nothing was changed.",
+            "It belongs to another installer or release channel. The disk wasn’t changed.",
           technicalDetail: technicalDetail,
-          remedy: "Open the installer and release channel that started this installation.")
+          remedy: "Use the installer and channel that started it.")
       case .interrupted:
         FailureDisplay(
           headline: "The installer helper stopped before the installation finished",
           plainDetail: error.errorDescription ?? "",
           technicalDetail: technicalDetail,
           remedy:
-            "Keep your Mac connected to power and review the saved installation record before continuing."
+            "Keep your Mac plugged in, and check Completed steps before you continue."
         )
       case .invalidRequest, .unsafeState, .historyFull, .notAdmitted:
         FailureDisplay(
           headline: "The saved installation couldn’t be used",
           plainDetail: error.errorDescription ?? "",
           technicalDetail: technicalDetail,
-          remedy: "Save the error details and review the installation record before trying again.")
+          remedy: "Copy the details and check Completed steps before you try again.")
       }
     }
 

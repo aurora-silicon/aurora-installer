@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""tools/wifi-firmware/apfs_ro.py: what a malformed container can make it do.
+"""asahi_firmware/apfs_ro.py: what a malformed container can make it do.
 
 The reader runs as root at every boot on whatever APFS containers the disk
 holds, so a damaged one must cost a bounded amount of time and
@@ -21,7 +21,7 @@ import unittest
 import zlib
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-TOOL = ROOT / "tools" / "wifi-firmware"
+TOOL = ROOT
 
 BS = 4096
 MIB = 1 << 20
@@ -39,7 +39,7 @@ PLIST = plistlib.dumps({"ProductBuildVersion": "99Z999", "ProductVersion": "99.0
 CHILD = r"""
 import errno, hashlib, json, os, resource, sys
 sys.path.insert(0, sys.argv[1])
-import apfs_ro
+from asahi_firmware import apfs_ro
 reads = [0]
 plain_read = apfs_ro.Device.read
 def read(self, paddr, n=1):

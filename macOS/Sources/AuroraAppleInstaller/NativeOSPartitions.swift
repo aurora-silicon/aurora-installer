@@ -149,7 +149,7 @@
       let firmware = try NativeFirmwareSelection.choose(
         deviceIdentifier: package.deviceIdentifier,
         facts: firmwareFacts(), metadata: NativeInstallationMetadata(data: bytes),
-        policy: NativeInspectionPolicy.sealed())
+        policy: NativeInspectionPolicy.sealed(), stubOverride: package.stubOverride)
       guard approved.lengthBytes > firmware.stubBytes else {
         throw NativeOSPartitionError.invalidMetadata
       }

@@ -66,6 +66,9 @@
     let stage2Path: String
     /// The padded object's whole size, which Recovery needs free to enroll it.
     let expandedBytes: UInt64?
+    /// The release's secure-flavour Stage 1 object, which Recovery enrolls for
+    /// the owner's own key; nil when the release has none.
+    let secureMachO: Data?
 
     /// What Recovery enrolls and records in its receipt.
     var enrolled: Data { machO }
@@ -76,21 +79,21 @@
       try self.init(
         stage1: plan.stage1, machO: plan.stage1MachO, executeWindow: plan.executeWindow,
         windowMilliseconds: plan.windowMilliseconds, legacy: plan.usesLegacyStage1,
-        espUUID: espUUID)
+        espUUID: espUUID, secureMachO: plan.secureStage1MachO)
     }
 
     /// The same fill and checks as a fresh installation, then a read-back of
     /// what Recovery checks before it enrolls.
     init(
       stage1: Data, machO object: Data?, executeWindow: Bool, windowMilliseconds: UInt32,
-      legacy: Bool, espUUID: String
+      legacy: Bool, espUUID: String, secureMachO: Data? = nil
     )
       throws
     {
       guard !legacy else { throw NativeStage1UpdateError.unsupportedStage1 }
       // Recovery enrolls only the boot object; without one there is nothing to enroll.
       guard let object else { throw NativeBootChainError.missingMachOStage1 }
-      for bytes in [stage1, object] where bytes.count > Self.maximumBytes {
+      for bytes in [stage1, object, secureMachO ?? Data()] where bytes.count > Self.maximumBytes {
         throw NativeStage1UpdateError.stage1TooLarge(bytes: UInt64(bytes.count))
       }
       let uuid = espUUID.lowercased()
@@ -113,6 +116,7 @@
       machO = filled
       stage2Path = path
       expandedBytes = expanded
+      self.secureMachO = secureMachO
     }
   }
 
@@ -333,6 +337,13 @@
       var replaced = ["raw/aura-raw.bin": candidate.raw]
       replaced["macho/aura-boot.macho"] = candidate.machO
       if let stage2Baseline { replaced["raw/boot.bin"] = stage2Baseline }
+      if let secure = candidate.secureMachO {
+        replaced["macho/aura-secure-boot.macho"] = secure
+      } else {
+        // The earlier release's secure object would start an older aura than the
+        // new Stage 1; without a new one an owner-key update is refused instead.
+        files.removeValue(forKey: "macho/aura-secure-boot.macho")
+      }
       for (name, bytes) in replaced {
         files[name] = ["sha256": NativeStubFileStore.hash(bytes), "bytes": bytes.count]
       }

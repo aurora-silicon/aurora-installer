@@ -31,7 +31,7 @@ import Foundation
         machine: Data(contentsOf: URL(fileURLWithPath: machine)),
         metadata: Data(contentsOf: URL(fileURLWithPath: metadata)),
         payloadDigest: digest, archive: archive)
-      FileHandle.standardOutput.write(try withStage1Caution(output))
+      FileHandle.standardOutput.write(try withExperimentalNote(output))
       FileHandle.standardOutput.write(Data("\n".utf8))
     } catch {
       FileHandle.standardError.write(Data("dry run failed: \(error)\n".utf8))
@@ -39,22 +39,22 @@ import Foundation
     }
   }
 
-  /// Adds the warning the plan screen shows before a fresh install on a Mac
-  /// whose iBoot refuses, or may refuse, the common Stage 1: the
-  /// `stage1CautionPanel` text and the acknowledgement the owner ticks. The
+  /// Adds the note the plan screen shows before a fresh install on an
+  /// experimental Mac: the `experimentalNote` text, its link and the
+  /// checkbox's separate second line. It is the same for every such Mac. The
   /// app picks the Mac by `hw.targettype`; a recorded Mac has its identifier.
-  static func withStage1Caution(_ output: Data) throws -> Data {
+  static func withExperimentalNote(_ output: Data) throws -> Data {
     guard var result = try JSONSerialization.jsonObject(with: output) as? [String: Any],
       let device = result["device_identifier"] as? String,
-      let reason = Stage1Caution.reason(for: device)
+      ExperimentalMac.isExperimental(device)
     else { return output }
     result["stage1_caution"] = [
-      "headline": PlainLanguage.stage1CautionHeadline, "reason": reason,
-      "recovery": PlainLanguage.stage1CautionRecovery,
-      "acknowledgement": PlainLanguage.planAcknowledgement(
-        resizesMacOS: false, stage1Caution: true),
-      "acknowledgement_resize": PlainLanguage.planAcknowledgement(
-        resizesMacOS: true, stage1Caution: true),
+      "headline": PlainLanguage.experimentalTitle,
+      "reason": PlainLanguage.experimentalNote,
+      "link": PlainLanguage.experimentalIssuesURL.absoluteString,
+      "acknowledgement": PlainLanguage.planAcknowledgement(resizesMacOS: false),
+      "acknowledgement_resize": PlainLanguage.planAcknowledgement(resizesMacOS: true),
+      "acknowledgement_experimental": PlainLanguage.planExperimentalAcknowledgement,
     ]
     return try JSONSerialization.data(
       withJSONObject: result, options: [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes])

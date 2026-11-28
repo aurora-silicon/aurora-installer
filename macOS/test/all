@@ -40,6 +40,7 @@ python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 python3 -m unittest discover -s test/conformance -p 'test_*.py'
 python3 -m unittest discover -s ../tests -p 'test_wifi_*.py'
 python3 -m unittest discover -s ../tests -p 'test_audio_tuning_parity.py'
+python3 -m unittest discover -s ../tests -p 'test_centauri.py'
 for test_file in test/shell.d/apple-installer-*-test.sh; do
   bash "$test_file"
 done

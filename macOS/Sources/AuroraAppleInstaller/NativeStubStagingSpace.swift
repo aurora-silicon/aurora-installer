@@ -280,11 +280,14 @@
     private let facts: @Sendable () throws -> NativeFirmwareSelection.Facts
     private let boardID: @Sendable () throws -> UInt64
     private let open: @Sendable (URL) async throws -> any FirmwareRangeReading
+    /// A developer's stub override: the estimate is for the stub it installs.
+    private var stubOverride: StubOverrideChoice?
 
-    public init() {
+    public init(stubOverride: StubOverrideChoice? = nil) {
       facts = { try .live() }
       boardID = { try NativeStubFilePlatform.live.boardID() }
       open = { try await IPSWHTTPRangeReader.discover(url: $0) }
+      self.stubOverride = stubOverride
     }
 
     init(
@@ -310,7 +313,7 @@
         let firmware = try? NativeFirmwareSelection.choose(
           deviceIdentifier: deviceIdentifier, facts: facts,
           metadata: NativeInstallationMetadata(data: data),
-          policy: NativeInspectionPolicy.sealed())
+          policy: NativeInspectionPolicy.sealed(), stubOverride: stubOverride)
       else { return }
       if try NativeBootChain.machORefusal(
         metadata: data, deviceIdentifier: deviceIdentifier,
@@ -332,9 +335,15 @@
         firmware = try NativeFirmwareSelection.choose(
           deviceIdentifier: deviceIdentifier, facts: facts,
           metadata: NativeInstallationMetadata.authenticated(metadata),
-          policy: NativeInspectionPolicy.sealed())
+          policy: NativeInspectionPolicy.sealed(), stubOverride: stubOverride)
+      } catch NativeFirmwareSelectionError.stubOverride(let refusal) {
+        throw InstallerPlanPreparationError.stubOverrideRefused(refusal.message)
       } catch NativeFirmwareSelectionError.macOSUpdateRequired(let version) {
         throw InstallerPlanPreparationError.macOSUpdateRequired(version: version)
+      } catch NativeFirmwareSelectionError.firmwareBelowRelease(let shortfall) {
+        throw InstallerPlanPreparationError.firmwareBelowRelease(
+          version: shortfall.version, check: shortfall.check.rawValue,
+          detected: shortfall.detected, required: shortfall.required)
       } catch NativeFirmwareSelectionError.unsupportedDevice {
         throw InstallerPlanPreparationError.unsupportedDevice(deviceIdentifier)
       } catch is NativeFirmwareSelectionError {

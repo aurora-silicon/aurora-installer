@@ -150,7 +150,7 @@
           technicalDetail: "detail")
         XCTAssertEqual(display.headline, "The boot loader wasn’t updated")
         XCTAssertTrue(display.plainDetail.hasPrefix("The EFI partition has no"))
-        XCTAssertEqual(display.plainDetail.contains("No disk changes were made."), unchanged)
+        XCTAssertEqual(display.plainDetail.contains("The disk wasn’t changed."), unchanged)
         XCTAssertEqual(display.plainDetail.contains("Recovery files may have"), !unchanged)
         XCTAssertFalse(display.replanAvailable)
       }

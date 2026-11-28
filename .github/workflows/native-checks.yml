@@ -150,7 +150,7 @@ jobs:
           for profile in expected:
               models=json.loads((profiles/profile/'catalog.json').read_bytes())['models']
               assert all(model.get('installationProfile') in (None,profile) for model in models),profile
-          assert (release/'catalog.json').read_bytes()==(profiles/'fedora-kde/catalog.json').read_bytes()
+          assert (release/'catalog.json').read_bytes()==(profiles/'fedora-gnome/catalog.json').read_bytes()
           PYPROFILES
           bash Packaging/check-download-size.sh "$app" \
             | tee "$RUNNER_TEMP/installer-ci/app-size.log"

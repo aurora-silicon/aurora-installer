@@ -40,9 +40,10 @@ HERE = Path(__file__).resolve().parent
 MACOS = HERE.parents[1]
 REPO = MACOS.parent
 DISTROS = {'fedora': 'fedora-aurora', 'arch': 'alarm-aurora', 'nixos': 'nixos-aurora'}
-ALL_DISTROS = dict(DISTROS, omarchy='omarchy-aurora')
+ALL_DISTROS = dict(DISTROS, omarchy='omarchy-aurora', debian='debian-aurora')
 DESKTOPS = ('gnome', 'kde', 'minimal')
 DESKTOPS_BY_DISTRO = {distro: DESKTOPS for distro in DISTROS}
+DESKTOPS_BY_DISTRO['debian'] = DESKTOPS
 DESKTOPS_BY_DISTRO['omarchy'] = ('hyprland',)
 MODES = ('fresh', 'side-by-side')
 
@@ -400,7 +401,8 @@ def esp_archive(remote, members, wanted, path):
 # ---------------------------------------------------------------- cells
 
 def check(name, ok, detail, hardware=None, scope=None):
-    """scope 'published' marks checks of today's signed images rather than the pins."""
+    """scope 'published' marks checks of today's signed images; 'distro' marks
+    floating distro-branch pin and parity checks."""
     return {'check': name, 'ok': ok, 'detail': detail, 'hardware': hardware, 'scope': scope}
 
 
@@ -505,7 +507,7 @@ def evaluate(machine, mode, distro, dry, context):
     # 5. U-Boot and aura pins: the distro branch, and the published image's sources
     branch, built = context['branches'][distro], context['built'][distro]
     pins = context['pins']
-    for label, sources, scope in (('branch', branch, None), ('published image', built, 'published')):
+    for label, sources, scope in (('branch', branch, 'distro'), ('published image', built, 'published')):
         if sources is None:
             continue
         problems = []
@@ -517,7 +519,8 @@ def evaluate(machine, mode, distro, dry, context):
             pins['aura'][:12], pins['u_boot'][:12]), scope=scope))
     parity = context['parity']
     lag = parity['lagging'].get(distro)
-    checks.append(check('distro parity', not lag, lag or 'kernel, aura and U-Boot match the other distributions'))
+    checks.append(check('distro parity', not lag, lag or 'kernel, aura and U-Boot match the other distributions',
+                        scope='distro'))
 
     # 6. the distribution image: public, sized and digest-checked
     problems, digests = [], []
@@ -625,16 +628,20 @@ def confined_stage2_checks(machine, dry, profiles, aura_labels):
                   'payload carries %s from aura %s' % (CONFINED_STAGE2, aura_labels[0]), scope='published')]
 
 
-CAUTION_RECOVERY = ('Always Use', 'Erase Linux', 'macOS needs to be reinstalled')
-CAUTION_ACKNOWLEDGEMENT = ', and I understand Aurora may not start on this Mac.'
+EXPERIMENTAL_HEADLINE = 'Experimental on this Mac'
+EXPERIMENTAL_NOTE = ('Support for this Mac is experimental and may be untested. '
+                     'Please report bugs or successes on GitHub Issues.')
+EXPERIMENTAL_LINK = 'https://github.com/aurora-silicon/aurora-installer/issues'
+EXPERIMENTAL_ACKNOWLEDGEMENT = 'I understand support for this Mac is experimental.'
 
 
 def stage1_caution(machine, dry, context):
-    """The warn-not-block path for a supported board whose iBoot refuses, or may
-    refuse, the common Stage 1 (scripts/supported-models.json stage1_caution):
-    the plan screen must show the warning, its recovery steps and a widened
-    acknowledgement, and the install must still go ahead. None for any other
-    board, unless the dry run warns where the list does not."""
+    """The warn-not-block path for an experimental board (scripts/supported-models.json
+    stage1_caution): the plan screen must show the one generic experimental note
+    with its GitHub Issues link and the checkbox's separate experimental line, and
+    the install must still go ahead. No per-Mac text and no recovery steps: the
+    note is the same for every experimental Mac. None for any other board, unless
+    the dry run warns where the list does not."""
     desktops = tuple(dry)
     listed = context['stage1_caution'].get(machine['device_identifier'])
     shown = {d: dry[d].get('stage1_caution') for d in desktops}
@@ -645,15 +652,18 @@ def stage1_caution(machine, dry, context):
     problems = []
     for desktop, caution in shown.items():
         if not caution:
-            problems.append('%s: no warning on the plan' % desktop)
+            problems.append('%s: no experimental note on the plan' % desktop)
             continue
-        missing = [p for p in CAUTION_RECOVERY if p not in caution['recovery']]
-        if missing:
-            problems.append('%s: the recovery steps lack %s' % (desktop, ', '.join(missing)))
-        if not all(caution[k].endswith(CAUTION_ACKNOWLEDGEMENT) for k in ('acknowledgement', 'acknowledgement_resize')):
-            problems.append('%s: the acknowledgement does not name the risk' % desktop)
-        if not caution['reason'] or not caution['headline']:
-            problems.append('%s: an empty warning' % desktop)
+        if (caution.get('headline'), caution.get('reason'), caution.get('link')) != (
+                EXPERIMENTAL_HEADLINE, EXPERIMENTAL_NOTE, EXPERIMENTAL_LINK):
+            problems.append('%s: not the generic experimental note' % desktop)
+        if 'recovery' in caution:
+            problems.append('%s: the note carries recovery steps' % desktop)
+        if caution.get('acknowledgement_experimental') != EXPERIMENTAL_ACKNOWLEDGEMENT:
+            problems.append('%s: the checkbox lacks its separate experimental line' % desktop)
+        if any(EXPERIMENTAL_ACKNOWLEDGEMENT in caution.get(k, '') or 'may not start' in caution.get(k, '')
+               for k in ('acknowledgement', 'acknowledgement_resize')):
+            problems.append('%s: the experimental line is joined onto the acknowledgement' % desktop)
         # Warn, never block: supported, qualified for Stage 1, and planned.
         chain = dry[desktop].get('boot_chain') or {}
         if not dry[desktop]['supported'] or 'stage1_member' not in chain:
@@ -662,8 +672,8 @@ def stage1_caution(machine, dry, context):
         if machine['disk'] is not None and not any('plan' in c for c in dry[desktop].get('candidates', [])):
             problems.append('%s: no plan to go ahead with' % desktop)
     first = shown[desktops[0]] or {}
-    return check('stage1 caution', not problems, '; '.join(problems) or 'warns, then goes ahead: "%s" %s %s' % (
-        first['headline'], first['reason'], first['recovery']))
+    return check('stage1 caution', not problems, '; '.join(problems) or 'notes, then goes ahead: "%s" %s %s' % (
+        first['headline'], first['reason'], first['link']))
 
 
 def plan_check(machine, mode, result, firmware):
@@ -708,9 +718,10 @@ def container_summary(macos):
     return ' (macOS container %.1f GB, %.1f GB used; a resize keeps used + 38 GB)' % (a['capacity'] / 1e9, used / 1e9)
 
 
-def verdict(checks, at_pin=False):
+def verdict(checks, at_pin=False, strict_distro=False):
     if at_pin:
-        checks = [c for c in checks if c.get('scope') != 'published']
+        ignored = {'published'} if strict_distro else {'published', 'distro'}
+        checks = [c for c in checks if c.get('scope') not in ignored]
     if any(c['ok'] is False for c in checks):
         return 'FAIL'
     if any(c['ok'] is None for c in checks) or any(c['hardware'] for c in checks):
@@ -822,6 +833,8 @@ def main():
     parser.add_argument('--verify-digests', action='store_true',
                         help='download every payload part and check its SHA-256 against the signed catalog')
     parser.add_argument('--expect', help='expected at-pin verdicts; exit 1 only when a cell does worse')
+    parser.add_argument('--strict-distro-pins', action='store_true',
+                        help='count distro branch pins and distro parity in at-pin verdicts')
     parser.add_argument('--stage1', help='the pinned aura raw Stage 1, to apply known iBoot size limits')
     parser.add_argument('--machines', default=str(HERE / 'fixtures/machines'))
     parser.add_argument('--cache', default=os.path.join(tempfile.gettempdir(), 'installer-conformance-cache'))
@@ -916,7 +929,8 @@ def main():
                            for d in DESKTOPS_BY_DISTRO[distro]}
                 checks = evaluate(machine, mode, distro, results, context)
                 cells.append({'machine': machine['name'], 'device': machine['device_identifier'], 'mode': mode,
-                              'distro': distro, 'verdict': verdict(checks), 'at_pin': verdict(checks, True),
+                              'distro': distro, 'verdict': verdict(checks),
+                              'at_pin': verdict(checks, True, strict_distro=args.strict_distro_pins),
                               'checks': checks})
     report = {'pins': pins, 'branches': branches, 'built': built, 'tips': tip_lag(branches, pins),
               'images': {d: {k: {'payload': v['payload_name'], 'source': v['image_source']} for k, v in p.items()}
@@ -988,10 +1002,11 @@ def distro_sources_from(data):
 
 
 def markdown(report):
-    titles = {'fedora': 'Fedora', 'arch': 'Arch', 'nixos': 'NixOS', 'omarchy': 'Omarchy'}
+    titles = {'fedora': 'Fedora', 'arch': 'Arch', 'nixos': 'NixOS', 'omarchy': 'Omarchy', 'debian': 'Debian'}
     columns = ['Machine', 'Mode'] + [titles[d] + ' (today / at pin)' for d in report['built']]
-    lines = ['Today: the installer with the signed catalogs it downloads now. At the pin: the same, once images',
-             'built from the pinned branches are published (checks of today\'s images left out).', '',
+    lines = ['Today: the installer with the signed catalogs it downloads now and live distro branches. At the pin:',
+             'the installer against its own pins (checks of today\'s images left out, and floating distro-branch',
+             'pins/parity left out unless --strict-distro-pins is set).', '',
              '| ' + ' | '.join(columns) + ' |', '| ' + ' | '.join(['---'] * len(columns)) + ' |']
     index = {(c['machine'], c['mode'], c['distro']): c for c in report['cells']}
     for machine in dict.fromkeys(c['machine'] for c in report['cells']):

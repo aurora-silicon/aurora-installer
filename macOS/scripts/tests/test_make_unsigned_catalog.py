@@ -128,6 +128,16 @@ class CatalogGeneratorTests(unittest.TestCase):
             document = dict(self.inputs, installation_profile=profile)
             self.assertRejected(document, "not an Aurora installer profile")
 
+    def test_debian_has_the_three_standard_desktop_profiles(self):
+        for desktop in ("kde", "gnome", "minimal"):
+            profile = "debian-" + desktop
+            result = self.generate(dict(self.inputs, installation_profile=profile))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            catalog = json.loads((self.directory / "catalog.json").read_text())
+            self.assertTrue(all(m["installationProfile"] == profile for m in catalog["models"]))
+        self.assertRejected(dict(self.inputs, installation_profile="debian-hyprland"),
+                            "not an Aurora installer profile")
+
     def test_unknown_installation_profile_is_rejected(self):
         self.inputs["installation_profile"] = "fedora-unknown"
         self.assertRejected(self.inputs, "not an Aurora installer profile")

@@ -1,0 +1,78 @@
+{
+ "images": [
+  {
+   "boards": {
+    "j575cap": "aruba",
+    "j575dap": "aruba",
+    "j604ap": "guam",
+    "j613ap": "dnieper",
+    "j614cap": "mriya",
+    "j614sap": "mriya",
+    "j615ap": "tuzla",
+    "j616cap": "hostomel",
+    "j616sap": "hostomel",
+    "j623ap": "paradise",
+    "j624ap": "prospero",
+    "j713ap": "garden",
+    "j715ap": "kos",
+    "j773gap": "sakhalin",
+    "j773sap": "sakhalin"
+   },
+   "build": "25G83",
+   "recipes": {
+    "aruba": "02d223601c6c9fe04ade5495a8af85799080b340997c2160476650e28b10fca6",
+    "dnieper": "629375a233eddc173bded7dd5b0e2e169b729361a013c60f8ab73131fb387ec0",
+    "garden": "11e57f8b7b0300d2570ae8cc36b67a431329680da07cbd2a2cc62b8049ca5eaa",
+    "guam": "71cd9e02314a65b2fba5d5ed57070b0f33d6cd0e21f75dd3b9873c501fad3399",
+    "hostomel": "aff8e4c2812c2e1c11cfcd44d67cc16a769e9acdc53e3972283cfff6eed5e73a",
+    "kos": "a99887cfaef7090ae50d748e21fbe4d76c5699b0a6cf227a81d3d9e98d257b3a",
+    "mriya": "b475df68d4a911cfb0683c16a0fa9f099a9daa4b2a51822e6f0f22eaeac9d6a0",
+    "paradise": "6c81121aaa0350db01a2c619f4cf71353f7a8af6975b558ac9a08a303a6758e3",
+    "prospero": "4b9b6caeec56d20c8d0e1adac286293b7b815829f0787b88bb3f7a6a2e5c8c54",
+    "sakhalin": "95aff2442be0bdc6eb9c61a07e25780b31541b3af8f6881cc89b22057275d0fc",
+    "tuzla": "c22dd18869a7dd9922b457dd5dc149101f4aa6f40278df9494bc8736ff7cdf46"
+   },
+   "sha256": "885503b7f4b06609e9a512f2befd40f59730640a3f1233e3892d60affdd51c95",
+   "size_bytes": 19772231540,
+   "url": "https://updates.cdn-apple.com/2026SummerFCS/fullrestores/140-75212/A2A24B94-1FC1-45A3-93F7-C51B02AF1F4D/UniversalMac_26.6.2_25G83_Restore.ipsw"
+  },
+  {
+   "boards": {},
+   "build": "26A428",
+   "recipes": {},
+   "sha256": "2a5d3c695d501022b7fad9adaffcf2627bcb867d993fb5662dcd41bac99a2836",
+   "size_bytes": 26626436228,
+   "url": "https://updates.cdn-apple.com/2026FallFCS/afcfc88e-bbe6-44bf-a5da-07c56eebc06c/UniversalMac_27.0_26A428_Restore.ipsw"
+  },
+  {
+   "boards": {},
+   "build": "26B7124",
+   "recipes": {},
+   "sha256": "44f88c404b409847bd164f1e87a7e3d3968b9c68376a76c913c4902ca0fb4bfc",
+   "size_bytes": 20867518362,
+   "url": "https://updates.cdn-apple.com/2026FallFCS/04f50f4e-1485-4efb-bd81-f3d743fdff4a/UniversalMac_27.2_26B7124_Restore.ipsw"
+  },
+  {
+   "boards": {},
+   "build": "26B8125",
+   "recipes": {},
+   "sha256": "b3f4cb057d73722af2a2840884778fd9fc5f433aa263d37767ebd44529b3c6f4",
+   "size_bytes": 20928022286,
+   "url": "https://updates.cdn-apple.com/2026FallFCS/b83bb963-ebd8-4608-8b5d-fdc70cb24927/UniversalMac_27.2_26B8125_Restore.ipsw"
+  },
+  {
+   "boards": {
+    "j704ap": "linosa"
+   },
+   "build": "26B123",
+   "recipes": {
+    "linosa": "ca3e43be26494c32af6a75ccdc925cb73a67cf4f68dbb9e8545453b7415882fe"
+   },
+   "sha256": "6613b34e8589db2202a01ec37a2648afb141ece13428175183f8f3e38438534f",
+   "size_bytes": 25595669503,
+   "url": "https://updates.cdn-apple.com/2026FallFCS/c9671975-52db-4fb5-9af2-00217169ba8d/UniversalMac_27.2_26B123_Restore.ipsw"
+  }
+ ],
+ "kind": "aurora-radio-firmware-restore-images",
+ "schema": 1
+}

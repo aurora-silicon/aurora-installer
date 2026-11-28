@@ -49,7 +49,7 @@ struct InstallerMasthead: View {
   private static let markInset = markSize * 164 / 1024
 
   var body: some View {
-    HStack(spacing: 16) {
+    HStack(spacing: Space.l) {
       HStack(spacing: Self.markSpacing) {
         AuroraMark().frame(width: Self.markSize, height: Self.markSize)
         HStack(alignment: .firstTextBaseline, spacing: Self.channelSpacing) {
@@ -75,10 +75,10 @@ struct InstallerMasthead: View {
         Image(systemName: device.symbol).font(.system(size: 23, weight: .regular))
           .frame(width: 30, height: 30)
           .accessibilityHidden(true)
-        VStack(alignment: .leading, spacing: 2) {
-          Text(device.name).font(.system(size: 12, weight: .medium))
+        VStack(alignment: .leading, spacing: Space.xxs) {
+          Text(device.name).font(InstallerTheme.detail.weight(.medium))
           if let chip = device.chip {
-            Text(chip).font(.system(size: 11)).foregroundStyle(.secondary)
+            Text(chip).font(InstallerTheme.caption).foregroundStyle(.secondary)
           }
         }
       }

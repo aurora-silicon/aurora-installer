@@ -120,7 +120,7 @@
         if failure == "writable" { fake.mountWritable = true } else { fake.failUnmount = true }
         XCTAssertThrowsError(try AuroraRemovalPlan(disks: fake.makeOperator())) { error in
           let message = (error as? RemovalFailure)?.message ?? ""
-          XCTAssertTrue(message.contains("its files couldn’t be checked: disk4s2"), message)
+          XCTAssertTrue(message.contains("couldn’t check its files: disk4s2"), message)
         }
         XCTAssertEqual(fake.log.filter { $0.first == "unmount" }.count, 1)
       }
@@ -251,7 +251,7 @@
       ) {
         XCTAssertEqual(
           ($0 as? RemovalFailure)?.message,
-          "The running macOS isn’t the one removal returns the space to.")
+          "The macOS you’re running isn’t the one that gets the space back.")
       }
       XCTAssertTrue(fake.blessed.isEmpty)
     }

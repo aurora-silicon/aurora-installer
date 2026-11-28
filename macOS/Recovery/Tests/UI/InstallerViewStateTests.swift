@@ -216,6 +216,25 @@ final class InstallerViewStateTests: XCTestCase {
     }
   }
 
+  func testOwnKeyChoicesNeedStartupSoftwareThatHoldsAKey() throws {
+    let model = InstallerModel()
+    model.canHoldOwnKeys = false
+    model.startupKeys = .owner
+    let (window, controller) = show(model)
+    try XCTUnwrap(button("Startup Security Keys…", in: controller.view)).performClick(nil)
+    let sheet = try XCTUnwrap(window.attachedSheet)
+    let choices = startupKeyChoices(sheet)
+    XCTAssertEqual(choices.map(\.isEnabled), [true, false, false])
+    XCTAssertEqual(choices.filter { $0.state == .on }, [choices[0]])
+    XCTAssertTrue(
+      labels(in: sheet.contentView).contains {
+        $0.contains("have no startup software that can hold your own key")
+      })
+    try XCTUnwrap(button("Done", in: sheet.contentView)).performClick(nil)
+    wait("the sheet to close") { window.attachedSheet == nil }
+    XCTAssertEqual(model.startupKeys, .aurora)
+  }
+
   func testStartupKeysAreAnAdvancedChoiceThatDefaultsToAurora() throws {
     let model = InstallerModel()
     XCTAssertEqual(model.startupKeys, .aurora)

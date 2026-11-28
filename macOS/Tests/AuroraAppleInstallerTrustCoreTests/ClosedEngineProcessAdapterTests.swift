@@ -90,6 +90,19 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     }
   }
 
+  func testCatalogBelowTheBuildFloorStopsBeforeAuthorization() throws {
+    let below = try makeRequest(catalogSequence: 20, minimumCatalogSequence: 21)
+
+    XCTAssertThrowsError(try adapter.candidateIdentity(for: below)) {
+      XCTAssertEqual(
+        $0 as? SupportCatalogSequenceError,
+        .belowBuildFloor(floor: 21, candidate: 20)
+      )
+    }
+    let atFloor = try makeRequest(catalogSequence: 20, minimumCatalogSequence: 20)
+    XCTAssertEqual(try adapter.candidateIdentity(for: atFloor).catalogIdentity.sequence, 20)
+  }
+
   func testPlanNamingAnotherEngineStopsBeforeAuthorization() throws {
     let request = try makeRequest(planEngineVersion: "v0.9.2-aurora.14")
 
@@ -337,6 +350,7 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     deviceIdentifier: String = "apple,j314s",
     lengthBytes: UInt64 = 107_374_182_400,
     catalogSequence: UInt64 = 20,
+    minimumCatalogSequence: UInt64? = nil,
     privateKey: Curve25519.Signing.PrivateKey = .init(),
     mutateCatalogAfterSigning: Bool = false,
     catalogPinsEngineArchive: Bool = false,
@@ -367,7 +381,8 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
       catalogPayload: deliveredCatalog,
       catalogSignature: signature,
       trustRoot: trustRoot,
-      validationTime: now
+      validationTime: now,
+      minimumCatalogSequence: minimumCatalogSequence
     )
   }
 

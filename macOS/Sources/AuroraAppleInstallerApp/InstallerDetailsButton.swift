@@ -12,13 +12,13 @@ struct InstallerDetailsButton: View {
     Button(title) { presented = true }
       .buttonStyle(.plain).font(InstallerTheme.detail).foregroundStyle(.secondary)
       .sheet(isPresented: $presented) {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: Space.l) {
           Text(title).font(.headline)
           Text(text).font(InstallerTheme.technical).textSelection(.enabled)
             .lineLimit(12).truncationMode(.middle)
             .frame(maxWidth: .infinity, alignment: .leading)
-          HStack(spacing: 12) {
-            Button("Copy details") {
+          HStack(spacing: Space.m) {
+            Button("Copy") {
               NSPasteboard.general.clearContents()
               NSPasteboard.general.setString(text, forType: .string)
             }.auroraSecondaryButton(size: .large)
@@ -27,7 +27,7 @@ struct InstallerDetailsButton: View {
               .auroraPrimaryButton(size: .large).keyboardShortcut(.defaultAction)
           }
         }
-        .padding(24).frame(width: 520)
+        .padding(Space.xl).frame(width: 520)
         .foregroundStyle(InstallerTheme.text).background(InstallerTheme.window)
       }
   }

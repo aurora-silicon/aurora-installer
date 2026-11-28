@@ -29,12 +29,20 @@
     }
     var admitESPFilesystem: @Sendable (Int32) throws -> Void = NativeESPFileStore.requireFAT
     var wifiBoard: @Sendable () throws -> String? = { try NativeSystemWiFiFirmware.board() }
-    var systemWiFi: @Sendable (uid_t) throws -> NativeFirmwareInputFiles.Snapshot = {
-      try NativeSystemWiFiFirmware.live(owner: $0)
+    /// This board's Wi-Fi files from the stub restore image's System volume:
+    /// (owner, stub source, machine, board, working directory). Nil when the
+    /// stub's image is not one the recipes cover.
+    typealias StubWiFi =
+      @Sendable (uid_t, URL, String, String, URL) async throws -> NativeFirmwareInputFiles.Snapshot?
+    var stubWiFi: StubWiFi = {
+      try await NativeSystemWiFiFirmware.stub(
+        source: $1, machine: $2, board: $3, owner: $0, workingDirectory: $4)
     }
-    /// This Mac's own speaker tuning (`AID<n>` and `speaker-thiele-small`).
-    var audioTuning: @Sendable (uid_t) throws -> NativeAudioTuningInputs.Snapshot? = {
-      try NativeAudioTuningInputs.live(owner: $0)
+    /// This Mac's speaker tuning: the model's `AID<n>` files from the pinned
+    /// restore image, extracted under the working directory, and this
+    /// unit's `speaker-thiele-small`.
+    var audioTuning: @Sendable (uid_t, URL) async throws -> NativeAudioTuningInputs.Snapshot? = {
+      try await NativeAudioTuningInputs.live(owner: $0, workingDirectory: $1)
     }
 
     func prepare(
@@ -155,13 +163,28 @@
           guard let trackpad = outputs[NeoFirmwareConversions.trackpadName], !trackpad.isEmpty
           else { throw NativeFirmwareInputFailure.invalidSource }
         }
+        // The N1's Wi-Fi and Bluetooth firmware: the image this Mac's build
+        // identity names, with its model's ticket. The fallback archive keeps
+        // both inputs, so a later conversion on Linux makes the same file.
+        let centauri = try InstallerPerformance.measure("vendor_centauri") {
+          try NativeCentauriFirmware.prepare(source) { path, maximum in
+            let copied = restore + path
+            guard sourceRecords.contains(where: { $0.role == "Preboot" && $0.path == copied })
+            else { return nil }
+            return try read("Preboot", copied, maximum: maximum)
+          }
+        }
+        if let centauri {
+          try merge(centauri.package, into: &outputs)
+          try merge(centauri.fallback, into: &fallback)
+        }
         try InstallerPerformance.measure("vendor_kernel") {
           let kernel = try read("Preboot", restore + source.kernel, maximum: 256 << 20)
           let decoded = try FirmwareImage.decode(kernel)
           guard decoded.type == "krnl" else { throw NativeFirmwareInputFailure.invalidSource }
           try merge(FirmwareImage.controllerFirmware(in: decoded.bytes), into: &outputs)
           // The ProRes engine's power-up rows (chips with the T6041 engine),
-          // read from this Mac's own kernel like the rest and never shipped. A
+          // read from the stub's kernel like the rest and never shipped. A
           // kernel the reader does not understand leaves ProRes off.
           if ProResInitFirmware.applies(toChipID: source.chipID) {
             do {
@@ -212,26 +235,37 @@
             subtree(radio.files, "bluetooth/"), links: sublinks(radio.links, "bluetooth/"))
           if !usesPreparedPeripherals {
             let board = try wifiBoard()
-            // An unreadable system volume leaves Recovery as the only source.
-            var system: NativeFirmwareInputFiles.Snapshot?
-            do {
-              system = try InstallerPerformance.measure("vendor_system_wifi") {
-                try systemWiFi(owner)
-              }
-            } catch is CancellationError {
-              throw CancellationError()
-            } catch {
-              system = nil
-            }
-            let systemSet = try system.map { try BroadcomFirmware.wifi($0.files, links: $0.links) }
-            if BroadcomFirmware.wifiSource(board: board, system: systemSet) == .system,
-              let system, let systemSet
+            // The stub restore image's System volume, by its sealed recipe,
+            // for this board; never the running macOS. Its own Recovery
+            // image stays the source for every other board and for stubs
+            // the recipes do not cover.
+            if let board,
+              let system = try await InstallerPerformance.measuring(
+                "vendor_stub_wifi",
+                {
+                  try await stubWiFi(
+                    owner, plan.source.sourceURL, source.machine, board,
+                    package.packageURL.deletingLastPathComponent())
+                })
             {
-              // The fallback archive keeps the tree the package came from, so
-              // a later conversion on Linux reproduces the same Wi-Fi set.
-              wifi = systemSet
-              fallback = fallback.filter { !$0.key.hasPrefix("firmware/wifi/") }
-              radioLinks = radioLinks.filter { !$0.key.hasPrefix("firmware/wifi/") }
+              let systemSet = try BroadcomFirmware.wifi(system.files, links: system.links)
+              guard BroadcomFirmware.carriesWiFi(systemSet, board: board) else {
+                throw NativeFirmwareInputFailure.invalidSource
+              }
+              wifi = try BroadcomFirmware.replacingWiFi(wifi, board: board, with: systemSet)
+              // The fallback archive keeps the files the package came from,
+              // so a later conversion on Linux reproduces the same Wi-Fi set.
+              func own(_ name: String) -> Bool {
+                let file = String(name.split(separator: "/").last ?? "")
+                return [board, "P-" + board].contains {
+                  file.hasPrefix($0 + ".") || file.hasPrefix($0 + "-")
+                    || file.hasPrefix($0 + "_")
+                }
+              }
+              fallback = fallback.filter { !($0.key.hasPrefix("firmware/wifi/") && own($0.key)) }
+              radioLinks = radioLinks.filter {
+                !($0.key.hasPrefix("firmware/wifi/") && own($0.key))
+              }
               for (name, data) in system.files { fallback["firmware/wifi/" + name] = data }
               for (name, target) in system.links {
                 radioLinks["firmware/wifi/" + name] = String(target.split(separator: "/").last!)
@@ -281,11 +315,22 @@
             calibration: ambientLight(), factory: factory)
           try merge(calibration, into: &outputs)
           try merge(calibration, into: &fallback)
+          try merge(NativeBluetoothCalibrationInputs.files(factory: factory), into: &outputs)
         }
-        // The speaker protection's parameters: this Mac's own Apple tuning,
-        // stored like the other per-machine firmware and never shipped.
-        let tuning = try InstallerPerformance.measure("vendor_audio_tuning") {
-          try NativeAudioTuningInputs.collect(audioTuning, owner: owner)
+        // The speaker protection's parameters: the model's Apple tuning from
+        // the pinned restore image and this unit's calibration, stored like
+        // the other per-machine firmware and never shipped.
+        let tuning = try await InstallerPerformance.measuring("vendor_audio_tuning") {
+          let snapshot: Result<NativeAudioTuningInputs.Snapshot?, any Error>
+          do {
+            snapshot = .success(
+              try await audioTuning(owner, package.packageURL.deletingLastPathComponent()))
+          } catch is CancellationError {
+            throw CancellationError()
+          } catch {
+            snapshot = .failure(error)
+          }
+          return try NativeAudioTuningInputs.collect({ _ in try snapshot.get() }, owner: owner)
         }
         try merge(tuning.package, into: &outputs)
         try merge(tuning.fallback, into: &fallback)
