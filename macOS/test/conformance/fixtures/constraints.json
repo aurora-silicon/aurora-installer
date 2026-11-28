@@ -67,6 +67,14 @@
  },
  "proven_stage1_note": "A Stage 1 counts as proven on a board only for the aura build (its ##aura_ver## label) that booted there as the installed Stage 1. A newer pin needs its own boot through a real 1TR install.",
  "pinned_stage1_bytes": {
+  "5a244b5bcbaf4a2751abea18dc0dd8e71c325e46": {
+   "bytes": 1638400,
+   "evidence": "aura v1.0.0b17 (5a244b5b), native ALARM aarch64 package, run 45444386727, artifact 14945328076. /usr/share/aura/stage1/aura-raw.bin SHA-256 807ae0d2f7a53fb7d68499cd7423888a74365d76637092c642cf84f77c8a6515, marker 1.0.0b17-g5a244b5b"
+  },
+  "da8bc83bfe4a67ddfbfe301b0b23bf58f957e36d": {
+   "bytes": 1638400,
+   "evidence": "aura v1.0.0b16 (da8bc83b), native Fedora 45 aarch64 RPM, run 45402040982. /usr/share/aura/stage1/aura-raw.bin SHA-256 17cc02b47ee609b49a5ae7e0646a7156374b477215779d041fbfb7cbfa2c939f, marker 1.0.0b16-gda8bc83b"
+  },
   "32dccf0297e90e66deac7cf252478b2af9e71d27": {
    "bytes": 1638400,
    "evidence": "aura main 32dccf02 built 2026-11-01 with RELEASE=1 CHAINLOADING=1 USE_CLANG=1 BUILTIN_LOGO=aurora BUILDSTD=1 (the packaging flags); build/aura.bin sha256 4ae49fe99459d4cf5f2f2f7cb05e98034f7f943180d816c3f11acac7c6837557, marker 1.0.0b1-g32dccf02"
@@ -98,6 +106,10 @@
   "3ff77894567239362a116e7fcbb214c55dccf5a4": {
    "bytes": 1638400,
    "evidence": "aura v1.0.0b14.1 (3ff77894) built 2026-11-21 by fedora-aurora#461 CI (Fedora 45 aura 1.0.0~b14.1-1 RPM, run 44869045203, the packaging flags RELEASE=1 CHAINLOADING=1 USE_CLANG=1 BUILTIN_LOGO=aurora BUILDSTD=1); /usr/share/aura/stage1/aura-raw.bin sha256 b06442579e345d4b51b5a3291a016456dfdcf8c28416c80925b3226783f45f27, marker 1.0.0b14-g3ff77894"
+  },
+  "56299352d9f4e4569de188700ead26544a2b37b4": {
+   "bytes": 1638400,
+   "evidence": "aura v1.0.0b15 (56299352) built 2026-11-23 by fedora-aurora#481 CI (Fedora 45 aura 1.0.0~b15-1 RPM, run 45047000687, the packaging flags RELEASE=1 CHAINLOADING=1 USE_CLANG=1 BUILTIN_LOGO=aurora BUILDSTD=1); /usr/share/aura/stage1/aura-raw.bin sha256 11e67a0dc566c927e3dd7a980ff082ddd257e010d47cc887de77a403ea080dae, marker 1.0.0b15-g56299352"
   }
  },
  "pinned_stage1_bytes_note": "The raw Stage 1 size of a pinned aura commit, measured from a build, so the iBoot size limits apply to the pin before its payloads exist. Ignored for any other commit.",
