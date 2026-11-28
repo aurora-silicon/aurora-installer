@@ -19,7 +19,7 @@ The generated `Aurora Installer.app` contains:
 - the separately signed auxiliary decoder in `Contents/Helpers`, under its own fixed identifier;
 - the root helper in `Contents/Library/LaunchServices`, named by its label, with its Info.plist (carrying the build number it reports) and, for builds with a real signing identity, its `SMJobBless` launchd job linked into `__TEXT` sections;
 - the helper's declaration for `SMJobBless` (`SMPrivilegedExecutables`) in the app's Info.plist, for builds with a real signing identity;
-- the launch-daemon property list the fallback installer package derives its system daemon from, in `Contents/Library/LaunchDaemons`, pointing at the same helper;
+- the launch-daemon property list the fallback installer package derives its system daemon from, in `Contents/Library/LaunchDaemons`, pointing at the same helper; every package installs a copy of that helper in `/Library/PrivilegedHelperTools` and points its system daemon there, never into `/Applications`;
 - the immutable release descriptor and Ed25519 trust root in
   `Contents/Resources/Release`;
 - the native Recovery template in `Contents/Resources/RecoveryTemplate`.

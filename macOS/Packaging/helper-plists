@@ -46,6 +46,10 @@ if [[ -n $client_requirement ]]; then
   /usr/bin/plutil -insert EnvironmentVariables -json "{}" "$launchd"
   /usr/bin/plutil -insert EnvironmentVariables.OMARCHY_CLIENT_CODE_SIGNING_REQUIREMENT \
     -string "$client_requirement" "$launchd"
+  # Only this job, which SMJobBless registers, marks the install kind: the
+  # helper removes the package's app only when SMJobBless installed it.
+  /usr/bin/plutil -insert EnvironmentVariables.AURORA_HELPER_INSTALLED_BY \
+    -string SMJobBless "$launchd"
   /usr/bin/plutil -lint "$launchd" >/dev/null
 fi
 /usr/bin/plutil -lint "$info" >/dev/null

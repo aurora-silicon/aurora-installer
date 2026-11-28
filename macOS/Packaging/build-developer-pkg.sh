@@ -19,11 +19,14 @@ output="$2"
 version="$(/usr/bin/plutil -extract CFBundleShortVersionString raw -o - "$app/Contents/Info.plist")"
 work="$(mktemp -d "${TMPDIR:-/tmp}/aurora-developer-pkg.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
-mkdir -p "$work/root/Applications" "$work/root/Library/LaunchDaemons"
+mkdir -p "$work/root/Applications" "$work/root/Library/LaunchDaemons" "$work/root/Library/PrivilegedHelperTools"
+chmod 755 "$work/root/Library/PrivilegedHelperTools"
 /usr/bin/ditto "$app" "$work/root/Applications/$INSTALLER_APP_NAME.app"
 staged_app="$work/root/Applications/$INSTALLER_APP_NAME.app"
 plist="$work/root/Library/LaunchDaemons/$INSTALLER_HELPER_IDENTIFIER.plist"
-"$directory/pkg/derive-daemon-plist" "$staged_app" "$plist" /Applications >/dev/null
+# The root daemon runs the helper's copy in /Library/PrivilegedHelperTools.
+"$directory/pkg/derive-daemon-plist" "$staged_app" "$plist" \
+  "$work/root/Library/PrivilegedHelperTools/$INSTALLER_HELPER_IDENTIFIER" >/dev/null
 requirement="$(/usr/bin/plutil -extract EnvironmentVariables.OMARCHY_CLIENT_CODE_SIGNING_REQUIREMENT raw -o - "$plist")"
 [[ $requirement == "never" ]] \
   || fail "developer app must deny clients until its package installs an exact requirement"
@@ -49,5 +52,8 @@ mkdir -p "$(dirname "$output")"
   --root "$work/root" --component-plist "$work/components.plist" \
   --scripts "$work/scripts" --identifier "$INSTALLER_PKG_IDENTIFIER.developer" \
   --version "$version" --install-location / --ownership recommended "$output"
+/usr/sbin/pkgutil --expand "$output" "$work/expanded"
+"$directory/pkg/check-helper-bom" "$work/expanded/Bom" "$INSTALLER_HELPER_IDENTIFIER" \
+  || { rm -f "$output"; fail "package does not install the helper root:wheel 0755"; }
 printf 'Built unsigned local developer package: %s\n' "$output"
 /usr/bin/shasum -a 256 "$output"

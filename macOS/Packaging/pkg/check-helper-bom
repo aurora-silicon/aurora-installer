@@ -1,0 +1,40 @@
+#!/bin/bash
+# Check that a component package's Bom installs the privileged helper as a
+# regular file, root:wheel (0/0), mode 0755, in a root-owned
+# Library/PrivilegedHelperTools: the daemon runs that file as root.
+#
+# Usage: check-helper-bom <Bom file> <helper identifier>
+set -euo pipefail
+
+bom=${1:-}
+identifier=${2:-}
+[[ -f $bom && $identifier =~ ^[A-Za-z0-9.-]+$ ]] || {
+  echo "usage: check-helper-bom <Bom file> <helper identifier>" >&2
+  exit 64
+}
+LSBOM=${LSBOM:-/usr/bin/lsbom}
+
+# f: path, m: octal mode with the file type, u/g: numeric owner and group.
+listing=$("$LSBOM" -p fmug "$bom")
+python3 - "$identifier" "$listing" <<'PY'
+import sys
+
+identifier, listing = sys.argv[1], sys.argv[2]
+entries = {}
+for line in listing.splitlines():
+    fields = line.split("\t")
+    if len(fields) == 4:
+        entries[fields[0]] = fields[1:]
+expect = {
+    "./Library/PrivilegedHelperTools": ("40755", "0", "0"),
+    "./Library/PrivilegedHelperTools/" + identifier: ("100755", "0", "0"),
+}
+for path, (mode, uid, gid) in expect.items():
+    found = entries.get(path)
+    if found is None:
+        sys.exit("check-helper-bom: the package does not install %s" % path)
+    if found[0].lstrip("0") != mode or found[1] != uid or found[2] != gid:
+        sys.exit("check-helper-bom: %s is mode %s owner %s:%s, want %s %s:%s"
+                 % (path, found[0], found[1], found[2], mode, uid, gid))
+print("helper Bom: root:wheel 0755")
+PY

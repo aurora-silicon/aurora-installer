@@ -7,8 +7,12 @@ set -u
 source "$(dirname "$0")/identity.conf" || exit 1
 PLIST="/Library/LaunchDaemons/$INSTALLER_HELPER_IDENTIFIER.plist"
 LABEL="$INSTALLER_HELPER_IDENTIFIER"
+HELPER="/Library/PrivilegedHelperTools/$INSTALLER_HELPER_IDENTIFIER"
 PLIST_BUDDY=/usr/libexec/PlistBuddy
 PGREP=/usr/bin/pgrep
+CHOWN=/usr/sbin/chown
+CHMOD=/bin/chmod
+STAT=/usr/bin/stat
 
 # Remove a copy installed under the app's old name, so an upgrade leaves one
 # installer. Only a real bundle carrying this app's identifier that nothing is
@@ -35,9 +39,36 @@ remove_legacy_app() {
   return 0
 }
 
+# The daemon runs the helper as root, so the helper must be a real file that
+# only root can change: not a link, root:wheel, mode 0755, in a directory that
+# is not a link either. Anything else fails the package before launchd loads it.
+secure_helper() {
+  local helper=$1 directory owner
+  directory=$(dirname "$helper")
+  if [[ -L $directory || ! -d $directory ]]; then
+    echo "postinstall: $directory is not a directory" >&2
+    return 1
+  fi
+  if [[ -L $helper || ! -f $helper ]]; then
+    echo "postinstall: the helper is missing or not a regular file: $helper" >&2
+    return 1
+  fi
+  "$CHOWN" -h root:wheel "$helper" && "$CHMOD" 0755 "$helper" || {
+    echo "postinstall: could not set root:wheel 0755 on $helper" >&2
+    return 1
+  }
+  owner=$("$STAT" -f '%Su:%Sg %Lp' "$helper" 2>/dev/null) || owner=""
+  if [[ -L $helper || $owner != "root:wheel 755" ]]; then
+    echo "postinstall: $helper is '${owner:-unreadable}', not root:wheel 755" >&2
+    return 1
+  fi
+  return 0
+}
+
 if [[ -f "$PLIST" ]]; then
   /usr/sbin/chown root:wheel "$PLIST"
   /bin/chmod 0644 "$PLIST"
+  secure_helper "$HELPER" || exit 1
   # Replace any stale registration, then load fresh. A daemon that fails to
   # load leaves the app unable to reach its privileged helper, so surface the
   # failure through the installer instead of hiding it: PackageKit records
