@@ -114,9 +114,10 @@
       XCTAssertEqual(entry.minimumRecovery, "26.2.125.8.0,0")
     }
 
-    /// The OLED MacBook Pros' macOS 27.2.1 is their own device build 26B8132
-    /// (Recovery 26.2.132.8.0,0), not 26B131. A K board that has updated to it
-    /// still gets the 26B8125 stub, never a 27.2.1 or generic 27.2 image.
+    /// A K board that reports macOS 27.2.1 and Recovery 26.2.132.8.0,0 (the
+    /// form of its own 27.2.1 device build, 26B8132; selection reads only the
+    /// versions, not the build) is admitted and gets the 26B8125 stub, not a
+    /// 27.2.1 or generic 27.2 image.
     func testAnOLEDMacOn2721TakesThe26B8125Stub() throws {
       let sealed = try NativeInspectionPolicy.sealed()
       let updated = NativeInspectionHardware(
