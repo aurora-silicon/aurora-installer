@@ -296,10 +296,14 @@
 
     /// A file copied straight into the restore directory. Its member, like
     /// the Recovery image, is decoded on macOS first when it is an Apple
-    /// Encrypted Archive.
+    /// Encrypted Archive. Judged on UTF-8 bytes, as the file system and
+    /// Recovery's RestoreImageStubPlan judge it: a Character prefix or search
+    /// misses a separator followed by a combining mark ("/\u{301}").
     func isTopLevelRestore(_ copy: Copy) -> Bool {
-      copy.role == "Preboot" && copy.path.hasPrefix(restorePath + "/")
-        && !String(copy.path.dropFirst(restorePath.count + 1)).utf8.contains(UInt8(ascii: "/"))
+      let restore = Array((restorePath + "/").utf8)
+      let path = Array(copy.path.utf8)
+      return copy.role == "Preboot" && path.starts(with: restore)
+        && !path.dropFirst(restore.count).contains(UInt8(ascii: "/"))
     }
 
     /// Every member the stub stage restores through `restore`, which decodes

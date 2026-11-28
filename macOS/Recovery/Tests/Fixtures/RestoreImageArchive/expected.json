@@ -1,0 +1,234 @@
+{
+ "cluster-header": {
+  "expect": "authentication",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "cluster-next-mac": {
+  "expect": "authentication",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "cluster-segment-mac": {
+  "expect": "authentication",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "clusters": {
+  "bytes": 9339,
+  "expect": "ok",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": true,
+  "profile": "small",
+  "sha256": "03c8c96b07ae55ecc2d5cc68b8f232873ec061ca5690257fe73f125e46bd9689"
+ },
+ "clusters-stored": {
+  "bytes": 9339,
+  "expect": "ok",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small",
+  "sha256": "03c8c96b07ae55ecc2d5cc68b8f232873ec061ca5690257fe73f125e46bd9689"
+ },
+ "extra-segment": {
+  "expect": "invalidArchive",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "first-cluster-mac": {
+  "expect": "authentication",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "full": {
+  "bytes": 8192,
+  "expect": "ok",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small",
+  "sha256": "8e097ec5690eb0347446512c78fe79964d8bc6a5867674c6e080cca051c50909"
+ },
+ "last-segment-body": {
+  "expect": "authentication",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "lzfse-short": {
+  "expect": "segmentDigest",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "lzfse-trailing": {
+  "expect": "segmentDigest",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "metadata": {
+  "expect": "authentication",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "metadata-length": {
+  "expect": "invalidArchive",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "one": {
+  "bytes": 1,
+  "expect": "ok",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small",
+  "sha256": "bbeebd879e1dff6918546dc0c179fdde505f2a21591c9a9c96e36b054ec5af83"
+ },
+ "padded": {
+  "bytes": 9339,
+  "expect": "ok",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small",
+  "sha256": "03c8c96b07ae55ecc2d5cc68b8f232873ec061ca5690257fe73f125e46bd9689"
+ },
+ "plain-size": {
+  "expect": "invalidArchive",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "profile": {
+  "expect": "invalidArchive",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "restore-lzfse": {
+  "bytes": 70000,
+  "expect": "ok",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": true,
+  "profile": "restore",
+  "sha256": "86acd91839772c69349458bb19c0ad42a59e06b64377070ac6faf778dcacb7aa"
+ },
+ "restore-stored": {
+  "bytes": 3000,
+  "expect": "ok",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "restore",
+  "sha256": "eb676b3fa36edd70114a74aa8105eeebbecdab55ff25143c471c945e8a844786"
+ },
+ "restore-two": {
+  "bytes": 1048581,
+  "expect": "ok",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": true,
+  "profile": "restore",
+  "sha256": "5bde60923113c4b1b2ad58709262acc5fd95f23538a5239ad498d206fc7c54f3"
+ },
+ "root-archive-size": {
+  "expect": "invalidArchive",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "root-body": {
+  "expect": "authentication",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "root-codec": {
+  "expect": "invalidArchive",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "root-digest": {
+  "expect": "invalidArchive",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "root-mac": {
+  "expect": "authentication",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "root-plain-size": {
+  "expect": "invalidArchive",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "root-plain-zero": {
+  "expect": "invalidArchive",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "root-segment": {
+  "expect": "invalidArchive",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "root-width": {
+  "expect": "invalidArchive",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "salt": {
+  "expect": "authentication",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "segment-body": {
+  "expect": "authentication",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "segment-digest": {
+  "expect": "segmentDigest",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "size-over-plain": {
+  "expect": "invalidArchive",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "size-zero": {
+  "expect": "invalidArchive",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "truncated": {
+  "expect": "invalidArchive",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "lzfse": false,
+  "profile": "small"
+ },
+ "wrong-key": {
+  "expect": "authentication",
+  "key": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+  "lzfse": false,
+  "profile": "small"
+ }
+}

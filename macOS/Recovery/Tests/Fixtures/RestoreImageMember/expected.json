@@ -1,0 +1,54 @@
+{
+  "classic.zip": {
+    "141-12144-174.dmg.aea": {
+      "crc32": 3793448454,
+      "offset": 51,
+      "size": 1028,
+      "stored": true
+    },
+    "BuildManifest.plist": {
+      "crc32": 279898734,
+      "offset": 1128,
+      "size": 2015,
+      "stored": false
+    },
+    "Firmware/all_flash/LLB.im4p": {
+      "crc32": 400137223,
+      "offset": 1213,
+      "size": 102,
+      "stored": true
+    },
+    "Restore.plist": {
+      "crc32": 1228110165,
+      "offset": 1358,
+      "size": 8,
+      "stored": true
+    }
+  },
+  "zip64-local.zip": {
+    "141-12144-174.dmg.aea": {
+      "crc32": 3793448454,
+      "offset": 71,
+      "size": 1028,
+      "stored": true
+    },
+    "BuildManifest.plist": {
+      "crc32": 279898734,
+      "offset": 1168,
+      "size": 2015,
+      "stored": false
+    },
+    "Firmware/all_flash/LLB.im4p": {
+      "crc32": 400137223,
+      "offset": 1273,
+      "size": 102,
+      "stored": true
+    },
+    "Restore.plist": {
+      "crc32": 1228110165,
+      "offset": 1438,
+      "size": 8,
+      "stored": true
+    }
+  }
+}
