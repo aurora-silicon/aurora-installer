@@ -49,7 +49,7 @@ for cand in (HERE, HERE.parents[1]):
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-from asahi_firmware import apfs_ro, ipsw, mt7932, remotezip  # noqa: E402
+from asahi_firmware import apfs_ro, centauri, ipsw, mt7932, remotezip  # noqa: E402
 from asahi_firmware.bluetooth import BluetoothFWCollection  # noqa: E402
 from asahi_firmware.core import FWFile, FWPackage  # noqa: E402
 from asahi_firmware.wifi import WiFiFWCollection  # noqa: E402
@@ -157,6 +157,40 @@ def mac_board(dt=DT):
     return m[1].decode() if m else None
 
 
+def has_n1(dt=DT):
+    """Whether the device tree describes an Apple N1 (Centauri) radio: a
+    node with apple,centauri-platform-id, a *-centauri-control compatible or
+    an N1 firmware-name."""
+    for root, dirs, files in os.walk(dt):
+        if "apple,centauri-platform-id" in files:
+            return True
+        for name in ("compatible", "firmware-name"):
+            if name not in files:
+                continue
+            try:
+                values = pathlib.Path(root, name).read_bytes().split(b"\0")
+            except OSError:
+                continue
+            for v in values:
+                if v.endswith(b"-centauri-control") or centauri.owned(v.decode("ascii", "replace")):
+                    return True
+    return False
+
+
+def mac_chip(dt=DT):
+    """This Mac's SoC (0x6050) from the device tree's compatible
+    ("apple,t6050"), or None."""
+    try:
+        values = (dt / "compatible").read_bytes().split(b"\0")
+    except OSError:
+        return None
+    for v in values:
+        m = re.fullmatch(rb"apple,t([0-9]{4})", v)
+        if m:
+            return int(m[1], 16)
+    return None
+
+
 def os_fw_version(dt=DT):
     """The macOS version of this Mac's stub (OS) firmware, as the boot chain
     reports it (/chosen/asahi,os-fw-version, e.g. 26.6.2)."""
@@ -169,9 +203,9 @@ def os_fw_version(dt=DT):
 class MacOS:
     """The radio firmware's source: one restore image's System volume."""
 
-    def __init__(self, device, volume, build, version, board=None):
+    def __init__(self, device, volume, build, version, board=None, url=None):
         self.device, self.volume, self.build, self.version = device, volume, build, version
-        self.board = board
+        self.board, self.url = board, url
 
     def describe(self):
         return f"macOS {self.version} ({self.build}) restore image {self.device}"
@@ -192,7 +226,7 @@ def restore_image(board=None, version=None, open_system=ipsw.open_system, images
         raise NotNow(f"the macOS {version} restore image cannot be read now: {e}")
     except (ipsw.IpswError, apfs_ro.ApfsError) as e:
         raise Refused(f"no macOS {version} restore image for {board}: {e}")
-    return [MacOS(url.rsplit("/", 1)[-1], vol, build, version, board)]
+    return [MacOS(url.rsplit("/", 1)[-1], vol, build, version, board, url)]
 
 
 class Staged:
@@ -349,6 +383,15 @@ class Part:
     def owns(self, name):
         raise NotImplementedError
 
+    def unavailable(self, macos):
+        """Why macos cannot supply this part (shown to the user), or None."""
+        gone = [src for src, _, _ in self.sources if not has_dir(macos.volume, src)]
+        return f"no /{gone[0]}" if gone else None
+
+    def stage(self, macos, src, dest, want):
+        """Copies source src to dest; {rel: Staged | ('link', target)}."""
+        return stage_tree(macos.volume, src, dest, want)
+
     def convert(self, staged):
         """staged: {macOS directory: local copy} -> {vendorfw name: FWFile}."""
         raise NotImplementedError
@@ -462,9 +505,148 @@ class MediaTekMT7932(Part):
                 ("mt7932_bt_pcie", "Direct firmware load for mediatek/"))
 
 
-def radio_parts(current, board):
+class CentauriN1(Part):
+    """The Apple N1's one FTAB image for Wi-Fi and Bluetooth (M5 and later).
+    Its inputs are restore image members, not System volume files: the image
+    the build identity names for this board (macOS Customer variant) and the
+    board's ticket beside it, as the native installer takes them from the
+    stub's restore files. all_firmware keeps them under centauri/<model>/, so
+    a rebuild (asahi-fwupdate) gives the same file."""
+    key, label = "centauri", "Apple N1 Wi-Fi and Bluetooth"
+    VARIANT = "macOS Customer"
+    BEHAVIOR = "Erase"
+    SOURCE = "centauri"
+    PREFIX = "centauri/"
+    # The N1's Wi-Fi interface, from the T8142/T8152 or the T6050 driver. It
+    # must come up after a change even where it was down before: an install
+    # without N1 firmware never had it.
+    NET = "net:apple_centauri|apple_centauri_t6050"
+    probes = (NET,)
+    always = (NET,)
+
+    def __init__(self, model, open_zip=None, chip=None):
+        self.model, self.chip = model, chip
+        self.sources = ((self.SOURCE, self.PREFIX, None),)
+        self.open_zip = open_zip or remotezip.RemoteZip
+        self._inputs = None
+
+    def owns(self, name):
+        return centauri.owned(name)
+
+    def inputs(self, macos):
+        """(image member, ticket member) of macos's restore image for this
+        board, or a reason string."""
+        if self._inputs is not None:
+            return self._inputs
+        if not macos.url:
+            return "no restore image address"
+        try:
+            z = self.open_zip(macos.url)
+            bm = ipsw._manifest(z)
+        except (remotezip.RemoteZipUnavailable, OSError) as e:
+            raise NotNow(f"the macOS {macos.build} restore image cannot be read now: {e}")
+        except (ipsw.IpswError, remotezip.RemoteZipError, ValueError) as e:
+            raise Refused(f"the macOS {macos.build} restore image does not read: {e}")
+        if bm.get("ProductBuildVersion") != macos.build:
+            raise Refused(f"the restore image is {bm.get('ProductBuildVersion')}, not {macos.build}")
+        # The identity the native installer's stub plan selects
+        # (NativeStubFilePlan): this board, its chip, an Erase restore of the
+        # macOS Customer variant. The device tree carries no board ID, so the
+        # board is its device class, which must name one board ID throughout
+        # the manifest, and exactly one identity may match.
+        device = f"{self.model}ap"
+        d = lambda v: v if isinstance(v, dict) else {}  # noqa: E731
+        identities = bm.get("BuildIdentities")
+        identities = [bi for bi in identities if isinstance(bi, dict)] \
+            if isinstance(identities, list) else []
+        same = [bi for bi in identities if d(bi.get("Info")).get("DeviceClass") == device]
+        valid = lambda b: isinstance(b, str) and re.fullmatch(r"0x[0-9a-fA-F]{1,8}", b)  # noqa: E731
+        if not all(valid(bi.get("ApBoardID")) for bi in same):
+            raise Refused(f"the restore image names {device} without a valid board ID")
+        if len({int(bi["ApBoardID"], 16) for bi in same}) > 1:
+            raise Refused(f"the restore image names {device} with more than one board ID")
+        chosen = [bi for bi in same if d(bi.get("Info")).get("Variant") == self.VARIANT
+                  and d(bi.get("Info")).get("RestoreBehavior") == self.BEHAVIOR]
+        if not chosen:
+            self._inputs = "no N1 image for this board"
+            return self._inputs
+        if len(chosen) > 1:
+            raise Refused(f"the restore image has {len(chosen)} {self.VARIANT} identities for {device}")
+        identity = chosen[0]
+        chip = self.chip if self.chip is not None else mac_chip()
+        got = identity.get("ApChipID")
+        got_chip = int(got, 16) if valid(got) else None
+        if chip is None or got_chip != chip:
+            raise Refused(f"the restore image's {device} identity is chip {got!r}, "
+                          f"not this Mac's ({'unknown' if chip is None else hex(chip)})")
+        paths = set()
+        for comp, entry in d(identity.get("Manifest")).items():
+            path = d(d(entry).get("Info")).get("Path")
+            if isinstance(comp, str) and comp.startswith("Wireless1,") \
+                    and isinstance(path, str) and path:
+                paths.add(path)
+        if not paths:
+            self._inputs = "no N1 image for this board"
+            return self._inputs
+        if len(paths) > 1:
+            raise Refused(f"the build identity names {len(paths)} different N1 images")
+        ticket = (f"Firmware/Manifests/restore/{self.VARIANT}/centauri/"
+                  + centauri.ticket_name(self.model))
+        image = paths.pop()
+        for member in (image, ticket):
+            if member not in z.members:
+                raise Refused(f"the restore image has no {member}")
+        self._inputs = (z, image, ticket)
+        return self._inputs
+
+    def unavailable(self, macos):
+        got = self.inputs(macos)
+        return got if isinstance(got, str) else None
+
+    def stage(self, macos, src, dest, want):
+        z, image, ticket = self.inputs(macos)
+        directory = pathlib.Path(dest) / self.model
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        tree = {}
+        for member, name, budget in ((image, centauri.IMAGE, centauri.BUDGET),
+                                     (ticket, centauri.ticket_name(self.model),
+                                      centauri.TICKET_BUDGET)):
+            m = z.members[member]
+            if m.usize > budget:
+                raise Refused(f"{member} is over its size budget")
+            data = m.read(budget)
+            path = directory / name
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+            tree[f"{self.model}/{name}"] = Staged(str(path), len(data), sha256(data))
+        return tree
+
+    def convert(self, staged):
+        got = dict(centauri.CentauriFWCollection(str(staged[self.SOURCE])).files())
+        name = centauri.firmware_name(self.model)
+        if name not in got:
+            raise Refused(f"the restore image's N1 files do not convert to {name}")
+        return {name: got[name]}
+
+    def missing(self, new, current):
+        name = centauri.firmware_name(self.model)
+        return [] if name in new else [name]
+
+    def expect(self, new):
+        return {n: new[n].sha for n in new if centauri.owned(n)}
+
+    @staticmethod
+    def failures():
+        return ((None, "Direct firmware load for apple/centauri/"),
+                (None, "required firmware apple/centauri/"))
+
+
+def radio_parts(current, board, model=None, n1=None):
     """The parts this Mac's ESP package carries today, from its vendorfw
-    names and the device tree's Broadcom board."""
+    names and the device tree's Broadcom board; the N1 also when the device
+    tree describes one (an install from before the installer wrote its
+    firmware has none on the ESP)."""
     parts = []
     if board:
         chips = board_chips(current, board)
@@ -477,6 +659,12 @@ def radio_parts(current, board):
             parts.append(BroadcomBluetooth(board, bt))
     if mt7932.OUT_RAM in current:
         parts.append(MediaTekMT7932())
+    if n1 is None:
+        n1 = any(centauri.owned(k) for k in current) or has_n1()
+    if n1:
+        model = model or mac_board()
+        if model and centauri.MODEL.fullmatch(model):
+            parts.append(CentauriN1(model))
     return parts
 
 
@@ -595,8 +783,9 @@ def tar_entries(tree, prefix=RAW_PREFIX):
 def rebuild_all_firmware(old, new, trees):
     """old all_firmware with each prefix's part replaced by its tree
     (trees: {prefix: tree}, or one tree for firmware/wifi/)."""
-    if not isinstance(trees, dict) or not all(isinstance(k, str) and k.endswith("/")
-                                              and k.startswith("firmware/") for k in trees):
+    if not isinstance(trees, dict) or not all(
+            isinstance(k, str) and k.endswith("/")
+            and (k.startswith("firmware/") or k == CentauriN1.PREFIX) for k in trees):
         trees = {RAW_PREFIX: trees}
     with tarfile.open(old, mode="r:gz") as src, tarfile.open(new, mode="w:gz") as dst:
         wrote = set()
@@ -1054,15 +1243,15 @@ def update(esp, macos=None, board=None, dry_run=False, backup_root=None,
         parts, files, trees, raw_same = [], {}, {}, True
         has_raw = all_fw.is_file()
         for part in p["parts"]:
-            gone = [src for src, _, _ in part.sources if not has_dir(macos.volume, src)]
+            gone = part.unavailable(macos)
             if gone:
-                out(f"{part.label}: macOS {macos.build} has no /{gone[0]}; "
+                out(f"{part.label}: macOS {macos.build} has {gone}; "
                     f"the ESP's files stay")
                 continue
             staged = {}
             for n, (src, prefix, want) in enumerate(part.sources):
                 staged[src] = tmp / f"{part.key}-{n}"
-                tree = stage_tree(macos.volume, src, staged[src], want)
+                tree = part.stage(macos, src, staged[src], want)
                 if prefix and has_raw:
                     trees[prefix] = tree
             new = part.convert(staged)
@@ -1215,16 +1404,17 @@ def hci_up(index):
 
 def radio_probe(name, text, sys_root=None, up=hci_up):
     """brcmfmac: it reported a running firmware. net:<driver>: a network
-    interface of that driver exists. link:<driver>: one is associated
+    interface of that driver exists (<driver> may list alternatives, a|b). link:<driver>: one is associated
     (operstate up). hci:<driver>: a Bluetooth controller of that driver is up."""
     if name == "brcmfmac":
         return UP.search(text) is not None
     kind, _, driver = name.partition(":")
+    drivers = driver.split("|")     # any of these drivers
     root = pathlib.Path(sys_root or SYS) / "class" / {"net": "net", "link": "net",
                                                      "hci": "bluetooth"}[kind]
     with contextlib.suppress(OSError):
         for dev in sorted(root.iterdir()):
-            if os.path.basename(os.path.realpath(dev / "device" / "driver")) != driver:
+            if os.path.basename(os.path.realpath(dev / "device" / "driver")) not in drivers:
                 continue
             if kind == "net":
                 return True
@@ -1240,7 +1430,7 @@ def radio_probe(name, text, sys_root=None, up=hci_up):
     return False
 
 
-PART_TYPES = {cls.key: cls for cls in (BroadcomWiFi, BroadcomBluetooth, MediaTekMT7932)}
+PART_TYPES = {cls.key: cls for cls in (BroadcomWiFi, BroadcomBluetooth, MediaTekMT7932, CentauriN1)}
 
 
 def failure(text, keys):

@@ -1,6 +1,6 @@
 # aurora-wifi-firmware: make install DESTDIR=... PREFIX=/usr
 # Installs the tool with the repository's own radio converters (asahi_firmware
-# core, cpio, wifi, bluetooth, mt7932) and restore image reader (ipsw, aea_ro,
+# core, cpio, wifi, bluetooth, mt7932, centauri) and restore image reader (ipsw, aea_ro,
 # apfs_ro, remotezip, udif_ro, restore-images.json), so a distribution needs no
 # other copy of them. Needs python3-cryptography and liblzfse at run time.
 PREFIX ?= /usr
@@ -11,7 +11,7 @@ REPO := ../..
 
 install:
 	install -Dm0644 aurora_wifi_firmware.py $(DESTDIR)$(LIBDIR)/aurora_wifi_firmware.py
-	for f in __init__ core cpio wifi bluetooth mt7932 ipsw aea_ro apfs_ro remotezip udif_ro; do \
+	for f in __init__ core cpio wifi bluetooth mt7932 centauri ipsw aea_ro apfs_ro remotezip udif_ro; do \
 		install -Dm0644 $(REPO)/asahi_firmware/$$f.py $(DESTDIR)$(LIBDIR)/asahi_firmware/$$f.py; done
 	install -Dm0644 $(REPO)/asahi_firmware/restore-images.json $(DESTDIR)$(LIBDIR)/asahi_firmware/restore-images.json
 	install -d $(DESTDIR)$(PREFIX)/bin
